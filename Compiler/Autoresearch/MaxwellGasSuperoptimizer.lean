@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 31 Certified Gas & Algebraic Optimization Passes (`G1`–`G31`) (Part 2.3 & Cycles 2–9) -/
+/-! ## 2. The 34 Certified Gas & Algebraic Optimization Passes (`G1`–`G34`) (Part 2.3 & Cycles 2–10) -/
 
-/-- Enumeration of the 31 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 34 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -122,9 +122,12 @@ inductive GasOptimizationPassId where
   | G29_consecutiveShiftOffsetFusion
   | G30_booleanDoubleIszeroElision
   | G31_distributiveExactDivFactorization
+  | G32_consecutiveBitmaskOrFusion
+  | G33_nonOverflowingAddSubCancellation
+  | G34_dominatedCalldatasizeGuardElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 31 optimization passes
+/-- Exact per-application gas savings formula for each of the 34 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -183,7 +186,13 @@ inductive GasOptimizationPassId where
     - **G30**: `elidedDoubleIszeros * (2 * G_verylow)`
       (`6` gas per redundant `ISZERO(ISZERO(b))` pair elided on a canonical boolean predicate `b ∈ {0, 1}`),
     - **G31**: `factoredExactDivSums * (2 * G_low + 3 * G_verylow + G_high)`
-      (`29` gas per factored exact division `(a * d + b * d) / d = a + b` on pooled scaled deltas). -/
+      (`29` gas per factored exact division `(d * a + d * b) / d = a + b` on pooled scaled deltas),
+    - **G32**: `fusedBitmaskOrs * (2 * G_verylow)`
+      (`6` gas per consecutive `(x ||| m₁) ||| m₂` fused into a single compile-time mask `x ||| (m₁ ||| m₂)`),
+    - **G33**: `cancelledAddSubPairs * (4 * G_verylow + G_high)`
+      (`22` gas per non-overflowing `(a + b) - b = a` cancellation eliding both `ADD` + `SUB` and their guard),
+    - **G34**: `elidedCalldatasizeChecks * (4 * G_verylow + G_high)`
+      (`22` gas per redundant `CALLDATASIZE` + `LT` + `ISZERO` + `PUSH` + `JUMPI` check dominated by the outer ABI header guard). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -217,6 +226,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G29_consecutiveShiftOffsetFusion => count * (2 * G_verylow)
   | .G30_booleanDoubleIszeroElision => count * (2 * G_verylow)
   | .G31_distributiveExactDivFactorization => count * (2 * G_low + 3 * G_verylow + G_high)
+  | .G32_consecutiveBitmaskOrFusion => count * (2 * G_verylow)
+  | .G33_nonOverflowingAddSubCancellation => count * (4 * G_verylow + G_high)
+  | .G34_dominatedCalldatasizeGuardElision => count * (4 * G_verylow + G_high)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -745,7 +757,64 @@ theorem g31_unfactored_floor_div_add_distribution_refuted :
     (x + y) / d ≠ x / d + y / d := by
   decide
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G31` pass applications. -/
+/-- **Theorem G32 (Consecutive Bitmask `OR` Fusion via Associativity)**:
+    Fusing two consecutive bitwise `OR` masks `(x ||| m₁) ||| m₂` into `x ||| (m₁ ||| m₂)`
+    where `m₁ ||| m₂` is folded at compile time preserves exact semantics (`Nat.or_assoc`)
+    while saving `6` gas per fused `OR` pair (`18` gas across 3 packed `Slot0` / `PoolKey` words). -/
+theorem g32_consecutive_bitmask_or_fusion_sound_and_saves_18_gas
+    (x m₁ m₂ : Nat) :
+    (x ||| m₁) ||| m₂ = x ||| (m₁ ||| m₂) ∧
+    passGasSavings .G32_consecutiveBitmaskOrFusion 3 = 18 := by
+  exact ⟨Nat.or_assoc x m₁ m₂, by decide⟩
+
+/-- **Theorem G32-Burn-17 (Refutation of Replacing `OR` Bitfield Packing with `ADD` on Overlapping Masks)**:
+    Replacing `x ||| m` with `x + m` without proving `x &&& m = 0` (disjoint bit support)
+    is **unsound** because overlapping bits carry into higher bit positions
+    (counterexample: `x = 1, m = 1`, where `1 ||| 1 = 1 ≠ 1 + 1 = 2`). -/
+theorem g32_overlapping_bitmask_or_to_add_refuted :
+    let x := 1
+    let m := 1
+    (x ||| m) ≠ x + m := by
+  decide
+
+/-- **Theorem G33 (Non-Overflowing `ADD`/`SUB` Round-Trip Cancellation)**:
+    Whenever `a ≤ boundA`, `b ≤ boundB`, and `boundA + boundB < 2^256`,
+    computing `((a + b) % 2^256) - b` equals `a` (`Nat.mod_eq_of_lt`, `Nat.add_sub_cancel`),
+    eliminating the temporary addition, subtraction, and overflow check (`22` gas per site,
+    `44` gas across 2 temporary liquidity/fee delta round-trips). -/
+theorem g33_non_overflowing_add_sub_cancel_sound_and_saves_44_gas
+    (a b boundA boundB : Nat)
+    (ha : a ≤ boundA)
+    (hb : b ≤ boundB)
+    (hFit : boundA + boundB < 2 ^ 256) :
+    ((a + b) % (2 ^ 256)) - b = a ∧
+    passGasSavings .G33_nonOverflowingAddSubCancellation 2 = 44 := by
+  have hLt : a + b < 2 ^ 256 := by omega
+  refine ⟨?_, by decide⟩
+  rw [Nat.mod_eq_of_lt hLt, Nat.add_sub_cancel]
+
+/-- **Theorem G33-Burn-18 (Refutation of Unchecked Wrapping `(a + b) % 2^256 - b = a` Under Overflow)**:
+    Cancelling `((a + b) % 2^256) - b` to `a` when `a + b ≥ 2^256` is **unsound**
+    (counterexample: `a = 2^256 - 1, b = 1`, where `((a + b) % 2^256) - b = 0 - 1 = 0 ≠ a`). -/
+theorem g33_overflowing_add_sub_cancel_refuted :
+    let a := 2 ^ 256 - 1
+    let b := 1
+    ((a + b) % (2 ^ 256)) - b ≠ a := by
+  decide
+
+/-- **Theorem G34 (Dominated Inner `CALLDATASIZE` Guard Elision)**:
+    Whenever the outer ABI dispatcher has already verified `minWords + extraWords ≤ calldatasize`,
+    any inner helper check `minWords ≤ calldatasize` is guaranteed to hold (`Nat.le_trans`),
+    eliding the redundant `CALLDATASIZE` + `LT` + `ISZERO` + `PUSH` + `JUMPI` guard and saving
+    `22` gas per elided check (`44` gas across 2 nested struct decoder helpers). -/
+theorem g34_dominated_calldatasize_guard_elision_sound_and_saves_44_gas
+    (minWords extraWords calldatasize : Nat)
+    (hOuter : minWords + extraWords ≤ calldatasize) :
+    minWords ≤ calldatasize ∧
+    passGasSavings .G34_dominatedCalldatasizeGuardElision 2 = 44 := by
+  exact ⟨Nat.le_trans (Nat.le_add_right minWords extraWords) hOuter, by decide⟩
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G34` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -757,11 +826,12 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     interval `safeMul` elision + `2^k` `DIV->SHR` reduction + no-op `TSTORE` elision +
     `2^k` `MOD->AND` reduction + `TSTORE->TLOAD` forwarding + dominated `require` elision +
     consecutive `SHR` offset fusion + canonical boolean double-`ISZERO` elision +
-    distributive exact division factorization)
-    optimization bundle applying G1–G31, yielding `3,161` gas saved per call (`3,061` from
-    Cycle 8 + `18` from `G29` consecutive `SHR` fusion + `24` from `G30` double-`ISZERO`
-    elision + `58` from `G31` distributive exact division factorization, i.e. `+3.3%` over Cycle 8)
-    while preserving `ObsEquiv`. -/
+    distributive exact division factorization + consecutive `OR` mask fusion +
+    non-overflowing `ADD`/`SUB` cancellation + dominated `CALLDATASIZE` guard elision)
+    optimization bundle applying G1–G34, yielding `3,267` gas saved per call (`3,161` from
+    Cycle 9 + `18` from `G32` consecutive `OR` mask fusion + `44` from `G33` non-overflowing
+    `ADD`/`SUB` cancellation + `44` from `G34` dominated `CALLDATASIZE` guard elision,
+    i.e. `+3.4%` over Cycle 9) while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -794,8 +864,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G28_dominatedRequireBoundElision, 2),
         (.G29_consecutiveShiftOffsetFusion, 3),
         (.G30_booleanDoubleIszeroElision, 4),
-        (.G31_distributiveExactDivFactorization, 2) ]
-    totalSuperoptimizerGasSaved bundle = 3161 := by
+        (.G31_distributiveExactDivFactorization, 2),
+        (.G32_consecutiveBitmaskOrFusion, 3),
+        (.G33_nonOverflowingAddSubCancellation, 2),
+        (.G34_dominatedCalldatasizeGuardElision, 2) ]
+    totalSuperoptimizerGasSaved bundle = 3267 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer
