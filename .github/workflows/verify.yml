@@ -464,7 +464,7 @@ jobs:
             --path lean-workspace-build.tar
 
       - name: Upload prepared Lean workspace build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lean-workspace-build
           path: lean-workspace-build.tar
@@ -551,7 +551,7 @@ jobs:
         run: python3 scripts/check_storage_layout.py --format=markdown >> $GITHUB_STEP_SUMMARY
 
       - name: Upload axiom dependency report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: axiom-dependency-report
           path: |
@@ -1001,14 +1001,14 @@ jobs:
 
       - name: Upload difftest interpreter
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: difftest-interpreter
           path: .lake/build/bin/difftest-interpreter
 
       - name: Upload compiler binaries
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: verity-compiler-binaries
           path: compiler/bin
@@ -1016,7 +1016,7 @@ jobs:
 
       - name: Upload compiler workspace build
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lean-workspace-compiler-build
           path: lean-workspace-compiler-build.tar
@@ -1024,49 +1024,49 @@ jobs:
 
       - name: Upload generated Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: generated-yul
           path: compiler/yul
 
       - name: Upload patched Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: generated-yul-patched
           path: compiler/yul-patched
 
       - name: Upload smoke Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: generated-yul-smoke
           path: compiler/yul-smoke
 
       - name: Upload patched smoke Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: generated-yul-patched-smoke
           path: compiler/yul-patched-smoke
 
       - name: Upload patch coverage report
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: patch-coverage-report
           path: compiler/patch-report.tsv
 
       - name: Upload static gas report
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: static-gas-report
           path: gas-report-static.tsv
 
       - name: Upload patched static gas report
         if: '!cancelled()'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: static-gas-report-patched
           path: gas-report-static-patched.tsv
@@ -1382,7 +1382,7 @@ jobs:
 
       - name: Archive Solidity slice comparison evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: solidity-import-differential
           path: |
@@ -1413,7 +1413,7 @@ jobs:
       - name: Archive Solidity import coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: solidity-import-coverage
           path: .lake/solidity-import-coverage/**
@@ -1471,7 +1471,7 @@ jobs:
         run: cat lean-perf-queue.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Lean perf queue
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lean-perf-queue
           path: lean-perf-queue.md
