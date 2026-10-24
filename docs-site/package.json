@@ -22,7 +22,7 @@
     "nextra-theme-docs": "^4.6.1",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "shiki": "^3.23.0",
+    "shiki": "^4.5.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss": "^4.1.0"
   },
