@@ -27,7 +27,7 @@
     "tailwindcss": "^4.1.0"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
+    "@types/node": "^26.6.5",
     "@types/react": "19.2.7",
     "@types/react-dom": "^19.2.3",
     "pagefind": "^1.4.0",
