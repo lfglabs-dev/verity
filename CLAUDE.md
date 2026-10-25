@@ -181,9 +181,13 @@ When writing or refactoring compiler passes, specifications (`Denote`), and proo
 3. **Import-Cone RSS Budget (`< 450 MiB`) & `.eq_*` Equation Collision Hygiene**:
    - Leaf proof modules (`Compiler/Proofs/IRGeneration/GenericInduction/*.lean`, `Compiler/SolidityImport/*.lean`) must **never** import umbrella modules (`Contract.lean`, `CoreFragment.lean`, `EndToEnd/Base.lean`), and must **never** invoke `simp [compileExprWithInternals]` or `simp [compileStmtWithInternals]` directly on large mutually recursive definitions across sibling modules (instead factor a dedicated helper step and `@[simp]` API lemma).
 4. **Mathlib4 Algebraic Proof Style & `< 30`-Line Ratchet**:
-   - Use `split <;> simp_all`, `simpa`, `omega`, `bv_decide`, and `StateLenses`; avoid `cases <;> cases` cascades and keep every theorem proof under 30 lines.
+   - Use `dsimp only` / `simp only`, `simpa`, `omega`, `bv_decide`, `verity_prove_spec`, and `StateLenses` / `StorageLoc`; avoid `cases <;> cases` cascades, never use `simp_all` on deep inductive types (which triggers `IsEmpty.forall_iff` blowup), and keep every theorem proof under 30 lines.
 5. **LOC Reduction & `O(N)` / `O(1)` Complexity Ratchet**:
-   - Every refactoring or feature must actively compress specifications and use linear/constant-time data structures: 1-pass `SurfaceMask` catamorphism (`O(|AST|)`), `O(1)` `AstNodeIndex` (`Std.HashMap`), and `O(V+E)` `TrustSurfaceLinear` (`Std.HashSet` / `Std.HashMap`).
+   - Every refactoring or feature must actively compress specifications and use linear/constant-time data structures: 1-pass `StmtFeatureMask` / `SurfaceMask` catamorphism (`O(|AST|)`), `O(1)` `AstNodeIndex` (`Std.HashMap`), and `O(V+E)` `TrustSurfaceLinear` (`Std.HashSet` / `Std.HashMap`).
+6. **Verity 2.0 Total Specs (`FnSpec`), Poka-Yoke Guards & Certified Shims**:
+   - Write total contract specifications using `FnSpec` / `FnSpec.Satisfies` (`#gen_fn_spec` in `Verity/Macro/SpecGen.lean`), generic storage frames `unchangedExcept` / `WritesOnly` (`Verity/Specs/Common.lean`, `Verity/Specs/Composition.lean`), typed `StorageSlot` lenses (`@[storage_simps]`), and exact $\mathbb{N}$ conservation (`sumBalancesNat` in `Verity/Specs/Common/Sum.lean`).
+   - Never introduce `constructorCompat` workarounds (enforced by `python3 scripts/check_lean_hygiene.py --forbid-constructor-compat`).
+   - All Yul/ECM rewrites must be packaged as `CertifiedPatchRule` / `VerifiedCompilerShim.applyCertified` instances (`Compiler/Yul/PatchFramework.lean`, `Compiler/Proofs/VerifiedECMShims.lean`, `Compiler/Proofs/SlotCoalescingShim.lean`), and Layer 2/3 proofs should target the unified `SourceStmtBridged` closure, canonical interpreters (`execStmtCanonical`, `execIRStmtCanonical`), 5-channel `StorageLoc`, and `PureWordBinOp`.
 
 ---
 

@@ -502,4 +502,57 @@ def sha256PackedStaticSegments (resultVar : String) (segments : List (Expr × Na
   .ecm (sha256PackedStaticSegmentsModule resultVar (segments.map Prod.snd))
     (segments.map Prod.fst)
 
+/-- Keccak-256 over a single 32-byte word in EVM scratch memory (`0x00..0x20`).
+    Stores the word at offset `0` and hashes `keccak256(0, 32)` without reading
+    or advancing `freeMemoryPointer` (`0x40`). -/
+def keccak256ScratchWordModule (resultVar : String) : ExternalCallModule where
+  name := "keccak256ScratchWord"
+  numArgs := 1
+  resultVars := [resultVar]
+  writesState := false
+  readsState := false
+  axioms := ["keccak256_memory_slice_matches_evm", "evm_scratch_space_single_word"]
+  compile := fun _ctx args =>
+    match args with
+    | [arg] =>
+      .ok [
+        YulStmt.let_ resultVar (YulExpr.lit 0),
+        YulStmt.block [
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, arg]),
+          YulStmt.assign resultVar (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32])
+        ]
+      ]
+    | _ => .error s!"keccak256ScratchWord expects 1 argument, got {args.length}"
+
+/-- Convenience constructor for 1-word scratch-space Keccak-256 hashing. -/
+def keccak256ScratchWord (resultVar : String) (word : Expr) : Stmt :=
+  .ecm (keccak256ScratchWordModule resultVar) [word]
+
+theorem keccak256ScratchWordModule_numArgs (resultVar : String) :
+    (keccak256ScratchWordModule resultVar).numArgs = 1 := rfl
+
+theorem keccak256ScratchWordModule_writesState_false (resultVar : String) :
+    (keccak256ScratchWordModule resultVar).writesState = false := rfl
+
+theorem keccak256ScratchWordModule_readsState_false (resultVar : String) :
+    (keccak256ScratchWordModule resultVar).readsState = false := rfl
+
+theorem keccak256ScratchWordModule_resultVars (resultVar : String) :
+    (keccak256ScratchWordModule resultVar).resultVars = [resultVar] := rfl
+
+theorem keccak256ScratchWordModule_compile_singleton
+    (ctx : CompilationContext) (resultVar : String) (arg : YulExpr) :
+    (keccak256ScratchWordModule resultVar).compile ctx [arg] =
+      .ok [
+        YulStmt.let_ resultVar (YulExpr.lit 0),
+        YulStmt.block [
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, arg]),
+          YulStmt.assign resultVar (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32])
+        ]
+      ] := rfl
+
+theorem keccak256ScratchWordModule_compile_nil_isError
+    (ctx : CompilationContext) (resultVar : String) :
+    ((keccak256ScratchWordModule resultVar).compile ctx []).isOk = false := rfl
+
 end Compiler.Modules.Hashing

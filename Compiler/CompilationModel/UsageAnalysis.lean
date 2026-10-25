@@ -1205,4 +1205,117 @@ def contractUsesDynamicBytesEq (spec : CompilationModel) : Bool :=
   (spec.constructor.map (fun ctor => ctor.body.any stmtUsesDynamicBytesEq) |>.getD false) ||
     spec.functions.any (fun fn => fn.body.any stmtUsesDynamicBytesEq)
 
+/-! ## Wave 4 (Piste 4C): Unified Single-Pass `StmtFeatureMask` Catamorphism -/
+
+/-- Bounded join-semilattice mask summarizing statement-level feature usage in a single pass. -/
+structure StmtFeatureMask where
+  usesCheckedArith : Bool := false
+  usesArrayElement : Bool := false
+  usesParamDynamicHeadWord : Bool := false
+  usesMulDiv512 : Bool := false
+  usesStorageArrayElement : Bool := false
+  usesDynamicBytesEq : Bool := false
+  deriving DecidableEq, Repr
+
+namespace StmtFeatureMask
+
+/-- Identity element of the `StmtFeatureMask` join-semilattice. -/
+def empty : StmtFeatureMask := {}
+
+/-- Pointwise boolean join (`||`) of two `StmtFeatureMask` summaries. -/
+def merge (a b : StmtFeatureMask) : StmtFeatureMask :=
+  { usesCheckedArith := a.usesCheckedArith || b.usesCheckedArith
+    usesArrayElement := a.usesArrayElement || b.usesArrayElement
+    usesParamDynamicHeadWord := a.usesParamDynamicHeadWord || b.usesParamDynamicHeadWord
+    usesMulDiv512 := a.usesMulDiv512 || b.usesMulDiv512
+    usesStorageArrayElement := a.usesStorageArrayElement || b.usesStorageArrayElement
+    usesDynamicBytesEq := a.usesDynamicBytesEq || b.usesDynamicBytesEq }
+
+@[simp] theorem merge_empty_left (m : StmtFeatureMask) :
+    merge empty m = m := by
+  cases m
+  simp only [merge, empty, Bool.false_or]
+
+@[simp] theorem merge_empty_right (m : StmtFeatureMask) :
+    merge m empty = m := by
+  cases m
+  simp only [merge, empty, Bool.or_false]
+
+theorem merge_comm (a b : StmtFeatureMask) :
+    merge a b = merge b a := by
+  cases a; cases b
+  simp only [merge, Bool.or_comm]
+
+theorem merge_assoc (a b c : StmtFeatureMask) :
+    merge (merge a b) c = merge a (merge b c) := by
+  cases a; cases b; cases c
+  simp only [merge, Bool.or_assoc]
+
+@[simp] theorem merge_idem (m : StmtFeatureMask) :
+    merge m m = m := by
+  cases m
+  simp only [merge, Bool.or_self]
+
+end StmtFeatureMask
+
+/-- Compute the `StmtFeatureMask` for a single statement `s`. -/
+def stmtFeatureMask (s : Stmt) : StmtFeatureMask :=
+  { usesCheckedArith := stmtMayUseCheckedArithmetic s
+    usesArrayElement := stmtUsesArrayElement s
+    usesParamDynamicHeadWord := stmtUsesParamDynamicHeadWord s
+    usesMulDiv512 := stmtUsesMulDiv512 s
+    usesStorageArrayElement := stmtUsesStorageArrayElement s
+    usesDynamicBytesEq := stmtUsesDynamicBytesEq s }
+
+/-- Fold `stmtFeatureMask` over a statement list using `StmtFeatureMask.merge`. -/
+def stmtListFeatureMask : List Stmt → StmtFeatureMask
+  | [] => StmtFeatureMask.empty
+  | s :: rest => StmtFeatureMask.merge (stmtFeatureMask s) (stmtListFeatureMask rest)
+
+@[simp] theorem stmtListFeatureMask_nil :
+    stmtListFeatureMask [] = StmtFeatureMask.empty :=
+  rfl
+
+@[simp] theorem stmtListFeatureMask_cons (s : Stmt) (rest : List Stmt) :
+    stmtListFeatureMask (s :: rest) =
+      StmtFeatureMask.merge (stmtFeatureMask s) (stmtListFeatureMask rest) :=
+  rfl
+
+theorem stmtListFeatureMask_append (xs ys : List Stmt) :
+    stmtListFeatureMask (xs ++ ys) =
+      StmtFeatureMask.merge (stmtListFeatureMask xs) (stmtListFeatureMask ys) := by
+  induction xs with
+  | nil =>
+      simp only [List.nil_append, stmtListFeatureMask_nil, StmtFeatureMask.merge_empty_left]
+  | cons x rest ih =>
+      simp only [List.cons_append, stmtListFeatureMask_cons, ih, StmtFeatureMask.merge_assoc]
+
+theorem stmtListFeatureMask_usesCheckedArith_eq (stmts : List Stmt) :
+    (stmtListFeatureMask stmts).usesCheckedArith = stmts.any stmtMayUseCheckedArithmetic := by
+  induction stmts with
+  | nil => rfl
+  | cons s rest ih =>
+      simp only [stmtListFeatureMask_cons, StmtFeatureMask.merge, stmtFeatureMask, List.any_cons, ih]
+
+theorem stmtListFeatureMask_usesArrayElement_eq (stmts : List Stmt) :
+    (stmtListFeatureMask stmts).usesArrayElement = stmts.any stmtUsesArrayElement := by
+  induction stmts with
+  | nil => rfl
+  | cons s rest ih =>
+      simp only [stmtListFeatureMask_cons, StmtFeatureMask.merge, stmtFeatureMask, List.any_cons, ih]
+
+theorem stmtListFeatureMask_usesMulDiv512_eq (stmts : List Stmt) :
+    (stmtListFeatureMask stmts).usesMulDiv512 = stmts.any stmtUsesMulDiv512 := by
+  induction stmts with
+  | nil => rfl
+  | cons s rest ih =>
+      simp only [stmtListFeatureMask_cons, StmtFeatureMask.merge, stmtFeatureMask, List.any_cons, ih]
+
+theorem stmtListFeatureMask_usesDynamicBytesEq_eq (stmts : List Stmt) :
+    (stmtListFeatureMask stmts).usesDynamicBytesEq = stmts.any stmtUsesDynamicBytesEq := by
+  induction stmts with
+  | nil => rfl
+  | cons s rest ih =>
+      simp only [stmtListFeatureMask_cons, StmtFeatureMask.merge, stmtFeatureMask, List.any_cons, ih]
+
 end Compiler.CompilationModel

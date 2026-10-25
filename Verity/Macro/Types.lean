@@ -451,4 +451,131 @@ where
   validIntegerWidth (bits : Nat) : Bool :=
     8 ≤ bits && bits ≤ 248 && bits % 8 == 0
 
+/-- Canonical `ValueType` normalization collapsing exact-width parameterized aliases
+    to their dedicated primitive constructors. -/
+def ValueType.normalize : ValueType → ValueType
+  | .uintN bits =>
+      if bits = 256 then .uint256
+      else if bits = 8 then .uint8
+      else if bits = 16 then .uint16
+      else .uintN bits
+  | .intN bits =>
+      if bits = 256 then .int256
+      else .intN bits
+  | .bytesN n =>
+      if n = 32 then .bytes32
+      else .bytesN n
+  | v => v
+
+/-- Bit width of a `ValueType` for ABI/storage layout and slot packing. -/
+def ValueType.bitWidth : ValueType → Nat
+  | .uint256 => 256
+  | .int256 => 256
+  | .uint8 => 8
+  | .uint16 => 16
+  | .uintN bits => bits
+  | .intN bits => bits
+  | .bytesN n => n * 8
+  | .address => 160
+  | .bytes32 => 256
+  | .bool => 8
+  | .enum _ _ => 8
+  | .unit => 0
+  | _ => 256
+
+/-- Storage packing byte width of a `ValueType` (`⌈bitWidth / 8⌉`). -/
+def ValueType.storageByteWidth (v : ValueType) : Nat :=
+  (v.bitWidth + 7) / 8
+
+/-- Canonical equivalence relation on `ValueType` up to width alias normalization. -/
+def ValueType.Equiv (v₁ v₂ : ValueType) : Prop :=
+  v₁.normalize = v₂.normalize
+
+@[simp] theorem ValueType.normalize_idem (v : ValueType) :
+    v.normalize.normalize = v.normalize := by
+  cases v with
+  | uintN bits =>
+      by_cases h256 : bits = 256
+      · subst h256; rfl
+      · by_cases h8 : bits = 8
+        · subst h8; rfl
+        · by_cases h16 : bits = 16
+          · subst h16; rfl
+          · simp only [ValueType.normalize, h256, h8, h16, ↓reduceIte]
+  | intN bits =>
+      by_cases h256 : bits = 256
+      · subst h256; rfl
+      · simp only [ValueType.normalize, h256, ↓reduceIte]
+  | bytesN n =>
+      by_cases h32 : n = 32
+      · subst h32; rfl
+      · simp only [ValueType.normalize, h32, ↓reduceIte]
+  | _ => rfl
+
+@[simp] theorem ValueType.bitWidth_normalize_eq (v : ValueType) :
+    v.normalize.bitWidth = v.bitWidth := by
+  cases v with
+  | uintN bits =>
+      by_cases h256 : bits = 256
+      · subst h256; rfl
+      · by_cases h8 : bits = 8
+        · subst h8; rfl
+        · by_cases h16 : bits = 16
+          · subst h16; rfl
+          · simp only [ValueType.normalize, h256, h8, h16, ↓reduceIte]
+  | intN bits =>
+      by_cases h256 : bits = 256
+      · subst h256; rfl
+      · simp only [ValueType.normalize, h256, ↓reduceIte]
+  | bytesN n =>
+      by_cases h32 : n = 32
+      · subst h32; rfl
+      · simp only [ValueType.normalize, h32, ↓reduceIte]
+  | _ => rfl
+
+@[simp] theorem ValueType.storageByteWidth_normalize_eq (v : ValueType) :
+    v.normalize.storageByteWidth = v.storageByteWidth := by
+  dsimp only [ValueType.storageByteWidth]
+  rw [ValueType.bitWidth_normalize_eq]
+
+theorem ValueType.Equiv.refl (v : ValueType) : ValueType.Equiv v v :=
+  rfl
+
+theorem ValueType.Equiv.symm {v₁ v₂ : ValueType} (h : ValueType.Equiv v₁ v₂) :
+    ValueType.Equiv v₂ v₁ :=
+  Eq.symm h
+
+theorem ValueType.Equiv.trans {v₁ v₂ v₃ : ValueType}
+    (h₁₂ : ValueType.Equiv v₁ v₂) (h₂₃ : ValueType.Equiv v₂ v₃) :
+    ValueType.Equiv v₁ v₃ :=
+  Eq.trans h₁₂ h₂₃
+
+theorem ValueType.equiv_normalize_self (v : ValueType) :
+    ValueType.Equiv v.normalize v :=
+  ValueType.normalize_idem v
+
+theorem ValueType.Equiv.bitWidth_eq {v₁ v₂ : ValueType} (h : ValueType.Equiv v₁ v₂) :
+    v₁.bitWidth = v₂.bitWidth := by
+  rw [← ValueType.bitWidth_normalize_eq v₁, ← ValueType.bitWidth_normalize_eq v₂, h]
+
+theorem ValueType.Equiv.storageByteWidth_eq {v₁ v₂ : ValueType} (h : ValueType.Equiv v₁ v₂) :
+    v₁.storageByteWidth = v₂.storageByteWidth := by
+  dsimp only [ValueType.storageByteWidth]
+  rw [ValueType.Equiv.bitWidth_eq h]
+
+theorem ValueType.equiv_uintN_256 : ValueType.Equiv (.uintN 256) .uint256 :=
+  rfl
+
+theorem ValueType.equiv_uintN_8 : ValueType.Equiv (.uintN 8) .uint8 :=
+  rfl
+
+theorem ValueType.equiv_uintN_16 : ValueType.Equiv (.uintN 16) .uint16 :=
+  rfl
+
+theorem ValueType.equiv_intN_256 : ValueType.Equiv (.intN 256) .int256 :=
+  rfl
+
+theorem ValueType.equiv_bytesN_32 : ValueType.Equiv (.bytesN 32) .bytes32 :=
+  rfl
+
 end Verity.Macro

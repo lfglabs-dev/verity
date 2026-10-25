@@ -5954,4 +5954,102 @@ example :
     shortCalldataRegressionContract, IRState.initial, IRState.setVar, IRState.getVar]
   rfl
 
+/-! ## Wave 4 (Piste 4B): Canonical Zero-Internal-Table IR Interpreter Entrypoints & `IRState` Algebra -/
+
+/-- Canonical empty-internal-table IR contract shell for zero-internal-table unification. -/
+def emptyInternalsIRContract : IRContract :=
+  { name := ""
+    deploy := []
+    constructorPayable := false
+    functions := []
+    internalFunctions := []
+    usesMapping := false }
+
+/-- Canonical zero-internal-table statement execution entrypoint. -/
+abbrev execIRStmtCanonical (fuel : Nat) (state : IRState) :
+    YulStmt → IRExecResultWithInternals :=
+  execIRStmtWithInternals emptyInternalsIRContract fuel state
+
+/-- Canonical zero-internal-table statement-list execution entrypoint. -/
+abbrev execIRStmtsCanonical (fuel : Nat) (state : IRState) :
+    List YulStmt → IRExecResultWithInternals :=
+  execIRStmtsWithInternals emptyInternalsIRContract fuel state
+
+/-- Canonical zero-internal-table expression evaluation entrypoint. -/
+abbrev evalIRExprCanonical (fuel : Nat) (state : IRState) :
+    YulExpr → IRExprEvalResult :=
+  evalIRExprWithInternals emptyInternalsIRContract fuel state
+
+@[simp] theorem evalIRExpr_lit (state : IRState) (n : Nat) :
+    evalIRExpr state (.lit n) = some n := by
+  rw [evalIRExpr.eq_def]
+
+@[simp] theorem evalIRExpr_hex (state : IRState) (n : Nat) :
+    evalIRExpr state (.hex n) = some n := by
+  rw [evalIRExpr.eq_def]
+
+@[simp] theorem evalIRExpr_str (state : IRState) (s : String) :
+    evalIRExpr state (.str s) = none := by
+  rw [evalIRExpr.eq_def]
+
+@[simp] theorem evalIRExpr_ident (state : IRState) (x : String) :
+    evalIRExpr state (.ident x) = state.getVar x := by
+  rw [evalIRExpr.eq_def]
+
+@[simp] theorem IRState.getVar_setVar_same (s : IRState) (x : String) (v : Nat) :
+    (s.setVar x v).getVar x = some v := by
+  simp only [IRState.getVar, IRState.setVar, List.find?_cons, beq_self_eq_true, Option.map_some]
+
+private theorem find_filter_bne_eq (vars : List (String × Nat)) {x y : String}
+    (hxy : (x == y) = false) :
+    (vars.filter (·.1 != x)).find? (·.1 == y) = vars.find? (·.1 == y) := by
+  induction vars with
+  | nil => rfl
+  | cons hd tl ih =>
+      rcases hd with ⟨k, val⟩
+      simp only [List.filter_cons, List.find?_cons]
+      by_cases hkx : (k != x) = true
+      · simp only [hkx, ↓reduceIte, List.find?_cons]
+        cases (k == y)
+        · exact ih
+        · rfl
+      · have hkxFalse : (k != x) = false := Bool.eq_false_iff.mpr hkx
+        have hkeq : k = x := by
+          rw [bne_iff_ne, Classical.not_not] at hkx
+          exact hkx
+        subst hkeq
+        simp only [hkxFalse, Bool.false_eq_true, ↓reduceIte, hxy]
+        exact ih
+
+@[simp] theorem IRState.getVar_setVar_ne (s : IRState) {x y : String} (v : Nat)
+    (hne : y ≠ x) :
+    (s.setVar x v).getVar y = s.getVar y := by
+  have hbeq : (x == y) = false := beq_false_of_ne (Ne.symm hne)
+  simp only [IRState.getVar, IRState.setVar, List.find?_cons, hbeq,
+    find_filter_bne_eq s.vars hbeq]
+
+@[simp] theorem IRState.setVar_transientStorage (s : IRState) (x : String) (v : Nat) :
+    (s.setVar x v).transientStorage = s.transientStorage := rfl
+
+@[simp] theorem IRState.setVar_memory (s : IRState) (x : String) (v : Nat) :
+    (s.setVar x v).memory = s.memory := rfl
+
+@[simp] theorem IRState.setVar_calldata (s : IRState) (x : String) (v : Nat) :
+    (s.setVar x v).calldata = s.calldata := rfl
+
+@[simp] theorem IRState.setVar_selector (s : IRState) (x : String) (v : Nat) :
+    (s.setVar x v).selector = s.selector := rfl
+
+@[simp] theorem execIRStmts_nil (fuel : Nat) (state : IRState) :
+    execIRStmts fuel state [] = .continue state := by
+  simp only [execIRStmts]
+
+@[simp] theorem execIRStmtsWithInternals_nil (contract : IRContract) (fuel : Nat) (state : IRState) :
+    execIRStmtsWithInternals contract fuel state [] = .continue state := by
+  rw [execIRStmtsWithInternals.eq_def]
+
+@[simp] theorem execIRStmtsCanonical_nil (fuel : Nat) (state : IRState) :
+    execIRStmtsCanonical fuel state [] = .continue state :=
+  execIRStmtsWithInternals_nil emptyInternalsIRContract fuel state
+
 end Compiler.Proofs.IRGeneration

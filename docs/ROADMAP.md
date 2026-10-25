@@ -2,6 +2,8 @@
 
 **Goal**: End-to-end verified smart contracts from EDSL to EVM bytecode with minimal trust assumptions.
 
+> **Long-Term Execution Plan (`EVMYulLean 2.0` + `fractal-autoresearch`)**: See [EVMYULLEAN_AND_CONFORMANCE_LONGTERM_PLAN.md](EVMYULLEAN_AND_CONFORMANCE_LONGTERM_PLAN.md) and [`artifacts/architecture_reviews/SYNTHESIS_AND_UNIFIED_ROADMAP.md`](../artifacts/architecture_reviews/SYNTHESIS_AND_UNIFIED_ROADMAP.md) for the multi-model architectural review (**Claude Fable 5.1**, **GPT-6 Astra**, **OpenCode `builtin/smart`**), the completed `EVMYulLean 2.0` foundation (255 theorems, `0 sorryAx`, `0 native_decide`, total Fork-indexed gas across Shanghai/Cancun/Prague/Osaka, and 5 proven MetaSpecs), the dependency-ordered plan to close all remaining Layer 1/2/3 & TCB phases (`Obs` unification, `SupportedHelperSummaryProofCatalog` wiring, `PipelineConfig` active codegen integration, removing `solc` and `Import.lean` from the TCB), and the real-world Ethereum corpus-driven certified gas superoptimization & `solc` bug-hunting campaign.
+
 ---
 
 ## Current Status

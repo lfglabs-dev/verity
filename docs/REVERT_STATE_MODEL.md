@@ -16,8 +16,9 @@ For most existing Verity proof patterns, this does not change the result because
 ## Current guidance
 
 1. Phrase contract-correctness theorems over run-boundary behavior, not internal transient states.
-2. Preserve checks-before-effects discipline in contract logic.
-3. Treat intermediate reverted state as an interpreter artifact, not an externally observable EVM behavior.
+2. **Use `FnSpec` & `FnSpec.Satisfies` (`Verity/Specs/Common.lean`, `#gen_fn_spec` in `Verity/Macro/SpecGen.lean`)**: `FnSpec.Satisfies` enforces total specifications at the `Contract.run` boundary—requiring both `requires s → isSuccess ∧ ensures ∧ unchangedExcept` and `¬requires s → isRevert` so revert conditions and storage frames cannot be omitted.
+3. Preserve checks-before-effects discipline in contract logic.
+4. Treat intermediate reverted state as an interpreter artifact, not an externally observable EVM behavior.
 
 ## Scope statement
 

@@ -631,4 +631,36 @@ def compileEmit (fields : List Field) (events : List EventDef)
   let logStmt := YulStmt.exprStmt (YulExpr.call logFn logArgs)
   pure [YulStmt.block ([storePtr] ++ sigStores ++ [topic0Store] ++ indexedTopicStmts ++ unindexedTailInit ++ unindexedStores ++ [logStmt])]
 
+/-- Static head size (in bytes) for `unindexedCount` single-word unindexed event parameters. -/
+def eventStaticHeadSize (unindexedCount : Nat) : Nat :=
+  32 * unindexedCount
+
+theorem eventStaticHeadSize_zero :
+    eventStaticHeadSize 0 = 0 := rfl
+
+theorem eventStaticHeadSize_succ (n : Nat) :
+    eventStaticHeadSize (n + 1) = eventStaticHeadSize n + 32 := by
+  dsimp only [eventStaticHeadSize]
+  omega
+
+theorem eventStaticHeadSize_dvd_32 (n : Nat) :
+    eventStaticHeadSize n % 32 = 0 := by
+  dsimp only [eventStaticHeadSize]
+  omega
+
+/-- Total EVM LOG topic count for `indexedCount` indexed parameters, including `topic0`
+    (the event signature hash). -/
+def eventTopicCount (indexedCount : Nat) : Nat :=
+  indexedCount + 1
+
+theorem eventTopicCount_pos (n : Nat) :
+    0 < eventTopicCount n := by
+  dsimp only [eventTopicCount]
+  omega
+
+theorem eventTopicCount_le_four_iff (n : Nat) :
+    eventTopicCount n ≤ 4 ↔ n ≤ 3 := by
+  dsimp only [eventTopicCount]
+  omega
+
 end Compiler.CompilationModel

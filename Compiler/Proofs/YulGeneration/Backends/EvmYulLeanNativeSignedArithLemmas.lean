@@ -1011,7 +1011,7 @@ theorem int256_sar_toUint256_val_eq_uint256_sar (shift value : Nat)
   rw [uint256_sar_toNat_eq_sarSpec]
   exact int256_sar_toUint256_val_eq_sarSpec shift value hs hv
 private theorem se_uint256_eq_of_val (a b : EvmYul.UInt256) (h : a.val.val = b.val.val) :
-    a = b := by cases a; cases b; congr 1; ext; exact h
+    a = b := EvmYul.UInt256.ext_val (Fin.ext h)
 
 private theorem se_lor_val (a b : EvmYul.UInt256) :
     (EvmYul.UInt256.lor a b).val.val = (a.val.val ||| b.val.val) % EvmYul.UInt256.size := by
@@ -1075,7 +1075,7 @@ private theorem se_clear_eq {v k : Nat} (hsign : v &&& 2^k = 0) :
 
 private theorem se_tb_val (byteIdx : Nat) (hb : byteIdx < EvmYul.UInt256.size)
     (hle : byteIdx ≤ 31) :
-    (({ val := ⟨byteIdx, hb⟩ } : EvmYul.UInt256) * { val := 8 } + { val := 7 }).val.val =
+    ((⟨⟨byteIdx, hb⟩⟩ : EvmYul.UInt256) * ⟨8⟩ + ⟨7⟩).val.val =
     byteIdx * 8 + 7 := by
   show ((EvmYul.UInt256.add (EvmYul.UInt256.mul ⟨⟨byteIdx, hb⟩⟩ ⟨8⟩) ⟨7⟩)).val.val = _
   unfold EvmYul.UInt256.add EvmYul.UInt256.mul

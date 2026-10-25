@@ -90,6 +90,8 @@ contract PropertyERC20Test is Test {
     }
 
     /// Property: constructor_meets_spec
+    /// Property: erc20_constructor_meets_spec
+    /// Property: constructor_establishes_owner_nonzero
     /// Property: getOwner_meets_spec
     function testProperty_Constructor_SetsOwner() public view {
         assertEq(token.owner(), OWNER, "owner mismatch");
@@ -109,7 +111,7 @@ contract PropertyERC20Test is Test {
         assertEq(token.balanceOf(ALICE), aliceBefore, "balance changed");
     }
 
-    /// Property: constructor_meets_spec
+    /// Property: erc20_constructor_meets_spec
     /// Property: totalSupply_meets_spec
     function testProperty_Constructor_SetsInitialSupplyZero() public view {
         assertEq(token.totalSupply(), 0, "initial supply must be zero");
@@ -209,6 +211,7 @@ contract PropertyERC20Test is Test {
     }
 
     /// Property: mint_meets_spec_when_owner
+    /// Property: mint_reverts_when_not_owner
     function testProperty_Mint_RevertsWhenNotOwner(uint256 amount) public {
         vm.prank(ALICE);
         vm.expectRevert(bytes("Caller is not the owner"));
@@ -251,6 +254,7 @@ contract PropertyERC20Test is Test {
     }
 
     /// Property: transfer_meets_spec_when_sufficient
+    /// Property: transfer_reverts_when_insufficient
     function testProperty_Transfer_RevertsOnInsufficientBalance(uint256 mintAmount, uint256 transferAmount) public {
         mintAmount = bound(mintAmount, 0, 1e12);
         transferAmount = bound(transferAmount, mintAmount + 1, mintAmount + 1e12 + 1);

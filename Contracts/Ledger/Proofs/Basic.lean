@@ -188,7 +188,7 @@ theorem transfer_self_preserves_balance (s : ContractState) (amount : Uint256)
   let s' := ((transfer s.sender amount).run s).snd
   s'.storageMap 0 s.sender = s.storageMap 0 s.sender := by
   have h := transfer_meets_spec s s.sender amount h_balance
-  simp [transfer_spec] at h
+  simp [transfer_spec] at h ⊢
   exact h.1
 
 theorem transfer_decreases_sender (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -197,7 +197,7 @@ theorem transfer_decreases_sender (s : ContractState) (toAddr : Address) (amount
   let s' := ((transfer toAddr amount).run s).snd
   s'.storageMap 0 s.sender = EVM.Uint256.sub (s.storageMap 0 s.sender) amount := by
   have h := transfer_meets_spec s toAddr amount h_balance
-  simp [transfer_spec, h_ne, beq_iff_eq] at h
+  simp [transfer_spec, h_ne, beq_iff_eq] at h ⊢
   exact h.1
 
 theorem transfer_increases_recipient (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -206,7 +206,7 @@ theorem transfer_increases_recipient (s : ContractState) (toAddr : Address) (amo
   let s' := ((transfer toAddr amount).run s).snd
   s'.storageMap 0 toAddr = EVM.Uint256.add (s.storageMap 0 toAddr) amount := by
   have h := transfer_meets_spec s toAddr amount h_balance
-  simp [transfer_spec, h_ne, beq_iff_eq] at h
+  simp [transfer_spec, h_ne, beq_iff_eq] at h ⊢
   exact h.2.1
 
 theorem transfer_reverts_insufficient (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -231,6 +231,87 @@ theorem transfer_succeeds_recipient_overflow (s : ContractState) (toAddr : Addre
         else s.knownAddresses slotIdx }
   refine ⟨s', ?_⟩
   simpa [s'] using transfer_unfold_other s toAddr amount h_balance h_ne
+
+/-- Exact `Nat`-level pairwise balance conservation for `transfer`: when `sender ≠ toAddr`,
+    `senderBalance ≥ amount`, and `recipientBalance.val + amount.val ≤ MAX_UINT256`
+    (no modular wrap-around), the mathematical `Nat` sum of sender and recipient balances
+    is strictly conserved. -/
+theorem transfer_conserves_sum_nat (s : ContractState) (toAddr : Address) (amount : Uint256)
+  (h_balance : s.storageMap 0 s.sender >= amount)
+  (h_ne : s.sender ≠ toAddr)
+  (h_no_overflow : (s.storageMap 0 toAddr).val + amount.val ≤ MAX_UINT256) :
+  let s' := ((transfer toAddr amount).run s).snd
+  (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val =
+    (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val := by
+  let s' := ((transfer toAddr amount).run s).snd
+  have h_sender : s'.storageMap 0 s.sender = EVM.Uint256.sub (s.storageMap 0 s.sender) amount :=
+    transfer_decreases_sender s toAddr amount h_balance h_ne
+  have h_recip : s'.storageMap 0 toAddr = EVM.Uint256.add (s.storageMap 0 toAddr) amount :=
+    transfer_increases_recipient s toAddr amount h_balance h_ne
+  have h_le : amount.val ≤ (s.storageMap 0 s.sender).val :=
+    uint256_ge_val_le h_balance
+  have h_lt_mod : (s.storageMap 0 toAddr).val + amount.val < EVM.Uint256.modulus :=
+    Verity.Proofs.Stdlib.Automation.lt_modulus_of_le_max_uint256 _ h_no_overflow
+  have h_sub_val : (EVM.Uint256.sub (s.storageMap 0 s.sender) amount).val =
+      (s.storageMap 0 s.sender).val - amount.val :=
+    Verity.Core.Uint256.subNoWrap h_le
+  have h_add_val : (EVM.Uint256.add (s.storageMap 0 toAddr) amount).val =
+      (s.storageMap 0 toAddr).val + amount.val :=
+    Verity.Core.Uint256.addNoWrap h_lt_mod
+  change (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val =
+    (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val
+  rw [h_sender, h_recip, h_sub_val, h_add_val]
+  omega
+
+/-- Explicit wrap-around hazard characterization for unchecked `add` in `transfer`:
+    if `(s.storageMap 0 toAddr).val + amount.val ≥ EVM.Uint256.modulus`, then modular
+    wrap-around causes the `Nat` sum of sender and recipient balances to strictly
+    decrease by `EVM.Uint256.modulus`, motivating the `noWraparound` precondition
+    `(s.storageMap 0 toAddr).val + amount.val ≤ MAX_UINT256`. -/
+theorem transfer_wraparound_hazard_characterization (s : ContractState) (toAddr : Address) (amount : Uint256)
+  (h_balance : s.storageMap 0 s.sender >= amount)
+  (h_ne : s.sender ≠ toAddr)
+  (h_overflow : (s.storageMap 0 toAddr).val + amount.val ≥ EVM.Uint256.modulus) :
+  let s' := ((transfer toAddr amount).run s).snd
+  (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val + EVM.Uint256.modulus =
+    (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val ∧
+  (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val =
+    (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val - EVM.Uint256.modulus ∧
+  (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val <
+    (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val := by
+  let s' := ((transfer toAddr amount).run s).snd
+  have h_sender : s'.storageMap 0 s.sender = EVM.Uint256.sub (s.storageMap 0 s.sender) amount :=
+    transfer_decreases_sender s toAddr amount h_balance h_ne
+  have h_recip : s'.storageMap 0 toAddr = EVM.Uint256.add (s.storageMap 0 toAddr) amount :=
+    transfer_increases_recipient s toAddr amount h_balance h_ne
+  have h_le : amount.val ≤ (s.storageMap 0 s.sender).val :=
+    uint256_ge_val_le h_balance
+  have h_sub_val : (EVM.Uint256.sub (s.storageMap 0 s.sender) amount).val =
+      (s.storageMap 0 s.sender).val - amount.val :=
+    Verity.Core.Uint256.subNoWrap h_le
+  have h_recip_lt : (s.storageMap 0 toAddr).val < EVM.Uint256.modulus := (s.storageMap 0 toAddr).isLt
+  have h_amt_lt : amount.val < EVM.Uint256.modulus := amount.isLt
+  have h_sub_lt : (s.storageMap 0 toAddr).val + amount.val - EVM.Uint256.modulus < EVM.Uint256.modulus := by
+    omega
+  have h_decomp : (s.storageMap 0 toAddr).val + amount.val =
+      ((s.storageMap 0 toAddr).val + amount.val - EVM.Uint256.modulus) + EVM.Uint256.modulus := by
+    omega
+  have h_add_val : (EVM.Uint256.add (s.storageMap 0 toAddr) amount).val =
+      (s.storageMap 0 toAddr).val + amount.val - EVM.Uint256.modulus := by
+    calc (EVM.Uint256.add (s.storageMap 0 toAddr) amount).val
+        = ((s.storageMap 0 toAddr).val + amount.val) % EVM.Uint256.modulus := rfl
+      _ = (((s.storageMap 0 toAddr).val + amount.val - EVM.Uint256.modulus) + EVM.Uint256.modulus) %
+            EVM.Uint256.modulus := by rw [← h_decomp]
+      _ = (s.storageMap 0 toAddr).val + amount.val - EVM.Uint256.modulus := by
+            rw [Nat.add_mod_right, Nat.mod_eq_of_lt h_sub_lt]
+  change (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val + EVM.Uint256.modulus =
+      (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val ∧
+    (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val =
+      (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val - EVM.Uint256.modulus ∧
+    (s'.storageMap 0 s.sender).val + (s'.storageMap 0 toAddr).val <
+      (s.storageMap 0 s.sender).val + (s.storageMap 0 toAddr).val
+  rw [h_sender, h_recip, h_sub_val, h_add_val]
+  refine ⟨by omega, by omega, by omega⟩
 
 /-! ## State Preservation -/
 
@@ -302,15 +383,17 @@ Transfer (guarded, sender ≠ toAddr):
 12. transfer_increases_recipient
 13. transfer_reverts_insufficient
 14. transfer_succeeds_recipient_overflow
+15. transfer_conserves_sum_nat
+16. transfer_wraparound_hazard_characterization
 
 State preservation:
-15. deposit_preserves_non_mapping
-16. withdraw_preserves_non_mapping
-17. deposit_preserves_wellformedness
-18. withdraw_preserves_wellformedness
+17. deposit_preserves_non_mapping
+18. withdraw_preserves_non_mapping
+19. deposit_preserves_wellformedness
+20. withdraw_preserves_wellformedness
 
 Composition:
-19. deposit_getBalance_correct
+21. deposit_getBalance_correct
 -/
 
 end Contracts.Ledger.Proofs

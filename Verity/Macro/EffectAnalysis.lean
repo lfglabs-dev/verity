@@ -967,4 +967,207 @@ theorem eval_preserves_preserved_mask_snd_of_bitmask_disjoint
   eval_preserves_untouched_slot_snd_of_bitmask_disjoint
     hbound s slot (slotBitDisjoint_of_bitmaskDisjoint hdisj hin)
 
+/-!
+## 11. CEI Write-After-External-Call and Read-Only Reentrancy Effect Checkers
+
+`hasWriteAfterExternalCall` and `hasExternalCallBeforeStorageRead` provide composable
+effect-analysis predicates for detecting post-interaction storage writes (standard CEI
+violations) and post-interaction storage reads (read-only reentrancy / stale-view hazards).
+-/
+
+mutual
+  /-- Check whether a single statement internally performs a storage write after an external call. -/
+  def stmtWritesStorageAfterExternalCall
+      (helperEffects : String → MacroEffectSummary) : Stmt → Bool
+    | .ite cond thenBranch elseBranch =>
+      let condEff := exprEffectSummary helperEffects cond
+      let (_, thenViol) := stmtListWriteAfterCallScan helperEffects thenBranch condEff.hasExternalInteraction
+      let (_, elseViol) := stmtListWriteAfterCallScan helperEffects elseBranch condEff.hasExternalInteraction
+      thenViol || elseViol
+    | .forEach _ count body | .forEachSetBit _ count body =>
+      let countEff := exprEffectSummary helperEffects count
+      let (bodyCalls, bodyViol) := stmtListWriteAfterCallScan helperEffects body countEff.hasExternalInteraction
+      let bodyEff := stmtListEffectSummary helperEffects body
+      bodyViol || (bodyCalls && (bodyEff.writesStorage || bodyEff.writesTransient))
+    | .unsafeBlock _ body =>
+      (stmtListWriteAfterCallScan helperEffects body false).2
+    | .internalCall functionName args | .internalCallAssign _ functionName args =>
+      let argsEff := exprListEffectSummary helperEffects args
+      let calleeEff := helperEffects functionName
+      argsEff.hasExternalInteraction && (calleeEff.writesStorage || calleeEff.writesTransient)
+    | _ => false
+
+  /-- Sequential scan over a statement list tracking `(seenExternalCall, writeAfterExternalCall)`. -/
+  def stmtListWriteAfterCallScan
+      (helperEffects : String → MacroEffectSummary) : List Stmt → Bool → Bool × Bool
+    | [], seenCall => (seenCall, false)
+    | stmt :: rest, seenCall =>
+      let stmtEff := stmtEffectSummary helperEffects stmt
+      let violHere :=
+        (seenCall && (stmtEff.writesStorage || stmtEff.writesTransient)) ||
+          stmtWritesStorageAfterExternalCall helperEffects stmt
+      let seenCall' := seenCall || stmtEff.hasExternalInteraction
+      let (seenCallFinal, violRest) := stmtListWriteAfterCallScan helperEffects rest seenCall'
+      (seenCallFinal, violHere || violRest)
+end
+
+/-- Check whether `stmts` performs a storage write after an external call (or inside a
+    compound statement following an external call). -/
+def hasWriteAfterExternalCall
+    (helperEffects : String → MacroEffectSummary) (stmts : List Stmt) : Bool :=
+  (stmtListWriteAfterCallScan helperEffects stmts false).2
+
+mutual
+  /-- Check whether a single statement internally performs a storage read after an external call. -/
+  def stmtReadsStorageAfterExternalCall
+      (helperEffects : String → MacroEffectSummary) : Stmt → Bool
+    | .ite cond thenBranch elseBranch =>
+      let condEff := exprEffectSummary helperEffects cond
+      let (_, thenViol) := stmtListReadAfterCallScan helperEffects thenBranch condEff.hasExternalInteraction
+      let (_, elseViol) := stmtListReadAfterCallScan helperEffects elseBranch condEff.hasExternalInteraction
+      thenViol || elseViol
+    | .forEach _ count body | .forEachSetBit _ count body =>
+      let countEff := exprEffectSummary helperEffects count
+      let (bodyCalls, bodyViol) := stmtListReadAfterCallScan helperEffects body countEff.hasExternalInteraction
+      let bodyEff := stmtListEffectSummary helperEffects body
+      bodyViol || (bodyCalls && bodyEff.readsStorage)
+    | .unsafeBlock _ body =>
+      (stmtListReadAfterCallScan helperEffects body false).2
+    | .internalCall functionName args | .internalCallAssign _ functionName args =>
+      let argsEff := exprListEffectSummary helperEffects args
+      let calleeEff := helperEffects functionName
+      argsEff.hasExternalInteraction && calleeEff.readsStorage
+    | _ => false
+
+  /-- Sequential scan over a statement list tracking `(seenExternalCall, readAfterExternalCall)`. -/
+  def stmtListReadAfterCallScan
+      (helperEffects : String → MacroEffectSummary) : List Stmt → Bool → Bool × Bool
+    | [], seenCall => (seenCall, false)
+    | stmt :: rest, seenCall =>
+      let stmtEff := stmtEffectSummary helperEffects stmt
+      let violHere := (seenCall && stmtEff.readsStorage) ||
+        stmtReadsStorageAfterExternalCall helperEffects stmt
+      let seenCall' := seenCall || stmtEff.hasExternalInteraction
+      let (seenCallFinal, violRest) := stmtListReadAfterCallScan helperEffects rest seenCall'
+      (seenCallFinal, violHere || violRest)
+end
+
+/-- Check whether `stmts` performs a storage read after an external call
+    (read-only reentrancy / post-interaction storage read detector). -/
+def hasExternalCallBeforeStorageRead
+    (helperEffects : String → MacroEffectSummary) (stmts : List Stmt) : Bool :=
+  (stmtListReadAfterCallScan helperEffects stmts false).2
+
+@[simp] theorem hasWriteAfterExternalCall_nil
+    (helperEffects : String → MacroEffectSummary) :
+    hasWriteAfterExternalCall helperEffects [] = false := rfl
+
+/-- If `s1` performs an external interaction and `s2` writes to storage, then `[s1, s2]`
+    is flagged by `hasWriteAfterExternalCall`. -/
+theorem hasWriteAfterExternalCall_pair_of_call_then_write
+    (helperEffects : String → MacroEffectSummary) (s1 s2 : Stmt)
+    (hcall : (stmtEffectSummary helperEffects s1).hasExternalInteraction = true)
+    (hwrite : (stmtEffectSummary helperEffects s2).writesStorage = true) :
+    hasWriteAfterExternalCall helperEffects [s1, s2] = true := by
+  unfold hasWriteAfterExternalCall
+  simp [stmtListWriteAfterCallScan, hcall, hwrite]
+
+@[simp] theorem hasExternalCallBeforeStorageRead_nil
+    (helperEffects : String → MacroEffectSummary) :
+    hasExternalCallBeforeStorageRead helperEffects [] = false := rfl
+
+/-- If `s1` performs an external interaction and `s2` reads from storage, then `[s1, s2]`
+    is flagged by `hasExternalCallBeforeStorageRead`. -/
+theorem hasExternalCallBeforeStorageRead_pair_of_call_then_read
+    (helperEffects : String → MacroEffectSummary) (s1 s2 : Stmt)
+    (hcall : (stmtEffectSummary helperEffects s1).hasExternalInteraction = true)
+    (hread : (stmtEffectSummary helperEffects s2).readsStorage = true) :
+    hasExternalCallBeforeStorageRead helperEffects [s1, s2] = true := by
+  unfold hasExternalCallBeforeStorageRead
+  simp [stmtListReadAfterCallScan, hcall, hread]
+
+/-!
+## 12. Poka-Yoke Static Write-Set Completeness & Slot-Drift Guards
+
+Compile-time guards verifying that declared write-sets cover all actual written storage
+fields and that contract storage slot indices do not drift from specification slot layouts.
+-/
+
+/-- Check whether `declaredFields` covers every field in `actualWrittenFields`. -/
+def checkDeclaredWritesCoverActual (declaredFields actualWrittenFields : List String) : Bool :=
+  actualWrittenFields.all (fun f => declaredFields.contains f)
+
+/-- Return the list of fields in `actualWrittenFields` not declared in `declaredFields`. -/
+def undeclaredWrittenFields (declaredFields actualWrittenFields : List String) : List String :=
+  actualWrittenFields.filter (fun f => !declaredFields.contains f)
+
+/-- Check that `contractSlots` and `specSlots` have identical `(fieldName, slotIndex)` layouts. -/
+def checkNoSlotDrift (contractSlots specSlots : List (String × Nat)) : Bool :=
+  decide (contractSlots = specSlots)
+
+/-- Return all `(fieldName, slotIndex)` entries in `contractSlots` missing from `specSlots`. -/
+def findDriftedSlots (contractSlots specSlots : List (String × Nat)) : List (String × Nat) :=
+  contractSlots.filter (fun p => !specSlots.contains p)
+
+@[simp] theorem checkDeclaredWritesCoverActual_nil (declared : List String) :
+    checkDeclaredWritesCoverActual declared [] = true := rfl
+
+@[simp] theorem checkDeclaredWritesCoverActual_cons
+    (declared : List String) (f : String) (rest : List String) :
+    checkDeclaredWritesCoverActual declared (f :: rest) =
+      (declared.contains f && checkDeclaredWritesCoverActual declared rest) := rfl
+
+@[simp] theorem undeclaredWrittenFields_nil (declared : List String) :
+    undeclaredWrittenFields declared [] = [] := rfl
+
+theorem undeclaredWrittenFields_eq_nil_iff (declared actual : List String) :
+    undeclaredWrittenFields declared actual = [] ↔
+      checkDeclaredWritesCoverActual declared actual = true := by
+  induction actual with
+  | nil =>
+    simp only [undeclaredWrittenFields, checkDeclaredWritesCoverActual, List.filter, List.all]
+  | cons f rest ih =>
+    simp only [undeclaredWrittenFields, checkDeclaredWritesCoverActual, List.filter, List.all]
+    cases h : declared.contains f
+    · simp only [Bool.not_false, Bool.false_and, reduceCtorEq, Bool.false_eq_true]
+    · simp only [Bool.not_true, Bool.true_and]
+      exact ih
+
+@[simp] theorem checkNoSlotDrift_refl (slots : List (String × Nat)) :
+    checkNoSlotDrift slots slots = true := by
+  simp only [checkNoSlotDrift, decide_true]
+
+theorem checkNoSlotDrift_eq_true_iff (c s : List (String × Nat)) :
+    checkNoSlotDrift c s = true ↔ c = s := by
+  simp only [checkNoSlotDrift, decide_eq_true_eq]
+
+theorem checkNoSlotDrift_symm (c s : List (String × Nat)) :
+    checkNoSlotDrift c s = checkNoSlotDrift s c := by
+  simp only [checkNoSlotDrift]
+  by_cases h : c = s
+  · subst h
+    rfl
+  · have h' : ¬(s = c) := fun hsc => h hsc.symm
+    simp only [h, h', decide_false]
+
+@[simp] theorem findDriftedSlots_nil_left (s : List (String × Nat)) :
+    findDriftedSlots [] s = [] := rfl
+
+theorem findDriftedSlots_eq_nil_of_all_contains (c s : List (String × Nat))
+    (h : ∀ p ∈ c, s.contains p = true) :
+    findDriftedSlots c s = [] := by
+  induction c with
+  | nil => rfl
+  | cons p rest ih =>
+    have hp : s.contains p = true := h p (.head rest)
+    have hrest : ∀ q ∈ rest, s.contains q = true := fun q hq => h q (.tail p hq)
+    unfold findDriftedSlots
+    simp only [List.filter, hp, Bool.not_true]
+    exact ih hrest
+
+theorem findDriftedSlots_self_of_mem (slots : List (String × Nat))
+    (h : ∀ p ∈ slots, slots.contains p = true) :
+    findDriftedSlots slots slots = [] :=
+  findDriftedSlots_eq_nil_of_all_contains slots slots h
+
 end Verity.Macro

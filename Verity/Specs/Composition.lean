@@ -125,4 +125,212 @@ theorem disjoint_uint_addr (uintSlot addrSlot : Nat) :
     Disjoint { uintSlots := [uintSlot] } { addrSlots := [addrSlot] } :=
   (disjoint_addr_uint addrSlot uintSlot).symm
 
+/-! ## Master Compositional Algebra for `Footprint`, `WritesOnly`, `AgreesOn`, and `unchangedExcept` -/
+
+@[simp] theorem AgreesOn.refl (fp : Footprint) (s : ContractState) :
+    AgreesOn fp s s :=
+  ⟨fun _ _ => rfl,
+   fun _ _ => rfl,
+   fun _ _ _ => rfl,
+   fun _ _ _ => rfl,
+   fun _ _ _ _ => rfl,
+   fun _ _ => rfl,
+   fun _ _ => rfl⟩
+
+theorem AgreesOn.symm {fp : Footprint} {s₁ s₂ : ContractState}
+    (h : AgreesOn fp s₁ s₂) : AgreesOn fp s₂ s₁ :=
+  ⟨fun slot hs => (h.1 slot hs).symm,
+   fun slot hs => (h.2.1 slot hs).symm,
+   fun slot hs k => (h.2.2.1 slot hs k).symm,
+   fun slot hs k => (h.2.2.2.1 slot hs k).symm,
+   fun slot hs k1 k2 => (h.2.2.2.2.1 slot hs k1 k2).symm,
+   fun slot hs => (h.2.2.2.2.2.1 slot hs).symm,
+   fun slot hs => (h.2.2.2.2.2.2 slot hs).symm⟩
+
+theorem AgreesOn.trans {fp : Footprint} {s₁ s₂ s₃ : ContractState}
+    (h₁₂ : AgreesOn fp s₁ s₂) (h₂₃ : AgreesOn fp s₂ s₃) :
+    AgreesOn fp s₁ s₃ :=
+  ⟨fun slot hs => (h₂₃.1 slot hs).trans (h₁₂.1 slot hs),
+   fun slot hs => (h₂₃.2.1 slot hs).trans (h₁₂.2.1 slot hs),
+   fun slot hs k => (h₂₃.2.2.1 slot hs k).trans (h₁₂.2.2.1 slot hs k),
+   fun slot hs k => (h₂₃.2.2.2.1 slot hs k).trans (h₁₂.2.2.2.1 slot hs k),
+   fun slot hs k1 k2 => (h₂₃.2.2.2.2.1 slot hs k1 k2).trans (h₁₂.2.2.2.2.1 slot hs k1 k2),
+   fun slot hs => (h₂₃.2.2.2.2.2.1 slot hs).trans (h₁₂.2.2.2.2.2.1 slot hs),
+   fun slot hs => (h₂₃.2.2.2.2.2.2 slot hs).trans (h₁₂.2.2.2.2.2.2 slot hs)⟩
+
+@[simp] theorem WritesOnly.refl (fp : Footprint) (s : ContractState) :
+    WritesOnly fp s s :=
+  ⟨fun _ _ => rfl,
+   fun _ _ => rfl,
+   fun _ _ _ => rfl,
+   fun _ _ _ => rfl,
+   fun _ _ _ _ => rfl,
+   fun _ _ => rfl,
+   fun _ _ => rfl,
+   Specs.sameContext_rfl s⟩
+
+theorem WritesOnly.trans {fp : Footprint} {s₁ s₂ s₃ : ContractState}
+    (h₁₂ : WritesOnly fp s₁ s₂) (h₂₃ : WritesOnly fp s₂ s₃) :
+    WritesOnly fp s₁ s₃ :=
+  ⟨fun slot hs => (h₂₃.1 slot hs).trans (h₁₂.1 slot hs),
+   fun slot hs => (h₂₃.2.1 slot hs).trans (h₁₂.2.1 slot hs),
+   fun slot hs k => (h₂₃.2.2.1 slot hs k).trans (h₁₂.2.2.1 slot hs k),
+   fun slot hs k => (h₂₃.2.2.2.1 slot hs k).trans (h₁₂.2.2.2.1 slot hs k),
+   fun slot hs k1 k2 => (h₂₃.2.2.2.2.1 slot hs k1 k2).trans (h₁₂.2.2.2.2.1 slot hs k1 k2),
+   fun slot hs => (h₂₃.2.2.2.2.2.1 slot hs).trans (h₁₂.2.2.2.2.2.1 slot hs),
+   fun slot hs => (h₂₃.2.2.2.2.2.2.1 slot hs).trans (h₁₂.2.2.2.2.2.2.1 slot hs),
+   Specs.sameContext_trans h₁₂.2.2.2.2.2.2.2 h₂₃.2.2.2.2.2.2.2⟩
+
+theorem writesOnly_two_steps_preserves_other_inv
+    (hostFp mixinFp : Footprint)
+    (hDisjoint : Disjoint hostFp mixinFp)
+    (Inv : ContractState → Prop)
+    (hInv : InvDependsOnlyOn Inv mixinFp)
+    (s₁ s₂ s₃ : ContractState)
+    (h₁₂ : WritesOnly hostFp s₁ s₂)
+    (h₂₃ : WritesOnly hostFp s₂ s₃)
+    (hInvS : Inv s₁) : Inv s₃ :=
+  writesOnly_preserves_other_inv hostFp mixinFp hDisjoint Inv hInv s₁ s₃ (h₁₂.trans h₂₃) hInvS
+
+@[simp] theorem disjoint_empty_left (fp : Footprint) :
+    Disjoint {} fp := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+
+@[simp] theorem disjoint_empty_right (fp : Footprint) :
+    Disjoint fp {} :=
+  (disjoint_empty_left fp).symm
+
+@[simp] theorem agreesOn_empty (s s' : ContractState) :
+    AgreesOn {} s s' := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+  · intro _ hs; cases hs
+
+/-- Pointwise union of two storage footprints. -/
+def Footprint.union (a b : Footprint) : Footprint where
+  uintSlots := a.uintSlots ++ b.uintSlots
+  addrSlots := a.addrSlots ++ b.addrSlots
+  mapSlots := a.mapSlots ++ b.mapSlots
+  mapUintSlots := a.mapUintSlots ++ b.mapUintSlots
+  map2Slots := a.map2Slots ++ b.map2Slots
+  arraySlots := a.arraySlots ++ b.arraySlots
+  transientSlots := a.transientSlots ++ b.transientSlots
+
+theorem WritesOnly.mono_left {a b : Footprint} {s s' : ContractState}
+    (h : WritesOnly a s s') : WritesOnly (Footprint.union a b) s s' := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, h.2.2.2.2.2.2.2⟩
+  · intro slot hnot; exact h.1 slot (fun hm => hnot (List.mem_append_left _ hm))
+  · intro slot hnot; exact h.2.1 slot (fun hm => hnot (List.mem_append_left _ hm))
+  · intro slot hnot; exact h.2.2.1 slot (fun hm => hnot (List.mem_append_left _ hm))
+  · intro slot hnot; exact h.2.2.2.1 slot (fun hm => hnot (List.mem_append_left _ hm))
+  · intro slot hnot; exact h.2.2.2.2.1 slot (fun hm => hnot (List.mem_append_left _ hm))
+  · intro slot hnot; exact h.2.2.2.2.2.1 slot (fun hm => hnot (List.mem_append_left _ hm))
+  · intro slot hnot; exact h.2.2.2.2.2.2.1 slot (fun hm => hnot (List.mem_append_left _ hm))
+
+theorem WritesOnly.mono_right {a b : Footprint} {s s' : ContractState}
+    (h : WritesOnly b s s') : WritesOnly (Footprint.union a b) s s' := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, h.2.2.2.2.2.2.2⟩
+  · intro slot hnot; exact h.1 slot (fun hm => hnot (List.mem_append_right _ hm))
+  · intro slot hnot; exact h.2.1 slot (fun hm => hnot (List.mem_append_right _ hm))
+  · intro slot hnot; exact h.2.2.1 slot (fun hm => hnot (List.mem_append_right _ hm))
+  · intro slot hnot; exact h.2.2.2.1 slot (fun hm => hnot (List.mem_append_right _ hm))
+  · intro slot hnot; exact h.2.2.2.2.1 slot (fun hm => hnot (List.mem_append_right _ hm))
+  · intro slot hnot; exact h.2.2.2.2.2.1 slot (fun hm => hnot (List.mem_append_right _ hm))
+  · intro slot hnot; exact h.2.2.2.2.2.2.1 slot (fun hm => hnot (List.mem_append_right _ hm))
+
+theorem WritesOnly.seq_union {a b : Footprint} {s₁ s₂ s₃ : ContractState}
+    (h₁₂ : WritesOnly a s₁ s₂) (h₂₃ : WritesOnly b s₂ s₃) :
+    WritesOnly (Footprint.union a b) s₁ s₃ :=
+  (WritesOnly.mono_left h₁₂).trans (WritesOnly.mono_right h₂₃)
+
+theorem Disjoint.union_left {a b c : Footprint}
+    (ha : Disjoint a c) (hb : Disjoint b c) :
+    Disjoint (Footprint.union a b) c := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro s hs; cases List.mem_append.mp hs with | inl h => exact ha.1 s h | inr h => exact hb.1 s h
+  · intro s hs; cases List.mem_append.mp hs with | inl h => exact ha.2.1 s h | inr h => exact hb.2.1 s h
+  · intro s hs; cases List.mem_append.mp hs with | inl h => exact ha.2.2.1 s h | inr h => exact hb.2.2.1 s h
+  · intro s hs; cases List.mem_append.mp hs with | inl h => exact ha.2.2.2.1 s h | inr h => exact hb.2.2.2.1 s h
+  · intro s hs; cases List.mem_append.mp hs with | inl h => exact ha.2.2.2.2.1 s h | inr h => exact hb.2.2.2.2.1 s h
+  · intro s hs; cases List.mem_append.mp hs with | inl h => exact ha.2.2.2.2.2.1 s h | inr h => exact hb.2.2.2.2.2.1 s h
+  · intro s hs; cases List.mem_append.mp hs with | inl h => exact ha.2.2.2.2.2.2 s h | inr h => exact hb.2.2.2.2.2.2 s h
+
+theorem Disjoint.union_right {a b c : Footprint}
+    (hb : Disjoint a b) (hc : Disjoint a c) :
+    Disjoint a (Footprint.union b c) :=
+  (Disjoint.union_left hb.symm hc.symm).symm
+
+theorem writesOnly_seq_union_preserves_other_inv
+    (fp₁ fp₂ mixinFp : Footprint)
+    (hDisjoint₁ : Disjoint fp₁ mixinFp)
+    (hDisjoint₂ : Disjoint fp₂ mixinFp)
+    (Inv : ContractState → Prop)
+    (hInv : InvDependsOnlyOn Inv mixinFp)
+    (s₁ s₂ s₃ : ContractState)
+    (h₁₂ : WritesOnly fp₁ s₁ s₂)
+    (h₂₃ : WritesOnly fp₂ s₂ s₃)
+    (hInvS : Inv s₁) : Inv s₃ :=
+  writesOnly_preserves_other_inv (Footprint.union fp₁ fp₂) mixinFp
+    (Disjoint.union_left hDisjoint₁ hDisjoint₂) Inv hInv s₁ s₃
+    (WritesOnly.seq_union h₁₂ h₂₃) hInvS
+
+/-- Convert the persistent storage channels of a `Footprint` into a `List Specs.SpecStorageKey`. -/
+def Footprint.toSpecKeys (fp : Footprint) : List Specs.SpecStorageKey :=
+  fp.uintSlots.map .slot ++
+  (fp.addrSlots.map .addr ++
+  (fp.mapSlots.map .map ++
+  (fp.mapUintSlots.map .mapUint ++
+  (fp.map2Slots.map .map2 ++
+   fp.arraySlots.map .array))))
+
+theorem WritesOnly.to_unchangedExcept {fp : Footprint} {s s' : ContractState}
+    (h : WritesOnly fp s s') :
+    Specs.unchangedExcept (Footprint.toSpecKeys fp) s s' := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, h.2.2.2.2.2.2.2⟩
+  · intro idx hnot
+    exact h.1 idx (fun hm => hnot (by
+      unfold Footprint.toSpecKeys
+      exact List.mem_append_left _ (List.mem_map.mpr ⟨idx, hm, rfl⟩)))
+  · intro idx hnot
+    exact h.2.1 idx (fun hm => hnot (by
+      unfold Footprint.toSpecKeys
+      exact List.mem_append_right _ (List.mem_append_left _ (List.mem_map.mpr ⟨idx, hm, rfl⟩))))
+  · intro idx hnot
+    funext k
+    exact h.2.2.1 idx (fun hm => hnot (by
+      unfold Footprint.toSpecKeys
+      exact List.mem_append_right _ (List.mem_append_right _
+        (List.mem_append_left _ (List.mem_map.mpr ⟨idx, hm, rfl⟩))))) k
+  · intro idx hnot
+    funext k
+    exact h.2.2.2.1 idx (fun hm => hnot (by
+      unfold Footprint.toSpecKeys
+      exact List.mem_append_right _ (List.mem_append_right _
+        (List.mem_append_right _ (List.mem_append_left _ (List.mem_map.mpr ⟨idx, hm, rfl⟩)))))) k
+  · intro idx hnot
+    funext k1 k2
+    exact h.2.2.2.2.1 idx (fun hm => hnot (by
+      unfold Footprint.toSpecKeys
+      exact List.mem_append_right _ (List.mem_append_right _
+        (List.mem_append_right _ (List.mem_append_right _
+          (List.mem_append_left _ (List.mem_map.mpr ⟨idx, hm, rfl⟩))))))) k1 k2
+  · intro idx hnot
+    exact h.2.2.2.2.2.1 idx (fun hm => hnot (by
+      unfold Footprint.toSpecKeys
+      exact List.mem_append_right _ (List.mem_append_right _
+        (List.mem_append_right _ (List.mem_append_right _
+          (List.mem_append_right _ (List.mem_map.mpr ⟨idx, hm, rfl⟩)))))))
+
 end Verity.Specs.Composition

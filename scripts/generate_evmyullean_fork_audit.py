@@ -49,26 +49,17 @@ FORK_AUDIT = {
     "schema_version": 1,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
+    "pinned_commit": "b615ceca315c63059461f7a7a3085be33d829928",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 18,
+    "fork_ahead_by": 23,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "The fork has 18 audited non-semantic commits beyond the "
-        "recorded upstream base: one visibility change (private -> default) on an "
-        "internal exponentiation accumulator, one Lean 4.22.0 deprecation "
-        "fix (nativeLibDir -> staticLibDir) in the lakefile, one FFI "
-        "body exposure for ByteArray.zeroes that matches the extern zero-fill "
-        "behavior, one checkpoint-state projection exposure that makes "
-        "existing saved shared-state/store fields visible to downstream proofs, "
-        "one Lean 4.24 compatibility migration covering build metadata, "
-        "JSON object traversal, parser APIs, and stricter elaboration. "
-        "The final audited change group is the Lean 4.31 compatibility "
-        "migration covering collection APIs, slices, JSON product keys, "
-        "and toolchain metadata. "
-        "None of these commits changes EVM/Yul execution semantics, "
-        "so upstream Ethereum conformance test coverage continues to apply "
-        "transitively."
+        "The fork has 23 audited commits beyond the recorded upstream base, "
+        "covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM "
+        "proof-facing step/block/memory/interpreter/observation layers (#5, "
+        "#6, #7, #8, #9, #10), and EVMYulLean 2.0 Waves E1-E4 (BitVec 256, "
+        "total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall "
+        "EIP-214/frame fixes)."
     ),
     "commits": [
         {
@@ -326,6 +317,56 @@ FORK_AUDIT = {
             "rationale": "Merge commit landing the ten individually audited Lean 4.31 compatibility commits.",
             "diff_summary": "Merge-only history node; content is enumerated by its parent commits.",
             "trust_impact": "Zero beyond the individually audited parent commits.",
+        },
+        {
+            "sha": "0ff72b2db35302305fccb1d4f42b480434b77bfe",
+            "title": "feat: make D_J total via structural recursion (#4)",
+            "file": "EvmYul/EVM/Semantics.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Replace partial D_J_aux with structural recursion on fuel bounded by ByteArray.size so D_J is kernel-reducible.",
+            "diff_summary": "1 file changed, 14 insertions(+), 5 deletions(-).",
+            "trust_impact": "Improves kernel transparency of JUMPDEST scanning without changing jumpdest set.",
+        },
+        {
+            "sha": "9d8eda705793eba448fd67850168af515e7fdc7a",
+            "title": "feat(evm): add proof-facing step runs (#5)",
+            "file": "EvmYul.lean, EvmYul/EVM/Proof/Execution.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Add proof-facing XStep/XRuns step decomposition for EVM execution.",
+            "diff_summary": "2 files changed, 493 insertions(+).",
+            "trust_impact": "Additive proof module; zero sorry, zero new axioms.",
+        },
+        {
+            "sha": "d164b61b995f4f553e975db9cfe3640d0aeefafa",
+            "title": "feat(evm): F4d runUntil, basic-block composition, and block tactics (#8)",
+            "file": "EvmYul.lean, EvmYul/EVM/Proof/Block.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Add basic-block RunUntil/XReaches composition and block tactics.",
+            "diff_summary": "2 files changed, 735 insertions(+).",
+            "trust_impact": "Additive proof module; zero sorry, zero new axioms.",
+        },
+        {
+            "sha": "b62586650b4f96cc6da25f36574aaa8f329a6420",
+            "title": "feat(evm): memory read-over-write lemmas for MSTORE/MSTORE8/RETURN (#9)",
+            "file": "EvmYul.lean, EvmYul/EVM/Proof/Memory.lean, EvmYul/EVM/Proof/MemoryStep.lean, EvmYul/UInt256.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Add memory read-over-write lemmas and fixed-width byte expansion bridges.",
+            "diff_summary": "4 files changed, 1074 insertions(+).",
+            "trust_impact": "Additive proof modules and byte-encoding lemmas; zero sorry, zero new axioms.",
+        },
+        {
+            "sha": "b615ceca315c63059461f7a7a3085be33d829928",
+            "title": "feat(evmyullean-2.0): consolidate Waves E1-E4, F4b/F4c/Osaka proofs, and Yul primCall fixes",
+            "file": "EvmYul/UInt256.lean, EvmYul/EVM/Gas.lean, EvmYul/EVM/JumpdestTotal.lean, EvmYul/EVM/PragueOsakaSpecs.lean, EvmYul/EVM/Proof/{Interpreter,Observation}.lean, EvmYul/Specs/*, EvmYul/MetaSpecs/*, EvmYul/Yul/{GasInterpreter,MessageCallCombinator,Interpreter}.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Consolidate EVMYulLean 2.0 Waves E1-E4 (BitVec 256, total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs), F4b/F4c/Osaka proof layers, and Yul primCall EIP-214/frame restoration fixes.",
+            "diff_summary": "31 files changed, 4500 insertions(+), 342 deletions(-).",
+            "trust_impact": "Zero sorryAx, zero native_decide, 460/460 tight specs verified by turbo-lean audit-spec.",
         },
     ],
     "audit_methodology": [

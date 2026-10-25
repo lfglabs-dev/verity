@@ -1,0 +1,74 @@
+{
+  "ok": true,
+  "corpus_tiers_count": 4,
+  "total_reference_contracts": 36,
+  "sample_triage_verdict": "CANDIDATE_SOLC_BUG",
+  "sample_solc_subsystem": "YUL_OPTIMIZER_STEP_BUG",
+  "sample_verity_gas_saved_vs_solc": 1017,
+  "corpus_tiers": [
+    {
+      "tier": "Tier-1-OpenZeppelin-v5",
+      "contracts": [
+        "ERC20",
+        "ERC721",
+        "ERC4626",
+        "Ownable2Step",
+        "AccessControl",
+        "TimelockController",
+        "Governor",
+        "Nonces",
+        "ReentrancyGuardTransient",
+        "SafeERC20"
+      ],
+      "status": "SUPPORTED_WITH_PROOF",
+      "proof_bridge": "SupportedSpec + GuardAndDynamicAbi + AdversaryAndHelpers"
+    },
+    {
+      "tier": "Tier-2-Solady",
+      "contracts": [
+        "SafeTransferLib",
+        "FixedPointMathLib",
+        "MerkleProofLib",
+        "ECDSA",
+        "EIP712",
+        "LibBit",
+        "LibBytes",
+        "LibSort",
+        "SSTORE2",
+        "CREATE3"
+      ],
+      "status": "SUPPORTED_VIA_PROVED_ECM",
+      "proof_bridge": "VerifiedECMShims (8 families .proved) + BytecodeTranslationValidation"
+    },
+    {
+      "tier": "Tier-3-Uniswap-V4-Core",
+      "contracts": [
+        "PoolManager",
+        "PositionManager",
+        "ProtocolFees",
+        "Hooks",
+        "CurrencyDeltaTransient",
+        "FullMath",
+        "SqrtPriceMath",
+        "TickBitmap",
+        "SwapMath"
+      ],
+      "status": "SUPPORTED_WITH_PROOF",
+      "proof_bridge": "SlotCoalescingShim + MaxwellGasSuperoptimizer (G1-G7) + ObsAlgebra"
+    },
+    {
+      "tier": "Tier-4-Solc-SemanticTests",
+      "contracts": [
+        "abiEncoderV2",
+        "arrayStorageLayout",
+        "transientStorageEIP1153",
+        "checkedArithmetic",
+        "customErrorsAndEvents",
+        "reentrancyAndCallbacks",
+        "viaIrYulOptimizer"
+      ],
+      "status": "SUPPORTED_WITH_PROOF",
+      "proof_bridge": "SolcBugHunter 4-Way Differential Oracle (A vs B == C == D)"
+    }
+  ]
+}

@@ -5831,4 +5831,201 @@ theorem supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSem
 -- `SourceSemanticsFeatureTest.lean`, where runtime normalization is allowed
 -- without making the proof/audit import path depend on large `decide` reductions.
 
+/-! ## Wave 4 (Piste 4B): Canonical Zero-Helper Unified Source Semantics Entrypoints -/
+
+namespace SourceSemantics
+
+/-- Canonical zero-helper expression evaluation entrypoint unifying `evalExpr` and `evalExprWithHelpers`. -/
+abbrev evalExprCanonical (spec : CompilationModel) (fields : List Field) (state : RuntimeState) :
+    Expr → Option Nat :=
+  evalExprWithHelpers spec fields 0 state
+
+/-- Canonical zero-helper expression-list evaluation entrypoint. -/
+abbrev evalExprListCanonical (spec : CompilationModel) (fields : List Field) (state : RuntimeState) :
+    List Expr → Option (List Nat) :=
+  evalExprListWithHelpers spec fields 0 state
+
+/-- Canonical zero-helper statement execution entrypoint unifying `execStmt` and `execStmtWithHelpers`. -/
+abbrev execStmtCanonical (spec : CompilationModel) (fields : List Field) (state : RuntimeState) :
+    Stmt → StmtResult :=
+  execStmtWithHelpers spec fields 0 state
+
+/-- Canonical zero-helper statement-list execution entrypoint unifying `execStmtList` and `execStmtListWithHelpers`. -/
+abbrev execStmtsCanonical (spec : CompilationModel) (fields : List Field) (state : RuntimeState) :
+    List Stmt → StmtResult :=
+  execStmtListWithHelpers spec fields 0 state
+
+@[simp] theorem evalExprCanonical_lit (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) (n : Nat) :
+    evalExprCanonical spec fields state (.literal n) = some (wordNormalize n) := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprCanonical_param (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) (name : String) :
+    evalExprCanonical spec fields state (.param name) = some (lookupValue state.bindings name) := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprCanonical_localVar (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) (name : String) :
+    evalExprCanonical spec fields state (.localVar name) = some (lookupValue state.bindings name) := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprCanonical_caller (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) :
+    evalExprCanonical spec fields state .caller = some state.world.sender.val := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprCanonical_msgValue (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) :
+    evalExprCanonical spec fields state .msgValue = some state.world.msgValue.val := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprCanonical_contractAddress (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) :
+    evalExprCanonical spec fields state .contractAddress = some state.world.thisAddress.val := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprCanonical_blockTimestamp (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) :
+    evalExprCanonical spec fields state .blockTimestamp = some state.world.blockTimestamp.val := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprCanonical_blockNumber (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) :
+    evalExprCanonical spec fields state .blockNumber = some state.world.blockNumber.val := by
+  unfold evalExprCanonical
+  rw [evalExprWithHelpers.eq_def]
+
+@[simp] theorem evalExprListCanonical_nil (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) :
+    evalExprListCanonical spec fields state [] = some [] := by
+  unfold evalExprListCanonical
+  rw [evalExprListWithHelpers.eq_def]
+
+@[simp] theorem execStmtsWithHelpers_nil (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (state : RuntimeState) :
+    execStmtListWithHelpers spec fields fuel state [] = .continue state := by
+  rw [execStmtListWithHelpers.eq_def]
+
+@[simp] theorem execStmtsCanonical_nil (spec : CompilationModel) (fields : List Field)
+    (state : RuntimeState) :
+    execStmtsCanonical spec fields state [] = .continue state :=
+  execStmtsWithHelpers_nil spec fields 0 state
+
+end SourceSemantics
+
+theorem sourceContractSemanticsWithHelpers_zero_eq_supported
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    sourceContractSemanticsWithHelpers spec selectors 0 tx initialWorld =
+      supportedSourceContractSemantics spec selectors hSupported tx initialWorld := by
+  rw [supportedSourceContractSemantics_eq_sourceContractSemantics hSupported tx initialWorld]
+  exact sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpec
+    hSupported 0 tx initialWorld
+
+/-! ## Unified StorageLoc Read-over-Write Algebra (Piste 4C) -/
+
+/-- Unified word-valued storage location spanning scalar slots, address-keyed mappings,
+uint-keyed mappings, double mappings, and transient word slots. -/
+inductive StorageLoc where
+  | uintSlot (slot : Nat)
+  | mapSlot (slot : Nat) (key : Verity.Address)
+  | mapUintSlot (slot : Nat) (key : Verity.Core.Uint256)
+  | map2Slot (slot : Nat) (key1 key2 : Verity.Address)
+  | transientSlot (slot : Nat)
+  deriving DecidableEq, Repr
+
+namespace StorageLoc
+
+/-- Inject a `StorageLoc` into the underlying `Verity.StorageKey` backing carrier. -/
+def toStorageKey : StorageLoc → Verity.StorageKey
+  | .uintSlot slot => .slot slot
+  | .mapSlot slot key => .map slot key
+  | .mapUintSlot slot key => .mapUint slot key
+  | .map2Slot slot key1 key2 => .map2 slot key1 key2
+  | .transientSlot slot => .transient slot
+
+/-- Read the 256-bit word at `loc` from `s`. -/
+def read (loc : StorageLoc) (s : Verity.ContractState) : Verity.Core.Uint256 :=
+  s.storageWords loc.toStorageKey
+
+/-- Write the 256-bit word `val` at `loc` in `s`. -/
+def write (loc : StorageLoc) (s : Verity.ContractState) (val : Verity.Core.Uint256) :
+    Verity.ContractState :=
+  { s with
+      storageWords := fun k => if k == loc.toStorageKey then val else s.storageWords k }
+
+theorem toStorageKey_injective :
+    ∀ {l₁ l₂ : StorageLoc}, l₁.toStorageKey = l₂.toStorageKey → l₁ = l₂ := by
+  intro l₁ l₂ h
+  cases l₁ <;> cases l₂ <;> dsimp only [toStorageKey] at h <;> injection h <;> subst_vars <;> rfl
+
+theorem toStorageKey_ne_of_ne {l₁ l₂ : StorageLoc} (h : l₁ ≠ l₂) :
+    l₁.toStorageKey ≠ l₂.toStorageKey :=
+  fun hk => h (toStorageKey_injective hk)
+
+@[simp] theorem read_write_same (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    loc.read (loc.write s val) = val := by
+  simp only [read, write, beq_self_eq_true, ↓reduceIte]
+
+@[simp] theorem read_write_ne (s : Verity.ContractState) {loc₁ loc₂ : StorageLoc}
+    (val : Verity.Core.Uint256) (hne : loc₂ ≠ loc₁) :
+    loc₂.read (loc₁.write s val) = loc₂.read s := by
+  have hkne : (loc₂.toStorageKey == loc₁.toStorageKey) = false :=
+    beq_false_of_ne (toStorageKey_ne_of_ne hne)
+  simp only [read, write, hkne, Bool.false_eq_true, ↓reduceIte]
+
+@[simp] theorem write_write_same (s : Verity.ContractState) (loc : StorageLoc)
+    (v₁ v₂ : Verity.Core.Uint256) :
+    loc.write (loc.write s v₁) v₂ = loc.write s v₂ := by
+  cases s
+  simp only [write, Verity.ContractState.mk.injEq, and_true]
+  funext k
+  cases (k == loc.toStorageKey) <;> rfl
+
+@[simp] theorem sender_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).sender = s.sender := rfl
+
+@[simp] theorem this_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).thisAddress = s.thisAddress := rfl
+
+@[simp] theorem msgValue_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).msgValue = s.msgValue := rfl
+
+@[simp] theorem blockTimestamp_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).blockTimestamp = s.blockTimestamp := rfl
+
+@[simp] theorem blockNumber_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).blockNumber = s.blockNumber := rfl
+
+@[simp] theorem chainId_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).chainId = s.chainId := rfl
+
+@[simp] theorem events_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).events = s.events := rfl
+
+@[simp] theorem storageArray_write (s : Verity.ContractState) (loc : StorageLoc)
+    (val : Verity.Core.Uint256) :
+    (loc.write s val).storageArray = s.storageArray := rfl
+
+end StorageLoc
+
 end Compiler.Proofs.IRGeneration

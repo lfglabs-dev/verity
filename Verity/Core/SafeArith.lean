@@ -193,9 +193,9 @@ theorem narrowChecked_eq_success_iff (bits : Nat) (x y : Uint256) (s s' : Contra
       CanonicalWord bits x ∧ y = x ∧ s' = s := by
   by_cases h : x.val < 2 ^ bits <;> simp [narrowChecked, CanonicalWord, h, eq_comm]
 
-theorem narrowChecked_canonical_of_success {bits : Nat} {x y : Uint256} {s s' : ContractState}
-    (h : (narrowChecked bits x).run s = .success y s') :
-    CanonicalWord bits y := by
+theorem narrowChecked_canonical_of_success {bits : Nat} {x y : Uint256} {s s' : ContractState} :
+    (narrowChecked bits x).run s = .success y s' → CanonicalWord bits y := by
+  intro h
   rw [narrowChecked_eq_success_iff] at h
   rcases h with ⟨hCan, rfl, -⟩
   exact hCan
@@ -214,5 +214,152 @@ theorem truncateMask_canonical {bits : Nat} (hbits : bits ≤ 256) (x : Uint256)
   unfold CanonicalWord
   rw [truncateMask_val hbits]
   exact Nat.mod_lt _ (Nat.pow_pos (by decide))
+
+/-! ## 4. Pure `Nat`-Level Checked U256 Arithmetic & `requireSome` Algebra -/
+
+/-- Maximum `Uint256` value (`2 ^ 256 - 1`), re-exported in `SafeArith`. -/
+abbrev MAX_UINT256 : Nat := Verity.Core.MAX_UINT256
+
+/-- Pure `Nat`-level checked addition bounded by `MAX_UINT256`. -/
+def checkedAddU256 (a b : Nat) : Option Nat :=
+  if a + b ≤ MAX_UINT256 then some (a + b) else none
+
+/-- Pure `Nat`-level checked subtraction (returns `none` on underflow `a < b`). -/
+def checkedSubU256 (a b : Nat) : Option Nat :=
+  if b ≤ a then some (a - b) else none
+
+/-- Pure `Nat`-level checked multiplication bounded by `MAX_UINT256`. -/
+def checkedMulU256 (a b : Nat) : Option Nat :=
+  if a * b ≤ MAX_UINT256 then some (a * b) else none
+
+/-- Pure `Nat`-level checked division (returns `none` when divisor `b = 0`). -/
+def checkedDivU256 (a b : Nat) : Option Nat :=
+  if b = 0 then none else some (a / b)
+
+/-- Lift an `Option α` result into the `Contract` monad, reverting with `msg` on `none`. -/
+def requireSome {α : Type} (opt : Option α) (msg : String := "SafeArith: arithmetic failure") :
+    Contract α :=
+  fun s =>
+    match opt with
+    | some v => .success v s
+    | none => .revert msg s
+
+theorem checkedAddU256_comm (a b : Nat) :
+    checkedAddU256 a b = checkedAddU256 b a := by
+  unfold checkedAddU256
+  rw [Nat.add_comm]
+
+@[simp] theorem checkedAddU256_zero_right (a : Nat) (ha : a ≤ MAX_UINT256) :
+    checkedAddU256 a 0 = some a := by
+  unfold checkedAddU256
+  simp [ha]
+
+@[simp] theorem checkedAddU256_zero_left (a : Nat) (ha : a ≤ MAX_UINT256) :
+    checkedAddU256 0 a = some a := by
+  unfold checkedAddU256
+  simp [ha]
+
+@[simp] theorem checkedSubU256_self (a : Nat) :
+    checkedSubU256 a a = some 0 := by
+  unfold checkedSubU256
+  simp
+
+@[simp] theorem checkedSubU256_zero (a : Nat) :
+    checkedSubU256 a 0 = some a := by
+  unfold checkedSubU256
+  simp
+
+theorem checkedMulU256_comm (a b : Nat) :
+    checkedMulU256 a b = checkedMulU256 b a := by
+  unfold checkedMulU256
+  rw [Nat.mul_comm]
+
+@[simp] theorem checkedMulU256_zero_right (a : Nat) :
+    checkedMulU256 a 0 = some 0 := by
+  unfold checkedMulU256
+  simp
+
+@[simp] theorem checkedMulU256_zero_left (a : Nat) :
+    checkedMulU256 0 a = some 0 := by
+  unfold checkedMulU256
+  simp
+
+@[simp] theorem checkedMulU256_one_right (a : Nat) (ha : a ≤ MAX_UINT256) :
+    checkedMulU256 a 1 = some a := by
+  unfold checkedMulU256
+  simp [ha]
+
+@[simp] theorem checkedMulU256_one_left (a : Nat) (ha : a ≤ MAX_UINT256) :
+    checkedMulU256 1 a = some a := by
+  unfold checkedMulU256
+  simp [ha]
+
+@[simp] theorem checkedDivU256_one_right (a : Nat) :
+    checkedDivU256 a 1 = some a := by
+  unfold checkedDivU256
+  simp
+
+theorem checkedAddU256_eq_some_iff (a b c : Nat) :
+    checkedAddU256 a b = some c ↔ a + b ≤ MAX_UINT256 ∧ c = a + b := by
+  by_cases h : a + b ≤ MAX_UINT256 <;> simp [checkedAddU256, h, eq_comm]
+
+theorem checkedSubU256_eq_some_iff (a b c : Nat) :
+    checkedSubU256 a b = some c ↔ b ≤ a ∧ c = a - b := by
+  by_cases h : b ≤ a <;> simp [checkedSubU256, h, eq_comm]
+
+theorem checkedMulU256_eq_some_iff (a b c : Nat) :
+    checkedMulU256 a b = some c ↔ a * b ≤ MAX_UINT256 ∧ c = a * b := by
+  by_cases h : a * b ≤ MAX_UINT256 <;> simp [checkedMulU256, h, eq_comm]
+
+theorem checkedDivU256_eq_some_iff (a b c : Nat) :
+    checkedDivU256 a b = some c ↔ b ≠ 0 ∧ c = a / b := by
+  by_cases h : b = 0 <;> simp [checkedDivU256, h, eq_comm]
+
+theorem checkedAddU256_mono_left {a₁ a₂ b c₁ c₂ : Nat} :
+    a₁ ≤ a₂ →
+    checkedAddU256 a₁ b = some c₁ →
+    checkedAddU256 a₂ b = some c₂ →
+    c₁ ≤ c₂ := by
+  intro hle h₁ h₂
+  rw [checkedAddU256_eq_some_iff] at h₁ h₂
+  rcases h₁ with ⟨-, rfl⟩
+  rcases h₂ with ⟨-, rfl⟩
+  omega
+
+theorem checkedSubU256_mono_left {a₁ a₂ b c₁ c₂ : Nat} :
+    a₁ ≤ a₂ →
+    checkedSubU256 a₁ b = some c₁ →
+    checkedSubU256 a₂ b = some c₂ →
+    c₁ ≤ c₂ := by
+  intro hle h₁ h₂
+  rw [checkedSubU256_eq_some_iff] at h₁ h₂
+  rcases h₁ with ⟨-, rfl⟩
+  rcases h₂ with ⟨-, rfl⟩
+  omega
+
+@[simp] theorem requireSome_some {α : Type} (v : α) (msg : String) (s : ContractState) :
+    (requireSome (some v) msg).run s = .success v s := rfl
+
+@[simp] theorem requireSome_none {α : Type} (msg : String) (s : ContractState) :
+    (requireSome (none : Option α) msg).run s = .revert msg s := rfl
+
+theorem requireSome_eq_success_iff {α : Type} (opt : Option α) (msg : String)
+    (v : α) (s s' : ContractState) :
+    (requireSome opt msg).run s = .success v s' ↔ opt = some v ∧ s' = s := by
+  cases opt <;> simp [requireSome, Contract.run, eq_comm]
+
+theorem checkedAdd_comm (a b : Uint256) :
+    checkedAdd a b = checkedAdd b a := by
+  funext s
+  unfold checkedAdd
+  have hAdd : Uint256.add a b = Uint256.add b a := Uint256.add_comm a b
+  rw [Nat.add_comm a.val b.val, hAdd]
+
+theorem checkedMul_comm (a b : Uint256) :
+    checkedMul a b = checkedMul b a := by
+  funext s
+  unfold checkedMul
+  have hMul : Uint256.mul a b = Uint256.mul b a := Uint256.mul_comm a b
+  rw [Nat.mul_comm a.val b.val, hMul]
 
 end Verity.Core.SafeArith

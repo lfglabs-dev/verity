@@ -84,6 +84,11 @@ verity_contract ERC20 where
 
 namespace ERC20
 
+abbrev owner.slot : Nat := ownerSlot.slot
+abbrev totalSupply.slot : Nat := totalSupplySlot.slot
+abbrev balances : StorageSlot (Address → Uint256) := balancesSlot
+abbrev allowances : StorageSlot (Address → Address → Uint256) := allowancesSlot
+
 abbrev getTotalSupply : Contract Uint256 := totalSupply
 abbrev getOwner : Contract Address := owner
 

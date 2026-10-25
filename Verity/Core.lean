@@ -218,7 +218,10 @@ def writeAddressWord (word : Uint256) (value : Address) : Uint256 :=
 -- Storage key-value abstraction
 structure StorageSlot (α : Type) where
   slot : Nat
-  deriving Repr
+  deriving Repr, DecidableEq
+
+instance {α : Type} : Coe Nat (StorageSlot α) where
+  coe slot := ⟨slot⟩
 
 -- Event type for ERC20/ERC721 compliance (#153)
 structure Event where
@@ -655,8 +658,14 @@ def readTransient (s : ContractState) (slot : Nat) : Uint256 :=
 def writeTransient (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
   { s with storageWords := fun key => if key == .transient slot then value else s.storageWords key }
 
-def readMap (s : ContractState) (slot : Nat) (key : Address) : Uint256 :=
-  s.storageMap slot key
+def readUint (s : ContractState) (slot : StorageSlot Uint256) : Uint256 :=
+  s.storage slot.slot
+
+def readAddr (s : ContractState) (slot : StorageSlot Address) : Address :=
+  s.storageAddr slot.slot
+
+def readMap (s : ContractState) (slot : StorageSlot (Address → Uint256)) (k : Address) : Uint256 :=
+  s.storageMap slot.slot k
 
 def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) : ContractState :=
   { s with storageWords := fun storageKey =>
@@ -1108,8 +1117,8 @@ def writeMapUint (s : ContractState) (slot : Nat) (key : Uint256) (value : Uint2
 @[simp] theorem returndata_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
     (s.writeMapUint slot key value).returndata = s.returndata := rfl
 
-def readMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) : Uint256 :=
-  s.storageMap2 slot key1 key2
+def readMap2 (s : ContractState) (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) : Uint256 :=
+  s.storageMap2 slot.slot k1 k2
 
 def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     ContractState :=
@@ -2816,6 +2825,376 @@ def setMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (
     (value : Address) (state : ContractState) :
   (setMappingUintAddr s key value).run state =
     (setMappingUint s key (addressToWord value)).run state := rfl
+
+/-! ### Typed StorageSlot Lens Read-After-Write and Interaction Lemmas -/
+
+@[simp, storage_simps] theorem ContractState.readUint_writeSlot_same
+    (s : ContractState) (slot : StorageSlot Uint256) (v : Uint256) :
+    (s.writeSlot slot.slot v).readUint slot = v := by
+  simp [ContractState.readUint]
+
+@[simp, storage_simps] theorem ContractState.readUint_writeSlot_ne
+    (s : ContractState) {slot slot' : StorageSlot Uint256}
+    (v : Uint256) (h : slot'.slot ≠ slot.slot) :
+    (s.writeSlot slot.slot v).readUint slot' = s.readUint slot' := by
+  simp [ContractState.readUint, h]
+
+@[simp, storage_simps] theorem ContractState.readUint_writeAddrSlot
+    (s : ContractState) (n : Nat) (v : Address) (slot : StorageSlot Uint256) :
+    (s.writeAddrSlot n v).readUint slot = s.readUint slot := by
+  simp [ContractState.readUint]
+
+@[simp, storage_simps] theorem ContractState.readUint_writeMap
+    (s : ContractState) (n : Nat) (k : Address) (v : Uint256) (slot : StorageSlot Uint256) :
+    (s.writeMap n k v).readUint slot = s.readUint slot := by
+  simp [ContractState.readUint]
+
+@[simp, storage_simps] theorem ContractState.readUint_writeMap2
+    (s : ContractState) (n : Nat) (k1 k2 : Address) (v : Uint256) (slot : StorageSlot Uint256) :
+    (s.writeMap2 n k1 k2 v).readUint slot = s.readUint slot := by
+  simp [ContractState.readUint, ContractState.storage, ContractState.writeMap2]
+
+@[simp] theorem ContractState.readUint_set_knownAddresses
+    (s : ContractState) (ka : Nat → FiniteAddressSet) (slot : StorageSlot Uint256) :
+    ({ s with knownAddresses := ka } : ContractState).readUint slot = s.readUint slot := rfl
+
+@[simp] theorem ContractState.readUint_set_events
+    (s : ContractState) (e : List Event) (slot : StorageSlot Uint256) :
+    ({ s with events := e } : ContractState).readUint slot = s.readUint slot := rfl
+
+@[simp, storage_simps] theorem ContractState.readAddr_writeAddrSlot_same
+    (s : ContractState) (slot : StorageSlot Address) (v : Address) :
+    (s.writeAddrSlot slot.slot v).readAddr slot = v := by
+  simp [ContractState.readAddr]
+
+@[simp, storage_simps] theorem ContractState.readAddr_writeAddrSlot_ne
+    (s : ContractState) {slot slot' : StorageSlot Address}
+    (v : Address) (h : slot'.slot ≠ slot.slot) :
+    (s.writeAddrSlot slot.slot v).readAddr slot' = s.readAddr slot' := by
+  simp [ContractState.readAddr, h]
+
+@[simp, storage_simps] theorem ContractState.readAddr_writeSlot
+    (s : ContractState) (n : Nat) (v : Uint256) (slot : StorageSlot Address) :
+    (s.writeSlot n v).readAddr slot = s.readAddr slot := by
+  simp [ContractState.readAddr]
+
+@[simp, storage_simps] theorem ContractState.readAddr_writeMap
+    (s : ContractState) (n : Nat) (k : Address) (v : Uint256) (slot : StorageSlot Address) :
+    (s.writeMap n k v).readAddr slot = s.readAddr slot := by
+  simp [ContractState.readAddr]
+
+@[simp, storage_simps] theorem ContractState.readAddr_writeMap2
+    (s : ContractState) (n : Nat) (k1 k2 : Address) (v : Uint256) (slot : StorageSlot Address) :
+    (s.writeMap2 n k1 k2 v).readAddr slot = s.readAddr slot := by
+  simp [ContractState.readAddr]
+
+@[simp] theorem ContractState.readAddr_set_knownAddresses
+    (s : ContractState) (ka : Nat → FiniteAddressSet) (slot : StorageSlot Address) :
+    ({ s with knownAddresses := ka } : ContractState).readAddr slot = s.readAddr slot := rfl
+
+@[simp] theorem ContractState.readAddr_set_events
+    (s : ContractState) (e : List Event) (slot : StorageSlot Address) :
+    ({ s with events := e } : ContractState).readAddr slot = s.readAddr slot := rfl
+
+@[simp, storage_simps] theorem ContractState.readMap_writeMap_same_slot
+    (s : ContractState) (slot : StorageSlot (Address → Uint256)) (k : Address) (v : Uint256) :
+    (s.writeMap slot.slot k v).readMap slot k = v := by
+  simp [ContractState.readMap]
+
+@[simp, storage_simps] theorem ContractState.readMap_writeMap_ne_slot
+    (s : ContractState) {slot slot' : StorageSlot (Address → Uint256)}
+    (k k' : Address) (v : Uint256) (h : slot'.slot ≠ slot.slot) :
+    (s.writeMap slot.slot k v).readMap slot' k' = s.readMap slot' k' := by
+  simp [ContractState.readMap, ContractState.storageMap, ContractState.writeMap, h]
+
+@[simp, storage_simps] theorem ContractState.readMap_writeMap_ne_key
+    (s : ContractState) (slot : StorageSlot (Address → Uint256))
+    {k k' : Address} (v : Uint256) (h : k' ≠ k) :
+    (s.writeMap slot.slot k v).readMap slot k' = s.readMap slot k' := by
+  simp [ContractState.readMap, h]
+
+@[simp, storage_simps] theorem ContractState.readMap_writeSlot
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    (s.writeSlot n v).readMap slot k = s.readMap slot k := by
+  simp [ContractState.readMap]
+
+@[simp, storage_simps] theorem ContractState.readMap_writeAddrSlot
+    (s : ContractState) (n : Nat) (v : Address)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    (s.writeAddrSlot n v).readMap slot k = s.readMap slot k := by
+  simp [ContractState.readMap]
+
+@[simp, storage_simps] theorem ContractState.readMap_writeMap2
+    (s : ContractState) (n : Nat) (k1 k2 : Address) (v : Uint256)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    (s.writeMap2 n k1 k2 v).readMap slot k = s.readMap slot k := by
+  simp [ContractState.readMap]
+
+@[simp] theorem ContractState.readMap_set_knownAddresses
+    (s : ContractState) (ka : Nat → FiniteAddressSet)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    ({ s with knownAddresses := ka } : ContractState).readMap slot k = s.readMap slot k := rfl
+
+@[simp] theorem ContractState.readMap_set_events
+    (s : ContractState) (e : List Event)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    ({ s with events := e } : ContractState).readMap slot k = s.readMap slot k := rfl
+
+@[simp, storage_simps] theorem ContractState.readMap2_writeMap2_same_slot
+    (s : ContractState) (slot : StorageSlot (Address → Address → Uint256))
+    (k1 k2 : Address) (v : Uint256) :
+    (s.writeMap2 slot.slot k1 k2 v).readMap2 slot k1 k2 = v := by
+  simp [ContractState.readMap2]
+
+@[simp, storage_simps] theorem ContractState.readMap2_writeMap2_ne_slot
+    (s : ContractState) {slot slot' : StorageSlot (Address → Address → Uint256)}
+    (k1 k2 k1' k2' : Address) (v : Uint256) (h : slot'.slot ≠ slot.slot) :
+    (s.writeMap2 slot.slot k1 k2 v).readMap2 slot' k1' k2' = s.readMap2 slot' k1' k2' := by
+  simp [ContractState.readMap2, ContractState.storageMap2, ContractState.writeMap2, h]
+
+@[simp, storage_simps] theorem ContractState.readMap2_writeMap2_ne_key1
+    (s : ContractState) (slot : StorageSlot (Address → Address → Uint256))
+    {k1 k1' : Address} (k2 k2' : Address) (v : Uint256) (h : k1' ≠ k1) :
+    (s.writeMap2 slot.slot k1 k2 v).readMap2 slot k1' k2' = s.readMap2 slot k1' k2' := by
+  simp [ContractState.readMap2, ContractState.storageMap2, ContractState.writeMap2, h]
+
+@[simp, storage_simps] theorem ContractState.readMap2_writeMap2_ne_key2
+    (s : ContractState) (slot : StorageSlot (Address → Address → Uint256))
+    (k1 : Address) {k2 k2' : Address} (v : Uint256) (h : k2' ≠ k2) :
+    (s.writeMap2 slot.slot k1 k2 v).readMap2 slot k1 k2' = s.readMap2 slot k1 k2' := by
+  simp [ContractState.readMap2, ContractState.storageMap2, ContractState.writeMap2, h]
+
+@[simp, storage_simps] theorem ContractState.readMap2_writeSlot
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    (s.writeSlot n v).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := by
+  simp [ContractState.readMap2]
+
+@[simp, storage_simps] theorem ContractState.readMap2_writeAddrSlot
+    (s : ContractState) (n : Nat) (v : Address)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    (s.writeAddrSlot n v).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := by
+  simp [ContractState.readMap2]
+
+@[simp, storage_simps] theorem ContractState.readMap2_writeMap
+    (s : ContractState) (n : Nat) (k : Address) (v : Uint256)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    (s.writeMap n k v).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := by
+  simp [ContractState.readMap2]
+
+@[simp] theorem ContractState.readMap2_set_knownAddresses
+    (s : ContractState) (ka : Nat → FiniteAddressSet)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    ({ s with knownAddresses := ka } : ContractState).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := rfl
+
+@[simp] theorem ContractState.readMap2_set_events
+    (s : ContractState) (e : List Event)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    ({ s with events := e } : ContractState).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := rfl
+
+@[simp] theorem ContractState.readUint_mk_writeMap
+    (s : ContractState) (n : Nat) (k : Address) (v : Uint256)
+    (storageArray : Nat → List Uint256)
+    (sender thisAddress txOrigin : Address)
+    (msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice calldataSize : Uint256)
+    (calldata : List Nat) (selector : Nat) (memory : Nat → Uint256)
+    (byteMemory : Compiler.CompilationModel.DenoteMemory.Memory)
+    (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
+    (calls : List ExternalCall) (codeSize : Nat → Uint256)
+    (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (slot : StorageSlot Uint256) :
+    (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
+      msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
+      calldataSize calldata selector memory byteMemory knownAddresses events calls
+      codeSize accountWorld returndata).readUint slot = s.readUint slot :=
+  ContractState.readUint_writeMap s n k v slot
+
+@[simp] theorem ContractState.readAddr_mk_writeMap
+    (s : ContractState) (n : Nat) (k : Address) (v : Uint256)
+    (storageArray : Nat → List Uint256)
+    (sender thisAddress txOrigin : Address)
+    (msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice calldataSize : Uint256)
+    (calldata : List Nat) (selector : Nat) (memory : Nat → Uint256)
+    (byteMemory : Compiler.CompilationModel.DenoteMemory.Memory)
+    (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
+    (calls : List ExternalCall) (codeSize : Nat → Uint256)
+    (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (slot : StorageSlot Address) :
+    (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
+      msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
+      calldataSize calldata selector memory byteMemory knownAddresses events calls
+      codeSize accountWorld returndata).readAddr slot = s.readAddr slot :=
+  ContractState.readAddr_writeMap s n k v slot
+
+@[simp] theorem ContractState.readMap_mk_writeMap
+    (s : ContractState) (n : Nat) (k : Address) (v : Uint256)
+    (storageArray : Nat → List Uint256)
+    (sender thisAddress txOrigin : Address)
+    (msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice calldataSize : Uint256)
+    (calldata : List Nat) (selector : Nat) (memory : Nat → Uint256)
+    (byteMemory : Compiler.CompilationModel.DenoteMemory.Memory)
+    (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
+    (calls : List ExternalCall) (codeSize : Nat → Uint256)
+    (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (slot : StorageSlot (Address → Uint256)) (k' : Address) :
+    (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
+      msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
+      calldataSize calldata selector memory byteMemory knownAddresses events calls
+      codeSize accountWorld returndata).readMap slot k' = (s.writeMap n k v).readMap slot k' := rfl
+
+@[simp] theorem ContractState.readMap2_mk_writeMap
+    (s : ContractState) (n : Nat) (k : Address) (v : Uint256)
+    (storageArray : Nat → List Uint256)
+    (sender thisAddress txOrigin : Address)
+    (msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice calldataSize : Uint256)
+    (calldata : List Nat) (selector : Nat) (memory : Nat → Uint256)
+    (byteMemory : Compiler.CompilationModel.DenoteMemory.Memory)
+    (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
+    (calls : List ExternalCall) (codeSize : Nat → Uint256)
+    (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
+      msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
+      calldataSize calldata selector memory byteMemory knownAddresses events calls
+      codeSize accountWorld returndata).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 :=
+  ContractState.readMap2_writeMap s n k v slot k1 k2
+
+@[simp] theorem readUint_setStorage_same
+    (s : ContractState) (slot : StorageSlot Uint256) (v : Uint256) :
+    ((setStorage slot v).run s).snd.readUint slot = v := by
+  simp
+
+@[simp] theorem readUint_setStorage_ne
+    (s : ContractState) {slot slot' : StorageSlot Uint256}
+    (v : Uint256) (h : slot'.slot ≠ slot.slot) :
+    ((setStorage slot v).run s).snd.readUint slot' = s.readUint slot' := by
+  simp [h]
+
+@[simp] theorem readAddr_setStorageAddr_same
+    (s : ContractState) (slot : StorageSlot Address) (v : Address) :
+    ((setStorageAddr slot v).run s).snd.readAddr slot = v := by
+  simp
+
+@[simp] theorem readAddr_setStorageAddr_ne
+    (s : ContractState) {slot slot' : StorageSlot Address}
+    (v : Address) (h : slot'.slot ≠ slot.slot) :
+    ((setStorageAddr slot v).run s).snd.readAddr slot' = s.readAddr slot' := by
+  simp [h]
+
+@[simp] theorem readMap_setMapping_same
+    (s : ContractState) (slot : StorageSlot (Address → Uint256)) (k : Address) (v : Uint256) :
+    ((setMapping slot k v).run s).snd.readMap slot k = v := by
+  simp
+
+@[simp] theorem readMap_setMapping_ne_slot
+    (s : ContractState) {slot slot' : StorageSlot (Address → Uint256)}
+    (k k' : Address) (v : Uint256) (h : slot'.slot ≠ slot.slot) :
+    ((setMapping slot k v).run s).snd.readMap slot' k' = s.readMap slot' k' := by
+  simp [h]
+
+@[simp] theorem readMap_setMapping_ne_key
+    (s : ContractState) (slot : StorageSlot (Address → Uint256))
+    {k k' : Address} (v : Uint256) (h : k' ≠ k) :
+    ((setMapping slot k v).run s).snd.readMap slot k' = s.readMap slot k' := by
+  simp [h]
+
+@[simp] theorem readMap2_setMapping2_same
+    (s : ContractState) (slot : StorageSlot (Address → Address → Uint256))
+    (k1 k2 : Address) (v : Uint256) :
+    ((setMapping2 slot k1 k2 v).run s).snd.readMap2 slot k1 k2 = v := by
+  simp
+
+@[simp] theorem readMap2_setMapping2_ne_slot
+    (s : ContractState) {slot slot' : StorageSlot (Address → Address → Uint256)}
+    (k1 k2 k1' k2' : Address) (v : Uint256) (h : slot'.slot ≠ slot.slot) :
+    ((setMapping2 slot k1 k2 v).run s).snd.readMap2 slot' k1' k2' = s.readMap2 slot' k1' k2' := by
+  simp [h]
+
+@[simp] theorem readMap2_setMapping2_ne_key1
+    (s : ContractState) (slot : StorageSlot (Address → Address → Uint256))
+    {k1 k1' : Address} (k2 k2' : Address) (v : Uint256) (h : k1' ≠ k1) :
+    ((setMapping2 slot k1 k2 v).run s).snd.readMap2 slot k1' k2' = s.readMap2 slot k1' k2' := by
+  simp [h]
+
+@[simp] theorem readMap2_setMapping2_ne_key2
+    (s : ContractState) (slot : StorageSlot (Address → Address → Uint256))
+    (k1 : Address) {k2 k2' : Address} (v : Uint256) (h : k2' ≠ k2) :
+    ((setMapping2 slot k1 k2 v).run s).snd.readMap2 slot k1 k2' = s.readMap2 slot k1 k2' := by
+  simp [h]
+
+@[simp] theorem readUint_setStorageAddr
+    (s : ContractState) (slotAddr : StorageSlot Address) (v : Address)
+    (slot : StorageSlot Uint256) :
+    ((setStorageAddr slotAddr v).run s).snd.readUint slot = s.readUint slot := by
+  simp
+
+@[simp] theorem readUint_setMapping
+    (s : ContractState) (slotMap : StorageSlot (Address → Uint256)) (k : Address) (v : Uint256)
+    (slot : StorageSlot Uint256) :
+    ((setMapping slotMap k v).run s).snd.readUint slot = s.readUint slot := by
+  simp
+
+@[simp] theorem readUint_setMapping2
+    (s : ContractState) (slotMap2 : StorageSlot (Address → Address → Uint256))
+    (k1 k2 : Address) (v : Uint256) (slot : StorageSlot Uint256) :
+    ((setMapping2 slotMap2 k1 k2 v).run s).snd.readUint slot = s.readUint slot := by
+  simp
+
+@[simp] theorem readAddr_setStorage
+    (s : ContractState) (slotUint : StorageSlot Uint256) (v : Uint256)
+    (slot : StorageSlot Address) :
+    ((setStorage slotUint v).run s).snd.readAddr slot = s.readAddr slot := by
+  simp
+
+@[simp] theorem readAddr_setMapping
+    (s : ContractState) (slotMap : StorageSlot (Address → Uint256)) (k : Address) (v : Uint256)
+    (slot : StorageSlot Address) :
+    ((setMapping slotMap k v).run s).snd.readAddr slot = s.readAddr slot := by
+  simp
+
+@[simp] theorem readAddr_setMapping2
+    (s : ContractState) (slotMap2 : StorageSlot (Address → Address → Uint256))
+    (k1 k2 : Address) (v : Uint256) (slot : StorageSlot Address) :
+    ((setMapping2 slotMap2 k1 k2 v).run s).snd.readAddr slot = s.readAddr slot := by
+  simp
+
+@[simp] theorem readMap_setStorage
+    (s : ContractState) (slotUint : StorageSlot Uint256) (v : Uint256)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    ((setStorage slotUint v).run s).snd.readMap slot k = s.readMap slot k := by
+  simp
+
+@[simp] theorem readMap_setStorageAddr
+    (s : ContractState) (slotAddr : StorageSlot Address) (v : Address)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    ((setStorageAddr slotAddr v).run s).snd.readMap slot k = s.readMap slot k := by
+  simp
+
+@[simp] theorem readMap_setMapping2
+    (s : ContractState) (slotMap2 : StorageSlot (Address → Address → Uint256))
+    (k1 k2 : Address) (v : Uint256)
+    (slot : StorageSlot (Address → Uint256)) (k : Address) :
+    ((setMapping2 slotMap2 k1 k2 v).run s).snd.readMap slot k = s.readMap slot k := by
+  simp
+
+@[simp] theorem readMap2_setStorage
+    (s : ContractState) (slotUint : StorageSlot Uint256) (v : Uint256)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    ((setStorage slotUint v).run s).snd.readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := by
+  simp
+
+@[simp] theorem readMap2_setStorageAddr
+    (s : ContractState) (slotAddr : StorageSlot Address) (v : Address)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    ((setStorageAddr slotAddr v).run s).snd.readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := by
+  simp
+
+@[simp] theorem readMap2_setMapping
+    (s : ContractState) (slotMap : StorageSlot (Address → Uint256)) (k : Address) (v : Uint256)
+    (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
+    ((setMapping slotMap k v).run s).snd.readMap2 slot k1 k2 = s.readMap2 slot k1 k2 := by
+  simp
 
 private def storageArraySetAt : List Uint256 → Nat → Uint256 → Option (List Uint256)
   | [], _, _ => none

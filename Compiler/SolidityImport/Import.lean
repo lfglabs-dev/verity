@@ -15632,4 +15632,110 @@ def elabSolidityImport : CommandElab := fun stx => do
     setEnv saved
     throw e
 
+/-! ## Modular Solidity AST Classifiers and Index Table -/
+
+/-- Canonical Solidity function state mutability classification. -/
+inductive SolidityMutabilityClass where
+  | pure
+  | view
+  | nonpayable
+  | payable
+  deriving DecidableEq, Repr
+
+/-- Parse a Solidity AST `stateMutability` string into `SolidityMutabilityClass`. -/
+def SolidityMutabilityClass.fromString : String → SolidityMutabilityClass
+  | "pure" => .pure
+  | "view" => .view
+  | "payable" => .payable
+  | _ => .nonpayable
+
+/-- Whether a mutability class forbids state modifications (`pure` or `view`). -/
+def SolidityMutabilityClass.isReadOnly : SolidityMutabilityClass → Bool
+  | .pure | .view => true
+  | _ => false
+
+/-- Whether a mutability class permits receiving Ether value (`payable`). -/
+def SolidityMutabilityClass.acceptsValue : SolidityMutabilityClass → Bool
+  | .payable => true
+  | _ => false
+
+@[simp] theorem SolidityMutabilityClass.isReadOnly_pure :
+    SolidityMutabilityClass.pure.isReadOnly = true := rfl
+
+@[simp] theorem SolidityMutabilityClass.isReadOnly_view :
+    SolidityMutabilityClass.view.isReadOnly = true := rfl
+
+theorem SolidityMutabilityClass.isReadOnly_iff (m : SolidityMutabilityClass) :
+    m.isReadOnly = true ↔ m = .pure ∨ m = .view := by
+  cases m <;> decide
+
+theorem SolidityMutabilityClass.acceptsValue_iff_payable (m : SolidityMutabilityClass) :
+    m.acceptsValue = true ↔ m = .payable := by
+  cases m <;> decide
+
+theorem SolidityMutabilityClass.acceptsValue_imp_not_readOnly (m : SolidityMutabilityClass)
+    (h : m.acceptsValue = true) :
+    m.isReadOnly = false := by
+  cases m <;> cases h <;> rfl
+
+/-- Canonical Solidity variable/parameter data location classification. -/
+inductive SolidityDataLocation where
+  | storage
+  | memory
+  | calldata
+  | transient
+  deriving DecidableEq, Repr
+
+/-- Parse a Solidity AST `storageLocation` string into `SolidityDataLocation`. -/
+def SolidityDataLocation.fromString : String → SolidityDataLocation
+  | "storage" => .storage
+  | "calldata" => .calldata
+  | "transient" => .transient
+  | _ => .memory
+
+/-- Whether a data location refers to persistent contract storage (`storage`). -/
+def SolidityDataLocation.isPersistent : SolidityDataLocation → Bool
+  | .storage => true
+  | _ => false
+
+theorem SolidityDataLocation.isPersistent_iff_storage (loc : SolidityDataLocation) :
+    loc.isPersistent = true ↔ loc = .storage := by
+  cases loc <;> decide
+
+/-- Association-list index mapping Solidity AST node IDs to values. -/
+abbrev AstIdTable (α : Type) := List (Nat × α)
+
+/-- Lookup a value by AST node ID in an association list. -/
+def astIdLookup {α : Type} (entries : List (Nat × α)) (nodeId : Nat) : Option α :=
+  match entries with
+  | [] => none
+  | (k, v) :: rest => if k = nodeId then some v else astIdLookup rest nodeId
+
+@[simp] theorem astIdLookup_nil {α : Type} (nodeId : Nat) :
+    astIdLookup ([] : List (Nat × α)) nodeId = none := rfl
+
+theorem astIdLookup_cons_eq {α : Type} (k nodeId : Nat) (v : α)
+    (rest : List (Nat × α)) (h : k = nodeId) :
+    astIdLookup ((k, v) :: rest) nodeId = some v := by
+  simp only [astIdLookup, h, ↓reduceIte]
+
+theorem astIdLookup_cons_ne {α : Type} (k nodeId : Nat) (v : α)
+    (rest : List (Nat × α)) (h : k ≠ nodeId) :
+    astIdLookup ((k, v) :: rest) nodeId = astIdLookup rest nodeId := by
+  simp only [astIdLookup, h, ↓reduceIte]
+
+theorem astIdLookup_append_of_some {α : Type} (xs ys : List (Nat × α))
+    (nodeId : Nat) (v : α) (h : astIdLookup xs nodeId = some v) :
+    astIdLookup (xs ++ ys) nodeId = some v := by
+  induction xs with
+  | nil => cases h
+  | cons hd tl ih =>
+    rcases hd with ⟨k, val⟩
+    dsimp only [astIdLookup, List.cons_append] at h ⊢
+    by_cases hk : k = nodeId
+    · simp only [hk, ↓reduceIte] at h ⊢
+      exact h
+    · simp only [hk, ↓reduceIte] at h ⊢
+      exact ih h
+
 end Compiler.CompilationModel.SolidityImport

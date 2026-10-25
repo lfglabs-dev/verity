@@ -158,6 +158,9 @@ macro_rules
                Verity.Macro.slotsToBitmask, Verity.Macro.bitmaskDisjoint,
                Verity.Macro.slotBitDisjoint, Verity.Macro.slotInBitmask,
                Verity.Macro.PreservesSlot.slotIndex, Verity.Macro.PreservesSlot.preserved,
+               Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
+               Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
+               Verity.Specs.FnSpec.Satisfies,
                Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
                Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage,
                Verity.Specs.sameStorageAddr, Verity.Specs.sameStorageMap,
@@ -169,10 +172,16 @@ macro_rules
              repeat' (first
                | decide
                | simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
+                   Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
+                   Verity.Specs.FnSpec.Satisfies,
                    Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
                    Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage,
                    Verity.Specs.viewPreservesState]
                | (split <;> try simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
+                   Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
+                   Verity.Specs.FnSpec.Satisfies,
                    Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
                    Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage,
                    Verity.Specs.viewPreservesState]))))
@@ -185,6 +194,7 @@ macro_rules
           | (intros;
              (try simp +zetaDelta only [$[$extra],*,
                Verity.Macro.PreservesSlot.slotIndex, Verity.Macro.PreservesSlot.preserved,
+               Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
                Verity.msgSender, Verity.msgValue, Verity.baseFee, Verity.gasPrice,
                Verity.getStorageAddr, Verity.getStorage, Verity.setStorage, Verity.setStorageAddr,
                Verity.getMapping, Verity.setMapping, Verity.setMapping2, Verity.getMappingUint,
@@ -199,6 +209,9 @@ macro_rules
                Verity.Macro.slotsToBitmask, Verity.Macro.bitmaskDisjoint,
                Verity.Macro.slotBitDisjoint, Verity.Macro.slotInBitmask,
                Verity.Macro.PreservesSlot.slotIndex, Verity.Macro.PreservesSlot.preserved,
+               Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
+               Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
+               Verity.Specs.FnSpec.Satisfies,
                Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
                Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage,
                Verity.Specs.sameStorageAddr, Verity.Specs.sameStorageMap,
@@ -214,11 +227,17 @@ macro_rules
                | decide
                | omega
                | simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
+                   Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
+                   Verity.Specs.FnSpec.Satisfies,
                    Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
                    Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage,
                    Verity.Specs.storageUnchangedExcept, Verity.Specs.storageAddrUnchangedExcept,
                    Verity.Specs.viewPreservesState]
                | (split <;> try simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
+                   Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
+                   Verity.Specs.FnSpec.Satisfies,
                    Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
                    Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage,
                    Verity.Specs.storageUnchangedExcept, Verity.Specs.storageAddrUnchangedExcept,
@@ -767,6 +786,191 @@ macro_rules
       `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s s' : Verity.ContractState) : Prop :=
           Verity.Macro.viewFrameSpec $extra s s')
 
+/-! ## Unified Parametric `#gen_fn_spec` Generator (`unchangedExcept` & `FnSpec`) -/
+
+syntax (name := genFnSpecCmd)
+  "#gen_fn_spec " ident " (" term ", " term ")" : command
+
+syntax (name := genFnSpecCmdExtra)
+  "#gen_fn_spec " ident " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecCmdFor)
+  "#gen_fn_spec " ident " for " "(" ident " : " term ")"
+    " (" term ", " term ")" : command
+
+syntax (name := genFnSpecCmdForExtra)
+  "#gen_fn_spec " ident " for " "(" ident " : " term ")"
+    " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecCmdFor2)
+  "#gen_fn_spec " ident " for2 " "(" ident " : " term ")" " (" ident " : " term ")"
+    " (" term ", " term ")" : command
+
+syntax (name := genFnSpecCmdFor2Extra)
+  "#gen_fn_spec " ident " for2 " "(" ident " : " term ")" " (" ident " : " term ")"
+    " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecCmdFor3)
+  "#gen_fn_spec " ident " for3 "
+    "(" ident " : " term ")" " (" ident " : " term ")" " (" ident " : " term ")"
+    " (" term ", " term ")" : command
+
+syntax (name := genFnSpecCmdFor3Extra)
+  "#gen_fn_spec " ident " for3 "
+    "(" ident " : " term ")" " (" ident " : " term ")" " (" ident " : " term ")"
+    " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecCmdFor4)
+  "#gen_fn_spec " ident " for4 "
+    "(" ident " : " term ")" " (" ident " : " term ")" " (" ident " : " term ")" " (" ident " : " term ")"
+    " (" term ", " term ")" : command
+
+syntax (name := genFnSpecCmdFor4Extra)
+  "#gen_fn_spec " ident " for4 "
+    "(" ident " : " term ")" " (" ident " : " term ")" " (" ident " : " term ")" " (" ident " : " term ")"
+    " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecModifiesCmd)
+  "#gen_fn_spec " ident " modifies " "[" term,* "]" " ensures " "(" term ")" : command
+
+syntax (name := genFnSpecModifiesForCmd)
+  "#gen_fn_spec " ident " for " "(" ident " : " term ")"
+    " modifies " "[" term,* "]" " ensures " "(" term ")" : command
+
+syntax (name := genFnSpecModifiesFor2Cmd)
+  "#gen_fn_spec " ident " for2 " "(" ident " : " term ")" " (" ident " : " term ")"
+    " modifies " "[" term,* "]" " ensures " "(" term ")" : command
+
+syntax (name := genFnSpecWpCmd)
+  "#gen_fn_spec " ident " [" term "]" " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecWpEventsCmd)
+  "#gen_fn_spec " ident " [" term "]" " (" term ", " term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecWpForCmd)
+  "#gen_fn_spec " ident " for " "(" ident " : " term ")" " [" term "]"
+    " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecWpEventsForCmd)
+  "#gen_fn_spec " ident " for " "(" ident " : " term ")" " [" term "]"
+    " (" term ", " term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecWpFor2Cmd)
+  "#gen_fn_spec " ident " for2 " "(" ident " : " term ")" " (" ident " : " term ")" " [" term "]"
+    " (" term ", " term ", " term ")" : command
+
+syntax (name := genFnSpecWpEventsFor2Cmd)
+  "#gen_fn_spec " ident " for2 " "(" ident " : " term ")" " (" ident " : " term ")" " [" term "]"
+    " (" term ", " term ", " term ", " term ")" : command
+
+macro_rules
+  | `(#gen_fn_spec $name:ident ($writes:term, $post:term)) =>
+      `(def $name (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes $post s s')
+  | `(#gen_fn_spec $name:ident ($writes:term, $post:term, $extra:term)) =>
+      `(def $name (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes
+            (fun s s' => ($post) s s' ∧ ($extra) s s') s s')
+  | `(#gen_fn_spec $name:ident for ($arg:ident : $argTy:term)
+      ($writes:term, $post:term)) =>
+      `(def $name ($arg : $argTy) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes $post s s')
+  | `(#gen_fn_spec $name:ident for ($arg:ident : $argTy:term)
+      ($writes:term, $post:term, $extra:term)) =>
+      `(def $name ($arg : $argTy) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes
+            (fun s s' => ($post) s s' ∧ ($extra) s s') s s')
+  | `(#gen_fn_spec $name:ident for2 ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term)
+      ($writes:term, $post:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes $post s s')
+  | `(#gen_fn_spec $name:ident for2 ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term)
+      ($writes:term, $post:term, $extra:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes
+            (fun s s' => ($post) s s' ∧ ($extra) s s') s s')
+  | `(#gen_fn_spec $name:ident for3
+      ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term) ($arg3:ident : $argTy3:term)
+      ($writes:term, $post:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) ($arg3 : $argTy3)
+          (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes $post s s')
+  | `(#gen_fn_spec $name:ident for3
+      ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term) ($arg3:ident : $argTy3:term)
+      ($writes:term, $post:term, $extra:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) ($arg3 : $argTy3)
+          (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes
+            (fun s s' => ($post) s s' ∧ ($extra) s s') s s')
+  | `(#gen_fn_spec $name:ident for4
+      ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term)
+      ($arg3:ident : $argTy3:term) ($arg4:ident : $argTy4:term)
+      ($writes:term, $post:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) ($arg3 : $argTy3) ($arg4 : $argTy4)
+          (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes $post s s')
+  | `(#gen_fn_spec $name:ident for4
+      ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term)
+      ($arg3:ident : $argTy3:term) ($arg4:ident : $argTy4:term)
+      ($writes:term, $post:term, $extra:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) ($arg3 : $argTy3) ($arg4 : $argTy4)
+          (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec $writes
+            (fun s s' => ($post) s s' ∧ ($extra) s s') s s')
+  | `(#gen_fn_spec $name:ident modifies [ $[$writes:term],* ] ensures ($post:term)) => do
+      let writeKeys ← writes.mapM fun w => `(Verity.Specs.ToSpecStorageKey.toSpecStorageKey $w)
+      `(def $name (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec [ $[$writeKeys],* ] $post s s')
+  | `(#gen_fn_spec $name:ident for ($arg:ident : $argTy:term)
+      modifies [ $[$writes:term],* ] ensures ($post:term)) => do
+      let writeKeys ← writes.mapM fun w => `(Verity.Specs.ToSpecStorageKey.toSpecStorageKey $w)
+      `(def $name ($arg : $argTy) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec [ $[$writeKeys],* ] $post s s')
+  | `(#gen_fn_spec $name:ident for2 ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term)
+      modifies [ $[$writes:term],* ] ensures ($post:term)) => do
+      let writeKeys ← writes.mapM fun w => `(Verity.Specs.ToSpecStorageKey.toSpecStorageKey $w)
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.fnUpdateSpec [ $[$writeKeys],* ] $post s s')
+  | `(#gen_fn_spec $name:ident [$retTy:term] ($writes:term, $pre:term, $post:term)) =>
+      `(def $name (s : Verity.ContractState) : Verity.Specs.FnSpec $retTy :=
+          { pre := ($pre) s
+            post := ($post) s
+            writes := $writes })
+  | `(#gen_fn_spec $name:ident [$retTy:term] ($writes:term, $pre:term, $post:term, $events:term)) =>
+      `(def $name (s : Verity.ContractState) : Verity.Specs.FnSpec $retTy :=
+          { pre := ($pre) s
+            post := ($post) s
+            events := ($events) s
+            writes := $writes })
+  | `(#gen_fn_spec $name:ident for ($arg:ident : $argTy:term) [$retTy:term]
+      ($writes:term, $pre:term, $post:term)) =>
+      `(def $name ($arg : $argTy) (s : Verity.ContractState) : Verity.Specs.FnSpec $retTy :=
+          { pre := ($pre) s
+            post := ($post) s
+            writes := $writes })
+  | `(#gen_fn_spec $name:ident for ($arg:ident : $argTy:term) [$retTy:term]
+      ($writes:term, $pre:term, $post:term, $events:term)) =>
+      `(def $name ($arg : $argTy) (s : Verity.ContractState) : Verity.Specs.FnSpec $retTy :=
+          { pre := ($pre) s
+            post := ($post) s
+            events := ($events) s
+            writes := $writes })
+  | `(#gen_fn_spec $name:ident for2 ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term) [$retTy:term]
+      ($writes:term, $pre:term, $post:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s : Verity.ContractState) :
+          Verity.Specs.FnSpec $retTy :=
+          { pre := ($pre) s
+            post := ($post) s
+            writes := $writes })
+  | `(#gen_fn_spec $name:ident for2 ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term) [$retTy:term]
+      ($writes:term, $pre:term, $post:term, $events:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s : Verity.ContractState) :
+          Verity.Specs.FnSpec $retTy :=
+          { pre := ($pre) s
+            post := ($post) s
+            events := ($events) s
+            writes := $writes })
+
 /-- Build a right-nested conjunction of `PreservesSlot.preserved` assertions over `preserves`. -/
 def mkPreservesConjuncts (preserves : Array (TSyntax `term)) : MacroM (TSyntax `term) := do
   if preserves.isEmpty then
@@ -1005,5 +1209,34 @@ macro_rules
         let nsCloseCmd ← `(command| end $contractName)
         let allCmds := #[contractCmd, nsOpenCmd] ++ autoSpecCmds ++ #[nsCloseCmd]
         Pure.pure (mkNullNode (allCmds.map (·.raw)))
+
+/-! ### Verified `#gen_fn_spec` Witnesses (`unchangedExcept` & `FnSpec.Satisfies`) -/
+
+#gen_fn_spec canonicalSlotFnSpec for (val : Verity.Uint256)
+  ([Verity.Specs.SpecStorageKey.slot 0],
+   fun _ s' => s'.storage 0 = val)
+
+#gen_fn_spec canonicalGuardedSlotWpSpec for (val : Verity.Uint256) [Unit]
+  ([Verity.Specs.SpecStorageKey.slot 0],
+   fun s => s.sender = s.storageAddr 1,
+   fun _ _ s' => s'.storage 0 = val)
+
+theorem canonicalSlotFnSpec_satisfied
+    (val : Verity.Uint256) (s : Verity.ContractState) :
+    canonicalSlotFnSpec val s ((Verity.setStorage ⟨0⟩ val).run s).snd := by
+  simp [canonicalSlotFnSpec, Verity.Specs.fnUpdateSpec]
+
+theorem canonicalGuardedSlotWpSpec_satisfies
+    (val : Verity.Uint256) (s : Verity.ContractState) :
+    Verity.Specs.FnSpec.Satisfies
+      (Verity.bind
+        (Verity.require (s.sender == s.storageAddr 1) "unauthorized")
+        (fun _ => Verity.setStorage ⟨0⟩ val))
+      s
+      (canonicalGuardedSlotWpSpec val s) := by
+  unfold Verity.Specs.FnSpec.Satisfies canonicalGuardedSlotWpSpec
+  by_cases h : s.sender = s.storageAddr 1
+  · simp [bind_require_eq, Verity.Contract.run, Verity.setStorage, h]
+  · simp [bind_require_eq, Verity.Contract.run, h]
 
 end Verity.Macro

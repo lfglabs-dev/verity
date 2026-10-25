@@ -13,6 +13,9 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Iterable, Sequence
+from pathlib import Path
 import re
 
 from property_utils import ROOT, report_errors, scrub_lean_code
@@ -60,7 +63,20 @@ def line_starts_with_command(line: str, cmd: str) -> bool:
     return stripped == cmd or stripped.startswith(cmd + " ")
 
 
-def main() -> None:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Check for Lean code hygiene issues.")
+    parser.add_argument(
+        "--forbid-constructor-compat",
+        action="store_true",
+        default=False,
+        help="Forbid constructorCompat wrapper antipattern in contract proof files.",
+    )
+    args, _ = parser.parse_known_args(argv)
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
     errors: list[str] = []
 
     # Check 1: No debug commands in proof files
@@ -189,6 +205,15 @@ def main() -> None:
                         f"(bypasses kernel — use decide or other tactics)"
                     )
 
+    # Check 5: No new *Compat wrapper definitions in Contracts/*/Proofs/*.lean
+    errors.extend(
+        check_compat_wrappers_in_proofs(
+            forbid_constructor_compat=args.forbid_constructor_compat
+        )
+    )
+    if args.forbid_constructor_compat:
+        errors.extend(scan_constructor_compat_antipattern())
+
     report_errors(errors, "Lean hygiene check failed")
     print(
         f"Lean hygiene check passed "
@@ -196,6 +221,89 @@ def main() -> None:
         f"{sorry_count} sorry ({sorry_count - len(unexpected_sorry_locations)} allowed, {len(unexpected_sorry_locations)} unexpected), "
         f"0 native_decide in proofs)."
     )
+
+
+ALLOWED_COMPAT_WRAPPERS_IN_PROOFS: dict[str, set[str]] = {
+    "Contracts/ERC20/Proofs/Basic.lean": {"constructorCompat"},
+}
+
+COMPAT_WRAPPER_DECL_RE = re.compile(
+    r"^\s*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev)\s+([A-Za-z0-9_']*Compat)\b"
+)
+
+CONSTRUCTOR_COMPAT_RE = re.compile(r"\bconstructorCompat\b")
+
+
+def scan_constructor_compat_antipattern(
+    paths: Iterable[Path | str] | Path | str | None = None,
+) -> list[str]:
+    """Scan contract proof files for the `constructorCompat` wrapper antipattern."""
+    findings: list[str] = []
+    candidate_files: list[Path] = []
+    if paths is None:
+        contracts_dir = ROOT / "Contracts"
+        if contracts_dir.exists():
+            for lean_file in sorted(contracts_dir.rglob("*.lean")):
+                rel = lean_file.relative_to(ROOT)
+                if "Proofs" in rel.parts:
+                    candidate_files.append(lean_file)
+    else:
+        raw_items = [paths] if isinstance(paths, (Path, str)) else list(paths)
+        for item in raw_items:
+            p = Path(item)
+            if not p.is_absolute() and (ROOT / p).exists():
+                p = ROOT / p
+            if p.is_dir():
+                dir_lean_files = [
+                    f for f in sorted(p.rglob("*.lean")) if ".lake" not in f.parts
+                ]
+                proof_files = [f for f in dir_lean_files if "Proofs" in f.parts]
+                candidate_files.extend(proof_files if proof_files else dir_lean_files)
+            elif p.is_file():
+                candidate_files.append(p)
+
+    for lean_file in candidate_files:
+        try:
+            rel_str = str(lean_file.relative_to(ROOT)).replace("\\", "/")
+        except ValueError:
+            rel_str = str(lean_file).replace("\\", "/")
+        scrubbed_lines = scrub_lean_code(lean_file.read_text(encoding="utf-8")).splitlines()
+        for i, line in enumerate(scrubbed_lines, 1):
+            if CONSTRUCTOR_COMPAT_RE.search(line):
+                findings.append(
+                    f"{rel_str}:{i}: found forbidden constructorCompat antipattern "
+                    f"in contract proof file"
+                )
+    return findings
+
+
+def check_compat_wrappers_in_proofs(forbid_constructor_compat: bool = False) -> list[str]:
+    """Flag unapproved *Compat wrapper definitions inside Contracts/*/Proofs/*.lean."""
+    compat_errors: list[str] = []
+    contracts_dir = ROOT / "Contracts"
+    if not contracts_dir.exists():
+        return compat_errors
+    for lean_file in sorted(contracts_dir.rglob("*.lean")):
+        rel = lean_file.relative_to(ROOT)
+        if "Proofs" not in rel.parts:
+            continue
+        rel_str = str(rel).replace("\\", "/")
+        allowed = (
+            set()
+            if forbid_constructor_compat
+            else ALLOWED_COMPAT_WRAPPERS_IN_PROOFS.get(rel_str, set())
+        )
+        scrubbed_lines = scrub_lean_code(lean_file.read_text(encoding="utf-8")).splitlines()
+        for i, line in enumerate(scrubbed_lines, 1):
+            match = COMPAT_WRAPPER_DECL_RE.match(line)
+            if match:
+                decl_name = match.group(1)
+                if decl_name not in allowed:
+                    compat_errors.append(
+                        f"{rel_str}:{i}: found unapproved *Compat wrapper definition "
+                        f"'{decl_name}' in proof file (prove directly against generated contract definitions)"
+                    )
+    return compat_errors
 
 
 if __name__ == "__main__":

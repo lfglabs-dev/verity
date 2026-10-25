@@ -25,6 +25,9 @@ Partially implemented:
    Runtime codegen no longer has a separate backend-profile dispatch-helper outlining path; outlining is centralized in proof-gated object rules.
 9. Parity packs now require explicit pack-level proof composition metadata (`compositionProofRef`) and proof registry coverage (`requiredProofRefs`) against the selected rewrite bundle before `--parity-pack` selection is accepted.
 10. Yul pretty-printing now canonicalizes switch zero-tags to `case 0` (instead of `case 0x0`) to match `solc` tokenization for function-level parity digests.
+11. **Proof-Carrying `CertifiedPatchRule` & `CertifiedPatchPack` (`Compiler/Yul/PatchFramework.lean`)**:
+    - `CertifiedPatchRule α EvalState Cost` bundles a syntactic rewrite rule with machine-checked proof fields (`preserves_eval : ∀ env st x, matcher ctx x = true → eval env st (rewrite ctx x) = eval env st x` and `improves_cost : ∀ x, matcher ctx x = true → cost (rewrite ctx x) ≤ cost x`).
+    - `VerifiedCompilerShim.applyCertified` (`Compiler/Proofs/VerifiedECMShims.lean`) and `SlotCoalescingShim` (`Compiler/Proofs/SlotCoalescingShim.lean`) instantiate certified rules across all 8 verified ECM shim families and intra-block `SLOAD` CSE / packed-write coalescing passes.
 
 ## Rule Kinds
 

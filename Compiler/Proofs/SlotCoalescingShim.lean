@@ -105,16 +105,6 @@ def execCoalescedPackedWrites (st : SlotStorageState)
     (writes : List PackedFieldWrite) : SlotStorageState :=
   sstoreSlot st (applyPackedWritesInRegister (sloadSlot st) writes)
 
-/-- In-register composition distributes over list append. -/
-@[simp]
-theorem applyPackedWritesInRegister_append
-    (word : Nat) (xs ys : List PackedFieldWrite) :
-    applyPackedWritesInRegister word (xs ++ ys) =
-      applyPackedWritesInRegister (applyPackedWritesInRegister word xs) ys := by
-  induction xs generalizing word with
-  | nil => rfl
-  | cons wr rest ih => exact ih (wr.lens.set word wr.val)
-
 /-- **Theorem 1 (`execCoalescedPackedWrites_eq_uncoalesced`)**:
 Coalescing any sequence of $N$ sub-word packed writes into a single `SLOAD` +
 in-register bitwise composition + single `SSTORE` produces the exact same post-state
@@ -384,5 +374,339 @@ def checkSlotCoalescingWitnessSuite : Bool :=
 theorem checkSlotCoalescingWitnessSuite_eq_true :
     checkSlotCoalescingWitnessSuite = true := by
   decide
+
+/-! ## Layer IV: Redundant SLOAD Elimination (Intra-Block SLOAD CSE) -/
+
+/-- Intra-block single-slot operation for redundant `SLOAD` common subexpression
+elimination (CSE) across a shared storage slot. -/
+inductive SingleSlotOp where
+  | sload
+  | sstore (val : Nat)
+  | pureOp (delta : Nat)
+  | externalCallBarrier
+  deriving DecidableEq, Repr, Inhabited
+
+/-- Unoptimized single-step execution on `(slotWord, traceReads)`:
+- `.sload` reads `st.1` from storage (`100` warm gas) and appends `st.1` to `st.2`
+- `.sstore v` updates `st.1 := v`
+- `.pureOp _` leaves storage and read trace unchanged
+- `.externalCallBarrier` leaves storage and read trace unchanged. -/
+@[simp]
+def execUncachedOp (op : SingleSlotOp) (st : Nat × List Nat) : Nat × List Nat :=
+  match op with
+  | .sload => (st.1, st.2 ++ [st.1])
+  | .sstore v => (v, st.2)
+  | .pureOp _ => st
+  | .externalCallBarrier => st
+
+/-- Unoptimized multi-step execution over a list of `SingleSlotOp` operations. -/
+def execUncachedOps : List SingleSlotOp → (Nat × List Nat) → (Nat × List Nat)
+  | [], st => st
+  | op :: rest, st => execUncachedOps rest (execUncachedOp op st)
+
+/-- Cached single-step execution on `(cache : Option Nat)` and `(slotWord, traceReads)`:
+- `.sload`: if `cache = some v`, serves `v` from the Yul local variable (`0` `SLOAD` gas)
+  and keeps `cache = some v`; if `cache = none`, reads `st.1` from storage (`100` gas)
+  and populates `cache = some st.1`
+- `.sstore v`: updates `st.1 := v` and writes through to `cache := some v`
+- `.pureOp _`: preserves both `cache` and `st`
+- `.externalCallBarrier`: flushes `cache := none` while preserving `st`. -/
+@[simp]
+def execCachedOp (op : SingleSlotOp) (cache : Option Nat) (st : Nat × List Nat) :
+    Option Nat × (Nat × List Nat) :=
+  match op with
+  | .sload =>
+      match cache with
+      | some v => (some v, (st.1, st.2 ++ [v]))
+      | none => (some st.1, (st.1, st.2 ++ [st.1]))
+  | .sstore v => (some v, (v, st.2))
+  | .pureOp _ => (cache, st)
+  | .externalCallBarrier => (none, st)
+
+/-- Cached multi-step execution threading the local Yul slot cache across `ops`. -/
+def execCachedOps :
+    List SingleSlotOp → Option Nat → (Nat × List Nat) → Option Nat × (Nat × List Nat)
+  | [], cache, st => (cache, st)
+  | op :: rest, cache, st =>
+      let step := execCachedOp op cache st
+      execCachedOps rest step.1 step.2
+
+/-- Execute intra-block `SLOAD` CSE starting from an initially empty local cache (`none`). -/
+@[simp]
+def runSloadCSE (ops : List SingleSlotOp) (st : Nat × List Nat) : Nat × List Nat :=
+  (execCachedOps ops none st).2
+
+/-- Coherence invariant linking the local Yul register cache `cache` to the
+current storage word `slotWord`. -/
+def CacheCoherent (cache : Option Nat) (slotWord : Nat) : Prop :=
+  ∀ v, cache = some v → v = slotWord
+
+/-- An empty local cache (`none`) is vacuously coherent with any storage word `slotWord`. -/
+theorem CacheCoherent_none (slotWord : Nat) :
+    CacheCoherent none slotWord := by
+  intro v hv
+  cases hv
+
+/-- Caching the current storage word `some slotWord` is coherent with `slotWord`. -/
+theorem CacheCoherent_some_self (slotWord : Nat) :
+    CacheCoherent (some slotWord) slotWord := by
+  intro v hv
+  injection hv with hv'
+  exact hv'.symm
+
+/-- Exact characterization of coherence for a populated cache `some v`. -/
+theorem CacheCoherent_some_iff (v slotWord : Nat) :
+    CacheCoherent (some v) slotWord ↔ v = slotWord := by
+  constructor
+  · intro h
+    exact h v rfl
+  · intro h u hu
+    injection hu with hu'
+    omega
+
+/-- Every `SingleSlotOp` preserves `CacheCoherent` across `execCachedOp`. -/
+theorem execCachedOp_preserves_coherent
+    (op : SingleSlotOp) (cache : Option Nat) (st : Nat × List Nat)
+    (hcoh : CacheCoherent cache st.1) :
+    CacheCoherent (execCachedOp op cache st).1 (execCachedOp op cache st).2.1 := by
+  cases op with
+  | sload =>
+    cases cache with
+    | none =>
+      dsimp only [execCachedOp]
+      exact CacheCoherent_some_self st.1
+    | some v =>
+      dsimp only [execCachedOp]
+      have hv : v = st.1 := hcoh v rfl
+      rw [hv]
+      exact CacheCoherent_some_self st.1
+  | sstore val =>
+    dsimp only [execCachedOp]
+    exact CacheCoherent_some_self val
+  | pureOp delta =>
+    dsimp only [execCachedOp]
+    exact hcoh
+  | externalCallBarrier =>
+    dsimp only [execCachedOp]
+    exact CacheCoherent_none st.1
+
+/-- Whenever `CacheCoherent cache st.1` holds, a single cached operation produces the
+exact same `(slotWord, traceReads)` state as `execUncachedOp`. -/
+theorem execCachedOp_snd_eq_unoptimized
+    (op : SingleSlotOp) (cache : Option Nat) (st : Nat × List Nat)
+    (hcoh : CacheCoherent cache st.1) :
+    (execCachedOp op cache st).2 = execUncachedOp op st := by
+  cases op with
+  | sload =>
+    cases cache with
+    | none => rfl
+    | some v =>
+      dsimp only [execCachedOp, execUncachedOp]
+      have hv : v = st.1 := hcoh v rfl
+      rw [hv]
+  | sstore val => rfl
+  | pureOp delta => rfl
+  | externalCallBarrier => rfl
+
+/-- Multi-step `execCachedOps` preserves `CacheCoherent` across any operation sequence `ops`. -/
+theorem execCachedOps_preserves_coherent
+    (ops : List SingleSlotOp) (cache : Option Nat) (st : Nat × List Nat)
+    (hcoh : CacheCoherent cache st.1) :
+    CacheCoherent (execCachedOps ops cache st).1 (execCachedOps ops cache st).2.1 := by
+  induction ops generalizing cache st with
+  | nil => exact hcoh
+  | cons op rest ih =>
+    dsimp only [execCachedOps]
+    exact ih (execCachedOp op cache st).1 (execCachedOp op cache st).2
+      (execCachedOp_preserves_coherent op cache st hcoh)
+
+/-- By induction on `ops`, running `execCachedOps` from any coherent cache produces
+the exact same `(slotWord, traceReads)` result as `execUncachedOps`. -/
+theorem execCachedOps_snd_eq_unoptimized
+    (ops : List SingleSlotOp) (cache : Option Nat) (st : Nat × List Nat)
+    (hcoh : CacheCoherent cache st.1) :
+    (execCachedOps ops cache st).2 = execUncachedOps ops st := by
+  induction ops generalizing cache st with
+  | nil => rfl
+  | cons op rest ih =>
+    dsimp only [execCachedOps, execUncachedOps]
+    have hstep := execCachedOp_snd_eq_unoptimized op cache st hcoh
+    have hcoh' := execCachedOp_preserves_coherent op cache st hcoh
+    rw [← hstep]
+    exact ih (execCachedOp op cache st).1 (execCachedOp op cache st).2 hcoh'
+
+/-- Starting from `cache = none`, intra-block `SLOAD` CSE (`runSloadCSE`) is
+observationally identical to unoptimized execution (`execUncachedOps`). -/
+@[simp]
+theorem runSloadCSE_sound
+    (ops : List SingleSlotOp) (st : Nat × List Nat) :
+    runSloadCSE ops st = execUncachedOps ops st :=
+  execCachedOps_snd_eq_unoptimized ops none st (CacheCoherent_none st.1)
+
+/-- Master soundness theorem for intra-block redundant `SLOAD` elimination (`SLOAD` CSE):
+starting from `cache = none`, cached execution matches unoptimized execution on both
+final storage word and read trace while maintaining cache coherence. -/
+theorem redundant_sload_elimination_sound
+    (ops : List SingleSlotOp) (st : Nat × List Nat) :
+    runSloadCSE ops st = execUncachedOps ops st ∧
+      CacheCoherent (execCachedOps ops none st).1 (execCachedOps ops none st).2.1 :=
+  ⟨runSloadCSE_sound ops st,
+   execCachedOps_preserves_coherent ops none st (CacheCoherent_none st.1)⟩
+
+/-- Warm gas saved by eliminating `redundantLoads` redundant `SLOAD` instructions
+(`100` gas per eliminated warm `SLOAD`). -/
+def sloadCSEGasSaved (redundantLoads : Nat) : Nat :=
+  100 * redundantLoads
+
+/-- Eliminating one or more redundant `SLOAD` instructions strictly saves `100 * redundantLoads`
+warm gas (`> 0`). -/
+theorem sloadCSEGasSaved_pos (redundantLoads : Nat) (hpos : 0 < redundantLoads) :
+    sloadCSEGasSaved redundantLoads = 100 * redundantLoads ∧
+      0 < sloadCSEGasSaved redundantLoads := by
+  refine ⟨rfl, ?_⟩
+  dsimp only [sloadCSEGasSaved]
+  omega
+
+/-- Executable witness suite for Layer IV intra-block `SLOAD` CSE across read hits,
+write-through `SSTORE` forwarding, pure ops, and `externalCallBarrier` cache flushes. -/
+def checkSloadCSEWitnessSuite : Bool :=
+  let ops : List SingleSlotOp :=
+    [ .sload
+    , .sload
+    , .pureOp 10
+    , .sstore 99
+    , .sload
+    , .externalCallBarrier
+    , .sload ]
+  let st₀ : Nat × List Nat := (42, [])
+  let cseOut := runSloadCSE ops st₀
+  let unoptOut := execUncachedOps ops st₀
+  (cseOut == unoptOut) &&
+    (cseOut == (99, [42, 42, 99, 99])) &&
+    (sloadCSEGasSaved 2 == 200) &&
+    (sloadCSEGasSaved 3 == 300)
+
+/-- Kernel-checked (`by decide`, `0 native_decide`) witness theorem for Layer IV `SLOAD` CSE. -/
+theorem checkSloadCSEWitnessSuite_eq_true :
+    checkSloadCSEWitnessSuite = true := by
+  decide
+
+/-! ## Layer V: Compositional Packed-Write Algebra & Frame Preservation -/
+
+/-- Alias for `updateBits`: clears `[offset, offset + width)` in `word` and inserts
+`val % 2 ^ width` at bit `offset`. -/
+@[simp]
+abbrev clearInsertBits (word offset width val : Nat) : Nat :=
+  updateBits word offset width val
+
+/-- Bit offset projection on `PackedWordLens`. -/
+@[simp]
+abbrev _root_.Compiler.Proofs.PackedBitfieldMetaSpec.PackedWordLens.offset
+    (lens : PackedWordLens) : Nat :=
+  lens.slice.offset
+
+/-- Bit width projection on `PackedWordLens`. -/
+@[simp]
+abbrev _root_.Compiler.Proofs.PackedBitfieldMetaSpec.PackedWordLens.width
+    (lens : PackedWordLens) : Nat :=
+  lens.slice.width
+
+/-- Applying an empty sequence of packed field writes in register is the identity on `word`. -/
+@[simp]
+theorem applyPackedWritesInRegister_nil (word : Nat) :
+    applyPackedWritesInRegister word [] = word :=
+  rfl
+
+/-- Applying a cons list `w :: ws` of packed field writes in register updates `word`
+via `clearInsertBits word w.lens.offset w.lens.width w.val` and continues with `ws`. -/
+@[simp]
+theorem applyPackedWritesInRegister_cons
+    (word : Nat) (w : PackedFieldWrite) (ws : List PackedFieldWrite) :
+    applyPackedWritesInRegister word (w :: ws) =
+      applyPackedWritesInRegister (clearInsertBits word w.lens.offset w.lens.width w.val) ws :=
+  rfl
+
+/-- In-register packed write composition distributes over list append (`w₁ ++ w₂`). -/
+@[simp]
+theorem applyPackedWritesInRegister_append
+    (word : Nat) (w₁ w₂ : List PackedFieldWrite) :
+    applyPackedWritesInRegister word (w₁ ++ w₂) =
+      applyPackedWritesInRegister (applyPackedWritesInRegister word w₁) w₂ := by
+  induction w₁ generalizing word with
+  | nil => rfl
+  | cons wr rest ih => exact ih (wr.lens.set word wr.val)
+
+/-- Uncoalesced sequential packed writes distribute over list append (`w₁ ++ w₂`). -/
+@[simp]
+theorem execUncoalescedPackedWrites_append
+    (st : SlotStorageState) (w₁ w₂ : List PackedFieldWrite) :
+    execUncoalescedPackedWrites st (w₁ ++ w₂) =
+      execUncoalescedPackedWrites (execUncoalescedPackedWrites st w₁) w₂ := by
+  induction w₁ generalizing st with
+  | nil => rfl
+  | cons wr rest ih => exact ih (execSingleUncoalescedWrite st wr)
+
+/-- Coalesced single-`SLOAD`/single-`SSTORE` packed writes distribute over list append (`w₁ ++ w₂`). -/
+@[simp]
+theorem execCoalescedPackedWrites_append
+    (st : SlotStorageState) (w₁ w₂ : List PackedFieldWrite) :
+    execCoalescedPackedWrites st (w₁ ++ w₂) =
+      execCoalescedPackedWrites (execCoalescedPackedWrites st w₁) w₂ := by
+  simp only [execCoalescedPackedWrites, sstoreSlot, sloadSlot,
+    applyPackedWritesInRegister_append]
+
+/-- Coalesced packed writes preserve the free-memory pointer `fmp` (`0x40`). -/
+@[simp]
+theorem execCoalescedPackedWrites_fmp_preserved
+    (st : SlotStorageState) (writes : List PackedFieldWrite) :
+    (execCoalescedPackedWrites st writes).fmp = st.fmp :=
+  rfl
+
+/-- Coalesced packed writes preserve the commitment root of all other storage slots (`otherSlotsRoot`). -/
+@[simp]
+theorem execCoalescedPackedWrites_otherSlotsRoot_preserved
+    (st : SlotStorageState) (writes : List PackedFieldWrite) :
+    (execCoalescedPackedWrites st writes).otherSlotsRoot = st.otherSlotsRoot :=
+  rfl
+
+/-- Uncoalesced packed writes preserve the free-memory pointer `fmp` (`0x40`). -/
+@[simp]
+theorem execUncoalescedPackedWrites_fmp_preserved
+    (st : SlotStorageState) (writes : List PackedFieldWrite) :
+    (execUncoalescedPackedWrites st writes).fmp = st.fmp := by
+  rw [← execCoalescedPackedWrites_eq_uncoalesced]
+  rfl
+
+/-- Uncoalesced packed writes preserve the commitment root of all other storage slots (`otherSlotsRoot`). -/
+@[simp]
+theorem execUncoalescedPackedWrites_otherSlotsRoot_preserved
+    (st : SlotStorageState) (writes : List PackedFieldWrite) :
+    (execUncoalescedPackedWrites st writes).otherSlotsRoot = st.otherSlotsRoot := by
+  rw [← execCoalescedPackedWrites_eq_uncoalesced]
+  rfl
+
+/-- For any batch of `n ≥ 2` packed writes, coalesced execution consumes strictly less
+warm `SLOAD`/`SSTORE` gas than uncoalesced execution. -/
+theorem coalescedPackedWritesGas_lt_uncoalesced (n : Nat) (hn : n ≥ 2) :
+    coalescedPackedWritesGas n < uncoalescedPackedWritesGas n := by
+  have hne : (n == 0) = false := beq_false_of_ne (by omega)
+  simp only [coalescedPackedWritesGas, uncoalescedPackedWritesGas,
+    warmSlotAccessPairGas, warmSloadGas, warmSstoreGas,
+    hne, Bool.false_eq_true, ↓reduceIte]
+  omega
+
+/-- Warm `SLOAD`/`SSTORE` gas saved by packed-slot coalescing is monotone in the number of writes. -/
+theorem slotCoalescingGasSaved_monotone (m n : Nat) (hmn : m ≤ n) :
+    slotCoalescingGasSaved m ≤ slotCoalescingGasSaved n := by
+  rcases Nat.eq_zero_or_pos m with rfl | hm
+  · simp only [slotCoalescingGasSaved, uncoalescedPackedWritesGas,
+      coalescedPackedWritesGas]
+    omega
+  · have hne_m : (m == 0) = false := beq_false_of_ne (by omega)
+    have hne_n : (n == 0) = false := beq_false_of_ne (by omega)
+    simp only [slotCoalescingGasSaved, uncoalescedPackedWritesGas,
+      coalescedPackedWritesGas, warmSlotAccessPairGas, warmSloadGas, warmSstoreGas,
+      hne_m, hne_n, Bool.false_eq_true, ↓reduceIte]
+    omega
 
 end Compiler.Proofs.SlotCoalescingShim

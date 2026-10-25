@@ -19,10 +19,10 @@ verity_contract source
 
 | Stage | Main files | Owns | Proof / trust status |
 |---|---|---|---|
-| Source syntax and executable semantics | `Verity/Core.lean`, `Verity/Macro/*` | Contract author surface, storage declarations, source helpers, executable Lean definitions | Layer 1 bridge to `CompilationModel` for the macro-lowered image |
-| CompilationModel | `Compiler/CompilationModel/*`, `Compiler/ECM.lean` | Declarative storage, params, statements, events, externals, ECMs, validation, trust-surface collection | Layer 2 source of truth; full model is wider than the proved fragment |
-| IR generation and proofs | `Compiler/Proofs/IRGeneration/*` | Supported-fragment witnesses, helper-aware source semantics, IR lowering correctness | Generic Layer 2 theorem for `SupportedSpec` |
-| Yul generation and native bridge | `Compiler/Codegen.lean`, `Compiler/Yul/*`, `Compiler/Proofs/YulGeneration/*` | Dispatcher, ABI loads, runtime helpers, Yul AST, EVMYulLean bridge | Layer 3 theorem surface plus explicit bridge hypotheses |
+| Source syntax and executable semantics | `Verity/Core.lean`, `Verity/Macro/*`, `Verity/Specs/*` | Contract author surface, typed `StorageSlot` lenses, total `FnSpec` / `unchangedExcept` specs, Poka-Yoke effect/slot-drift guards, executable Lean definitions | Layer 1 bridge to `CompilationModel` for the macro-lowered image (`0 constructorCompat`) |
+| CompilationModel | `Compiler/CompilationModel/*`, `Compiler/ECM.lean` | Declarative storage, params, statements, events, externals, ECMs, 1-pass `StmtFeatureMask` analysis, fail-closed `TrustSurface` validation | Layer 2 source of truth; full model is wider than the proved fragment |
+| IR generation and proofs | `Compiler/Proofs/IRGeneration/*`, `Compiler/Proofs/HelperStepProofs.lean` | `SourceStmtBridged` inductive closure, canonical `SourceSemantics` / `IRInterpreter` entrypoints, 5-channel `StorageLoc` & `PureWordBinOp` algebra, IR lowering correctness | Generic Layer 2 theorem for `SupportedSpec` |
+| Yul generation and native bridge | `Compiler/Codegen.lean`, `Compiler/Selector.lean`, `Compiler/Yul/*`, `Compiler/Proofs/YulGeneration/*`, `Compiler/Proofs/VerifiedECMShims.lean`, `Compiler/Proofs/SlotCoalescingShim.lean` | $O(\log N)$ `SelectorDispatchTree`, ABI loads, `CertifiedPatchRule` & `SlotCoalescingShim` optimizations, Yul AST, EVMYulLean bridge | Layer 3 theorem surface plus explicit bridge hypotheses |
 | Bytecode | `solc --strict-assembly` | Final deployment artifact | Trusted boundary |
 
 ## Feature Ownership

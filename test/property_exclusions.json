@@ -7,16 +7,30 @@
  "Vault": [
   "balanceOf_meets_spec",
   "balanceOf_preserves_state",
+  "deposit_meets_spec",
+  "deposit_preserves_assets_supply_synced",
+  "deposit_share_asset_conservation",
+  "deposit_withdraw_roundtrip",
   "totalAssets_meets_spec",
   "totalAssets_preserves_state",
   "totalSupply_meets_spec",
   "totalSupply_preserves_state",
   "vaultMinimal_functions_bridged",
   "vaultMinimal_runtime_lowers_native",
-  "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value"
+  "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value",
+  "withdraw_meets_spec",
+  "withdraw_preserves_assets_supply_synced",
+  "withdraw_reverts_when_insufficient_shares",
+  "withdraw_share_asset_conservation"
  ],
  "Counter": [
+  "decrement_isSuccess",
+  "decrement_run_eq",
+  "getCount_isSuccess",
+  "getCount_run_eq",
   "getStorage_reads_count",
+  "increment_isSuccess",
+  "increment_run_eq",
   "previewAddTwice_correct",
   "previewAddTwice_preserves_state",
   "previewOps_preserves_state",
@@ -24,6 +38,9 @@
   "setStorage_preserves_context",
   "setStorage_preserves_map_storage",
   "setStorage_updates_count"
+ ],
+ "Ledger": [
+  "transfer_wraparound_hazard_characterization"
  ],
  "Owned": [
   "isOwner_meets_spec",

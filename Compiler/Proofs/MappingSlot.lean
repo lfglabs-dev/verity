@@ -61,10 +61,9 @@ def solidityMappingSlot (baseSlot key : Nat) : Nat :=
 theorem evmYul_uint256_ofNat_mod (n : Nat) :
     EvmYul.UInt256.ofNat (n % Compiler.Constants.evmModulus) = EvmYul.UInt256.ofNat n := by
   unfold EvmYul.UInt256.ofNat
-  simp only [Id.run]
   congr 1
-  apply Fin.ext
-  simp [Fin.ofNat, EvmYul.UInt256.size]
+  apply BitVec.eq_of_toNat_eq
+  simp [Compiler.Constants.evmModulus]
 
 /-- The ABI encoding only sees base slot and key modulo `2^256`. -/
 theorem abiEncodeMappingSlot_mod (baseSlot key : Nat) :

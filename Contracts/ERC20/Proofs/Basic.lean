@@ -4,46 +4,58 @@
 
 import Contracts.ERC20.Spec
 import Contracts.ERC20.ERC20
+import Contracts.ERC20.Invariants
 import Verity.Proofs.Stdlib.Math
 import Verity.Proofs.Stdlib.Automation
 
 namespace Contracts.ERC20.Proofs
 
 open Verity
+open Contracts
 open Contracts.ERC20.Spec
 open Contracts.ERC20
-open Verity.Stdlib.Math (MAX_UINT256 requireSomeUint)
-open Verity.Proofs.Stdlib.Math (safeAdd_some)
+open Contracts.ERC20.Invariants
+open Verity.Stdlib.Math (MAX_UINT256 safeAdd requireSomeUint)
+open Verity.Proofs.Stdlib.Math (safeAdd_some safeAdd_none)
 open Verity.Proofs.Stdlib.Automation (address_beq_false_of_ne uint256_ge_val_le)
 
-private def constructorCompat (initialOwner : Address) : Contract Unit := do
-  setStorageAddr ownerSlot initialOwner
-  setStorage totalSupplySlot 0
-
-/-- `constructor` sets owner slot 0 and initializes supply slot 1. -/
+/-- `ERC20.constructor` sets owner slot 0 and initializes supply slot 1. -/
 theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
-    constructor_spec initialOwner s ((constructorCompat initialOwner).runState s) := by
+    constructor_spec initialOwner s ((ERC20.constructor initialOwner).runState s) := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simp [constructorCompat, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind,
+  · simp [ERC20.constructor, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind,
       ContractState.writeAddrSlot, ContractState.writeSlot]
-  · simp [constructorCompat, totalSupplySlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind,
+  · simp [ERC20.constructor, totalSupplySlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind,
       ContractState.writeAddrSlot, ContractState.writeSlot]
   · intro slotIdx h_neq
-    simp [constructorCompat, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind,
+    simp [ERC20.constructor, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind,
       Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageAddr]
   · intro slotIdx h_neq
-    simp [constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage, Contract.runState,
+    simp [ERC20.constructor, ownerSlot, totalSupplySlot, setStorageAddr, setStorage, Contract.runState,
       Verity.bind, Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storage]
-  · simp [Specs.sameStorageMap, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
+  · simp [Specs.sameStorageMap, ERC20.constructor, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
       Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot,
       ContractState.storageMap_unfold]
-  · simp [Specs.sameStorageMap2, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
+  · simp [Specs.sameStorageMap2, ERC20.constructor, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
       Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot,
       ContractState.storageMap2_unfold]
-  · simp [Specs.sameStorageArray, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
+  · simp [Specs.sameStorageArray, ERC20.constructor, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
       Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
-  · simp [Specs.sameContext, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
+  · simp [Specs.sameContext, ERC20.constructor, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
       Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
+
+/-- Direct alias for `constructor_meets_spec` on `ERC20.constructor`. -/
+theorem erc20_constructor_meets_spec (s : ContractState) (initialOwner : Address) :
+    constructor_spec initialOwner s ((ERC20.constructor initialOwner).runState s) :=
+  constructor_meets_spec s initialOwner
+
+/-- `ERC20.constructor` establishes a non-zero owner at `owner.slot` when `initialOwner ≠ 0`. -/
+theorem constructor_establishes_owner_nonzero (s : ContractState) (initialOwner : Address)
+    (h_nonzero : initialOwner ≠ 0) :
+    ((ERC20.constructor initialOwner).runState s).storageAddr owner.slot ≠ 0 := by
+  change ((ERC20.constructor initialOwner).runState s).storageAddr 0 ≠ 0
+  rw [(constructor_meets_spec s initialOwner).1]
+  exact h_nonzero
 
 /-- `approve` writes allowance(sender, spender) and leaves other state unchanged. -/
 theorem approve_meets_spec (s : ContractState) (spender : Address) (amount : Uint256) :
@@ -93,7 +105,7 @@ theorem getOwner_meets_spec (s : ContractState) :
 
 /-- Helper: unfold `mint` on the successful owner/non-overflow path. -/
 private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uint256)
-    (h_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0)
+    (h_owner : s.sender = s.storageAddr 0)
     (h_no_bal_overflow : (s.storageMap 2 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256)
     (h_no_sup_overflow : (s.storage 1 : Nat) + (amount : Nat) ≤ MAX_UINT256) :
     (mint toAddr amount).run s = ContractResult.success ()
@@ -104,7 +116,6 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
           else s.knownAddresses slotIdx } := by
   have h_safe_bal := safeAdd_some (s.storageMap 2 toAddr) amount h_no_bal_overflow
   have h_safe_sup := safeAdd_some (s.storage 1) amount h_no_sup_overflow
-  have h_tx0 : s.txOrigin = 0 := h_owner.2
   verity_unfold mint
   simp only [ownerSlot, balancesSlot, totalSupplySlot,
     h_owner, beq_self_eq_true, ite_true]
@@ -118,7 +129,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
 
 /-- `mint` satisfies `mint_spec` under owner and no-overflow preconditions. -/
 theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amount : Uint256)
-    (h_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0)
+    (h_owner : s.sender = s.storageAddr 0)
     (h_no_bal_overflow : (s.storageMap 2 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256)
     (h_no_sup_overflow : (s.storage 1 : Nat) + (amount : Nat) ≤ MAX_UINT256) :
     mint_spec toAddr amount s ((mint toAddr amount).runState s) := by
@@ -143,7 +154,7 @@ theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amoun
 
 /-- Under successful-owner assumptions, `mint` increases recipient balance by `amount`. -/
 theorem mint_increases_balance_when_owner (s : ContractState) (toAddr : Address) (amount : Uint256)
-    (h_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0)
+    (h_owner : s.sender = s.storageAddr 0)
     (h_no_bal_overflow : (s.storageMap 2 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256)
     (h_no_sup_overflow : (s.storage 1 : Nat) + (amount : Nat) ≤ MAX_UINT256) :
     ((mint toAddr amount).runState s).storageMap 2 toAddr = EVM.Uint256.add (s.storageMap 2 toAddr) amount := by
@@ -152,12 +163,22 @@ theorem mint_increases_balance_when_owner (s : ContractState) (toAddr : Address)
 
 /-- Under successful-owner assumptions, `mint` increases total supply by `amount`. -/
 theorem mint_increases_supply_when_owner (s : ContractState) (toAddr : Address) (amount : Uint256)
-    (h_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0)
+    (h_owner : s.sender = s.storageAddr 0)
     (h_no_bal_overflow : (s.storageMap 2 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256)
     (h_no_sup_overflow : (s.storage 1 : Nat) + (amount : Nat) ≤ MAX_UINT256) :
     ((mint toAddr amount).runState s).storage 1 = EVM.Uint256.add (s.storage 1) amount := by
   have h := mint_meets_spec_when_owner s toAddr amount h_owner h_no_bal_overflow h_no_sup_overflow
   exact h.2.1
+
+/-- `mint` reverts when the caller is not the current owner. -/
+theorem mint_reverts_when_not_owner (s : ContractState) (toAddr : Address) (amount : Uint256)
+    (h_not_owner : s.sender ≠ s.storageAddr owner.slot) :
+    ∃ msg, (mint toAddr amount).run s = ContractResult.revert msg s := by
+  simp only [mint, ownerSlot, balancesSlot, totalSupplySlot,
+    msgSender, getStorageAddr, getStorage, setStorage, getMapping, setMapping,
+    Verity.require, Verity.bind, Bind.bind, Contract.run]
+  simp [address_beq_false_of_ne s.sender (s.storageAddr 0) h_not_owner,
+    ContractState.readAddrSlot]
 
 /-- Helper: unfold `transfer` on the successful self-transfer path. -/
 private theorem transfer_unfold_self (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -254,5 +275,15 @@ theorem transfer_increases_recipient_balance_when_sufficient
   have h := transfer_meets_spec_when_sufficient s toAddr amount h_balance (fun _ => h_no_overflow)
   simp [transfer_spec, h_ne, beq_iff_eq] at h
   simpa [Contract.runState_eq_snd_run] using h.2.2.1
+
+/-- `transfer` reverts when the sender balance is strictly less than `amount`. -/
+theorem transfer_reverts_when_insufficient (s : ContractState) (toAddr : Address) (amount : Uint256)
+    (h_insufficient : s.storageMap balances.slot s.sender < amount) :
+    ∃ msg, (transfer toAddr amount).run s = ContractResult.revert msg s := by
+  have h_not_ge : ¬(s.storageMap 2 s.sender ≥ amount) := Nat.not_le.mpr h_insufficient
+  simp only [transfer, balancesSlot, msgSender, getMapping,
+    Verity.require, Verity.bind, Bind.bind, Contract.run,
+    ContractState.readMap, ContractState.storageMap] at *
+  simp [h_not_ge]
 
 end Contracts.ERC20.Proofs

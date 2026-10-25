@@ -69,19 +69,20 @@ instance : Inhabited IRStorageWord := ⟨ofNat 0⟩
 
 @[simp] theorem ofNat_toNat (w : IRStorageWord) : ofNat w.toNat = w := by
   cases w with
-  | mk v =>
-    cases v with
-    | mk val isLt =>
-      show UInt256.ofNat val = ⟨⟨val, isLt⟩⟩
+  | mk bv =>
+    cases bv with
+    | ofFin v =>
+      show UInt256.ofNat v.val = ⟨BitVec.ofFin v⟩
       apply congrArg UInt256.mk
+      apply BitVec.eq_of_toFin_eq
       apply Fin.ext
-      show val % UInt256.size = val
-      exact Nat.mod_eq_of_lt isLt
+      show v.val % UInt256.size = v.val
+      exact Nat.mod_eq_of_lt v.isLt
 
 /-- Every `IRStorageWord` value is bounded by `UInt256.size`. -/
 theorem toNat_lt_size (w : IRStorageWord) : w.toNat < UInt256.size := by
   cases w with
-  | mk v => exact v.isLt
+  | mk bv => exact bv.isLt
 
 end IRStorageWord
 
@@ -113,20 +114,11 @@ instance : Inhabited IRStorageSlot := ⟨ofNat 0⟩
 
 @[simp] theorem toUInt256_ofNat (n : Nat) : (ofNat n).toUInt256 = UInt256.ofNat n := rfl
 
-@[simp] theorem ofNat_toNat (slot : IRStorageSlot) : ofNat slot.toNat = slot := by
-  cases slot with
-  | mk v =>
-    cases v with
-    | mk val isLt =>
-      show UInt256.ofNat val = ⟨⟨val, isLt⟩⟩
-      apply congrArg UInt256.mk
-      apply Fin.ext
-      show val % UInt256.size = val
-      exact Nat.mod_eq_of_lt isLt
+@[simp] theorem ofNat_toNat (slot : IRStorageSlot) : ofNat slot.toNat = slot :=
+  IRStorageWord.ofNat_toNat slot
 
-theorem toNat_lt_size (slot : IRStorageSlot) : slot.toNat < UInt256.size := by
-  cases slot with
-  | mk v => exact v.isLt
+theorem toNat_lt_size (slot : IRStorageSlot) : slot.toNat < UInt256.size :=
+  IRStorageWord.toNat_lt_size slot
 
 theorem eq_of_toNat_eq {a b : IRStorageSlot} (h : a.toNat = b.toNat) : a = b := by
   rw [← ofNat_toNat a, ← ofNat_toNat b, h]

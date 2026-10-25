@@ -6767,4 +6767,302 @@ def simpleStorage_supported_spec : SupportedSpec simpleStorageSupportedSpecModel
     functions := simpleStorage_supported_function }
 
 
+/-! ## Wave 4 (Piste 4A & 4C): Unified `SurfaceFeature` Mask and `SourceStmtBridged` Probe -/
+
+/-- Wave 4 (Piste 4A): Unified enumeration of the eight contract-level surface
+features tracked by `SupportedSpecSurface`. -/
+inductive SurfaceFeature where
+  | events
+  | errors
+  | externals
+  | adtTypes
+  | checkedArith
+  | templateIntrinsics
+  | fallback
+  | receive
+  deriving DecidableEq, Repr
+
+/-- Boolean detector for whether a single `SurfaceFeature` is active on `m`. -/
+def hasSurfaceFeature (m : CompilationModel) : SurfaceFeature → Bool
+  | .events => !m.events.isEmpty
+  | .errors => !m.errors.isEmpty
+  | .externals => !m.externals.isEmpty
+  | .adtTypes => !m.adtTypes.isEmpty
+  | .checkedArith => contractUsesCheckedArithmetic m
+  | .templateIntrinsics => !(templateIntrinsicItems m).isEmpty
+  | .fallback => m.functions.any (fun fn => fn.name == "fallback")
+  | .receive => m.functions.any (fun fn => fn.name == "receive")
+
+/-- Canonical list of all eight `SurfaceFeature` flags. -/
+def allSurfaceFeatures : List SurfaceFeature :=
+  [ .events, .errors, .externals, .adtTypes,
+    .checkedArith, .templateIntrinsics, .fallback, .receive ]
+
+/-- Active contract-level surface features of `m`. -/
+def activeSurfaceFeatures (m : CompilationModel) : List SurfaceFeature :=
+  allSurfaceFeatures.filter (hasSurfaceFeature m)
+
+/-- Record summary of contract surface feature presence on `m`. -/
+structure ContractSurfaceSummary where
+  active : List SurfaceFeature
+  deriving DecidableEq, Repr
+
+/-- Build the `ContractSurfaceSummary` for `m`. -/
+def contractSurfaceSummaryOf (m : CompilationModel) : ContractSurfaceSummary :=
+  { active := activeSurfaceFeatures m }
+
+/-- Wave 4 (Piste 4C): Statement-level surface cleanliness predicate combining
+checked-arithmetic absence and template-intrinsic absence. -/
+def stmtSurfaceClean (s : Stmt) : Bool :=
+  !stmtMayUseCheckedArithmetic s && (collectTemplateIntrinsicsFromStmt s).isEmpty
+
+/-- Statement-list surface cleanliness fold. -/
+def stmtsSurfaceClean : List Stmt → Bool
+  | [] => true
+  | s :: rest => stmtSurfaceClean s && stmtsSurfaceClean rest
+
+/-- Semantic statement bridge predicate for Wave 4 (Piste 4C): statement `s`
+has well-defined bridged IR lowering semantics under `fuel` (no unbridged
+checked-arithmetic panic synthesis or template-intrinsic Yul helper requirements). -/
+def SourceStmtBridged (_fuel : Nat := 0) (s : Stmt) : Prop :=
+  stmtMayUseCheckedArithmetic s = false ∧ collectTemplateIntrinsicsFromStmt s = []
+
+/-- Statement-list semantic bridge predicate for Wave 4 (Piste 4C). -/
+def SourceStmtsBridged (fuel : Nat := 0) : List Stmt → Prop
+  | [] => True
+  | s :: rest => SourceStmtBridged fuel s ∧ SourceStmtsBridged fuel rest
+
+theorem stmtSurfaceClean_eq_true_iff (s : Stmt) :
+    stmtSurfaceClean s = true ↔
+      stmtMayUseCheckedArithmetic s = false ∧
+        collectTemplateIntrinsicsFromStmt s = [] := by
+  unfold stmtSurfaceClean
+  rw [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_iff]
+
+theorem stmtsSurfaceClean_nil :
+    stmtsSurfaceClean [] = true :=
+  rfl
+
+theorem stmtsSurfaceClean_cons (s : Stmt) (rest : List Stmt) :
+    stmtsSurfaceClean (s :: rest) = (stmtSurfaceClean s && stmtsSurfaceClean rest) :=
+  rfl
+
+theorem stmtsSurfaceClean_append (xs ys : List Stmt) :
+    stmtsSurfaceClean (xs ++ ys) = (stmtsSurfaceClean xs && stmtsSurfaceClean ys) := by
+  induction xs with
+  | nil =>
+      simp only [List.nil_append, stmtsSurfaceClean_nil, Bool.true_and]
+  | cons x rest ih =>
+      simp only [List.cons_append, stmtsSurfaceClean_cons, ih, Bool.and_assoc]
+
+theorem stmtsSurfaceClean_imp_noCheckedArithmetic :
+    ∀ (stmts : List Stmt), stmtsSurfaceClean stmts = true →
+      stmts.any stmtMayUseCheckedArithmetic = false
+  | [], _ => rfl
+  | s :: rest, h => by
+      rw [stmtsSurfaceClean_cons, Bool.and_eq_true] at h
+      have hs : stmtMayUseCheckedArithmetic s = false :=
+        ((stmtSurfaceClean_eq_true_iff s).mp h.1).1
+      have hrest : rest.any stmtMayUseCheckedArithmetic = false :=
+        stmtsSurfaceClean_imp_noCheckedArithmetic rest h.2
+      simp only [List.any_cons, hs, hrest, Bool.or_self]
+
+theorem stmtSurfaceClean_imp_singleton_noCheckedArithmetic
+    (s : Stmt) (h : stmtSurfaceClean s = true) :
+    stmtListMayUseCheckedArithmetic [s] = false := by
+  rw [stmtListMayUseCheckedArithmetic]
+  exact ((stmtSurfaceClean_eq_true_iff s).mp h).1
+
+theorem stmtsSurfaceClean_imp_noTemplateIntrinsics :
+    ∀ (stmts : List Stmt), stmtsSurfaceClean stmts = true →
+      collectTemplateIntrinsicsFromStmts stmts = []
+  | [], _ => rfl
+  | s :: rest, h => by
+      rw [stmtsSurfaceClean_cons, Bool.and_eq_true] at h
+      have hs : collectTemplateIntrinsicsFromStmt s = [] :=
+        ((stmtSurfaceClean_eq_true_iff s).mp h.1).2
+      have hrest : collectTemplateIntrinsicsFromStmts rest = [] :=
+        stmtsSurfaceClean_imp_noTemplateIntrinsics rest h.2
+      unfold collectTemplateIntrinsicsFromStmts
+      rw [List.flatMap_cons, hs, List.nil_append]
+      exact hrest
+
+theorem SourceStmtBridged_of_surfaceClean
+    {fuel : Nat} (s : Stmt) (h : stmtSurfaceClean s = true) :
+    SourceStmtBridged fuel s :=
+  (stmtSurfaceClean_eq_true_iff s).mp h
+
+theorem SourceStmtBridged_iff_surfaceClean (fuel : Nat) (s : Stmt) :
+    SourceStmtBridged fuel s ↔ stmtSurfaceClean s = true :=
+  (stmtSurfaceClean_eq_true_iff s).symm
+
+theorem SourceStmtsBridged_nil (fuel : Nat := 0) :
+    SourceStmtsBridged fuel [] :=
+  trivial
+
+theorem SourceStmtsBridged_cons_iff
+    {fuel : Nat} (s : Stmt) (rest : List Stmt) :
+    SourceStmtsBridged fuel (s :: rest) ↔
+      SourceStmtBridged fuel s ∧ SourceStmtsBridged fuel rest :=
+  Iff.rfl
+
+theorem SourceStmtsBridged_iff_stmtsSurfaceClean
+    (fuel : Nat) :
+    ∀ (stmts : List Stmt),
+      SourceStmtsBridged fuel stmts ↔ stmtsSurfaceClean stmts = true
+  | [] => by
+      simp only [SourceStmtsBridged, stmtsSurfaceClean_nil]
+  | s :: rest => by
+      rw [SourceStmtsBridged_cons_iff, stmtsSurfaceClean_cons, Bool.and_eq_true,
+        SourceStmtBridged_iff_surfaceClean fuel s,
+        SourceStmtsBridged_iff_stmtsSurfaceClean fuel rest]
+
+theorem activeSurfaceFeatures_eq_nil_iff (m : CompilationModel) :
+    activeSurfaceFeatures m = [] ↔
+      ∀ f ∈ allSurfaceFeatures, hasSurfaceFeature m f = false := by
+  simp only [activeSurfaceFeatures, List.filter_eq_nil_iff, Bool.not_eq_true]
+
+theorem simpleStorage_stmtsSurfaceClean :
+    (simpleStorageSupportedSpecModel.functions.map (fun fn => stmtsSurfaceClean fn.body)) =
+      [true] := by
+  simp only [simpleStorageSupportedSpecModel, List.map_cons, List.map_nil,
+    stmtsSurfaceClean_cons, stmtsSurfaceClean_nil, Bool.and_true,
+    stmtSurfaceClean, stmtMayUseCheckedArithmetic]
+  rw [collectTemplateIntrinsicsFromStmt.eq_def]
+  simp only [Stmt.directMetadata, Stmt.childLists, List.attach_nil,
+    List.flatMap_nil, List.append_nil, List.flatMap_cons]
+  rw [collectTemplateIntrinsicsFromExpr.eq_def]
+  decide
+
+/-! ## Wave 4 (Piste 4A & 4C): Inductive Closure and Surface Feature Characterization -/
+
+/-- Function-level surface cleanliness predicate. -/
+def functionSurfaceClean (fn : FunctionSpec) : Bool :=
+  stmtsSurfaceClean fn.body
+
+/-- Semantic function-body bridge predicate under `fuel`. -/
+def SourceFunctionBridged (fuel : Nat := 0) (fn : FunctionSpec) : Prop :=
+  SourceStmtsBridged fuel fn.body
+
+/-- Contract-level function surface cleanliness fold. -/
+def contractFunctionsSurfaceClean (m : CompilationModel) : Bool :=
+  m.functions.all functionSurfaceClean
+
+/-- Unified contract-level semantic bridge predicate under `fuel`. -/
+def SourceContractBridged (_fuel : Nat := 0) (m : CompilationModel) : Prop :=
+  contractFunctionsSurfaceClean m = true ∧ activeSurfaceFeatures m = []
+
+theorem SourceStmtBridged_fuel_irrel (f₁ f₂ : Nat) (s : Stmt) :
+    SourceStmtBridged f₁ s ↔ SourceStmtBridged f₂ s :=
+  Iff.rfl
+
+theorem SourceStmtsBridged_fuel_irrel (f₁ f₂ : Nat) (stmts : List Stmt) :
+    SourceStmtsBridged f₁ stmts ↔ SourceStmtsBridged f₂ stmts := by
+  rw [SourceStmtsBridged_iff_stmtsSurfaceClean f₁ stmts,
+    SourceStmtsBridged_iff_stmtsSurfaceClean f₂ stmts]
+
+theorem SourceStmtsBridged_append_iff (fuel : Nat) (xs ys : List Stmt) :
+    SourceStmtsBridged fuel (xs ++ ys) ↔
+      (SourceStmtsBridged fuel xs ∧ SourceStmtsBridged fuel ys) := by
+  rw [SourceStmtsBridged_iff_stmtsSurfaceClean fuel (xs ++ ys),
+    SourceStmtsBridged_iff_stmtsSurfaceClean fuel xs,
+    SourceStmtsBridged_iff_stmtsSurfaceClean fuel ys,
+    stmtsSurfaceClean_append, Bool.and_eq_true]
+
+theorem SourceStmtsBridged_singleton_iff (fuel : Nat) (s : Stmt) :
+    SourceStmtsBridged fuel [s] ↔ SourceStmtBridged fuel s := by
+  simp only [SourceStmtsBridged, and_true]
+
+theorem SourceStmtsBridged_of_mem :
+    ∀ {fuel : Nat} {stmts : List Stmt} {s : Stmt},
+      SourceStmtsBridged fuel stmts → s ∈ stmts → SourceStmtBridged fuel s
+  | _, [], _, _, hmem => by cases hmem
+  | fuel, x :: rest, s, hB, hmem => by
+      rw [List.mem_cons] at hmem
+      rcases hmem with rfl | hrest
+      · exact hB.1
+      · exact SourceStmtsBridged_of_mem hB.2 hrest
+
+theorem SourceFunctionBridged_iff_surfaceClean (fuel : Nat) (fn : FunctionSpec) :
+    SourceFunctionBridged fuel fn ↔ functionSurfaceClean fn = true := by
+  unfold SourceFunctionBridged functionSurfaceClean
+  exact SourceStmtsBridged_iff_stmtsSurfaceClean fuel fn.body
+
+theorem SourceFunctionBridged_fuel_irrel (f₁ f₂ : Nat) (fn : FunctionSpec) :
+    SourceFunctionBridged f₁ fn ↔ SourceFunctionBridged f₂ fn :=
+  SourceStmtsBridged_fuel_irrel f₁ f₂ fn.body
+
+theorem contractFunctionsSurfaceClean_nil (m : CompilationModel)
+    (h : m.functions = []) :
+    contractFunctionsSurfaceClean m = true := by
+  unfold contractFunctionsSurfaceClean
+  rw [h]
+  rfl
+
+theorem contractFunctionsSurfaceClean_iff_forall (m : CompilationModel) :
+    contractFunctionsSurfaceClean m = true ↔
+      ∀ fn ∈ m.functions, SourceFunctionBridged 0 fn := by
+  unfold contractFunctionsSurfaceClean
+  rw [List.all_eq_true]
+  exact ⟨fun h fn hfn => (SourceFunctionBridged_iff_surfaceClean 0 fn).mpr (h fn hfn),
+    fun h fn hfn => (SourceFunctionBridged_iff_surfaceClean 0 fn).mp (h fn hfn)⟩
+
+theorem SourceContractBridged_fuel_irrel (f₁ f₂ : Nat) (m : CompilationModel) :
+    SourceContractBridged f₁ m ↔ SourceContractBridged f₂ m :=
+  Iff.rfl
+
+theorem SourceContractBridged_imp_activeSurfaceFeatures_nil
+    (fuel : Nat) (m : CompilationModel) (h : SourceContractBridged fuel m) :
+    activeSurfaceFeatures m = [] :=
+  h.2
+
+theorem SourceContractBridged_imp_functionsClean
+    (fuel : Nat) (m : CompilationModel) (h : SourceContractBridged fuel m) :
+    contractFunctionsSurfaceClean m = true :=
+  h.1
+
+theorem hasSurfaceFeature_events_false_iff (m : CompilationModel) :
+    hasSurfaceFeature m .events = false ↔ m.events = [] := by
+  unfold hasSurfaceFeature
+  rw [Bool.not_eq_false', List.isEmpty_iff]
+
+theorem hasSurfaceFeature_errors_false_iff (m : CompilationModel) :
+    hasSurfaceFeature m .errors = false ↔ m.errors = [] := by
+  unfold hasSurfaceFeature
+  rw [Bool.not_eq_false', List.isEmpty_iff]
+
+theorem hasSurfaceFeature_externals_false_iff (m : CompilationModel) :
+    hasSurfaceFeature m .externals = false ↔ m.externals = [] := by
+  unfold hasSurfaceFeature
+  rw [Bool.not_eq_false', List.isEmpty_iff]
+
+theorem hasSurfaceFeature_adtTypes_false_iff (m : CompilationModel) :
+    hasSurfaceFeature m .adtTypes = false ↔ m.adtTypes = [] := by
+  unfold hasSurfaceFeature
+  rw [Bool.not_eq_false', List.isEmpty_iff]
+
+theorem simpleStorage_contractFunctionsSurfaceClean :
+    contractFunctionsSurfaceClean simpleStorageSupportedSpecModel = true := by
+  unfold contractFunctionsSurfaceClean functionSurfaceClean
+  have h := simpleStorage_stmtsSurfaceClean
+  simp only [simpleStorageSupportedSpecModel, List.map_cons, List.map_nil, List.cons.injEq, and_true] at h
+  simp only [simpleStorageSupportedSpecModel, List.all_cons, List.all_nil, Bool.and_true, h]
+
+theorem simpleStorage_activeSurfaceFeatures_nil :
+    activeSurfaceFeatures simpleStorageSupportedSpecModel = [] := by
+  have hArith : contractUsesCheckedArithmetic simpleStorageSupportedSpecModel = false :=
+    simpleStorage_supported_spec.surface.noCheckedArithmetic
+  have hIntr : templateIntrinsicItems simpleStorageSupportedSpecModel = [] :=
+    simpleStorage_supported_spec.surface.noTemplateIntrinsics
+  unfold activeSurfaceFeatures allSurfaceFeatures
+  simp only [List.filter_cons, List.filter_nil, hasSurfaceFeature]
+  rw [hArith, hIntr]
+  simp only [simpleStorageSupportedSpecModel, List.isEmpty_nil,
+    Bool.not_true, Bool.false_eq_true, ↓reduceIte, List.any_cons, List.any_nil, Bool.or_false]
+  decide
+
+theorem simpleStorage_sourceContractBridged :
+    SourceContractBridged 0 simpleStorageSupportedSpecModel :=
+  ⟨simpleStorage_contractFunctionsSurfaceClean, simpleStorage_activeSurfaceFeatures_nil⟩
+
 end Compiler.Proofs.IRGeneration

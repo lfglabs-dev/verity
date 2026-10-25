@@ -142,14 +142,30 @@ def applyTempReuseToObject (maxStackLocals : Nat) (obj : YulObject) : YulObject 
   { obj with
     runtimeCode := reuseBlockTemps maxStackLocals [] obj.runtimeCode }
 
+/-- Apply `reuseBlockTempsWithSpillBase` with dynamic watermark `computedSpillBase memoryHighWaterMark`
+    to the runtime code of a `YulObject`. -/
+def applyDynamicTempReuseToObject
+    (maxStackLocals memoryHighWaterMark : Nat) (obj : YulObject) : YulObject :=
+  { obj with
+    runtimeCode :=
+      reuseBlockTempsWithSpillBase maxStackLocals (computedSpillBase memoryHighWaterMark) [] obj.runtimeCode }
+
 /-- Profile-guided Yul emission wrapper around `emitYulWithOptionsReport`.
-    When `cfg.enableDynamicSpillWatermark = false`, this reduces definitionally to
-    `emitYulWithOptionsReport model cfg.yulOptions`. -/
+    Wires `cfg.enableSlotCoalescingShim`, `cfg.activePlugins`, and
+    `cfg.enableDynamicSpillWatermark` (`computedSpillBase cfg.memoryHighWaterMark`).
+    When `cfg = PipelineConfig.unoptimized opts`, this reduces definitionally (`rfl`) to
+    `emitYulWithOptionsReport model opts`. -/
 def emitYulWithProfile (model : IRContract) (cfg : PipelineConfig) :
     YulObject × Yul.PatchPassReport :=
-  let baseReport := emitYulWithOptionsReport model cfg.yulOptions
+  let effectiveOpts : YulEmitOptions :=
+    if cfg.enableSlotCoalescingShim && !cfg.activePlugins.isEmpty then
+      { cfg.yulOptions with
+        patchConfig := { cfg.yulOptions.patchConfig with enabled := true } }
+    else
+      cfg.yulOptions
+  let baseReport := emitYulWithOptionsReport model effectiveOpts
   if cfg.enableDynamicSpillWatermark then
-    (applyTempReuseToObject cfg.maxStackLocals baseReport.1, baseReport.2)
+    (applyDynamicTempReuseToObject cfg.maxStackLocals cfg.memoryHighWaterMark baseReport.1, baseReport.2)
   else
     baseReport
 

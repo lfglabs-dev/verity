@@ -27,6 +27,7 @@ contract PropertyCounterTest is YulTestBase {
      * Property 1: increment_state_preserved_except_count
      * Property: increment_adds_one
      * Property: increment_preserves_wellformedness
+     * Property: increment_unchangedExcept
      * Property: setStorage_preserves_other_slots
      * Theorem: Increment only modifies storage slot 0 (count)
      * All other state (sender, this, msgValue, blockTimestamp) unchanged
@@ -55,6 +56,7 @@ contract PropertyCounterTest is YulTestBase {
      * Property 2: decrement_state_preserved_except_count
      * Property: decrement_subtracts_one
      * Property: decrement_preserves_wellformedness
+     * Property: decrement_unchangedExcept
      * Theorem: Decrement only modifies storage slot 0 (count)
      */
     function testProperty_Decrement_OnlyModifiesCount() public {
@@ -81,6 +83,8 @@ contract PropertyCounterTest is YulTestBase {
      * Property 3: getCount_state_preserved
      * Property: getCount_preserves_state
      * Property: getCount_reads_count_value
+     * Property: getCount_unchangedExcept
+     * Property: getCount_satisfies_fnSpec
      * Theorem: getCount is read-only, preserves all state
      */
     function testProperty_GetCount_PreservesState() public {
@@ -104,6 +108,8 @@ contract PropertyCounterTest is YulTestBase {
      * Property 4: increment_getCount_meets_spec
      * Property: increment_getCount_correct
      * Property: increment_meets_spec
+     * Property: increment_satisfies_fnSpec
+     * Property: increment_fnSpec_implies_meets_spec
      * Theorem: Increment followed by getCount returns count + 1
      */
     function testProperty_Increment_GetCount_ReturnsIncremented() public {
@@ -125,6 +131,8 @@ contract PropertyCounterTest is YulTestBase {
      * Property 5: decrement_getCount_meets_spec
      * Property: getCount_meets_spec
      * Property: decrement_meets_spec
+     * Property: decrement_satisfies_fnSpec
+     * Property: decrement_fnSpec_implies_meets_spec
      * Theorem: Decrement followed by getCount returns count - 1
      */
     function testProperty_Decrement_GetCount_ReturnsDecremented() public {

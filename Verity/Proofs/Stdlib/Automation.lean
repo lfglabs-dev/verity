@@ -1356,8 +1356,6 @@ theorem bind_run_snd_of_preserve {α β : Type}
       subst hs'
       simpa [Verity.bind, Contract.run, h] using hk a
   | revert msg s' =>
-      have hs' : s' = s := by simpa [Contract.run, h, ContractResult.snd] using hm
-      subst hs'
       simp [Verity.bind, Contract.run, h, ContractResult.snd]
 
 @[simp]
@@ -1426,6 +1424,370 @@ theorem sameContext_of_viewPreservesState {s s' : ContractState}
     (h : Verity.Specs.viewPreservesState s s') :
     Verity.Specs.sameContext s s' :=
   h.2.1
+
+/-!
+## Wave 3 Monadic Step & Frame Automation (`verity_step` / `verity_frame`)
+
+Compositional monadic step and revert characterization lemmas plus tactic macros
+for stepping through `Contract.run` / `Verity.bind` / `require` computations and
+discharging storage-frame / context equality obligations.
+-/
+
+/-- `Verity.pure` immediately succeeds without modifying contract state. -/
+@[simp]
+theorem Contract.run_pure_eq {α : Type} (x : α) (s : ContractState) :
+    (Verity.pure x).run s = ContractResult.success x s :=
+  rfl
+
+/-- Compositional `Verity.bind` step when the prefix computation succeeds on `s`. -/
+@[simp]
+theorem Contract.run_bind_success {α β : Type} (m : Contract α) (f : α → Contract β)
+    (s : ContractState) (a : α)
+    (h : m.run s = ContractResult.success a s) :
+    (Verity.bind m f).run s = (f a).run s :=
+  Verity.bind_run_success m f s a h
+
+/-- Compositional `Verity.bind` step when the prefix computation succeeds with state `s₁`
+    and the continuation succeeds on `s₁`. -/
+theorem Contract.run_bind_success_of_isSuccess {α β : Type} (m : Contract α) (f : α → Contract β)
+    (s s₁ : ContractState) (a : α)
+    (hm : m.run s = ContractResult.success a s₁)
+    (hf : ((f a).run s₁).isSuccess = true) :
+    (Verity.bind m f).run s = (f a).run s₁ := by
+  have hm_eq : m s = ContractResult.success a s₁ := Contract.eq_of_run_success hm
+  unfold Contract.run at hf ⊢
+  cases hfa : f a s₁ with
+  | success b s₂ =>
+      simp [Verity.bind, hm_eq, hfa]
+  | revert msg s₂ =>
+      simp [hfa, ContractResult.isSuccess] at hf
+
+/-- Compositional `Verity.bind` step chaining two successful `Contract.run` evaluations. -/
+theorem Contract.run_bind_success_chain {α β : Type} (m : Contract α) (f : α → Contract β)
+    (s s₁ s₂ : ContractState) (a : α) (b : β)
+    (hm : m.run s = ContractResult.success a s₁)
+    (hf : (f a).run s₁ = ContractResult.success b s₂) :
+    (Verity.bind m f).run s = ContractResult.success b s₂ := by
+  have hm_eq : m s = ContractResult.success a s₁ := Contract.eq_of_run_success hm
+  have hf_eq : f a s₁ = ContractResult.success b s₂ := Contract.eq_of_run_success hf
+  simp [Verity.bind, Contract.run, hm_eq, hf_eq]
+
+/-- Compositional `Verity.bind` short-circuit lemma when the prefix computation reverts. -/
+@[simp]
+theorem Contract.run_bind_revert {α β : Type} (m : Contract α) (f : α → Contract β)
+    (s s₁ : ContractState) (msg : String)
+    (h : m.run s = ContractResult.revert msg s₁) :
+    (Verity.bind m f).run s = ContractResult.revert msg s₁ := by
+  unfold Contract.run at h
+  cases hm : m s with
+  | success a s' =>
+      simp [hm] at h
+  | revert msg' s' =>
+      simp [hm] at h
+      rcases h with ⟨hmsg, hs⟩
+      subst hmsg
+      subst hs
+      simp [Verity.bind, Contract.run, hm]
+
+/-- `require` with a satisfied guard steps directly to its continuation under `Contract.run`. -/
+@[simp]
+theorem Contract.run_require_true_bind {α : Type} (cond : Bool) (msg : String)
+    (k : Unit → Contract α) (s : ContractState)
+    (h : cond = true) :
+    (Verity.bind (require cond msg) k).run s = (k ()).run s := by
+  subst h
+  rfl
+
+/-- `require` with a violated guard short-circuits `Verity.bind` to `ContractResult.revert`. -/
+@[simp]
+theorem Contract.run_require_false_bind {α : Type} (cond : Bool) (msg : String)
+    (k : Unit → Contract α) (s : ContractState)
+    (h : cond = false) :
+    (Verity.bind (require cond msg) k).run s = ContractResult.revert msg s := by
+  subst h
+  rfl
+
+/-- Any computation whose `Contract.run` produces `ContractResult.success` has `isSuccess = true`. -/
+@[simp]
+theorem Contract.isSuccess_of_run_success {α : Type} {m : Contract α}
+    {s s' : ContractState} {v : α}
+    (h : m.run s = ContractResult.success v s') :
+    (m.run s).isSuccess = true := by
+  rw [h]
+  rfl
+
+/-- Any computation whose `Contract.run` produces `ContractResult.revert` has `isSuccess = false`. -/
+@[simp]
+theorem Contract.isSuccess_of_run_revert {α : Type} {m : Contract α}
+    {s s' : ContractState} {msg : String}
+    (h : m.run s = ContractResult.revert msg s') :
+    (m.run s).isSuccess = false := by
+  rw [h]
+  rfl
+
+/-!
+## Primitive `Contract.run` Reduction & Conditional Lemmas (`verity_prove_spec`)
+
+Direct `@[simp]` reduction lemmas for primitive storage, context, and conditional
+`Contract.run` evaluations, paired with the `verity_prove_spec` tactic macro.
+-/
+
+/-- `getStorage` reads the `Uint256` word at `slot.slot` without modifying state. -/
+@[simp]
+theorem Contract.run_getStorage_eq (slot : StorageSlot Uint256) (s : ContractState) :
+    (getStorage slot).run s = ContractResult.success (s.storage slot.slot) s :=
+  rfl
+
+/-- `setStorage` writes `val` to `slot.slot` via `ContractState.writeSlot`. -/
+@[simp]
+theorem Contract.run_setStorage_eq (slot : StorageSlot Uint256) (val : Uint256)
+    (s : ContractState) :
+    (setStorage slot val).run s = ContractResult.success () (s.writeSlot slot.slot val) :=
+  rfl
+
+/-- `getStorageAddr` reads the `Address` at `slot.slot` without modifying state. -/
+@[simp]
+theorem Contract.run_getStorageAddr_eq (slot : StorageSlot Address) (s : ContractState) :
+    (getStorageAddr slot).run s = ContractResult.success (s.storageAddr slot.slot) s :=
+  rfl
+
+/-- `setStorageAddr` writes `val` to `slot.slot` via `ContractState.writeAddrSlot`. -/
+@[simp]
+theorem Contract.run_setStorageAddr_eq (slot : StorageSlot Address) (val : Address)
+    (s : ContractState) :
+    (setStorageAddr slot val).run s = ContractResult.success () (s.writeAddrSlot slot.slot val) :=
+  rfl
+
+/-- `getMapping` reads the `Uint256` entry at `(slot.slot, k)` without modifying state. -/
+@[simp]
+theorem Contract.run_getMapping_eq (slot : StorageSlot (Address → Uint256))
+    (k : Address) (s : ContractState) :
+    (getMapping slot k).run s = ContractResult.success (s.storageMap slot.slot k) s :=
+  rfl
+
+/-- `setMapping` writes `val` at `(slot.slot, k)` via `ContractState.writeMap` and records `k` in `knownAddresses`. -/
+@[simp]
+theorem Contract.run_setMapping_eq (slot : StorageSlot (Address → Uint256))
+    (k : Address) (val : Uint256) (s : ContractState) :
+    (setMapping slot k val).run s =
+      ContractResult.success () { s.writeMap slot.slot k val with
+        knownAddresses := fun slotIdx =>
+          if slotIdx == slot.slot then
+            (s.knownAddresses slotIdx).insert k
+          else
+            s.knownAddresses slotIdx
+      } :=
+  rfl
+
+/-- `msgSender` returns `s.sender` without modifying state. -/
+@[simp]
+theorem Contract.run_msgSender_eq (s : ContractState) :
+    msgSender.run s = ContractResult.success s.sender s :=
+  rfl
+
+/-- Conditional `Contract.run` steps to the `then` branch when `c` holds. -/
+@[simp]
+theorem Contract.run_ite_true {α : Type} {c : Prop} [Decidable c]
+    (t e : Contract α) (s : ContractState) (hc : c) :
+    (if c then t else e).run s = t.run s := by
+  rw [if_pos hc]
+
+/-- Conditional `Contract.run` steps to the `else` branch when `¬c` holds. -/
+@[simp]
+theorem Contract.run_ite_false {α : Type} {c : Prop} [Decidable c]
+    (t e : Contract α) (s : ContractState) (hc : ¬c) :
+    (if c then t else e).run s = e.run s := by
+  rw [if_neg hc]
+
+/-- Simplify one monadic `Contract.run` / `Verity.bind` / `require` step. -/
+syntax (name := verity_step)
+  "verity_step" : tactic
+
+/-- Discharge storage frame / context equality goals via reflexivity, decidability, or `storage_simps`. -/
+syntax (name := verity_frame_goal)
+  "verity_frame" : tactic
+
+/-- Chain `verity_step` and `verity_frame` to discharge straight-line contract function
+    specifications without `simp_all`. -/
+syntax (name := verity_prove_spec)
+  "verity_prove_spec" : tactic
+
+/-- Unfold one or more definitions/specs and discharge via `verity_prove_spec`. -/
+syntax (name := verity_prove_spec_with)
+  "verity_prove_spec " simpLemma,+ : tactic
+
+macro_rules
+  | `(tactic| verity_step) =>
+      `(tactic|
+        ((try simp only [
+            Contract.run_pure_eq,
+            Contract.run_bind_success,
+            Contract.run_bind_revert,
+            Contract.run_require_true_bind,
+            Contract.run_require_false_bind,
+            Contract.run_getStorage_eq,
+            Contract.run_setStorage_eq,
+            Contract.run_getStorageAddr_eq,
+            Contract.run_setStorageAddr_eq,
+            Contract.run_getMapping_eq,
+            Contract.run_setMapping_eq,
+            Contract.run_msgSender_eq,
+            Contract.run_ite_true,
+            Contract.run_ite_false
+          ])
+         (try simp only [
+            Contract.run_pure_eq,
+            Contract.run_bind_success,
+            Contract.run_bind_revert,
+            Contract.run_require_true_bind,
+            Contract.run_require_false_bind,
+            Contract.run_getStorage_eq,
+            Contract.run_setStorage_eq,
+            Contract.run_getStorageAddr_eq,
+            Contract.run_setStorageAddr_eq,
+            Contract.run_getMapping_eq,
+            Contract.run_setMapping_eq,
+            Contract.run_msgSender_eq,
+            Contract.run_ite_true,
+            Contract.run_ite_false,
+            getStorage,
+            setStorage,
+            getStorageAddr,
+            setStorageAddr,
+            getMapping,
+            setMapping,
+            msgSender,
+            ContractState.readSlot,
+            ContractState.readAddrSlot,
+            ContractState.readMap,
+            Verity.require,
+            Verity.bind,
+            Verity.pure,
+            Bind.bind,
+            Pure.pure,
+            Contract.run,
+            ContractResult.snd,
+            ContractResult.fst,
+            ContractResult.isSuccess,
+            ContractResult.getState,
+            ite_true,
+            ite_false
+          ])))
+  | `(tactic| verity_frame) =>
+      `(tactic|
+        first
+          | rfl
+          | decide
+          | simp only [
+              storage_simps,
+              ContractState.storage_writeSlot_same,
+              ContractState.storage_writeSlot_other,
+              ContractState.storageAddr_writeSlot,
+              ContractState.storageMap_writeSlot,
+              ContractState.storageMapUint_writeSlot,
+              ContractState.storageMap2_writeSlot,
+              ContractState.storageAddr_writeAddrSlot_same,
+              ContractState.storageAddr_writeAddrSlot_other,
+              ContractState.storage_writeAddrSlot,
+              ContractState.storageMap_writeAddrSlot,
+              ContractState.storageMapUint_writeAddrSlot,
+              ContractState.storageMap2_writeAddrSlot,
+              ContractState.storageMap_writeMap_same,
+              ContractState.storageMap_writeMap_other_key,
+              ContractState.storage_writeMap,
+              ContractState.storageAddr_writeMap,
+              ContractState.storageMapUint_writeMap,
+              ContractState.storageMap2_writeMap,
+              ContractState.sender_writeSlot,
+              ContractState.thisAddress_writeSlot,
+              ContractState.msgValue_writeSlot,
+              ContractState.selfBalance_writeSlot,
+              ContractState.blockTimestamp_writeSlot,
+              ContractState.blockNumber_writeSlot,
+              ContractState.chainId_writeSlot,
+              ContractState.blobBaseFee_writeSlot,
+              ContractState.calldataSize_writeSlot,
+              ContractState.events_writeSlot,
+              ContractState.knownAddresses_writeSlot,
+              ContractState.sender_writeAddrSlot,
+              ContractState.thisAddress_writeAddrSlot,
+              ContractState.storageArray_writeAddrSlot,
+              ContractState.msgValue_writeAddrSlot,
+              ContractState.selfBalance_writeAddrSlot,
+              ContractState.blockTimestamp_writeAddrSlot,
+              ContractState.blockNumber_writeAddrSlot,
+              ContractState.chainId_writeAddrSlot,
+              ContractState.blobBaseFee_writeAddrSlot,
+              ContractState.calldataSize_writeAddrSlot,
+              ContractState.sender_writeMap,
+              ContractState.thisAddress_writeMap,
+              ContractState.msgValue_writeMap,
+              ContractState.selfBalance_writeMap,
+              ContractState.blockTimestamp_writeMap,
+              ContractState.blockNumber_writeMap,
+              ContractState.chainId_writeMap,
+              ContractState.blobBaseFee_writeMap,
+              ContractState.calldataSize_writeMap,
+              ContractState.events_writeMap,
+              ContractState.knownAddresses_writeMap,
+              Verity.Specs.unchangedExcept_rfl,
+              Verity.Specs.unchangedExcept_with_events,
+              Verity.Specs.unchangedExcept_with_knownAddresses,
+              Verity.Specs.unchangedExcept_writeSlot_of_mem,
+              Verity.Specs.unchangedExcept_writeAddrSlot_of_mem,
+              Verity.Specs.unchangedExcept_writeMap_of_mem,
+              Verity.Specs.unchangedExcept_writeMapUint_of_mem,
+              Verity.Specs.unchangedExcept_writeMap2_of_mem,
+              Verity.Specs.unchangedExcept_writeArray_of_mem,
+              Verity.Specs.sameContext_rfl,
+              Verity.Specs.sameStorage_rfl,
+              Verity.Specs.sameStorageAddr_rfl,
+              Verity.Specs.sameStorageMap_rfl,
+              Verity.Specs.sameAddrMapContext_rfl,
+              Verity.Specs.sameStorageMapContext_rfl,
+              Verity.Specs.viewPreservesState_rfl,
+              List.mem_cons,
+              List.mem_singleton,
+              List.not_mem_nil,
+              or_true,
+              true_or,
+              and_self,
+              true_and,
+              and_true
+            ])
+  | `(tactic| verity_prove_spec) =>
+      `(tactic|
+        (try intros
+         try simp only [Verity.Specs.FnSpec.Satisfies, Verity.Specs.fnUpdateSpec]
+         verity_step
+         try verity_frame))
+  | `(tactic| verity_prove_spec $lems,*) =>
+      `(tactic|
+        (try intros
+         simp only [$lems,*, Verity.Specs.FnSpec.Satisfies, Verity.Specs.fnUpdateSpec]
+         verity_step
+         try verity_frame))
+
+example (msg : String) (x : Uint256) (s : ContractState) :
+    (Verity.bind (require true msg) (fun _ => Verity.pure x)).run s =
+      ContractResult.success x s := by
+  verity_step
+
+example (s : ContractState) (slot : Nat) (v : Uint256) :
+    (s.writeSlot slot v).readSlot slot = v := by
+  verity_frame
+
+example (slot : StorageSlot Uint256) (val : Uint256) (s : ContractState) :
+    (Verity.bind (setStorage slot val) (fun _ => getStorage slot)).run s =
+      ContractResult.success val (s.writeSlot slot.slot val) := by
+  verity_prove_spec
+
+example (slot : StorageSlot Uint256) (val : Uint256) (s : ContractState) :
+    Verity.Specs.FnSpec.Satisfies (setStorage slot val) s
+      { pre := True
+        post := fun _ s' => s'.storage slot.slot = val
+        writes := [.slot slot.slot] } := by
+  verity_prove_spec
 
 -- All lemmas in this file are fully proven with zero sorry, zero axioms.
 

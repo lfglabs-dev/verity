@@ -708,4 +708,715 @@ def runVerifiedShimObjectPatchPass
   let config' := registerVerifiedShimDescriptors config auditable
   runPatchPassWithObjects config' exprRules stmtRules blockRules objectRules obj
 
+/-! ## Unified Parametric Certified Patch Rule Framework -/
+
+/-- Typeclass for AST node types that support single-step rewrite traversal. -/
+class Rewritable (α : Type) where
+  /-- Apply a counted rewrite step `(α → α × Nat)` across immediate child nodes. -/
+  rewriteChildren : (α → α × Nat) → α → α × Nat
+
+instance : Rewritable YulExpr where
+  rewriteChildren step
+    | .call func args =>
+        let (args', count) :=
+          args.foldr
+            (fun arg (accArgs, accCount) =>
+              let (arg', c) := step arg
+              (arg' :: accArgs, accCount + c))
+            ([], 0)
+        (.call func args', count)
+    | expr => (expr, 0)
+
+instance : Rewritable YulStmt where
+  rewriteChildren step
+    | .block stmts =>
+        let (stmts', count) :=
+          stmts.foldr
+            (fun s (accStmts, accCount) =>
+              let (s', c) := step s
+              (s' :: accStmts, accCount + c))
+            ([], 0)
+        (.block stmts', count)
+    | stmt => (stmt, 0)
+
+instance : Rewritable (List YulStmt) where
+  rewriteChildren step stmts :=
+    match stmts with
+    | [] => ([], 0)
+    | hd :: tl =>
+        let (tl', count) := step tl
+        (hd :: tl', count)
+
+instance : Rewritable YulObject where
+  rewriteChildren step obj := step obj
+
+/-- Parametric certified patch rule bundling an executable rewrite on AST node type `α`,
+its proven static gas delta (`≤ 0` for gas-reducing optimizations), a semantic denotation
+`denote : α → Sem`, and a proof that every successful rewrite preserves `denote`. -/
+structure CertifiedPatchRule (α : Type) (Sem : Type) where
+  patchName : String
+  proofId : Name
+  rewrite : α → Option α
+  gasDelta : Int
+  denote : α → Sem
+  sound : ∀ (x x' : α), rewrite x = some x' → denote x' = denote x
+
+/-- Apply a certified patch rule when `enabled = true`, returning the (possibly rewritten)
+node together with the match count (`0` or `1`). -/
+def CertifiedPatchRule.apply {α Sem : Type}
+    (r : CertifiedPatchRule α Sem) (enabled : Bool) (x : α) : α × Nat :=
+  if enabled then
+    match r.rewrite x with
+    | some x' => (x', 1)
+    | none => (x, 0)
+  else
+    (x, 0)
+
+/-- Applying a `CertifiedPatchRule` preserves its semantic denotation for any `enabled` flag
+and input node `x`. -/
+theorem CertifiedPatchRule.apply_sound {α Sem : Type}
+    (r : CertifiedPatchRule α Sem) (enabled : Bool) (x : α) :
+    r.denote (r.apply enabled x).1 = r.denote x := by
+  unfold CertifiedPatchRule.apply
+  cases enabled with
+  | false => rfl
+  | true =>
+    simp only [↓reduceIte]
+    cases h : r.rewrite x with
+    | none => rfl
+    | some x' => exact r.sound x x' h
+
+/-- Applying a single `CertifiedPatchRule` produces a match count of at most `1`. -/
+theorem CertifiedPatchRule.apply_matchCount_le_one {α Sem : Type}
+    (r : CertifiedPatchRule α Sem) (enabled : Bool) (x : α) :
+    (r.apply enabled x).2 ≤ 1 := by
+  unfold CertifiedPatchRule.apply
+  cases enabled with
+  | false => exact Nat.zero_le 1
+  | true =>
+    simp only [↓reduceIte]
+    cases r.rewrite x with
+    | none => exact Nat.zero_le 1
+    | some _ => exact Nat.le_refl 1
+
+/-- Fold a list of certified patch rules sequentially over an AST node `x`,
+accumulating total match counts starting from `initMatches`. -/
+def CertifiedPatchRule.applyList {α Sem : Type}
+    (rules : List (CertifiedPatchRule α Sem)) (enabled : Bool) (x : α)
+    (initMatches : Nat := 0) : α × Nat :=
+  rules.foldl
+    (fun (acc : α × Nat) r =>
+      let res := r.apply enabled acc.1
+      (res.1, acc.2 + res.2))
+    (x, initMatches)
+
+/-- Folding a list of `CertifiedPatchRule`s sharing semantic denotation `denote`
+preserves `denote` by induction on the rule list. -/
+theorem CertifiedPatchRule.applyList_sound {α Sem : Type} (denote : α → Sem)
+    (rules : List <| CertifiedPatchRule α Sem) (enabled : Bool) (x : α) (initMatches : Nat)
+    (hDenote : ∀ r ∈ rules, r.denote = denote) :
+    denote (CertifiedPatchRule.applyList rules enabled x initMatches).1 = denote x := by
+  induction rules generalizing x initMatches with
+  | nil => rfl
+  | cons r rs ih =>
+    simp only [CertifiedPatchRule.applyList, List.foldl_cons]
+    have hrDenote : r.denote = denote := hDenote r (List.mem_cons_self ..)
+    have hrsDenote : ∀ r' ∈ rs, r'.denote = denote := by
+      intro r' hr'
+      exact hDenote r' (List.mem_cons_of_mem r hr')
+    have hStep := ih (r.apply enabled x).1 (initMatches + (r.apply enabled x).2) hrsDenote
+    unfold CertifiedPatchRule.applyList at hStep
+    rw [hStep, ← hrDenote]
+    exact r.apply_sound enabled x
+
+/-- Embed an `ExprPatchRule` at a given `RewriteCtx` into `CertifiedPatchRule YulExpr Sem`. -/
+def ExprPatchRule.toCertified {Sem : Type}
+    (r : ExprPatchRule)
+    (ctx : RewriteCtx)
+    (denote : YulExpr → Sem)
+    (sound : ∀ (x x' : YulExpr), r.applyExpr ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int := 0) : CertifiedPatchRule YulExpr Sem where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.applyExpr ctx
+  gasDelta := gasDelta
+  denote := denote
+  sound := sound
+
+/-- Embed a `StmtPatchRule` at a given `RewriteCtx` into `CertifiedPatchRule YulStmt Sem`. -/
+def StmtPatchRule.toCertified {Sem : Type}
+    (r : StmtPatchRule)
+    (ctx : RewriteCtx)
+    (denote : YulStmt → Sem)
+    (sound : ∀ (x x' : YulStmt), r.applyStmt ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int := 0) : CertifiedPatchRule YulStmt Sem where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.applyStmt ctx
+  gasDelta := gasDelta
+  denote := denote
+  sound := sound
+
+/-- Embed a `BlockPatchRule` at a given `RewriteCtx` into `CertifiedPatchRule (List YulStmt) Sem`. -/
+def BlockPatchRule.toCertified {Sem : Type}
+    (r : BlockPatchRule)
+    (ctx : RewriteCtx)
+    (denote : List YulStmt → Sem)
+    (sound : ∀ (x x' : List YulStmt), r.applyBlock ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int := 0) : CertifiedPatchRule (List YulStmt) Sem where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.applyBlock ctx
+  gasDelta := gasDelta
+  denote := denote
+  sound := sound
+
+/-- Embed an `ObjectPatchRule` at a given `RewriteCtx` into `CertifiedPatchRule YulObject Sem`. -/
+def ObjectPatchRule.toCertified {Sem : Type}
+    (r : ObjectPatchRule)
+    (ctx : RewriteCtx)
+    (denote : YulObject → Sem)
+    (sound : ∀ (x x' : YulObject), r.applyObject ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int := 0) : CertifiedPatchRule YulObject Sem where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.applyObject ctx
+  gasDelta := gasDelta
+  denote := denote
+  sound := sound
+
+/-- Bridge soundness for `ExprPatchRule.toCertified`: applying the embedded rule preserves `denote`. -/
+theorem ExprPatchRule.toCertified_apply_sound {Sem : Type}
+    (r : ExprPatchRule) (ctx : RewriteCtx) (denote : YulExpr → Sem)
+    (sound : ∀ (x x' : YulExpr), r.applyExpr ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int) (enabled : Bool) (x : YulExpr) :
+    denote ((r.toCertified ctx denote sound gasDelta).apply enabled x).1 = denote x :=
+  (r.toCertified ctx denote sound gasDelta).apply_sound enabled x
+
+/-- Bridge soundness for `StmtPatchRule.toCertified`: applying the embedded rule preserves `denote`. -/
+theorem StmtPatchRule.toCertified_apply_sound {Sem : Type}
+    (r : StmtPatchRule) (ctx : RewriteCtx) (denote : YulStmt → Sem)
+    (sound : ∀ (x x' : YulStmt), r.applyStmt ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int) (enabled : Bool) (x : YulStmt) :
+    denote ((r.toCertified ctx denote sound gasDelta).apply enabled x).1 = denote x :=
+  (r.toCertified ctx denote sound gasDelta).apply_sound enabled x
+
+/-- Bridge soundness for `BlockPatchRule.toCertified`: applying the embedded rule preserves `denote`. -/
+theorem BlockPatchRule.toCertified_apply_sound {Sem : Type}
+    (r : BlockPatchRule) (ctx : RewriteCtx) (denote : List YulStmt → Sem)
+    (sound : ∀ x x', r.applyBlock ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int) (enabled : Bool) (x : List YulStmt) :
+    denote ((r.toCertified ctx denote sound gasDelta).apply enabled x).1 = denote x :=
+  (r.toCertified ctx denote sound gasDelta).apply_sound enabled x
+
+/-- Bridge soundness for `ObjectPatchRule.toCertified`: applying the embedded rule preserves `denote`. -/
+theorem ObjectPatchRule.toCertified_apply_sound {Sem : Type}
+    (r : ObjectPatchRule) (ctx : RewriteCtx) (denote : YulObject → Sem)
+    (sound : ∀ x x', r.applyObject ctx x = some x' → denote x' = denote x)
+    (gasDelta : Int) (enabled : Bool) (x : YulObject) :
+    denote ((r.toCertified ctx denote sound gasDelta).apply enabled x).1 = denote x :=
+  (r.toCertified ctx denote sound gasDelta).apply_sound enabled x
+
+/-! ## Denotation-Indexed Certified Rules, Sequential Packs, and Lifted List Passes -/
+
+/-- Certified patch rule indexed by a fixed semantic denotation `denote : α → Sem`,
+enabling direct composition of rules and rule packs without side-conditions on denotation equality. -/
+structure CertifiedRuleOn {α Sem : Type} (denote : α → Sem) where
+  patchName : String
+  proofId : Name
+  rewrite : α → Option α
+  gasDelta : Int
+  sound : ∀ (x x' : α), rewrite x = some x' → denote x' = denote x
+
+/-- Embed a `CertifiedPatchRule α Sem` into `CertifiedRuleOn denote` when its denotation matches `denote`. -/
+def CertifiedRuleOn.ofRule {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedPatchRule α Sem) (hDenote : r.denote = denote := by rfl) :
+    CertifiedRuleOn denote where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.rewrite
+  gasDelta := r.gasDelta
+  sound := by
+    intro x x' h
+    rw [← hDenote]
+    exact r.sound x x' h
+
+/-- Forget the index and project a `CertifiedRuleOn denote` to `CertifiedPatchRule α Sem`. -/
+def CertifiedRuleOn.toRule {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) : CertifiedPatchRule α Sem where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.rewrite
+  gasDelta := r.gasDelta
+  denote := denote
+  sound := r.sound
+
+/-- Apply a `CertifiedRuleOn denote` when `enabled = true`, returning the (possibly rewritten)
+node together with the match count (`0` or `1`). -/
+def CertifiedRuleOn.apply {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (enabled : Bool) (x : α) : α × Nat :=
+  if enabled then
+    match r.rewrite x with
+    | some x' => (x', 1)
+    | none => (x, 0)
+  else
+    (x, 0)
+
+/-- Applying a `CertifiedRuleOn denote` preserves `denote` for any `enabled` flag and input `x`. -/
+theorem CertifiedRuleOn.apply_sound {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (enabled : Bool) (x : α) :
+    denote (r.apply enabled x).1 = denote x := by
+  unfold CertifiedRuleOn.apply
+  cases enabled with
+  | false => rfl
+  | true =>
+    simp only [↓reduceIte]
+    cases h : r.rewrite x with
+    | none => rfl
+    | some x' => exact r.sound x x' h
+
+/-- When disabled (`enabled = false`), `CertifiedRuleOn.apply` returns the input term unchanged. -/
+theorem CertifiedRuleOn.apply_disabled_fst {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (x : α) :
+    (r.apply false x).1 = x := by
+  rfl
+
+/-- When disabled (`enabled = false`), `CertifiedRuleOn.apply` reports zero matches. -/
+theorem CertifiedRuleOn.apply_disabled_matches {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (x : α) :
+    (r.apply false x).2 = 0 := by
+  rfl
+
+/-- Sequential composition of two `CertifiedRuleOn denote` rules over the same semantic denotation:
+applies `r₁` if it matches (and then optionally `r₂` on the result), or falls back to `r₂`. -/
+def CertifiedRuleOn.seq {α Sem : Type} {denote : α → Sem}
+    (r₁ r₂ : CertifiedRuleOn denote) : CertifiedRuleOn denote where
+  patchName := r₁.patchName ++ "_seq_" ++ r₂.patchName
+  proofId := r₁.proofId
+  rewrite := fun x =>
+    match r₁.rewrite x with
+    | some x₁ =>
+        match r₂.rewrite x₁ with
+        | some x₂ => some x₂
+        | none => some x₁
+    | none => r₂.rewrite x
+  gasDelta := r₁.gasDelta + r₂.gasDelta
+  sound := by
+    intro x x' h
+    cases h₁ : r₁.rewrite x with
+    | none =>
+      rw [h₁] at h
+      exact r₂.sound x x' h
+    | some x₁ =>
+      cases h₂ : r₂.rewrite x₁ with
+      | none =>
+        simp only [h₁, h₂] at h
+        injection h with hEq
+        rw [← hEq]
+        exact r₁.sound x x₁ h₁
+      | some x₂ =>
+        simp only [h₁, h₂] at h
+        injection h with hEq
+        rw [← hEq]
+        rw [r₂.sound x₁ x₂ h₂]
+        exact r₁.sound x x₁ h₁
+
+/-- Applying a sequentially composed rule `r₁.seq r₂` preserves `denote`. -/
+theorem CertifiedRuleOn.seq_apply_sound {α Sem : Type} {denote : α → Sem}
+    (r₁ r₂ : CertifiedRuleOn denote) (enabled : Bool) (x : α) :
+    denote ((r₁.seq r₂).apply enabled x).1 = denote x :=
+  (r₁.seq r₂).apply_sound enabled x
+
+/-- A sequential pack of `CertifiedRuleOn denote` rules sharing a fixed denotation `denote : α → Sem`. -/
+abbrev CertifiedRuleOnPack {α Sem : Type} (denote : α → Sem) :=
+  List (CertifiedRuleOn denote)
+
+/-- Execute a `CertifiedRuleOnPack` sequentially on `x`, returning the rewritten term,
+cumulative match count, and cumulative static gas delta across all matched rules. -/
+def applyPack {α Sem : Type} {denote : α → Sem}
+    (enabled : Bool) (pack : List <| CertifiedRuleOn denote) (x : α) : α × Nat × Int :=
+  match pack with
+  | [] => (x, 0, 0)
+  | r :: rs =>
+      let res₁ := r.apply enabled x
+      let g₁ : Int := if res₁.2 == 0 then 0 else r.gasDelta
+      let res₂ := applyPack enabled rs res₁.1
+      (res₂.1, res₁.2 + res₂.2.1, g₁ + res₂.2.2)
+
+/-- Applying an empty `CertifiedRuleOnPack` returns `(x, 0, 0)`. -/
+theorem applyPack_nil {α Sem : Type} {denote : α → Sem}
+    (enabled : Bool) (x : α) :
+    applyPack (denote := denote) enabled [] x = (x, 0, 0) := by
+  rfl
+
+/-- Unfolding lemma for `applyPack` on a non-empty rule pack `r :: rs`. -/
+theorem applyPack_cons {α Sem : Type} {denote : α → Sem}
+    (enabled : Bool) (r : CertifiedRuleOn denote) (rs : List <| CertifiedRuleOn denote) (x : α) :
+    applyPack enabled (r :: rs) x =
+      let res₁ := r.apply enabled x
+      let g₁ : Int := if res₁.2 == 0 then 0 else r.gasDelta
+      let res₂ := applyPack enabled rs res₁.1
+      (res₂.1, res₁.2 + res₂.2.1, g₁ + res₂.2.2) := by
+  rfl
+
+/-- When disabled (`enabled = false`), `applyPack` leaves the input term `x` unchanged. -/
+theorem applyPack_disabled_fst {α Sem : Type} {denote : α → Sem}
+    (pack : List <| CertifiedRuleOn denote) (x : α) :
+    (applyPack false pack x).1 = x := by
+  induction pack generalizing x with
+  | nil => rfl
+  | cons r rs ih =>
+    simp only [applyPack, CertifiedRuleOn.apply_disabled_fst]
+    exact ih x
+
+/-- Applying any `CertifiedRuleOnPack` preserves the shared semantic denotation `denote`. -/
+theorem applyPack_sound {α Sem : Type} {denote : α → Sem}
+    (enabled : Bool) (pack : List <| CertifiedRuleOn denote) (x : α) :
+    denote (applyPack enabled pack x).1 = denote x := by
+  induction pack generalizing x with
+  | nil => rfl
+  | cons r rs ih =>
+    simp only [applyPack]
+    rw [ih (r.apply enabled x).1]
+    exact r.apply_sound enabled x
+
+/-- The rewritten term produced by `applyPack` over `p₁ ++ p₂` equals running `p₁` then `p₂`. -/
+theorem applyPack_append_fst {α Sem : Type} {denote : α → Sem}
+    (enabled : Bool) (p₁ p₂ : List <| CertifiedRuleOn denote) (x : α) :
+    (applyPack enabled (p₁ ++ p₂) x).1 =
+      (applyPack enabled p₂ (applyPack enabled p₁ x).1).1 := by
+  induction p₁ generalizing x with
+  | nil => rfl
+  | cons r rs ih =>
+    simp only [List.cons_append, applyPack]
+    exact ih (r.apply enabled x).1
+
+/-- Apply a `CertifiedRuleOn denote` elementwise across `xs : List α`,
+accumulating total match counts across all list elements. -/
+def CertifiedRuleOn.applyList {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (enabled : Bool) (xs : List α) : List α × Nat :=
+  match xs with
+  | [] => ([], 0)
+  | x :: rest =>
+      let (x', m₁) := r.apply enabled x
+      let (rest', m₂) := r.applyList enabled rest
+      (x' :: rest', m₁ + m₂)
+
+/-- Elementwise application `CertifiedRuleOn.applyList` preserves `List.map denote`. -/
+theorem CertifiedRuleOn.applyList_map_denote_eq {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (enabled : Bool) (xs : List α) :
+    List.map denote (r.applyList enabled xs).1 = List.map denote xs := by
+  induction xs with
+  | nil => rfl
+  | cons x rest ih =>
+    simp only [CertifiedRuleOn.applyList, List.map_cons]
+    rw [r.apply_sound enabled x, ih]
+
+/-- When disabled (`enabled = false`), `CertifiedRuleOn.applyList` returns the list unchanged. -/
+theorem CertifiedRuleOn.applyList_disabled_fst {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (xs : List α) :
+    (r.applyList false xs).1 = xs := by
+  induction xs with
+  | nil => rfl
+  | cons x rest ih =>
+    simp only [CertifiedRuleOn.applyList, CertifiedRuleOn.apply_disabled_fst, ih]
+
+/-- Lift a node-level `CertifiedRuleOn denote` to a list-level `CertifiedRuleOn (List.map denote)`
+that rewrites `List α` elementwise. -/
+def CertifiedRuleOn.liftList {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) : CertifiedRuleOn (List.map denote) where
+  patchName := r.patchName ++ "_list"
+  proofId := r.proofId
+  rewrite := fun xs => some (r.applyList true xs).1
+  gasDelta := r.gasDelta
+  sound := by
+    intro xs xs' h
+    injection h with hEq
+    rw [← hEq]
+    exact r.applyList_map_denote_eq true xs
+
+/-- Applying a lifted list rule `r.liftList` preserves `List.map denote`. -/
+theorem CertifiedRuleOn.liftList_apply_sound {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleOn denote) (enabled : Bool) (xs : List α) :
+    List.map denote ((r.liftList).apply enabled xs).1 = List.map denote xs :=
+  (r.liftList).apply_sound enabled xs
+
+/-! ## Algebraic Composition and Certified Patch Packs (`CertifiedRuleFor` / `CertifiedPatchPack`) -/
+
+/-- When `enabled = false`, applying a `CertifiedPatchRule` returns the original node and `0` matches. -/
+theorem CertifiedPatchRule.apply_disabled {α Sem : Type}
+    (r : CertifiedPatchRule α Sem) (x : α) :
+    r.apply false x = (x, 0) := by
+  unfold CertifiedPatchRule.apply
+  rfl
+
+/-- Sequential composition of two `CertifiedPatchRule`s sharing the same semantic denotation
+(`hDenote : r₂.denote = r₁.denote`), summing their static `gasDelta`s. -/
+def CertifiedPatchRule.comp {α Sem : Type}
+    (r₁ r₂ : CertifiedPatchRule α Sem)
+    (hDenote : r₂.denote = r₁.denote) : CertifiedPatchRule α Sem where
+  patchName := r₁.patchName ++ "+" ++ r₂.patchName
+  proofId := r₁.proofId ++ r₂.proofId
+  rewrite := fun x =>
+    match r₁.rewrite x with
+    | some x₁ =>
+      match r₂.rewrite x₁ with
+      | some x₂ => some x₂
+      | none => some x₁
+    | none => r₂.rewrite x
+  gasDelta := r₁.gasDelta + r₂.gasDelta
+  denote := r₁.denote
+  sound := by
+    intro x x' hRewrite
+    cases h₁ : r₁.rewrite x with
+    | some x₁ =>
+      rw [h₁] at hRewrite
+      dsimp only at hRewrite
+      cases h₂ : r₂.rewrite x₁ with
+      | some x₂ =>
+        rw [h₂] at hRewrite
+        injection hRewrite with hEq
+        subst hEq
+        have hs₁ : r₁.denote x₁ = r₁.denote x := r₁.sound x x₁ h₁
+        have hs₂ : r₂.denote x₂ = r₂.denote x₁ := r₂.sound x₁ x₂ h₂
+        rw [hDenote] at hs₂
+        rw [hs₂, hs₁]
+      | none =>
+        rw [h₂] at hRewrite
+        injection hRewrite with hEq
+        subst hEq
+        exact r₁.sound x x₁ h₁
+    | none =>
+      rw [h₁] at hRewrite
+      have hs₂ : r₂.denote x' = r₂.denote x := r₂.sound x x' hRewrite
+      rw [hDenote] at hs₂
+      exact hs₂
+
+/-- Applying the sequential composition `r₁.comp r₂ hDenote` preserves `r₁.denote`. -/
+theorem CertifiedPatchRule.comp_apply_sound {α Sem : Type}
+    (r₁ r₂ : CertifiedPatchRule α Sem)
+    (hDenote : r₂.denote = r₁.denote)
+    (enabled : Bool) (x : α) :
+    r₁.denote ((r₁.comp r₂ hDenote).apply enabled x).1 = r₁.denote x :=
+  (r₁.comp r₂ hDenote).apply_sound enabled x
+
+/-- When disabled (`enabled = false`), a composed `CertifiedPatchRule` returns `(x, 0)`. -/
+theorem CertifiedPatchRule.comp_disabled {α Sem : Type}
+    (r₁ r₂ : CertifiedPatchRule α Sem)
+    (hDenote : r₂.denote = r₁.denote) (x : α) :
+    (r₁.comp r₂ hDenote).apply false x = (x, 0) :=
+  (r₁.comp r₂ hDenote).apply_disabled x
+
+/-- Certified patch rule parameterized directly by a fixed semantic denotation `denote : α → Sem`,
+so all rules in a pack share the same denotation by construction. -/
+structure CertifiedRuleFor {α Sem : Type} (denote : α → Sem) where
+  patchName : String
+  proofId : Name
+  rewrite : α → Option α
+  gasDelta : Int
+  sound : ∀ (x x' : α), rewrite x = some x' → denote x' = denote x
+
+/-- Project a `CertifiedPatchRule α Sem` into `CertifiedRuleFor r.denote`. -/
+def CertifiedPatchRule.toCertifiedRuleFor {α Sem : Type}
+    (r : CertifiedPatchRule α Sem) : CertifiedRuleFor r.denote where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.rewrite
+  gasDelta := r.gasDelta
+  sound := r.sound
+
+/-- Embed a `CertifiedRuleFor denote` into `CertifiedPatchRule α Sem`. -/
+def CertifiedRuleFor.toCertifiedPatchRule {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleFor denote) : CertifiedPatchRule α Sem where
+  patchName := r.patchName
+  proofId := r.proofId
+  rewrite := r.rewrite
+  gasDelta := r.gasDelta
+  denote := denote
+  sound := r.sound
+
+/-- Apply a `CertifiedRuleFor denote` when `enabled = true`, returning the (possibly rewritten)
+node together with the match count (`0` or `1`). -/
+def CertifiedRuleFor.apply {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleFor denote) (enabled : Bool) (x : α) : α × Nat :=
+  if enabled then
+    match r.rewrite x with
+    | some x' => (x', 1)
+    | none => (x, 0)
+  else
+    (x, 0)
+
+/-- Applying a `CertifiedRuleFor denote` preserves `denote` for any `enabled` flag and node `x`. -/
+theorem CertifiedRuleFor.apply_sound {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleFor denote) (enabled : Bool) (x : α) :
+    denote (r.apply enabled x).1 = denote x := by
+  unfold CertifiedRuleFor.apply
+  cases enabled with
+  | false => rfl
+  | true =>
+    simp only [↓reduceIte]
+    cases h : r.rewrite x with
+    | none => rfl
+    | some x' => exact r.sound x x' h
+
+/-- When `enabled = false`, applying a `CertifiedRuleFor denote` returns `(x, 0)`. -/
+theorem CertifiedRuleFor.apply_disabled {α Sem : Type} {denote : α → Sem}
+    (r : CertifiedRuleFor denote) (x : α) :
+    r.apply false x = (x, 0) := by
+  unfold CertifiedRuleFor.apply
+  rfl
+
+/-- Sequential composition of two `CertifiedRuleFor denote` rules sharing `denote` by construction. -/
+def CertifiedRuleFor.comp {α Sem : Type} {denote : α → Sem}
+    (r₁ r₂ : CertifiedRuleFor denote) : CertifiedRuleFor denote where
+  patchName := r₁.patchName ++ "+" ++ r₂.patchName
+  proofId := r₁.proofId ++ r₂.proofId
+  rewrite := fun x =>
+    match r₁.rewrite x with
+    | some x₁ =>
+      match r₂.rewrite x₁ with
+      | some x₂ => some x₂
+      | none => some x₁
+    | none => r₂.rewrite x
+  gasDelta := r₁.gasDelta + r₂.gasDelta
+  sound := by
+    intro x x' hRewrite
+    cases h₁ : r₁.rewrite x with
+    | some x₁ =>
+      rw [h₁] at hRewrite
+      dsimp only at hRewrite
+      cases h₂ : r₂.rewrite x₁ with
+      | some x₂ =>
+        rw [h₂] at hRewrite
+        injection hRewrite with hEq
+        subst hEq
+        rw [r₂.sound x₁ x₂ h₂, r₁.sound x x₁ h₁]
+      | none =>
+        rw [h₂] at hRewrite
+        injection hRewrite with hEq
+        subst hEq
+        exact r₁.sound x x₁ h₁
+    | none =>
+      rw [h₁] at hRewrite
+      exact r₂.sound x x' hRewrite
+
+/-- Composing two `CertifiedRuleFor denote` rules and applying the composite rule preserves `denote`. -/
+theorem CertifiedRuleFor.comp_sound {α Sem : Type} {denote : α → Sem}
+    (r₁ r₂ : CertifiedRuleFor denote) (enabled : Bool) (x : α) :
+    denote ((r₁.comp r₂).apply enabled x).1 = denote x :=
+  (r₁.comp r₂).apply_sound enabled x
+
+/-- Sequential execution of a list of `CertifiedRuleFor denote` rules over `x`,
+accumulating the match counts across the rule sequence. -/
+def CertifiedRuleFor.applyRules {α Sem : Type} {denote : α → Sem}
+    (enabled : Bool) : List (CertifiedRuleFor denote) → α → α × Nat
+  | [], x => (x, 0)
+  | r :: rs, x =>
+      let step := r.apply enabled x
+      let rest := CertifiedRuleFor.applyRules enabled rs step.1
+      (rest.1, step.2 + rest.2)
+
+/-- Pack of certified patch rules sharing a fixed semantic denotation `denote : α → Sem`. -/
+structure CertifiedPatchPack {α Sem : Type} (denote : α → Sem) where
+  packName : String
+  rules : List (CertifiedRuleFor denote)
+
+/-- Execute all rules in a `CertifiedPatchPack` sequentially on `x`. -/
+def CertifiedPatchPack.apply {α Sem : Type} {denote : α → Sem}
+    (pack : CertifiedPatchPack denote) (enabled : Bool) (x : α) : α × Nat :=
+  CertifiedRuleFor.applyRules enabled pack.rules x
+
+/-- Concatenate two `CertifiedPatchPack`s sharing the same semantic denotation `denote`. -/
+def CertifiedPatchPack.append {α Sem : Type} {denote : α → Sem}
+    (p₁ p₂ : CertifiedPatchPack denote) : CertifiedPatchPack denote where
+  packName := p₁.packName ++ "+" ++ p₂.packName
+  rules := p₁.rules ++ p₂.rules
+
+instance {α Sem : Type} {denote : α → Sem} : Append (CertifiedPatchPack denote) where
+  append := CertifiedPatchPack.append
+
+/-- Applying an empty `CertifiedPatchPack` leaves the AST node unchanged with `0` matches. -/
+theorem CertifiedPatchPack.apply_nil {α Sem : Type} {denote : α → Sem}
+    (packName : String) (enabled : Bool) (x : α) :
+    ({ packName := packName, rules := [] } : CertifiedPatchPack denote).apply enabled x = (x, 0) := by
+  rfl
+
+/-- Applying a `r :: rs` pack steps `r` first and then runs the remaining `rs` pack on the resulting node. -/
+theorem CertifiedPatchPack.apply_cons {α Sem : Type} {denote : α → Sem}
+    (packName : String) (r : CertifiedRuleFor denote) (rs : List <| CertifiedRuleFor denote)
+    (enabled : Bool) (x : α) :
+    ({ packName := packName, rules := r :: rs } : CertifiedPatchPack denote).apply enabled x =
+      let step := r.apply enabled x
+      let rest := ({ packName := packName, rules := rs } : CertifiedPatchPack denote).apply enabled step.1
+      (rest.1, step.2 + rest.2) := by
+  rfl
+
+/-- Helper: running `CertifiedRuleFor.applyRules` with `enabled = false` returns `(x, 0)`. -/
+theorem CertifiedRuleFor.applyRules_disabled {α Sem : Type} {denote : α → Sem}
+    (rules : List <| CertifiedRuleFor denote) (x : α) :
+    CertifiedRuleFor.applyRules false rules x = (x, 0) := by
+  induction rules generalizing x with
+  | nil =>
+    unfold CertifiedRuleFor.applyRules
+    rfl
+  | cons r rs ih =>
+    unfold CertifiedRuleFor.applyRules
+    rw [r.apply_disabled x]
+    dsimp only
+    rw [ih x]
+    rfl
+
+/-- When disabled (`enabled = false`), applying any `CertifiedPatchPack` returns `(x, 0)`. -/
+theorem CertifiedPatchPack.apply_disabled {α Sem : Type} {denote : α → Sem}
+    (pack : CertifiedPatchPack denote) (x : α) :
+    pack.apply false x = (x, 0) :=
+  CertifiedRuleFor.applyRules_disabled pack.rules x
+
+/-- Helper: `CertifiedRuleFor.applyRules` preserves `denote` across any list of certified rules. -/
+theorem CertifiedRuleFor.applyRules_sound {α Sem : Type} {denote : α → Sem}
+    (rules : List <| CertifiedRuleFor denote) (enabled : Bool) (x : α) :
+    denote (CertifiedRuleFor.applyRules enabled rules x).1 = denote x := by
+  induction rules generalizing x with
+  | nil =>
+    unfold CertifiedRuleFor.applyRules
+    rfl
+  | cons r rs ih =>
+    unfold CertifiedRuleFor.applyRules
+    dsimp only
+    rw [ih (r.apply enabled x).1]
+    exact r.apply_sound enabled x
+
+/-- Applying any `CertifiedPatchPack` preserves its semantic denotation `denote`. -/
+theorem CertifiedPatchPack.apply_sound {α Sem : Type} {denote : α → Sem}
+    (pack : CertifiedPatchPack denote) (enabled : Bool) (x : α) :
+    denote (pack.apply enabled x).1 = denote x :=
+  CertifiedRuleFor.applyRules_sound pack.rules enabled x
+
+/-- Helper: running `applyRules` over `rs₁ ++ rs₂` equals running `rs₁` and then `rs₂` on the result,
+accumulating the match counts. -/
+theorem CertifiedRuleFor.applyRules_append {α Sem : Type} {denote : α → Sem}
+    (rs₁ rs₂ : List <| CertifiedRuleFor denote) (enabled : Bool) (x : α) :
+    CertifiedRuleFor.applyRules enabled (rs₁ ++ rs₂) x =
+      let step₁ := CertifiedRuleFor.applyRules enabled rs₁ x
+      let step₂ := CertifiedRuleFor.applyRules enabled rs₂ step₁.1
+      (step₂.1, step₁.2 + step₂.2) := by
+  induction rs₁ generalizing x with
+  | nil =>
+    simp only [List.nil_append, CertifiedRuleFor.applyRules, Nat.zero_add]
+  | cons r rs ih =>
+    simp only [List.cons_append, CertifiedRuleFor.applyRules]
+    rw [ih (r.apply enabled x).1]
+    dsimp only
+    rw [Nat.add_assoc]
+
+/-- Running an appended pack `p₁ ++ p₂` equals running `p₁` and then `p₂` on the resulting AST node,
+summing their match counts. -/
+theorem CertifiedPatchPack.append_apply_eq {α Sem : Type} {denote : α → Sem}
+    (p₁ p₂ : CertifiedPatchPack denote) (enabled : Bool) (x : α) :
+    (p₁ ++ p₂).apply enabled x =
+      let step₁ := p₁.apply enabled x
+      let step₂ := p₂.apply enabled step₁.1
+      (step₂.1, step₁.2 + step₂.2) :=
+  CertifiedRuleFor.applyRules_append p₁.rules p₂.rules enabled x
+
 end Compiler.Yul

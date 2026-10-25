@@ -52,7 +52,7 @@ private def collectTemplateIntrinsicObligationsFromMetadata
 private def dedupEcmModules (items : List ECM.ExternalCallModule) : List ECM.ExternalCallModule :=
   items.foldl (fun acc item => if acc.contains item then acc else acc ++ [item]) []
 
-private def collectLowLevelExprMechanics : Expr → List String
+def collectLowLevelExprMechanics : Expr → List String
   | .intrinsic _ (.builtin "create2") _ args =>
       ["create2"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ =>
         have := List.sizeOf_lt_of_mem hchild
@@ -109,7 +109,10 @@ private def collectLowLevelExprMechanics : Expr → List String
   | .memoryArrayElement _ key
   | .arrayElementWord _ key _ _
   | .arrayElementDynamicWord _ key _
-  | .arrayElementDynamicMemberLength _ key _ =>
+  | .arrayElementDynamicDataOffset _ key
+  | .arrayElementDynamicMemberLength _ key _
+  | .arrayElementDynamicMemberDataOffset _ key _
+  | .paramDynamicMemberElement _ _ key =>
       collectLowLevelExprMechanics key
   | .arrayElementDynamicMemberElement _ key _ innerKey =>
       collectLowLevelExprMechanics key ++ collectLowLevelExprMechanics innerKey
@@ -121,11 +124,17 @@ private def collectLowLevelExprMechanics : Expr → List String
       ["extcodesize"] ++ collectLowLevelExprMechanics key
   | .keccak256 offset size =>
       collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics size
-  | .externalCall _ args
-  | .internalCall _ args =>
+  | .externalCall _ args =>
+      ["externalCall"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectLowLevelExprMechanics child)
+  | .internalCall _ args
+  | .adtConstruct _ _ args =>
       args.attach.flatMap (fun ⟨child, hchild⟩ =>
         have := List.sizeOf_lt_of_mem hchild
         collectLowLevelExprMechanics child)
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      collectLowLevelExprMechanics thenExpr ++ collectLowLevelExprMechanics elseExpr
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b
   | .eq a b | .gt a b | .sgt a b | .lt a b | .slt a b | .ge a b | .le a b
@@ -139,7 +148,15 @@ private def collectLowLevelExprMechanics : Expr → List String
       collectLowLevelExprMechanics a
   | .ite cond thenVal elseVal =>
       collectLowLevelExprMechanics cond ++ collectLowLevelExprMechanics thenVal ++ collectLowLevelExprMechanics elseVal
-  | _ =>
+  | .literal _ | .param _ | .constructorArg _ | .immutable _
+  | .storage _ | .storageAddr _
+  | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
+  | .blockTimestamp | .blockNumber | .baseFee | .gasPrice | .calldatasize
+  | .localVar _ | .arrayLength _ | .memoryArrayLength _
+  | .paramDynamicHeadWord _ _ | .paramDynamicMemberLength _ _
+  | .paramDynamicMemberDataOffset _ _ | .paramDynamicStaticComposite _ _
+  | .storageArrayLength _ | .dynamicBytesEq _ _
+  | .adtTag _ _ | .adtField _ _ _ _ _ =>
       []
 termination_by expr => sizeOf expr
 decreasing_by
@@ -188,13 +205,19 @@ private partial def collectAxiomatizedExprPrimitives : Expr → List String
   | .memoryArrayElement _ key
   | .arrayElementWord _ key _ _
   | .arrayElementDynamicWord _ key _
-  | .arrayElementDynamicMemberLength _ key _ =>
+  | .arrayElementDynamicDataOffset _ key
+  | .arrayElementDynamicMemberLength _ key _
+  | .arrayElementDynamicMemberDataOffset _ key _
+  | .paramDynamicMemberElement _ _ key =>
       collectAxiomatizedExprPrimitives key
   | .arrayElementDynamicMemberElement _ key _ innerKey =>
       collectAxiomatizedExprPrimitives key ++ collectAxiomatizedExprPrimitives innerKey
   | .externalCall _ args
-  | .internalCall _ args =>
+  | .internalCall _ args
+  | .adtConstruct _ _ args =>
       args.flatMap collectAxiomatizedExprPrimitives
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      collectAxiomatizedExprPrimitives thenExpr ++ collectAxiomatizedExprPrimitives elseExpr
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b
   | .eq a b | .gt a b | .sgt a b | .lt a b | .slt a b | .ge a b | .le a b
@@ -217,7 +240,7 @@ private def collectLowLevelMechanicsFromStmts (stmts : List Stmt) : List String 
     Stmt.foldList
       (fun acc _ md =>
         acc ++ md.lowLevelMechanics.map LowLevelMechanic.toReportString ++
-          md.subexpressions.flatMap collectLowLevelExprMechanics)
+          (md.subexpressions.flatMap collectLowLevelExprMechanics).filter (· != "externalCall"))
       []
       stmts
 
@@ -2294,5 +2317,59 @@ def allEcmModulesProved (modules : List ECM.ExternalCallModule) : Bool :=
     (helperName resultVar : String) (numArgs : Nat) :
     ecmModuleAssumedEntriesCount
       (ECM.solcOutlinedHelperModule helperName resultVar numArgs) = 0 := rfl
+
+/-! ## Exhaustive `collectLowLevelExprMechanics` Soundness Theorems -/
+
+/-- Every `.externalCall` expression records `"externalCall"` in `collectLowLevelExprMechanics`. -/
+@[simp] theorem collectLowLevelExprMechanics_externalCall_mem
+    (name : String) (args : List Expr) :
+    "externalCall" ∈ collectLowLevelExprMechanics (.externalCall name args) := by
+  rw [collectLowLevelExprMechanics]
+  exact List.Mem.head _
+
+/-- Any low-level mechanic present in an `.externalCall` argument is preserved by
+    `collectLowLevelExprMechanics (.externalCall name args)`. -/
+theorem collectLowLevelExprMechanics_externalCall_arg_mem
+    {name : String} {args : List Expr} {arg : Expr} {m : String}
+    (harg : arg ∈ args) (hm : m ∈ collectLowLevelExprMechanics arg) :
+    m ∈ collectLowLevelExprMechanics (.externalCall name args) := by
+  rw [collectLowLevelExprMechanics]
+  apply List.Mem.tail
+  change m ∈ args.attach.flatMap (fun ⟨child, hchild⟩ =>
+    have := List.sizeOf_lt_of_mem hchild
+    collectLowLevelExprMechanics child)
+  rw [List.mem_flatMap]
+  exact ⟨⟨arg, harg⟩, List.mem_attach _ _, hm⟩
+
+/-- Every `.call` expression records `"call"` in `collectLowLevelExprMechanics`. -/
+@[simp] theorem collectLowLevelExprMechanics_call_mem
+    (gas target value inOffset inSize outOffset outSize : Expr) :
+    "call" ∈ collectLowLevelExprMechanics
+      (.call gas target value inOffset inSize outOffset outSize) := by
+  rw [collectLowLevelExprMechanics]
+  exact List.Mem.head _
+
+/-- Every `.staticcall` expression records `"staticcall"` in `collectLowLevelExprMechanics`. -/
+@[simp] theorem collectLowLevelExprMechanics_staticcall_mem
+    (gas target inOffset inSize outOffset outSize : Expr) :
+    "staticcall" ∈ collectLowLevelExprMechanics
+      (.staticcall gas target inOffset inSize outOffset outSize) := by
+  rw [collectLowLevelExprMechanics]
+  exact List.Mem.head _
+
+/-- Every `.delegatecall` expression records `"delegatecall"` in `collectLowLevelExprMechanics`. -/
+@[simp] theorem collectLowLevelExprMechanics_delegatecall_mem
+    (gas target inOffset inSize outOffset outSize : Expr) :
+    "delegatecall" ∈ collectLowLevelExprMechanics
+      (.delegatecall gas target inOffset inSize outOffset outSize) := by
+  rw [collectLowLevelExprMechanics]
+  exact List.Mem.head _
+
+/-- `collectLowLevelExprMechanics` distributes over `.forkIfAtLeast` branches. -/
+theorem collectLowLevelExprMechanics_forkIfAtLeast_mem
+    (fork : Verity.Core.Intrinsics.HardFork) (thenExpr elseExpr : Expr) (m : String) :
+    m ∈ collectLowLevelExprMechanics (.forkIfAtLeast fork thenExpr elseExpr) ↔
+      m ∈ collectLowLevelExprMechanics thenExpr ∨ m ∈ collectLowLevelExprMechanics elseExpr := by
+  rw [collectLowLevelExprMechanics, List.mem_append]
 
 end Compiler.CompilationModel

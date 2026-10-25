@@ -336,6 +336,19 @@ def reuseBlockTemps
     let stackCap := Nat.max 1 (maxStackLocals / 2 + 1)
     reuseBlockTempsLoop stackCap defaultSpillBase protectedNames stmts.length [] [] false stmts
 
+/-- Rewrite a single lexical block using an explicit dynamic scratch-memory `spillBase`:
+    fast-path identity when `countLetBindings stmts ≤ maxStackLocals`. -/
+def reuseBlockTempsWithSpillBase
+    (maxStackLocals : Nat := defaultMaxStackLocals)
+    (spillBase : Nat := defaultSpillBase)
+    (protectedNames : List String := [])
+    (stmts : List YulStmt) : List YulStmt :=
+  if countLetBindings stmts ≤ maxStackLocals then
+    stmts
+  else
+    let stackCap := Nat.max 1 (maxStackLocals / 2 + 1)
+    reuseBlockTempsLoop stackCap spillBase protectedNames stmts.length [] [] false stmts
+
 mutual
 /-- Recursively apply temporary reuse and spilling across a `YulStmt`. -/
 def reuseAndSpillTempsInStmt

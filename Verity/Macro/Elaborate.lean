@@ -13,6 +13,9 @@ open Lean
 open Lean.Elab
 open Lean.Elab.Command
 
+private abbrev pure {m : Type u → Type v} [Pure m] {α : Type u} (a : α) : m α := Pure.pure a
+private abbrev bind {m : Type u → Type v} [Bind m] {α β : Type u} (x : m α) (f : α → m β) : m β := Bind.bind x f
+
 set_option hygiene false
 
 partial def parseIntrinsicTemplateExpr (stx : TSyntax `verityIntrinsicTemplateExpr) :
@@ -124,6 +127,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   validateConstantDeclsPublic constDecls
   validateImmutableDeclsPublic fields constDecls immutableDecls ctor
   validateExternalDeclsPublic externalDecls
+  ensureCollisionFreeStorageFields fields
   let mut mixinModifiers : Array ModifierDecl := #[]
   let mut mixinFields : Array StorageFieldDecl := #[]
   let mut mixinErrorDecls : Array ErrorDecl := #[]

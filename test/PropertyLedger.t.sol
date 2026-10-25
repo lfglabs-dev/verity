@@ -669,6 +669,7 @@ contract PropertyLedgerTest is YulTestBase {
 
     /**
      * Property 30: transfer_sum_preserved_unique
+     * Property: transfer_conserves_sum_nat
      * Theorem: When sender and recipient each appear exactly once in the
      *          address list, the sum is exactly preserved.
      */

@@ -20,8 +20,12 @@ All three layers carry zero project-specific axioms.
 | [`EndToEnd.lean`](EndToEnd.lean) | Composed Layer 2 + native EVMYulLean theorem surface |
 | [`IRGeneration/Contract.lean`](IRGeneration/Contract.lean) | Generic whole-contract Layer 2 theorem |
 | [`IRGeneration/SupportedFragment.lean`](IRGeneration/SupportedFragment.lean) | `SupportedStmtList` fragment definition |
-| [`IRGeneration/SupportedSpec.lean`](IRGeneration/SupportedSpec.lean) | Feature-local body interfaces |
-| [`IRGeneration/SourceSemantics.lean`](IRGeneration/SourceSemantics.lean) | Helper-aware source semantics |
+| [`IRGeneration/SupportedSpec.lean`](IRGeneration/SupportedSpec.lean) | Feature-local body interfaces, `SourceStmtBridged` / `SourceFunctionBridged` / `SourceContractBridged` inductive closure, and `SurfaceFeature` mask |
+| [`IRGeneration/SourceSemantics.lean`](IRGeneration/SourceSemantics.lean) | Helper-aware source semantics, canonical zero-fuel entrypoints (`evalExprCanonical`, `execStmtCanonical`), and 5-channel `StorageLoc` lens algebra |
+| [`IRGeneration/IRInterpreter.lean`](IRGeneration/IRInterpreter.lean) | IR evaluator, canonical no-internal entrypoints (`evalIRExprCanonical`, `execIRStmtCanonical`), and `IRState.getVar_setVar_*` lenses |
+| [`HelperStepProofs.lean`](HelperStepProofs.lean) | Helper call step proofs and unified `PureWordBinOp` operator algebra |
+| [`VerifiedECMShims.lean`](VerifiedECMShims.lean) | Certified compiler shim catalog (`VerifiedCompilerShim.applyCertified`) |
+| [`SlotCoalescingShim.lean`](SlotCoalescingShim.lean) | Intra-block `SLOAD` CSE (`CacheCoherent`, `runSloadCSE_sound`) and packed-write coalescing proofs |
 | [`IRGeneration/GenericInduction.lean`](IRGeneration/GenericInduction.lean) | Helper-aware induction interfaces |
 | [`YulGeneration/Backends/EvmYulLeanNativeHarness.lean`](YulGeneration/Backends/EvmYulLeanNativeHarness.lean) | Native EVMYulLean runtime lowering and dispatcher-exec harness |
 | [`YulGeneration/Backends/EvmYulLeanBodyClosure.lean`](YulGeneration/Backends/EvmYulLeanBodyClosure.lean) | Safe-body closure predicates and native bridge witnesses |

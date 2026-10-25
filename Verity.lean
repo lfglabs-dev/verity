@@ -20,3 +20,8 @@ import Verity.Specs.Common.Sum
 import Verity.Specs.Composition
 import Verity.Proofs.Stdlib.Math
 import Verity.Proofs.Stdlib.ListSum
+import Verity.Core.SafeArith
+import Verity.Core.BoundedLoops
+import Verity.Macro.Types
+import Verity.Macro.SpecGen
+import Verity.Proofs.Stdlib.Automation

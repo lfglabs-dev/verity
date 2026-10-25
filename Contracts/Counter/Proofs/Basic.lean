@@ -176,4 +176,101 @@ theorem getCount_preserves_state (s : ContractState) :
   s' = s := by
   verity_unfold getCount
 
+/-! ## Declarative FnSpec Total Specifications & Frame Proofs (Verity 2.0) -/
+
+/-- Declarative `FnSpec` for `increment`: unconditionally succeeds, adds `1` to slot `0`,
+and leaves all storage keys outside `[.slot 0]` and the execution context unchanged. -/
+def incrementFnSpec (s : ContractState) : Verity.Specs.FnSpec Unit where
+  pre := True
+  post := fun _ s' => s'.storage 0 = EVM.Uint256.add (s.storage 0) 1
+  writes := [.slot 0]
+
+/-- Declarative `FnSpec` for `decrement`: unconditionally succeeds, subtracts `1` from slot `0`,
+and leaves all storage keys outside `[.slot 0]` and the execution context unchanged. -/
+def decrementFnSpec (s : ContractState) : Verity.Specs.FnSpec Unit where
+  pre := True
+  post := fun _ s' => s'.storage 0 = EVM.Uint256.sub (s.storage 0) 1
+  writes := [.slot 0]
+
+/-- Declarative `FnSpec` for `getCount`: unconditionally succeeds, returns `s.storage 0`,
+preserves the state, and writes no storage keys (`writes := []`). -/
+def getCountFnSpec (s : ContractState) : Verity.Specs.FnSpec Uint256 where
+  pre := True
+  post := fun v s' => v = s.storage 0 ∧ s' = s
+  writes := []
+
+theorem increment_run_eq (s : ContractState) :
+  increment.run s = ContractResult.success () (s.writeSlot 0 (EVM.Uint256.add (s.storage 0) 1)) := by
+  rfl
+
+theorem decrement_run_eq (s : ContractState) :
+  decrement.run s = ContractResult.success () (s.writeSlot 0 (EVM.Uint256.sub (s.storage 0) 1)) := by
+  rfl
+
+theorem getCount_run_eq (s : ContractState) :
+  getCount.run s = ContractResult.success (s.storage 0) s := by
+  rfl
+
+theorem increment_isSuccess (s : ContractState) :
+  (increment.run s).isSuccess = true := by
+  rfl
+
+theorem decrement_isSuccess (s : ContractState) :
+  (decrement.run s).isSuccess = true := by
+  rfl
+
+theorem getCount_isSuccess (s : ContractState) :
+  (getCount.run s).isSuccess = true := by
+  rfl
+
+theorem increment_unchangedExcept (s : ContractState) :
+  Verity.Specs.unchangedExcept [.slot 0] s ((increment.run s).snd) := by
+  rw [increment_run_eq]
+  exact Verity.Specs.unchangedExcept_writeSlot_self [.slot 0] s 0 (EVM.Uint256.add (s.storage 0) 1) (List.Mem.head [])
+
+theorem decrement_unchangedExcept (s : ContractState) :
+  Verity.Specs.unchangedExcept [.slot 0] s ((decrement.run s).snd) := by
+  rw [decrement_run_eq]
+  exact Verity.Specs.unchangedExcept_writeSlot_self [.slot 0] s 0 (EVM.Uint256.sub (s.storage 0) 1) (List.Mem.head [])
+
+theorem getCount_unchangedExcept (s : ContractState) :
+  Verity.Specs.unchangedExcept [] s ((getCount.run s).snd) := by
+  rw [getCount_run_eq]
+  exact Verity.Specs.unchangedExcept_rfl [] s
+
+theorem increment_satisfies_fnSpec (s : ContractState) :
+  Verity.Specs.FnSpec.Satisfies increment s (incrementFnSpec s) := by
+  rw [Verity.Specs.FnSpec.satisfies_of_run_success (increment_run_eq s)]
+  exact ⟨trivial, rfl, trivial, increment_unchangedExcept s⟩
+
+theorem decrement_satisfies_fnSpec (s : ContractState) :
+  Verity.Specs.FnSpec.Satisfies decrement s (decrementFnSpec s) := by
+  rw [Verity.Specs.FnSpec.satisfies_of_run_success (decrement_run_eq s)]
+  exact ⟨trivial, rfl, trivial, decrement_unchangedExcept s⟩
+
+theorem getCount_satisfies_fnSpec (s : ContractState) :
+  Verity.Specs.FnSpec.Satisfies getCount s (getCountFnSpec s) := by
+  rw [Verity.Specs.FnSpec.satisfies_of_run_success (getCount_run_eq s)]
+  exact ⟨trivial, ⟨rfl, rfl⟩, trivial, Verity.Specs.unchangedExcept_rfl [] s⟩
+
+theorem increment_fnSpec_implies_meets_spec (s : ContractState) :
+  increment_spec s ((increment.run s).snd) := by
+  have hsat := increment_satisfies_fnSpec s
+  have hpost := hsat.post_of_success (increment_run_eq s)
+  have hfr := hsat.frame_of_success (increment_run_eq s)
+  rw [increment_run_eq]
+  exact Verity.Specs.fnUpdateSpec_implies_storageUpdateSpec 0
+    (fun st => EVM.Uint256.add (st.storage 0) 1) s
+    (s.writeSlot 0 (EVM.Uint256.add (s.storage 0) 1)) ⟨hpost, hfr⟩
+
+theorem decrement_fnSpec_implies_meets_spec (s : ContractState) :
+  decrement_spec s ((decrement.run s).snd) := by
+  have hsat := decrement_satisfies_fnSpec s
+  have hpost := hsat.post_of_success (decrement_run_eq s)
+  have hfr := hsat.frame_of_success (decrement_run_eq s)
+  rw [decrement_run_eq]
+  exact Verity.Specs.fnUpdateSpec_implies_storageUpdateSpec 0
+    (fun st => EVM.Uint256.sub (st.storage 0) 1) s
+    (s.writeSlot 0 (EVM.Uint256.sub (s.storage 0) 1)) ⟨hpost, hfr⟩
+
 end Contracts.Counter.Proofs
