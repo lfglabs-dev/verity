@@ -70,6 +70,7 @@ import Contracts.SimpleToken.Proofs.Basic
 import Contracts.SimpleToken.Proofs.Correctness
 import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
+import Contracts.Vault.Proofs.Conservation
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
 import Verity.Proofs.CheckedExternalCallConsumer
@@ -138,6 +139,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
+import Compiler.Proofs.IRGeneration.GuardAndDynamicAbi
 import Compiler.Proofs.IRGeneration.GuardedCompile
 import Compiler.Proofs.IRGeneration.GuardedContract
 import Compiler.Proofs.IRGeneration.GuardedContractShape
@@ -234,6 +236,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanRevertAndMemoryGuard
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSignedArithSpec
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanStateBridge
+import Compiler.Proofs.YulGeneration.BytecodeTranslationValidation
 import Compiler.Proofs.YulGeneration.Calldata
 import Compiler.Proofs.YulGeneration.ExecutionSummary
 import Compiler.Proofs.YulGeneration.IRFuel
@@ -916,6 +919,20 @@ end Verity.AxiomAudit
   Contracts.Counter.Proofs.increment_preserves_wellformedness
   Contracts.Counter.Proofs.decrement_preserves_wellformedness
   Contracts.Counter.Proofs.getCount_preserves_state
+  Contracts.Counter.Proofs.increment_run_eq
+  Contracts.Counter.Proofs.decrement_run_eq
+  Contracts.Counter.Proofs.getCount_run_eq
+  Contracts.Counter.Proofs.increment_isSuccess
+  Contracts.Counter.Proofs.decrement_isSuccess
+  Contracts.Counter.Proofs.getCount_isSuccess
+  Contracts.Counter.Proofs.increment_unchangedExcept
+  Contracts.Counter.Proofs.decrement_unchangedExcept
+  Contracts.Counter.Proofs.getCount_unchangedExcept
+  Contracts.Counter.Proofs.increment_satisfies_fnSpec
+  Contracts.Counter.Proofs.decrement_satisfies_fnSpec
+  Contracts.Counter.Proofs.getCount_satisfies_fnSpec
+  Contracts.Counter.Proofs.increment_fnSpec_implies_meets_spec
+  Contracts.Counter.Proofs.decrement_fnSpec_implies_meets_spec
 
   -- Contracts/Counter/Proofs/Correctness.lean
   Contracts.Counter.Proofs.Correctness.increment_state_preserved_except_count
@@ -935,6 +952,8 @@ end Verity.AxiomAudit
 
   -- Contracts/ERC20/Proofs/Basic.lean
   Contracts.ERC20.Proofs.constructor_meets_spec
+  Contracts.ERC20.Proofs.erc20_constructor_meets_spec
+  Contracts.ERC20.Proofs.constructor_establishes_owner_nonzero
   Contracts.ERC20.Proofs.approve_meets_spec
   Contracts.ERC20.Proofs.balanceOf_meets_spec
   Contracts.ERC20.Proofs.allowanceOf_meets_spec
@@ -944,11 +963,13 @@ end Verity.AxiomAudit
   Contracts.ERC20.Proofs.mint_meets_spec_when_owner
   Contracts.ERC20.Proofs.mint_increases_balance_when_owner
   Contracts.ERC20.Proofs.mint_increases_supply_when_owner
+  Contracts.ERC20.Proofs.mint_reverts_when_not_owner
   -- Contracts.ERC20.Proofs.transfer_unfold_self  -- private
   -- Contracts.ERC20.Proofs.transfer_unfold_other  -- private
   Contracts.ERC20.Proofs.transfer_meets_spec_when_sufficient
   Contracts.ERC20.Proofs.transfer_decreases_sender_balance_when_sufficient
   Contracts.ERC20.Proofs.transfer_increases_recipient_balance_when_sufficient
+  Contracts.ERC20.Proofs.transfer_reverts_when_insufficient
 
   -- Contracts/ERC20/Proofs/Correctness.lean
   Contracts.ERC20.Proofs.balanceOf_preserves_state
@@ -999,6 +1020,8 @@ end Verity.AxiomAudit
   Contracts.Ledger.Proofs.transfer_increases_recipient
   Contracts.Ledger.Proofs.transfer_reverts_insufficient
   Contracts.Ledger.Proofs.transfer_succeeds_recipient_overflow
+  Contracts.Ledger.Proofs.transfer_conserves_sum_nat
+  Contracts.Ledger.Proofs.transfer_wraparound_hazard_characterization
   Contracts.Ledger.Proofs.deposit_preserves_non_mapping
   Contracts.Ledger.Proofs.withdraw_preserves_non_mapping
   Contracts.Ledger.Proofs.deposit_preserves_wellformedness
@@ -1283,6 +1306,20 @@ end Verity.AxiomAudit
   Contracts.SimpleToken.Proofs.Supply.transfer_sum_equation
   Contracts.SimpleToken.Proofs.Supply.transfer_sum_preserved_unique
 
+  -- Contracts/Vault/Proofs/Conservation.lean
+  -- Contracts.Vault.Proofs.add_sub_self_left  -- private
+  -- Contracts.Vault.Proofs.sub_sub_self_of_ge  -- private
+  -- Contracts.Vault.Proofs.deposit_unfold  -- private
+  Contracts.Vault.Proofs.deposit_meets_spec
+  -- Contracts.Vault.Proofs.withdraw_unfold  -- private
+  Contracts.Vault.Proofs.withdraw_meets_spec
+  Contracts.Vault.Proofs.withdraw_reverts_when_insufficient_shares
+  Contracts.Vault.Proofs.deposit_share_asset_conservation
+  Contracts.Vault.Proofs.withdraw_share_asset_conservation
+  Contracts.Vault.Proofs.deposit_withdraw_roundtrip
+  Contracts.Vault.Proofs.deposit_preserves_assets_supply_synced
+  Contracts.Vault.Proofs.withdraw_preserves_assets_supply_synced
+
   -- Contracts/Vault/Proofs/Correctness.lean
   Contracts.Vault.Proofs.totalAssets_meets_spec
   Contracts.Vault.Proofs.totalAssets_preserves_state
@@ -1480,6 +1517,24 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Automation.sameStorageAddr_of_viewPreservesState
   Verity.Proofs.Stdlib.Automation.sameStorageMap_of_viewPreservesState
   Verity.Proofs.Stdlib.Automation.sameContext_of_viewPreservesState
+  Verity.Proofs.Stdlib.Automation.Contract.run_pure_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_bind_success
+  Verity.Proofs.Stdlib.Automation.Contract.run_bind_success_of_isSuccess
+  Verity.Proofs.Stdlib.Automation.Contract.run_bind_success_chain
+  Verity.Proofs.Stdlib.Automation.Contract.run_bind_revert
+  Verity.Proofs.Stdlib.Automation.Contract.run_require_true_bind
+  Verity.Proofs.Stdlib.Automation.Contract.run_require_false_bind
+  Verity.Proofs.Stdlib.Automation.Contract.isSuccess_of_run_success
+  Verity.Proofs.Stdlib.Automation.Contract.isSuccess_of_run_revert
+  Verity.Proofs.Stdlib.Automation.Contract.run_getStorage_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_setStorage_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_getStorageAddr_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_setStorageAddr_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_getMapping_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_setMapping_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_msgSender_eq
+  Verity.Proofs.Stdlib.Automation.Contract.run_ite_true
+  Verity.Proofs.Stdlib.Automation.Contract.run_ite_false
 
   -- Verity/Proofs/Stdlib/Int256.lean
   -- Verity.Proofs.Stdlib.Int256.modulus_def  -- private
@@ -2577,7 +2632,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_call_of_dispatch
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCallContextBridge_compileExprWithInternals_internalCall
   Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_singleton
-  Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_singleton
   Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_cons_tail
   Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_cons_head
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_of_exprListContext
@@ -2601,8 +2655,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.evalExprWithHelpers_add_of_values
   Compiler.Proofs.HelperStepProofs.evalBuiltinCallWithEvmYulLeanContext_add_of_values
   -- Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_add_of_values  -- private
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_right_threaded
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_left_threaded
@@ -2716,16 +2768,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.HelperStepProofs.scopeNamesIncluded_stmtNextScope_letVar  -- private
   -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_continue  -- private
   -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_of_postStateResult  -- private
-  -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_of_postStateResult  -- private
   -- Compiler.Proofs.HelperStepProofs.compileStmt_letVar_shape_of_slack  -- private
   -- Compiler.Proofs.HelperStepProofs.letVarStepObligation_of_postStateEvidence  -- private
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
   -- Compiler.Proofs.HelperStepProofs.exprPostStateResult_add_right_of_letVarPayload  -- private
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
-  -- Compiler.Proofs.HelperStepProofs.exprPostStateResult_add_right_of_letVarPayload  -- private
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_right_threaded
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_left_threaded
@@ -2749,11 +2797,22 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
-  Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
-  Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces
-  Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
-  Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
-  Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_add_comm
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_mul_comm
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_add_zero_right
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_add_zero_left
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_sub_zero
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_sub_self
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_mul_zero_right
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_mul_zero_left
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_mul_one_right
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_mul_one_left
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_div_zero_right
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_mod_zero_right
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_eq_refl
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_lt_irrefl
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_gt_irrefl
+  Compiler.Proofs.HelperStepProofs.PureWordBinOp.eval_comparison_le_one
 
   -- Compiler/Proofs/IRGeneration/BoundedLoopCheck.lean
   Compiler.Proofs.IRGeneration.applyYulLogCall?_vars
@@ -5156,6 +5215,16 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot
 
+  -- Compiler/Proofs/IRGeneration/GuardAndDynamicAbi.lean
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.nonReentrant_reverts_when_locked
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.nonReentrant_clears_lock_on_success
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.nonReentrant_preserves_unchangedExcept
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.advanceTailCursor_eq_add_tailByteSize
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.eventFinalTailCursor_eq_encodeEventDataByteSize
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.eventTail_disjoint_from_head
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.encodeCustomErrorByteSize_ge_four
+  Compiler.Proofs.IRGeneration.GuardAndDynamicAbi.dynamicAbi_and_guard_executable_witness
+
   -- Compiler/Proofs/IRGeneration/GuardedCompile.lean
   Compiler.Proofs.IRGeneration.compileFunctionSpec_body_shape
   Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_inv
@@ -5550,6 +5619,20 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_storage
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_returnValue
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_events
+  Compiler.Proofs.IRGeneration.evalIRExpr_lit
+  Compiler.Proofs.IRGeneration.evalIRExpr_hex
+  Compiler.Proofs.IRGeneration.evalIRExpr_str
+  Compiler.Proofs.IRGeneration.evalIRExpr_ident
+  Compiler.Proofs.IRGeneration.IRState.getVar_setVar_same
+  -- Compiler.Proofs.IRGeneration.find_filter_bne_eq  -- private
+  Compiler.Proofs.IRGeneration.IRState.getVar_setVar_ne
+  Compiler.Proofs.IRGeneration.IRState.setVar_transientStorage
+  Compiler.Proofs.IRGeneration.IRState.setVar_memory
+  Compiler.Proofs.IRGeneration.IRState.setVar_calldata
+  Compiler.Proofs.IRGeneration.IRState.setVar_selector
+  Compiler.Proofs.IRGeneration.execIRStmts_nil
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_nil
+  Compiler.Proofs.IRGeneration.execIRStmtsCanonical_nil
 
   -- Compiler/Proofs/IRGeneration/IRRuntimeTypes.lean
   Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_at
@@ -5939,6 +6022,31 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedSourceContractSemantics_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_lit
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_param
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_localVar
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_caller
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_msgValue
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_contractAddress
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_blockTimestamp
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprCanonical_blockNumber
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprListCanonical_nil
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmtsWithHelpers_nil
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmtsCanonical_nil
+  Compiler.Proofs.IRGeneration.sourceContractSemanticsWithHelpers_zero_eq_supported
+  Compiler.Proofs.IRGeneration.StorageLoc.toStorageKey_injective
+  Compiler.Proofs.IRGeneration.StorageLoc.toStorageKey_ne_of_ne
+  Compiler.Proofs.IRGeneration.StorageLoc.read_write_same
+  Compiler.Proofs.IRGeneration.StorageLoc.read_write_ne
+  Compiler.Proofs.IRGeneration.StorageLoc.write_write_same
+  Compiler.Proofs.IRGeneration.StorageLoc.sender_write
+  Compiler.Proofs.IRGeneration.StorageLoc.this_write
+  Compiler.Proofs.IRGeneration.StorageLoc.msgValue_write
+  Compiler.Proofs.IRGeneration.StorageLoc.blockTimestamp_write
+  Compiler.Proofs.IRGeneration.StorageLoc.blockNumber_write
+  Compiler.Proofs.IRGeneration.StorageLoc.chainId_write
+  Compiler.Proofs.IRGeneration.StorageLoc.events_write
+  Compiler.Proofs.IRGeneration.StorageLoc.storageArray_write
 
   -- Compiler/Proofs/IRGeneration/SourceSemanticsFeatureTest.lean
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.externalCallBind_extraReturnValues_reverts  -- private
@@ -6362,6 +6470,39 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.simpleStorage_noPackedFields  -- private
   -- Compiler.Proofs.IRGeneration.simpleStorage_noFallback  -- private
   -- Compiler.Proofs.IRGeneration.simpleStorage_noReceive  -- private
+  Compiler.Proofs.IRGeneration.stmtSurfaceClean_eq_true_iff
+  Compiler.Proofs.IRGeneration.stmtsSurfaceClean_nil
+  Compiler.Proofs.IRGeneration.stmtsSurfaceClean_cons
+  Compiler.Proofs.IRGeneration.stmtsSurfaceClean_append
+  Compiler.Proofs.IRGeneration.stmtsSurfaceClean_imp_noCheckedArithmetic
+  Compiler.Proofs.IRGeneration.stmtSurfaceClean_imp_singleton_noCheckedArithmetic
+  Compiler.Proofs.IRGeneration.stmtsSurfaceClean_imp_noTemplateIntrinsics
+  Compiler.Proofs.IRGeneration.SourceStmtBridged_of_surfaceClean
+  Compiler.Proofs.IRGeneration.SourceStmtBridged_iff_surfaceClean
+  Compiler.Proofs.IRGeneration.SourceStmtsBridged_nil
+  Compiler.Proofs.IRGeneration.SourceStmtsBridged_cons_iff
+  Compiler.Proofs.IRGeneration.SourceStmtsBridged_iff_stmtsSurfaceClean
+  Compiler.Proofs.IRGeneration.activeSurfaceFeatures_eq_nil_iff
+  Compiler.Proofs.IRGeneration.simpleStorage_stmtsSurfaceClean
+  Compiler.Proofs.IRGeneration.SourceStmtBridged_fuel_irrel
+  Compiler.Proofs.IRGeneration.SourceStmtsBridged_fuel_irrel
+  Compiler.Proofs.IRGeneration.SourceStmtsBridged_append_iff
+  Compiler.Proofs.IRGeneration.SourceStmtsBridged_singleton_iff
+  Compiler.Proofs.IRGeneration.SourceStmtsBridged_of_mem
+  Compiler.Proofs.IRGeneration.SourceFunctionBridged_iff_surfaceClean
+  Compiler.Proofs.IRGeneration.SourceFunctionBridged_fuel_irrel
+  Compiler.Proofs.IRGeneration.contractFunctionsSurfaceClean_nil
+  Compiler.Proofs.IRGeneration.contractFunctionsSurfaceClean_iff_forall
+  Compiler.Proofs.IRGeneration.SourceContractBridged_fuel_irrel
+  Compiler.Proofs.IRGeneration.SourceContractBridged_imp_activeSurfaceFeatures_nil
+  Compiler.Proofs.IRGeneration.SourceContractBridged_imp_functionsClean
+  Compiler.Proofs.IRGeneration.hasSurfaceFeature_events_false_iff
+  Compiler.Proofs.IRGeneration.hasSurfaceFeature_errors_false_iff
+  Compiler.Proofs.IRGeneration.hasSurfaceFeature_externals_false_iff
+  Compiler.Proofs.IRGeneration.hasSurfaceFeature_adtTypes_false_iff
+  Compiler.Proofs.IRGeneration.simpleStorage_contractFunctionsSurfaceClean
+  Compiler.Proofs.IRGeneration.simpleStorage_activeSurfaceFeatures_nil
+  Compiler.Proofs.IRGeneration.simpleStorage_sourceContractBridged
 
   -- Compiler/Proofs/IRGeneration/TypedRevertStep.lean
   -- Compiler.Proofs.IRGeneration.revertWithCustomError_zero_shape  -- private
@@ -6540,7 +6681,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.PackedBitfieldMetaSpec.relative_slot_offset_witness
 
   -- Compiler/Proofs/SlotCoalescingShim.lean
-  Compiler.Proofs.SlotCoalescingShim.applyPackedWritesInRegister_append
   Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_eq_uncoalesced
   Compiler.Proofs.SlotCoalescingShim.pairwiseDisjointLenses_of_bool_eq_true
   Compiler.Proofs.SlotCoalescingShim.get_applyPackedWritesInRegister_of_allDisjoint
@@ -6554,6 +6694,28 @@ end Verity.AxiomAudit
   Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_same_lens_fuse
   Compiler.Proofs.SlotCoalescingShim.slot0_coalescing_saves_600_gas
   Compiler.Proofs.SlotCoalescingShim.checkSlotCoalescingWitnessSuite_eq_true
+  Compiler.Proofs.SlotCoalescingShim.CacheCoherent_none
+  Compiler.Proofs.SlotCoalescingShim.CacheCoherent_some_self
+  Compiler.Proofs.SlotCoalescingShim.CacheCoherent_some_iff
+  Compiler.Proofs.SlotCoalescingShim.execCachedOp_preserves_coherent
+  Compiler.Proofs.SlotCoalescingShim.execCachedOp_snd_eq_unoptimized
+  Compiler.Proofs.SlotCoalescingShim.execCachedOps_preserves_coherent
+  Compiler.Proofs.SlotCoalescingShim.execCachedOps_snd_eq_unoptimized
+  Compiler.Proofs.SlotCoalescingShim.runSloadCSE_sound
+  Compiler.Proofs.SlotCoalescingShim.redundant_sload_elimination_sound
+  Compiler.Proofs.SlotCoalescingShim.sloadCSEGasSaved_pos
+  Compiler.Proofs.SlotCoalescingShim.checkSloadCSEWitnessSuite_eq_true
+  Compiler.Proofs.SlotCoalescingShim.applyPackedWritesInRegister_nil
+  Compiler.Proofs.SlotCoalescingShim.applyPackedWritesInRegister_cons
+  Compiler.Proofs.SlotCoalescingShim.applyPackedWritesInRegister_append
+  Compiler.Proofs.SlotCoalescingShim.execUncoalescedPackedWrites_append
+  Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_append
+  Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_fmp_preserved
+  Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_otherSlotsRoot_preserved
+  Compiler.Proofs.SlotCoalescingShim.execUncoalescedPackedWrites_fmp_preserved
+  Compiler.Proofs.SlotCoalescingShim.execUncoalescedPackedWrites_otherSlotsRoot_preserved
+  Compiler.Proofs.SlotCoalescingShim.coalescedPackedWritesGas_lt_uncoalesced
+  Compiler.Proofs.SlotCoalescingShim.slotCoalescingGasSaved_monotone
 
   -- Compiler/Proofs/SolidityImport/EmitVerityBridge.lean
   Compiler.Proofs.SolidityImport.stmtModifiedSlots_setStorage
@@ -7317,6 +7479,29 @@ end Verity.AxiomAudit
   Compiler.Proofs.VerifiedECMShims.checkSafeTokenCallsWitness_eq_true
   Compiler.Proofs.VerifiedECMShims.checkTransientLocksWitness_eq_true
   Compiler.Proofs.VerifiedECMShims.checkAllVerifiedECMShimsSuite_eq_true
+  Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.sound
+  Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.applyCertified_disabled
+  Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.applyCertified_snd_eq_gasSaved_of_sideCond
+  Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.applyCertified_snd_le_gasSaved
+  Compiler.Proofs.VerifiedECMShims.solcOutlinedHelperVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.eip712EcrecoverVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.sstore2ReadVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.dynamicStructEventVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.slotCoalescingCatalogShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.erc20SafeTransferVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.merkleProofVerifyVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.transientReentrancyLockVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.eip712AndEcrecoverVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.create2AndSstore2CodeDataVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.dynamicAndStructEventVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.yulOutlinedHelperVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.solcShapedAbiArithVerifiedShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.mulDivDown512Shim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.keccak256PairScratchShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.soladySafeTransferShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.eip1153TransientLockShim_applyCertified_fst_eq_denoteSpec
+  Compiler.Proofs.VerifiedECMShims.allCatalogShims_gasSaved_sum
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
@@ -9605,6 +9790,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
   Compiler.Proofs.YulGeneration.Backends.StateBridge.uint256_roundtrip
 
+  -- Compiler/Proofs/YulGeneration/BytecodeTranslationValidation.lean
+  Compiler.Proofs.YulGeneration.BytecodeTranslationValidation.lookupYulHelper_append_of_some
+  Compiler.Proofs.YulGeneration.BytecodeTranslationValidation.no_assumed_of_allECMsProved
+  Compiler.Proofs.YulGeneration.BytecodeTranslationValidation.checkBytecodeBlockCert_sound
+  Compiler.Proofs.YulGeneration.BytecodeTranslationValidation.validateBytecodeTranslation_sound
+  Compiler.Proofs.YulGeneration.BytecodeTranslationValidation.push1_immediate_0x5b_not_jumpdest
+
   -- Compiler/Proofs/YulGeneration/Calldata.lean
   Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus
   -- Compiler.Proofs.YulGeneration.calldatacopyWritesAt_of_index  -- private
@@ -9647,4 +9839,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8839 theorems/lemmas (6359 public, 2480 private, 0 sorry'd)
+-- Total: 9022 theorems/lemmas (6539 public, 2483 private, 0 sorry'd)
