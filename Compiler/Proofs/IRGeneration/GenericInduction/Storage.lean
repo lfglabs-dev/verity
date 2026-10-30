@@ -100,9 +100,7 @@ private theorem storage_writeUintKeyedMappingSlots_singleton_of_ne
     hneq', hslotNe, hqueryMod, SourceSemantics.wordNormalize,
     SourceSemantics.UInt256_size_eq_UINT256_MODULUS]
   apply Verity.Core.Uint256.ext
-  have hltU : (world.storage query).val < Verity.Core.UINT256_MODULUS :=
-    (world.storage query).isLt
-  simp [Verity.Core.Uint256.modulus, Nat.mod_eq_of_lt hltU]
+  simp [Verity.Core.Uint256.modulus, Nat.mod_eq_of_lt (world.storage query).isLt]
 
 private theorem encodeStorageAt_writeUintKeyedMappingSlots_singleton_other
     {fields : List Field}
@@ -1259,9 +1257,8 @@ private theorem encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_other
               115792089237316195423570985008687907853269984665640564039457584007913129639936 := by
           simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS] using
             (world.storage query).isLt
-        have hltU : (world.storage query).val < Verity.Core.UINT256_MODULUS :=
-          (world.storage query).isLt
-        rw [SourceSemantics.UInt256_size_eq_UINT256_MODULUS, Nat.mod_eq_of_lt hltU]
+        rw [SourceSemantics.UInt256_size_eq_UINT256_MODULUS,
+          Nat.mod_eq_of_lt (world.storage query).isLt]
         simp [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS, Nat.mod_eq_of_lt hltLit]
       · simp [SourceSemantics.writeAddressKeyedMapping2Slots]
       · simp [SourceSemantics.writeAddressKeyedMapping2Slots]

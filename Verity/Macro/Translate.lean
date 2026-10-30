@@ -2767,8 +2767,15 @@ private partial def syntaxCallsAnyHelper
       if isProjectionFieldSyntax stx.getKind && stx.getNumArgs >= 1 then
         syntaxCallsAnyHelper helpers targetHelpers params locals stx[0]
       else if stx.getKind == ``Lean.Parser.Term.structInstField then
-        if stx.getNumArgs >= 2 then
-          if stx[1].getNumArgs == 0 then
+        if stx.getNumArgs >= 2 then do
+          let lvalHasHelper ←
+            if stx[0].getNumArgs >= 2 then
+              syntaxCallsAnyHelper helpers targetHelpers params locals stx[0][1]
+            else
+              pure false
+          if lvalHasHelper then
+            pure true
+          else if stx[1].getNumArgs == 0 then
             syntaxCallsAnyHelper helpers targetHelpers params locals stx[0]
           else
             syntaxCallsAnyHelper helpers targetHelpers params locals stx[1]

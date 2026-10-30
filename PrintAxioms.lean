@@ -6176,6 +6176,12 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/SupportedSpec/SurfaceMask.lean
   -- Compiler.Proofs.IRGeneration.uint32_ext_bitvec  -- private
+  Compiler.Proofs.IRGeneration.surfaceMask_and_assoc
+  Compiler.Proofs.IRGeneration.surfaceMask_or_comm
+  Compiler.Proofs.IRGeneration.surfaceMask_or_and_distrib_right
+  Compiler.Proofs.IRGeneration.surfaceMask_and_or_self_left
+  Compiler.Proofs.IRGeneration.surfaceMask_and_zero
+  -- Compiler.Proofs.IRGeneration.surfaceMask_or_eq_zero_iff  -- private
   Compiler.Proofs.IRGeneration.hasMask_zero
   Compiler.Proofs.IRGeneration.hasMask_or
   Compiler.Proofs.IRGeneration.surfaceMask_or_assoc
@@ -6183,8 +6189,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.surfaceMask_or_zero
   Compiler.Proofs.IRGeneration.maskSubset_zero
   Compiler.Proofs.IRGeneration.maskSubset_refl
-  Compiler.Proofs.IRGeneration.maskSubset_or
   Compiler.Proofs.IRGeneration.maskSubset_mono
+  -- Compiler.Proofs.IRGeneration.maskSubset_union_left  -- private
+  -- Compiler.Proofs.IRGeneration.maskSubset_union_right  -- private
+  Compiler.Proofs.IRGeneration.maskSubset_or
   Compiler.Proofs.IRGeneration.hasMask_eq_false_of_maskSubset
   Compiler.Proofs.IRGeneration.hasMask_bitEventEmit_self
   Compiler.Proofs.IRGeneration.hasMask_bitInternalCall_self
@@ -6204,8 +6212,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exprIsMulDiv512_eq_false_of_no_mulDiv512Mask
   Compiler.Proofs.IRGeneration.stmtIsForEachSetBit_eq_false_of_no_forEachSetBitMask
   Compiler.Proofs.IRGeneration.stmtIsInlineYul_eq_false_of_no_inlineYulMask
-  -- Compiler.Proofs.IRGeneration.maskSubset_union_right  -- private
-  -- Compiler.Proofs.IRGeneration.maskSubset_union_left  -- private
   Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec
   Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_of_maskSubset
   Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_panic
@@ -9396,10 +9402,18 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.ofNat_sub_lt_zero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.ofNat_sub_ne_zero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.ofInt_neg_ofNat_toUint256_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_zero_lhs  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_zero_rhs_neg  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_zero_rhs_pos  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_zero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_pos_pos_rhs  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_pos_pos  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_abs_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_pos_neg_rhs  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_pos_neg  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_neg_pos_rhs  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_neg_pos  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.sdiv_neg_neg_rhs  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_neg_neg  -- private
   Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv
   -- Compiler.Proofs.YulGeneration.Backends.eq0_true_of_val_eq_zero  -- private
@@ -9845,4 +9859,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9028 theorems/lemmas (6539 public, 2489 private, 0 sorry'd)
+-- Total: 9042 theorems/lemmas (6544 public, 2498 private, 0 sorry'd)

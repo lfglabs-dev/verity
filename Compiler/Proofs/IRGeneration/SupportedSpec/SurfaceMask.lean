@@ -235,6 +235,45 @@ end
 private theorem uint32_ext_bitvec {a b : SurfaceMask} (h : a.toBitVec = b.toBitVec) : a = b :=
   UInt32.eq_of_toBitVec_eq h
 
+theorem surfaceMask_and_assoc (a b c : SurfaceMask) :
+    a &&& b &&& c = a &&& (b &&& c) := by
+  apply uint32_ext_bitvec; ext i hi; simp [Bool.and_assoc]
+
+theorem surfaceMask_or_comm (a b : SurfaceMask) :
+    a ||| b = b ||| a := by
+  apply uint32_ext_bitvec; ext i hi; simp [Bool.or_comm]
+
+theorem surfaceMask_or_and_distrib_right (a b c : SurfaceMask) :
+    (a ||| b) &&& c = (a &&& c) ||| (b &&& c) := by
+  apply uint32_ext_bitvec; ext i hi; simp [Bool.and_or_distrib_right]
+
+theorem surfaceMask_and_or_self_left (a b : SurfaceMask) :
+    a &&& (a ||| b) = a := by
+  apply uint32_ext_bitvec; ext i hi
+  simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, BitVec.getElem_and, BitVec.getElem_or,
+    Bool.and_or_distrib_left, Bool.and_self, Bool.or_eq_left_iff_imp, Bool.and_eq_true]
+  exact And.left
+
+@[simp]
+theorem surfaceMask_and_zero (a : SurfaceMask) :
+    a &&& (0 : SurfaceMask) = 0 := by
+  apply uint32_ext_bitvec; ext i hi; simp
+
+private theorem surfaceMask_or_eq_zero_iff (a b : SurfaceMask) :
+    a ||| b = 0 ↔ a = 0 ∧ b = 0 := by
+  have bitZero (x : SurfaceMask) (hx : ∀ i (hi : i < 32), x.toBitVec[i] = false) : x = 0 := by
+    apply uint32_ext_bitvec; ext i hi; simpa using hx i hi
+  constructor
+  · intro h
+    have hbit : ∀ i (hi : i < 32), a.toBitVec[i] = false ∧ b.toBitVec[i] = false := by
+      intro i hi
+      have hb := congrArg (fun x => x.toBitVec[i]) h
+      simpa [UInt32.toBitVec_or, UInt32.toBitVec_ofNat, BitVec.getElem_or, BitVec.getElem_zero,
+        Bool.or_eq_false_iff] using hb
+    exact ⟨bitZero a (fun i hi => (hbit i hi).1), bitZero b (fun i hi => (hbit i hi).2)⟩
+  · rintro ⟨h1, h2⟩
+    rw [h1, h2]; rfl
+
 /-- The empty mask `0` contains no surface bits. -/
 @[simp]
 theorem hasMask_zero (mask : SurfaceMask) : hasMask 0 mask = false := by
@@ -246,27 +285,8 @@ theorem hasMask_or (m₁ m₂ mask : SurfaceMask) :
     hasMask (m₁ ||| m₂) mask = (hasMask m₁ mask || hasMask m₂ mask) := by
   apply Bool.eq_iff_iff.mpr
   simp only [hasMask, bne_iff_ne, ne_eq, Bool.or_eq_true, ← Decidable.not_and_iff_or_not]
-  constructor
-  · intro h ⟨h1, h2⟩
-    apply h
-    apply uint32_ext_bitvec
-    ext i hi
-    have hb1 := congrArg (fun x => x.toBitVec[i]) h1
-    have hb2 := congrArg (fun x => x.toBitVec[i]) h2
-    simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, UInt32.toBitVec_ofNat,
-      BitVec.getElem_and, BitVec.getElem_or, BitVec.getElem_zero] at hb1 hb2 ⊢
-    cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_mask : mask.toBitVec[i] <;>
-      simp_all
-  · intro h hboth
-    apply h
-    constructor <;> (
-      apply uint32_ext_bitvec
-      ext i hi
-      have hb := congrArg (fun x => x.toBitVec[i]) hboth
-      simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, UInt32.toBitVec_ofNat,
-        BitVec.getElem_and, BitVec.getElem_or, BitVec.getElem_zero] at hb ⊢
-      cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_mask : mask.toBitVec[i] <;>
-        simp_all)
+  rw [surfaceMask_or_and_distrib_right]
+  exact not_congr (surfaceMask_or_eq_zero_iff (m₁ &&& mask) (m₂ &&& mask))
 
 /-- Bitwise union on `SurfaceMask` is associative. -/
 theorem surfaceMask_or_assoc (a b c : SurfaceMask) :
@@ -297,31 +317,6 @@ theorem maskSubset_refl (m : SurfaceMask) :
     ((m &&& m) == m) = true := by
   simp only [beq_iff_eq]; apply uint32_ext_bitvec; ext i hi; simp
 
-/-- Mask inclusion `(m &&& allowed) == m` distributes over bitwise union `|||`. -/
-@[simp]
-theorem maskSubset_or (m₁ m₂ allowed : SurfaceMask) :
-    (((m₁ ||| m₂) &&& allowed) == (m₁ ||| m₂)) =
-      (((m₁ &&& allowed) == m₁) && ((m₂ &&& allowed) == m₂)) := by
-  apply Bool.eq_iff_iff.mpr
-  simp only [beq_iff_eq, Bool.and_eq_true]
-  constructor
-  · intro h
-    constructor <;> (
-      apply uint32_ext_bitvec; ext i hi
-      have hb := congrArg (fun x => x.toBitVec[i]) h
-      simp only [UInt32.toBitVec_and, UInt32.toBitVec_or,
-        BitVec.getElem_and, BitVec.getElem_or] at hb ⊢
-      cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_a : allowed.toBitVec[i] <;>
-        simp_all)
-  · rintro ⟨h1, h2⟩
-    apply uint32_ext_bitvec; ext i hi
-    have hb1 := congrArg (fun x => x.toBitVec[i]) h1
-    have hb2 := congrArg (fun x => x.toBitVec[i]) h2
-    simp only [UInt32.toBitVec_and, UInt32.toBitVec_or,
-      BitVec.getElem_and, BitVec.getElem_or] at hb1 hb2 ⊢
-    cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_a : allowed.toBitVec[i] <;>
-      simp_all
-
 /-- Monotonicity under mask inclusion: if `m` is within `allowed₁` and
 `allowed₁` is within `allowed₂`, then `m` is within `allowed₂`. -/
 theorem maskSubset_mono {m allowed₁ allowed₂ : SurfaceMask}
@@ -329,12 +324,35 @@ theorem maskSubset_mono {m allowed₁ allowed₂ : SurfaceMask}
     (hinc : ((allowed₁ &&& allowed₂) == allowed₁) = true) :
     ((m &&& allowed₂) == m) = true := by
   simp only [beq_iff_eq] at hm hinc ⊢
-  apply uint32_ext_bitvec; ext i hi
-  have h1 := congrArg (fun x => x.toBitVec[i]) hm
-  have h2 := congrArg (fun x => x.toBitVec[i]) hinc
-  simp only [UInt32.toBitVec_and, BitVec.getElem_and] at h1 h2 ⊢
-  cases h_m : m.toBitVec[i] <;> cases h_a1 : allowed₁.toBitVec[i] <;> cases h_a2 : allowed₂.toBitVec[i] <;>
-    simp_all
+  calc m &&& allowed₂
+      = (m &&& allowed₁) &&& allowed₂ := congrArg (· &&& allowed₂) hm.symm
+    _ = m &&& (allowed₁ &&& allowed₂) := surfaceMask_and_assoc m allowed₁ allowed₂
+    _ = m &&& allowed₁ := by rw [hinc]
+    _ = m := hm
+
+private theorem maskSubset_union_left (a b : SurfaceMask) :
+    (((a &&& (a ||| b)) == a)) = true := by
+  simp only [beq_iff_eq, surfaceMask_and_or_self_left]
+
+private theorem maskSubset_union_right (a b : SurfaceMask) :
+    (((a &&& (b ||| a)) == a)) = true := by
+  rw [surfaceMask_or_comm b a]
+  exact maskSubset_union_left a b
+
+/-- Mask inclusion `(m &&& allowed) == m` distributes over bitwise union `|||`. -/
+@[simp]
+theorem maskSubset_or (m₁ m₂ allowed : SurfaceMask) :
+    (((m₁ ||| m₂) &&& allowed) == (m₁ ||| m₂)) =
+      (((m₁ &&& allowed) == m₁) && ((m₂ &&& allowed) == m₂)) := by
+  apply Bool.eq_iff_iff.mpr
+  simp only [Bool.and_eq_true]
+  constructor
+  · intro h
+    exact ⟨maskSubset_mono (maskSubset_union_left m₁ m₂) h,
+      maskSubset_mono (maskSubset_union_right m₂ m₁) h⟩
+  · rintro ⟨h1, h2⟩
+    simp only [beq_iff_eq] at h1 h2 ⊢
+    rw [surfaceMask_or_and_distrib_right, h1, h2]
 
 /-- Disjointness elimination: if `m` is within `allowed` and `allowed` has no
 overlap with `mask`, then `hasMask m mask = false`. -/
@@ -344,13 +362,11 @@ theorem hasMask_eq_false_of_maskSubset {m allowed mask : SurfaceMask}
     hasMask m mask = false := by
   simp only [beq_iff_eq] at hsub
   simp only [hasMask, bne_eq_false_iff_eq]
-  apply uint32_ext_bitvec; ext i hi
-  have h1 := congrArg (fun x => x.toBitVec[i]) hsub
-  have h2 := congrArg (fun x => x.toBitVec[i]) hdisj
-  simp only [UInt32.toBitVec_and, UInt32.toBitVec_ofNat,
-    BitVec.getElem_and, BitVec.getElem_zero] at h1 h2 ⊢
-  cases h_m : m.toBitVec[i] <;> cases h_a : allowed.toBitVec[i] <;> cases h_k : mask.toBitVec[i] <;>
-    simp_all
+  calc m &&& mask
+      = (m &&& allowed) &&& mask := congrArg (· &&& mask) hsub.symm
+    _ = m &&& (allowed &&& mask) := surfaceMask_and_assoc m allowed mask
+    _ = m &&& 0 := by rw [hdisj]
+    _ = 0 := surfaceMask_and_zero m
 
 @[simp]
 theorem hasMask_bitEventEmit_self : hasMask bitEventEmit bitEventEmit = true := by decide
@@ -571,20 +587,6 @@ structure Layer3RevertGuardCoverageMetaSpec (allowed : SurfaceMask) : Prop where
 /-- **Layer I Universal Theorem (`compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec`)**:
 For every baseline capability mask `allowed`, `compilerProofCoveredWithLayer3RevertGuard`
 satisfies `Layer3RevertGuardCoverageMetaSpec allowed`. -/
-private theorem maskSubset_union_right (a b : SurfaceMask) :
-    (((a &&& (b ||| a)) == a)) = true := by
-  simp only [beq_iff_eq]
-  apply uint32_ext_bitvec; ext i hi
-  simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, BitVec.getElem_and, BitVec.getElem_or]
-  cases a.toBitVec[i] <;> cases b.toBitVec[i] <;> simp
-
-private theorem maskSubset_union_left (a b : SurfaceMask) :
-    (((a &&& (a ||| b)) == a)) = true := by
-  simp only [beq_iff_eq]
-  apply uint32_ext_bitvec; ext i hi
-  simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, BitVec.getElem_and, BitVec.getElem_or]
-  cases a.toBitVec[i] <;> cases b.toBitVec[i] <;> simp
-
 theorem compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec
     (allowed : SurfaceMask) :
     Layer3RevertGuardCoverageMetaSpec allowed where
