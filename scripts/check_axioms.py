@@ -17,7 +17,7 @@ from pathlib import Path
 
 from property_utils import ROOT, die, report_errors, scrub_lean_code
 
-AXIOM_DECL_RE = re.compile(r"^(?:private |protected )?axiom\s+([A-Za-z_][A-Za-z0-9_']*)\b")
+AXIOM_DECL_RE = re.compile(r"^(?:private |protected )?axiom\s+([A-Za-z_][A-Za-z0-9_.']*)\b")
 DEFAULT_AXIOM_ROOTS = ("Compiler", "Verity", "Contracts", "Benchmark")
 
 LEAN_BUILTIN_AXIOMS = frozenset([
@@ -214,12 +214,30 @@ def parse_axiom_output(text: str) -> dict[str, list[str]]:
 def classify_axioms(
     axiom_map: dict[str, list[str]],
 ) -> tuple[set[str], set[str], set[str], dict[str, list[str]]]:
-    """Classify axioms into builtin, documented, forbidden, and unexpected."""
+    """Classify axioms into builtin, documented, forbidden, and unexpected.
+
+    For Lean 4.31 generated per-proof auxiliary axioms (`<origin>._native.<kind>.ax_*`),
+    if `<origin>` itself is present in ``axiom_map`` and does NOT list that auxiliary
+    axiom among its own dependencies, the auxiliary axiom cannot have been emitted by
+    `<origin>`'s proof and is rejected as unexpected (spoof protection).
+    """
     all_axioms: set[str] = set()
     for axioms in axiom_map.values():
         all_axioms.update(axioms)
 
-    builtin = {axiom for axiom in all_axioms if is_lean_builtin_axiom(axiom)}
+    spoofed_aux: set[str] = set()
+    for axiom in all_axioms:
+        match = NATIVE_DECIDE_AXIOM_RE.fullmatch(axiom) or BV_DECIDE_AXIOM_RE.fullmatch(axiom)
+        if match is not None:
+            origin = match.group("origin")
+            if origin in axiom_map and axiom not in axiom_map[origin]:
+                spoofed_aux.add(axiom)
+
+    builtin = {
+        axiom
+        for axiom in all_axioms
+        if axiom not in spoofed_aux and is_lean_builtin_axiom(axiom)
+    }
     documented = all_axioms & DOCUMENTED_AXIOMS
     forbidden = all_axioms & FORBIDDEN_AXIOMS
     unexpected = all_axioms - builtin - documented - forbidden

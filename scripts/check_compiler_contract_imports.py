@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from property_utils import ROOT, extract_lean_import_modules, strip_lean_comments
+from property_utils import ROOT, extract_lean_import_modules, scrub_lean_code
 
 COMPILER_DIR = ROOT / "Compiler"
 
@@ -27,7 +27,7 @@ def collect_forbidden_imports(root: Path = COMPILER_DIR) -> list[str]:
     for path in sorted(root.rglob("*.lean")):
         if _is_compiler_test_module(path):
             continue
-        contents = strip_lean_comments(path.read_text(encoding="utf-8"))
+        contents = scrub_lean_code(path.read_text(encoding="utf-8"))
         for line_no, line in enumerate(contents.splitlines(), 1):
             for module_name in extract_lean_import_modules(line):
                 if module_name != "Contracts" and not module_name.startswith("Contracts."):

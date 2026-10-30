@@ -967,6 +967,7 @@ Compiler.Proofs.EndToEnd.stricter_config_preserves_revert
 -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_erase_of_ne  -- private
 -- Compiler.Proofs.EndToEnd.simpleStorage_account_updateStorage_storage_of_nonzero  -- private
 -- Compiler.Proofs.EndToEnd.simpleStorage_account_updateStorage_storage_of_zero  -- private
+-- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_toState  -- private
 -- Compiler.Proofs.EndToEnd.projectStorageFromState_eq_of_accountMap_eq  -- private
 -- Compiler.Proofs.EndToEnd.projectStorageFromState_insert_sstore_eq_of_toState_eq  -- private
 -- Compiler.Proofs.EndToEnd.simpleStorage_projectStorage_lookup_ne_zero  -- private
@@ -3212,7 +3213,15 @@ Compiler.Proofs.IRGeneration.stmtListGenericWithHelpers_of_helperFreeStepInterfa
 Compiler.Proofs.IRGeneration.CompiledStmtStepWithHelpers.withHelperIR_of_legacyCompatible
 Compiler.Proofs.IRGeneration.CompiledStmtStepWithHelpers.withHelperIR_of_callsDisjoint
 Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_withHelpers_and_compiledLegacyCompatible
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_helperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_helperSurfaceStepInterface_and_helperFreeCompiledCallsDisjoint
 -- Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_of_plainHead  -- private
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_eventSurfaceStepInterface_and_helperFreeCompiledCallsDisjoint
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIRWithInternals_of_exprInternalHelperStepInterfaceWithInternals
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIRWithInternals_of_directInternalHelperStepInterfaceWithInternals
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIRWithInternals_of_structuralInternalHelperStepInterfaceWithInternals
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_helperSurfaceStepInterfaceWithInternals
+Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_directInternalHelperStepInterfaceWithInternals_and_exprInternalHelperStepInterfaceWithInternals_and_structuralInternalHelperStepInterfaceWithInternals_and_residualHelperSurfaceStepInterfaceWithInternals
 -- Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_of_helperFreeHead  -- private
 -- Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_of_headSteps  -- private
 Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible
@@ -3271,6 +3280,9 @@ Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_empty
 -- Compiler.Proofs.IRGeneration.exists_execIRStmtsWithInternals_match_of_sizeOf_slack  -- private
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic
 -- Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_raw  -- private
+-- Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw  -- private
+-- Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals_raw  -- private
+-- Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw_with_scalar_events  -- private
 Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_and_helper_ir_goal_of_legacy_ir_goal_callsDisjoint
 Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisjoint
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps
@@ -3281,7 +3293,9 @@ Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_ge
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_split_internal_helper_surface_steps_and_helper_ir
+-- Compiler.Proofs.IRGeneration.generic_with_helpers_and_helper_ir_of_split_internal_helper_surface_callsDisjoint  -- private
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint
+Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_direct_internal_helper_assign_steps_and_helper_ir_callsDisjoint
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint
 Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint_with_scalar_events
 -- Compiler.Proofs.IRGeneration.scalar_events_proof_length_delimiter  -- private
@@ -12013,10 +12027,29 @@ open Jaune.AxiomAudit Lean Elab Command in
 run_cmd do
   let env ← getEnv
   let roots := parseDottedNames verityAuditedTheoremBlob
-  match reportPrintAxiomsForRoots env roots with
+  let allowed := #[
+    "propext",
+    "Classical.choice",
+    "Quot.sound",
+    "Compiler.Proofs.solidityMappingSlot_injective"
+  ]
+  let allowedNativeOrigins := #[
+    "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq",
+    "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_ok",
+    "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_eq",
+    "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_ok",
+    "Compiler.VaultMinimalNativeWitness.lowerRuntimeContractNative_eq",
+    "Compiler.VaultMinimalNativeWitness.lowerRuntimeContractNative_ok",
+    "Verity.Core.Free.witness_abiHeadParamShapes_compile",
+    "Verity.Core.Uint16.ofUint256_toUint256",
+    "Verity.keccak256_lit_empty_val",
+    "Verity.keccak256_nat_empty"
+  ]
+  let allowedBvOrigins := #[]
+  match reportPrintAxiomsForRoots env roots (some allowed) allowedNativeOrigins allowedBvOrigins with
   | .error e => throwError "{e}"
   | .ok lines =>
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11223 theorems/lemmas (8729 public, 2494 private, 0 sorry'd)
+-- Total: 11237 theorems/lemmas (8738 public, 2499 private, 0 sorry'd)

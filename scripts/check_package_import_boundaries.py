@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-from property_utils import ROOT, extract_lean_import_modules, strip_lean_comments
+from property_utils import ROOT, extract_lean_import_modules, scrub_lean_code
 
 ONE_GLOB_RE = re.compile(r"\.one\s+`([A-Za-z0-9_.']+)")
 AND_SUBMODULES_GLOB_RE = re.compile(r"\.andSubmodules\s+`([A-Za-z0-9_.']+)")
@@ -43,7 +43,7 @@ def _module_to_file(root: Path, module_name: str) -> Path:
 
 
 def _expand_lake_globs(lakefile: Path, source_root: Path) -> tuple[list[str], list[Path]]:
-    contents = strip_lean_comments(lakefile.read_text(encoding="utf-8"))
+    contents = scrub_lean_code(lakefile.read_text(encoding="utf-8"))
 
     failures: list[str] = []
     paths: set[Path] = set()
@@ -108,7 +108,7 @@ def collect_forbidden_imports(
         for path in module_paths:
             if _is_test_module(path):
                 continue
-            contents = strip_lean_comments(path.read_text(encoding="utf-8"))
+            contents = scrub_lean_code(path.read_text(encoding="utf-8"))
             for line_no, line in enumerate(contents.splitlines(), 1):
                 for module_name in extract_lean_import_modules(line):
                     if module_name != forbidden_namespace and not module_name.startswith(
