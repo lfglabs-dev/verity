@@ -2560,19 +2560,68 @@ def translatedBodyContainsCalldataRead
         pure false
 
 private partial def syntaxCallsAnyHelper
-    (helperNames : Array String) (stx : Syntax) : CommandElabM Bool := do
+    (helpers : Array FunctionDecl)
+    (targetHelpers : Array FunctionDecl)
+    (params : Array ParamDecl)
+    (locals : Array String := #[])
+    (stx : Syntax) : CommandElabM Bool := do
+  let isShadowed (name : String) : Bool :=
+    params.any (fun p => p.name == name) || locals.contains name
+  let matchesTargetArity (name : String) (arity : Nat) : Bool :=
+    !isShadowed name &&
+      targetHelpers.any (fun h => h.name == name && h.params.size == arity)
+  let doElemBoundNames (elem : TSyntax `doElem) : Array String :=
+    match elem with
+    | `(doElem| let $name:ident := $_rhs:term)
+    | `(doElem| let $name:ident : $_ty:term := $_rhs:term)
+    | `(doElem| let mut $name:ident := $_rhs:term)
+    | `(doElem| let mut $name:ident : $_ty:term := $_rhs:term)
+    | `(doElem| let $name:ident ← $_rhs:term)
+    | `(doElem| let $name:ident : $_ty:term ← $_rhs:term)
+    | `(doElem| let mut $name:ident ← $_rhs:term)
+    | `(doElem| let mut $name:ident : $_ty:term ← $_rhs:term) =>
+        #[toString name.getId]
+    | _ =>
+        if elem.raw.getKind == `Lean.Parser.Term.doLet then
+          (tupleBinderNames? elem.raw[2][0]).map (·.filterMap id) |>.getD #[]
+        else if elem.raw.getKind == `Lean.Parser.Term.doLetArrow then
+          (tupleBinderNames? elem.raw[3][0]).map (·.filterMap id) |>.getD #[]
+        else
+          #[]
   match stx with
-  | `(term| selfCall $name:ident) | `(term| selfCall $name:ident($[$_args:term],*)) =>
-      pure (helperNames.contains name.getId.toString)
+  | `(doSeq| $[$elems:doElem]*) =>
+      let mut scope := locals
+      for elem in elems do
+        if ← syntaxCallsAnyHelper helpers targetHelpers params scope elem.raw then
+          return true
+        scope := scope ++ doElemBoundNames elem
+      pure false
+  | `(term| selfCall $name:ident) =>
+      let fnName := name.getId.toString
+      pure (targetHelpers.any (fun h => h.name == fnName && h.params.isEmpty))
+  | `(term| selfCall $name:ident($[$args:term],*)) =>
+      let fnName := name.getId.toString
+      let normArgs :=
+        SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
+      if targetHelpers.any (fun h => h.name == fnName && h.params.size == normArgs.size) then
+        pure true
+      else
+        args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
   | `(term| $name:ident($[$args:term],*)) =>
-      if helperNames.contains name.getId.toString then pure true
-      else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))
+      let fnName := name.getId.toString
+      let normArgs :=
+        SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
+      if matchesTargetArity fnName normArgs.size then pure true
+      else args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
   | `(term| $name:ident $args:term*) =>
-      if helperNames.contains name.getId.toString then pure true
-      else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))
+      let fnName := name.getId.toString
+      let normArgs :=
+        SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
+      if matchesTargetArity fnName normArgs.size then pure true
+      else args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
   | `(term| $name:ident) =>
-      pure (helperNames.contains name.getId.toString)
-  | _ => stx.getArgs.anyM (syntaxCallsAnyHelper helperNames)
+      pure (matchesTargetArity name.getId.toString 0)
+  | _ => stx.getArgs.anyM (syntaxCallsAnyHelper helpers targetHelpers params locals)
 
 private def linkedExternalSiteId (externalDecls : Array ExternalDecl) (name : String) : Nat :=
   (externalDecls.findIdx? (fun ext => ext.name == name)).getD 0
@@ -6781,10 +6830,9 @@ private def constructorAdversarialHelpers
         (← bodyNeedsLinkedCallContext externalDecls helper.params linkedContracts helperExecutableBody.raw) then
       adversarial := adversarial.push helper
   for _ in [:functions.size] do
-    let names := adversarial.map (·.name)
     let mut grew := false
     for helper in functions do
-      let callsAdversarial ← syntaxCallsAnyHelper names helper.body.raw
+      let callsAdversarial ← syntaxCallsAnyHelper functions adversarial helper.params #[] helper.body.raw
       if !adversarial.any (fun candidate =>
             functionSignatureKey candidate == functionSignatureKey helper) &&
           callsAdversarial then
@@ -6804,7 +6852,7 @@ def mkConstructorDefCommandPublic
   let adversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
     immutableDecls externalDecls functions linkedContracts
   let callsAdversarial ←
-    syntaxCallsAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
+    syntaxCallsAnyHelper functions adversarialHelpers ctor.params #[] ctor.body.raw
   let opensReentrancyWindow := directlyOpensReentrancyWindow ||
     callsAdversarial
   let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
@@ -6838,7 +6886,7 @@ def mkHostConstructorDefCommandPublic
   let ownAdversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
     immutableDecls externalDecls functions linkedContracts
   let ownCallsAdversarial ←
-    syntaxCallsAnyHelper (ownAdversarialHelpers.map (·.name)) ctor.body.raw
+    syntaxCallsAnyHelper functions ownAdversarialHelpers ctor.params #[] ctor.body.raw
   let ownExternal := ownDirectExternal ||
     ownCallsAdversarial
   let mut mixinExternal : Array Name := #[]
@@ -6849,7 +6897,7 @@ def mkHostConstructorDefCommandPublic
           mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor mixin.linkedContracts
         let helpers ← constructorAdversarialHelpers mixin.fields mixin.errorDecls mixin.constDecls
           mixin.immutableDecls mixin.externalDecls mixin.functions mixin.linkedContracts
-        let callsAdversarial ← syntaxCallsAnyHelper (helpers.map (·.name)) mixinCtor.body.raw
+        let callsAdversarial ← syntaxCallsAnyHelper mixin.functions helpers mixinCtor.params #[] mixinCtor.body.raw
         if direct || callsAdversarial then
           mixinExternal := mixinExternal.push mixinName
   let containsExternalCall := ownExternal || !mixinExternal.isEmpty
@@ -7039,10 +7087,9 @@ def mkFunctionCommandsPublic
   -- fixed point so every caller in a multi-hop helper chain receives and forwards
   -- the same adversary instead of silently falling back to the stub.
   for _ in [:functions.size] do
-    let adversarialNames := adversarialHelpers.map (·.name)
     let mut grew := false
     for (helper, helperModel) in translatedHelpers do
-      let callsAdversarial ← syntaxCallsAnyHelper adversarialNames helperModel.body.raw
+      let callsAdversarial ← syntaxCallsAnyHelper functions adversarialHelpers helperModel.params #[] helperModel.body.raw
       if !adversarialHelpers.any (fun candidate =>
             functionSignatureKey candidate == functionSignatureKey helper) &&
           callsAdversarial then
@@ -7051,10 +7098,9 @@ def mkFunctionCommandsPublic
     if !grew then
       break
   for _ in [:functions.size] do
-    let windowNames := windowHelpers.map (·.name)
     let mut grew := false
     for (helper, helperModel) in translatedHelpers do
-      let callsWindow ← syntaxCallsAnyHelper windowNames helperModel.body.raw
+      let callsWindow ← syntaxCallsAnyHelper functions windowHelpers helperModel.params #[] helperModel.body.raw
       if !windowHelpers.any (fun candidate =>
             functionSignatureKey candidate == functionSignatureKey helper) &&
           callsWindow then
@@ -7063,10 +7109,9 @@ def mkFunctionCommandsPublic
     if !grew then
       break
   for _ in [:functions.size] do
-    let calldataNames := calldataHelpers.map (·.name)
     let mut grew := false
     for (helper, helperModel) in translatedHelpers do
-      let callsCalldata ← syntaxCallsAnyHelper calldataNames helperModel.body.raw
+      let callsCalldata ← syntaxCallsAnyHelper functions calldataHelpers helperModel.params #[] helperModel.body.raw
       if !calldataHelpers.any (fun candidate =>
             functionSignatureKey candidate == functionSignatureKey helper) &&
           callsCalldata then
@@ -7079,8 +7124,7 @@ def mkFunctionCommandsPublic
     if !registryOnlyHelpers.any (fun candidate =>
           functionSignatureKey candidate == functionSignatureKey helper) then
       registryOnlyHelpers := registryOnlyHelpers.push helper
-  let windowNames := windowHelpers.map (·.name)
-  let callsWindow ← syntaxCallsAnyHelper windowNames modelFn.body.raw
+  let callsWindow ← syntaxCallsAnyHelper functions windowHelpers modelFn.params #[] modelFn.body.raw
   let opensReentrancyWindow := directlyOpensReentrancyWindow || callsWindow
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.

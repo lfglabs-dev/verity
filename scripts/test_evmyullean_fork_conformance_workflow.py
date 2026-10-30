@@ -50,9 +50,11 @@ class EvmYulLeanForkConformanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", text)
         for path in [
             "Compiler/Proofs/EndToEnd.lean",
+            "Compiler/Proofs/EndToEnd/**",
             "scripts/generate_evmyullean_native_lowering_report.py",
             "scripts/test_evmyullean_fork_conformance_workflow.py",
             "artifacts/evmyullean_native_lowering_report.json",
+            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeCalldata.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/**",
@@ -60,6 +62,8 @@ class EvmYulLeanForkConformanceWorkflowTests(unittest.TestCase):
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBridgeTest.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/**",
+            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeSignedArithLemmas.lean",
+            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanPureBuiltinLemmas.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanSignedArithSpec.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanSourceExprClosure.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean",
