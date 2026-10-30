@@ -151,10 +151,33 @@ lean_lib «SolidityImportSmoke» where
 lean_lib «Compiler» where
   globs := #[.andSubmodules `Compiler]
 
--- Axiom dependency audit: imports all proof modules so `lake build PrintAxioms`
--- compiles them, then `lake env lean PrintAxioms.lean` can run #print axioms.
+-- From-scratch axiom walker (`scripts/AxiomAudit.lean`), its negative/positive
+-- controls (`scripts/UnionAxiomsControls.lean`), and the whole-library union
+-- (`scripts/VerityUnionAxioms.lean`).
+@[default_target]
+lean_lib «Assurance» where
+  srcDir := "scripts"
+  roots := #[
+    `AxiomAudit,
+    `UnionAxiomsControls,
+    `UnionAxiomsFixture.Good,
+    `UnionAxiomsFixture.Bad,
+    `UnionAxiomsFixture.Dep,
+    `UnionAxiomsFixture.ViaDep,
+    `UnionAxiomsFixture.NativeAndAttrs
+  ]
+
+lean_lib «VerityUnionAxioms» where
+  srcDir := "scripts"
+  roots := #[`VerityUnionAxioms]
+
+-- Axiom dependency audit: imports `AxiomAudit` plus the minimal verified-module
+-- roots covering all 493 verified modules, so `lake build PrintAxioms` builds
+-- the walker, controls, and verified closure, and `lake env lean PrintAxioms.lean`
+-- checks the whole-library union and emits exact per-theorem axiom sets.
 lean_lib «PrintAxioms» where
   globs := #[.one `PrintAxioms]
+  needs := #[Assurance]
 
 lean_exe «verity-compiler» where
   root := `Compiler.Main
