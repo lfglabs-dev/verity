@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import fcntl
 import os
 import re
 import subprocess
@@ -159,6 +160,69 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             self.assertEqual((work / ".lake/build/lib/Mod.olean").read_text(), "olean")
             for entry in (root / "pr", fallback):
                 self.assertLess(time.time() - entry.stat().st_mtime, 600, entry)
+
+    def _lock(self, cache_root: Path, tree: str, entry: str):
+        """Hold an entry lock the way an attaching job does (shared protocol)."""
+        lock = cache_root / ".locks" / f"{tree}__{entry}.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock, "w")
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return handle
+
+    def test_locked_entries_survive_every_deletion_path(self) -> None:
+        """A stale entry whose lock is held is in use: no pass may delete it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cache"
+            for tree in ("lake-build", "lake-packages", "elan", "compiler-ccache"):
+                entry = root / tree / "busy"
+                entry.mkdir(parents=True)
+                self._age(entry, 30 * 24)
+            (root / "artifacts").mkdir()
+            handles = [self._lock(root, tree, "busy")
+                       for tree in ("lake-build", "lake-packages", "elan", "compiler-ccache")]
+            try:
+                # Huge MIN_FREE_GB forces low-space eviction to run for real.
+                env = dict(os.environ, CACHE_ROOT=str(root), MIN_FREE_GB="999999999",
+                           LAKE_BUILD_MAX_ENTRIES="0", LAKE_PACKAGES_MAX_ENTRIES="0",
+                           VERITY_CI_ARTIFACT_ROOT=str(root / "artifacts"))
+                subprocess.run(["bash", str(MAINTENANCE_SCRIPT), "caches"], check=True, env=env,
+                               capture_output=True, text=True)
+                subprocess.run(["bash", str(ROOT / "scripts" / "ci_local_persistence.sh"), "cleanup",
+                                "--cache-max-age-hours", "1"], check=True, env=env,
+                               capture_output=True, text=True)
+                for tree in ("lake-build", "lake-packages", "elan", "compiler-ccache"):
+                    self.assertTrue((root / tree / "busy").exists(), tree)
+            finally:
+                for handle in handles:
+                    handle.close()
+            # Released: the same passes now delete the stale entries.
+            subprocess.run(["bash", str(MAINTENANCE_SCRIPT), "caches"], check=True, env=env,
+                           capture_output=True, text=True)
+            for tree in ("lake-build", "lake-packages", "elan"):
+                self.assertFalse((root / tree / "busy").exists(), tree)
+            subprocess.run(["bash", str(ROOT / "scripts" / "ci_local_persistence.sh"), "cleanup",
+                            "--cache-max-age-hours", "1"], check=True, env=env,
+                           capture_output=True, text=True)
+            self.assertFalse((root / "compiler-ccache" / "busy").exists())
+
+    def test_mount_waits_for_an_entry_being_deleted(self) -> None:
+        """Attach serializes on the entry lock held by a deletion in progress."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cache"
+            (root / "lake-build").mkdir(parents=True)
+            work = Path(tmp) / "work"
+            work.mkdir()
+            handle = self._lock(root, "lake-build", "pr")
+            try:
+                result = subprocess.run(
+                    ["bash", str(ROOT / "scripts" / "ci_local_persistence.sh"), "mount",
+                     "--root", str(root / "lake-build"), "--key", "pr", "--path", ".lake/build"],
+                    cwd=work, env=dict(os.environ, MOUNT_LOCK_TIMEOUT="1"),
+                    capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("timed out waiting for cache lock", result.stderr)
+            finally:
+                handle.close()
 
     def test_parallel_build_jobs_use_four_lean_threads(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")

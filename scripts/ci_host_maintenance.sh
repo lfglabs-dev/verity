@@ -40,7 +40,8 @@ Environment:
                                 ci_local_persistence.sh mount touches an entry, and the
                                 fallback it copies from, on attach. 12h outlasts the
                                 longest job timeout (6h), so an attach is a lease for
-                                the whole consuming job)
+                                the whole consuming job. Attach and deletion also
+                                serialize on per-entry flock locks in CACHE_ROOT/.locks)
   COMPILER_CCACHE_MAX_AGE_DAYS  Default: 7
   ELAN_MAX_AGE_DAYS             Default: 7 (one toolchain copy per workflow prefix and
                                 toolchain hash; attach refreshes the mtime of live ones)
@@ -67,16 +68,11 @@ prune_tree() {
     return
   fi
 
-  local count=0 mtime
+  local count=0
   while IFS= read -r -d '' entry; do
-    # Re-stat right before deleting: a job may have attached (touched) this
-    # entry after the find snapshot was taken.
-    mtime="$(current_mtime "$entry")"
-    if [ -z "$mtime" ] || entry_is_recent "$mtime"; then
-      continue
+    if delete_entry_if_idle "$entry"; then
+      count=$((count + 1))
     fi
-    rm -rf "$entry"
-    count=$((count + 1))
   done < <(find "$dir" -mindepth 1 -maxdepth 1 -mtime +"$max_age_days" -print0 2>/dev/null)
 
   echo "${label}: removed ${count} entries older than ${max_age_days} days"
@@ -117,6 +113,35 @@ current_mtime() {
   stat -c %Y "$1" 2>/dev/null || true
 }
 
+# Lock file shared with ci_local_persistence.sh for cache entry $1. Locks live
+# in CACHE_ROOT/.locks, outside every pruned tree, so they are never evicted.
+entry_lock_path() {
+  local tree
+  tree="$(dirname "$1")"
+  printf '%s/.locks/%s__%s.lock' "$(dirname "$tree")" "$(basename "$tree")" "$(basename "$1")"
+}
+
+# Delete cache entry $1 unless it is in use. The eligibility re-check and the
+# rm run under the entry's exclusive lock: an attach (which holds the same lock
+# while it validates, leases and seeds an entry) either completes first, so the
+# fresh lease makes the entry ineligible, or starts after the deletion and
+# re-creates it. A lock that is already held means "in use": skip.
+# Returns 0 if deleted, 1 if skipped, 2 if rm failed.
+delete_entry_if_idle() {
+  local entry="$1" lock mtime status=1 fd
+  lock="$(entry_lock_path "$entry")"
+  mkdir -p "$(dirname "$lock")"
+  exec {fd}>"$lock"
+  if flock -x -n "$fd"; then
+    mtime="$(current_mtime "$entry")"
+    if [ -n "$mtime" ] && ! entry_is_recent "$mtime"; then
+      if rm -rf "$entry"; then status=0; else status=2; fi
+    fi
+  fi
+  exec {fd}>&-
+  return "$status"
+}
+
 # Keep only the newest $2 entries of $1 (mtime order). Age-based pruning
 # alone cannot bound this cache: one ~6 GB entry exists per PR/branch, so
 # two weeks of PR churn filled 664 GB and took the runner host disk to 100%
@@ -130,24 +155,18 @@ cap_tree_entries() {
     return
   fi
 
-  local index=0 removed=0 failed=0 mtime entry
+  local index=0 removed=0 failed=0 rc mtime entry
   while IFS=$'\t' read -r -d '' mtime entry; do
     index=$((index + 1))
     if [ "$index" -le "$max_entries" ]; then
       continue
     fi
-    # Re-stat right before deleting: a job may have attached (touched) this
-    # entry after the snapshot above was taken.
-    mtime="$(current_mtime "$entry")"
-    if [ -z "$mtime" ]; then
-      continue
-    fi
-    if entry_is_recent "$mtime"; then
-      continue
-    fi
-    if rm -rf "$entry"; then
+    # Re-checked under the entry lock: a job may have attached it since the
+    # snapshot above was taken.
+    delete_entry_if_idle "$entry" && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
       removed=$((removed + 1))
-    else
+    elif [ "$rc" -eq 2 ]; then
       failed=$((failed + 1))
       echo "${label}: failed to remove ${entry}" >&2
     fi
@@ -173,22 +192,16 @@ evict_until_free() {
     return
   fi
 
-  local removed=0 mtime entry
+  local removed=0 rc mtime entry
   while IFS=$'\t' read -r -d '' mtime entry; do
     if [ "$(avail_gb "$dir")" -ge "$min_free_gb" ]; then
       break
     fi
-    # Re-stat right before deleting (same attach race as cap_tree_entries).
-    mtime="$(current_mtime "$entry")"
-    if [ -z "$mtime" ]; then
-      continue
-    fi
-    if entry_is_recent "$mtime"; then
-      continue
-    fi
-    if rm -rf "$entry"; then
+    # Re-checked under the entry lock (same attach race as cap_tree_entries).
+    delete_entry_if_idle "$entry" && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
       removed=$((removed + 1))
-    else
+    elif [ "$rc" -eq 2 ]; then
       echo "${label}: failed to evict ${entry}" >&2
     fi
   done < <(list_entries_with_mtime "$dir" | sort -z -n)

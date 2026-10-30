@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ARTIFACT_ROOT="/srv/verity-ci-cache/artifacts"
+ARTIFACT_ROOT="${VERITY_CI_ARTIFACT_ROOT:-/srv/verity-ci-cache/artifacts}"
 
 usage() {
   cat <<'EOF'
@@ -29,6 +29,28 @@ sanitize_key() {
 
   hash="$(printf '%s' "$1" | sha256sum | awk '{print $1}')"
   printf '%s-%s' "${sanitized:0:160}" "$hash"
+}
+
+# Lock file shared with ci_host_maintenance.sh for cache entry $1 (see
+# entry_lock_path there). Kept outside every pruned tree.
+entry_lock_path() {
+  local tree
+  tree="$(dirname "$1")"
+  printf '%s/.locks/%s__%s.lock' "$(dirname "$tree")" "$(basename "$tree")" "$(basename "$1")"
+}
+
+# Take the lock of cache entry $1 in mode $2 (-x or -s), waiting at most
+# MOUNT_LOCK_TIMEOUT seconds. The fd stays open in this shell (LOCK_FD) until
+# the script exits; must not run in a subshell, or the lock is dropped at once.
+lock_entry() {
+  local lock
+  lock="$(entry_lock_path "$1")"
+  mkdir -p "$(dirname "$lock")"
+  exec {LOCK_FD}>"$lock"
+  if ! flock "$2" -w "${MOUNT_LOCK_TIMEOUT:-600}" "$LOCK_FD"; then
+    echo "::error::timed out waiting for cache lock ${lock}" >&2
+    exit 1
+  fi
 }
 
 is_dir_empty() {
@@ -75,6 +97,10 @@ mount_persistent_dir() {
 
   local primary_dir fallback_dir=""
   primary_dir="${root}/$(sanitize_key "$key")"
+  # Validate, lease (touch) and seed the entry under its exclusive lock, so
+  # host maintenance can never delete it between its check and its rm.
+  mkdir -p "$root"
+  lock_entry "$primary_dir" -x
   mkdir -p "$primary_dir"
 
   if [ -n "$fallback_key" ]; then
@@ -97,9 +123,12 @@ mount_persistent_dir() {
     exit 0
   fi
 
-  # Lease the fallback too: host maintenance must not delete it mid-copy.
-  touch "$fallback_dir"
-  cp -a "$fallback_dir/." "$primary_dir/"
+  # Lease the fallback too, and hold it shared while copying from it.
+  lock_entry "$fallback_dir" -s
+  if [ -d "$fallback_dir" ]; then
+    touch "$fallback_dir"
+    cp -a "$fallback_dir/." "$primary_dir/"
+  fi
   # cp -a re-applies the fallback dir's (old) mtime onto the primary,
   # undoing the attach-time touch above — refresh it again so maintenance
   # still sees this entry as in-use.
@@ -230,15 +259,23 @@ cleanup_artifacts() {
     echo "Cleaned up ${artifact_count} stale artifact directories"
   fi
 
-  local cache_count=0
+  local cache_count=0 lock fd
   for cache_root in \
     "$(dirname "$ARTIFACT_ROOT")/lake-build" \
     "$(dirname "$ARTIFACT_ROOT")/compiler-ccache"
   do
     [ -d "$cache_root" ] || continue
     while IFS= read -r -d '' dir; do
-      rm -rf "$dir"
-      cache_count=$((cache_count + 1))
+      # Same protocol as ci_host_maintenance.sh: skip entries whose lock is
+      # held, and re-check the age under the lock before deleting.
+      lock="$(entry_lock_path "$dir")"
+      mkdir -p "$(dirname "$lock")"
+      exec {fd}>"$lock"
+      if flock -x -n "$fd" && [ -n "$(find "$dir" -maxdepth 0 -mmin +"$((cache_max_age_hours * 60))" 2>/dev/null)" ]; then
+        rm -rf "$dir"
+        cache_count=$((cache_count + 1))
+      fi
+      exec {fd}>&-
     done < <(find "$cache_root" -maxdepth 1 -mindepth 1 -type d -mmin +"$((cache_max_age_hours * 60))" -print0 2>/dev/null)
   done
 
