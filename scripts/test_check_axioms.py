@@ -185,6 +185,35 @@ class CheckAxiomsReportTests(unittest.TestCase):
         _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
         self.assertEqual(unexpected, {fake: ["Foo.bar"]})
 
+    def test_classifies_lean431_per_proof_bv_decide_axiom_when_origin_allowed(self) -> None:
+        origin = "Compiler.Proofs.MetaSpecs.hasMask_compl_eq_not_maskSubset"
+        generated = f"{origin}._native.bv_decide.ax_1_7"
+        old_bv = check_axioms.BV_DECIDE_AXIOM_ORIGINS
+        try:
+            check_axioms.BV_DECIDE_AXIOM_ORIGINS = frozenset([origin])
+            builtin, documented, forbidden, unexpected = check_axioms.classify_axioms(
+                {origin: [generated]}
+            )
+        finally:
+            check_axioms.BV_DECIDE_AXIOM_ORIGINS = old_bv
+        self.assertEqual(builtin, {generated})
+        self.assertEqual(documented, set())
+        self.assertEqual(forbidden, set())
+        self.assertEqual(unexpected, {})
+
+    def test_rejects_bv_decide_axiom_when_bv_allowlist_is_empty(self) -> None:
+        generated = (
+            "Compiler.Proofs.MetaSpecs.hasMask_compl_eq_not_maskSubset"
+            "._native.bv_decide.ax_1_7"
+        )
+        _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [generated]})
+        self.assertEqual(unexpected, {generated: ["Foo.bar"]})
+
+    def test_dependency_cannot_spoof_bv_decide_generated_name(self) -> None:
+        fake = "Dependency.foo._native.bv_decide.ax_1_7"
+        _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
+        self.assertEqual(unexpected, {fake: ["Foo.bar"]})
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"

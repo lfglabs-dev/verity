@@ -41,23 +41,40 @@ FORBIDDEN_AXIOMS = frozenset([
 NATIVE_DECIDE_AXIOM_RE = re.compile(
     r"^(?P<origin>.+)\._native\.native_decide\.ax(?:_[0-9]+)+$"
 )
+BV_DECIDE_AXIOM_RE = re.compile(
+    r"^(?P<origin>.+)\._native\.bv_decide\.ax(?:_[0-9]+)+$"
+)
 
-# Lean 4.31 generates per-proof axiom names for these audited native_decide
-# witnesses.  Keep the origins explicit: accepting the suffix alone would let
-# an unrelated dependency disguise an ordinary axiom as generated code.
+# Lean 4.31 generates per-proof axiom names for these pre-Phase-0b native_decide
+# theorems in the verified population (`bv_decide` has zero origins in the
+# verified population). Keep origins explicit: accepting the suffix alone would
+# let an unrelated dependency disguise an ordinary axiom as generated code.
+# Phase 0b+1 eliminates these origins.
 NATIVE_DECIDE_AXIOM_ORIGINS = frozenset([
+    "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_ok",
     "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq",
+    "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_ok",
     "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_eq",
+    "Compiler.VaultMinimalNativeWitness.lowerRuntimeContractNative_ok",
     "Compiler.VaultMinimalNativeWitness.lowerRuntimeContractNative_eq",
+    "Verity.Core.Free.witness_abiHeadParamShapes_compile",
+    "Verity.Core.Uint16.ofUint256_toUint256",
+    "Verity.keccak256_nat_empty",
+    "Verity.keccak256_lit_empty_val",
 ])
+
+BV_DECIDE_AXIOM_ORIGINS: frozenset[str] = frozenset()
 
 
 def is_lean_builtin_axiom(name: str) -> bool:
-    """Recognize Lean builtins, including 4.31's per-proof native_decide names."""
+    """Recognize Lean builtins, including 4.31's explicit per-proof auxiliary names."""
     if name in LEAN_BUILTIN_AXIOMS:
         return True
     match = NATIVE_DECIDE_AXIOM_RE.fullmatch(name)
-    return match is not None and match.group("origin") in NATIVE_DECIDE_AXIOM_ORIGINS
+    if match is not None:
+        return match.group("origin") in NATIVE_DECIDE_AXIOM_ORIGINS
+    bv_match = BV_DECIDE_AXIOM_RE.fullmatch(name)
+    return bv_match is not None and bv_match.group("origin") in BV_DECIDE_AXIOM_ORIGINS
 
 
 def parse_axiom_entries(axioms_md_text: str) -> list[tuple[str, str, int]]:

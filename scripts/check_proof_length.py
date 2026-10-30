@@ -24,7 +24,7 @@ from property_utils import ROOT, THEOREM_RE, strip_lean_comments
 _DECL_RE = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|unsafe)\s+)*"
     r"(?:(?:partial)\s+)?"
-    r"(?:theorem|lemma|def|example|instance|inductive|structure|class|abbrev|opaque)"
+    r"(?:theorem|lemma|def|example|instance|inductive|structure|class|abbrev|opaque|syntax|macro|macro_rules|elab|elab_rules|notation|infix|infixl|infixr|prefix|postfix)"
     r"(?:\s+|$)"
 )
 # A theorem header whose name is on the following line (used for names that
