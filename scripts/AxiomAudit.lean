@@ -249,54 +249,126 @@ def generatedAuxAxiomOrigin? (kind : String) (axName : String) : Option String :
 def parseDottedName (s : String) : Name :=
   (s.splitOn ".").foldl (fun acc part => Name.str acc part) Name.anonymous
 
-/-- Check that `axInfo` has the exact kernel shape emitted by `Lean.Meta.nativeEqTrue`
-(`Lean/Meta/Native.lean`): a safe axiom whose type is `@Eq.{1} Bool e Bool.true` for a
-closed expression `e`. -/
-def isKernelNativeEqTrueAxiom (axInfo : AxiomVal) : Bool :=
-  !axInfo.isUnsafe &&
-  match axInfo.type with
-  | .app (.app (.app (.const ``Eq [u]) (.const ``Bool [])) lhs) (.const ``Bool.true []) =>
-    u == Level.succ Level.zero && !lhs.hasFVar && !lhs.hasMVar
-  | _ => false
+/-- If `axInfo` has the exact kernel shape emitted by `Lean.Meta.nativeEqTrue`
+(`Lean/Meta/Native.lean`) — a safe axiom whose type is `@Eq.{1} Bool e Bool.true` for a
+closed expression `e` whose `levelParams` match `collectLevelParams` — return `some e`. -/
+def kernelNativeEqTrueLhs? (axInfo : AxiomVal) : Option Expr :=
+  if axInfo.isUnsafe then
+    none
+  else
+    match axInfo.type with
+    | .app (.app (.app (.const ``Eq [u]) (.const ``Bool [])) lhs) (.const ``Bool.true []) =>
+      let expectedLevels := (collectLevelParams {} lhs).params.toList
+      if u == Level.succ Level.zero && !lhs.hasFVar && !lhs.hasMVar
+          && axInfo.levelParams == expectedLevels then
+        some lhs
+      else
+        none
+    | _ => none
 
-/-- Check whether `ax` is a genuine Lean-generated `native_decide`/`bv_decide` auxiliary
-axiom for an explicitly allowlisted `origin` declaration in `env`:
+/-- Check that `axInfo` has the exact kernel shape emitted by `Lean.Meta.nativeEqTrue`
+(`Lean/Meta/Native.lean`). -/
+def isKernelNativeEqTrueAxiom (axInfo : AxiomVal) : Bool :=
+  (kernelNativeEqTrueLhs? axInfo).isSome
+
+/-- Look up synchronized declaration ranges for `ax` across both the current-module
+(`.exported`) and imported-module (`.server`) declaration-range tables. -/
+def findAuxDeclRanges? (env : Environment) (ax : Name) : Option DeclarationRanges :=
+  Lean.declRangeExt.find? (asyncMode := .sync) (level := .exported) env ax <|>
+    Lean.declRangeExt.find? (asyncMode := .sync) (level := .server) env ax
+
+/-- Check that `ax` carries the exact single-ref declaration-range shape emitted by
+`Lean.Meta.nativeEqTrue` (`addDeclarationRangesFromSyntax auxAxiomName ref` with
+`selectionRangeStx := .missing`, so `range == selectionRange`), rejecting builtin
+`axiom name : ...` commands (whose `selectionRange` is strictly `name` inside `axiom ...`). -/
+def hasTacticTokenAuxDeclRange (env : Environment) (ax : Name) : Bool :=
+  match findAuxDeclRanges? env ax with
+  | some r => r.range == r.selectionRange
+  | none => false
+
+/-- Re-compile and natively evaluate the closed `Bool` left-hand side `lhs` of a
+`nativeEqTrue` auxiliary axiom inside `withoutModifyingEnv`, succeeding iff it evaluates
+to `Bool.true` without throwing. -/
+def evalKernelNativeEqTrueLhs (lhs : Expr) : CommandElabM Bool := do
+  try
+    liftTermElabM <| Lean.withoutModifyingEnv <|
+      withTheReader Core.Context ({ · with maxHeartbeats := 0 }) do
+        match (← Lean.Meta.nativeEqTrue `audit lhs) with
+        | .success _ => pure true
+        | .notTrue => pure false
+  catch _ =>
+    pure false
+
+/-- Check structural kernel/environment authentication of a Lean-generated
+`native_decide`/`bv_decide` auxiliary axiom `ax` for an allowlisted `origin`, returning
+`some lhs` when:
 1. `ax` has the exact `<origin>._native.<kind>.ax_<digits>` spelling for an `origin` in
    `allowedOrigins`;
-2. `ax` is a safe `AxiomVal` of kernel `nativeEqTrue` shape (`@Eq.{1} Bool e Bool.true`);
-3. `origin` exists in `env` as a theorem or definition in the exact same module as `ax`
+2. `ax` is a safe `AxiomVal` of kernel `nativeEqTrue` shape (`@Eq.{1} Bool lhs Bool.true`);
+3. `ax` has single-ref tactic declaration ranges (`range == selectionRange`);
+4. `origin` exists in `env` as a theorem or definition in the exact same module as `ax`
    (`env.getModuleIdxFor? origin == env.getModuleIdxFor? ax`); and
-4. `origin`'s own body (`value.getUsedConstants`) directly references `ax`, rejecting
-   hand-written `axiom <origin>._native.<kind>.ax_999 : ...` spoofing alongside `origin`. -/
-def isVerifiedGeneratedAuxAxiom (env : Environment) (kind : String)
-    (allowedOrigins : Array String) (ax : Name) : Bool :=
+5. `origin`'s own body (`value.getUsedConstants`) directly references `ax`. -/
+def verifiedGeneratedAuxAxiomLhs? (env : Environment) (kind : String)
+    (allowedOrigins : Array String) (ax : Name) : Option Expr :=
   let env := env.setExporting false
   match generatedAuxAxiomOrigin? kind (toString ax) with
-  | none => false
+  | none => none
   | some origStr =>
     if !allowedOrigins.contains origStr then
-      false
+      none
     else
       let orig := parseDottedName origStr
       match env.find? ax, env.find? orig with
       | some (.axiomInfo axVal), some origInfo =>
-        isKernelNativeEqTrueAxiom axVal
-          && env.getModuleIdxFor? orig == env.getModuleIdxFor? ax
-          && (match origInfo with
-              | .thmInfo tv => tv.value.getUsedConstants.contains ax
-              | .defnInfo dv => dv.value.getUsedConstants.contains ax
-              | _ => false)
-      | _, _ => false
+        match kernelNativeEqTrueLhs? axVal with
+        | none => none
+        | some lhs =>
+          let usedByOrigin :=
+            match origInfo with
+            | .thmInfo tv => tv.value.getUsedConstants.contains ax
+            | .defnInfo dv => dv.value.getUsedConstants.contains ax
+            | _ => false
+          if hasTacticTokenAuxDeclRange env ax
+              && env.getModuleIdxFor? orig == env.getModuleIdxFor? ax
+              && usedByOrigin then
+            some lhs
+          else
+            none
+      | _, _ => none
 
-/-- Check whether `ax` is in `allowed` or is an environment-authenticated Lean auxiliary
-axiom whose exact origin declaration is explicitly permitted. -/
+/-- Full CommandElabM authentication of `ax` as a genuine Lean-generated auxiliary axiom
+for an allowlisted `origin`: structural/range/reference checks plus re-running
+`Lean.Meta.nativeEqTrue` on `lhs` under `withoutModifyingEnv`. -/
+def verifyGeneratedAuxAxiomM (env : Environment) (kind : String)
+    (allowedOrigins : Array String) (ax : Name) : CommandElabM Bool := do
+  match verifiedGeneratedAuxAxiomLhs? env kind allowedOrigins ax with
+  | none => pure false
+  | some lhs => evalKernelNativeEqTrueLhs lhs
+
+/-- Check whether `ax` is in `allowed` or is a structurally authenticated Lean auxiliary
+axiom whose exact origin declaration is explicitly permitted. Callers in `CommandElabM`
+(`unionCheckM`, `reportPrintAxiomsForRootsM`, `isAllowedUnionAxiomM`) additionally
+re-evaluate every candidate auxiliary axiom's `Bool` LHS via `Lean.Meta.nativeEqTrue`. -/
 def isAllowedUnionAxiom (env : Environment) (allowed : Array String)
     (allowedNativeOrigins : Array String := #[])
     (allowedBvOrigins : Array String := #[])
     (ax : Name) : Bool :=
   allowed.contains (toString ax)
-    || isVerifiedGeneratedAuxAxiom env "native_decide" allowedNativeOrigins ax
-    || isVerifiedGeneratedAuxAxiom env "bv_decide" allowedBvOrigins ax
+    || (verifiedGeneratedAuxAxiomLhs? env "native_decide" allowedNativeOrigins ax).isSome
+    || (verifiedGeneratedAuxAxiomLhs? env "bv_decide" allowedBvOrigins ax).isSome
+
+/-- Full CommandElabM check whether `ax` is in `allowed` or is a kernel-authenticated and
+natively re-evaluated auxiliary axiom of an explicitly allowlisted `origin`. -/
+def isAllowedUnionAxiomM (env : Environment) (allowed : Array String)
+    (allowedNativeOrigins : Array String := #[])
+    (allowedBvOrigins : Array String := #[])
+    (ax : Name) : CommandElabM Bool := do
+  if allowed.contains (toString ax) then
+    return true
+  if ← verifyGeneratedAuxAxiomM env "native_decide" allowedNativeOrigins ax then
+    return true
+  verifyGeneratedAuxAxiomM env "bv_decide" allowedBvOrigins ax
 
 /-- The union audit proper, over an explicit root list (the command feeds it the
 module roots). Throws on an empty root list, on any reached constant absent from
@@ -326,6 +398,27 @@ def unionCheck (env : Environment) (label : String) (roots : Array Name)
     throw s!"#union_axioms_of_modules: {label} reaches axioms outside \
       {allowed.qsort (· < ·)}: {bad.map toString}\n{"\n".intercalate where_.toList}"
   return { axioms := sorted.map toString, roots := roots.size, modules, visited }
+
+/-- Full `CommandElabM` union audit over an explicit root list: identical to `unionCheck`,
+and additionally re-evaluates every candidate `native_decide`/`bv_decide` auxiliary axiom's
+`Bool` LHS via `Lean.Meta.nativeEqTrue` inside `withoutModifyingEnv`. -/
+def unionCheckM (env : Environment) (label : String) (roots : Array Name)
+    (modules : Nat) (allowed : Array String)
+    (allowedNativeOrigins : Array String := #[])
+    (allowedBvOrigins : Array String := #[]) : CommandElabM (Except String UnionReport) := do
+  match unionCheck env label roots modules allowed allowedNativeOrigins allowedBvOrigins with
+  | .error e => return .error e
+  | .ok r =>
+    let mut bad : Array Name := #[]
+    for axStr in r.axioms do
+      let ax := parseDottedName axStr
+      unless (← isAllowedUnionAxiomM env allowed allowedNativeOrigins allowedBvOrigins ax) do
+        bad := bad.push ax
+    unless bad.isEmpty do
+      let where_ := locate env roots bad
+      return .error s!"#union_axioms_of_modules: {label} reaches axioms outside \
+        {allowed.qsort (· < ·)}: {bad.map toString}\n{"\n".intercalate where_.toList}"
+    return .ok r
 
 /-- `#full_axioms X` reports the from-scratch axiom set of the exact constant
 `X` as one `FULL-AXIOMS` line. -/
@@ -485,6 +578,44 @@ def reportPrintAxiomsForRoots (env : Environment) (roots : Array Name)
     lines := lines.push (formatPrintAxiomsLine r (perRoot.getD r #[]))
   return .ok lines
 
+/-- Full `CommandElabM` per-root axiom report: identical to `reportPrintAxiomsForRoots`,
+and additionally re-evaluates every candidate `native_decide`/`bv_decide` auxiliary axiom's
+`Bool` LHS via `Lean.Meta.nativeEqTrue` inside `withoutModifyingEnv` when `allowed?` is `some …`. -/
+def reportPrintAxiomsForRootsM (env : Environment) (roots : Array Name)
+    (allowed? : Option (Array String) := none)
+    (allowedNativeOrigins : Array String := #[])
+    (allowedBvOrigins : Array String := #[]) :
+    CommandElabM (Except String (Array String)) := do
+  let mut unknown : Array Name := #[]
+  for r in roots do
+    unless env.contains r do
+      unknown := unknown.push r
+  unless unknown.isEmpty do
+    let sample := (unknown.toList.take 20).map toString
+    return .error s!"reportPrintAxiomsForRoots: {unknown.size} unknown declaration(s): {sample}"
+  let res := exactAxiomsForRoots env roots
+  let missing := res.1
+  let perRoot := res.2
+  unless missing.isEmpty do
+    let sample := (missing.toList.take 20).map toString
+    return .error s!"reportPrintAxiomsForRoots: reached {missing.size} absent constant(s): {sample}"
+  if let some allowed := allowed? then
+    let mut allCandidateAxs : NameSet := {}
+    for r in roots do
+      for ax in perRoot.getD r #[] do
+        allCandidateAxs := allCandidateAxs.insert ax
+    let mut badSet : NameSet := {}
+    for ax in allCandidateAxs.toList do
+      unless (← isAllowedUnionAxiomM env allowed allowedNativeOrigins allowedBvOrigins ax) do
+        badSet := badSet.insert ax
+    unless badSet.isEmpty do
+      let bad := badSet.toList.toArray.qsort (fun a b => toString a < toString b)
+      return .error s!"reportPrintAxiomsForRoots: disallowed axiom(s): {bad.map toString}"
+  let mut lines : Array String := #[]
+  for r in roots do
+    lines := lines.push (formatPrintAxiomsLine r (perRoot.getD r #[]))
+  return .ok lines
+
 /-- `#union_axioms_of_modules P₁, …, Pₖ [ax₁, …, axₙ]` audits a whole library at once.
 Its roots are every constant declared by every imported module whose name extends
 any `Pᵢ`; one walk with one shared visited set covers them all. It logs
@@ -508,11 +639,13 @@ elab_rules : command
     match axs with
     | some a => a.getElems.map (toString ·.getId)
     | none => #["Classical.choice", "Quot.sound", "propext"]
-  let (roots, modules) := moduleRootsOf env pfxs
-  match unionCheck env (unionLabel pfxs) roots modules allowed with
+  let mr := moduleRootsOf env pfxs
+  let roots := mr.1
+  let modules := mr.2
+  match (← unionCheckM env (unionLabel pfxs) roots modules allowed) with
   | .error e => throwError "{e}"
   | .ok r =>
-    logInfo (MessageData.ofFormat (.text
+    logInfo (MessageData.ofFormat (Std.Format.text
       s!"UNION-AXIOMS '{unionLabel pfxs}': [{", ".intercalate r.axioms.toList}] \
         roots={r.roots} modules={r.modules} visited={r.visited}"))
 

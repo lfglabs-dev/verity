@@ -228,12 +228,43 @@ class CheckAxiomsReportTests(unittest.TestCase):
         self.assertEqual(builtin, {real_aux})
         self.assertEqual(unexpected, {spoof_aux: ["Compiler.SpoofConsumer.bad"]})
 
-    def test_discover_repo_axioms_detects_dotted_spoof_declaration_names(self) -> None:
+    def test_discover_repo_axioms_rejects_dotted_aux_spoof_declaration_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "Compiler").mkdir(parents=True, exist_ok=True)
             (root / "Compiler" / "Spoof.lean").write_text(
                 "axiom thm._native.native_decide.ax_999 : False\n",
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                with redirect_stderr(stderr), self.assertRaises(SystemExit):
+                    check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertIn("Forbidden hand-written native_decide/bv_decide auxiliary axiom", stderr.getvalue())
+
+    def test_discover_repo_axioms_detects_indented_prefixed_quoted_and_split_axioms(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "Forms.lean").write_text(
+                "\n".join(
+                    [
+                        "section Inner",
+                        "  axiom indented_ax : True",
+                        "  @[simp] noncomputable axiom attr_ax : True",
+                        "  set_option linter.unusedVariables false in axiom opt_ax : True",
+                        "  axiom «quoted.ax» : True",
+                        "  axiom",
+                        "    split_line_ax : True",
+                        "  def keep («axiom» : Nat) : Nat := «axiom»",
+                        "end Inner",
+                    ]
+                )
+                + "\n",
                 encoding="utf-8",
             )
             old_root = check_axioms.ROOT
@@ -244,7 +275,13 @@ class CheckAxiomsReportTests(unittest.TestCase):
                 check_axioms.ROOT = old_root
         self.assertEqual(
             discovered,
-            {"thm._native.native_decide.ax_999": ("Compiler/Spoof.lean", 1)},
+            {
+                "indented_ax": ("Compiler/Forms.lean", 2),
+                "attr_ax": ("Compiler/Forms.lean", 3),
+                "opt_ax": ("Compiler/Forms.lean", 4),
+                "quoted.ax": ("Compiler/Forms.lean", 5),
+                "split_line_ax": ("Compiler/Forms.lean", 6),
+            },
         )
 
     def test_run_report_check_passes_and_writes_output_file(self) -> None:

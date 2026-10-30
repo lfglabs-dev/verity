@@ -13,7 +13,7 @@ every public theorem/lemma (including indented declarations inside ``mutual`` an
 2. ``PrintAxioms.lean`` — imports ``AxiomAudit`` and the same verified root
    modules, verifies the whole-population union first, and then prints exact
    from-scratch per-theorem axiom lines (no ``collectAxioms``, no per-constant
-   cycle cache) via ``Jaune.AxiomAudit.reportPrintAxiomsForRoots``.
+   cycle cache) via ``Jaune.AxiomAudit.reportPrintAxiomsForRootsM``.
 
 Usage:
     python3 scripts/generate_print_axioms.py          # overwrite generated files
@@ -74,16 +74,18 @@ def _render_population_union_block() -> str:
         "run_cmd do\n"
         "  let env ← getEnv\n"
         "  let pfxs := #[`Verity, `Compiler, `Contracts]\n"
-        "  let (roots, modules) := moduleRootsOf env pfxs\n"
+        "  let mr := moduleRootsOf env pfxs\n"
+        "  let roots := mr.1\n"
+        "  let modules := mr.2\n"
         f"  let allowed := {allowed}\n"
         f"  let allowedNativeOrigins := {native_origins}\n"
         f"  let allowedBvOrigins := {bv_origins}\n"
-        "  match unionCheck env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins with\n"
+        "  match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins) with\n"
         '  | .error e => throwError "{e}"\n'
         "  | .ok r =>\n"
-        "    logInfo (MessageData.ofFormat (.text\n"
-        '      s!"UNION-AXIOMS \'{unionLabel pfxs}\': [{", ".intercalate r.axioms.toList}] "\n'
-        '        ++ s!"roots={r.roots} modules={r.modules} visited={r.visited}"))\n'
+        "    logInfo (MessageData.ofFormat (Std.Format.text\n"
+        '      (s!"UNION-AXIOMS \'{unionLabel pfxs}\': [{", ".intercalate r.axioms.toList}] "\n'
+        '        ++ s!"roots={r.roots} modules={r.modules} visited={r.visited}")))\n'
     )
 
 
@@ -278,7 +280,7 @@ run_cmd do
   let allowed := {allowed_arr}
   let allowedNativeOrigins := {native_origins_arr}
   let allowedBvOrigins := {bv_origins_arr}
-  match reportPrintAxiomsForRoots env roots (some allowed) allowedNativeOrigins allowedBvOrigins with
+  match (← reportPrintAxiomsForRootsM env roots (some allowed) allowedNativeOrigins allowedBvOrigins) with
   | .error e => throwError "{{e}}"
   | .ok lines =>
     for line in lines do

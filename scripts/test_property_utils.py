@@ -147,6 +147,33 @@ class PropertyUtilsImportParsingTests(unittest.TestCase):
             ["Verity.Core", "Compiler.A"],
         )
 
+    def test_extract_lean_header_imports_handles_module_multiline_continuations_and_quotes(
+        self,
+    ) -> None:
+        text = (
+            "module\n\n"
+            "prelude\n"
+            "public\n"
+            "meta\n"
+            "import\n"
+            "all\n"
+            "«Verity».«Core»\n"
+            "import\n"
+            "  «Compiler.Main»\n"
+            "public section\n"
+            "def x : Nat := 0\n"
+        )
+        self.assertEqual(
+            property_utils.extract_lean_header_imports(text),
+            ["Verity.Core", "Compiler.Main"],
+        )
+
+    def test_extract_lean_header_imports_fails_closed_on_incomplete_or_body_import(self) -> None:
+        with self.assertRaises(ValueError):
+            property_utils.extract_lean_header_imports("import\n")
+        with self.assertRaises(ValueError):
+            property_utils.extract_lean_header_imports("import Verity.Core\ndef x := 1\nimport Bad\n")
+
 
 class PropertyUtilsTheoremExtractionTests(unittest.TestCase):
     def test_collect_theorems_ignores_block_and_line_comments(self) -> None:

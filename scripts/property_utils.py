@@ -28,8 +28,14 @@ FILE_RE = re.compile(r"^Property(.+)\.t\.sol$")
 CONTRACT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 THEOREM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.']*$")
 LEAN_PRELUDE_RE = re.compile(r"^\s*prelude\b")
-LEAN_IMPORT_RE = re.compile(r"^\s*(?:public\s+)?import(?:\s+all)?\b(?P<body>.*)$")
-LEAN_MODULE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.']*$")
+LEAN_IMPORT_RE = re.compile(
+    r"^\s*(?:public\s+)?(?:meta\s+)?import(?:\s+all)?\b(?P<body>.*)$"
+)
+_LEAN_IDENT_SEG_PAT = r"(?:«[^»]+»|[A-Za-z_][A-Za-z0-9_']*)"
+LEAN_MODULE_NAME_RE = re.compile(rf"^{_LEAN_IDENT_SEG_PAT}(?:\.{_LEAN_IDENT_SEG_PAT})*$")
+_LEAN_HEADER_TOKEN_RE = re.compile(
+    rf"{_LEAN_IDENT_SEG_PAT}(?:\.{_LEAN_IDENT_SEG_PAT})*|\S+"
+)
 
 # Regex pattern for theorem/lemma declarations with optional Lean prefixes.
 THEOREM_RE = re.compile(
@@ -81,18 +87,23 @@ def load_exclusions() -> dict[str, set[str]]:
     return _load_contract_name_sets(EXCLUSIONS, missing_ok=True)
 
 
+def _unquote_lean_module_name(token: str) -> str:
+    return token.replace("«", "").replace("»", "")
+
+
 def extract_lean_import_modules(line: str) -> list[str]:
     """Extract imported module names from a Lean `import` line.
 
-    Supports `public import`, `import all`, multiple modules on one line, and
-    ignores `as Alias` clauses. Returns an empty list for non-import lines.
+    Supports `[public] [meta] import [all]`, guillemet-escaped identifiers,
+    multiple modules on one line, and ignores `as Alias` clauses. Returns an
+    empty list for non-import lines.
     """
     match = LEAN_IMPORT_RE.match(line)
     if match is None:
         return []
 
     modules: list[str] = []
-    tokens = match.group("body").split()
+    tokens = _LEAN_HEADER_TOKEN_RE.findall(match.group("body"))
     skip_alias = False
     for token in tokens:
         if skip_alias:
@@ -102,30 +113,86 @@ def extract_lean_import_modules(line: str) -> list[str]:
             skip_alias = True
             continue
         if LEAN_MODULE_NAME_RE.fullmatch(token):
-            modules.append(token)
+            modules.append(_unquote_lean_module_name(token))
     return modules
+
+
+def extract_lean_header_imports_with_lines(text: str) -> list[tuple[str, int]]:
+    """Extract ``(module_name, import_line_1based)`` from a Lean file's module header.
+
+    Follows Lean 4's module-header token grammar (`Lean/Parser/Module/Syntax.lean`):
+      ``optional "module" >> optional "prelude" >> many ([public] [meta] "import" [all] ident)``
+    across arbitrary whitespace and newlines after scrubbing comments and string literals,
+    unquoting guillemet-escaped identifiers (`«...»`), and failing closed via ``ValueError``
+    on incomplete or malformed ``import`` clauses in the header.
+    """
+    scrubbed = scrub_lean_code(text)
+    tokens: list[tuple[str, int]] = []
+    for line_no, line in enumerate(scrubbed.splitlines(), 1):
+        for match in _LEAN_HEADER_TOKEN_RE.finditer(line):
+            tokens.append((match.group(0), line_no))
+
+    i = 0
+    n = len(tokens)
+    if i < n and tokens[i][0] == "module":
+        i += 1
+    if i < n and tokens[i][0] == "prelude":
+        i += 1
+
+    imports: list[tuple[str, int]] = []
+    while i < n:
+        start = i
+        if i < n and tokens[i][0] == "public":
+            i += 1
+        if i < n and tokens[i][0] == "meta":
+            i += 1
+        if i >= n or tokens[i][0] != "import":
+            # `public section`, `public def`, `meta def`, or ordinary command: header ended.
+            i = start
+            break
+        imp_line = tokens[i][1]
+        i += 1
+        if i < n and tokens[i][0] == "all":
+            i += 1
+        if i >= n:
+            raise ValueError(f"incomplete Lean import statement at line {imp_line}")
+        mod_tok = tokens[i][0]
+        if mod_tok in {"import", "public", "meta", "all", "prelude", "module"} or not LEAN_MODULE_NAME_RE.fullmatch(mod_tok):
+            raise ValueError(
+                f"invalid Lean import target {mod_tok!r} at line {tokens[i][1]}"
+            )
+        imports.append((_unquote_lean_module_name(mod_tok), imp_line))
+        i += 1
+        # Also tolerate legacy multi-target `import A B` / `import A as Alias` in synthetic fixtures
+        # when kept on the same `import` line.
+        while i < n and tokens[i][1] == imp_line:
+            extra_tok = tokens[i][0]
+            if extra_tok == "as":
+                i += 2
+                continue
+            if extra_tok in {"import", "public", "meta"}:
+                break
+            if LEAN_MODULE_NAME_RE.fullmatch(extra_tok):
+                imports.append((_unquote_lean_module_name(extra_tok), imp_line))
+                i += 1
+                continue
+            break
+
+    # Fail closed if any standalone `import` keyword appears later in the scrubbed body
+    # (outside strings/comments, Lean does not allow `import` after commands).
+    while i < n:
+        if tokens[i][0] == "import":
+            raise ValueError(
+                f"unexpected `import` keyword outside module header at line {tokens[i][1]}"
+            )
+        i += 1
+
+    return imports
 
 
 def extract_lean_header_imports(text: str) -> list[str]:
-    """Extract imported module names from a Lean file's module header only.
-
-    Scrubs comments and string literals first so fake ``import ...`` text inside
-    strings or docstrings is ignored, and stops at the first non-blank line
-    outside ``prelude`` / ``[public] import [all] ...``.
-    """
-    scrubbed = scrub_lean_code(text)
-    modules: list[str] = []
-    for line in scrubbed.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if LEAN_PRELUDE_RE.match(stripped):
-            continue
-        if LEAN_IMPORT_RE.match(stripped):
-            modules.extend(extract_lean_import_modules(stripped))
-            continue
-        break
-    return modules
+    """Extract imported module names from a Lean file's module header only."""
+    return [mod for mod, _ in extract_lean_header_imports_with_lines(text)]
 
 
 def _load_contract_name_sets(path: Path, *, missing_ok: bool) -> dict[str, set[str]]:

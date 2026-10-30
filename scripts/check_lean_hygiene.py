@@ -21,7 +21,7 @@ import re
 from property_utils import ROOT, report_errors, scrub_lean_code
 
 SORRY_RE = re.compile(r"\bsorry\b")
-ASSURANCE_FIXTURE_PREFIX = "scripts/UnionAxiomsFixture/"
+ASSURANCE_FIXTURE_PREFIX = "scripts/.assurance_fixtures/UnionAxiomsFixture/"
 # Optional declaration modifiers that may precede ``theorem``/``lemma`` or
 # declaration-boundary keywords (``def``, ``instance``, ...).  Any combination
 # and order of these modifiers is accepted.

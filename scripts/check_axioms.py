@@ -17,7 +17,16 @@ from pathlib import Path
 
 from property_utils import ROOT, die, report_errors, scrub_lean_code
 
-AXIOM_DECL_RE = re.compile(r"^(?:private |protected )?axiom\s+([A-Za-z_][A-Za-z0-9_.']*)\b")
+_IDENT_SEG_RE = r"(?:«[^»]+»|[A-Za-z_][A-Za-z0-9_']*)"
+_DOTTED_IDENT_RE = rf"{_IDENT_SEG_RE}(?:\.{_IDENT_SEG_RE})*"
+AXIOM_KW_RE = re.compile(r"(?<![A-Za-z0-9_.'«»])axiom(?![A-Za-z0-9_.'«»])")
+AXIOM_INLINE_DECL_RE = re.compile(
+    rf"(?<![A-Za-z0-9_.'«»])axiom\s+(?P<name>{_DOTTED_IDENT_RE})"
+)
+AXIOM_SPLIT_NAME_RE = re.compile(rf"^\s*(?P<name>{_DOTTED_IDENT_RE})")
+AUX_AXIOM_SUFFIX_RE = re.compile(
+    r"(?:^|\.)_native\.(?:native_decide|bv_decide)\.ax(?:_[0-9]+)+$"
+)
 DEFAULT_AXIOM_ROOTS = ("Compiler", "Verity", "Contracts", "Benchmark")
 
 LEAN_BUILTIN_AXIOMS = frozenset([
@@ -95,28 +104,80 @@ def parse_active_axiom_count(axioms_md_text: str) -> int | None:
     return int(match.group(1))
 
 
-def discover_repo_axioms() -> dict[str, tuple[str, int]]:
+def _unquote_lean_ident(raw: str) -> str:
+    return raw.replace("«", "").replace("»", "")
+
+
+def _is_forbidden_aux_axiom_decl_name(name: str) -> bool:
+    return (
+        NATIVE_DECIDE_AXIOM_RE.fullmatch(name) is not None
+        or BV_DECIDE_AXIOM_RE.fullmatch(name) is not None
+        or AUX_AXIOM_SUFFIX_RE.search(name) is not None
+    )
+
+
+def scan_lean_file_axioms(text: str, rel_path: str) -> list[tuple[str, int]]:
+    """Extract ``(unquoted_name, decl_line_1based)`` for every ``axiom`` in *text*.
+
+    Handles indented declarations inside ``section``/``namespace`` blocks, arbitrary
+    prefixes (``@[simp]``, ``noncomputable``, ``set_option ... in``, ``private``/``protected``),
+    guillemet-escaped identifiers (``«...»``), and split-line ``axiom\\n  name`` forms.
+    Fails closed via ``die`` if a standalone ``axiom`` keyword cannot be paired with a
+    valid declaration name.
+    """
+    scrubbed_lines = scrub_lean_code(text).splitlines()
+    results: list[tuple[str, int]] = []
+    i = 0
+    while i < len(scrubbed_lines):
+        line = scrubbed_lines[i]
+        kw_matches = list(AXIOM_KW_RE.finditer(line))
+        if not kw_matches:
+            i += 1
+            continue
+        for kw in kw_matches:
+            tail = line[kw.start() :]
+            inline = AXIOM_INLINE_DECL_RE.match(tail)
+            if inline is not None:
+                results.append((_unquote_lean_ident(inline.group("name")), i + 1))
+                continue
+            if line[kw.end() :].strip():
+                die(f"Malformed axiom declaration at {rel_path}:{i + 1}")
+            j = i + 1
+            while j < len(scrubbed_lines) and not scrubbed_lines[j].strip():
+                j += 1
+            if j >= len(scrubbed_lines):
+                die(f"Incomplete axiom declaration at {rel_path}:{i + 1}")
+            split = AXIOM_SPLIT_NAME_RE.match(scrubbed_lines[j])
+            if split is None:
+                die(f"Malformed split-line axiom declaration at {rel_path}:{i + 1}")
+            results.append((_unquote_lean_ident(split.group("name")), i + 1))
+        i += 1
+    return results
+
+
+def discover_repo_axioms(roots: tuple[str, ...] = DEFAULT_AXIOM_ROOTS) -> dict[str, tuple[str, int]]:
     """Return all Lean axiom declarations as ``{name: (relative_path, line)}``."""
     discovered: dict[str, tuple[str, int]] = {}
-    for subdir in DEFAULT_AXIOM_ROOTS:
+    for subdir in roots:
         base_dir = ROOT / subdir
         if not base_dir.exists():
             continue
         for lean_file in sorted(base_dir.rglob("*.lean")):
-            text = scrub_lean_code(lean_file.read_text(encoding="utf-8"))
+            raw_text = lean_file.read_text(encoding="utf-8")
             rel_path = str(lean_file.relative_to(ROOT))
-            for i, line in enumerate(text.splitlines(), 1):
-                match = AXIOM_DECL_RE.match(line)
-                if match is None:
-                    continue
-                name = match.group(1)
+            for name, line_no in scan_lean_file_axioms(raw_text, rel_path):
+                if _is_forbidden_aux_axiom_decl_name(name):
+                    die(
+                        f"Forbidden hand-written native_decide/bv_decide auxiliary axiom "
+                        f"declaration {name!r} at {rel_path}:{line_no}"
+                    )
                 if name in discovered:
                     old_path, old_line = discovered[name]
                     die(
                         f"Duplicate axiom name {name!r}: "
-                        f"{old_path}:{old_line} and {rel_path}:{i}"
+                        f"{old_path}:{old_line} and {rel_path}:{line_no}"
                     )
-                discovered[name] = (rel_path, i)
+                discovered[name] = (rel_path, line_no)
     return discovered
 
 
@@ -142,12 +203,8 @@ def run_location_check() -> int:
             errors.append(f"{axiom_name}: file {rel_path} not found")
             continue
 
-        lines = source_file.read_text(encoding="utf-8").splitlines()
-        actual_line = None
-        for i, line in enumerate(lines, 1):
-            if re.match(rf"^(private |protected )?axiom\s+{re.escape(axiom_name)}\b", line):
-                actual_line = i
-                break
+        file_axioms = dict(scan_lean_file_axioms(source_file.read_text(encoding="utf-8"), rel_path))
+        actual_line = file_axioms.get(axiom_name)
 
         if actual_line is None:
             errors.append(
@@ -322,6 +379,9 @@ def generate_report(
 
 
 def run_report_check(text: str) -> int:
+    # Enforce source-level ban on hand-written `._native.(native_decide|bv_decide).ax_*`
+    # declarations even when running in `--report`/`--log` mode.
+    discover_repo_axioms()
     axiom_map = parse_axiom_output(text)
     if not axiom_map:
         print("WARNING: No #print axioms output found. Is the input empty?", file=sys.stderr)

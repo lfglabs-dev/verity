@@ -30,6 +30,21 @@ axiom thmNativeDecide._native.native_decide.ax_888 : Bool.false = Bool.true
 theorem useSpoofedNativeFalse : False := thmNativeDecide._native.native_decide.ax_999
 theorem useSpoofedNativeBool : Bool.false = Bool.true := thmNativeDecide._native.native_decide.ax_888
 
+-- Hand-written spoofs that ARE directly referenced inside the allowlisted origin's own
+-- `value.getUsedConstants`:
+-- `ax_777` has `Eq.{1} Bool Bool.false Bool.true` (unsound) and is referenced by `thmSpoofRef`;
+-- `ax_778` has `Eq.{1} Bool Bool.true Bool.true` (evaluates to `Bool.true`) and is referenced by
+-- `thmSpoofRefTrue`, yet still has a source `axiom` declaration range (`range != selectionRange`)
+-- rather than a tactic single-ref range (`range == selectionRange`) and must also be rejected.
+axiom thmSpoofRef._native.native_decide.ax_777 : Bool.false = Bool.true
+theorem thmSpoofRef : Bool.false = Bool.true := by
+  exact thmSpoofRef._native.native_decide.ax_777
+
+axiom thmSpoofRefTrue._native.native_decide.ax_778 : Bool.true = Bool.true
+theorem thmSpoofRefTrue : (2 : Nat) + 2 = 4 := by
+  have _ := thmSpoofRefTrue._native.native_decide.ax_778
+  native_decide
+
 theorem thmBVNonTriv (x y : BitVec 32) : (x ^^^ y) ^^^ y = x := by bv_decide
 
 def pureInc (n : Nat) : Nat := n + 1
