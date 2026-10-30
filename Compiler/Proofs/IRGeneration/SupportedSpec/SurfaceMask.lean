@@ -1,5 +1,4 @@
 import Compiler.Proofs.IRGeneration.ExprCore
-import Std.Tactic.BVDecide
 
 namespace Compiler.Proofs.IRGeneration
 
@@ -233,54 +232,95 @@ end
 
 /-! ## Bitwise & Catamorphism Algebraic Laws -/
 
+private theorem uint32_ext_bitvec {a b : SurfaceMask} (h : a.toBitVec = b.toBitVec) : a = b :=
+  UInt32.eq_of_toBitVec_eq h
+
 /-- The empty mask `0` contains no surface bits. -/
 @[simp]
 theorem hasMask_zero (mask : SurfaceMask) : hasMask 0 mask = false := by
-  simp only [hasMask, bne]
-  bv_decide
+  simp [hasMask]
 
 /-- `hasMask` distributes over bitwise union `|||`. -/
 @[simp]
 theorem hasMask_or (m₁ m₂ mask : SurfaceMask) :
     hasMask (m₁ ||| m₂) mask = (hasMask m₁ mask || hasMask m₂ mask) := by
-  simp only [hasMask, bne]
-  bv_decide
+  apply Bool.eq_iff_iff.mpr
+  simp only [hasMask, bne_iff_ne, ne_eq, Bool.or_eq_true, ← Decidable.not_and_iff_or_not]
+  constructor
+  · intro h ⟨h1, h2⟩
+    apply h
+    apply uint32_ext_bitvec
+    ext i hi
+    have hb1 := congrArg (fun x => x.toBitVec[i]) h1
+    have hb2 := congrArg (fun x => x.toBitVec[i]) h2
+    simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, UInt32.toBitVec_ofNat,
+      BitVec.getElem_and, BitVec.getElem_or, BitVec.getElem_zero] at hb1 hb2 ⊢
+    cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_mask : mask.toBitVec[i] <;>
+      simp_all
+  · intro h hboth
+    apply h
+    constructor <;> (
+      apply uint32_ext_bitvec
+      ext i hi
+      have hb := congrArg (fun x => x.toBitVec[i]) hboth
+      simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, UInt32.toBitVec_ofNat,
+        BitVec.getElem_and, BitVec.getElem_or, BitVec.getElem_zero] at hb ⊢
+      cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_mask : mask.toBitVec[i] <;>
+        simp_all)
 
 /-- Bitwise union on `SurfaceMask` is associative. -/
 theorem surfaceMask_or_assoc (a b c : SurfaceMask) :
     a ||| b ||| c = a ||| (b ||| c) := by
-  bv_decide
+  apply uint32_ext_bitvec; ext i hi; simp [Bool.or_assoc]
 
 /-- Bitwise `0` is the left identity for `|||`. -/
 @[simp]
 theorem surfaceMask_zero_or (a : SurfaceMask) :
     (0 : SurfaceMask) ||| a = a := by
-  bv_decide
+  apply uint32_ext_bitvec; ext i hi; simp
 
 /-- Bitwise `0` is the right identity for `|||`. -/
 @[simp]
 theorem surfaceMask_or_zero (a : SurfaceMask) :
     a ||| (0 : SurfaceMask) = a := by
-  bv_decide
+  apply uint32_ext_bitvec; ext i hi; simp
 
 /-- The empty mask `0` is a subset of every allowed mask. -/
 @[simp]
 theorem maskSubset_zero (allowed : SurfaceMask) :
     (((0 : SurfaceMask) &&& allowed) == (0 : SurfaceMask)) = true := by
-  bv_decide
+  simp only [beq_iff_eq]; apply uint32_ext_bitvec; ext i hi; simp
 
 /-- Mask inclusion `(m &&& allowed) == m` is reflexive. -/
 @[simp]
 theorem maskSubset_refl (m : SurfaceMask) :
     ((m &&& m) == m) = true := by
-  bv_decide
+  simp only [beq_iff_eq]; apply uint32_ext_bitvec; ext i hi; simp
 
 /-- Mask inclusion `(m &&& allowed) == m` distributes over bitwise union `|||`. -/
 @[simp]
 theorem maskSubset_or (m₁ m₂ allowed : SurfaceMask) :
     (((m₁ ||| m₂) &&& allowed) == (m₁ ||| m₂)) =
       (((m₁ &&& allowed) == m₁) && ((m₂ &&& allowed) == m₂)) := by
-  bv_decide
+  apply Bool.eq_iff_iff.mpr
+  simp only [beq_iff_eq, Bool.and_eq_true]
+  constructor
+  · intro h
+    constructor <;> (
+      apply uint32_ext_bitvec; ext i hi
+      have hb := congrArg (fun x => x.toBitVec[i]) h
+      simp only [UInt32.toBitVec_and, UInt32.toBitVec_or,
+        BitVec.getElem_and, BitVec.getElem_or] at hb ⊢
+      cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_a : allowed.toBitVec[i] <;>
+        simp_all)
+  · rintro ⟨h1, h2⟩
+    apply uint32_ext_bitvec; ext i hi
+    have hb1 := congrArg (fun x => x.toBitVec[i]) h1
+    have hb2 := congrArg (fun x => x.toBitVec[i]) h2
+    simp only [UInt32.toBitVec_and, UInt32.toBitVec_or,
+      BitVec.getElem_and, BitVec.getElem_or] at hb1 hb2 ⊢
+    cases h_m1 : m₁.toBitVec[i] <;> cases h_m2 : m₂.toBitVec[i] <;> cases h_a : allowed.toBitVec[i] <;>
+      simp_all
 
 /-- Monotonicity under mask inclusion: if `m` is within `allowed₁` and
 `allowed₁` is within `allowed₂`, then `m` is within `allowed₂`. -/
@@ -288,7 +328,13 @@ theorem maskSubset_mono {m allowed₁ allowed₂ : SurfaceMask}
     (hm : ((m &&& allowed₁) == m) = true)
     (hinc : ((allowed₁ &&& allowed₂) == allowed₁) = true) :
     ((m &&& allowed₂) == m) = true := by
-  bv_decide
+  simp only [beq_iff_eq] at hm hinc ⊢
+  apply uint32_ext_bitvec; ext i hi
+  have h1 := congrArg (fun x => x.toBitVec[i]) hm
+  have h2 := congrArg (fun x => x.toBitVec[i]) hinc
+  simp only [UInt32.toBitVec_and, BitVec.getElem_and] at h1 h2 ⊢
+  cases h_m : m.toBitVec[i] <;> cases h_a1 : allowed₁.toBitVec[i] <;> cases h_a2 : allowed₂.toBitVec[i] <;>
+    simp_all
 
 /-- Disjointness elimination: if `m` is within `allowed` and `allowed` has no
 overlap with `mask`, then `hasMask m mask = false`. -/
@@ -296,8 +342,15 @@ theorem hasMask_eq_false_of_maskSubset {m allowed mask : SurfaceMask}
     (hsub : ((m &&& allowed) == m) = true)
     (hdisj : allowed &&& mask = 0) :
     hasMask m mask = false := by
-  simp only [hasMask, bne]
-  bv_decide
+  simp only [beq_iff_eq] at hsub
+  simp only [hasMask, bne_eq_false_iff_eq]
+  apply uint32_ext_bitvec; ext i hi
+  have h1 := congrArg (fun x => x.toBitVec[i]) hsub
+  have h2 := congrArg (fun x => x.toBitVec[i]) hdisj
+  simp only [UInt32.toBitVec_and, UInt32.toBitVec_ofNat,
+    BitVec.getElem_and, BitVec.getElem_zero] at h1 h2 ⊢
+  cases h_m : m.toBitVec[i] <;> cases h_a : allowed.toBitVec[i] <;> cases h_k : mask.toBitVec[i] <;>
+    simp_all
 
 @[simp]
 theorem hasMask_bitEventEmit_self : hasMask bitEventEmit bitEventEmit = true := by decide
@@ -518,13 +571,27 @@ structure Layer3RevertGuardCoverageMetaSpec (allowed : SurfaceMask) : Prop where
 /-- **Layer I Universal Theorem (`compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec`)**:
 For every baseline capability mask `allowed`, `compilerProofCoveredWithLayer3RevertGuard`
 satisfies `Layer3RevertGuardCoverageMetaSpec allowed`. -/
+private theorem maskSubset_union_right (a b : SurfaceMask) :
+    (((a &&& (b ||| a)) == a)) = true := by
+  simp only [beq_iff_eq]
+  apply uint32_ext_bitvec; ext i hi
+  simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, BitVec.getElem_and, BitVec.getElem_or]
+  cases a.toBitVec[i] <;> cases b.toBitVec[i] <;> simp
+
+private theorem maskSubset_union_left (a b : SurfaceMask) :
+    (((a &&& (a ||| b)) == a)) = true := by
+  simp only [beq_iff_eq]
+  apply uint32_ext_bitvec; ext i hi
+  simp only [UInt32.toBitVec_and, UInt32.toBitVec_or, BitVec.getElem_and, BitVec.getElem_or]
+  cases a.toBitVec[i] <;> cases b.toBitVec[i] <;> simp
+
 theorem compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec
     (allowed : SurfaceMask) :
     Layer3RevertGuardCoverageMetaSpec allowed where
   inactive_eq_base _ := rfl
   active_covers_base m hm := by
     simp only [compilerProofCoveredWithLayer3RevertGuard, maskSubset] at hm ⊢
-    bv_decide
+    exact maskSubset_mono hm (maskSubset_union_left allowed layer3RevertGuardMask)
   active_covers_layer3_revert_and_memoryguard _ hm := hm
 
 /-- **Layer II Corollary 1 (`compilerProofCoveredWithLayer3RevertGuard_of_maskSubset`)**:
@@ -540,9 +607,9 @@ theorem compilerProofCoveredWithLayer3RevertGuard_panic
     (allowed : SurfaceMask) (code : Verity.Core.PanicCode) :
     compilerProofCoveredWithLayer3RevertGuard true allowed
       (stmtSurfaceMask (.panic code)) = true := by
-  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask,
-    layer3RevertGuardMask, maskSubset, bitCoreGap, bitInlineYul]
-  bv_decide
+  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask, maskSubset]
+  exact maskSubset_mono (by decide : ((bitCoreGap &&& layer3RevertGuardMask) == bitCoreGap) = true)
+    (maskSubset_union_right layer3RevertGuardMask allowed)
 
 /-- **Layer II Corollary 3 (`compilerProofCoveredWithLayer3RevertGuard_unsafeYul_memoryguard`)**:
 `Stmt.unsafeYul` (`memoryguard(0x80)`) is covered under `compilerProofCoveredWithLayer3RevertGuard true allowed`. -/
@@ -550,9 +617,9 @@ theorem compilerProofCoveredWithLayer3RevertGuard_unsafeYul_memoryguard
     (allowed : SurfaceMask) (fragment : UnsafeYulFragment) :
     compilerProofCoveredWithLayer3RevertGuard true allowed
       (stmtSurfaceMask (.unsafeYul fragment)) = true := by
-  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask,
-    layer3RevertGuardMask, maskSubset, bitCoreGap, bitInlineYul]
-  bv_decide
+  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask, maskSubset]
+  exact maskSubset_mono (by decide : ((bitInlineYul &&& layer3RevertGuardMask) == bitInlineYul) = true)
+    (maskSubset_union_right layer3RevertGuardMask allowed)
 
 /-- **Layer II Corollary 4 (`compilerProofCoveredWithLayer3RevertGuard_revertError`)**:
 Custom-error `Stmt.revertError errName args` is covered whenever `args` stay within `allowed`. -/
@@ -561,9 +628,11 @@ theorem compilerProofCoveredWithLayer3RevertGuard_revertError
     (hArgs : maskSubset (exprListSurfaceMask args) allowed = true) :
     compilerProofCoveredWithLayer3RevertGuard true allowed
       (stmtSurfaceMask (.revertError errName args)) = true := by
-  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask,
-    layer3RevertGuardMask, maskSubset, bitCoreGap, bitInlineYul] at hArgs ⊢
-  bv_decide
+  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask, maskSubset, ↓reduceIte] at hArgs ⊢
+  rw [maskSubset_or, Bool.and_eq_true]
+  exact ⟨maskSubset_mono (by decide : ((bitCoreGap &&& layer3RevertGuardMask) == bitCoreGap) = true)
+      (maskSubset_union_right layer3RevertGuardMask allowed),
+    maskSubset_mono hArgs (maskSubset_union_left allowed layer3RevertGuardMask)⟩
 
 /-- **Layer III Witness 1**: EIP-6093 `ERC20InsufficientBalance` custom error is covered when active. -/
 theorem witness_layer3_revertError_covered :

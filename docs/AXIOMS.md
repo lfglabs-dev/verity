@@ -92,7 +92,7 @@ assumed transition.
 
 ### 1. `solidityMappingSlot_injective`
 
-**Location**: `Compiler/Proofs/MappingSlot.lean:96`
+**Location**: `Compiler/Proofs/MappingSlot.lean:95`
 
 **Statement**:
 ```lean

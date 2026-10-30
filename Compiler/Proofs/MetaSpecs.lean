@@ -6,7 +6,6 @@ Authors: Verity Authors
 import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.TrustSurfaceLinear
 import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
-import Std.Tactic.BVDecide
 
 namespace Compiler.Proofs.MetaSpecs
 
@@ -369,8 +368,17 @@ exact boolean negation of `maskSubset m allowed`. -/
 @[simp]
 theorem hasMask_compl_eq_not_maskSubset (m allowed : SurfaceMask) :
     hasMask m (~~~allowed) = !maskSubset m allowed := by
-  simp only [hasMask, maskSubset, bne]
-  bv_decide
+  apply Bool.eq_iff_iff.mpr
+  simp only [hasMask, maskSubset, bne_iff_ne, ne_eq, Bool.not_eq_true', beq_eq_false_iff_ne]
+  constructor <;> (
+    intro h heq
+    apply h
+    apply UInt32.eq_of_toBitVec_eq
+    ext i hi
+    have hb := congrArg (fun x => x.toBitVec[i]) heq
+    simp only [UInt32.toBitVec_and, UInt32.toBitVec_not, UInt32.toBitVec_ofNat,
+      BitVec.getElem_and, BitVec.getElem_not, BitVec.getElem_zero] at hb ⊢
+    cases h_m : m.toBitVec[i] <;> cases h_a : allowed.toBitVec[i] <;> simp_all)
 
 /-- Exact boolean equivalence between `maskSubset m allowed = false` and
 `hasMask m (~~~allowed) = true`. -/
