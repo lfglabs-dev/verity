@@ -226,6 +226,27 @@ class GeneratePrintAxiomsTests(unittest.TestCase):
             ],
         )
 
+    def test_extract_theorems_not_blinded_by_double_quote_char_literal(self) -> None:
+        sample = self.root / "Verity" / "QuoteChar.lean"
+        sample.write_text(
+            "\n".join(
+                [
+                    "namespace Verity.QuoteChar",
+                    "def c1 : Char := '\"'",
+                    "theorem after_quote_char : True := trivial",
+                    "def c2 : Char := '\"'",
+                    "end QuoteChar",
+                    "end Verity",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            generate_print_axioms.extract_theorems(sample),
+            [("Verity.QuoteChar.after_quote_char", False, False)],
+        )
+
     def test_generate_and_check_roundtrip_on_synthetic_tree(self) -> None:
         self.write(
             "Verity/Core.lean",

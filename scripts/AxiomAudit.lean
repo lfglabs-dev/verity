@@ -277,14 +277,27 @@ def findAuxDeclRanges? (env : Environment) (ax : Name) : Option DeclarationRange
   Lean.declRangeExt.find? (asyncMode := .sync) (level := .exported) env ax <|>
     Lean.declRangeExt.find? (asyncMode := .sync) (level := .server) env ax
 
-/-- Check that `ax` carries the exact single-ref declaration-range shape emitted by
-`Lean.Meta.nativeEqTrue` (`addDeclarationRangesFromSyntax auxAxiomName ref` with
-`selectionRangeStx := .missing`, so `range == selectionRange`), rejecting builtin
-`axiom name : ...` commands (whose `selectionRange` is strictly `name` inside `axiom ...`). -/
-def hasTacticTokenAuxDeclRange (env : Environment) (ax : Name) : Bool :=
-  match findAuxDeclRanges? env ax with
-  | some r => r.range == r.selectionRange
-  | none => false
+/-- Check whether `inner` lies completely within `outer`. -/
+def isRangeWithin (inner outer : DeclarationRange) : Bool :=
+  let startsAfter :=
+    inner.pos.line > outer.pos.line
+      || (inner.pos.line == outer.pos.line && inner.pos.column >= outer.pos.column)
+  let endsBefore :=
+    inner.endPos.line < outer.endPos.line
+      || (inner.endPos.line == outer.endPos.line && inner.endPos.column <= outer.endPos.column)
+  startsAfter && endsBefore
+
+/-- Check that `ax` carries a tactic-token declaration range (`range == selectionRange`,
+as emitted by `Lean.Meta.nativeEqTrue` calling `addDeclarationRangesFromSyntax` with
+`selectionRangeStx := .missing`) whose span lies inside `orig`'s own declaration range
+(`origRange.range`). Rejects handwritten `axiom` commands (`range != selectionRange`),
+external command-macro `axiom` commands (span outside `orig`), and direct `addDecl` calls
+without synchronized declaration ranges. -/
+def hasTacticTokenAuxDeclRange (env : Environment) (orig ax : Name) : Bool :=
+  match findAuxDeclRanges? env orig, findAuxDeclRanges? env ax with
+  | some origR, some axR =>
+    axR.range == axR.selectionRange && isRangeWithin axR.range origR.range
+  | _, _ => false
 
 /-- Re-compile and natively evaluate the closed `Bool` left-hand side `lhs` of a
 `nativeEqTrue` auxiliary axiom inside `withoutModifyingEnv`, succeeding iff it evaluates
@@ -305,7 +318,8 @@ def evalKernelNativeEqTrueLhs (lhs : Expr) : CommandElabM Bool := do
 1. `ax` has the exact `<origin>._native.<kind>.ax_<digits>` spelling for an `origin` in
    `allowedOrigins`;
 2. `ax` is a safe `AxiomVal` of kernel `nativeEqTrue` shape (`@Eq.{1} Bool lhs Bool.true`);
-3. `ax` has single-ref tactic declaration ranges (`range == selectionRange`);
+3. `ax` has single-ref tactic declaration ranges (`range == selectionRange`) lying inside
+   `origin`'s own declaration range;
 4. `origin` exists in `env` as a theorem or definition in the exact same module as `ax`
    (`env.getModuleIdxFor? origin == env.getModuleIdxFor? ax`); and
 5. `origin`'s own body (`value.getUsedConstants`) directly references `ax`. -/
@@ -329,7 +343,7 @@ def verifiedGeneratedAuxAxiomLhs? (env : Environment) (kind : String)
             | .thmInfo tv => tv.value.getUsedConstants.contains ax
             | .defnInfo dv => dv.value.getUsedConstants.contains ax
             | _ => false
-          if hasTacticTokenAuxDeclRange env ax
+          if hasTacticTokenAuxDeclRange env orig ax
               && env.getModuleIdxFor? orig == env.getModuleIdxFor? ax
               && usedByOrigin then
             some lhs

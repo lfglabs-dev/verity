@@ -244,5 +244,27 @@ class PropertyUtilsTheoremExtractionTests(unittest.TestCase):
             names = property_utils.collect_theorems(path)
             self.assertEqual(names, ["plain_theorem"])
 
+    def test_scrub_lean_code_handles_double_quote_char_literals_and_apostrophes(self) -> None:
+        src = (
+            "def q : Char := '\"'\n"
+            "def escQuote : Char := '\\\"'\n"
+            "def escSingle : Char := '\\''\n"
+            "def hexChar : Char := '\\x22'\n"
+            "def uniChar : Char := '\\u0022'\n"
+            "def primed' : String := \"axiom fake_in_primed_str : False\"\n"
+            "def pairQuote : Char := '\"' -- trailing comment after quote char\n"
+            "axiom visible_after_quote_char : True\n"
+            "def closePair : Char := '\"'\n"
+        )
+        stripped = property_utils.strip_lean_comments(src)
+        scrubbed = property_utils.scrub_lean_code(src)
+        self.assertEqual(len(stripped.splitlines()), len(src.splitlines()))
+        self.assertEqual(len(scrubbed.splitlines()), len(src.splitlines()))
+        self.assertNotIn("trailing comment", stripped)
+        self.assertIn("axiom visible_after_quote_char : True", stripped)
+        self.assertIn("axiom visible_after_quote_char : True", scrubbed)
+        self.assertNotIn("fake_in_primed_str", scrubbed)
+
+
 if __name__ == "__main__":
     unittest.main()
