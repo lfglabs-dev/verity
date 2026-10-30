@@ -133,7 +133,9 @@ mount_persistent_dir() {
     rm -rf "$staging"
     mkdir -p "$staging"
     touch "$fallback_dir"
-    cp -a "$fallback_dir/." "$staging/"
+    # Reflink on CoW filesystems (XFS reflink=1 on ashur): instant and no extra
+    # space until the PR's build diverges; a plain copy elsewhere.
+    cp -a --reflink=auto "$fallback_dir/." "$staging/"
     rmdir "$primary_dir"
     mv "$staging" "$primary_dir"
   fi
