@@ -282,10 +282,6 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                                       '}}-${{ '
                                                                       "hashFiles('lake-manifest.json') "
                                                                       '}}-${{ github.run_id }}'}},
-                                       {'name': 'Rebuild cached local Lean modules',
-                                        'run': 'rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity\n'
-                                               'rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts\n'
-                                               'rm -rf .lake/build/lib/lean/Compiler .lake/build/ir/Compiler'},
                                        {'name': 'Prebuild shared audit Lean targets',
                                         'run': 'set +e\n'
                                                'lake build PrintAxioms 2>&1 | tee -a lake-build.log\n'
@@ -951,7 +947,8 @@ SPEC['expected_job_needs']['failure-hints'].insert(
     SPEC['expected_job_needs']['failure-hints'].index('build-audits') + 1, 'import-mutations')
 SPEC['expected_job_if_conditions']['import-mutations'] = (
     "needs.checks.result == 'success' && needs.build.result == 'success' && "
-    "needs.changes.outputs.build == 'true'")
+    "needs.changes.outputs.build == 'true' && (github.event_name != 'pull_request' || "
+    "contains(github.event.pull_request.labels.*.name, 'ci:mutations'))")
 SPEC['expected_job_runs_on']['import-mutations'] = '[self-hosted, linux, x64, verity, build]'
 SPEC['expected_job_timeouts']['import-mutations'] = 210
 SPEC['expected_job_strategy_fail_fast']['import-mutations'] = False

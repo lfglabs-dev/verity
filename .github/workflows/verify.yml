@@ -414,12 +414,6 @@ jobs:
           disable-lake-cache-restore: ${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}
           cache-primary-key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
 
-      - name: Rebuild cached local Lean modules
-        run: |
-          rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity
-          rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts
-          rm -rf .lake/build/lib/lean/Compiler .lake/build/ir/Compiler
-
       - name: Build and verify all proofs
         run: |
           set -o pipefail
@@ -468,6 +462,7 @@ jobs:
         with:
           name: lean-workspace-build
           path: lean-workspace-build.tar
+          retention-days: 3
 
       - name: Save current run Lake cache
         if: success() && needs.changes.outputs.build == 'true' && steps.setup-lean.outputs.using-sticky-disks != 'true'
@@ -570,7 +565,9 @@ jobs:
     # behind the same three build-medium runners.
     timeout-minutes: 210
     needs: [changes, checks, build]
-    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
+    # ~6 runner-hours per run: keep it off ordinary PRs (main, nightly, dispatch,
+    # or PRs labelled `ci:mutations`) so it stops starving the compiler jobs.
+    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:mutations'))
     strategy:
       fail-fast: false
       matrix:
@@ -1005,6 +1002,7 @@ jobs:
         with:
           name: difftest-interpreter
           path: .lake/build/bin/difftest-interpreter
+          retention-days: 3
 
       - name: Upload compiler binaries
         if: '!cancelled()'
@@ -1013,6 +1011,7 @@ jobs:
           name: verity-compiler-binaries
           path: compiler/bin
           compression-level: 0
+          retention-days: 3
 
       - name: Upload compiler workspace build
         if: '!cancelled()'
@@ -1021,6 +1020,7 @@ jobs:
           name: lean-workspace-compiler-build
           path: lean-workspace-compiler-build.tar
           compression-level: 0
+          retention-days: 3
 
       - name: Upload generated Yul
         if: '!cancelled()'
@@ -1028,6 +1028,7 @@ jobs:
         with:
           name: generated-yul
           path: compiler/yul
+          retention-days: 3
 
       - name: Upload patched Yul
         if: '!cancelled()'
@@ -1035,6 +1036,7 @@ jobs:
         with:
           name: generated-yul-patched
           path: compiler/yul-patched
+          retention-days: 3
 
       - name: Upload smoke Yul
         if: '!cancelled()'
@@ -1042,6 +1044,7 @@ jobs:
         with:
           name: generated-yul-smoke
           path: compiler/yul-smoke
+          retention-days: 3
 
       - name: Upload patched smoke Yul
         if: '!cancelled()'
@@ -1049,6 +1052,7 @@ jobs:
         with:
           name: generated-yul-patched-smoke
           path: compiler/yul-patched-smoke
+          retention-days: 3
 
       - name: Upload patch coverage report
         if: '!cancelled()'

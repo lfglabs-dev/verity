@@ -86,6 +86,9 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn('evict_until_free "$CACHE_ROOT/lake-packages"', text)
         self.assertIn('LAKE_PACKAGES_MAX_ENTRIES="${LAKE_PACKAGES_MAX_ENTRIES:-20}"', text)
         self.assertIn('MIN_FREE_GB="${MIN_FREE_GB:-100}"', text)
+        self.assertIn('cap_tree_entries "$CACHE_ROOT/lake-build"', text)
+        self.assertIn('evict_until_free "$CACHE_ROOT/lake-build"', text)
+        self.assertIn('prune_tree "$CACHE_ROOT/elan"', text)
         # In-use protection: recently attached entries are never deleted,
         # and the mount path refreshes the entry mtime on attach.
         self.assertIn('MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-6}"', text)

@@ -3,12 +3,14 @@ set -euo pipefail
 
 CACHE_ROOT="${CACHE_ROOT:-/srv/verity-ci-cache}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LAKE_BUILD_MAX_AGE_DAYS="${LAKE_BUILD_MAX_AGE_DAYS:-21}"
+LAKE_BUILD_MAX_AGE_DAYS="${LAKE_BUILD_MAX_AGE_DAYS:-7}"
+LAKE_BUILD_MAX_ENTRIES="${LAKE_BUILD_MAX_ENTRIES:-12}"
 LAKE_PACKAGES_MAX_AGE_DAYS="${LAKE_PACKAGES_MAX_AGE_DAYS:-14}"
 LAKE_PACKAGES_MAX_ENTRIES="${LAKE_PACKAGES_MAX_ENTRIES:-20}"
 MIN_FREE_GB="${MIN_FREE_GB:-100}"
 MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-6}"
-COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-21}"
+COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-7}"
+ELAN_MAX_AGE_DAYS="${ELAN_MAX_AGE_DAYS:-7}"
 ARTIFACT_MAX_AGE_HOURS="${ARTIFACT_MAX_AGE_HOURS:-24}"
 JOURNAL_VACUUM_TIME="${JOURNAL_VACUUM_TIME:-14d}"
 JOURNAL_VACUUM_SIZE="${JOURNAL_VACUUM_SIZE:-1G}"
@@ -26,14 +28,18 @@ Subcommands:
 
 Environment:
   CACHE_ROOT                    Default: /srv/verity-ci-cache
-  LAKE_BUILD_MAX_AGE_DAYS       Default: 21
+  LAKE_BUILD_MAX_AGE_DAYS       Default: 7
+  LAKE_BUILD_MAX_ENTRIES        Default: 12 (newest kept; up to three namespaces per PR)
   LAKE_PACKAGES_MAX_AGE_DAYS    Default: 14
   LAKE_PACKAGES_MAX_ENTRIES     Default: 20 (newest kept; one entry exists per PR/branch)
-  MIN_FREE_GB                   Default: 100 (LRU-evict lake-packages below this)
+  MIN_FREE_GB                   Default: 100 (LRU-evict lake-build, then lake-packages,
+                                below this)
   MIN_ENTRY_AGE_HOURS           Default: 6 (never delete entries touched more recently;
                                 ci_local_persistence.sh mount touches an entry on attach,
                                 so caches of running/recent jobs are spared)
-  COMPILER_CCACHE_MAX_AGE_DAYS  Default: 21
+  COMPILER_CCACHE_MAX_AGE_DAYS  Default: 7
+  ELAN_MAX_AGE_DAYS             Default: 7 (one toolchain copy per workflow prefix and
+                                toolchain hash; attach refreshes the mtime of live ones)
   ARTIFACT_MAX_AGE_HOURS        Default: 24
   JOURNAL_VACUUM_TIME           Default: 14d
   JOURNAL_VACUUM_SIZE           Default: 1G
@@ -190,10 +196,15 @@ run_maintenance() {
 
   mkdir -p "$CACHE_ROOT"
   prune_tree "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_AGE_DAYS" "lake-build cache"
+  cap_tree_entries "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_ENTRIES" "lake-build cache"
   prune_tree "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_AGE_DAYS" "lake-packages cache"
   cap_tree_entries "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_ENTRIES" "lake-packages cache"
+  # Build trees are the largest and cheapest to recreate (seeded from main), so
+  # evict them before package trees when the disk runs low.
+  evict_until_free "$CACHE_ROOT/lake-build" "$MIN_FREE_GB" "lake-build cache"
   evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
   prune_tree "$CACHE_ROOT/compiler-ccache" "$COMPILER_CCACHE_MAX_AGE_DAYS" "compiler ccache"
+  prune_tree "$CACHE_ROOT/elan" "$ELAN_MAX_AGE_DAYS" "elan toolchains"
 
   if [ -x "$SCRIPT_DIR/ci_local_persistence.sh" ]; then
     "$SCRIPT_DIR/ci_local_persistence.sh" cleanup --max-age-hours "$ARTIFACT_MAX_AGE_HOURS"
