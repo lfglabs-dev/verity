@@ -229,6 +229,36 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             finally:
                 handle.close()
 
+    def test_mount_seeds_atomically_over_a_torn_copy(self) -> None:
+        """A copy killed mid-way leaves only a .seeding dir, never a partial entry."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cache" / "lake-build"
+            (root / "main" / "lib").mkdir(parents=True)
+            (root / "main" / "lib" / "Mod.olean").write_text("olean")
+            torn = root / "pr.seeding"
+            (torn / "lib").mkdir(parents=True)
+            (torn / "lib" / "Partial.olean").write_text("trunc")
+            work = Path(tmp) / "work"
+            work.mkdir()
+            subprocess.run(["bash", str(ROOT / "scripts" / "ci_local_persistence.sh"), "mount",
+                            "--root", str(root), "--key", "pr", "--path", ".lake/build",
+                            "--fallback-key", "main"], check=True, cwd=work,
+                           capture_output=True, text=True)
+            self.assertEqual(sorted(p.name for p in (root / "pr" / "lib").iterdir()), ["Mod.olean"])
+            self.assertFalse(torn.exists())
+
+    def test_cap_never_evicts_main_fallbacks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cache"
+            tree = root / "lake-build"
+            for name, hours in (("verify-build-ref-main-x", 48), ("pr-1", 24), ("pr-2", 25)):
+                (tree / name).mkdir(parents=True)
+                self._age(tree / name, hours)
+            env = dict(os.environ, CACHE_ROOT=str(root), LAKE_BUILD_MAX_ENTRIES="1", MIN_FREE_GB="0")
+            subprocess.run(["bash", str(MAINTENANCE_SCRIPT), "caches"], check=True, env=env,
+                           capture_output=True, text=True)
+            self.assertEqual(sorted(p.name for p in tree.iterdir()), ["pr-1", "verify-build-ref-main-x"])
+
     def test_parallel_build_jobs_use_four_lean_threads(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
         for job in (

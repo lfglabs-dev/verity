@@ -565,11 +565,11 @@ jobs:
     # behind the same three build-medium runners.
     timeout-minutes: 210
     needs: [changes, checks, build]
-    # ~6 runner-hours per run: keep it off ordinary PRs (main, nightly, dispatch,
-    # or PRs labelled `ci:mutations`) so it stops starving the compiler jobs.
-    # The label is read from the triggering event: add it, then push (or
-    # reopen), or dispatch this workflow on the branch instead.
-    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:mutations'))
+    # ~6 runner-hours per run: nightly, manual dispatch, or PRs labelled
+    # `ci:mutations` only, so it stops starving the compiler jobs on every PR
+    # and every merge. The label is read from the triggering event: add it,
+    # then push (or reopen), or dispatch this workflow on the branch instead.
+    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:mutations'))
     strategy:
       fail-fast: false
       matrix:
@@ -737,6 +737,8 @@ jobs:
             exit 0
           fi
           cp -a "$RUNNER_TEMP/compiler-ccache-cache/." "$CCACHE_DIR/"
+          # cp -a restores the archive's old mtime; refresh the attach lease.
+          touch "$CCACHE_DIR"
 
       - name: Restore prepared Lean workspace build (local)
         id: local-restore-lean-workspace

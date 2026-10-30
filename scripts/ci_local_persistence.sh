@@ -123,11 +123,19 @@ mount_persistent_dir() {
     exit 0
   fi
 
-  # Lease the fallback too, and hold it shared while copying from it.
+  # Lease the fallback too, and hold it shared while copying from it. Seed into
+  # a locked staging directory and rename it into place, so a cancelled or
+  # ENOSPC copy can never leave a half-populated entry that later runs reuse.
   lock_entry "$fallback_dir" -s
   if [ -d "$fallback_dir" ]; then
+    local staging="${primary_dir}.seeding"
+    lock_entry "$staging" -x
+    rm -rf "$staging"
+    mkdir -p "$staging"
     touch "$fallback_dir"
-    cp -a "$fallback_dir/." "$primary_dir/"
+    cp -a "$fallback_dir/." "$staging/"
+    rmdir "$primary_dir"
+    mv "$staging" "$primary_dir"
   fi
   # cp -a re-applies the fallback dir's (old) mtime onto the primary,
   # undoing the attach-time touch above — refresh it again so maintenance
@@ -260,6 +268,11 @@ cleanup_artifacts() {
   fi
 
   local cache_count=0 lock fd
+  # Never go below the attach lease (12h, longer than any job): an entry
+  # touched by a running job must not be deleted, whatever the caller passes.
+  if [ "$cache_max_age_hours" -lt 12 ]; then
+    cache_max_age_hours=12
+  fi
   for cache_root in \
     "$(dirname "$ARTIFACT_ROOT")/lake-build" \
     "$(dirname "$ARTIFACT_ROOT")/compiler-ccache"

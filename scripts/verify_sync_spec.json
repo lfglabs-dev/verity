@@ -202,7 +202,7 @@
     "foundry-patched": "needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)",
     "foundry-multi-seed": "needs.changes.outputs.compiler == 'true' && github.event_name != 'pull_request'",
     "failure-hints": "always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')",
-    "import-mutations": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:mutations'))"
+    "import-mutations": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:mutations'))"
   },
   "expected_job_runs_on": {
     "closed-pr-cleanup": "[self-hosted, linux, verity, fastlane]",

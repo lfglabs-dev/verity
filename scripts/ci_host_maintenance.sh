@@ -157,6 +157,11 @@ cap_tree_entries() {
 
   local index=0 removed=0 failed=0 rc mtime entry
   while IFS=$'\t' read -r -d '' mtime entry; do
+    # Main-branch entries seed every PR's cache: never count-evict them (age
+    # pruning and low-space eviction still apply).
+    case "$(basename "$entry")" in
+      *-ref-main-*) continue ;;
+    esac
     index=$((index + 1))
     if [ "$index" -le "$max_entries" ]; then
       continue
@@ -220,12 +225,12 @@ prune_caches() {
   cap_tree_entries "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_ENTRIES" "lake-build cache"
   prune_tree "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_AGE_DAYS" "lake-packages cache"
   cap_tree_entries "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_ENTRIES" "lake-packages cache"
-  # Build trees are the largest and cheapest to recreate (seeded from main), so
-  # evict them before package trees when the disk runs low.
-  evict_until_free "$CACHE_ROOT/lake-build" "$MIN_FREE_GB" "lake-build cache"
-  evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
   prune_tree "$CACHE_ROOT/compiler-ccache" "$COMPILER_CCACHE_MAX_AGE_DAYS" "compiler ccache"
   prune_tree "$CACHE_ROOT/elan" "$ELAN_MAX_AGE_DAYS" "elan toolchains"
+  # Only after every age-based pass: build trees are the largest and cheapest
+  # to recreate (seeded from main), so evict them before package trees.
+  evict_until_free "$CACHE_ROOT/lake-build" "$MIN_FREE_GB" "lake-build cache"
+  evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
 }
 
 # Run "$@" as the owner of CACHE_ROOT (the runner user). The cache passes create
@@ -233,17 +238,20 @@ prune_caches() {
 # the runner, and every ci_local_persistence.sh mount on the host would fail.
 as_cache_owner() {
   local owner
-  owner="$(stat -c %U "$CACHE_ROOT")"
-  if [ "$owner" = "root" ] || [ "$(id -u)" -ne 0 ]; then
+  if [ "$(id -u)" -ne 0 ]; then
     "$@"
-  else
-    runuser -u "$owner" -- "$@"
+    return
   fi
+  owner="$(stat -c %U "$CACHE_ROOT" 2>/dev/null || true)"
+  if [ -z "$owner" ] || [ "$owner" = "root" ]; then
+    echo "skipping cache maintenance: ${CACHE_ROOT} is missing or owned by root (expected the runner user)" >&2
+    return 0
+  fi
+  runuser -u "$owner" -- "$@"
 }
 
 run_maintenance() {
   require_root
-  mkdir -p "$CACHE_ROOT"
   as_cache_owner env CACHE_ROOT="$CACHE_ROOT" "$(readlink -f "$0")" caches
 
   if [ -x "$SCRIPT_DIR/ci_local_persistence.sh" ]; then

@@ -947,7 +947,8 @@ SPEC['expected_job_needs']['failure-hints'].insert(
     SPEC['expected_job_needs']['failure-hints'].index('build-audits') + 1, 'import-mutations')
 SPEC['expected_job_if_conditions']['import-mutations'] = (
     "needs.checks.result == 'success' && needs.build.result == 'success' && "
-    "needs.changes.outputs.build == 'true' && (github.event_name != 'pull_request' || "
+    "needs.changes.outputs.build == 'true' && (github.event_name == 'schedule' || "
+    "github.event_name == 'workflow_dispatch' || "
     "contains(github.event.pull_request.labels.*.name, 'ci:mutations'))")
 SPEC['expected_job_runs_on']['import-mutations'] = '[self-hosted, linux, x64, verity, build]'
 SPEC['expected_job_timeouts']['import-mutations'] = 210
