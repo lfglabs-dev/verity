@@ -214,6 +214,39 @@ class CheckAxiomsReportTests(unittest.TestCase):
         _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
         self.assertEqual(unexpected, {fake: ["Foo.bar"]})
 
+    def test_same_origin_spoofed_native_decide_axiom_rejected_when_origin_does_not_use_it(
+        self,
+    ) -> None:
+        origin = "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_eq"
+        real_aux = f"{origin}._native.native_decide.ax_1_1"
+        spoof_aux = f"{origin}._native.native_decide.ax_999"
+        axiom_map = {
+            origin: [real_aux],
+            "Compiler.SpoofConsumer.bad": [spoof_aux],
+        }
+        builtin, _, _, unexpected = check_axioms.classify_axioms(axiom_map)
+        self.assertEqual(builtin, {real_aux})
+        self.assertEqual(unexpected, {spoof_aux: ["Compiler.SpoofConsumer.bad"]})
+
+    def test_discover_repo_axioms_detects_dotted_spoof_declaration_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "Spoof.lean").write_text(
+                "axiom thm._native.native_decide.ax_999 : False\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {"thm._native.native_decide.ax_999": ("Compiler/Spoof.lean", 1)},
+        )
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"

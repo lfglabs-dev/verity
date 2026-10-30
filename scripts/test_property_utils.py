@@ -131,6 +131,22 @@ class PropertyUtilsImportParsingTests(unittest.TestCase):
         modules = property_utils.extract_lean_import_modules("theorem not_an_import : True := by")
         self.assertEqual(modules, [])
 
+    def test_extract_lean_header_imports_ignores_strings_and_non_header_lines(self) -> None:
+        text = (
+            "prelude\n"
+            "public import Verity.Core\n"
+            "import all Compiler.A as CA\n"
+            "\n"
+            'def decoy : String := "\\nimport Contracts.Hidden\\n"\n'
+            "def rawDecoy : String := r#\"\n"
+            "import Contracts.RawHidden\n"
+            "\"#\n"
+        )
+        self.assertEqual(
+            property_utils.extract_lean_header_imports(text),
+            ["Verity.Core", "Compiler.A"],
+        )
+
 
 class PropertyUtilsTheoremExtractionTests(unittest.TestCase):
     def test_collect_theorems_ignores_block_and_line_comments(self) -> None:

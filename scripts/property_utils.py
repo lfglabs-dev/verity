@@ -27,7 +27,8 @@ PROPERTY_SIMPLE_RE = re.compile(
 FILE_RE = re.compile(r"^Property(.+)\.t\.sol$")
 CONTRACT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 THEOREM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.']*$")
-LEAN_IMPORT_RE = re.compile(r"^\s*import\b(?P<body>.*)$")
+LEAN_PRELUDE_RE = re.compile(r"^\s*prelude\b")
+LEAN_IMPORT_RE = re.compile(r"^\s*(?:public\s+)?import(?:\s+all)?\b(?P<body>.*)$")
 LEAN_MODULE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.']*$")
 
 # Regex pattern for theorem/lemma declarations with optional Lean prefixes.
@@ -83,8 +84,8 @@ def load_exclusions() -> dict[str, set[str]]:
 def extract_lean_import_modules(line: str) -> list[str]:
     """Extract imported module names from a Lean `import` line.
 
-    Supports multiple modules on one line and ignores `as Alias` clauses.
-    Returns an empty list for non-import lines.
+    Supports `public import`, `import all`, multiple modules on one line, and
+    ignores `as Alias` clauses. Returns an empty list for non-import lines.
     """
     match = LEAN_IMPORT_RE.match(line)
     if match is None:
@@ -102,6 +103,28 @@ def extract_lean_import_modules(line: str) -> list[str]:
             continue
         if LEAN_MODULE_NAME_RE.fullmatch(token):
             modules.append(token)
+    return modules
+
+
+def extract_lean_header_imports(text: str) -> list[str]:
+    """Extract imported module names from a Lean file's module header only.
+
+    Scrubs comments and string literals first so fake ``import ...`` text inside
+    strings or docstrings is ignored, and stops at the first non-blank line
+    outside ``prelude`` / ``[public] import [all] ...``.
+    """
+    scrubbed = scrub_lean_code(text)
+    modules: list[str] = []
+    for line in scrubbed.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if LEAN_PRELUDE_RE.match(stripped):
+            continue
+        if LEAN_IMPORT_RE.match(stripped):
+            modules.extend(extract_lean_import_modules(stripped))
+            continue
+        break
     return modules
 
 

@@ -20,7 +20,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from property_utils import ROOT, extract_lean_import_modules, strip_lean_comments
+from property_utils import ROOT, extract_lean_header_imports
 
 TOP_NAMESPACES: tuple[str, ...] = ("Verity", "Compiler", "Contracts")
 
@@ -107,19 +107,18 @@ def discover_population(
     imports_map: dict[str, list[str]] = {}
     leaks: list[str] = []
     for module in sorted(verified):
-        text = strip_lean_comments(disk_map[module].read_text(encoding="utf-8"))
+        text = disk_map[module].read_text(encoding="utf-8")
         local_imports: list[str] = []
-        for line in text.splitlines():
-            for imp in extract_lean_import_modules(line):
-                if not is_local_namespace_module(imp):
-                    continue
-                if imp not in disk_map:
-                    raise ValueError(
-                        f"missing local dependency imported by {module}: {imp}"
-                    )
-                if imp not in verified:
-                    leaks.append(f"{module} -> {imp}")
-                local_imports.append(imp)
+        for imp in extract_lean_header_imports(text):
+            if not is_local_namespace_module(imp):
+                continue
+            if imp not in disk_map:
+                raise ValueError(
+                    f"missing local dependency imported by {module}: {imp}"
+                )
+            if imp not in verified:
+                leaks.append(f"{module} -> {imp}")
+            local_imports.append(imp)
         imports_map[module] = local_imports
 
     if leaks:
@@ -147,10 +146,7 @@ def check_target_coverage(
     if not target_file.is_file():
         raise ValueError(f"missing union-audit file: {target_file}")
 
-    text = strip_lean_comments(target_file.read_text(encoding="utf-8"))
-    direct_imports: list[str] = []
-    for line in text.splitlines():
-        direct_imports.extend(extract_lean_import_modules(line))
+    direct_imports = extract_lean_header_imports(target_file.read_text(encoding="utf-8"))
 
     pending: list[str] = []
     for imp in direct_imports:

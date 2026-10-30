@@ -168,14 +168,52 @@ run_cmd do
     let revSorted := ((rev.2.getD r #[]).map toString).qsort (· < ·)
     unless wSorted == revSorted do
       throwError "control: exactAxiomsForRoots mismatch on {r}: walk={wSorted} vs rev={revSorted}"
-  -- Explicit auxiliary-origin allowlists accept matching generated names and reject spoofed origins.
+  -- Explicit auxiliary-origin allowlists accept real kernel-generated auxiliary axioms
+  -- referenced by the allowlisted origin, and reject both foreign origins and same-origin
+  -- hand-written spoof axioms (`ax_999 : False` and `ax_888 : Bool.false = Bool.true`).
   unless generatedAuxAxiomOrigin? "native_decide" "Foo.bar._native.native_decide.ax_1_1" == some "Foo.bar"
       && generatedAuxAxiomOrigin? "bv_decide" "Foo.baz._native.bv_decide.ax_1_9" == some "Foo.baz"
       && generatedAuxAxiomOrigin? "native_decide" "Foo.bar.native_decide.ax_1_1" == none
       && generatedAuxAxiomOrigin? "native_decide" "Foo.bar._native.native_decide.ax_bad" == none do
     throwError "control: generatedAuxAxiomOrigin? regression"
-  unless isAllowedUnionAxiom #["propext"] #["UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide"] #[]
-      "UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide._native.native_decide.ax_1_1"
-      && !isAllowedUnionAxiom #["propext"] #["UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide"] #[]
-        "Spoof.other._native.native_decide.ax_1_1" do
-    throwError "control: isAllowedUnionAxiom origin allowlist regression"
+  let nativeRealStr? := axList.find? (fun a =>
+    a.contains "thmNativeDecide._native.native_decide.ax_"
+      && !a.endsWith ".ax_999" && !a.endsWith ".ax_888")
+  let some nativeRealStr := nativeRealStr?
+    | throwError "control: could not locate real thmNativeDecide auxiliary axiom in {axList}"
+  let nativeReal := parseDottedName nativeRealStr
+  let bvRealStr? := axList.find? (fun a => a.contains "thmBVNonTriv._native.bv_decide.ax_")
+  let some bvRealStr := bvRealStr?
+    | throwError "control: could not locate real thmBVNonTriv auxiliary axiom in {axList}"
+  let bvReal := parseDottedName bvRealStr
+  let spoofFalse := parseDottedName "UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide._native.native_decide.ax_999"
+  let spoofBool := parseDottedName "UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide._native.native_decide.ax_888"
+  let foreignSpoof := parseDottedName "Spoof.other._native.native_decide.ax_1_1"
+  let allowedNative := #["UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide"]
+  let allowedBv := #["UnionAxiomsFixture.NativeAndAttrs.thmBVNonTriv"]
+  unless isAllowedUnionAxiom env #["propext"] allowedNative #[] nativeReal
+      && isAllowedUnionAxiom env #["propext"] #[] allowedBv bvReal
+      && !isAllowedUnionAxiom env #["propext"] #[] #[] nativeReal
+      && !isAllowedUnionAxiom env #["propext"] #[] #[] bvReal
+      && !isAllowedUnionAxiom env #["propext"] allowedNative #[] spoofFalse
+      && !isAllowedUnionAxiom env #["propext"] allowedNative #[] spoofBool
+      && !isAllowedUnionAxiom env #["propext"] allowedNative #[] foreignSpoof do
+    throwError "control: isAllowedUnionAxiom kernel-authenticated origin allowlist regression"
+  -- `unionCheck` and `reportPrintAxiomsForRoots` accept `thmNativeDecide` when its origin is
+  -- allowlisted, and reject `useSpoofedNativeFalse` / `useSpoofedNativeBool` under the same allowlist.
+  match unionCheck env "NativeRealOnly" #[``UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide] 1
+      #["propext", "Lean.ofReduceBool", "Lean.trustCompiler"] allowedNative #[] with
+  | .error e => throwError "control: real allowlisted native_decide theorem was rejected: {e}"
+  | .ok _ => pure ()
+  for spoofUser in #[
+    ``UnionAxiomsFixture.NativeAndAttrs.useSpoofedNativeFalse,
+    ``UnionAxiomsFixture.NativeAndAttrs.useSpoofedNativeBool
+  ] do
+    match unionCheck env "SpoofCheck" #[spoofUser] 1
+        #["propext", "Lean.ofReduceBool", "Lean.trustCompiler"] allowedNative #[] with
+    | .ok _ => throwError "control: unionCheck accepted spoofed auxiliary axiom via {spoofUser}"
+    | .error _ => pure ()
+    match reportPrintAxiomsForRoots env #[spoofUser]
+        (some #["propext", "Lean.ofReduceBool", "Lean.trustCompiler"]) allowedNative #[] with
+    | .ok _ => throwError "control: reportPrintAxiomsForRoots accepted spoofed auxiliary axiom via {spoofUser}"
+    | .error _ => pure ()

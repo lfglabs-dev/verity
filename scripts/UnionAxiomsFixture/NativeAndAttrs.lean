@@ -20,6 +20,16 @@ example : (1 : Nat) + 1 = 2 := by native_decide
 
 theorem thmNativeDecide : (2 : Nat) + 2 = 4 := by native_decide
 
+-- Hand-written spoofs under an allowlisted `native_decide` origin name:
+-- `ax_999` has non-`nativeEqTrue` type (`False`); `ax_888` even mimics the
+-- `Eq.{1} Bool _ Bool.true` kernel type, yet is not referenced by
+-- `thmNativeDecide.value` and must still be rejected.
+axiom thmNativeDecide._native.native_decide.ax_999 : False
+axiom thmNativeDecide._native.native_decide.ax_888 : Bool.false = Bool.true
+
+theorem useSpoofedNativeFalse : False := thmNativeDecide._native.native_decide.ax_999
+theorem useSpoofedNativeBool : Bool.false = Bool.true := thmNativeDecide._native.native_decide.ax_888
+
 theorem thmBVNonTriv (x y : BitVec 32) : (x ^^^ y) ^^^ y = x := by bv_decide
 
 def pureInc (n : Nat) : Nat := n + 1

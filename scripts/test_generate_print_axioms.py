@@ -120,6 +120,34 @@ class UnionCoverageTests(unittest.TestCase):
         ):
             check_union_coverage.check_union_coverage(self.root)
 
+    def test_string_literal_import_decoy_cannot_hide_verified_root(self) -> None:
+        self.write("Verity/B.lean", "import Verity.Core\n")
+        self.write(
+            "Verity/A.lean",
+            'import Verity.Core\ndef decoy : String := "\\nimport Verity.B\\n"\n',
+        )
+        _, _, _, roots = check_union_coverage.discover_population(self.root)
+        self.assertIn("Verity.A", roots)
+        self.assertIn("Verity.B", roots)
+        self.write(
+            "scripts/VerityUnionAxioms.lean",
+            "import AxiomAudit\nimport Verity\nimport Verity.A\nimport Compiler.A\nimport Contracts.Token\n",
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"outside VerityUnionAxioms\.lean.*Verity\.B"
+        ):
+            check_union_coverage.check_union_coverage(self.root)
+
+    def test_string_literal_import_decoy_in_union_file_does_not_cover(self) -> None:
+        self.write(
+            "scripts/VerityUnionAxioms.lean",
+            'import AxiomAudit\nimport Verity\nimport Compiler.A\ndef decoy : String := "\\nimport Contracts.Token\\n"\n',
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"outside VerityUnionAxioms\.lean.*Contracts\.Token"
+        ):
+            check_union_coverage.check_union_coverage(self.root)
+
 
 class GeneratePrintAxiomsTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -146,6 +174,19 @@ class GeneratePrintAxiomsTests(unittest.TestCase):
                     "namespace Verity.Sample",
                     "theorem top_ok : True := trivial",
                     "private lemma hidden_helper : True := trivial",
+                    "section Inner",
+                    "  theorem",
+                    "      split_header_ok : True := trivial",
+                    "  @[simp] private theorem",
+                    "      split_private_ok : True := trivial",
+                    "end Inner",
+                    "verity_contract Demo where",
+                    "  interfaces",
+                    "    interface IToken where",
+                    "      function balanceOf(Address) view returns (Uint256)",
+                    "    end",
+                    "theorem after_interface_end : True := trivial",
+                    'def strDecoy : String := "\\ntheorem fake_in_string : False := sorry\\n"',
                     "mutual",
                     "  @[simp] theorem mut_a : True := trivial",
                     "  lemma mut_b : True := by",
@@ -153,7 +194,8 @@ class GeneratePrintAxiomsTests(unittest.TestCase):
                     "end",
                     "theorem $macro_placeholder : True := trivial",
                     "/- theorem commented_out : True := trivial -/",
-                    "end Verity.Sample",
+                    "end Sample",
+                    "end Verity",
                 ]
             )
             + "\n",
@@ -165,6 +207,9 @@ class GeneratePrintAxiomsTests(unittest.TestCase):
             [
                 ("Verity.Sample.top_ok", False, False),
                 ("Verity.Sample.hidden_helper", True, False),
+                ("Verity.Sample.split_header_ok", False, False),
+                ("Verity.Sample.split_private_ok", True, False),
+                ("Verity.Sample.after_interface_end", False, False),
                 ("Verity.Sample.mut_a", False, False),
                 ("Verity.Sample.mut_b", False, True),
             ],

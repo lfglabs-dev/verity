@@ -32,7 +32,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from check_axioms import BV_DECIDE_AXIOM_ORIGINS, NATIVE_DECIDE_AXIOM_ORIGINS
 from check_union_coverage import check_union_coverage, discover_population
-from property_utils import strip_lean_comments
+from property_utils import scrub_lean_code
 
 ROOT = SCRIPT_DIR.parent
 OUTPUT = ROOT / "PrintAxioms.lean"
@@ -48,6 +48,14 @@ ALLOWED_POPULATION_AXIOMS: tuple[str, ...] = (
 )
 
 SORRY_RE_BODY = re.compile(r"\bsorry\b")
+_DECL_PREFIX_RE = (
+    r"(?:(?:@\[[^\]]*\]|private|protected|noncomputable|unsafe|partial|local|scoped)\s+)*"
+)
+_INLINE_THEOREM_RE = re.compile(
+    rf"^(?P<prefix>{_DECL_PREFIX_RE})(?P<kind>theorem|lemma)\s+(?P<name>[^\s:({{\[⦃]+)"
+)
+_SPLIT_THEOREM_RE = re.compile(rf"^(?P<prefix>{_DECL_PREFIX_RE})(?P<kind>theorem|lemma)$")
+_SPLIT_NAME_RE = re.compile(r"^(?P<name>[^\s:({\[⦃]+)")
 
 
 def _lean_string_array(items: list[str] | tuple[str, ...]) -> str:
@@ -88,50 +96,96 @@ def file_to_module(path: Path, root: Path = ROOT) -> str:
 def extract_theorems(path: Path) -> list[tuple[str, bool, bool]]:
     """Extract ``(fully_qualified_name, is_private, is_sorry)`` triples from a Lean file.
 
-    Matches top-level and indented ``theorem``/``lemma`` declarations (including
-    declarations inside ``mutual`` blocks), resolves namespaces, and skips macro
-    quotation placeholders whose names contain ``$``.
+    Matches top-level, indented, and split-header ``theorem``/``lemma`` declarations
+    (including declarations inside ``mutual`` blocks), resolves segmented namespaces
+    and sections/mutuals/macro ``interface ... where ... end`` blocks without stack
+    desynchronisation, scrubs comments and string literals, and skips macro quotation
+    placeholders whose names contain ``$``.
     """
     text = path.read_text(encoding="utf-8")
-    stripped_text = strip_lean_comments(text)
-    lines = stripped_text.splitlines()
+    scrubbed_text = scrub_lean_code(text)
+    lines = scrubbed_text.splitlines()
 
-    ns_stack: list[str] = []
+    # Stack of `(kind, segment)` entries where `kind == "namespace"` contributes `segment`
+    # to the active FQN prefix and `"section"` / `"mutual"` / `"interface"` track scope depth.
+    scope_stack: list[tuple[str, str]] = []
     raw_results: list[tuple[str, bool, int]] = []
 
-    for i, line in enumerate(lines):
-        stripped = line.strip()
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
         if not stripped:
+            i += 1
             continue
 
-        ns_match = re.match(r"^namespace\s+(\S+)", stripped)
+        if re.match(r"^interface\s+\S+\s+where$", stripped):
+            scope_stack.append(("interface", ""))
+            i += 1
+            continue
+
+        ns_match = re.match(r"^(?:noncomputable\s+)?namespace\s+(\S+)$", stripped)
         if ns_match:
-            ns_stack.append(ns_match.group(1))
+            for seg in ns_match.group(1).split("."):
+                scope_stack.append(("namespace", seg))
+            i += 1
             continue
 
-        end_match = re.match(r"^end\s+(\S+)", stripped)
+        sec_match = re.match(r"^(?:noncomputable\s+)?section(?:\s+(\S+))?$", stripped)
+        if sec_match:
+            sec_name = sec_match.group(1)
+            if sec_name:
+                for seg in sec_name.split("."):
+                    scope_stack.append(("section", seg))
+            else:
+                scope_stack.append(("section", ""))
+            i += 1
+            continue
+
+        if re.match(r"^(?:noncomputable\s+)?mutual$", stripped):
+            scope_stack.append(("mutual", ""))
+            i += 1
+            continue
+
+        end_match = re.match(r"^end(?:\s+(\S+))?$", stripped)
         if end_match:
             end_name = end_match.group(1)
-            if ns_stack and ns_stack[-1] == end_name:
-                ns_stack.pop()
+            if end_name is None:
+                if scope_stack:
+                    scope_stack.pop()
+            else:
+                for seg in reversed(end_name.split(".")):
+                    if scope_stack and scope_stack[-1][1] == seg:
+                        scope_stack.pop()
+            i += 1
             continue
 
-        if stripped == "end":
-            continue
-
-        decl_match = re.match(
-            r"^(?:(?:@\[[^\]]*\]|private|protected|noncomputable|unsafe|partial|local|scoped)\s+)*"
-            r"(theorem|lemma)\s+([^\s:({\[⦃]+)",
-            stripped,
-        )
+        decl_match = _INLINE_THEOREM_RE.match(stripped)
+        prefix_text: str | None = None
+        raw_name: str | None = None
+        step = 1
         if decl_match:
-            prefix_text = stripped[: decl_match.start(1)]
+            prefix_text = decl_match.group("prefix")
+            raw_name = decl_match.group("name")
+        else:
+            split_match = _SPLIT_THEOREM_RE.match(stripped)
+            if split_match and i + 1 < len(lines):
+                next_match = _SPLIT_NAME_RE.match(lines[i + 1].strip())
+                if next_match:
+                    prefix_text = split_match.group("prefix")
+                    raw_name = next_match.group("name")
+                    step = 2
+
+        if prefix_text is not None and raw_name is not None:
             is_private = bool(re.search(r"\bprivate\b", prefix_text))
-            name = decl_match.group(2).rstrip(":")
-            if "$" in name:
-                continue
-            fqn = f"{'.'.join(ns_stack)}.{name}" if ns_stack else name
-            raw_results.append((fqn, is_private, i))
+            name = raw_name.rstrip(":")
+            if "$" not in name:
+                ns_parts = [seg for kind, seg in scope_stack if kind == "namespace" and seg]
+                fqn = f"{'.'.join(ns_parts)}.{name}" if ns_parts else name
+                raw_results.append((fqn, is_private, i))
+            i += step
+            continue
+
+        i += 1
 
     results: list[tuple[str, bool, bool]] = []
     for idx, (fqn, is_private, start) in enumerate(raw_results):
@@ -208,6 +262,9 @@ def generate(root: Path = ROOT) -> str:
     )
 
     union_block = _render_population_union_block()
+    allowed_arr = _lean_string_array(list(ALLOWED_POPULATION_AXIOMS))
+    native_origins_arr = _lean_string_array(sorted(NATIVE_DECIDE_AXIOM_ORIGINS))
+    bv_origins_arr = _lean_string_array(sorted(BV_DECIDE_AXIOM_ORIGINS))
     runner = f'''
 {union_block}
 open Jaune.AxiomAudit Lean Elab Command in
@@ -218,7 +275,10 @@ open Jaune.AxiomAudit Lean Elab Command in
 run_cmd do
   let env ← getEnv
   let roots := parseDottedNames verityAuditedTheoremBlob
-  match reportPrintAxiomsForRoots env roots with
+  let allowed := {allowed_arr}
+  let allowedNativeOrigins := {native_origins_arr}
+  let allowedBvOrigins := {bv_origins_arr}
+  match reportPrintAxiomsForRoots env roots (some allowed) allowedNativeOrigins allowedBvOrigins with
   | .error e => throwError "{{e}}"
   | .ok lines =>
     for line in lines do

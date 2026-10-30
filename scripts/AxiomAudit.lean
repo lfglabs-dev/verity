@@ -245,19 +245,58 @@ def generatedAuxAxiomOrigin? (kind : String) (axName : String) : Option String :
     if !origin.isEmpty && isDigitsAndUnderscores suffix then some origin else none
   | _ => none
 
-/-- Check whether `axName` is in `allowed` or is a Lean-generated auxiliary axiom
-whose exact origin declaration is explicitly permitted. -/
-def isAllowedUnionAxiom (allowed : Array String)
+/-- Parse one exact dotted constant name into a hierarchical `Lean.Name`. -/
+def parseDottedName (s : String) : Name :=
+  (s.splitOn ".").foldl (fun acc part => Name.str acc part) Name.anonymous
+
+/-- Check that `axInfo` has the exact kernel shape emitted by `Lean.Meta.nativeEqTrue`
+(`Lean/Meta/Native.lean`): a safe axiom whose type is `@Eq.{1} Bool e Bool.true` for a
+closed expression `e`. -/
+def isKernelNativeEqTrueAxiom (axInfo : AxiomVal) : Bool :=
+  !axInfo.isUnsafe &&
+  match axInfo.type with
+  | .app (.app (.app (.const ``Eq [u]) (.const ``Bool [])) lhs) (.const ``Bool.true []) =>
+    u == Level.succ Level.zero && !lhs.hasFVar && !lhs.hasMVar
+  | _ => false
+
+/-- Check whether `ax` is a genuine Lean-generated `native_decide`/`bv_decide` auxiliary
+axiom for an explicitly allowlisted `origin` declaration in `env`:
+1. `ax` has the exact `<origin>._native.<kind>.ax_<digits>` spelling for an `origin` in
+   `allowedOrigins`;
+2. `ax` is a safe `AxiomVal` of kernel `nativeEqTrue` shape (`@Eq.{1} Bool e Bool.true`);
+3. `origin` exists in `env` as a theorem or definition in the exact same module as `ax`
+   (`env.getModuleIdxFor? origin == env.getModuleIdxFor? ax`); and
+4. `origin`'s own body (`value.getUsedConstants`) directly references `ax`, rejecting
+   hand-written `axiom <origin>._native.<kind>.ax_999 : ...` spoofing alongside `origin`. -/
+def isVerifiedGeneratedAuxAxiom (env : Environment) (kind : String)
+    (allowedOrigins : Array String) (ax : Name) : Bool :=
+  let env := env.setExporting false
+  match generatedAuxAxiomOrigin? kind (toString ax) with
+  | none => false
+  | some origStr =>
+    if !allowedOrigins.contains origStr then
+      false
+    else
+      let orig := parseDottedName origStr
+      match env.find? ax, env.find? orig with
+      | some (.axiomInfo axVal), some origInfo =>
+        isKernelNativeEqTrueAxiom axVal
+          && env.getModuleIdxFor? orig == env.getModuleIdxFor? ax
+          && (match origInfo with
+              | .thmInfo tv => tv.value.getUsedConstants.contains ax
+              | .defnInfo dv => dv.value.getUsedConstants.contains ax
+              | _ => false)
+      | _, _ => false
+
+/-- Check whether `ax` is in `allowed` or is an environment-authenticated Lean auxiliary
+axiom whose exact origin declaration is explicitly permitted. -/
+def isAllowedUnionAxiom (env : Environment) (allowed : Array String)
     (allowedNativeOrigins : Array String := #[])
     (allowedBvOrigins : Array String := #[])
-    (axName : String) : Bool :=
-  allowed.contains axName
-    || (match generatedAuxAxiomOrigin? "native_decide" axName with
-        | some orig => allowedNativeOrigins.contains orig
-        | none => false)
-    || (match generatedAuxAxiomOrigin? "bv_decide" axName with
-        | some orig => allowedBvOrigins.contains orig
-        | none => false)
+    (ax : Name) : Bool :=
+  allowed.contains (toString ax)
+    || isVerifiedGeneratedAuxAxiom env "native_decide" allowedNativeOrigins ax
+    || isVerifiedGeneratedAuxAxiom env "bv_decide" allowedBvOrigins ax
 
 /-- The union audit proper, over an explicit root list (the command feeds it the
 module roots). Throws on an empty root list, on any reached constant absent from
@@ -281,7 +320,7 @@ def unionCheck (env : Environment) (label : String) (roots : Array Name)
       {"\n".intercalate where_.toList}"
   let sorted := axioms.toList.toArray.qsort (fun a b => toString a < toString b)
   let bad := sorted.filter (fun a =>
-    !isAllowedUnionAxiom allowed allowedNativeOrigins allowedBvOrigins (toString a))
+    !isAllowedUnionAxiom env allowed allowedNativeOrigins allowedBvOrigins a)
   unless bad.isEmpty do
     let where_ := locate env roots bad
     throw s!"#union_axioms_of_modules: {label} reaches axioms outside \
@@ -332,8 +371,7 @@ def parseDottedNames (blob : String) : Array Name := Id.run do
   for raw in blob.splitOn "\n" do
     let s := raw.trimAscii.toString
     if !s.isEmpty && !s.startsWith "--" then
-      let n := (s.splitOn ".").foldl (fun acc part => Name.str acc part) Name.anonymous
-      out := out.push n
+      out := out.push (parseDottedName s)
   return out
 
 /-- Exact per-root axiom sets via one forward reference-graph walk (`exporting := false`)
@@ -412,8 +450,13 @@ def formatPrintAxiomsLine (constName : Name) (axioms : Array Name) : String :=
     s!"'{constName}' depends on axioms: [{rendered}]"
 
 /-- Print exact from-scratch axiom sets for every declaration in `roots`. Fails
-closed if any root is unknown or reaches a constant absent from `env`. -/
-def reportPrintAxiomsForRoots (env : Environment) (roots : Array Name) :
+closed if any root is unknown or reaches a constant absent from `env`. When
+`allowed` is supplied (`some …`), also fails closed if any per-root axiom is
+outside `isAllowedUnionAxiom`. -/
+def reportPrintAxiomsForRoots (env : Environment) (roots : Array Name)
+    (allowed? : Option (Array String) := none)
+    (allowedNativeOrigins : Array String := #[])
+    (allowedBvOrigins : Array String := #[]) :
     Except String (Array String) := Id.run do
   let mut unknown : Array Name := #[]
   for r in roots do
@@ -428,6 +471,15 @@ def reportPrintAxiomsForRoots (env : Environment) (roots : Array Name) :
   unless missing.isEmpty do
     let sample := (missing.toList.take 20).map toString
     return .error s!"reportPrintAxiomsForRoots: reached {missing.size} absent constant(s): {sample}"
+  if let some allowed := allowed? then
+    let mut badSet : NameSet := {}
+    for r in roots do
+      for ax in perRoot.getD r #[] do
+        unless isAllowedUnionAxiom env allowed allowedNativeOrigins allowedBvOrigins ax do
+          badSet := badSet.insert ax
+    unless badSet.isEmpty do
+      let bad := badSet.toList.toArray.qsort (fun a b => toString a < toString b)
+      return .error s!"reportPrintAxiomsForRoots: disallowed axiom(s): {bad.map toString}"
   let mut lines : Array String := #[]
   for r in roots do
     lines := lines.push (formatPrintAxiomsLine r (perRoot.getD r #[]))

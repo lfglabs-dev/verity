@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from property_utils import ROOT, extract_lean_import_modules, strip_lean_comments
+from property_utils import ROOT, extract_lean_import_modules, scrub_lean_code
 
 
 @dataclass(frozen=True)
@@ -148,7 +148,7 @@ def collect_layer_import_failures(rules: tuple[ImportRule, ...] = RULES) -> list
     failures: list[str] = []
     for rule in rules:
         for path in _lean_files(rule.root):
-            contents = strip_lean_comments(path.read_text(encoding="utf-8"))
+            contents = scrub_lean_code(path.read_text(encoding="utf-8"))
             for line_no, line in enumerate(contents.splitlines(), 1):
                 for module_name in extract_lean_import_modules(line):
                     if not any(_matches_module(module_name, forbidden) for forbidden in rule.forbidden):
