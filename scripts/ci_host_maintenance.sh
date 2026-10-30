@@ -43,8 +43,8 @@ Environment:
                                 the whole consuming job. Attach and deletion also
                                 serialize on per-entry flock locks in CACHE_ROOT/.locks)
   COMPILER_CCACHE_MAX_AGE_DAYS  Default: 7
-  ELAN_MAX_AGE_DAYS             Default: 7 (one toolchain copy per workflow prefix and
-                                toolchain hash; attach refreshes the mtime of live ones)
+  ELAN_MAX_AGE_DAYS             Default: 7 (one toolchain copy per runner OS/arch and
+                                lean-toolchain hash; attach refreshes the mtime of live ones)
   ARTIFACT_MAX_AGE_HOURS        Default: 24
   JOURNAL_VACUUM_TIME           Default: 14d
   JOURNAL_VACUUM_SIZE           Default: 1G
