@@ -2559,6 +2559,64 @@ def translatedBodyContainsCalldataRead
         -- keep the conservative syntax result (false here).
         pure false
 
+/-- Whether a parameter reserves `name` in the lowered function namespace.
+Tuple parameters synthesize aliases such as `config_0` for their components. -/
+private def paramReservesName (param : ParamDecl) (name : String) : Bool :=
+  param.name == name || match param.ty with
+    | .tuple elemTys => (elemTys.toArray.zipIdx).any fun (_, idx) =>
+        s!"{param.name}_{idx}" == name
+    | _ => false
+
+private def identEndsWithSuffix (name : Name) (suffix : String) : Bool :=
+  let s := toString name
+  s == suffix || s.endsWith ("." ++ suffix)
+
+private partial def syntaxEndsWithSuffix (stx : Syntax) (suffix : String) : Bool :=
+  match stx with
+  | .ident _ _ name _ => identEndsWithSuffix name suffix
+  | .node _ kind args =>
+      if kind == ``Lean.Parser.Term.proj && args.size >= 3 then
+        syntaxEndsWithSuffix args[2]! suffix
+      else if args.isEmpty then
+        false
+      else
+        syntaxEndsWithSuffix args.back! suffix
+  | _ => false
+
+private def selfCallCallee? (t : Term) : CommandElabM (Option (Ident × Array Term)) := do
+  let calleeFrom (inner : Term) : CommandElabM (Option (Ident × Array Term)) := do
+    match stripParens inner with
+    | `(term| $fn:ident) => pure (some (fn, #[]))
+    | `(term| $fn:ident()) => pure (some (fn, #[]))
+    | `(term| $fn:ident($[$args:term],*)) => pure (some (fn, args))
+    | `(term| $fn:ident $args:term*) => pure (some (fn, args))
+    | _ => pure none
+  match t with
+  | `(term| selfCall $fn:ident) => pure (some (fn, #[]))
+  | `(term| selfCall $fn:ident($[$args:term],*)) => pure (some (fn, args))
+  | `(term| _root_.Verity.Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| Verity.Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| $name:ident $inner:term) =>
+      if identEndsWithSuffix name.getId "selfCall" then
+        calleeFrom inner
+      else
+        pure none
+  | `(term| $name:ident($[$args:term],*)) =>
+      if identEndsWithSuffix name.getId "selfCall" && args.size == 1 then
+        calleeFrom ⟨args[0]!.raw⟩
+      else
+        pure none
+  | _ =>
+      match t.raw with
+      | .node _ kind args =>
+          if kind == ``Lean.Parser.Term.app && args.size >= 2 &&
+              syntaxEndsWithSuffix args[0]! "selfCall" then
+            calleeFrom ⟨args[1]!⟩
+          else
+            pure none
+      | _ => pure none
+
 private partial def syntaxCallsAnyHelper
     (helpers : Array FunctionDecl)
     (targetHelpers : Array FunctionDecl)
@@ -2566,62 +2624,168 @@ private partial def syntaxCallsAnyHelper
     (locals : Array String := #[])
     (stx : Syntax) : CommandElabM Bool := do
   let isShadowed (name : String) : Bool :=
-    params.any (fun p => p.name == name) || locals.contains name
-  let matchesTargetArity (name : String) (arity : Nat) : Bool :=
-    !isShadowed name &&
-      targetHelpers.any (fun h => h.name == name && h.params.size == arity)
-  let doElemBoundNames (elem : TSyntax `doElem) : Array String :=
-    match elem with
-    | `(doElem| let $name:ident := $_rhs:term)
-    | `(doElem| let $name:ident : $_ty:term := $_rhs:term)
-    | `(doElem| let mut $name:ident := $_rhs:term)
-    | `(doElem| let mut $name:ident : $_ty:term := $_rhs:term)
-    | `(doElem| let $name:ident ← $_rhs:term)
-    | `(doElem| let $name:ident : $_ty:term ← $_rhs:term)
-    | `(doElem| let mut $name:ident ← $_rhs:term)
-    | `(doElem| let mut $name:ident : $_ty:term ← $_rhs:term) =>
-        #[toString name.getId]
-    | _ =>
-        if elem.raw.getKind == `Lean.Parser.Term.doLet then
-          (tupleBinderNames? elem.raw[2][0]).map (·.filterMap id) |>.getD #[]
-        else if elem.raw.getKind == `Lean.Parser.Term.doLetArrow then
-          (tupleBinderNames? elem.raw[3][0]).map (·.filterMap id) |>.getD #[]
-        else
-          #[]
+    params.any (fun p => paramReservesName p name) || locals.contains name
+  let helperMatchesName (h : FunctionDecl) (name : String) : Bool :=
+    h.name == name || toString h.ident.getId == name
+  let matchesTargetCall (name : String) (arity : Nat) : Bool :=
+    targetHelpers.any (fun h => helperMatchesName h name && h.params.size == arity)
+  let matchesBareTarget (name : String) : Bool :=
+    !isShadowed name && matchesTargetCall name 0
+  let doElemBoundNames (elem : TSyntax `doElem) : CommandElabM (Array String) := do
+    if elem.raw.getKind == `Lean.Parser.Term.doLet then
+      let binder := elem.raw[3][0][0]
+      match binder with
+      | .ident _ raw _ _ => pure #[raw.toString]
+      | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
+    else if elem.raw.getKind == `Lean.Parser.Term.doLetArrow then
+      let binder := elem.raw[3][0]
+      match binder with
+      | .ident _ raw _ _ => pure #[raw.toString]
+      | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
+    else
+      match elem with
+      | `(doElem| ecmBind $names:term $_module:term $_args:term) =>
+          (try expectStringList names catch _ => pure #[])
+      | `(doElem| $stmt:term) =>
+          match stripParens stmt with
+          | `(term| externalCallBind $names:term $_fnName:term $_args:term) =>
+              (try expectStringList names catch _ => pure #[])
+          | `(term| tryExternalCallBind $successVar:term $names:term $_fnName:term $_args:term) =>
+              let s ← (try pure #[← expectStringOrIdent successVar] catch _ => pure #[])
+              let ns ← (try expectStringList names catch _ => pure #[])
+              pure (s ++ ns)
+          | _ => pure #[]
+      | _ => pure #[]
+  let scanDoElem (scope : Array String) (elem : TSyntax `doElem) : CommandElabM Bool := do
+    let goWith (sc : Array String) (node : Syntax) :=
+      syntaxCallsAnyHelper helpers targetHelpers params sc node
+    if elem.raw.getKind == `Lean.Parser.Term.doLet then
+      let patDecl := elem.raw[3][0]
+      if patDecl.getNumArgs >= 5 then
+        goWith scope patDecl[4]
+      else
+        goWith scope elem.raw
+    else if elem.raw.getKind == `Lean.Parser.Term.doLetArrow then
+      let patDecl := elem.raw[3]
+      if patDecl.getNumArgs >= 4 && patDecl[3].getNumArgs >= 1 then
+        goWith scope patDecl[3][0]
+      else
+        goWith scope elem.raw
+    else
+      match elem with
+      | `(doElem| $name:ident := $rhs:term)
+      | `(doElem| $name:ident ← $rhs:term) =>
+          let _ := name
+          goWith scope rhs.raw
+      | `(doElem| forEach $name:term $count:term $body:term) =>
+          if ← goWith scope count.raw then
+            pure true
+          else
+            let loopVar ← (try pure #[← expectStringOrIdent name] catch _ => pure #[])
+            goWith (scope ++ loopVar) body.raw
+      | `(doElem| forEachSetBit $name:term $bitmap:term $body:term) =>
+          if ← goWith scope bitmap.raw then
+            pure true
+          else
+            let loopVar ← (try pure #[← expectStringOrIdent name] catch _ => pure #[])
+            goWith (scope ++ loopVar) body.raw
+      | `(doElem| ecmBind $_names:term $module:term $args:term) =>
+          if ← goWith scope module.raw then pure true else goWith scope args.raw
+      | `(doElem| tryCatch $attempt:term $handler:term) =>
+          if ← goWith scope attempt.raw then
+            pure true
+          else
+            match stripParens handler with
+            | `(term| fun $name:ident => $body:term) =>
+                goWith (scope.push (toString name.getId)) body.raw
+            | _ => goWith scope handler.raw
+      | `(doElem| $stmt:term) =>
+          match stripParens stmt with
+          | `(term| externalCallBind $_names:term $_fnName:term $args:term)
+          | `(term| tryExternalCallBind $_successVar:term $_names:term $_fnName:term $args:term) =>
+              goWith scope args.raw
+          | _ => goWith scope stmt.raw
+      | _ => goWith scope elem.raw
+  let isProjectionFieldSyntax (kind : SyntaxNodeKind) : Bool :=
+    kind == `Lean.Parser.Term.proj || kind == `fieldIdx
   match stx with
   | `(doSeq| $[$elems:doElem]*) =>
       let mut scope := locals
       for elem in elems do
-        if ← syntaxCallsAnyHelper helpers targetHelpers params scope elem.raw then
+        if ← scanDoElem scope elem then
           return true
-        scope := scope ++ doElemBoundNames elem
+        scope := scope ++ (← doElemBoundNames elem)
       pure false
+  | `(term| fun $name:ident => $body:term) =>
+      syntaxCallsAnyHelper helpers targetHelpers params (locals.push (toString name.getId)) body.raw
   | `(term| selfCall $name:ident) =>
       let fnName := name.getId.toString
-      pure (targetHelpers.any (fun h => h.name == fnName && h.params.isEmpty))
+      pure (matchesTargetCall fnName 0)
   | `(term| selfCall $name:ident($[$args:term],*)) =>
       let fnName := name.getId.toString
       let normArgs :=
         SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
-      if targetHelpers.any (fun h => h.name == fnName && h.params.size == normArgs.size) then
+      if matchesTargetCall fnName normArgs.size then
         pure true
       else
         args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
   | `(term| $name:ident($[$args:term],*)) =>
-      let fnName := name.getId.toString
-      let normArgs :=
-        SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
-      if matchesTargetArity fnName normArgs.size then pure true
-      else args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
+      let asTerm : Term := ⟨stx⟩
+      if let some (selfFn, selfArgs) := (← selfCallCallee? asTerm) then
+        let fnName := selfFn.getId.toString
+        let normArgs := SSADesugar.normalizeZeroArgHelperArgs helpers fnName selfArgs
+        if matchesTargetCall fnName normArgs.size then
+          pure true
+        else
+          selfArgs.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
+      else
+        let fnName := name.getId.toString
+        let normArgs :=
+          SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
+        if matchesTargetCall fnName normArgs.size then pure true
+        else args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
   | `(term| $name:ident $args:term*) =>
-      let fnName := name.getId.toString
-      let normArgs :=
-        SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
-      if matchesTargetArity fnName normArgs.size then pure true
-      else args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
+      let asTerm : Term := ⟨stx⟩
+      if let some (selfFn, selfArgs) := (← selfCallCallee? asTerm) then
+        let fnName := selfFn.getId.toString
+        let normArgs := SSADesugar.normalizeZeroArgHelperArgs helpers fnName selfArgs
+        if matchesTargetCall fnName normArgs.size then
+          pure true
+        else
+          selfArgs.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
+      else
+        let fnName := name.getId.toString
+        let normArgs :=
+          SSADesugar.normalizeZeroArgHelperArgs helpers fnName (args.map fun a => (⟨a.raw⟩ : Term))
+        if matchesTargetCall fnName normArgs.size then pure true
+        else args.anyM (fun term => syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
   | `(term| $name:ident) =>
-      pure (matchesTargetArity name.getId.toString 0)
-  | _ => stx.getArgs.anyM (syntaxCallsAnyHelper helpers targetHelpers params locals)
+      pure (matchesBareTarget name.getId.toString)
+  | _ =>
+      if isProjectionFieldSyntax stx.getKind && stx.getNumArgs >= 1 then
+        syntaxCallsAnyHelper helpers targetHelpers params locals stx[0]
+      else if stx.getKind == ``Lean.Parser.Term.structInst then
+        stx.getArgs.anyM fun child =>
+          if child.getKind == ``Lean.Parser.Term.structInstFields then
+            child.getArgs.anyM fun fieldNode =>
+              if fieldNode.getNumArgs >= 2 then
+                syntaxCallsAnyHelper helpers targetHelpers params locals fieldNode[1]
+              else
+                pure false
+          else
+            syntaxCallsAnyHelper helpers targetHelpers params locals child
+      else do
+        if stx.getKind == ``Lean.Parser.Term.app then
+          let asTerm : Term := ⟨stx⟩
+          if let some (selfFn, selfArgs) := (← selfCallCallee? asTerm) then
+            let fnName := selfFn.getId.toString
+            let normArgs := SSADesugar.normalizeZeroArgHelperArgs helpers fnName selfArgs
+            if matchesTargetCall fnName normArgs.size then
+              return true
+            else
+              return ← selfArgs.anyM (fun term =>
+                syntaxCallsAnyHelper helpers targetHelpers params locals term.raw)
+        stx.getArgs.anyM (syntaxCallsAnyHelper helpers targetHelpers params locals)
 
 private def linkedExternalSiteId (externalDecls : Array ExternalDecl) (name : String) : Nat :=
   (externalDecls.findIdx? (fun ext => ext.name == name)).getD 0
@@ -2747,55 +2911,41 @@ private def helperCall (name : Ident) (args : Array Term) : CommandElabM Term :=
     app ← `(term| $app $arg)
   pure app
 
-private def identEndsWithSuffix (name : Name) (suffix : String) : Bool :=
-  let s := toString name
-  s == suffix || s.endsWith ("." ++ suffix)
+/-- Resolve a generated callee constant the same way Lean resolves the name
+    at the use site (current namespace, then the global name table). -/
+private def resolveCalleeConstant? (n : Name) : CommandElabM (Option ConstantInfo) := do
+  let env ← getEnv
+  let ns ← getCurrNamespace
+  let mut candidates : Array Name := #[ns ++ n, n]
+  for (resolved, rest) in (← resolveGlobalName n) do
+    if rest.isEmpty then
+      candidates := candidates.push resolved
+  for cand in candidates do
+    if let some info := env.find? cand then
+      return some info
+  return none
 
-private partial def syntaxEndsWithSuffix (stx : Syntax) (suffix : String) : Bool :=
-  match stx with
-  | .ident _ _ name _ => identEndsWithSuffix name suffix
-  | .node _ kind args =>
-      if kind == ``Lean.Parser.Term.proj && args.size >= 3 then
-        syntaxEndsWithSuffix args[2]! suffix
-      else if args.isEmpty then
-        false
-      else
-        syntaxEndsWithSuffix args.back! suffix
-  | _ => false
-
-private def selfCallCallee? (t : Term) : CommandElabM (Option (Ident × Array Term)) := do
-  let calleeFrom (inner : Term) : CommandElabM (Option (Ident × Array Term)) := do
-    match stripParens inner with
-    | `(term| $fn:ident) => pure (some (fn, #[]))
-    | `(term| $fn:ident()) => pure (some (fn, #[]))
-    | `(term| $fn:ident($[$args:term],*)) => pure (some (fn, args))
-    | `(term| $fn:ident $args:term*) => pure (some (fn, args))
-    | _ => pure none
-  match t with
-  | `(term| selfCall $fn:ident) => pure (some (fn, #[]))
-  | `(term| selfCall $fn:ident($[$args:term],*)) => pure (some (fn, args))
-  | `(term| _root_.Verity.Contract.selfCall $inner:term) => calleeFrom inner
-  | `(term| Verity.Contract.selfCall $inner:term) => calleeFrom inner
-  | `(term| Contract.selfCall $inner:term) => calleeFrom inner
-  | `(term| $name:ident $inner:term) =>
-      if identEndsWithSuffix name.getId "selfCall" then
-        calleeFrom inner
-      else
-        pure none
-  | `(term| $name:ident($[$args:term],*)) =>
-      if identEndsWithSuffix name.getId "selfCall" && args.size == 1 then
-        calleeFrom ⟨args[0]!.raw⟩
-      else
-        pure none
-  | _ =>
-      match t.raw with
-      | .node _ kind args =>
-          if kind == ``Lean.Parser.Term.app && args.size >= 2 &&
-              syntaxEndsWithSuffix args[0]! "selfCall" then
-            calleeFrom ⟨args[1]!⟩
-          else
-            pure none
-      | _ => pure none
+private def qualifyShadowedLocalHelperIdent
+    (params : Array ParamDecl) (locals : Array TypedLocal) (target : Ident) :
+    CommandElabM Ident := do
+  let targetStr := toString target.getId
+  let shadowed :=
+    params.any (fun p => paramReservesName p targetStr) ||
+      locals.any (fun entry => entry.name == targetStr)
+  if !shadowed then
+    return target
+  let ns ← getCurrNamespace
+  if ns.isAnonymous then
+    return mkIdentFrom target (SSADesugar.qualifyRootName target.getId)
+  let env ← getEnv
+  let currentNsConst := ns ++ target.getId
+  if env.contains currentNsConst then
+    return mkIdentFrom target (SSADesugar.qualifyRootName currentNsConst)
+  match (← resolveCalleeConstant? target.getId) with
+  | some info =>
+      return mkIdentFrom target (SSADesugar.qualifyRootName info.name)
+  | none =>
+      return mkIdentFrom target (SSADesugar.qualifyRootName currentNsConst)
 
 private def threadHelperApp?
     (fields : Array StorageFieldDecl)
@@ -2808,13 +2958,14 @@ private def threadHelperApp?
     (adv : Term)
     (originalArgsForOverload : Option (Array Term) := none)
     (keepPublicGuard : Bool := false) : CommandElabM (Option Term) := do
-  let args := SSADesugar.normalizeZeroArgHelperArgs helpers (toString name.getId) args
+  let rawName := toString name.getId
+  let args := SSADesugar.normalizeZeroArgHelperArgs helpers rawName args
   let matchesHelper := fun (fn : FunctionDecl) =>
-    (fn.name == toString name.getId || fn.ident.getId == name.getId ||
-      (toString name.getId).endsWith ("." ++ fn.name)) &&
+    (fn.name == rawName || fn.ident.getId == name.getId ||
+      rawName.endsWith ("." ++ fn.name)) &&
       fn.params.size == args.size
   let matchesExactHelper := fun (fn : FunctionDecl) =>
-    (fn.name == toString name.getId || fn.ident.getId == name.getId) &&
+    (fn.name == rawName || fn.ident.getId == name.getId) &&
       fn.params.size == args.size
   let exactCandidates := helpers.filter matchesExactHelper
   let helper? ←
@@ -2822,7 +2973,7 @@ private def threadHelperApp?
       pure (exactCandidates[0]? <|> helpers.find? matchesHelper)
     else
       let resolveArgs :=
-        SSADesugar.normalizeZeroArgHelperArgs helpers (toString name.getId)
+        SSADesugar.normalizeZeroArgHelperArgs helpers rawName
           (originalArgsForOverload.getD args)
       let app ← helperCall name resolveArgs
       try
@@ -2849,7 +3000,7 @@ private def threadHelperApp?
       -- `*_registry` / public path rather than `*_unguarded`.
       let registryOnly := registryOnlyHelpers.any (fun candidate =>
         functionSignatureKey candidate == functionSignatureKey helper)
-      let target ←
+      let rawTarget ←
         if keepPublicGuard then
           if registryOnly then
             mkSuffixedIdent helper.ident "_registry"
@@ -2864,6 +3015,8 @@ private def threadHelperApp?
           mkSuffixedIdent helper.ident "_unguarded"
         else
           pure helper.ident
+      let target ← qualifyShadowedLocalHelperIdent params locals rawTarget
+      let targetChanged := target.getId != name.getId
       if matchesExactHelper helper &&
           (adversarialHelpers.any (fun candidate =>
               functionSignatureKey candidate == functionSignatureKey helper) ||
@@ -2873,6 +3026,8 @@ private def threadHelperApp?
         some <$> helperCall target args
       else if helper.params.isEmpty then
         some <$> helperCall target #[]
+      else if targetChanged then
+        some <$> helperCall target args
       else
         pure none
   | none => pure none
@@ -2934,20 +3089,6 @@ private partial def forallHeadIsExecutableCallContext (ty : Expr) : Bool :=
     else
       forallHeadIsExecutableCallContext body
   | _ => false
-
-/-- Resolve a generated callee constant the same way Lean resolves the name
-    at the use site (current namespace, then the global name table). -/
-private def resolveCalleeConstant? (n : Name) : CommandElabM (Option ConstantInfo) := do
-  let env ← getEnv
-  let ns ← getCurrNamespace
-  let mut candidates : Array Name := #[ns ++ n, n]
-  for (resolved, rest) in (← resolveGlobalName n) do
-    if rest.isEmpty then
-      candidates := candidates.push resolved
-  for cand in candidates do
-    if let some info := env.find? cand then
-      return some info
-  return none
 
 /-- True when the already-elaborated callee `def` takes the executable call
     context. Bound hops must forward the caller's context in that case; callees
@@ -3547,7 +3688,10 @@ private partial def threadAdversaryThroughExecutableSyntax
           | some (helper, _) => pure helper.returnTy
           | none => inferPureExprType fields constDecls immutableDecls externalDecls params scope rhs
         pure (scope.push (mkTypedLocal (toString name.getId) ty))
-      catch _ => pure scope
+      catch _ =>
+        pure (scope.push (mkTypedLocal (toString name.getId) .uint256))
+    let fallbackTupleLocals (names : Array (Option String)) : Array TypedLocal :=
+      names.filterMap fun name? => name?.map (fun name => mkTypedLocal name .uint256)
     let inferTuple (origin : Syntax) (names : Array (Option String)) (rhs : Term) := do
       try
         match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls
@@ -3560,13 +3704,13 @@ private partial def threadAdversaryThroughExecutableSyntax
                 helpers params scope rhs with
             | some valueTys =>
                 if names.size != valueTys.size then
-                  pure scope
+                  pure (scope ++ fallbackTupleLocals names)
                 else
                   let typedNames := (names.zip valueTys).filterMap fun (name?, ty) =>
                     name?.map (fun name => mkTypedLocal name ty)
                   pure (scope ++ typedNames)
-            | none => pure scope
-      catch _ => pure scope
+            | none => pure (scope ++ fallbackTupleLocals names)
+      catch _ => pure (scope ++ fallbackTupleLocals names)
     let tupleScope? ← do
       let stx := elem.raw
       if stx.getKind == `Lean.Parser.Term.doLet then
@@ -3598,7 +3742,21 @@ private partial def threadAdversaryThroughExecutableSyntax
             let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls
               helpers params scope rhs
             pure (scope.push (mkTypedLocal (toString name.getId) ty))
-          catch _ => pure scope
+          catch _ =>
+            pure (scope.push (mkTypedLocal (toString name.getId) .uint256))
+      | `(doElem| ecmBind $names:term $_module:term $_args:term) =>
+          let ns ← (try expectStringList names catch _ => pure #[])
+          pure (scope ++ ns.map (fun n => mkTypedLocal n .uint256))
+      | `(doElem| $stmt:term) =>
+          match stripParens stmt with
+          | `(term| externalCallBind $names:term $_fnName:term $_args:term) =>
+              let ns ← (try expectStringList names catch _ => pure #[])
+              pure (scope ++ ns.map (fun n => mkTypedLocal n .uint256))
+          | `(term| tryExternalCallBind $successVar:term $names:term $_fnName:term $_args:term) =>
+              let s ← (try pure #[← expectStringOrIdent successVar] catch _ => pure #[])
+              let ns ← (try expectStringList names catch _ => pure #[])
+              pure (scope ++ s.map (fun n => mkTypedLocal n .bool) ++ ns.map (fun n => mkTypedLocal n .uint256))
+          | _ => pure scope
       | _ => pure scope
   let rec hoistNested (bindSelf : Bool) (t : Term) :
       CommandElabM (Array (Ident × Term) × Term) := do
@@ -3669,16 +3827,121 @@ private partial def threadAdversaryThroughExecutableSyntax
                   app ← `(term| $app $h)
                 pure (binds, app)
         | none =>
-            let mut binds : Array (Ident × Term) := #[]
-            let mut hoisted : Array Term := #[]
-            for arg in args do
-              let (inner, rewritten) ← hoistNested true arg
-              binds := binds ++ inner
-              hoisted := hoisted.push rewritten
-            let mut app : Term := ⟨name.raw⟩
-            for h in hoisted do
-              app ← `(term| $app $h)
-            pure (binds, app)
+            let fnName := toString name.getId
+            if fnName == "__verityTypedCall" || fnName == "__verityTypedEffect" ||
+                isLiveStateExternalCall t registryMode then
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for arg in args do
+                let (inner, rewritten) ← hoistNested true arg
+                binds := binds ++ inner
+                hoisted := hoisted.push rewritten
+              let rebuilt ← adaptHoistedWordContext (← `($name:ident($[$hoisted:term],*)))
+              if isLiveStateExternalCall rebuilt registryMode then
+                bindCall binds rebuilt
+              else
+                match ← rewriteTypedInterfaceCall? externalDecls params adv
+                    (linkedContracts := linkedContracts) (registryMode := registryMode) rebuilt with
+                | some rewritten =>
+                    if bindSelf then
+                      let tmp ← freshExternalIdent t
+                      pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+                    else
+                      pure (binds, rewritten)
+                | none => pure (binds, rebuilt)
+            else
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for arg in args do
+                let (inner, rewritten) ← hoistNested true arg
+                binds := binds ++ inner
+                hoisted := hoisted.push rewritten
+              let mut app : Term := ⟨name.raw⟩
+              for h in hoisted do
+                app ← `(term| $app $h)
+              pure (binds, app)
+    | `(term| $name:ident $args:term*) =>
+        let original := args.map fun a => (⟨a.raw⟩ : Term)
+        let fnName := toString name.getId
+        if original.isEmpty || fnName == "__verityTypedCall" || fnName == "__verityTypedEffect" ||
+            isLiveStateExternalCall t registryMode then
+          match t.raw with
+          | .node info kind rawArgs =>
+              let mut binds : Array (Ident × Term) := #[]
+              let mut newArgs := rawArgs
+              for i in [:rawArgs.size] do
+                let (inner, nt) ← hoistNested true ⟨rawArgs[i]!⟩
+                binds := binds ++ inner
+                newArgs := newArgs.set! i nt.raw
+              let rebuilt ← adaptHoistedWordContext ⟨Syntax.node info kind newArgs⟩
+              if isLiveStateExternalCall rebuilt registryMode then
+                bindCall binds rebuilt
+              else
+                match ← rewriteTypedInterfaceCall? externalDecls params adv
+                    (linkedContracts := linkedContracts) (registryMode := registryMode) rebuilt with
+                | some rewritten =>
+                    if bindSelf then
+                      let tmp ← freshExternalIdent t
+                      pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+                    else
+                      pure (binds, rewritten)
+                | none => pure (binds, rebuilt)
+          | _ =>
+              if isLiveStateExternalCall t registryMode then
+                bindCall #[] t
+              else
+                match ← rewriteTypedInterfaceCall? externalDecls params adv
+                    (linkedContracts := linkedContracts) (registryMode := registryMode) t with
+                | some rewritten =>
+                    if bindSelf then
+                      let tmp ← freshExternalIdent t
+                      pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
+                    else
+                      pure (#[], rewritten)
+                | none => pure (#[], t)
+        else
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals name original adv with
+          | some _ =>
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for arg in args do
+                let (inner, rewritten) ← hoistNested true arg
+                binds := binds ++ inner
+                hoisted := hoisted.push rewritten
+              match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                  helpers adversarialHelpers registryOnlyHelpers params locals name hoisted adv
+                  (originalArgsForOverload := original) with
+              | some app => pure (binds, app)
+              | none =>
+                  let mut app : Term := ⟨name.raw⟩
+                  for h in hoisted do
+                    app ← `(term| $app $h)
+                  pure (binds, app)
+          | none =>
+              match t.raw with
+              | .node info kind rawArgs =>
+                  let mut binds : Array (Ident × Term) := #[]
+                  let mut newArgs := rawArgs
+                  for i in [:rawArgs.size] do
+                    let (inner, nt) ← hoistNested true ⟨rawArgs[i]!⟩
+                    binds := binds ++ inner
+                    newArgs := newArgs.set! i nt.raw
+                  let rebuilt ← adaptHoistedWordContext ⟨Syntax.node info kind newArgs⟩
+                  match ← rewriteTypedInterfaceCall? externalDecls params adv
+                      (linkedContracts := linkedContracts) (registryMode := registryMode) rebuilt with
+                  | some rewritten =>
+                      if bindSelf then
+                        let tmp ← freshExternalIdent t
+                        pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+                      else
+                        pure (binds, rewritten)
+                  | none =>
+                      if isLiveStateExternalCall rebuilt registryMode then
+                        bindCall binds rebuilt
+                      else
+                        pure (binds, rebuilt)
+              | _ => pure (#[], t)
     | `(term| if $cond:term then $thenValue:term else $elseValue:term) =>
         let (condBinds, rewrittenCond) ← hoistNested true cond
         let (thenBinds, rewrittenThen) ← hoistNested true thenValue
@@ -3876,8 +4139,20 @@ private partial def threadAdversaryThroughExecutableSyntax
       else
         match ← threadHelperApp? fields constDecls immutableDecls externalDecls
             helpers adversarialHelpers registryOnlyHelpers params locals fn original adv with
-        | some app =>
-            hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
+        | some _ =>
+            let mut binds : Array (Ident × Term) := #[]
+            let mut hoisted : Array Term := #[]
+            for a in original do
+              let (inner, h) ← hoistNested true a
+              binds := binds ++ inner
+              hoisted := hoisted.push h
+            match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+                (originalArgsForOverload := original) with
+            | some app => wrapBinds binds (← `(doElem| let $name ← $app:term))
+            | none =>
+                let rhs ← helperCall fn hoisted
+                wrapBinds binds (← `(doElem| let $name ← $rhs:term))
         | none =>
           if fnName == "__verityTypedCall" then
             match stx with
@@ -3899,14 +4174,29 @@ private partial def threadAdversaryThroughExecutableSyntax
               rhs ← `(term| $rhs $arg)
             hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $rhs:term) =>
-      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
-        | some (fn, args) =>
-            threadHelperApp? fields constDecls immutableDecls externalDecls
-              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
-        | none => pure none
-      match helperApp? with
-      | some app =>
-          hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
+      match SSADesugar.helperAppSyntaxParts? rhs with
+      | some (fn, args) =>
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv with
+          | some _ =>
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for a in args do
+                let (inner, h) ← hoistNested true a
+                binds := binds ++ inner
+                hoisted := hoisted.push h
+              match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                  helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+                  (originalArgsForOverload := args) with
+              | some app => wrapBinds binds (← `(doElem| let $name ← $app:term))
+              | none =>
+                  hoistBound rhs
+                    (fun rewritten => `(doElem| let $name ← $rewritten:term))
+                    (fun rewritten => `(doElem| let $name := $rewritten:term))
+          | none =>
+              hoistBound rhs
+                (fun rewritten => `(doElem| let $name ← $rewritten:term))
+                (fun rewritten => `(doElem| let $name := $rewritten:term))
       | none =>
           hoistBound rhs
             (fun rewritten => `(doElem| let $name ← $rewritten:term))
@@ -3915,14 +4205,29 @@ private partial def threadAdversaryThroughExecutableSyntax
       -- A destructuring bind of an internal helper that takes the call context
       -- (`let (a, b) ← helper x y`) threads the context like the single-name
       -- form above; everything else keeps the generic hoisting path.
-      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
-        | some (fn, args) =>
-            threadHelperApp? fields constDecls immutableDecls externalDecls
-              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
-        | none => pure none
-      match helperApp? with
-      | some app =>
-          hoistLive false app fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
+      match SSADesugar.helperAppSyntaxParts? rhs with
+      | some (fn, args) =>
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv with
+          | some _ =>
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for a in args do
+                let (inner, h) ← hoistNested true a
+                binds := binds ++ inner
+                hoisted := hoisted.push h
+              match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                  helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+                  (originalArgsForOverload := args) with
+              | some app => wrapBinds binds (← `(doElem| let $pat:term ← $app:term))
+              | none =>
+                  hoistBound rhs
+                    (fun rewritten => `(doElem| let $pat:term ← $rewritten:term))
+                    (fun rewritten => `(doElem| let $pat:term := $rewritten:term))
+          | none =>
+              hoistBound rhs
+                (fun rewritten => `(doElem| let $pat:term ← $rewritten:term))
+                (fun rewritten => `(doElem| let $pat:term := $rewritten:term))
       | none =>
           hoistBound rhs
             (fun rewritten => `(doElem| let $pat:term ← $rewritten:term))
@@ -3935,14 +4240,29 @@ private partial def threadAdversaryThroughExecutableSyntax
         `(doElem| let mut $name := $rewritten:term)
   | `(doElem| let mut $name:ident : $_ty:term ← $rhs:term)
   | `(doElem| let mut $name:ident ← $rhs:term) =>
-      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
-        | some (fn, args) =>
-            threadHelperApp? fields constDecls immutableDecls externalDecls
-              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
-        | none => pure none
-      match helperApp? with
-      | some app =>
-          hoistLive false app fun rewritten => `(doElem| let mut $name ← $rewritten:term)
+      match SSADesugar.helperAppSyntaxParts? rhs with
+      | some (fn, args) =>
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv with
+          | some _ =>
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for a in args do
+                let (inner, h) ← hoistNested true a
+                binds := binds ++ inner
+                hoisted := hoisted.push h
+              match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                  helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+                  (originalArgsForOverload := args) with
+              | some app => wrapBinds binds (← `(doElem| let mut $name ← $app:term))
+              | none =>
+                  hoistBound rhs
+                    (fun rewritten => `(doElem| let mut $name ← $rewritten:term))
+                    (fun rewritten => `(doElem| let mut $name := $rewritten:term))
+          | none =>
+              hoistBound rhs
+                (fun rewritten => `(doElem| let mut $name ← $rewritten:term))
+                (fun rewritten => `(doElem| let mut $name := $rewritten:term))
       | none =>
           hoistBound rhs
             (fun rewritten => `(doElem| let mut $name ← $rewritten:term))
@@ -3957,14 +4277,29 @@ private partial def threadAdversaryThroughExecutableSyntax
       hoistLive true rhs fun rewritten =>
         `(doElem| $name:ident := $rewritten:term)
   | `(doElem| $name:ident ← $rhs:term) =>
-      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
-        | some (fn, args) =>
-            threadHelperApp? fields constDecls immutableDecls externalDecls
-              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
-        | none => pure none
-      match helperApp? with
-      | some app =>
-          hoistLive false app fun rewritten => `(doElem| $name:ident ← $rewritten:term)
+      match SSADesugar.helperAppSyntaxParts? rhs with
+      | some (fn, args) =>
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv with
+          | some _ =>
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for a in args do
+                let (inner, h) ← hoistNested true a
+                binds := binds ++ inner
+                hoisted := hoisted.push h
+              match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                  helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+                  (originalArgsForOverload := args) with
+              | some app => wrapBinds binds (← `(doElem| $name:ident ← $app:term))
+              | none =>
+                  hoistBound rhs
+                    (fun rewritten => `(doElem| $name:ident ← $rewritten:term))
+                    (fun rewritten => `(doElem| $name:ident := $rewritten:term))
+          | none =>
+              hoistBound rhs
+                (fun rewritten => `(doElem| $name:ident ← $rewritten:term))
+                (fun rewritten => `(doElem| $name:ident := $rewritten:term))
       | none =>
           hoistBound rhs
             (fun rewritten => `(doElem| $name:ident ← $rewritten:term))
@@ -4060,22 +4395,47 @@ private partial def threadAdversaryThroughExecutableSyntax
       else
         match ← threadHelperApp? fields constDecls immutableDecls externalDecls
           helpers adversarialHelpers registryOnlyHelpers params locals fn original adv with
-        | some app =>
-            hoistLive false app fun rewritten => `(doElem| $rewritten:term)
+        | some _ =>
+            let mut binds : Array (Ident × Term) := #[]
+            let mut hoisted : Array Term := #[]
+            for a in original do
+              let (inner, h) ← hoistNested true a
+              binds := binds ++ inner
+              hoisted := hoisted.push h
+            match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+                (originalArgsForOverload := original) with
+            | some app => wrapBinds binds (← `(doElem| $app:term))
+            | none =>
+                match stx with
+                | `(doElem| $stmt:term) =>
+                    hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
+                | _ => recurseChildren
         | none =>
             match stx with
             | `(doElem| $stmt:term) =>
                 hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
             | _ => recurseChildren
   | `(doElem| $stmt:term) =>
-      let helperApp? ← match SSADesugar.helperAppSyntaxParts? stmt with
-        | some (fn, args) =>
-            threadHelperApp? fields constDecls immutableDecls externalDecls
-              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
-        | none => pure none
-      match helperApp? with
-      | some app =>
-          hoistLive false app fun rewritten => `(doElem| $rewritten:term)
+      match SSADesugar.helperAppSyntaxParts? stmt with
+      | some (fn, args) =>
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv with
+          | some _ =>
+              let mut binds : Array (Ident × Term) := #[]
+              let mut hoisted : Array Term := #[]
+              for a in args do
+                let (inner, h) ← hoistNested true a
+                binds := binds ++ inner
+                hoisted := hoisted.push h
+              match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                  helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+                  (originalArgsForOverload := args) with
+              | some app => wrapBinds binds (← `(doElem| $app:term))
+              | none =>
+                  hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
+          | none =>
+              hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
       | none =>
           hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
   | `(term| $name:ident $args:term*) =>
@@ -5038,14 +5398,6 @@ private partial def substituteDynamicParentParamSyntax
 private def substituteDynamicParentParams
     (bindings : Array (String × Syntax)) (body : Term) : Term :=
   ⟨substituteDynamicParentParamSyntax bindings body.raw⟩
-
-/-- Whether a parameter reserves `name` in the lowered function namespace.
-Tuple parameters synthesize aliases such as `config_0` for their components. -/
-private def paramReservesName (param : ParamDecl) (name : String) : Bool :=
-  param.name == name || match param.ty with
-    | .tuple elemTys => (elemTys.toArray.zipIdx).any fun (_, idx) =>
-        s!"{param.name}_{idx}" == name
-    | _ => false
 
 private partial def normalizeParentConstructorArg
     (paramTy : ValueType) (arg : Term) : CommandElabM Term := do
