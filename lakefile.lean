@@ -151,21 +151,30 @@ lean_lib «SolidityImportSmoke» where
 lean_lib «Compiler» where
   globs := #[.andSubmodules `Compiler]
 
--- From-scratch axiom walker (`scripts/AxiomAudit.lean`), its negative/positive
--- controls (`scripts/UnionAxiomsControls.lean`), and the whole-library union
--- (`scripts/VerityUnionAxioms.lean`).
-@[default_target]
-lean_lib «Assurance» where
-  srcDir := "scripts"
+-- Negative/positive control fixtures for `UnionAxiomsControls.lean`, kept under
+-- a dot-prefixed directory (`scripts/.assurance_fixtures`) so Turbo-Lean's
+-- project-wide `WalkDir` source hygiene scan skips intentional negative-control
+-- `axiom` / `sorry` / `native_decide` tokens while Lake still builds and checks them.
+lean_lib «AssuranceFixtures» where
+  srcDir := "scripts/.assurance_fixtures"
   roots := #[
-    `AxiomAudit,
-    `UnionAxiomsControls,
     `UnionAxiomsFixture.Good,
     `UnionAxiomsFixture.Bad,
     `UnionAxiomsFixture.Dep,
     `UnionAxiomsFixture.ViaDep,
     `UnionAxiomsFixture.NativeAndAttrs
   ]
+
+-- From-scratch axiom walker (`scripts/AxiomAudit.lean`) and its negative/positive
+-- controls (`scripts/UnionAxiomsControls.lean`).
+@[default_target]
+lean_lib «Assurance» where
+  srcDir := "scripts"
+  roots := #[
+    `AxiomAudit,
+    `UnionAxiomsControls
+  ]
+  needs := #[AssuranceFixtures]
 
 lean_lib «VerityUnionAxioms» where
   srcDir := "scripts"

@@ -104,7 +104,9 @@ open Jaune.AxiomAudit Lean Elab Command in
 run_cmd do
   let env ← getEnv
   let pfxs := #[`Verity, `Compiler, `Contracts]
-  let (roots, modules) := moduleRootsOf env pfxs
+  let mr := moduleRootsOf env pfxs
+  let roots := mr.1
+  let modules := mr.2
   let allowed := #[
     "propext",
     "Classical.choice",
@@ -124,9 +126,9 @@ run_cmd do
     "Verity.keccak256_nat_empty"
   ]
   let allowedBvOrigins := #[]
-  match unionCheck env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins with
+  match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins) with
   | .error e => throwError "{e}"
   | .ok r =>
-    logInfo (MessageData.ofFormat (.text
-      s!"UNION-AXIOMS '{unionLabel pfxs}': [{", ".intercalate r.axioms.toList}] "
-        ++ s!"roots={r.roots} modules={r.modules} visited={r.visited}"))
+    logInfo (MessageData.ofFormat (Std.Format.text
+      (s!"UNION-AXIOMS '{unionLabel pfxs}': [{", ".intercalate r.axioms.toList}] "
+        ++ s!"roots={r.roots} modules={r.modules} visited={r.visited}")))

@@ -106,6 +106,17 @@ class UnionCoverageTests(unittest.TestCase):
         ):
             check_union_coverage.check_union_coverage(self.root)
 
+    def test_multiline_and_quoted_excluded_import_leaks_and_fails(self) -> None:
+        self.write(
+            "Compiler/A.lean",
+            "module\n\nimport Verity.Core\npublic\nimport\n  «Compiler».«Main»\npublic section\n",
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"verified modules import non-verified local modules: Compiler\.A -> Compiler\.Main",
+        ):
+            check_union_coverage.check_union_coverage(self.root)
+
     def test_new_verified_module_is_detected(self) -> None:
         self.write("Contracts/Vault.lean", "import Verity.Core\n")
         with self.assertRaisesRegex(
@@ -242,10 +253,10 @@ class GeneratePrintAxiomsTests(unittest.TestCase):
         )
         self.assertNotIn("collectAxioms", non_comment)
         self.assertNotIn("collectMemo", non_comment)
-        self.assertIn("unionCheck env (unionLabel pfxs) roots modules allowed", print_content)
+        self.assertIn("unionCheckM env (unionLabel pfxs) roots modules allowed", print_content)
         self.assertIn("Verity.core_ok", print_content)
         self.assertIn("Compiler.pass_ok", print_content)
-        self.assertIn("reportPrintAxiomsForRoots", print_content)
+        self.assertIn("reportPrintAxiomsForRootsM", print_content)
 
         (self.root / "PrintAxioms.lean").write_text(print_content, encoding="utf-8")
         (self.root / "scripts" / "VerityUnionAxioms.lean").write_text(

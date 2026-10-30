@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from property_utils import ROOT, extract_lean_import_modules, scrub_lean_code
+from property_utils import ROOT, extract_lean_header_imports_with_lines
 
 
 @dataclass(frozen=True)
@@ -148,17 +148,20 @@ def collect_layer_import_failures(rules: tuple[ImportRule, ...] = RULES) -> list
     failures: list[str] = []
     for rule in rules:
         for path in _lean_files(rule.root):
-            contents = scrub_lean_code(path.read_text(encoding="utf-8"))
-            for line_no, line in enumerate(contents.splitlines(), 1):
-                for module_name in extract_lean_import_modules(line):
-                    if not any(_matches_module(module_name, forbidden) for forbidden in rule.forbidden):
-                        continue
-                    if _is_allowed(rule, path, module_name):
-                        continue
-                    failures.append(
-                        f"{_render_path(path)}:{line_no}: {rule.name}: "
-                        f"forbidden import `{module_name}` ({rule.message})"
-                    )
+            try:
+                imports = extract_lean_header_imports_with_lines(path.read_text(encoding="utf-8"))
+            except ValueError as exc:
+                failures.append(f"{_render_path(path)}: {rule.name}: {exc}")
+                continue
+            for module_name, line_no in imports:
+                if not any(_matches_module(module_name, forbidden) for forbidden in rule.forbidden):
+                    continue
+                if _is_allowed(rule, path, module_name):
+                    continue
+                failures.append(
+                    f"{_render_path(path)}:{line_no}: {rule.name}: "
+                    f"forbidden import `{module_name}` ({rule.message})"
+                )
     return failures
 
 

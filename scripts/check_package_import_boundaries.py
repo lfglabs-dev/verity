@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-from property_utils import ROOT, extract_lean_import_modules, scrub_lean_code
+from property_utils import ROOT, extract_lean_header_imports_with_lines, scrub_lean_code
 
 ONE_GLOB_RE = re.compile(r"\.one\s+`([A-Za-z0-9_.']+)")
 AND_SUBMODULES_GLOB_RE = re.compile(r"\.andSubmodules\s+`([A-Za-z0-9_.']+)")
@@ -108,17 +108,20 @@ def collect_forbidden_imports(
         for path in module_paths:
             if _is_test_module(path):
                 continue
-            contents = scrub_lean_code(path.read_text(encoding="utf-8"))
-            for line_no, line in enumerate(contents.splitlines(), 1):
-                for module_name in extract_lean_import_modules(line):
-                    if module_name != forbidden_namespace and not module_name.startswith(
-                        f"{forbidden_namespace}."
-                    ):
-                        continue
-                    failures.append(
-                        f"{_render_path(path)}:{line_no}: forbidden {package_name} -> "
-                        f"{forbidden_namespace} import `{module_name}`"
-                    )
+            try:
+                imports = extract_lean_header_imports_with_lines(path.read_text(encoding="utf-8"))
+            except ValueError as exc:
+                failures.append(f"{_render_path(path)}: {exc}")
+                continue
+            for module_name, line_no in imports:
+                if module_name != forbidden_namespace and not module_name.startswith(
+                    f"{forbidden_namespace}."
+                ):
+                    continue
+                failures.append(
+                    f"{_render_path(path)}:{line_no}: forbidden {package_name} -> "
+                    f"{forbidden_namespace} import `{module_name}`"
+                )
     return failures
 
 
