@@ -90,6 +90,15 @@ verity_contract ExternalCallInBodySmoke where
     let (zeroArgWindowLeaf, other) ← pairValues()
     return zeroArgWindowLeaf + other
 
+  function scalarLetShadow () : Uint256 := do
+    let zeroArgWindowLeaf := 7
+    return zeroArgWindowLeaf + 8
+
+  function scalarLetMutShadow () : Uint256 := do
+    let mut zeroArgWindowLeaf : Uint256 := 7
+    zeroArgWindowLeaf := zeroArgWindowLeaf + 8
+    return zeroArgWindowLeaf
+
   function overloadWindow () : Uint256 := do
     return 42
 
@@ -928,6 +937,14 @@ example :
 
 example :
     ((ExternalCallInBodySmoke.tupleLetArrowShadow).run defaultState).getValue? = some 15 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.scalarLetShadow).run defaultState).getValue? = some 15 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.scalarLetMutShadow).run defaultState).getValue? = some 15 := by
   decide
 
 example :

@@ -2636,11 +2636,13 @@ private partial def syntaxCallsAnyHelper
       let binder := elem.raw[3][0][0]
       match binder with
       | .ident _ raw _ _ => pure #[raw.toString]
+      | .node _ `Lean.Parser.Term.letId #[.ident _ raw _ _] => pure #[raw.toString]
       | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
     else if elem.raw.getKind == `Lean.Parser.Term.doLetArrow then
       let binder := elem.raw[3][0]
       match binder with
       | .ident _ raw _ _ => pure #[raw.toString]
+      | .node _ `Lean.Parser.Term.letId #[.ident _ raw _ _] => pure #[raw.toString]
       | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
     else
       match elem with
@@ -2764,16 +2766,14 @@ private partial def syntaxCallsAnyHelper
   | _ =>
       if isProjectionFieldSyntax stx.getKind && stx.getNumArgs >= 1 then
         syntaxCallsAnyHelper helpers targetHelpers params locals stx[0]
-      else if stx.getKind == ``Lean.Parser.Term.structInst then
-        stx.getArgs.anyM fun child =>
-          if child.getKind == ``Lean.Parser.Term.structInstFields then
-            child.getArgs.anyM fun fieldNode =>
-              if fieldNode.getNumArgs >= 2 then
-                syntaxCallsAnyHelper helpers targetHelpers params locals fieldNode[1]
-              else
-                pure false
+      else if stx.getKind == ``Lean.Parser.Term.structInstField then
+        if stx.getNumArgs >= 2 then
+          if stx[1].getNumArgs == 0 then
+            syntaxCallsAnyHelper helpers targetHelpers params locals stx[0]
           else
-            syntaxCallsAnyHelper helpers targetHelpers params locals child
+            syntaxCallsAnyHelper helpers targetHelpers params locals stx[1]
+        else
+          pure false
       else do
         if stx.getKind == ``Lean.Parser.Term.app then
           let asTerm : Term := ⟨stx⟩
@@ -3795,7 +3795,10 @@ private partial def threadAdversaryThroughExecutableSyntax
           return (binds, ← `(term| _root_.Verity.Contract.selfCall $inner))
     match t with
     | `(term| fun $name:ident => $body:term) =>
-        let bodyRaw : Syntax ← go body.raw
+        let bodyScope := locals.push (mkTypedLocal (toString name.getId) .uint256)
+        let bodyRaw : Syntax ← threadAdversaryThroughExecutableSyntax fields constDecls
+          immutableDecls externalDecls helpers adversarialHelpers registryOnlyHelpers params
+          bodyScope adv body.raw (linkedContracts := linkedContracts) (registryMode := registryMode)
         let rewrittenBody : Term := ⟨bodyRaw⟩
         pure (#[], ← `(term| fun $name => $rewrittenBody))
     | `(term| do $body:doSeq) =>
@@ -4438,6 +4441,13 @@ private partial def threadAdversaryThroughExecutableSyntax
               hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
       | none =>
           hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
+  | `(term| fun $name:ident => $body:term) =>
+      let bodyScope := locals.push (mkTypedLocal (toString name.getId) .uint256)
+      let bodyRaw : Syntax ← threadAdversaryThroughExecutableSyntax fields constDecls
+        immutableDecls externalDecls helpers adversarialHelpers registryOnlyHelpers params
+        bodyScope adv body.raw (linkedContracts := linkedContracts) (registryMode := registryMode)
+      let rewrittenBody : Term := ⟨bodyRaw⟩
+      (·.raw) <$> `(term| fun $name => $rewrittenBody)
   | `(term| $name:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
       match ← threadHelperApp? fields constDecls immutableDecls externalDecls
@@ -5325,11 +5335,13 @@ private partial def localBinderNames (stx : Syntax) : CommandElabM (Array String
       let binder := stx[3][0][0]
       match binder with
       | .ident _ raw _ _ => pure #[raw.toString]
+      | .node _ `Lean.Parser.Term.letId #[.ident _ raw _ _] => pure #[raw.toString]
       | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
     else if stx.getKind == `Lean.Parser.Term.doLetArrow then
       let binder := stx[3][0]
       match binder with
       | .ident _ raw _ _ => pure #[raw.toString]
+      | .node _ `Lean.Parser.Term.letId #[.ident _ raw _ _] => pure #[raw.toString]
       | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
     else
       match (⟨stx⟩ : TSyntax `doElem) with
