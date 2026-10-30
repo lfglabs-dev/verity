@@ -284,6 +284,32 @@ class CheckAxiomsReportTests(unittest.TestCase):
             },
         )
 
+    def test_discover_repo_axioms_not_blinded_by_double_quote_char_literal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "QuoteChar.lean").write_text(
+                "\n".join(
+                    [
+                        "def openQuote : Char := '\"'",
+                        "axiom hidden_between_quote_chars : False",
+                        "def closeQuote : Char := '\"'",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {"hidden_between_quote_chars": ("Compiler/QuoteChar.lean", 2)},
+        )
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"

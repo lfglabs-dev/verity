@@ -1,3 +1,4 @@
+import Lean
 import Std.Tactic.BVDecide
 
 /-!
@@ -43,6 +44,28 @@ theorem thmSpoofRef : Bool.false = Bool.true := by
 axiom thmSpoofRefTrue._native.native_decide.ax_778 : Bool.true = Bool.true
 theorem thmSpoofRefTrue : (2 : Nat) + 2 = 4 := by
   have _ := thmSpoofRefTrue._native.native_decide.ax_778
+  native_decide
+
+-- Command-macro spoof: synthesizes a single-ref token (`range == selectionRange`) so an external
+-- `axiom` command would pass a naive `range == selectionRange` check unless `AxiomAudit` also
+-- requires the auxiliary range to lie within the allowlisted origin's own declaration span.
+local elab tk:"declare_macro_spoof_ax" : command => do
+  let axName := `UnionAxiomsFixture.NativeAndAttrs.thmMacroSpoof._native.native_decide.ax_779
+  let boolTy := Lean.mkConst ``Bool
+  let boolTrue := Lean.mkConst ``Bool.true
+  let eqTrue := Lean.mkApp3 (Lean.mkConst ``Eq [Lean.Level.succ Lean.Level.zero]) boolTy boolTrue boolTrue
+  Lean.Elab.Command.liftCoreM do
+    Lean.addDecl (.axiomDecl {
+      name := axName
+      levelParams := []
+      type := eqTrue
+      isUnsafe := false
+    })
+    Lean.Elab.addDeclarationRangesFromSyntax axName tk
+
+declare_macro_spoof_ax
+theorem thmMacroSpoof : (2 : Nat) + 2 = 4 := by
+  have _ := thmMacroSpoof._native.native_decide.ax_779
   native_decide
 
 theorem thmBVNonTriv (x y : BitVec 32) : (x ^^^ y) ^^^ y = x := by bv_decide

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 # Path constants
@@ -417,6 +418,155 @@ def die(msg: str) -> None:
     raise SystemExit(1)
 
 
+def _is_lean_id_first(ch: str) -> bool:
+    """Match Lean ``isIdFirst`` (``Init/Meta/Defs.lean``)."""
+    if ch.isalpha() or ch == "_":
+        return True
+    cp = ord(ch)
+    if 0x3B1 <= cp <= 0x3C9 and cp != 0x3BB:
+        return True
+    if 0x391 <= cp <= 0x3A9 and cp not in (0x3A0, 0x3A3):
+        return True
+    if 0x3CA <= cp <= 0x3FB or 0x1F00 <= cp <= 0x1FFE:
+        return True
+    if 0x2100 <= cp <= 0x214F or 0x1D49C <= cp <= 0x1D59F:
+        return True
+    if 0x00C0 <= cp <= 0x00FF and cp not in (0x00D7, 0x00F7):
+        return True
+    return 0x0100 <= cp <= 0x017F
+
+
+def _is_lean_id_rest(ch: str) -> bool:
+    """Match Lean ``isIdRest`` (``Init/Meta/Defs.lean``)."""
+    if ch.isalnum() or ch in "_!'?":
+        return True
+    cp = ord(ch)
+    if 0x2080 <= cp <= 0x2089 or 0x2090 <= cp <= 0x209C or 0x1D62 <= cp <= 0x1D6A or cp == 0x2C7C:
+        return True
+    return _is_lean_id_first(ch) and ch != "_"
+
+
+def _is_lean_id_begin_escape(ch: str) -> bool:
+    return ch == "«"
+
+
+def _is_lean_whitespace(ch: str) -> bool:
+    """Match Lean ``Char.isWhitespace`` (Unicode White_Space, no extra ASCII)."""
+    return unicodedata.category(ch) == "Zs" or ch in "\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f"
+
+
+def _skip_lean_whitespace(text: str, i: int) -> int:
+    n = len(text)
+    while i < n and _is_lean_whitespace(text[i]):
+        i += 1
+    return i
+
+
+def _consume_lean_char_literal(text: str, i: int) -> int | None:
+    """Consume a Lean character literal starting at ``'``.
+
+    Mirrors ``Lean.Parser.tokenFn`` / ``charLitFnAux`` / ``quotedCharFn``
+    (``Lean/Parser/Basic.lean``): ``'x'``, ``'\\''``, ``'\\n'``, ``'\\xNN'``,
+    ``'\\uNNNN'``. Returns the index after the closing quote, or ``None`` when
+    the span is not a character literal (so ``'`` stays an ordinary character,
+    as in ``a'`` or ``'ident``).
+    """
+    n = len(text)
+    if i >= n or text[i] != "'" or i + 1 >= n or text[i + 1] == "'":
+        return None
+    j = i + 1
+    if text[j] == "\\":
+        j += 1
+        if j >= n:
+            return None
+        esc = text[j]
+        if esc in "\\\"'rnt":
+            j += 1
+        elif esc == "x":
+            if j + 2 >= n or not all(c in "0123456789abcdefABCDEF" for c in text[j + 1 : j + 3]):
+                return None
+            j += 3
+        elif esc == "u":
+            if j + 4 >= n or not all(c in "0123456789abcdefABCDEF" for c in text[j + 1 : j + 5]):
+                return None
+            j += 5
+        else:
+            return None
+    else:
+        j += 1
+    if j >= n or text[j] != "'":
+        return None
+    return j + 1
+
+
+def _consume_lean_string_literal(text: str, i: int) -> int | None:
+    """Consume a Lean string literal starting at ``"``.
+
+    Mirrors ``strLitFnAux`` / ``quotedStringFn``, including string gaps
+    (backslash, newline, whitespace). Returns the index after the closing
+    quote, or ``None`` if the literal is unterminated.
+    """
+    n = len(text)
+    if i >= n or text[i] != '"':
+        return None
+    j = i + 1
+    while j < n:
+        ch = text[j]
+        if ch == '"':
+            return j + 1
+        if ch == "\\":
+            j += 1
+            if j >= n:
+                return None
+            esc = text[j]
+            if esc in "\\\"'rnt":
+                j += 1
+                continue
+            if esc == "x":
+                if j + 2 >= n or not all(c in "0123456789abcdefABCDEF" for c in text[j + 1 : j + 3]):
+                    return None
+                j += 3
+                continue
+            if esc == "u":
+                if j + 4 >= n or not all(c in "0123456789abcdefABCDEF" for c in text[j + 1 : j + 5]):
+                    return None
+                j += 5
+                continue
+            if esc == "\n":
+                j += 1
+                while j < n and text[j] != "\n" and _is_lean_whitespace(text[j]):
+                    j += 1
+                continue
+            return None
+        j += 1
+    return None
+
+
+def _consume_lean_raw_string_literal(text: str, i: int) -> int | None:
+    """Consume a Lean raw string ``r#*"..."#*`` starting at ``r``."""
+    n = len(text)
+    if i >= n or text[i] != "r":
+        return None
+    j = i + 1
+    hashes = 0
+    while j < n and text[j] == "#":
+        hashes += 1
+        j += 1
+    if j >= n or text[j] != '"':
+        return None
+    j += 1
+    closer = '"' + ("#" * hashes)
+    end = text.find(closer, j)
+    if end < 0:
+        return None
+    return end + len(closer)
+
+
+def _blank_span(text: str, start: int, end: int) -> str:
+    """Replace ``text[start:end]`` with spaces, keeping newlines."""
+    return "".join("\n" if ch == "\n" else " " for ch in text[start:end])
+
+
 def report_errors(errors: list[str], message: str) -> None:
     """Print error list to stderr and exit with code 1.
 
@@ -431,176 +581,168 @@ def report_errors(errors: list[str], message: str) -> None:
         raise SystemExit(1)
 
 
-def strip_lean_comments(text: str) -> str:
-    """Strip Lean line/block comments while preserving line structure.
+def _consume_lean_ident_or_name_lit(text: str, i: int) -> int | None:
+    """Consume a Lean identifier or backtick name literal starting at ``i``."""
+    n = len(text)
+    if i >= n:
+        return None
+    j = i
+    if text[j] == "`":
+        if j + 1 >= n or not (_is_lean_id_first(text[j + 1]) or _is_lean_id_begin_escape(text[j + 1])):
+            return None
+        j += 1
+    elif not (_is_lean_id_first(text[j]) or _is_lean_id_begin_escape(text[j])):
+        return None
 
-    This parser is string-aware, so comment markers that appear inside Lean
-    string literals are preserved as code.
+    while j < n:
+        if _is_lean_id_begin_escape(text[j]):
+            end = text.find("»", j + 1)
+            if end < 0:
+                return n
+            j = end + 1
+        elif _is_lean_id_first(text[j]):
+            j += 1
+            while j < n and _is_lean_id_rest(text[j]):
+                j += 1
+        else:
+            break
+        if j + 1 < n and text[j] == "." and (
+            _is_lean_id_first(text[j + 1]) or _is_lean_id_begin_escape(text[j + 1])
+        ):
+            j += 1
+            continue
+        break
+    return j
+
+
+def _scan_lean_tokens(text: str, *, blank_literals: bool) -> str:
+    """Token-aware Lean comment (and optional literal) scrubber.
+
+    Mirrors ``Lean.Parser.tokenFnAux`` / ``whitespace`` so that:
+    - nested ``/- ... -/`` block comments and ``-- ...`` line comments are blanked,
+    - character literals (including ``'"'``, ``'-'``, ``'\\'``) never open string
+      or comment states, and identifier-trailing apostrophes (``foo'``, ``x' = 'a'``)
+      are consumed as part of the identifier rather than starting a bogus char literal,
+    - guillemet-escaped identifiers (``«...»``) and backtick name literals (`` `«...» ``)
+      never open strings on embedded quotes,
+    - raw strings (``r#*"..."#*``) only start at token boundaries (not mid-identifier
+      as in ``bar"x"``), and
+    - line numbers and line counts are preserved identically.
     """
     out: list[str] = []
     i = 0
     n = len(text)
-    block_depth = 0
-    in_string = False
-    raw_string_hashes: int | None = None
-
     while i < n:
-        ch = text[i]
-        nxt = text[i + 1] if i + 1 < n else ""
+        ws_end = _skip_lean_whitespace(text, i)
+        if ws_end > i:
+            out.append(text[i:ws_end])
+            i = ws_end
+            continue
 
-        if raw_string_hashes is not None:
-            out.append(ch)
-            if ch == '"':
-                j = i + 1
-                hashes = 0
-                while j < n and text[j] == "#" and hashes < raw_string_hashes:
-                    hashes += 1
+        if text.startswith("/-", i):
+            depth = 1
+            j = i + 2
+            while j < n and depth > 0:
+                if text.startswith("/-", j):
+                    depth += 1
+                    j += 2
+                elif text.startswith("-/", j):
+                    depth -= 1
+                    j += 2
+                else:
                     j += 1
-                if hashes == raw_string_hashes:
-                    out.extend("#" * hashes)
-                    i = j
-                    raw_string_hashes = None
-                    continue
-            i += 1
+            out.append(_blank_span(text, i, j))
+            i = j
             continue
 
-        if in_string:
-            out.append(ch)
-            # Preserve escape sequences inside string literals.
-            if ch == "\\" and i + 1 < n:
-                out.append(text[i + 1])
-                i += 2
-                continue
-            if ch == '"':
-                in_string = False
-            i += 1
+        if text.startswith("--", i):
+            nl = text.find("\n", i + 2)
+            j = n if nl < 0 else nl
+            out.append(" " * (j - i))
+            i = j
             continue
 
-        if block_depth == 0 and ch == '"':
-            in_string = True
-            out.append(ch)
-            i += 1
-            continue
-
-        # Lean raw string literal: r"...", r#"..."#, r##"..."##, ...
-        if block_depth == 0 and ch == "r":
-            j = i + 1
-            hashes = 0
-            while j < n and text[j] == "#":
-                hashes += 1
-                j += 1
-            if j < n and text[j] == '"':
-                out.append("r")
-                out.extend("#" * hashes)
-                out.append('"')
-                i = j + 1
-                raw_string_hashes = hashes
-                continue
-
-        # Start of nested block comment: /- ... -/
-        if ch == "/" and nxt == "-":
-            block_depth += 1
-            out.extend("  ")
-            i += 2
-            continue
-
-        # End of nested block comment.
-        if block_depth > 0 and ch == "-" and nxt == "/":
-            block_depth -= 1
-            out.extend("  ")
-            i += 2
-            continue
-
-        # Inside block comment: preserve newlines, blank everything else.
-        if block_depth > 0:
-            out.append("\n" if ch == "\n" else " ")
-            i += 1
-            continue
-
-        # Line comment: -- ... (to end of line).
-        if ch == "-" and nxt == "-":
-            out.extend("  ")
-            i += 2
-            while i < n and text[i] != "\n":
-                out.append(" ")
-                i += 1
-            continue
-
-        out.append(ch)
-        i += 1
-
-    return "".join(out)
-
-
-def _strip_lean_strings(text: str) -> str:
-    """Replace string literal contents with spaces, preserving line structure."""
-    out: list[str] = []
-    i = 0
-    n = len(text)
-    in_string = False
-    raw_hashes: int | None = None
-
-    while i < n:
         ch = text[i]
-
-        if raw_hashes is not None:
-            if ch == "\n":
-                out.append("\n")
-                i += 1
-                continue
-            if ch == '"':
-                j = i + 1
-                hashes = 0
-                while j < n and text[j] == "#" and hashes < raw_hashes:
-                    hashes += 1
-                    j += 1
-                if hashes == raw_hashes:
-                    out.append('"')
-                    out.extend("#" * hashes)
-                    i = j
-                    raw_hashes = None
-                    continue
-            out.append(" ")
-            i += 1
-            continue
-
-        if in_string:
-            if ch == "\n":
-                out.append("\n")
-                i += 1
-                continue
-            if ch == "\\" and i + 1 < n:
-                out.extend([" ", " "])
-                i += 2
-                continue
-            if ch == '"':
-                out.append('"')
-                in_string = False
-                i += 1
-                continue
-            out.append(" ")
-            i += 1
-            continue
 
         if ch == '"':
-            out.append('"')
-            in_string = True
+            str_end = _consume_lean_string_literal(text, i)
+            if str_end is None:
+                # Unterminated string literal: treat remainder of file as string body.
+                if blank_literals:
+                    out.append('"')
+                    out.append(_blank_span(text, i + 1, n))
+                else:
+                    out.append(text[i:n])
+                return "".join(out)
+            if blank_literals:
+                out.append('"')
+                out.append(_blank_span(text, i + 1, str_end - 1))
+                out.append('"')
+            else:
+                out.append(text[i:str_end])
+            i = str_end
+            continue
+
+        if ch == "'":
+            char_end = _consume_lean_char_literal(text, i)
+            if char_end is not None:
+                if blank_literals:
+                    out.append("'")
+                    out.append(_blank_span(text, i + 1, char_end - 1))
+                    out.append("'")
+                else:
+                    out.append(text[i:char_end])
+                i = char_end
+                continue
+            out.append(ch)
             i += 1
             continue
 
         if ch == "r":
-            j = i + 1
-            hashes = 0
-            while j < n and text[j] == "#":
-                hashes += 1
-                j += 1
-            if j < n and text[j] == '"':
-                out.append("r")
-                out.extend("#" * hashes)
-                out.append('"')
-                i = j + 1
-                raw_hashes = hashes
+            raw_end = _consume_lean_raw_string_literal(text, i)
+            if raw_end is not None:
+                hashes = 0
+                k = i + 1
+                while k < n and text[k] == "#":
+                    hashes += 1
+                    k += 1
+                prefix_end = k + 1  # after opening `"`
+                suffix_start = raw_end - (1 + hashes)  # at closing `"`
+                if blank_literals:
+                    out.append(text[i:prefix_end])
+                    out.append(_blank_span(text, prefix_end, suffix_start))
+                    out.append(text[suffix_start:raw_end])
+                else:
+                    out.append(text[i:raw_end])
+                i = raw_end
                 continue
+            # Check for an unterminated raw string token (`r#*"` without matching closer).
+            k = i + 1
+            while k < n and text[k] == "#":
+                k += 1
+            if k < n and text[k] == '"':
+                if blank_literals:
+                    out.append(text[i : k + 1])
+                    out.append(_blank_span(text, k + 1, n))
+                else:
+                    out.append(text[i:n])
+                return "".join(out)
+
+        ident_end = _consume_lean_ident_or_name_lit(text, i)
+        if ident_end is not None and ident_end > i:
+            out.append(text[i:ident_end])
+            i = ident_end
+            continue
+
+        if ch.isdigit():
+            j = i + 1
+            while j < n and (text[j].isalnum() or text[j] in "_."):
+                if text[j] == "." and (j + 1 >= n or not text[j + 1].isdigit()):
+                    break
+                j += 1
+            out.append(text[i:j])
+            i = j
+            continue
 
         out.append(ch)
         i += 1
@@ -608,6 +750,21 @@ def _strip_lean_strings(text: str) -> str:
     return "".join(out)
 
 
+def strip_lean_comments(text: str) -> str:
+    """Strip Lean line/block comments while preserving line structure.
+
+    Token-aware for Lean strings, raw strings, character literals (such as ``'"'``),
+    and identifiers (such as ``x'`` or ``«...»``), so comment markers inside literals
+    are preserved and ``'"'`` never enters string mode.
+    """
+    return _scan_lean_tokens(text, blank_literals=False)
+
+
+def _strip_lean_strings(text: str) -> str:
+    """Replace string and char literal contents with spaces, preserving line structure."""
+    return _scan_lean_tokens(text, blank_literals=True)
+
+
 def scrub_lean_code(text: str) -> str:
-    """Remove comments and string literal contents from Lean source text."""
-    return _strip_lean_strings(strip_lean_comments(text))
+    """Remove comments and string/char literal contents from Lean source text."""
+    return _scan_lean_tokens(text, blank_literals=True)

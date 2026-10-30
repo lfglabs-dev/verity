@@ -190,11 +190,13 @@ run_cmd do
   let spoofBool := parseDottedName "UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide._native.native_decide.ax_888"
   let spoofRefFalse := parseDottedName "UnionAxiomsFixture.NativeAndAttrs.thmSpoofRef._native.native_decide.ax_777"
   let spoofRefTrue := parseDottedName "UnionAxiomsFixture.NativeAndAttrs.thmSpoofRefTrue._native.native_decide.ax_778"
+  let spoofMacro := parseDottedName "UnionAxiomsFixture.NativeAndAttrs.thmMacroSpoof._native.native_decide.ax_779"
   let foreignSpoof := parseDottedName "Spoof.other._native.native_decide.ax_1_1"
   let allowedNative := #[
     "UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide",
     "UnionAxiomsFixture.NativeAndAttrs.thmSpoofRef",
-    "UnionAxiomsFixture.NativeAndAttrs.thmSpoofRefTrue"
+    "UnionAxiomsFixture.NativeAndAttrs.thmSpoofRefTrue",
+    "UnionAxiomsFixture.NativeAndAttrs.thmMacroSpoof"
   ]
   let allowedBv := #["UnionAxiomsFixture.NativeAndAttrs.thmBVNonTriv"]
   unless isAllowedUnionAxiom env #["propext"] allowedNative #[] nativeReal
@@ -205,17 +207,20 @@ run_cmd do
       && !isAllowedUnionAxiom env #["propext"] allowedNative #[] spoofBool
       && !isAllowedUnionAxiom env #["propext"] allowedNative #[] spoofRefFalse
       && !isAllowedUnionAxiom env #["propext"] allowedNative #[] spoofRefTrue
+      && !isAllowedUnionAxiom env #["propext"] allowedNative #[] spoofMacro
       && !isAllowedUnionAxiom env #["propext"] allowedNative #[] foreignSpoof do
     throwError "control: isAllowedUnionAxiom kernel-authenticated origin allowlist regression"
   unless (← isAllowedUnionAxiomM env #["propext"] allowedNative #[] nativeReal)
       && (← isAllowedUnionAxiomM env #["propext"] #[] allowedBv bvReal)
       && !(← isAllowedUnionAxiomM env #["propext"] allowedNative #[] spoofRefFalse)
-      && !(← isAllowedUnionAxiomM env #["propext"] allowedNative #[] spoofRefTrue) do
+      && !(← isAllowedUnionAxiomM env #["propext"] allowedNative #[] spoofRefTrue)
+      && !(← isAllowedUnionAxiomM env #["propext"] allowedNative #[] spoofMacro) do
     throwError "control: isAllowedUnionAxiomM nativeEqTrue re-evaluation regression"
   -- `unionCheckM` and `reportPrintAxiomsForRootsM` accept `thmNativeDecide` when its origin is
   -- allowlisted, and reject every spoof user — including `thmSpoofRef` (`Bool.false = Bool.true`
-  -- directly referenced by the allowlisted origin) and `thmSpoofRefTrue` (`Bool.true = Bool.true`
-  -- directly referenced alongside a real `native_decide`).
+  -- directly referenced by the allowlisted origin), `thmSpoofRefTrue` (`Bool.true = Bool.true`
+  -- directly referenced alongside a real `native_decide`), and `thmMacroSpoof` (external
+  -- single-token command-macro spoof).
   match (← unionCheckM env "NativeRealOnly" #[``UnionAxiomsFixture.NativeAndAttrs.thmNativeDecide] 1
       #["propext", "Lean.ofReduceBool", "Lean.trustCompiler"] allowedNative #[]) with
   | .error e => throwError "control: real allowlisted native_decide theorem was rejected: {e}"
@@ -228,7 +233,8 @@ run_cmd do
     ``UnionAxiomsFixture.NativeAndAttrs.useSpoofedNativeFalse,
     ``UnionAxiomsFixture.NativeAndAttrs.useSpoofedNativeBool,
     ``UnionAxiomsFixture.NativeAndAttrs.thmSpoofRef,
-    ``UnionAxiomsFixture.NativeAndAttrs.thmSpoofRefTrue
+    ``UnionAxiomsFixture.NativeAndAttrs.thmSpoofRefTrue,
+    ``UnionAxiomsFixture.NativeAndAttrs.thmMacroSpoof
   ] do
     match (← unionCheckM env "SpoofCheck" #[spoofUser] 1
         #["propext", "Lean.ofReduceBool", "Lean.trustCompiler"] allowedNative #[]) with
