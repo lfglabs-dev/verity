@@ -55,7 +55,8 @@ runs:
         LEAN_TOOLCHAIN_HASH: ${{ hashFiles('lean-toolchain') }}
         LAKEFILE_HASH: ${{ hashFiles('lakefile.lean') }}
         LAKE_MANIFEST_HASH: ${{ hashFiles('lake-manifest.json') }}
-        ELAN_STICKY_KEY: elan-${{ inputs.sticky-disk-key-prefix || inputs.cache-key-prefix }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}
+        # The toolchain is identical for every workflow prefix: keep one host copy.
+        ELAN_STICKY_KEY: elan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}
         OVERRIDE_LAKE_PACKAGES_STICKY_KEY: ${{ inputs.lake-packages-sticky-key }}
         LAKE_PACKAGES_MAIN_FALLBACK_STICKY_KEY: ${{ inputs.lake-packages-main-fallback-sticky-key }}
         BUILD_STICKY_DISK_KEY: ${{ inputs.build-sticky-disk-key }}

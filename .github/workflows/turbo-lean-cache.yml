@@ -60,6 +60,8 @@ jobs:
     timeout-minutes: 60
     env:
       LEAN_NUM_THREADS: 8
+      # CI only needs verdicts; keep turbo-lean from spooling telemetry under ~/.cache.
+      TURBO_LEAN_TELEMETRY: "off"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -78,8 +80,9 @@ jobs:
           cache-key-prefix: turbo-lean
           use-sticky-disks: true
           sticky-disk-key-prefix: turbo-lean
-          lake-packages-sticky-key: turbo-lean-lake-packages-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
-          lake-packages-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('turbo-lean-lake-packages-{0}-{1}-{2}-{3}-{4}-{5}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, runner.arch, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
+          # Same packages tree as verify.yml's proof jobs (no LEAN_CC): share one host copy.
+          lake-packages-sticky-key: lake-packages-verify-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
+          lake-packages-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('lake-packages-verify-{0}-{1}-{2}-{3}-{4}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
           use-build-sticky-disk: true
           build-sticky-disk-key: turbo-lean-build-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
           build-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('turbo-lean-build-{0}-{1}-{2}-{3}-{4}-{5}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, runner.arch, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
@@ -95,7 +98,7 @@ jobs:
           cache-key-prefix: verity-turbo-lean-cas-${{ env.VERIFY_CACHE_BUCKET }}
           max-reclaimable-bytes: "10737418240"
 
-      - name: Run turbo-lean accelerators, audit-spec, seed-shards, Stdlib Directory Check, pr-verify & verify-receipt
+      - name: Run turbo-lean audit-spec, seed-shards, Stdlib Directory Check, pr-verify & verify-receipt
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -108,10 +111,8 @@ jobs:
           else
             BASE_REF="HEAD~1"
           fi
-          turbo-lean --json accelerators --project-dir .
           turbo-lean --json audit-spec Verity/Core.lean --decl Uint256.add_comm
           turbo-lean --json seed-shards --project-dir .
           turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
           turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json
           turbo-lean --json verify-receipt /tmp/verity-ci-receipt.json
-          turbo-lean --json analytics
