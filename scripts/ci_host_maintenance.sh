@@ -228,12 +228,27 @@ prune_caches() {
   prune_tree "$CACHE_ROOT/elan" "$ELAN_MAX_AGE_DAYS" "elan toolchains"
 }
 
+# Run "$@" as the owner of CACHE_ROOT (the runner user). The cache passes create
+# lock files in CACHE_ROOT/.locks; created by root they would be unwritable for
+# the runner, and every ci_local_persistence.sh mount on the host would fail.
+as_cache_owner() {
+  local owner
+  owner="$(stat -c %U "$CACHE_ROOT")"
+  if [ "$owner" = "root" ] || [ "$(id -u)" -ne 0 ]; then
+    "$@"
+  else
+    runuser -u "$owner" -- "$@"
+  fi
+}
+
 run_maintenance() {
   require_root
-  prune_caches
+  mkdir -p "$CACHE_ROOT"
+  as_cache_owner env CACHE_ROOT="$CACHE_ROOT" "$(readlink -f "$0")" caches
 
   if [ -x "$SCRIPT_DIR/ci_local_persistence.sh" ]; then
-    "$SCRIPT_DIR/ci_local_persistence.sh" cleanup --max-age-hours "$ARTIFACT_MAX_AGE_HOURS"
+    as_cache_owner env VERITY_CI_ARTIFACT_ROOT="$CACHE_ROOT/artifacts" \
+      "$SCRIPT_DIR/ci_local_persistence.sh" cleanup --max-age-hours "$ARTIFACT_MAX_AGE_HOURS"
   fi
 
   if command -v journalctl >/dev/null 2>&1; then

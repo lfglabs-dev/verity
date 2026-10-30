@@ -94,6 +94,11 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn('cap_tree_entries "$CACHE_ROOT/lake-build"', text)
         self.assertIn('evict_until_free "$CACHE_ROOT/lake-build"', text)
         self.assertIn('prune_tree "$CACHE_ROOT/elan"', text)
+        # Root's daily run must not create root-owned lock files that the
+        # runner user then cannot open: cache passes run as the cache owner.
+        self.assertIn('runuser -u "$owner" -- "$@"', text)
+        self.assertIn('as_cache_owner env CACHE_ROOT="$CACHE_ROOT" "$(readlink -f "$0")" caches', text)
+        self.assertNotIn('  require_root\n  prune_caches', text)
         # In-use protection: recently attached entries are never deleted,
         # and the mount path refreshes the entry mtime on attach.
         self.assertIn('MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-12}"', text)
