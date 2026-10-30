@@ -97,6 +97,8 @@ mount_persistent_dir() {
     exit 0
   fi
 
+  # Lease the fallback too: host maintenance must not delete it mid-copy.
+  touch "$fallback_dir"
   cp -a "$fallback_dir/." "$primary_dir/"
   # cp -a re-applies the fallback dir's (old) mtime onto the primary,
   # undoing the attach-time touch above — refresh it again so maintenance

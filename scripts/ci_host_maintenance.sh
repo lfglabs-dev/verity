@@ -8,7 +8,7 @@ LAKE_BUILD_MAX_ENTRIES="${LAKE_BUILD_MAX_ENTRIES:-12}"
 LAKE_PACKAGES_MAX_AGE_DAYS="${LAKE_PACKAGES_MAX_AGE_DAYS:-14}"
 LAKE_PACKAGES_MAX_ENTRIES="${LAKE_PACKAGES_MAX_ENTRIES:-20}"
 MIN_FREE_GB="${MIN_FREE_GB:-100}"
-MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-6}"
+MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-12}"
 COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-7}"
 ELAN_MAX_AGE_DAYS="${ELAN_MAX_AGE_DAYS:-7}"
 ARTIFACT_MAX_AGE_HOURS="${ARTIFACT_MAX_AGE_HOURS:-24}"
@@ -20,10 +20,12 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/ci_host_maintenance.sh run
+  scripts/ci_host_maintenance.sh caches
   scripts/ci_host_maintenance.sh install-systemd
 
 Subcommands:
   run              Prune stale Verity CI cache entries, vacuum journald, and prune unused Docker data.
+  caches           Only prune the Verity CI cache trees under CACHE_ROOT (no root required).
   install-systemd  Install and enable a daily systemd timer for this script.
 
 Environment:
@@ -34,9 +36,11 @@ Environment:
   LAKE_PACKAGES_MAX_ENTRIES     Default: 20 (newest kept; one entry exists per PR/branch)
   MIN_FREE_GB                   Default: 100 (LRU-evict lake-build, then lake-packages,
                                 below this)
-  MIN_ENTRY_AGE_HOURS           Default: 6 (never delete entries touched more recently;
-                                ci_local_persistence.sh mount touches an entry on attach,
-                                so caches of running/recent jobs are spared)
+  MIN_ENTRY_AGE_HOURS           Default: 12 (never delete entries touched more recently;
+                                ci_local_persistence.sh mount touches an entry, and the
+                                fallback it copies from, on attach. 12h outlasts the
+                                longest job timeout (6h), so an attach is a lease for
+                                the whole consuming job)
   COMPILER_CCACHE_MAX_AGE_DAYS  Default: 7
   ELAN_MAX_AGE_DAYS             Default: 7 (one toolchain copy per workflow prefix and
                                 toolchain hash; attach refreshes the mtime of live ones)
@@ -63,8 +67,14 @@ prune_tree() {
     return
   fi
 
-  local count=0
+  local count=0 mtime
   while IFS= read -r -d '' entry; do
+    # Re-stat right before deleting: a job may have attached (touched) this
+    # entry after the find snapshot was taken.
+    mtime="$(current_mtime "$entry")"
+    if [ -z "$mtime" ] || entry_is_recent "$mtime"; then
+      continue
+    fi
     rm -rf "$entry"
     count=$((count + 1))
   done < <(find "$dir" -mindepth 1 -maxdepth 1 -mtime +"$max_age_days" -print0 2>/dev/null)
@@ -191,9 +201,7 @@ evict_until_free() {
   fi
 }
 
-run_maintenance() {
-  require_root
-
+prune_caches() {
   mkdir -p "$CACHE_ROOT"
   prune_tree "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_AGE_DAYS" "lake-build cache"
   cap_tree_entries "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_ENTRIES" "lake-build cache"
@@ -205,6 +213,11 @@ run_maintenance() {
   evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
   prune_tree "$CACHE_ROOT/compiler-ccache" "$COMPILER_CCACHE_MAX_AGE_DAYS" "compiler ccache"
   prune_tree "$CACHE_ROOT/elan" "$ELAN_MAX_AGE_DAYS" "elan toolchains"
+}
+
+run_maintenance() {
+  require_root
+  prune_caches
 
   if [ -x "$SCRIPT_DIR/ci_local_persistence.sh" ]; then
     "$SCRIPT_DIR/ci_local_persistence.sh" cleanup --max-age-hours "$ARTIFACT_MAX_AGE_HOURS"
@@ -258,6 +271,9 @@ EOF
 case "${1:-}" in
   run)
     run_maintenance
+    ;;
+  caches)
+    prune_caches
     ;;
   install-systemd)
     install_systemd

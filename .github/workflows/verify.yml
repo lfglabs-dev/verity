@@ -567,6 +567,8 @@ jobs:
     needs: [changes, checks, build]
     # ~6 runner-hours per run: keep it off ordinary PRs (main, nightly, dispatch,
     # or PRs labelled `ci:mutations`) so it stops starving the compiler jobs.
+    # The label is read from the triggering event: add it, then push (or
+    # reopen), or dispatch this workflow on the branch instead.
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:mutations'))
     strategy:
       fail-fast: false

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -91,12 +95,70 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn('prune_tree "$CACHE_ROOT/elan"', text)
         # In-use protection: recently attached entries are never deleted,
         # and the mount path refreshes the entry mtime on attach.
-        self.assertIn('MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-6}"', text)
+        self.assertIn('MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-12}"', text)
+        self.assertIn('LAKE_BUILD_MAX_ENTRIES="${LAKE_BUILD_MAX_ENTRIES:-12}"', text)
+        self.assertIn('ELAN_MAX_AGE_DAYS="${ELAN_MAX_AGE_DAYS:-7}"', text)
         self.assertIn("entry_is_recent", text)
         persistence = (MAINTENANCE_SCRIPT.parent / "ci_local_persistence.sh").read_text(
             encoding="utf-8"
         )
         self.assertIn('touch "$primary_dir"', persistence)
+
+    def _age(self, path: Path, hours: float) -> None:
+        stamp = time.time() - hours * 3600
+        os.utime(path, (stamp, stamp))
+
+    def test_cache_pruning_spares_attached_entries(self) -> None:
+        """Run the real pruning pass on a scratch cache root.
+
+        Stale entries go; an entry attached by a running job (fresh mtime,
+        however old its contents) survives every pass, including elan.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cache"
+            entries = {}
+            for tree in ("lake-build", "lake-packages", "elan", "compiler-ccache"):
+                for name, hours in (("stale", 30 * 24), ("attached", 0.1)):
+                    entry = root / tree / name
+                    (entry / "payload").mkdir(parents=True)
+                    self._age(entry / "payload", 30 * 24)
+                    self._age(entry, hours)
+                    entries[(tree, name)] = entry
+            # More lake-build entries than the cap, all past the lease window
+            # but inside the age limit: only the newest LAKE_BUILD_MAX_ENTRIES stay.
+            for i in range(5):
+                entry = root / "lake-build" / f"capped-{i}"
+                entry.mkdir()
+                self._age(entry, 24 + i)
+            env = dict(os.environ, CACHE_ROOT=str(root), LAKE_BUILD_MAX_ENTRIES="3",
+                       MIN_FREE_GB="0")
+            subprocess.run(["bash", str(MAINTENANCE_SCRIPT), "caches"], check=True, env=env,
+                           capture_output=True, text=True)
+            for (tree, name), entry in entries.items():
+                if name == "stale":
+                    self.assertFalse(entry.exists(), entry)
+                else:
+                    self.assertTrue(entry.exists(), entry)
+            kept = sorted(p.name for p in (root / "lake-build").iterdir())
+            self.assertEqual(kept, ["attached", "capped-0", "capped-1"])
+
+    def test_mount_leases_primary_and_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "lake-build"
+            fallback = root / "main"
+            (fallback / "lib").mkdir(parents=True)
+            (fallback / "lib" / "Mod.olean").write_text("olean")
+            self._age(fallback / "lib", 30 * 24)
+            self._age(fallback, 30 * 24)
+            work = Path(tmp) / "work"
+            work.mkdir()
+            subprocess.run(["bash", str(ROOT / "scripts" / "ci_local_persistence.sh"), "mount",
+                            "--root", str(root), "--key", "pr", "--path", ".lake/build",
+                            "--fallback-key", "main"], check=True, cwd=work,
+                           capture_output=True, text=True)
+            self.assertEqual((work / ".lake/build/lib/Mod.olean").read_text(), "olean")
+            for entry in (root / "pr", fallback):
+                self.assertLess(time.time() - entry.stat().st_mtime, 600, entry)
 
     def test_parallel_build_jobs_use_four_lean_threads(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
