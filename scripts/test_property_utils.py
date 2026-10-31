@@ -370,6 +370,84 @@ class PropertyUtilsTheoremExtractionTests(unittest.TestCase):
         ):
             self.assertIn(expected, scrubbed)
 
+    def test_scrub_lean_code_tracks_numbers_slash_tokens_aesop_and_scoped_tokens(self) -> None:
+        src = "\n".join(
+            [
+                'syntax:max " -open " term : term',
+                'def uDiv := `(term| { x //-open "a" })',
+                "axiom ax_div_slash : False",
+                'syntax:max " #\\\"a\\\" " : term',
+                'syntax:max term " ~r" term : term',
+                'def uTildeR := `(term| 1 ~r#"a")',
+                "axiom ax_tilde_r : False",
+                'def uNum1 := `(term| 1a\'"\'open")',
+                "axiom ax_num_1a : False",
+                'def uNumHex := `(term| 0xfg\'"\'open")',
+                "axiom ax_num_hex : False",
+                'def uNumSci1 := `(term| 1.5e2a\'"\'open")',
+                "axiom ax_num_sci1 : False",
+                'def uNumSci2 := `(term| 1e-2a\'"\'open")',
+                "axiom ax_num_sci2 : False",
+                'def uAesop1 : IO Unit := do aesop_trace![steps] "hello {\'\\\"\'}"',
+                "axiom ax_aesop_bang : False",
+                'def uAesop2 : IO Unit := do aesop_trace[steps] "world {\'\\\"\'}"',
+                "axiom ax_aesop_brk : False",
+                'def uComp := `(term| f ∘\'"\'open")',
+                "axiom ax_comp_prime : False",
+                'def uPreim := `(term| f ⁻¹\'"\'open")',
+                "axiom ax_preim_prime : False",
+                'binder_predicate x " ≺\' " y:term => `(True)',
+                'def uBp := `(term| ∃ x ≺\'"\'open", True)',
+                "axiom ax_binder_pred : False",
+                "def TLOAD : Nat := 6",
+                "def TSTORE : Nat := 3",
+                "def unscopedDiv : Nat := TLOAD/TSTORE",
+                "def unscopedBlock : Nat := D/- real comment\naxiom ax_in_real_comment : False\n-/ + 1",
+                "axiom ax_after_real_comment : False",
+                "section ScopedProbe",
+                "open scoped BitVec in",
+                'def uBvCmd := `(term| 1#\'"\'open")',
+                "def cAfterOpenIn : Char := '#' -- \"",
+                "axiom ax_after_open_in : False",
+                "def uBvTerm := open scoped BitVec in `(term| x#'\"'open\")",
+                "def cAfterTermOpenIn : Char := '#' -- \"",
+                "axiom ax_after_term_open_in : False",
+                "open scoped FirstOrder",
+                'def uFo := `(term| x =\'"\'open")',
+                "axiom ax_fo_eq : False",
+                "open scoped Dioph",
+                'def uDioph := `(term| x D/-open "a")',
+                "axiom ax_dioph_slash : False",
+                "end ScopedProbe",
+                "def afterSecBlock : Nat := D/- restored comment\naxiom ax_hidden_in_restored_comment : False\n-/ + 1",
+                "axiom ax_after_section_restore : False",
+            ]
+        ) + "\n"
+        scrubbed = property_utils.scrub_lean_code(src)
+        self.assertEqual(len(scrubbed.splitlines()), len(src.splitlines()))
+        for expected in (
+            "axiom ax_div_slash : False",
+            "axiom ax_tilde_r : False",
+            "axiom ax_num_1a : False",
+            "axiom ax_num_hex : False",
+            "axiom ax_num_sci1 : False",
+            "axiom ax_num_sci2 : False",
+            "axiom ax_aesop_bang : False",
+            "axiom ax_aesop_brk : False",
+            "axiom ax_comp_prime : False",
+            "axiom ax_preim_prime : False",
+            "axiom ax_binder_pred : False",
+            "axiom ax_after_real_comment : False",
+            "axiom ax_after_open_in : False",
+            "axiom ax_after_term_open_in : False",
+            "axiom ax_fo_eq : False",
+            "axiom ax_dioph_slash : False",
+            "axiom ax_after_section_restore : False",
+        ):
+            self.assertIn(expected, scrubbed)
+        self.assertNotIn("ax_in_real_comment", scrubbed)
+        self.assertNotIn("ax_hidden_in_restored_comment", scrubbed)
+
 
 if __name__ == "__main__":
     unittest.main()

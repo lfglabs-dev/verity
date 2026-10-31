@@ -582,6 +582,7 @@ _LEAN_INTERP_PREFIX_IDS: frozenset[str] = frozenset({"s!", "m!", "f!"})
 _LEAN_INTERP_DIRECT_KEYWORDS: frozenset[str] = frozenset(
     {
         "throwError",
+        "throwPRError",
         "logError",
         "logWarning",
         "logInfo",
@@ -611,10 +612,22 @@ _LEAN_INTERP_TWO_ARG_KEYWORDS: frozenset[str] = frozenset(
     }
 )
 _LEAN_INTERP_BRACKET_KEYWORDS: frozenset[str] = frozenset(
-    {"trace", "trace_goal", "Macro.trace"}
+    {"trace", "trace_goal", "Macro.trace", "aesop_trace", "aesop_trace!"}
 )
 _LEAN_CUSTOM_OPERATOR_DECL_KEYWORDS: frozenset[str] = frozenset(
-    {"infix", "infixl", "infixr", "prefix", "postfix", "notation", "macro", "syntax", "elab"}
+    {
+        "infix",
+        "infixl",
+        "infixr",
+        "prefix",
+        "postfix",
+        "notation",
+        "notation3",
+        "macro",
+        "syntax",
+        "elab",
+        "binder_predicate",
+    }
 )
 _LEAN_PARSER_COMBINATOR_DECL_KEYWORDS: frozenset[str] = frozenset(
     {
@@ -642,25 +655,60 @@ _LEAN_PARSER_COMBINATOR_DECL_KEYWORDS: frozenset[str] = frozenset(
 # dynamically from `syntax`/`notation`/`infix`/`macro`/`elab`/`leading_parser` literals.
 _LEAN_BUILTIN_PRIME_SYMBOL_TOKENS: frozenset[str] = frozenset(
     {
+        "#check'",
+        "''",
         "]'",
         "×'",
         "Σ'",
+        "Σₗ'",
+        "∘'",
+        "⁻¹'",
+        "⁻¹'o",
+        "∏'",
+        "∏'[",
+        "∑'",
+        "∑'[",
         "⊕'",
-        "#[" ,
+        "⟧'",
+        "for_in'%",
+        "//",
+        "=/=",
+        "⌈/⌉",
+        "⌊/⌋",
+        "~r",
+        "→r",
+        "↪r",
+        "≃r",
+        "⋙rq",
+        "⥤rq",
+        "𝟭rq",
+        "@&",
+        "<&>",
+        "<&&>",
+        "&&",
+        "&&&",
+        "#[",
         "#v[",
         "%[",
         ".(",
         ".{",
-        "@[" ,
+        "@[",
         "`(arg_val|",
+        "`(attr_rules|",
         "`(binderPred|",
         "`(block|",
+        "`(bool_lit|",
+        "`(builder_name|",
+        "`(builder_option|",
         "`(conv|",
         "`(desc_item|",
         "`(doc_arg|",
+        "`(expr|",
+        "`(feature|",
         "`(grind_filter|",
         "`(grind_ref|",
         "`(grind|",
+        "`(indexing_mode|",
         "`(inline|",
         "`(json|",
         "`(link_target|",
@@ -669,18 +717,55 @@ _LEAN_BUILTIN_PRIME_SYMBOL_TOKENS: frozenset[str] = frozenset(
         "`(mintroPat|",
         "`(mrefinePat|",
         "`(mrevertPat|",
+        "`(phase|",
+        "`(priority|",
+        "`(proofWidgetsJsxAttrVal|",
+        "`(proofWidgetsJsxAttr|",
+        "`(proofWidgetsJsxChild|",
+        "`(proofWidgetsJsxElement|",
         "`(rawStx|",
         "`(rcasesPat|",
         "`(rintroPat|",
+        "`(rule_expr|",
+        "`(stacksTagDB|",
+        "`(stmt|",
         "`(sym_discharger|",
         "`(sym_dsimp_field|",
         "`(sym_dsimproc|",
         "`(sym_simp_field|",
         "`(sym_simproc|",
+        "`(tactic_clause|",
         "`(tactic|",
+        "`(translateReorder|",
         "`(",
     }
 )
+# Scoped parser tokens in Lean/Std/Mathlib/Aesop/Qq/EvmYul/ProofWidgets (`parserExtension`
+# `StateStack.scopedEntries`) whose body can absorb a delimiter-starting character when
+# their namespace is activated via `open` / `open scoped` / `namespace`.
+_LEAN_SCOPED_SYMBOL_TOKENS_BY_NAMESPACE: dict[str, tuple[str, ...]] = {
+    "AlgebraicGeometry": ("''ᵁ",),
+    "BitVec": ("#'",),
+    "CategoryTheory": ("𝟙rq",),
+    "ContinuousMapZero": (")₀",),
+    "Convex": ("-[",),
+    "Dioph": ("D/", "D-", "D&"),
+    "Distributions": ("]_{", "}(", "}_{", "𝓓'(", "𝓓'^{"),
+    "FinsetInterval": ("]]",),
+    "FirstOrder": ("='", "∀'", "∃'", "]]"),
+    "Int": ("+1]", "-["),
+    "Interval": ("]]",),
+    "Lean.Doc.Syntax": ("```", "]:"),
+    "Matroid": ("<r", "≤r"),
+    "MvFunctor": ("⊗'",),
+    "PeriodPair": ("℘'[",),
+    "ProbabilityTheory": ("/∂",),
+    "ProofWidgets.Jsx": ("</", "/>"),
+    "Rat": ("/.",),
+    "RestrictedProduct": ("]_[",),
+    "SchwartzMap": ("𝓢'(",),
+    "VertexOperator": ("]]",),
+}
 _LEAN_MULTI_CHAR_GROUP_OPENERS: dict[str, str] = {
     "#[": "]",
     "#v[": "]",
@@ -1047,6 +1132,297 @@ def _blank_span(text: str, start: int, end: int) -> str:
     return "".join("\n" if ch == "\n" else " " for ch in text[start:end])
 
 
+def _consume_lean_number_literal(text: str, i: int) -> int:
+    """Consume a Lean numeral / scientific literal starting at ASCII digit ``text[i]``.
+
+    Mirrors ``Lean.Parser.numberFnAux`` / ``decimalNumberFn`` / ``binNumberFn`` /
+    ``octalNumberFn`` / ``hexNumberFn`` (``Lean/Parser/Basic.lean``) so an adjacent
+    identifier or operator token (such as ``1a'"'..."`` or ``0xfg'"'..."``) is not
+    swallowed into the number.
+    """
+    n = len(text)
+
+    def take_digits(pos: int, pred) -> tuple[int, bool]:
+        cur = pos
+        while cur < n:
+            if text[cur] == "_":
+                k = cur + 1
+                while k < n and text[k] == "_":
+                    k += 1
+                if k < n and pred(text[k]):
+                    cur = k + 1
+                    while cur < n and pred(text[cur]):
+                        cur += 1
+                else:
+                    return k, False
+            elif pred(text[cur]):
+                cur += 1
+            else:
+                break
+        return cur, True
+
+    if text[i] == "0" and i + 1 < n and text[i + 1] in "bBoOxX":
+        kind = text[i + 1].lower()
+        pred = (
+            (lambda c: c in "01")
+            if kind == "b"
+            else (
+                (lambda c: "0" <= c <= "7")
+                if kind == "o"
+                else (lambda c: ("0" <= c <= "9") or ("a" <= c <= "f") or ("A" <= c <= "F"))
+            )
+        )
+        end_digits, _ = take_digits(i + 2, pred)
+        return end_digits if end_digits > i + 2 else i + 2
+
+    j, ok = take_digits(i + 1, _is_lean_ascii_digit)
+    if not ok:
+        return j
+    if j < n and text[j] == "." and not (j + 1 < n and text[j + 1] == "."):
+        after_dot = j + 1
+        if after_dot < n and _is_lean_ascii_digit(text[after_dot]):
+            j, ok = take_digits(after_dot + 1, _is_lean_ascii_digit)
+            if not ok:
+                return j
+        elif after_dot >= n or not (
+            _is_lean_id_first(text[after_dot]) or _is_lean_id_begin_escape(text[after_dot])
+        ):
+            j = after_dot
+    if j < n and text[j] in "eE":
+        exp = j + 1
+        if exp < n and text[exp] in "+-":
+            exp += 1
+        if exp < n and _is_lean_ascii_digit(text[exp]):
+            j, _ = take_digits(exp + 1, _is_lean_ascii_digit)
+    return j
+
+
+def _clone_symbols_by_first(src: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {ch: list(vals) for ch, vals in src.items()}
+
+
+def _activate_scoped_namespace_symbols(
+    ns_candidate: str,
+    current_ns_parts: list[str],
+    open_simple_namespaces: list[str],
+    custom_symbols_by_first: dict[str, list[str]],
+    *,
+    add_open_simple: bool,
+) -> None:
+    if not ns_candidate:
+        return
+    resolved: list[str] = []
+    for cand in [
+        ns_candidate,
+        *(
+            f"{'.'.join(current_ns_parts[:k])}.{ns_candidate}"
+            for k in range(len(current_ns_parts), 0, -1)
+        ),
+        *(f"{ons}.{ns_candidate}" for ons in open_simple_namespaces),
+    ]:
+        if cand not in resolved:
+            resolved.append(cand)
+    for cand in resolved:
+        matched_ns = False
+        for ns_key, syms in _LEAN_SCOPED_SYMBOL_TOKENS_BY_NAMESPACE.items():
+            if cand == ns_key or cand.startswith(f"{ns_key}."):
+                matched_ns = True
+                for sym in syms:
+                    _register_custom_symbol(custom_symbols_by_first, sym)
+            elif ns_key.startswith(f"{cand}.") and add_open_simple and cand not in open_simple_namespaces:
+                open_simple_namespaces.append(cand)
+        if matched_ns and add_open_simple and cand not in open_simple_namespaces:
+            open_simple_namespaces.append(cand)
+
+
+def _skip_lean_ws_and_comments_index(text: str, i: int) -> int:
+    n = len(text)
+    while i < n:
+        ws = _skip_lean_whitespace(text, i)
+        if ws > i:
+            i = ws
+            continue
+        if text.startswith("--", i):
+            nl = text.find("\n", i + 2)
+            i = n if nl < 0 else nl
+            continue
+        if text.startswith("/-", i) and not text.startswith("/--", i) and not text.startswith("/-!", i):
+            depth = 1
+            j = i + 2
+            while j < n and depth > 0:
+                if text.startswith("/-", j):
+                    depth += 1
+                    j += 2
+                elif text.startswith("-/", j):
+                    depth -= 1
+                    j += 2
+                else:
+                    j += 1
+            i = j
+            continue
+        break
+    return i
+
+
+def _parse_open_decl_activation(text: str, after_open: int) -> tuple[list[str], bool, bool]:
+    """Parse ``open ...`` after the ``open`` keyword.
+
+    Returns ``(activated_namespaces, add_open_simple, has_trailing_in)``.
+    Mirrors ``Lean.Parser.withOpenDeclFnCore``: ``openSimple`` and ``openScoped``
+    activate scoped parser tokens; ``openOnly``, ``openHiding``, and ``openRenaming``
+    do not.
+    """
+    n = len(text)
+    p = _skip_lean_ws_and_comments_index(text, after_open)
+    first_end = _consume_lean_ident_or_name_lit(text, p)
+    if first_end is None or first_end <= p or text[p] == "`":
+        return [], False, False
+    first_bare = _unquote_lean_guillemets(text[p:first_end])
+    if first_bare == "in":
+        return [], False, True
+
+    is_scoped = first_bare == "scoped"
+    names: list[str] = []
+    if is_scoped:
+        p = _skip_lean_ws_and_comments_index(text, first_end)
+    else:
+        after_first = _skip_lean_ws_and_comments_index(text, first_end)
+        if after_first < n and text[after_first] == "(":
+            depth = 1
+            q = after_first + 1
+            while q < n and depth > 0:
+                if text[q] == "(":
+                    depth += 1
+                elif text[q] == ")":
+                    depth -= 1
+                q += 1
+            after_parens = _skip_lean_ws_and_comments_index(text, q)
+            in_end = _consume_lean_ident_or_name_lit(text, after_parens)
+            has_in = (
+                in_end is not None
+                and in_end > after_parens
+                and _unquote_lean_guillemets(text[after_parens:in_end]) == "in"
+            )
+            return [], False, has_in
+        next_end = _consume_lean_ident_or_name_lit(text, after_first)
+        next_bare = (
+            _unquote_lean_guillemets(text[after_first:next_end])
+            if next_end is not None and next_end > after_first and text[after_first] != "`"
+            else ""
+        )
+        if next_bare == "renaming":
+            q = next_end or after_first
+            has_in = False
+            while q < n:
+                q = _skip_lean_ws_and_comments_index(text, q)
+                if q >= n or text[q] == "\n":
+                    break
+                id_e = _consume_lean_ident_or_name_lit(text, q)
+                if id_e is not None and id_e > q:
+                    if _unquote_lean_guillemets(text[q:id_e]) == "in":
+                        has_in = True
+                        break
+                    q = id_e
+                    continue
+                if text.startswith("->", q) or text[q] in {",", "→"}:
+                    q += 2 if text.startswith("->", q) else 1
+                    continue
+                break
+            return [], False, has_in
+        if next_bare == "hiding":
+            q = next_end or after_first
+            has_in = False
+            while q < n:
+                ws_nl = text.find("\n", q)
+                q_ws = _skip_lean_ws_and_comments_index(text, q)
+                if ws_nl >= 0 and ws_nl < q_ws:
+                    # Check whether the next non-ws token is `in`
+                    id_e = _consume_lean_ident_or_name_lit(text, q_ws)
+                    if id_e is not None and _unquote_lean_guillemets(text[q_ws:id_e]) == "in":
+                        has_in = True
+                    break
+                q = q_ws
+                id_e = _consume_lean_ident_or_name_lit(text, q)
+                if id_e is None or id_e <= q or text[q] == "`":
+                    break
+                w = _unquote_lean_guillemets(text[q:id_e])
+                if w == "in":
+                    has_in = True
+                    break
+                if w in _LEAN_CUSTOM_OPERATOR_DECL_KEYWORDS or w in {
+                    "def",
+                    "theorem",
+                    "lemma",
+                    "axiom",
+                    "opaque",
+                    "abbrev",
+                    "structure",
+                    "inductive",
+                    "class",
+                    "instance",
+                    "example",
+                    "section",
+                    "namespace",
+                    "end",
+                    "open",
+                }:
+                    break
+                q = id_e
+            return [], False, has_in
+        names.append(first_bare)
+        p = after_first
+
+    has_in = False
+    last_end = first_end
+    while p < n:
+        nl_between = "\n" in text[last_end:p]
+        id_end = _consume_lean_ident_or_name_lit(text, p)
+        if id_end is None or id_end <= p or text[p] == "`":
+            break
+        bare_id = _unquote_lean_guillemets(text[p:id_end])
+        if bare_id == "in":
+            has_in = True
+            break
+        if nl_between:
+            # In Lean, `many1 (ppSpace >> checkColGt >> ident)` stops at column 1 commands.
+            line_start = text.rfind("\n", 0, p) + 1
+            if p == line_start or bare_id in _LEAN_CUSTOM_OPERATOR_DECL_KEYWORDS or bare_id in {
+                "def",
+                "theorem",
+                "lemma",
+                "axiom",
+                "opaque",
+                "abbrev",
+                "structure",
+                "inductive",
+                "class",
+                "instance",
+                "example",
+                "section",
+                "namespace",
+                "end",
+                "open",
+                "variable",
+                "universe",
+                "attribute",
+                "local",
+                "scoped",
+                "private",
+                "protected",
+                "noncomputable",
+                "partial",
+                "unsafe",
+                "mutual",
+                "macro_rules",
+                "elab_rules",
+            }:
+                break
+        names.append(bare_id)
+        last_end = id_end
+        p = _skip_lean_ws_and_comments_index(text, id_end)
+    return names, (not is_scoped), has_in
+
+
 def report_errors(errors: list[str], message: str) -> None:
     """Print error list to stderr and exit with code 1."""
     if errors:
@@ -1145,7 +1521,17 @@ def _scan_lean_tokens_until(
     # - "varargs": zero or more atoms/groups until `"`, keeping `,` / `;` alive
     # - "sep:<tok>:<k>": scan until unnested separator `<tok>` (after `<k>` `fun` arrows)
     interp_state: str | None = None
-    group_stack: list[tuple[str, str | None]] = []
+    group_stack: list[tuple[str, str | None, tuple[dict[str, list[str]], list[str]] | None]] = []
+
+    current_ns_parts: list[str] = []
+    open_simple_namespaces: list[str] = []
+    section_scope_stack: list[tuple[str, int, dict[str, list[str]], list[str]]] = []
+    pending_open_in_restore: tuple[dict[str, list[str]], list[str]] | None = None
+    pending_open_in_from_body = False
+    open_in_armed = False
+    open_in_saw_body_token = False
+    open_in_pending_chains = 0
+    in_command_body = False
 
     in_syntax_decl = False
     in_parser_expr = False
@@ -1204,8 +1590,16 @@ def _scan_lean_tokens_until(
         syntax_abbrev_rhs = False
         syntax_saw_interp = False
 
+    def restore_symbol_scope(snapshot: tuple[dict[str, list[str]], list[str]]) -> None:
+        snap_syms, snap_open_simple = snapshot
+        custom_symbols_by_first.clear()
+        for k_ch, vals in snap_syms.items():
+            custom_symbols_by_first[k_ch] = list(vals)
+        open_simple_namespaces.clear()
+        open_simple_namespaces.extend(snap_open_simple)
+
     def in_syntax_any_paren() -> bool:
-        return (in_syntax_decl or in_parser_expr) and all(c == ")" for c, _ in group_stack)
+        return (in_syntax_decl or in_parser_expr) and all(c == ")" for c, _, _ in group_stack)
 
     def record_token_table_literal(decoded: str) -> None:
         if not decoded:
@@ -1325,7 +1719,12 @@ def _scan_lean_tokens_until(
         for lead in syntax_leads:
             register_lead_spec(lead, total_slots, total_varargs, eff_sep)
 
-    def push_group_opener(closer: str, token_text: str, next_idx: int) -> int:
+    def push_group_opener(
+        closer: str,
+        token_text: str,
+        next_idx: int,
+        open_in_snapshot: tuple[dict[str, list[str]], list[str]] | None = None,
+    ) -> int:
         nonlocal brace_depth, bracket_depth, interp_state
         if closer == "}":
             brace_depth += 1
@@ -1339,7 +1738,7 @@ def _scan_lean_tokens_until(
             saved = interp_state
         else:
             saved = None
-        group_stack.append((closer, saved))
+        group_stack.append((closer, saved, open_in_snapshot))
         interp_state = None
         out.append(token_text)
         return next_idx
@@ -1468,6 +1867,18 @@ def _scan_lean_tokens_until(
             i = j
             continue
 
+        if text[i] in "/-":
+            matched_slash_dash = _match_longest_symbol_prefix_fast(text, i, custom_symbols_by_first)
+            if matched_slash_dash is not None and len(matched_slash_dash) > 1:
+                closer = _group_closer_for_symbol(matched_slash_dash)
+                if closer is not None:
+                    i = push_group_opener(closer, matched_slash_dash, i + len(matched_slash_dash))
+                    continue
+                apply_matched_symbol(matched_slash_dash)
+                out.append(matched_slash_dash)
+                i += len(matched_slash_dash)
+                continue
+
         ch = text[i]
 
         if stop_on_interp_close and ch == "}" and brace_depth == 0:
@@ -1522,8 +1933,9 @@ def _scan_lean_tokens_until(
                 if stop_on_close_bracket is not None and bracket_depth > 0:
                     bracket_depth -= 1
                 restored_sym: str | None = None
+                popped_open_in_sym: tuple[dict[str, list[str]], list[str]] | None = None
                 if group_stack and group_stack[-1][0] == ch:
-                    _, restored_sym = group_stack.pop()
+                    _, restored_sym, popped_open_in_sym = group_stack.pop()
                 if matched_close_sym == "][" and (
                     restored_sym == "ready" or _is_skip_interp_state(restored_sym) or _is_sep_interp_state(restored_sym)
                 ):
@@ -1534,11 +1946,13 @@ def _scan_lean_tokens_until(
                         if _is_skip_interp_state(restored_sym)
                         else restored_sym
                     )
-                    group_stack.append(("]", next_saved))
+                    group_stack.append(("]", next_saved, popped_open_in_sym))
                     interp_state = None
                     out.append(matched_close_sym)
                     i += len(matched_close_sym)
                     continue
+                if popped_open_in_sym is not None:
+                    restore_symbol_scope(popped_open_in_sym)
                 out.append(matched_close_sym)
                 i += len(matched_close_sym)
                 if matched_close_sym in custom_interp_tokens:
@@ -1555,8 +1969,11 @@ def _scan_lean_tokens_until(
             if stop_on_close_bracket is not None and bracket_depth > 0:
                 bracket_depth -= 1
             restored: str | None = None
+            popped_open_in: tuple[dict[str, list[str]], list[str]] | None = None
             if group_stack and group_stack[-1][0] == ch:
-                _, restored = group_stack.pop()
+                _, restored, popped_open_in = group_stack.pop()
+            if popped_open_in is not None:
+                restore_symbol_scope(popped_open_in)
             if syntax_unicode_depth is not None and len(group_stack) < syntax_unicode_depth:
                 syntax_unicode_depth = None
             if syntax_nonlead_paren_depth is not None and len(group_stack) < syntax_nonlead_paren_depth:
@@ -1613,8 +2030,8 @@ def _scan_lean_tokens_until(
             continue
 
         if ch == "'":
+            matched_quote_sym = _match_longest_symbol_prefix_fast(text, i, custom_symbols_by_first)
             if i + 1 < n and text[i + 1] == "'":
-                matched_quote_sym = _match_longest_symbol_prefix_fast(text, i, custom_symbols_by_first)
                 if matched_quote_sym is not None:
                     apply_matched_symbol(matched_quote_sym)
                     out.append(matched_quote_sym)
@@ -1625,7 +2042,9 @@ def _scan_lean_tokens_until(
                 i += 1
                 continue
             char_end = _consume_lean_char_literal(text, i)
-            if char_end is not None:
+            if char_end is not None and (
+                matched_quote_sym is None or (char_end - i) >= len(matched_quote_sym)
+            ):
                 if blank_literals:
                     out.append("'")
                     out.append(_blank_span(text, i + 1, char_end - 1))
@@ -1634,6 +2053,11 @@ def _scan_lean_tokens_until(
                     out.append(text[i:char_end])
                 i = after_atom(char_end)
                 advance_arg_slot()
+                continue
+            if matched_quote_sym is not None:
+                apply_matched_symbol(matched_quote_sym)
+                out.append(matched_quote_sym)
+                i += len(matched_quote_sym)
                 continue
             interp_state = None
             out.append(ch)
@@ -1734,6 +2158,207 @@ def _scan_lean_tokens_until(
             tok = text[i:ident_end]
             bare = _unquote_lean_guillemets(tok)
             is_interp_combinator = bare == "interpolatedStr" or bare.endswith(".interpolatedStr")
+
+            if tok[0] != "`":
+                is_top_cmd_kw = bare in {
+                    "def",
+                    "theorem",
+                    "lemma",
+                    "axiom",
+                    "opaque",
+                    "abbrev",
+                    "structure",
+                    "inductive",
+                    "class",
+                    "instance",
+                    "example",
+                    "section",
+                    "namespace",
+                    "with_weak_namespace",
+                    "end",
+                    "macro",
+                    "macro_rules",
+                    "elab",
+                    "elab_rules",
+                    "syntax",
+                    "notation",
+                    "notation3",
+                    "infix",
+                    "infixl",
+                    "infixr",
+                    "prefix",
+                    "postfix",
+                    "binder_predicate",
+                    "variable",
+                    "universe",
+                    "mutual",
+                    "initialize",
+                    "builtin_initialize",
+                    "declare_syntax_cat",
+                    "declare_simp_like_tactic",
+                    "#check",
+                    "#check_failure",
+                    "#eval",
+                    "#print",
+                    "#reduce",
+                    "#synth",
+                }
+                if not group_stack and is_top_cmd_kw:
+                    in_command_body = bare in {
+                        "def",
+                        "theorem",
+                        "lemma",
+                        "opaque",
+                        "abbrev",
+                        "structure",
+                        "inductive",
+                        "class",
+                        "instance",
+                        "example",
+                        "macro",
+                        "macro_rules",
+                        "elab",
+                        "elab_rules",
+                        "initialize",
+                        "builtin_initialize",
+                    }
+                    if open_in_armed and open_in_pending_chains == 0:
+                        if open_in_saw_body_token:
+                            if pending_open_in_restore is not None:
+                                restore_symbol_scope(pending_open_in_restore)
+                                pending_open_in_restore = None
+                            pending_open_in_from_body = False
+                            open_in_armed = False
+                            open_in_saw_body_token = False
+                        else:
+                            open_in_saw_body_token = True
+                elif not group_stack and bare in {"by", "do"}:
+                    in_command_body = True
+                    if open_in_armed and open_in_pending_chains == 0:
+                        open_in_saw_body_token = True
+                elif not group_stack and open_in_armed and open_in_pending_chains == 0 and bare not in {
+                    "private",
+                    "protected",
+                    "noncomputable",
+                    "partial",
+                    "unsafe",
+                    "scoped",
+                    "local",
+                    "open",
+                    "set_option",
+                    "in",
+                }:
+                    open_in_saw_body_token = True
+
+                if bare == "in" and open_in_pending_chains > 0:
+                    open_in_pending_chains -= 1
+                    if not group_stack:
+                        if not open_in_armed:
+                            open_in_armed = True
+                            open_in_saw_body_token = pending_open_in_from_body
+                    else:
+                        if open_in_pending_chains == 0 and pending_open_in_restore is not None and not open_in_armed:
+                            # Grouped term/tactic `open ... in` runs until the enclosing group closes.
+                            g_closer, g_saved, g_snap = group_stack[-1]
+                            if g_snap is None:
+                                group_stack[-1] = (g_closer, g_saved, pending_open_in_restore)
+                            pending_open_in_restore = None
+                            pending_open_in_from_body = False
+                elif bare == "open":
+                    act_names, add_simple, has_in = _parse_open_decl_activation(text, ident_end)
+                    if has_in:
+                        if pending_open_in_restore is None:
+                            pending_open_in_restore = (
+                                _clone_symbols_by_first(custom_symbols_by_first),
+                                list(open_simple_namespaces),
+                            )
+                            pending_open_in_from_body = in_command_body and not open_in_armed
+                        open_in_pending_chains += 1
+                    if act_names:
+                        for ns_cand in act_names:
+                            _activate_scoped_namespace_symbols(
+                                ns_cand,
+                                current_ns_parts,
+                                open_simple_namespaces,
+                                custom_symbols_by_first,
+                                add_open_simple=add_simple,
+                            )
+                elif not group_stack and bare in {"namespace", "with_weak_namespace"}:
+                    ns_ws = _skip_lean_ws_and_comments_index(text, ident_end)
+                    ns_end = _consume_lean_ident_or_name_lit(text, ns_ws)
+                    if ns_end is not None and ns_end > ns_ws and text[ns_ws] != "`":
+                        ns_raw = _unquote_lean_guillemets(text[ns_ws:ns_end])
+                        segs = [s for s in ns_raw.split(".") if s]
+                        if bare == "namespace" and segs:
+                            for seg in segs:
+                                section_scope_stack.append(
+                                    (
+                                        seg,
+                                        1,
+                                        _clone_symbols_by_first(custom_symbols_by_first),
+                                        list(open_simple_namespaces),
+                                    )
+                                )
+                                current_ns_parts.append(seg)
+                                _activate_scoped_namespace_symbols(
+                                    ".".join(current_ns_parts),
+                                    [],
+                                    open_simple_namespaces,
+                                    custom_symbols_by_first,
+                                    add_open_simple=False,
+                                )
+                        elif bare == "with_weak_namespace" and segs:
+                            if pending_open_in_restore is None:
+                                pending_open_in_restore = (
+                                    _clone_symbols_by_first(custom_symbols_by_first),
+                                    list(open_simple_namespaces),
+                                )
+                            open_in_armed = True
+                            open_in_saw_body_token = False
+                            weak_full = (
+                                segs[1:]
+                                if segs[0] == "_root_"
+                                else [*current_ns_parts, *segs]
+                            )
+                            if weak_full:
+                                _activate_scoped_namespace_symbols(
+                                    ".".join(weak_full),
+                                    [],
+                                    open_simple_namespaces,
+                                    custom_symbols_by_first,
+                                    add_open_simple=False,
+                                )
+                elif not group_stack and bare in {"section", "mutual"}:
+                    sec_name = ""
+                    if bare == "section":
+                        sec_ws = _skip_lean_whitespace(text, ident_end)
+                        if sec_ws < n and "\n" not in text[ident_end:sec_ws]:
+                            sec_end = _consume_lean_ident_or_name_lit(text, sec_ws)
+                            if sec_end is not None and sec_end > sec_ws and text[sec_ws] != "`":
+                                sec_name = _unquote_lean_guillemets(text[sec_ws:sec_end])
+                    section_scope_stack.append(
+                        (
+                            sec_name,
+                            0,
+                            _clone_symbols_by_first(custom_symbols_by_first),
+                            list(open_simple_namespaces),
+                        )
+                    )
+                elif not group_stack and bare == "end":
+                    end_ws = _skip_lean_whitespace(text, ident_end)
+                    end_segs_count = 1
+                    if end_ws < n and "\n" not in text[ident_end:end_ws]:
+                        end_id = _consume_lean_ident_or_name_lit(text, end_ws)
+                        if end_id is not None and end_id > end_ws and text[end_ws] != "`":
+                            end_raw = _unquote_lean_guillemets(text[end_ws:end_id])
+                            end_segs_count = max(1, len([s for s in end_raw.split(".") if s]))
+                    for _ in range(end_segs_count):
+                        if not section_scope_stack:
+                            break
+                        _, popped_ns_count, snap_s, snap_o = section_scope_stack.pop()
+                        if popped_ns_count and current_ns_parts:
+                            del current_ns_parts[-popped_ns_count:]
+                        restore_symbol_scope((snap_s, snap_o))
 
             if not group_stack and bare == "declare_simp_like_tactic":
                 tac_ws = _skip_lean_whitespace(text, ident_end)
@@ -1970,11 +2595,7 @@ def _scan_lean_tokens_until(
             continue
 
         if _is_lean_ascii_digit(ch):
-            j = i + 1
-            while j < n and (_is_lean_ascii_alnum(text[j]) or text[j] in "_."):
-                if text[j] == "." and (j + 1 >= n or not _is_lean_ascii_digit(text[j + 1])):
-                    break
-                j += 1
+            j = _consume_lean_number_literal(text, i)
             if in_syntax_any_paren() and syntax_awaiting_prec:
                 syntax_awaiting_prec = False
             out.append(text[i:j])
@@ -2005,7 +2626,7 @@ def _scan_lean_tokens_until(
                 i += 2
                 continue
 
-        if in_syntax_decl and all(c == ")" for c, _ in group_stack):
+        if in_syntax_decl and all(c == ")" for c, _, _ in group_stack):
             if not group_stack and text.startswith(":=", i):
                 if syntax_abbrev_name is not None and not syntax_leads and not syntax_abbrev_rhs:
                     syntax_abbrev_rhs = True
