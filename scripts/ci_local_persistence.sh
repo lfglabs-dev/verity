@@ -312,9 +312,10 @@ fetch_artifact() {
     return 2
   fi
 
-  # Find tarball in the artifact directory
+  # Find tarball in the artifact directory (zstd-compressed workspace builds
+  # compress ~300x: they are mostly redundant .olean/.ir data).
   local tarball=""
-  for f in "$source_dir"/*.tar; do
+  for f in "$source_dir"/*.tar.zst "$source_dir"/*.tar; do
     if [ -f "$f" ]; then
       tarball="$f"
       break
@@ -322,7 +323,10 @@ fetch_artifact() {
   done
 
   if [ -n "$tarball" ]; then
-    tar -xf "$tarball"
+    case "$tarball" in
+      *.zst) tar -I zstd -xf "$tarball" ;;
+      *) tar -xf "$tarball" ;;
+    esac
     echo "Restored artifact '${name}' from local tarball"
   else
     # Directory artifact: copy contents into a local directory named after the artifact

@@ -272,8 +272,9 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             work_a, work_b = tmp / "work-a", tmp / "work-b"
             work_a.mkdir()
             work_b.mkdir()
-            payload = work_a / "lean-workspace-build.tar"
-            subprocess.run(["tar", "-cf", str(payload), "-C", str(ROOT), "README.md"], check=True)
+            payload = work_a / "lean-workspace-build.tar.zst"
+            subprocess.run(["tar", "-I", "zstd", "-cf", str(payload), "-C", str(ROOT), "README.md"],
+                           check=True)
             out = tmp / "github_output"
             base = dict(os.environ, VERITY_CI_HUB_ENV=str(tmp / "absent.env"),
                         VERITY_CI_HUB_DIR=str(hub), GITHUB_OUTPUT=str(out))
