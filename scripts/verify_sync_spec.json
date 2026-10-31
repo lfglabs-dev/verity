@@ -383,7 +383,7 @@
         "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "lean-workspace-build",
-          "path": "lean-workspace-build.tar"
+          "path": "lean-workspace-build.tar.zst"
         }
       },
       {
@@ -506,7 +506,7 @@
         "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "lean-workspace-compiler-build",
-          "path": "lean-workspace-compiler-build.tar",
+          "path": "lean-workspace-compiler-build.tar.zst",
           "compression-level": "0"
         }
       },
@@ -945,7 +945,7 @@
   },
   "expected_uploaded_artifact_paths": {
     "build": [
-      "lean-workspace-build.tar"
+      "lean-workspace-build.tar.zst"
     ],
     "build-audits": [
       "axiom-report.md\naxiom-report-raw.log"
@@ -953,7 +953,7 @@
     "build-compiler-binaries": [
       ".lake/build/bin/difftest-interpreter",
       "compiler/bin",
-      "lean-workspace-compiler-build.tar",
+      "lean-workspace-compiler-build.tar.zst",
       "compiler/yul",
       "compiler/yul-patched",
       "compiler/yul-smoke",

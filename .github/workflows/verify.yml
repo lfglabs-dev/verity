@@ -448,20 +448,23 @@ jobs:
         run: make verify-storage-layout
 
       - name: Package prepared Lean workspace build
-        run: tar -hcf lean-workspace-build.tar .lake/build .lake/solidity-import
+        run: tar -h -I 'zstd -T0 -3' -cf lean-workspace-build.tar.zst .lake/build .lake/solidity-import
 
       - name: Publish Lean workspace build locally
+        id: publish-lean-workspace
         run: |
           scripts/ci_local_persistence.sh publish \
             --run-id "${{ github.run_id }}" \
             --name lean-workspace-build \
-            --path lean-workspace-build.tar
+            --path lean-workspace-build.tar.zst
 
+      # Other runner hosts pull it from the artifact hub. The zstd tarball is
+      # small, so it is always uploaded too: GitHub stays a real fallback.
       - name: Upload prepared Lean workspace build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-build
-          path: lean-workspace-build.tar
+          path: lean-workspace-build.tar.zst
           retention-days: 3
 
       - name: Save current run Lake cache
@@ -519,7 +522,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Build split Lake packages independently
         run: python3 scripts/check_split_package_builds.py
@@ -611,7 +614,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
@@ -757,7 +760,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Reset ccache statistics
         run: ccache -z
@@ -934,14 +937,15 @@ jobs:
         run: lake exe gas-report --manifest packages/verity-examples/contracts.manifest --enable-patches --patch-max-iterations 2 > gas-report-static-patched.tsv
 
       - name: Package compiler workspace build
-        run: tar -hcf lean-workspace-compiler-build.tar .lake/build
+        run: tar -h -I 'zstd -T0 -3' -cf lean-workspace-compiler-build.tar.zst .lake/build
 
       - name: Publish compiler workspace build locally
+        id: publish-compiler-workspace
         run: |
           scripts/ci_local_persistence.sh publish \
             --run-id "${{ github.run_id }}" \
             --name lean-workspace-compiler-build \
-            --path lean-workspace-compiler-build.tar
+            --path lean-workspace-compiler-build.tar.zst
 
       - name: Publish compiler binaries locally
         run: |
@@ -1017,12 +1021,13 @@ jobs:
           compression-level: 0
           retention-days: 3
 
+      # Always uploaded (zstd, ~10 MB): the GitHub fallback when the hub is down.
       - name: Upload compiler workspace build
         if: '!cancelled()'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-compiler-build
-          path: lean-workspace-compiler-build.tar
+          path: lean-workspace-compiler-build.tar.zst
           compression-level: 0
           retention-days: 3
 
@@ -1119,7 +1124,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1138,7 +1143,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-compiler-build.tar
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Restore generated Yul (local)
         id: local-restore-yul
@@ -1328,7 +1333,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1347,7 +1352,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-compiler-build.tar
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Check preinstalled Foundry for Solidity slice comparisons
         id: preinstalled-foundry-slices
@@ -1682,7 +1687,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1701,7 +1706,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-compiler-build.tar
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Restore patched smoke Yul (local)
         id: local-restore-yul-patched-smoke
