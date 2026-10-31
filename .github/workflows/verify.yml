@@ -458,9 +458,9 @@ jobs:
             --name lean-workspace-build \
             --path lean-workspace-build.tar.zst
 
-      # Other runner hosts pull it from the artifact hub; upload only as fallback.
+      # Other runner hosts pull it from the artifact hub. The zstd tarball is
+      # small, so it is always uploaded too: GitHub stays a real fallback.
       - name: Upload prepared Lean workspace build
-        if: steps.publish-lean-workspace.outputs.hub != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-build
@@ -1021,9 +1021,9 @@ jobs:
           compression-level: 0
           retention-days: 3
 
-      # ~17 min to GitHub for 3 GB: only when the artifact hub publish failed.
+      # Always uploaded (zstd, ~10 MB): the GitHub fallback when the hub is down.
       - name: Upload compiler workspace build
-        if: "!cancelled() && steps.publish-compiler-workspace.outputs.hub != 'true'"
+        if: '!cancelled()'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-compiler-build
