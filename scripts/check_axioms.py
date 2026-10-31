@@ -118,17 +118,34 @@ _DECL_SCOPE_KEYWORDS: frozenset[str] = frozenset(
 _DYNAMIC_AXIOM_BYPASS_TOKENS: tuple[str, ...] = (
     "ParserDescr",
     "TrailingParserDescr",
+    "leading_parser",
+    "trailing_parser",
     "leadingNode",
     "trailingNode",
     "parserExtension",
     "addParser",
+    "addParserCategory",
+    "addBuiltinParser",
+    "addBuiltinLeadingParser",
+    "addBuiltinTrailingParser",
     "addToken",
+    "updateBuiltinTokens",
     "registerParserCategory",
+    "registerBuiltinParserAttribute",
+    "registerBuiltinDynamicParserAttribute",
+    "mkParserAttributeImpl",
+    "evalParserConst",
+    "evalParserConstUnsafe",
     "runParserCategory",
     "parseCommand",
     "processCommands",
     "runFrontend",
     "processHeader",
+    "elabSyntax",
+    "elabNotation",
+    "elabMacro",
+    "elabBinderPred",
+    "notation3",
     "addDecl",
     "addAndCompile",
     "addAsAxiom",
@@ -149,6 +166,8 @@ _DYNAMIC_AXIOM_BYPASS_TOKENS: tuple[str, ...] = (
     "setKind",
     "interpolatedStrFn",
     "interpolatedStrNoAntiquot",
+    "symbolNoAntiquot",
+    "symbolInfo",
 )
 _FORBIDDEN_SYNTAX_CONSTRUCTOR_TOKENS: tuple[str, ...] = (
     "Syntax.atom",
@@ -178,6 +197,7 @@ _QUOTED_SYNTAX_DECL_KEYWORDS: frozenset[str] = frozenset(
     {
         "syntax",
         "notation",
+        "notation3",
         "infix",
         "infixl",
         "infixr",
@@ -185,6 +205,7 @@ _QUOTED_SYNTAX_DECL_KEYWORDS: frozenset[str] = frozenset(
         "postfix",
         "macro",
         "elab",
+        "binder_predicate",
         "declare_syntax_cat",
         "declare_simp_like_tactic",
     }
@@ -192,6 +213,7 @@ _QUOTED_SYNTAX_DECL_KEYWORDS: frozenset[str] = frozenset(
 _NON_LITERAL_SYMBOL_FNS: frozenset[str] = frozenset(
     {"symbol", "unicodeSymbol", "nonReservedSymbol"}
 )
+_PARSER_ATTRIBUTE_SUFFIX = "_parser"
 
 
 def is_lean_builtin_axiom(name: str) -> bool:
@@ -373,24 +395,67 @@ def _reject_quoted_syntax_declarations(scrubbed: str, rel_path: str) -> None:
         i += 1
 
 
-def _reject_nonliteral_symbol_args(scrubbed: str, rel_path: str) -> None:
+def _is_scrubbed_string_start(scrubbed: str, idx: int) -> bool:
+    n = len(scrubbed)
+    if idx >= n:
+        return False
+    if scrubbed[idx] == '"':
+        return True
+    if scrubbed[idx] == "&" and idx + 1 < n and scrubbed[idx + 1] == '"':
+        return True
+    if scrubbed[idx] == "r":
+        k = idx + 1
+        while k < n and scrubbed[k] == "#":
+            k += 1
+        return k < n and scrubbed[k] == '"'
+    return False
+
+
+def _reject_parser_attributes_and_nonliteral_symbols(scrubbed: str, rel_path: str) -> None:
     n = len(scrubbed)
     i = 0
+    attr_depth = 0
     while i < n:
+        if scrubbed.startswith("@[", i):
+            attr_depth += 1
+            i += 2
+            continue
+        if attr_depth > 0 and scrubbed[i] == "[":
+            attr_depth += 1
+            i += 1
+            continue
+        if attr_depth > 0 and scrubbed[i] == "]":
+            attr_depth -= 1
+            i += 1
+            continue
         ident_end = _consume_lean_ident_or_name_lit(scrubbed, i)
         if ident_end is None or ident_end <= i:
             i += 1
             continue
+        if scrubbed[i] == "`":
+            i = ident_end
+            continue
         bare = scrubbed[i:ident_end].replace("«", "").replace("»", "")
         short = bare.rsplit(".", 1)[-1]
+        if attr_depth > 0 and short.endswith(_PARSER_ATTRIBUTE_SUFFIX):
+            line, _ = _line_col_of(scrubbed, i)
+            die(
+                f"Forbidden parser attribute {bare!r} at {rel_path}:{line}; "
+                "use literal `syntax`/`macro`/`elab` declarations instead"
+            )
         if short in _NON_LITERAL_SYMBOL_FNS and _ident_segment_boundary_before(scrubbed, i):
             after = _skip_lean_whitespace(scrubbed, ident_end)
             if after < n and not _is_lean_whitespace(scrubbed[ident_end - 1]):
                 if scrubbed[after] == "(":
                     arg = _skip_lean_whitespace(scrubbed, after + 1)
+                    named_end = _consume_lean_ident_or_name_lit(scrubbed, arg)
+                    if named_end is not None and named_end > arg:
+                        after_name = _skip_lean_whitespace(scrubbed, named_end)
+                        if scrubbed.startswith(":=", after_name):
+                            arg = _skip_lean_whitespace(scrubbed, after_name + 2)
                 else:
                     arg = after
-                if arg < n and scrubbed[arg] not in {'"', "r", "&", ":", "=", ")", ",", "]"}:
+                if arg < n and scrubbed[arg] not in {":", "=", ")", ",", "]"} and not _is_scrubbed_string_start(scrubbed, arg):
                     line, _ = _line_col_of(scrubbed, i)
                     die(
                         f"Non-literal parser symbol argument at {rel_path}:{line}; "
@@ -423,6 +488,7 @@ def _reject_dynamic_syntax_antiquotations(scrubbed: str, rel_path: str) -> None:
             if not group_stack and bare in {
                 "syntax",
                 "notation",
+                "notation3",
                 "infix",
                 "infixl",
                 "infixr",
@@ -430,11 +496,13 @@ def _reject_dynamic_syntax_antiquotations(scrubbed: str, rel_path: str) -> None:
                 "postfix",
                 "macro",
                 "elab",
+                "binder_predicate",
             }:
                 in_syntax_decl = True
             elif not group_stack and bare in _DECL_SCOPE_KEYWORDS and bare not in {
                 "syntax",
                 "notation",
+                "notation3",
                 "infix",
                 "infixl",
                 "infixr",
@@ -442,6 +510,7 @@ def _reject_dynamic_syntax_antiquotations(scrubbed: str, rel_path: str) -> None:
                 "postfix",
                 "macro",
                 "elab",
+                "binder_predicate",
             }:
                 in_syntax_decl = False
             i = ident_end
@@ -478,7 +547,7 @@ def scan_lean_file_axioms(text: str, rel_path: str) -> list[tuple[str, int]]:
     """
     scrubbed = scrub_lean_code(text)
     _find_dynamic_axiom_bypass(scrubbed, rel_path)
-    _reject_nonliteral_symbol_args(scrubbed, rel_path)
+    _reject_parser_attributes_and_nonliteral_symbols(scrubbed, rel_path)
     _reject_quoted_syntax_declarations(scrubbed, rel_path)
     _reject_dynamic_syntax_antiquotations(scrubbed, rel_path)
 

@@ -361,7 +361,7 @@ class CheckAxiomsReportTests(unittest.TestCase):
                         'syntax "myMany " ident* interpolatedStr(term) : term',
                         'def r := myMany a b "{ \'\\\"\' }"',
                         "axiom ax_many_interp : False",
-                        '@[term_parser] def myLP := leading_parser "myLP! " >> interpolatedStr termParser',
+                        'syntax "myLP! " interpolatedStr(term) : term',
                         'def s := myLP! "{ \'\\\"\' }"',
                         "axiom ax_lp_interp : False",
                         'def closeQuotes := "done"',
@@ -439,6 +439,11 @@ class CheckAxiomsReportTests(unittest.TestCase):
             ("def n := Lean.Syntax.node .none k #[]\n", "Syntax.node"),
             ("def n2 : Lean.Syntax := .node .none k #[]\n", ".node"),
             ("def sym := Lean.Parser.symbol myStr\n", "Non-literal parser symbol"),
+            ("def symPos := Lean.Parser.symbol (String.singleton 'a')\n", "Non-literal parser symbol"),
+            ('@[term_parser] def myP := leading_parser "x"\n', "leading_parser"),
+            ("def myCoe : Lean.Parser.Parser := nodeWithAntiquot \"n\" `k p\n@[term_parser] def regP := myCoe\n", "Forbidden parser attribute"),
+            ('notation3 "myN3" => True\n', "notation3"),
+            ('macro "sneakBp" : command => `(command| binder_predicate x "≺" y:term => `(True))\n', "Forbidden quoted syntax"),
             ('def g := Lean. «addDecl»\n', "addDecl"),
         ]
         for sample, needle in forbidden_samples:
@@ -447,6 +452,57 @@ class CheckAxiomsReportTests(unittest.TestCase):
                 with self.assertRaises(SystemExit, msg=f"Sample did not fail closed: {sample!r}"):
                     check_axioms.scan_lean_file_axioms(sample, "Compiler/Bypass.lean")
             self.assertIn(needle, stderr.getvalue())
+
+    def test_scan_lean_file_axioms_detects_axioms_across_scoped_and_lexer_edge_tokens(self) -> None:
+        src = "\n".join(
+            [
+                'syntax:max " -open " term : term',
+                'def u1 := `(term| { x //-open "a" })',
+                "axiom ax_div_slash3 : False",
+                "-- -/",
+                'syntax:max " #\\\"a\\\" " : term',
+                'syntax:max term " ~r" term : term',
+                'def u2 := `(term| 1 ~r#"a")',
+                "axiom ax_tr_hashquote : False",
+                '-- "#',
+                'def u3 := `(term| (1a\'"\'open", 0xfg\'"\'open", 1.5e2a\'"\'open", 1e-2a\'"\'open"))',
+                "axiom ax_num_edges : False",
+                '-- "',
+                'def u4 : IO Unit := do aesop_trace![steps] "a {\'\\\"\'}" ; aesop_trace[steps] "b {\'\\\"\'}"',
+                "axiom ax_aesop_edges : False",
+                '-- "',
+                'def u5 := `(term| (f ∘\'"\'open", f ⁻¹\'"\'open"))',
+                "axiom ax_global_primes : False",
+                '-- "',
+                "namespace BitVec",
+                'def u6 := `(term| 1#\'"\'open")',
+                "axiom ax_bv_ns : False",
+                '-- "',
+                "end BitVec",
+                "def cUnscoped : Char := '#' -- \"",
+                "axiom ax_after_bv_end : False",
+                "open scoped Dioph in",
+                'def u7 := `(term| x D/-open "a")',
+                "axiom ax_dioph_open_in : False",
+                "-- -/",
+                "def u8 : Nat := D/- comment\n-/\n0",
+                "axiom ax_after_dioph_open_in : False",
+            ]
+        ) + "\n"
+        self.assertEqual(
+            check_axioms.scan_lean_file_axioms(src, "Compiler/LexerEdges.lean"),
+            [
+                ("ax_div_slash3", 3),
+                ("ax_tr_hashquote", 8),
+                ("ax_num_edges", 11),
+                ("ax_aesop_edges", 14),
+                ("ax_global_primes", 17),
+                ("ax_bv_ns", 21),
+                ("ax_after_bv_end", 25),
+                ("ax_dioph_open_in", 28),
+                ("ax_after_dioph_open_in", 33),
+            ],
+        )
 
     def test_scan_lean_file_axioms_ignores_guillemet_identifier_and_backtick_name_lit(self) -> None:
         src = "\n".join(
