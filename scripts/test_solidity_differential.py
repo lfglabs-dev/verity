@@ -187,5 +187,25 @@ class SolidityDifferentialTests(unittest.TestCase):
             self.assertIn("check_stateful", seen[1])
 
 
+    def test_stateful_checks_report_every_failure(self):
+        seen = []
+
+        def fake_command(argv, **kwargs):
+            seen.append(argv[3])
+            if argv[3] in ("bad-a", "bad-b"):
+                raise RuntimeError(f"{argv[3]} broke")
+            return ""
+
+        checks = [(name, ["-m", name]) for name in ("bad-a", "good", "bad-b")]
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("solidity_differential.suite.command", fake_command), \
+                 patch("builtins.print"):
+                with self.assertRaisesRegex(Exception, "2 stateful checks failed") as raised:
+                    run_checks(Path(directory), checks, 64, 2449, jobs=1)
+            self.assertIn("bad-a broke", str(raised.exception))
+            self.assertIn("bad-b broke", str(raised.exception))
+            self.assertEqual(sorted(seen), ["bad-a", "bad-b", "good"])
+            self.assertEqual(json.loads((Path(directory) / "completed.json").read_text()), ["good"])
+
 if __name__ == "__main__":
     unittest.main()

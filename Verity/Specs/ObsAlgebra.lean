@@ -140,12 +140,8 @@ def CertifiedObsAndGasRefinement.compose {State : Type}
     reverting with `revertPayload` discards all emitted logs, clears transient storage
     modifications back to `initTransient`, restores persistent `storage` to `initStorage`,
     and sets `status = .revert`. -/
-def revertObs (initStorage initTransient : List (Nat × Nat)) (revertPayload : List UInt8) : Obs where
-  status := .revert
-  returndata := revertPayload
-  logs := []
-  storage := initStorage
-  transient := initTransient
+def revertObs (initStorage initTransient : List (Nat × Nat)) (revertPayload : List UInt8) : Obs :=
+  Obs.mk .revert revertPayload [] initStorage initTransient
 
 @[simp]
 theorem revertObs_status (initStorage initTransient : List (Nat × Nat)) (payload : List UInt8) :
@@ -272,7 +268,7 @@ theorem transientWord_disjoint_persistent_channels (s : Nat) :
 
 /-- Executable witness suite (`by decide`, `0 native_decide`). -/
 theorem obsAlgebra_executable_witness :
-    let o1 : Obs := { status := .success, returndata := [1, 2], logs := [], storage := [(0, 42)], transient := [] }
+    let o1 : Obs := Obs.mk .success [1, 2] [] [(0, 42)] []
     let o2 : Obs := revertObs [(0, 10)] [] [0x08, 0xc3, 0x79, 0xa0]
     obsEquivBool o1 o1 = true ∧
     obsEquivBool o1 o2 = false ∧

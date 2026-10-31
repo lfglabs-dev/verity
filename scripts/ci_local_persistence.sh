@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ARTIFACT_ROOT="/srv/verity-ci-cache/artifacts"
+ARTIFACT_ROOT="${VERITY_CI_ARTIFACT_ROOT:-/srv/verity-ci-cache/artifacts}"
+
+# Cross-host artifact hub (installed by scripts/ci_artifact_hub.sh). Without it,
+# an artifact produced on another runner host can only come from GitHub, which
+# costs ~15 min per direction for the 3 GB compiler workspace.
+HUB_ENV="${VERITY_CI_HUB_ENV:-/usr/local/lib/verity-ci/hub.env}"
+if [ -r "$HUB_ENV" ]; then
+  # shellcheck disable=SC1090
+  . "$HUB_ENV"
+fi
 
 usage() {
   cat <<'EOF'
@@ -29,6 +38,50 @@ sanitize_key() {
 
   hash="$(printf '%s' "$1" | sha256sum | awk '{print $1}')"
   printf '%s-%s' "${sanitized:0:160}" "$hash"
+}
+
+# Lock file shared with ci_host_maintenance.sh for cache entry $1 (see
+# entry_lock_path there). Kept outside every pruned tree.
+entry_lock_path() {
+  local tree
+  tree="$(dirname "$1")"
+  printf '%s/.locks/%s__%s.lock' "$(dirname "$tree")" "$(basename "$tree")" "$(basename "$1")"
+}
+
+# Take the lock of cache entry $1 in mode $2 (-x or -s), waiting at most
+# MOUNT_LOCK_TIMEOUT seconds. The fd stays open in this shell (LOCK_FD) until
+# the script exits; must not run in a subshell, or the lock is dropped at once.
+lock_entry() {
+  local lock
+  lock="$(entry_lock_path "$1")"
+  mkdir -p "$(dirname "$lock")"
+  exec {LOCK_FD}>"$lock"
+  if ! flock "$2" -w "${MOUNT_LOCK_TIMEOUT:-600}" "$LOCK_FD"; then
+    echo "::error::timed out waiting for cache lock ${lock}" >&2
+    exit 1
+  fi
+}
+
+# Remote spec for hub path $1: an rsync-over-ssh target, or a plain directory
+# when VERITY_CI_HUB_DIR is set (the hub host itself, and tests).
+hub_spec() {
+  if [ -n "${VERITY_CI_HUB_DIR:-}" ]; then
+    printf '%s/%s' "$VERITY_CI_HUB_DIR" "$1"
+  else
+    printf '%s:%s' "$VERITY_CI_HUB_TARGET" "$1"
+  fi
+}
+
+hub_enabled() {
+  [ -n "${VERITY_CI_HUB_DIR:-}" ] || [ -n "${VERITY_CI_HUB_TARGET:-}" ]
+}
+
+hub_rsync() {
+  if [ -n "${VERITY_CI_HUB_DIR:-}" ]; then
+    rsync "$@"
+  else
+    rsync --timeout=300 -e "ssh -i '${VERITY_CI_HUB_KEY:?}' -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o 'UserKnownHostsFile=${VERITY_CI_HUB_KNOWN_HOSTS:?}' -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4" "$@"
+  fi
 }
 
 is_dir_empty() {
@@ -75,6 +128,10 @@ mount_persistent_dir() {
 
   local primary_dir fallback_dir=""
   primary_dir="${root}/$(sanitize_key "$key")"
+  # Validate, lease (touch) and seed the entry under its exclusive lock, so
+  # host maintenance can never delete it between its check and its rm.
+  mkdir -p "$root"
+  lock_entry "$primary_dir" -x
   mkdir -p "$primary_dir"
 
   if [ -n "$fallback_key" ]; then
@@ -97,7 +154,20 @@ mount_persistent_dir() {
     exit 0
   fi
 
-  cp -a "$fallback_dir/." "$primary_dir/"
+  # Lease the fallback too, and hold it shared while copying from it. Seed into
+  # a locked staging directory and rename it into place, so a cancelled or
+  # ENOSPC copy can never leave a half-populated entry that later runs reuse.
+  lock_entry "$fallback_dir" -s
+  if [ -d "$fallback_dir" ]; then
+    local staging="${primary_dir}.seeding"
+    lock_entry "$staging" -x
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    touch "$fallback_dir"
+    cp -a "$fallback_dir/." "$staging/"
+    rmdir "$primary_dir"
+    mv "$staging" "$primary_dir"
+  fi
   # cp -a re-applies the fallback dir's (old) mtime onto the primary,
   # undoing the attach-time touch above — refresh it again so maintenance
   # still sees this entry as in-use.
@@ -137,6 +207,67 @@ publish_artifact() {
 
   touch "$target_dir/.ready"
   echo "Published artifact '${name}' to ${target_dir}"
+
+  # The hub host's local store is the hub: nothing to push.
+  if hub_enabled && [ "${VERITY_CI_HUB_SELF:-}" != "1" ]; then
+    # Payload first, .ready last: a consumer only trusts a complete artifact.
+    # --delete-excluded drops a .ready left by an earlier attempt of this run
+    # before the new payload lands.
+    if hub_rsync -a --mkpath --delete-before --delete-excluded --exclude=.ready \
+         "$target_dir/" "$(hub_spec "${run_id}/${name}/")" &&
+       hub_rsync -a "$target_dir/.ready" "$(hub_spec "${run_id}/${name}/.ready")"; then
+      echo "Published artifact '${name}' to the artifact hub"
+      [ -n "${GITHUB_OUTPUT:-}" ] && echo "hub=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "::warning::Could not publish '${name}' to the artifact hub; consumers on other hosts use the GitHub artifact"
+      [ -n "${GITHUB_OUTPUT:-}" ] && echo "hub=false" >> "$GITHUB_OUTPUT"
+    fi
+  elif hub_enabled; then
+    [ -n "${GITHUB_OUTPUT:-}" ] && echo "hub=true" >> "$GITHUB_OUTPUT"
+  fi
+  return 0
+}
+
+# Pull artifact NAME of RUN_ID from the hub into the local store. Serialized per
+# artifact so parallel consumers on one host transfer it once.
+fetch_from_hub() {
+  local run_id="$1" name="$2"
+  local target_dir="${ARTIFACT_ROOT}/${run_id}/${name}"
+  hub_enabled && [ "${VERITY_CI_HUB_SELF:-}" != "1" ] || return 1
+  # Locks live beside the store, not in it: artifact cleanup prunes ARTIFACT_ROOT.
+  local lock_dir fd
+  lock_dir="$(dirname "$ARTIFACT_ROOT")/.locks"
+  mkdir -p "$lock_dir"
+  exec {fd}>"${lock_dir}/hub__${run_id}__${name}.lock"
+  flock -x -w 1800 "$fd" || return 1
+  if [ ! -f "$target_dir/.ready" ]; then
+    local staging="${target_dir}.hub-partial"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    # The remote .ready is written last by the producer: no marker, no artifact.
+    # rsync exits 23 when the marker is simply absent; anything else is a hub
+    # transport failure, which is surfaced (the GitHub upload may have been
+    # skipped because the hub publish had succeeded).
+    local rc=0
+    hub_rsync -a "$(hub_spec "${run_id}/${name}/.ready")" "$staging/.ready" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      hub_rsync -a --exclude=.ready "$(hub_spec "${run_id}/${name}/")" "$staging/" || rc=$?
+    fi
+    # A marker without payload (pruned or truncated on the hub) is not an artifact.
+    if [ "$rc" -eq 0 ] && ! find "$staging" -mindepth 1 ! -name .ready -print -quit | grep -q .; then
+      rc=23
+    fi
+    if [ "$rc" -ne 0 ] || ! { rm -rf "$target_dir" && mv "$staging" "$target_dir"; }; then
+      rm -rf "$staging"
+      exec {fd}>&-
+      if [ "$rc" -ne 0 ] && [ "$rc" -ne 23 ]; then
+        echo "::warning::Artifact hub unreachable (rsync exit ${rc}) while fetching '${name}'; using the GitHub artifact"
+      fi
+      return 1
+    fi
+  fi
+  exec {fd}>&-
+  echo "Fetched artifact '${name}' from the artifact hub"
 }
 
 fetch_artifact() {
@@ -164,8 +295,10 @@ fetch_artifact() {
   # directory that does not exist here means the producer ran on another host:
   # waiting cannot help, fall back to the GitHub artifact at once.
   if [ ! -d "$source_dir" ]; then
-    echo "::notice::Local artifact '${name}' was published on another runner host; using the GitHub artifact"
-    return 2
+    if ! fetch_from_hub "$run_id" "$name"; then
+      echo "::notice::Local artifact '${name}' was published on another runner host; using the GitHub artifact"
+      return 2
+    fi
   fi
 
   local waited=0
@@ -179,9 +312,10 @@ fetch_artifact() {
     return 2
   fi
 
-  # Find tarball in the artifact directory
+  # Find tarball in the artifact directory (zstd-compressed workspace builds
+  # compress ~300x: they are mostly redundant .olean/.ir data).
   local tarball=""
-  for f in "$source_dir"/*.tar; do
+  for f in "$source_dir"/*.tar.zst "$source_dir"/*.tar; do
     if [ -f "$f" ]; then
       tarball="$f"
       break
@@ -189,7 +323,10 @@ fetch_artifact() {
   done
 
   if [ -n "$tarball" ]; then
-    tar -xf "$tarball"
+    case "$tarball" in
+      *.zst) tar -I zstd -xf "$tarball" ;;
+      *) tar -xf "$tarball" ;;
+    esac
     echo "Restored artifact '${name}' from local tarball"
   else
     # Directory artifact: copy contents into a local directory named after the artifact
@@ -228,15 +365,28 @@ cleanup_artifacts() {
     echo "Cleaned up ${artifact_count} stale artifact directories"
   fi
 
-  local cache_count=0
+  local cache_count=0 lock fd
+  # Never go below the attach lease (12h, longer than any job): an entry
+  # touched by a running job must not be deleted, whatever the caller passes.
+  if [ "$cache_max_age_hours" -lt 12 ]; then
+    cache_max_age_hours=12
+  fi
   for cache_root in \
     "$(dirname "$ARTIFACT_ROOT")/lake-build" \
     "$(dirname "$ARTIFACT_ROOT")/compiler-ccache"
   do
     [ -d "$cache_root" ] || continue
     while IFS= read -r -d '' dir; do
-      rm -rf "$dir"
-      cache_count=$((cache_count + 1))
+      # Same protocol as ci_host_maintenance.sh: skip entries whose lock is
+      # held, and re-check the age under the lock before deleting.
+      lock="$(entry_lock_path "$dir")"
+      mkdir -p "$(dirname "$lock")"
+      exec {fd}>"$lock"
+      if flock -x -n "$fd" && [ -n "$(find "$dir" -maxdepth 0 -mmin +"$((cache_max_age_hours * 60))" 2>/dev/null)" ]; then
+        rm -rf "$dir"
+        cache_count=$((cache_count + 1))
+      fi
+      exec {fd}>&-
     done < <(find "$cache_root" -maxdepth 1 -mindepth 1 -type d -mmin +"$((cache_max_age_hours * 60))" -print0 2>/dev/null)
   done
 

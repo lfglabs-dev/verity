@@ -414,12 +414,6 @@ jobs:
           disable-lake-cache-restore: ${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}
           cache-primary-key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
 
-      - name: Rebuild cached local Lean modules
-        run: |
-          rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity
-          rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts
-          rm -rf .lake/build/lib/lean/Compiler .lake/build/ir/Compiler
-
       - name: Build and verify all proofs
         run: |
           set -o pipefail
@@ -454,20 +448,24 @@ jobs:
         run: make verify-storage-layout
 
       - name: Package prepared Lean workspace build
-        run: tar -hcf lean-workspace-build.tar .lake/build .lake/solidity-import
+        run: tar -h -I 'zstd -T0 -3' -cf lean-workspace-build.tar.zst .lake/build .lake/solidity-import
 
       - name: Publish Lean workspace build locally
+        id: publish-lean-workspace
         run: |
           scripts/ci_local_persistence.sh publish \
             --run-id "${{ github.run_id }}" \
             --name lean-workspace-build \
-            --path lean-workspace-build.tar
+            --path lean-workspace-build.tar.zst
 
+      # Other runner hosts pull it from the artifact hub. The zstd tarball is
+      # small, so it is always uploaded too: GitHub stays a real fallback.
       - name: Upload prepared Lean workspace build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-build
-          path: lean-workspace-build.tar
+          path: lean-workspace-build.tar.zst
+          retention-days: 3
 
       - name: Save current run Lake cache
         if: success() && needs.changes.outputs.build == 'true' && steps.setup-lean.outputs.using-sticky-disks != 'true'
@@ -524,7 +522,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Build split Lake packages independently
         run: python3 scripts/check_split_package_builds.py
@@ -570,7 +568,11 @@ jobs:
     # behind the same three build-medium runners.
     timeout-minutes: 210
     needs: [changes, checks, build]
-    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
+    # ~6 runner-hours per run: nightly, manual dispatch, or PRs labelled
+    # `ci:mutations` only, so it stops starving the compiler jobs on every PR
+    # and every merge. The label is read from the triggering event: add it,
+    # then push (or reopen), or dispatch this workflow on the branch instead.
+    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:mutations'))
     strategy:
       fail-fast: false
       matrix:
@@ -612,7 +614,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
@@ -738,6 +740,8 @@ jobs:
             exit 0
           fi
           cp -a "$RUNNER_TEMP/compiler-ccache-cache/." "$CCACHE_DIR/"
+          # cp -a restores the archive's old mtime; refresh the attach lease.
+          touch "$CCACHE_DIR"
 
       - name: Restore prepared Lean workspace build (local)
         id: local-restore-lean-workspace
@@ -756,7 +760,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Reset ccache statistics
         run: ccache -z
@@ -933,14 +937,15 @@ jobs:
         run: lake exe gas-report --manifest packages/verity-examples/contracts.manifest --enable-patches --patch-max-iterations 2 > gas-report-static-patched.tsv
 
       - name: Package compiler workspace build
-        run: tar -hcf lean-workspace-compiler-build.tar .lake/build
+        run: tar -h -I 'zstd -T0 -3' -cf lean-workspace-compiler-build.tar.zst .lake/build
 
       - name: Publish compiler workspace build locally
+        id: publish-compiler-workspace
         run: |
           scripts/ci_local_persistence.sh publish \
             --run-id "${{ github.run_id }}" \
             --name lean-workspace-compiler-build \
-            --path lean-workspace-compiler-build.tar
+            --path lean-workspace-compiler-build.tar.zst
 
       - name: Publish compiler binaries locally
         run: |
@@ -1005,6 +1010,7 @@ jobs:
         with:
           name: difftest-interpreter
           path: .lake/build/bin/difftest-interpreter
+          retention-days: 3
 
       - name: Upload compiler binaries
         if: '!cancelled()'
@@ -1013,14 +1019,17 @@ jobs:
           name: verity-compiler-binaries
           path: compiler/bin
           compression-level: 0
+          retention-days: 3
 
+      # Always uploaded (zstd, ~10 MB): the GitHub fallback when the hub is down.
       - name: Upload compiler workspace build
         if: '!cancelled()'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-compiler-build
-          path: lean-workspace-compiler-build.tar
+          path: lean-workspace-compiler-build.tar.zst
           compression-level: 0
+          retention-days: 3
 
       - name: Upload generated Yul
         if: '!cancelled()'
@@ -1028,6 +1037,7 @@ jobs:
         with:
           name: generated-yul
           path: compiler/yul
+          retention-days: 3
 
       - name: Upload patched Yul
         if: '!cancelled()'
@@ -1035,6 +1045,7 @@ jobs:
         with:
           name: generated-yul-patched
           path: compiler/yul-patched
+          retention-days: 3
 
       - name: Upload smoke Yul
         if: '!cancelled()'
@@ -1042,6 +1053,7 @@ jobs:
         with:
           name: generated-yul-smoke
           path: compiler/yul-smoke
+          retention-days: 3
 
       - name: Upload patched smoke Yul
         if: '!cancelled()'
@@ -1049,6 +1061,7 @@ jobs:
         with:
           name: generated-yul-patched-smoke
           path: compiler/yul-patched-smoke
+          retention-days: 3
 
       - name: Upload patch coverage report
         if: '!cancelled()'
@@ -1111,7 +1124,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1130,7 +1143,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-compiler-build.tar
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Restore generated Yul (local)
         id: local-restore-yul
@@ -1280,9 +1293,10 @@ jobs:
 
   compiler-regressions:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '150' || '90') }}
+    timeout-minutes: 200
     needs: [changes, checks, build, build-compiler-binaries]
-    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
+    # ~2 runner-hours: main pushes, nightly, dispatch, or PRs labelled ci:full.
+    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))
     env:
       LEAN_NUM_THREADS: 4
     steps:
@@ -1320,7 +1334,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1339,7 +1353,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-compiler-build.tar
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Check preinstalled Foundry for Solidity slice comparisons
         id: preinstalled-foundry-slices
@@ -1367,7 +1381,8 @@ jobs:
           scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 --output .lake/import-differential/programs
 
       - name: Stateful Solidity instrument checks
-        timeout-minutes: 45
+        # Every check runs to the end and failures are reported together.
+        timeout-minutes: 120
         run: |
           # 46 independent checks, ~90 minutes back to back; run them 6-wide.
           scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --jobs 6 --output .lake/import-differential/stateful
@@ -1535,7 +1550,7 @@ jobs:
 
   foundry:
     runs-on: [self-hosted, linux, x64, verity, build, build-medium]
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     strategy:
@@ -1674,7 +1689,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-build.tar
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1693,7 +1708,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -xf lean-workspace-compiler-build.tar
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Restore patched smoke Yul (local)
         id: local-restore-yul-patched-smoke
@@ -1961,3 +1976,29 @@ jobs:
                 body
               });
             }
+
+  ci-gate:
+    # Single required status check: every needed job succeeded or was skipped
+    # by design (change filters, tiering). A failed or cancelled job fails it.
+    runs-on: [self-hosted, linux, verity, fastlane]
+    timeout-minutes: 5
+    needs: [changes, checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
+    if: always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')
+    permissions:
+      contents: read
+    steps:
+      - name: Require needed jobs to succeed or be skipped
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          bad = {name: info["result"] for name, info in needs.items()
+                 if info["result"] not in ("success", "skipped")}
+          for name, info in sorted(needs.items()):
+              print(f"{name}: {info['result']}")
+          if bad:
+              print("::error::CI gate failed: " + ", ".join(f"{k}={v}" for k, v in sorted(bad.items())))
+              sys.exit(1)
+          PY

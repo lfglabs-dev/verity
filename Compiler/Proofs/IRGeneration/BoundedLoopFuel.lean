@@ -27,37 +27,6 @@ theorem IRState.getVar_setVar_self (s : IRState) (name : String) (v : Nat) :
     (s.setVar name v).getVar name = some v := by
   simp [IRState.getVar, IRState.setVar]
 
-/-- `find?` skips entries removed by a name filter that cannot match. -/
-private theorem find?_filter_ne_name (other name : String) (h : other ≠ name) :
-    ∀ (l : List (String × Nat)),
-      (l.filter (·.1 != name)).find? (·.1 == other) =
-        l.find? (·.1 == other)
-  | [] => rfl
-  | (n', v') :: rest => by
-      by_cases hn : n' = name
-      · subst hn
-        rw [List.filter_cons_of_neg (by simp),
-          List.find?_cons_of_neg (by simp [Ne.symm h]),
-          find?_filter_ne_name other _ h rest]
-      · rw [List.filter_cons_of_pos (by simp [hn])]
-        by_cases ho : n' = other
-        · subst ho
-          rw [List.find?_cons_of_pos (by simp),
-            List.find?_cons_of_pos (by simp)]
-        · rw [List.find?_cons_of_neg (by simp [ho]),
-            List.find?_cons_of_neg (by simp [ho]),
-            find?_filter_ne_name other name h rest]
-
-/-- Variable lookup after `setVar` at a different name. -/
-theorem IRState.getVar_setVar_ne (s : IRState) (name other : String)
-    (v : Nat) (h : other ≠ name) :
-    (s.setVar name v).getVar other = s.getVar other := by
-  simp only [IRState.getVar, IRState.setVar, List.find?_cons]
-  have hbeq : ((name, v).1 == other) = false := by
-    simp [Ne.symm h]
-  rw [hbeq]
-  rw [find?_filter_ne_name other name h s.vars]
-
 /-- The post statement of the `forEach` lowering: increment the counter. -/
 theorem execIRStmts_forEach_post (idxN : String) (fuel : Nat)
     (state : IRState) (k : Nat)
@@ -206,7 +175,7 @@ private theorem execIRStmt_boundedFor_stable_succ (idxN cntN : String) (hne : id
   exact ⟨s''.setVar idxN (k + 1), execIRStmts_forEach_post idxN _ s'' k (hidx''.trans hidx)
     (by omega) (by omega), execIRStmts_forEach_post idxN _ s'' k (hidx''.trans hidx) (by omega)
     hF2, ih _ f (IRState.getVar_setVar_self s'' idxN (k + 1))
-      ((IRState.getVar_setVar_ne s'' idxN cntN (k + 1) (Ne.symm hne)).trans (hcnt''.trans hcnt))⟩
+      ((IRState.getVar_setVar_ne s'' (k + 1) (Ne.symm hne)).trans (hcnt''.trans hcnt))⟩
 
 /-- Fuel stability for the steady-state literal-bound loop: with the counter
 invariant in hand, execution at the structural bound and at any larger fuel

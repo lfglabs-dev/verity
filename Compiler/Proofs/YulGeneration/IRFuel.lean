@@ -20,7 +20,7 @@ abbrev execIRStmtsFuel := @execIRStmts
 
 theorem execIRStmtsFuel_nil (fuel : Nat) (state : IRState) :
     execIRStmtsFuel fuel state [] = .continue state := by
-  simp [execIRStmtsFuel, execIRStmts]
+  simp [execIRStmtsFuel]
 
 theorem execIRStmtsFuel_cons
     (fuel : Nat) (state : IRState) (stmt : YulStmt) (rest : List YulStmt) :

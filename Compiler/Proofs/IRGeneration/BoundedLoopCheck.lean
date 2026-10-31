@@ -111,7 +111,7 @@ private theorem execIRStmt_let_getVar_of_ne (n : String) (value : YulExpr) (hne 
         | none => IRExecResult.revert state).state).getVar v = state.getVar v
       cases evalIRExpr state value with
       | none => rfl
-      | some w => exact IRState.getVar_setVar_ne state n v w (Ne.symm hne)
+      | some w => exact IRState.getVar_setVar_ne state w (Ne.symm hne)
 
 /-- An assignment to a variable other than `v` preserves `getVar v`. -/
 private theorem execIRStmt_assign_getVar_of_ne (n : String) (value : YulExpr) (hne : n ≠ v)
@@ -125,7 +125,7 @@ private theorem execIRStmt_assign_getVar_of_ne (n : String) (value : YulExpr) (h
         | none => IRExecResult.revert state).state).getVar v = state.getVar v
       cases evalIRExpr state value with
       | none => rfl
-      | some w => exact IRState.getVar_setVar_ne state n v w (Ne.symm hne)
+      | some w => exact IRState.getVar_setVar_ne state w (Ne.symm hne)
 
 /-- `if` step of `getVar v` preservation, given preservation by the body. -/
 private theorem execIRStmt_if_getVar (cond : YulExpr) (body : List YulStmt)
