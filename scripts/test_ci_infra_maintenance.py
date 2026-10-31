@@ -322,6 +322,19 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             self.assertEqual(r.returncode, 2)
             self.assertFalse((tmp / "store" / "7" / "x").exists())
 
+    def test_artifact_hub_rejects_marker_without_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "hub" / "7" / "x").mkdir(parents=True)
+            (tmp / "hub" / "7" / "x" / ".ready").write_text("")
+            r = self._persistence("fetch", "--run-id", "7", "--name", "x",
+                                  env=dict(os.environ, VERITY_CI_HUB_ENV=str(tmp / "absent.env"),
+                                           VERITY_CI_HUB_DIR=str(tmp / "hub"),
+                                           VERITY_CI_ARTIFACT_ROOT=str(tmp / "cache" / "artifacts")))
+            self.assertEqual(r.returncode, 2)
+            self.assertFalse((tmp / "cache" / "artifacts" / "7" / "x").exists())
+            self.assertNotIn("::error::", r.stdout)
+
     def test_no_hub_keeps_github_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)

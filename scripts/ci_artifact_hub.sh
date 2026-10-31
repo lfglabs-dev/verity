@@ -34,7 +34,13 @@ require_root() {
 }
 
 runner_user() {
-  stat -c %U "$CACHE_ROOT"
+  local user
+  user="$(stat -c %U "$CACHE_ROOT")"
+  if [ -z "$user" ] || [ "$user" = "root" ]; then
+    echo "${CACHE_ROOT} must be owned by the runner user, not '${user}'" >&2
+    exit 1
+  fi
+  printf '%s' "$user"
 }
 
 home_of() {
@@ -43,6 +49,9 @@ home_of() {
 
 server_init() {
   require_root
+  local user
+  user="$(runner_user)"
+  install -d -m 0755 -o "$user" -g "$(id -gn "$user")" "$CACHE_ROOT/artifacts"
   install -d -m 0755 "$CONF_DIR"
   printf 'VERITY_CI_HUB_SELF=1\nVERITY_CI_HUB_DIR=%s/artifacts\n' "$CACHE_ROOT" > "$CONF_DIR/hub.env"
   chmod 0644 "$CONF_DIR/hub.env"
@@ -78,8 +87,15 @@ server_authorize() {
       AAAA*) ;;
       *) echo "not an ssh public key blob: $blob" >&2; exit 1 ;;
     esac
-    keys+="restrict,command=\"/usr/bin/rrsync ${CACHE_ROOT}/artifacts\" ${type} ${blob} ${comment}"$'\n'
+    # -no-lock: rrsync's default per-user LOCK_EX|LOCK_NB would make concurrent
+    # transfers from two runner hosts fail (clients serialize per artifact).
+    # -munge: symlinks written by a client cannot point outside the hub dir.
+    keys+="restrict,command=\"/usr/bin/rrsync -no-lock -munge ${CACHE_ROOT}/artifacts\" ${type} ${blob} ${comment}"$'\n'
   done
+  if [ "$#" -ne 0 ]; then
+    echo "unexpected trailing argument: $1" >&2
+    exit 1
+  fi
   install -d -m 0700 -o "$user" -g "$(id -gn "$user")" "$home/.ssh"
   local file="$home/.ssh/authorized_keys" begin="# BEGIN verity-ci-hub" end="# END verity-ci-hub"
   touch "$file"
