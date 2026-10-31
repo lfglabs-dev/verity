@@ -1293,9 +1293,10 @@ jobs:
 
   compiler-regressions:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '150' || '90') }}
+    timeout-minutes: 150
     needs: [changes, checks, build, build-compiler-binaries]
-    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
+    # ~2 runner-hours: main pushes, nightly, dispatch, or PRs labelled ci:full.
+    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))
     env:
       LEAN_NUM_THREADS: 4
     steps:
@@ -1380,7 +1381,8 @@ jobs:
           scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 --output .lake/import-differential/programs
 
       - name: Stateful Solidity instrument checks
-        timeout-minutes: 45
+        # Every check runs to the end and failures are reported together.
+        timeout-minutes: 90
         run: |
           # 46 independent checks, ~90 minutes back to back; run them 6-wide.
           scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --jobs 6 --output .lake/import-differential/stateful
@@ -1548,7 +1550,7 @@ jobs:
 
   foundry:
     runs-on: [self-hosted, linux, x64, verity, build, build-medium]
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     strategy:
@@ -1974,3 +1976,29 @@ jobs:
                 body
               });
             }
+
+  ci-gate:
+    # Single required status check: every needed job succeeded or was skipped
+    # by design (change filters, tiering). A failed or cancelled job fails it.
+    runs-on: [self-hosted, linux, verity, fastlane]
+    timeout-minutes: 5
+    needs: [changes, checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
+    if: always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')
+    permissions:
+      contents: read
+    steps:
+      - name: Require needed jobs to succeed or be skipped
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          bad = {name: info["result"] for name, info in needs.items()
+                 if info["result"] not in ("success", "skipped")}
+          for name, info in sorted(needs.items()):
+              print(f"{name}: {info['result']}")
+          if bad:
+              print("::error::CI gate failed: " + ", ".join(f"{k}={v}" for k, v in sorted(bad.items())))
+              sys.exit(1)
+          PY

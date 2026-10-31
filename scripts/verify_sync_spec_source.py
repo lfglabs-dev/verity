@@ -964,3 +964,25 @@ SPEC['expected_downloaded_artifact_paths'] = {
     'import-mutations': [None],
     **{k: v for k, v in SPEC['expected_downloaded_artifact_paths'].items() if k != 'build-audits'},
 }
+
+# Tiered pipeline: compiler-regressions (~2 runner-hours) runs on main pushes,
+# nightly, dispatch, or PRs labelled ci:full; every stateful check now runs to
+# the end, so its job timeout is 150 min. foundry shards get 45 min (nippur).
+SPEC['expected_job_if_conditions']['compiler-regressions'] = (
+    "needs.checks.result == 'success' && needs.build.result == 'success' && "
+    "needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true' && "
+    "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))")
+SPEC['expected_job_timeouts']['compiler-regressions'] = 150
+SPEC['expected_job_timeouts']['foundry'] = 45
+
+# ci-gate: the single required status check on main.
+CI_GATE_NEEDS = ['changes', 'checks', 'build', 'build-audits', 'import-mutations',
+                 'build-compiler-binaries', 'compiler-audits', 'compiler-regressions',
+                 'foundry-gas-calibration', 'foundry', 'foundry-patched', 'foundry-multi-seed']
+SPEC['expected_jobs'].append('ci-gate')
+SPEC['expected_job_needs']['ci-gate'] = CI_GATE_NEEDS
+SPEC['expected_job_if_conditions']['ci-gate'] = (
+    "always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')")
+SPEC['expected_job_runs_on']['ci-gate'] = '[self-hosted, linux, verity, fastlane]'
+SPEC['expected_job_timeouts']['ci-gate'] = 5
+SPEC['expected_job_permissions']['ci-gate'] = {'contents': 'read'}
