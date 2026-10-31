@@ -3,6 +3,15 @@ set -euo pipefail
 
 ARTIFACT_ROOT="${VERITY_CI_ARTIFACT_ROOT:-/srv/verity-ci-cache/artifacts}"
 
+# Cross-host artifact hub (installed by scripts/ci_artifact_hub.sh). Without it,
+# an artifact produced on another runner host can only come from GitHub, which
+# costs ~15 min per direction for the 3 GB compiler workspace.
+HUB_ENV="${VERITY_CI_HUB_ENV:-/usr/local/lib/verity-ci/hub.env}"
+if [ -r "$HUB_ENV" ]; then
+  # shellcheck disable=SC1090
+  . "$HUB_ENV"
+fi
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -50,6 +59,28 @@ lock_entry() {
   if ! flock "$2" -w "${MOUNT_LOCK_TIMEOUT:-600}" "$LOCK_FD"; then
     echo "::error::timed out waiting for cache lock ${lock}" >&2
     exit 1
+  fi
+}
+
+# Remote spec for hub path $1: an rsync-over-ssh target, or a plain directory
+# when VERITY_CI_HUB_DIR is set (the hub host itself, and tests).
+hub_spec() {
+  if [ -n "${VERITY_CI_HUB_DIR:-}" ]; then
+    printf '%s/%s' "$VERITY_CI_HUB_DIR" "$1"
+  else
+    printf '%s:%s' "$VERITY_CI_HUB_TARGET" "$1"
+  fi
+}
+
+hub_enabled() {
+  [ -n "${VERITY_CI_HUB_DIR:-}" ] || [ -n "${VERITY_CI_HUB_TARGET:-}" ]
+}
+
+hub_rsync() {
+  if [ -n "${VERITY_CI_HUB_DIR:-}" ]; then
+    rsync "$@"
+  else
+    rsync -e "ssh -i ${VERITY_CI_HUB_KEY} -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${VERITY_CI_HUB_KNOWN_HOSTS} -o ConnectTimeout=10" "$@"
   fi
 }
 
@@ -176,6 +207,50 @@ publish_artifact() {
 
   touch "$target_dir/.ready"
   echo "Published artifact '${name}' to ${target_dir}"
+
+  # The hub host's local store is the hub: nothing to push.
+  if hub_enabled && [ "${VERITY_CI_HUB_SELF:-}" != "1" ]; then
+    # Payload first, .ready last: a consumer only trusts a complete artifact.
+    if hub_rsync -a --mkpath --exclude=.ready "$target_dir/" "$(hub_spec "${run_id}/${name}/")" &&
+       hub_rsync -a "$target_dir/.ready" "$(hub_spec "${run_id}/${name}/.ready")"; then
+      echo "Published artifact '${name}' to the artifact hub"
+      [ -n "${GITHUB_OUTPUT:-}" ] && echo "hub=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "::warning::Could not publish '${name}' to the artifact hub; consumers on other hosts use the GitHub artifact"
+      [ -n "${GITHUB_OUTPUT:-}" ] && echo "hub=false" >> "$GITHUB_OUTPUT"
+    fi
+  elif hub_enabled; then
+    [ -n "${GITHUB_OUTPUT:-}" ] && echo "hub=true" >> "$GITHUB_OUTPUT"
+  fi
+  return 0
+}
+
+# Pull artifact NAME of RUN_ID from the hub into the local store. Serialized per
+# artifact so parallel consumers on one host transfer it once.
+fetch_from_hub() {
+  local run_id="$1" name="$2"
+  local target_dir="${ARTIFACT_ROOT}/${run_id}/${name}"
+  hub_enabled && [ "${VERITY_CI_HUB_SELF:-}" != "1" ] || return 1
+  mkdir -p "${ARTIFACT_ROOT}/.locks"
+  local fd
+  exec {fd}>"${ARTIFACT_ROOT}/.locks/hub__${run_id}__${name}.lock"
+  flock -x -w 1800 "$fd" || return 1
+  if [ ! -f "$target_dir/.ready" ]; then
+    local staging="${target_dir}.hub-partial"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    # The remote .ready is written last by the producer: no marker, no artifact.
+    if ! hub_rsync -a "$(hub_spec "${run_id}/${name}/.ready")" "$staging/.ready" 2>/dev/null ||
+       ! hub_rsync -a --exclude=.ready "$(hub_spec "${run_id}/${name}/")" "$staging/"; then
+      rm -rf "$staging"
+      exec {fd}>&-
+      return 1
+    fi
+    rm -rf "$target_dir"
+    mv "$staging" "$target_dir"
+  fi
+  exec {fd}>&-
+  echo "Fetched artifact '${name}' from the artifact hub"
 }
 
 fetch_artifact() {
@@ -203,8 +278,10 @@ fetch_artifact() {
   # directory that does not exist here means the producer ran on another host:
   # waiting cannot help, fall back to the GitHub artifact at once.
   if [ ! -d "$source_dir" ]; then
-    echo "::notice::Local artifact '${name}' was published on another runner host; using the GitHub artifact"
-    return 2
+    if ! fetch_from_hub "$run_id" "$name"; then
+      echo "::notice::Local artifact '${name}' was published on another runner host; using the GitHub artifact"
+      return 2
+    fi
   fi
 
   local waited=0
