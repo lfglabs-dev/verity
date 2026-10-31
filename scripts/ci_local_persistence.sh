@@ -80,7 +80,7 @@ hub_rsync() {
   if [ -n "${VERITY_CI_HUB_DIR:-}" ]; then
     rsync "$@"
   else
-    rsync -e "ssh -i ${VERITY_CI_HUB_KEY} -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${VERITY_CI_HUB_KNOWN_HOSTS} -o ConnectTimeout=10" "$@"
+    rsync --timeout=300 -e "ssh -i '${VERITY_CI_HUB_KEY:?}' -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o 'UserKnownHostsFile=${VERITY_CI_HUB_KNOWN_HOSTS:?}' -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4" "$@"
   fi
 }
 
@@ -234,9 +234,11 @@ fetch_from_hub() {
   local run_id="$1" name="$2"
   local target_dir="${ARTIFACT_ROOT}/${run_id}/${name}"
   hub_enabled && [ "${VERITY_CI_HUB_SELF:-}" != "1" ] || return 1
-  mkdir -p "${ARTIFACT_ROOT}/.locks"
-  local fd
-  exec {fd}>"${ARTIFACT_ROOT}/.locks/hub__${run_id}__${name}.lock"
+  # Locks live beside the store, not in it: artifact cleanup prunes ARTIFACT_ROOT.
+  local lock_dir fd
+  lock_dir="$(dirname "$ARTIFACT_ROOT")/.locks"
+  mkdir -p "$lock_dir"
+  exec {fd}>"${lock_dir}/hub__${run_id}__${name}.lock"
   flock -x -w 1800 "$fd" || return 1
   if [ ! -f "$target_dir/.ready" ]; then
     local staging="${target_dir}.hub-partial"
@@ -250,6 +252,10 @@ fetch_from_hub() {
     hub_rsync -a "$(hub_spec "${run_id}/${name}/.ready")" "$staging/.ready" || rc=$?
     if [ "$rc" -eq 0 ]; then
       hub_rsync -a --exclude=.ready "$(hub_spec "${run_id}/${name}/")" "$staging/" || rc=$?
+    fi
+    # A marker without payload (pruned or truncated on the hub) is not an artifact.
+    if [ "$rc" -eq 0 ] && ! find "$staging" -mindepth 1 ! -name .ready -print -quit | grep -q .; then
+      rc=23
     fi
     if [ "$rc" -ne 0 ] || ! { rm -rf "$target_dir" && mv "$staging" "$target_dir"; }; then
       rm -rf "$staging"
