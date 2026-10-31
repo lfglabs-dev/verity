@@ -261,7 +261,7 @@ fetch_from_hub() {
       rm -rf "$staging"
       exec {fd}>&-
       if [ "$rc" -ne 0 ] && [ "$rc" -ne 23 ]; then
-        echo "::error::Artifact hub unreachable (rsync exit ${rc}) while fetching '${name}'. If the GitHub download below fails with 'Artifact not found', the artifact was published to the hub only: re-run all jobs of this workflow run."
+        echo "::warning::Artifact hub unreachable (rsync exit ${rc}) while fetching '${name}'; using the GitHub artifact"
       fi
       return 1
     fi
