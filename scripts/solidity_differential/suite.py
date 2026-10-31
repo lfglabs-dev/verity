@@ -14,7 +14,8 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     # Finish all compilation before taking executable snapshots in adapters.
     command(['lake', 'build', 'SolidityImportSmoke', 'Compiler.Codegen',
              'Compiler.Yul.PrettyPrint', 'Compiler.SolidityImport.SequenceRunner',
-             'Compiler.SolidityImport.StaticOracleMocks'], timeout=1800, log=output / 'build.log')
+             'Compiler.SolidityImport.StaticOracleMocks',
+             'Compiler.SolidityImport.CallResponderMocks'], timeout=1800, log=output / 'build.log')
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
             log=output / 'transaction-smoke.log')
@@ -158,8 +159,9 @@ def run_checks(output, checks, transactions, seed, jobs=1):
     multi-check campaign otherwise looks idle for its whole wall time.
     Checks write separate output directories and only read the shared Lake
     build (prepared up front by ``stateful_campaign``), so up to ``jobs`` of
-    them run at once. Completion is still recorded in check order, and the
-    first failure in that order is raised once every started check finished.
+    them run at once. Completion is still recorded in check order. A failing
+    check does not cancel the others: every check runs, and all failures are
+    raised together, so one CI run reports every stale control at once.
     """
     completed = []
     total = len(checks)
@@ -172,19 +174,27 @@ def run_checks(output, checks, transactions, seed, jobs=1):
     def run(index, name, args):
         print(f'stateful check {index}/{total}: {name}', flush=True)
         argv = [sys.executable, '-c', launcher, args[1], *args[2:]]
-        command(argv, timeout=1800, log=output / f'{name}.log')
+        # Per-check guard against hangs. Checks run `jobs` wide on one runner, so
+        # the slowest (extcodecopy-struct-decode, ~45 min under load) needs headroom.
+        command(argv, timeout=3600, log=output / f'{name}.log')
         print(f'stateful check {index}/{total}: {name} done', flush=True)
 
+    failures = []
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = [pool.submit(run, index, name, args)
                    for index, (name, args) in enumerate(checks, start=1)]
-        try:
-            for (name, _), future in zip(checks, futures):
+        for (name, _), future in zip(checks, futures):
+            try:
                 future.result()
-                completed.append(name)
-                write_json(output / 'completed.json', completed)
-        finally:
-            for future in futures:
-                future.cancel()
+            except Exception as error:  # noqa: BLE001 - reported below, by name
+                failures.append((name, error))
+                continue
+            completed.append(name)
+            write_json(output / 'completed.json', completed)
+    if failures:
+        if len(failures) == 1:
+            raise failures[0][1]
+        details = '\n'.join(f'- {name}: {error}' for name, error in failures)
+        raise HarnessError(f'{len(failures)} stateful checks failed:\n{details}')
     return {'checks': completed, 'transactionsPerVariant': transactions, 'seed': seed,
             'divergences': []}

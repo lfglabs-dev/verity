@@ -75,6 +75,60 @@ verity_contract ExternalCallInBodySmoke where
   function helperNameShadow (adversarialLeaf : Uint256) : Uint256 := do
     return adversarialLeaf
 
+  function reentrancy_trusted zeroArgWindowLeaf () : Uint256 := do
+    let v ← callExternal getDepositableEther()
+    return v
+
+  function pairValues () : Tuple [Uint256, Uint256] := do
+    return (7, 8)
+
+  function tupleLetShadow () : Uint256 := do
+    let (zeroArgWindowLeaf, other) := (7, 8)
+    return zeroArgWindowLeaf + other
+
+  function tupleLetArrowShadow () : Uint256 := do
+    let (zeroArgWindowLeaf, other) ← pairValues()
+    return zeroArgWindowLeaf + other
+
+  function scalarLetShadow () : Uint256 := do
+    let zeroArgWindowLeaf := 7
+    return zeroArgWindowLeaf + 8
+
+  function scalarLetMutShadow () : Uint256 := do
+    let mut zeroArgWindowLeaf : Uint256 := 7
+    zeroArgWindowLeaf := zeroArgWindowLeaf + 8
+    return zeroArgWindowLeaf
+
+  function overloadWindow () : Uint256 := do
+    return 42
+
+  function reentrancy_trusted overloadWindow (value : Uint32) : Uint32 := do
+    return callExternal dirtySink(value)
+
+  function reentrancy_trusted overloadShadowMid (overloadWindow : Uint32) : Uint32 := do
+    let r ← overloadWindow(overloadWindow)
+    return r
+
+  function reentrancy_trusted overloadShadowEntry (value : Uint32) : Uint32 := do
+    let r ← overloadShadowMid(value)
+    return r
+
+  function reentrancy_trusted explicitCallShadow (adversarialLeaf : Uint32) : Uint32 := do
+    let r ← adversarialLeaf(adversarialLeaf)
+    return r
+
+  function reentrancy_trusted explicitCallShadowCaller (value : Uint32) : Uint32 := do
+    let r ← explicitCallShadow(value)
+    return r
+
+  function pureHelperLeaf (value : Uint256) : Uint256 := do
+    return value + 10
+
+  function pureHelperShadow (pureHelperLeaf : Uint256) : Uint256 := do
+    let r ← pureHelperLeaf(pureHelperLeaf)
+    let r2 ← pureHelperLeaf pureHelperLeaf
+    return r + r2
+
   function reentrancy_trusted conditionalLinkedRead (takeCall : Bool) : Uint256 := do
     if takeCall then
       return callExternal narrowEcho(1)
@@ -563,7 +617,7 @@ example : ExternalCallInBodySmoke.lowLevel_model.body =
 
 example : (ExternalCallInBodySmoke.discardedReturnDataSize_modelBody).take 3 =
     [ Compiler.CompilationModel.Stmt.letVar "__discard" .returndataSize
-    , Compiler.CompilationModel.Stmt.letVar "__discard_1" .returndataSize
+    , Compiler.CompilationModel.Stmt.letVar (Compiler.CompilationModel.pickFreshName "__discard" ["__discard"]) .returndataSize
     , Compiler.CompilationModel.Stmt.letVar "parenthesized" .returndataSize ] := rfl
 
 example : ExternalCallInBodySmoke.discardedReturnDataSize_model.body =
@@ -875,6 +929,36 @@ private def unresolvedLinkContext : Contracts.ExecutableCallContext :=
 
 example :
     ((ExternalCallInBodySmoke.helperNameShadow 7).run defaultState).getValue? = some 7 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.tupleLetShadow).run defaultState).getValue? = some 15 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.tupleLetArrowShadow).run defaultState).getValue? = some 15 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.scalarLetShadow).run defaultState).getValue? = some 15 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.scalarLetMutShadow).run defaultState).getValue? = some 15 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.explicitCallShadowCaller transitiveAdversary 1).run
+      defaultState).getValue? = some 41 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.overloadShadowEntry transitiveAdversary 1).run
+      defaultState).getValue? = some 41 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.pureHelperShadow 5).run defaultState).getValue? = some 30 := by
   decide
 
 example :

@@ -282,10 +282,6 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                                       '}}-${{ '
                                                                       "hashFiles('lake-manifest.json') "
                                                                       '}}-${{ github.run_id }}'}},
-                                       {'name': 'Rebuild cached local Lean modules',
-                                        'run': 'rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity\n'
-                                               'rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts\n'
-                                               'rm -rf .lake/build/lib/lean/Compiler .lake/build/ir/Compiler'},
                                        {'name': 'Prebuild shared audit Lean targets',
                                         'run': 'set +e\n'
                                                'lake build PrintAxioms 2>&1 | tee -a lake-build.log\n'
@@ -301,7 +297,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                        {'name': 'Upload prepared Lean workspace build',
                                         'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
                                         'with': {'name': 'lean-workspace-build',
-                                                 'path': 'lean-workspace-build.tar'}},
+                                                 'path': 'lean-workspace-build.tar.zst'}},
                                        {'name': 'Save current run Lake cache',
                                         'uses': 'actions/cache/save@caa296126883cff596d87d8935842f9db880ef25',
                                         'if': "success() && needs.changes.outputs.build == 'true' "
@@ -405,7 +401,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                          {'name': 'Upload compiler workspace build',
                                                           'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
                                                           'with': {'name': 'lean-workspace-compiler-build',
-                                                                   'path': 'lean-workspace-compiler-build.tar'}},
+                                                                   'path': 'lean-workspace-compiler-build.tar.zst'}},
                                                          {'name': 'Save compiler ccache fallback cache',
                                                           'uses': 'actions/cache/save@caa296126883cff596d87d8935842f9db880ef25',
                                                           'if': 'always() && (failure() || '
@@ -767,11 +763,11 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                              'static-gas-report',
                                                              'static-gas-report-patched'],
                                  'lean-profile': ['lean-perf-queue']},
- 'expected_uploaded_artifact_paths': {'build': ['lean-workspace-build.tar'],
+ 'expected_uploaded_artifact_paths': {'build': ['lean-workspace-build.tar.zst'],
                                       'build-audits': ['axiom-report.md\naxiom-report-raw.log'],
                                       'build-compiler-binaries': ['.lake/build/bin/difftest-interpreter',
                                                                   'compiler/bin',
-                                                                  'lean-workspace-compiler-build.tar',
+                                                                  'lean-workspace-compiler-build.tar.zst',
                                                                   'compiler/yul',
                                                                   'compiler/yul-patched',
                                                                   'compiler/patch-report.tsv',
@@ -875,7 +871,7 @@ SPEC['expected_step_contracts']['build-compiler-binaries'] = [
     {'name': 'Build gas-report', 'uses': './.github/actions/build-compiler-target'},
     {'name': 'Upload difftest interpreter', 'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', 'with': {'name': 'difftest-interpreter', 'path': '.lake/build/bin/difftest-interpreter'}},
     {'name': 'Upload compiler binaries', 'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', 'with': {'name': 'verity-compiler-binaries', 'path': 'compiler/bin', 'compression-level': '0'}},
-    {'name': 'Upload compiler workspace build', 'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', 'with': {'name': 'lean-workspace-compiler-build', 'path': 'lean-workspace-compiler-build.tar', 'compression-level': '0'}},
+    {'name': 'Upload compiler workspace build', 'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', 'with': {'name': 'lean-workspace-compiler-build', 'path': 'lean-workspace-compiler-build.tar.zst', 'compression-level': '0'}},
     {'name': 'Upload generated Yul', 'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', 'with': {'name': 'generated-yul', 'path': 'compiler/yul'}},
     {'name': 'Upload patched Yul', 'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', 'with': {'name': 'generated-yul-patched', 'path': 'compiler/yul-patched'}},
     {'name': 'Upload smoke Yul', 'uses': 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', 'with': {'name': 'generated-yul-smoke', 'path': 'compiler/yul-smoke'}},
@@ -897,9 +893,9 @@ SPEC['expected_uploaded_artifacts'] = {
 }
 
 SPEC['expected_uploaded_artifact_paths'] = {
-    'build': ['lean-workspace-build.tar'],
+    'build': ['lean-workspace-build.tar.zst'],
     'build-audits': ['axiom-report.md\naxiom-report-raw.log'],
-    'build-compiler-binaries': ['.lake/build/bin/difftest-interpreter', 'compiler/bin', 'lean-workspace-compiler-build.tar',
+    'build-compiler-binaries': ['.lake/build/bin/difftest-interpreter', 'compiler/bin', 'lean-workspace-compiler-build.tar.zst',
                                 'compiler/yul', 'compiler/yul-patched',
                                 'compiler/yul-smoke', 'compiler/yul-patched-smoke',
                                 'compiler/patch-report.tsv',
@@ -951,7 +947,9 @@ SPEC['expected_job_needs']['failure-hints'].insert(
     SPEC['expected_job_needs']['failure-hints'].index('build-audits') + 1, 'import-mutations')
 SPEC['expected_job_if_conditions']['import-mutations'] = (
     "needs.checks.result == 'success' && needs.build.result == 'success' && "
-    "needs.changes.outputs.build == 'true'")
+    "needs.changes.outputs.build == 'true' && (github.event_name == 'schedule' || "
+    "github.event_name == 'workflow_dispatch' || "
+    "contains(github.event.pull_request.labels.*.name, 'ci:mutations'))")
 SPEC['expected_job_runs_on']['import-mutations'] = '[self-hosted, linux, x64, verity, build]'
 SPEC['expected_job_timeouts']['import-mutations'] = 210
 SPEC['expected_job_strategy_fail_fast']['import-mutations'] = False
@@ -966,3 +964,25 @@ SPEC['expected_downloaded_artifact_paths'] = {
     'import-mutations': [None],
     **{k: v for k, v in SPEC['expected_downloaded_artifact_paths'].items() if k != 'build-audits'},
 }
+
+# Tiered pipeline: compiler-regressions (~2 runner-hours) runs on main pushes,
+# nightly, dispatch, or PRs labelled ci:full; every stateful check now runs to
+# the end (6 wide, slowest ~45 min), so its job timeout is 200 min. foundry shards get 45 min (nippur).
+SPEC['expected_job_if_conditions']['compiler-regressions'] = (
+    "needs.checks.result == 'success' && needs.build.result == 'success' && "
+    "needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true' && "
+    "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))")
+SPEC['expected_job_timeouts']['compiler-regressions'] = 200
+SPEC['expected_job_timeouts']['foundry'] = 45
+
+# ci-gate: the single required status check on main.
+CI_GATE_NEEDS = ['changes', 'checks', 'build', 'build-audits', 'import-mutations',
+                 'build-compiler-binaries', 'compiler-audits', 'compiler-regressions',
+                 'foundry-gas-calibration', 'foundry', 'foundry-patched', 'foundry-multi-seed']
+SPEC['expected_jobs'].append('ci-gate')
+SPEC['expected_job_needs']['ci-gate'] = CI_GATE_NEEDS
+SPEC['expected_job_if_conditions']['ci-gate'] = (
+    "always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')")
+SPEC['expected_job_runs_on']['ci-gate'] = '[self-hosted, linux, verity, fastlane]'
+SPEC['expected_job_timeouts']['ci-gate'] = 5
+SPEC['expected_job_permissions']['ci-gate'] = {'contents': 'read'}

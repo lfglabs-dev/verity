@@ -609,7 +609,7 @@ theorem setStructMember_exec_matches_canonical_target
   · simp [applyStateRewrite, StructMemberCoherent, sourceStructMemberWriteWorld,
       SourceSemantics.writeAddressKeyedMappingWordFieldSlots,
       SourceSemantics.writeMappingTargets, htrans,
-      Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+      Compiler.Constants.evmModulus,
       Compiler.Proofs.abstractMappingSlot,
       SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hvalue]
 
@@ -649,7 +649,7 @@ theorem setPackedStructMember_exec_matches_canonical_target
     simp [applyStateRewrite, StructMemberCoherent, sourcePackedStructMemberWriteWorld,
       SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots,
       SourceSemantics.writeAddressKeyedMappingPackedWordSlots, htrans, SourceSemantics.packedWordWrite,
-      Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+      EvmYul.UInt256.size, Compiler.Constants.evmModulus,
       Compiler.Proofs.abstractMappingSlot,
       SourceSemantics.wordNormalize_eq_mod]
     rw [hcoherent]
@@ -1440,7 +1440,6 @@ theorem setStorageArrayElement_compiled_exec_coherent
           have hsame := sourceStorageArraySetAt_getElem?_same values updated index value hset
           rw [hsame] at hj; simp at hj; subst x
           simp [applyStateRewrite, storageArrayElementWrite,
-            Verity.Core.UINT256_MODULUS,
             Compiler.Constants.evmModulus, Nat.mod_eq_of_lt hvalue]
         · have hsep := helementSlots j (List.getElem?_eq_some_iff.mp hj).1 hji
           simp [applyStateRewrite, storageArrayElementWrite, hsep]
@@ -1476,14 +1475,14 @@ theorem pushStorageArray_compiled_exec_coherent
         hvalue hroom hdistinct).1
     · constructor
       · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
-          SourceSemantics.writeStorageArray, Verity.Core.UINT256_MODULUS,
+          SourceSemantics.writeStorageArray,
           Nat.mod_eq_of_lt hroom]
       · intro j x hj; simp [SourceSemantics.writeStorageArray] at hj
         by_cases hjlast : j = values.length
         · subst j; simp at hj; subst x
           simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
             hdistinct,
-            Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+            Compiler.Constants.evmModulus,
             Nat.mod_eq_of_lt hvalue]
         · have hjlt : j < values.length := by
             have := (List.getElem?_eq_some_iff.mp hj).1
@@ -1533,7 +1532,7 @@ theorem popStorageArray_compiled_exec_coherent
         hdrop hdistinct).1
     · constructor
       · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
-          SourceSemantics.writeStorageArray, Verity.Core.UINT256_MODULUS,
+          SourceSemantics.writeStorageArray,
           Nat.mod_eq_of_lt hupdatedRoom]
       · intro j x hj; simp [SourceSemantics.writeStorageArray] at hj
         have hjlt := (List.getElem?_eq_some_iff.mp hj).1

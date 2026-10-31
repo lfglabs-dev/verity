@@ -86,17 +86,16 @@ private theorem uint256_lt_ofNat_4_eq_zero_of_ge
     (n : Nat) (hLe : 4 ≤ n) (hSize : n < EvmYul.UInt256.size) :
     EvmYul.UInt256.lt (EvmYul.UInt256.ofNat n) (EvmYul.UInt256.ofNat 4) =
       EvmYul.UInt256.ofNat 0 := by
-  have hN : (EvmYul.UInt256.ofNat n).val.val = n := by
-    unfold EvmYul.UInt256.ofNat
-    simp [Id.run, Fin.ofNat, Nat.mod_eq_of_lt hSize]
-  have h4 : (EvmYul.UInt256.ofNat 4).val.val = 4 := by
-    unfold EvmYul.UInt256.ofNat
+  have hN : (EvmYul.UInt256.ofNat n).toNat = n := by
+    simp only [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, BitVec.toNat_ofNat]
+    exact Nat.mod_eq_of_lt hSize
+  have h4 : (EvmYul.UInt256.ofNat 4).toNat = 4 := by
     decide
   have hNotLt : ¬ ((EvmYul.UInt256.ofNat n : EvmYul.UInt256) <
       (EvmYul.UInt256.ofNat 4 : EvmYul.UInt256)) := by
     intro hLt
-    have hh : (EvmYul.UInt256.ofNat n).val.val <
-        (EvmYul.UInt256.ofNat 4).val.val := hLt
+    have hh : (EvmYul.UInt256.ofNat n).toNat <
+        (EvmYul.UInt256.ofNat 4).toNat := hLt
     rw [hN, h4] at hh
     omega
   simp [EvmYul.UInt256.lt, hNotLt]
@@ -1637,7 +1636,8 @@ theorem exec_if_eval_nonzero
     (hBody : EvmYul.Yul.exec fuel' (.Block body) codeOverride next = .ok final) :
     EvmYul.Yul.exec (Nat.succ fuel') (.If cond body) codeOverride state =
       .ok final := by
-  simp [EvmYul.Yul.exec, hEval, hNe, hBody]
+  have hNe' : value ≠ ({ toBitVec := 0#256 } : EvmYul.Literal) := hNe
+  simp [EvmYul.Yul.exec, hEval, hNe', hBody]
 
 /-- Native `if` reduction for a nonzero guard when the body halts or errors. -/
 theorem exec_if_eval_nonzero_error
@@ -1653,7 +1653,8 @@ theorem exec_if_eval_nonzero_error
     (hBody : EvmYul.Yul.exec fuel' (.Block body) codeOverride next = .error err) :
     EvmYul.Yul.exec (Nat.succ fuel') (.If cond body) codeOverride state =
       .error err := by
-  simp [EvmYul.Yul.exec, hEval, hNe, hBody]
+  have hNe' : value ≠ ({ toBitVec := 0#256 } : EvmYul.Literal) := hNe
+  simp [EvmYul.Yul.exec, hEval, hNe', hBody]
 
 /-- Native `if` execution skips the lowered selector-miss revert guard
     `if iszero(<name>) { … }` whenever the named variable is bound to
@@ -1705,11 +1706,9 @@ the EVM word modulus. -/
 theorem natToUInt256_eq_zero_of_mod_evm
     (n : Nat) (hZero : n % evmModulus = 0) :
     natToUInt256 n = (⟨0⟩ : EvmYul.Literal) := by
-  have hZero' : n % EvmYul.UInt256.size = 0 := by
-    simpa [evmModulus, EvmYul.UInt256.size] using hZero
-  change EvmYul.UInt256.ofNat n = EvmYul.UInt256.ofNat 0
-  unfold EvmYul.UInt256.ofNat
-  simp [Id.run, Fin.ofNat, hZero']
+  apply EvmYul.UInt256.ext
+  apply BitVec.eq_of_toNat_eq
+  simpa [natToUInt256, EvmYul.UInt256.ofNat, evmModulus] using hZero
 
 /-- A native `UInt256` literal is nonzero whenever the source Nat is nonzero
 modulo the EVM word modulus. -/
@@ -1717,10 +1716,10 @@ theorem natToUInt256_ne_zero_of_mod_ne
     (n : Nat) (hNonzero : n % evmModulus ≠ 0) :
     natToUInt256 n ≠ (⟨0⟩ : EvmYul.Literal) := by
   intro h
-  have hVal : n % EvmYul.UInt256.size = 0 := by
-    have hCong := congrArg (fun u : EvmYul.UInt256 => u.val.val) h
-    simpa [natToUInt256, EvmYul.UInt256.ofNat, Id.run, Fin.ofNat] using hCong
-  exact hNonzero (by simpa [evmModulus, EvmYul.UInt256.size] using hVal)
+  have hVal : n % evmModulus = 0 := by
+    have hCong := congrArg EvmYul.UInt256.toNat h
+    simpa [natToUInt256, EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, evmModulus] using hCong
+  exact hNonzero hVal
 
 /-- In the non-payable branch, `DispatchGuardsSafe` supplies the exact modular
 zero fact needed to skip the lowered native `callvalue()` guard. -/
@@ -1753,17 +1752,17 @@ private theorem uint256_lt_ofNat_eq_zero_of_ge
     (hKSize : k < EvmYul.UInt256.size) :
     EvmYul.UInt256.lt (EvmYul.UInt256.ofNat n) (EvmYul.UInt256.ofNat k) =
       EvmYul.UInt256.ofNat 0 := by
-  have hN : (EvmYul.UInt256.ofNat n).val.val = n := by
-    unfold EvmYul.UInt256.ofNat
-    simp [Id.run, Fin.ofNat, Nat.mod_eq_of_lt hSize]
-  have hK : (EvmYul.UInt256.ofNat k).val.val = k := by
-    unfold EvmYul.UInt256.ofNat
-    simp [Id.run, Fin.ofNat, Nat.mod_eq_of_lt hKSize]
+  have hN : (EvmYul.UInt256.ofNat n).toNat = n := by
+    simp only [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, BitVec.toNat_ofNat]
+    exact Nat.mod_eq_of_lt hSize
+  have hK : (EvmYul.UInt256.ofNat k).toNat = k := by
+    simp only [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, BitVec.toNat_ofNat]
+    exact Nat.mod_eq_of_lt hKSize
   have hNotLt : ¬ ((EvmYul.UInt256.ofNat n : EvmYul.UInt256) <
       (EvmYul.UInt256.ofNat k : EvmYul.UInt256)) := by
     intro hLt
-    have hh : (EvmYul.UInt256.ofNat n).val.val <
-        (EvmYul.UInt256.ofNat k).val.val := hLt
+    have hh : (EvmYul.UInt256.ofNat n).toNat <
+        (EvmYul.UInt256.ofNat k).toNat := hLt
     rw [hN, hK] at hh
     omega
   simp [EvmYul.UInt256.lt, hNotLt]
@@ -1777,17 +1776,17 @@ private theorem uint256_lt_ofNat_eq_one_of_lt
     (hKSize : k < EvmYul.UInt256.size) :
     EvmYul.UInt256.lt (EvmYul.UInt256.ofNat n) (EvmYul.UInt256.ofNat k) =
       EvmYul.UInt256.ofNat 1 := by
-  have hN : (EvmYul.UInt256.ofNat n).val.val = n := by
-    unfold EvmYul.UInt256.ofNat
-    simp [Id.run, Fin.ofNat, Nat.mod_eq_of_lt hSize]
-  have hK : (EvmYul.UInt256.ofNat k).val.val = k := by
-    unfold EvmYul.UInt256.ofNat
-    simp [Id.run, Fin.ofNat, Nat.mod_eq_of_lt hKSize]
+  have hN : (EvmYul.UInt256.ofNat n).toNat = n := by
+    simp only [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, BitVec.toNat_ofNat]
+    exact Nat.mod_eq_of_lt hSize
+  have hK : (EvmYul.UInt256.ofNat k).toNat = k := by
+    simp only [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, BitVec.toNat_ofNat]
+    exact Nat.mod_eq_of_lt hKSize
   have hWordLt :
       (EvmYul.UInt256.ofNat n : EvmYul.UInt256) <
         (EvmYul.UInt256.ofNat k : EvmYul.UInt256) := by
-    change (EvmYul.UInt256.ofNat n).val.val <
-      (EvmYul.UInt256.ofNat k).val.val
+    change (EvmYul.UInt256.ofNat n).toNat <
+      (EvmYul.UInt256.ofNat k).toNat
     rw [hN, hK]
     exact hLt
   simp [EvmYul.UInt256.lt, hWordLt]
@@ -2201,22 +2200,16 @@ theorem eval_nativeSwitchGuardedMatch_miss_ok_fuel
 private theorem uint256_land_zero_left (value : EvmYul.UInt256) :
     EvmYul.UInt256.land (EvmYul.UInt256.ofNat 0) value =
       EvmYul.UInt256.ofNat 0 := by
-  cases value with
-  | mk raw =>
-    apply congrArg EvmYul.UInt256.mk
-    apply Fin.ext
-    change (0 &&& (raw : Nat)) % EvmYul.UInt256.size = 0
-    simp [Nat.zero_and]
+  apply EvmYul.UInt256.ext
+  apply BitVec.eq_of_toNat_eq
+  simp [EvmYul.UInt256.land, EvmYul.UInt256.ofNat, Fin.land]
 
 private theorem uint256_land_zero_right (value : EvmYul.UInt256) :
     EvmYul.UInt256.land value (EvmYul.UInt256.ofNat 0) =
       EvmYul.UInt256.ofNat 0 := by
-  cases value with
-  | mk raw =>
-    apply congrArg EvmYul.UInt256.mk
-    apply Fin.ext
-    change ((raw : Nat) &&& 0) % EvmYul.UInt256.size = 0
-    simp [Nat.and_zero]
+  apply EvmYul.UInt256.ext
+  apply BitVec.eq_of_toNat_eq
+  simp [EvmYul.UInt256.land, EvmYul.UInt256.ofNat, Fin.land]
 
 /-- Once the lazy lowered switch matched flag is set, later case guards evaluate
     to zero independently of the discriminator value. -/
