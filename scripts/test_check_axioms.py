@@ -310,6 +310,82 @@ class CheckAxiomsReportTests(unittest.TestCase):
             {"hidden_between_quote_chars": ("Compiler/QuoteChar.lean", 2)},
         )
 
+    def test_discover_repo_axioms_not_blinded_by_lambda_char_literal_or_interpolated_string(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "LambdaAndInterp.lean").write_text(
+                "\n".join(
+                    [
+                        'macro "m_ign" term : command => `(command| def dummy := 0)',
+                        "m_ign (λ'\"' => 0)",
+                        "axiom after_lambda_char : False",
+                        'def msg := s!"hole {1 /- " -/ + 2} and {\\"q\\\\\\"uote\\"}"',
+                        "axiom α_unicode_ax₁ : False",
+                        '-- "',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {
+                "after_lambda_char": ("Compiler/LambdaAndInterp.lean", 3),
+                "α_unicode_ax₁": ("Compiler/LambdaAndInterp.lean", 5),
+            },
+        )
+
+    def test_discover_repo_axioms_not_blinded_by_prime_suffix_tokens_or_custom_syntax(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "PrimeAndCustomSyntax.lean").write_text(
+                "\n".join(
+                    [
+                        'def p := (1, 2) ×\'"\'open_first"',
+                        "axiom ax_pprod : False",
+                        'syntax term (" +\' " term)? : term',
+                        'def q := 1 +\'"\'open_second"',
+                        "axiom ax_paren_atom : False",
+                        'syntax "myMany " ident* interpolatedStr(term) : term',
+                        'def r := myMany a b "{ \'\\\"\' }"',
+                        "axiom ax_many_interp : False",
+                        '@[term_parser] def myLP := leading_parser "myLP! " >> interpolatedStr termParser',
+                        'def s := myLP! "{ \'\\\"\' }"',
+                        "axiom ax_lp_interp : False",
+                        'def closeQuotes := "done"',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {
+                "ax_pprod": ("Compiler/PrimeAndCustomSyntax.lean", 2),
+                "ax_paren_atom": ("Compiler/PrimeAndCustomSyntax.lean", 5),
+                "ax_many_interp": ("Compiler/PrimeAndCustomSyntax.lean", 8),
+                "ax_lp_interp": ("Compiler/PrimeAndCustomSyntax.lean", 11),
+            },
+        )
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"

@@ -247,6 +247,35 @@ class GeneratePrintAxiomsTests(unittest.TestCase):
             [("Verity.QuoteChar.after_quote_char", False, False)],
         )
 
+    def test_extract_theorems_not_blinded_by_lambda_char_literal_or_interpolated_string(
+        self,
+    ) -> None:
+        sample = self.root / "Verity" / "LambdaInterp.lean"
+        sample.write_text(
+            "\n".join(
+                [
+                    "namespace Verity.LambdaInterp",
+                    'macro "m_ign" term : command => `(command| def dummy := 0)',
+                    "m_ign (λ'\"' => 0)",
+                    "theorem after_lambda_char : True := trivial",
+                    'def msg := s!"hole {1 /- " -/ + 2} and {\\"q\\\\\\"uote\\"}"',
+                    "theorem after_interp_hole : True := trivial",
+                    '-- "',
+                    "end LambdaInterp",
+                    "end Verity",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            generate_print_axioms.extract_theorems(sample),
+            [
+                ("Verity.LambdaInterp.after_lambda_char", False, False),
+                ("Verity.LambdaInterp.after_interp_hole", False, False),
+            ],
+        )
+
     def test_generate_and_check_roundtrip_on_synthetic_tree(self) -> None:
         self.write(
             "Verity/Core.lean",

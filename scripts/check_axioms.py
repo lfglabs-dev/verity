@@ -15,13 +15,21 @@ import re
 import sys
 from pathlib import Path
 
-from property_utils import ROOT, die, report_errors, scrub_lean_code
+from property_utils import (
+    ROOT,
+    _LEAN_IDENT_SEG_PAT,
+    _LEAN_ID_REST_PAT,
+    die,
+    report_errors,
+    scrub_lean_code,
+)
 
-_IDENT_SEG_RE = r"(?:«[^»]+»|[A-Za-z_][A-Za-z0-9_']*)"
+_IDENT_SEG_RE = _LEAN_IDENT_SEG_PAT
 _DOTTED_IDENT_RE = rf"{_IDENT_SEG_RE}(?:\.{_IDENT_SEG_RE})*"
-AXIOM_KW_RE = re.compile(r"(?<![A-Za-z0-9_.'«»])axiom(?![A-Za-z0-9_.'«»])")
+_AXIOM_BOUNDARY_CHAR_PAT = rf"(?:{_LEAN_ID_REST_PAT}|[.«»])"
+AXIOM_KW_RE = re.compile(rf"(?<!{_AXIOM_BOUNDARY_CHAR_PAT})axiom(?!{_AXIOM_BOUNDARY_CHAR_PAT})")
 AXIOM_INLINE_DECL_RE = re.compile(
-    rf"(?<![A-Za-z0-9_.'«»])axiom\s+(?P<name>{_DOTTED_IDENT_RE})"
+    rf"(?<!{_AXIOM_BOUNDARY_CHAR_PAT})axiom\s+(?P<name>{_DOTTED_IDENT_RE})"
 )
 AXIOM_SPLIT_NAME_RE = re.compile(rf"^\s*(?P<name>{_DOTTED_IDENT_RE})")
 AUX_AXIOM_SUFFIX_RE = re.compile(
