@@ -338,6 +338,38 @@ class PropertyUtilsTheoremExtractionTests(unittest.TestCase):
         ):
             self.assertIn(expected, scrubbed)
 
+    def test_scrub_lean_code_tracks_simp_like_tactic_multibracket_and_qualified_interp(self) -> None:
+        src = "\n".join(
+            [
+                'declare_simp_like_tactic mySimpTac "§\\" "',
+                'theorem t : True := by §" [eq_self]',
+                "axiom ax_after_simp_quote : False",
+                'syntax "qq[" ident "][" ident "]" interpolatedStr(term) : term',
+                'def multiBrk := qq[a][b]"{ \'\\\"\' }"',
+                "axiom ax_after_multi_brk : False",
+                'syntax ident "qq=>" interpolatedStr(term) : term',
+                'def trailingInterp := x qq=>"{ \'\\\"\' }"',
+                "axiom ax_after_trailing_interp : False",
+                'def plainArrow := fun _ => "{not_interp"',
+                "axiom ax_after_plain_arrow : False",
+                'def qualLog := do Lean.logInfo "{ \'\\\"\' }"',
+                "axiom ax_after_qual_log : False",
+                'def bangAtom := throwErrorAt !x "{ \'\\\"\' }"',
+                "axiom ax_after_bang_atom : False",
+            ]
+        ) + "\n"
+        scrubbed = property_utils.scrub_lean_code(src)
+        self.assertEqual(len(scrubbed.splitlines()), len(src.splitlines()))
+        for expected in (
+            "axiom ax_after_simp_quote : False",
+            "axiom ax_after_multi_brk : False",
+            "axiom ax_after_trailing_interp : False",
+            "axiom ax_after_plain_arrow : False",
+            "axiom ax_after_qual_log : False",
+            "axiom ax_after_bang_atom : False",
+        ):
+            self.assertIn(expected, scrubbed)
+
 
 if __name__ == "__main__":
     unittest.main()
