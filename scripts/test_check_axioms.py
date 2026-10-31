@@ -427,6 +427,39 @@ class CheckAxiomsReportTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("Total theorems checked: 1", stdout.getvalue())
 
+    def test_scan_lean_file_axioms_fails_closed_on_bypass_constructs(self) -> None:
+        forbidden_samples = [
+            ('macro "sneak" : command => `(command| axiom hid : False)\n', "Nested or quoted axiom"),
+            ('macro "sneakStx" : command => `(command| syntax "z" : term)\n', "Forbidden quoted syntax"),
+            ('def q := `(stx| "bad")\n', "Forbidden syntax-category quotation"),
+            ("#eval Lean.addDecl (.axiomDecl { name := `bad, levelParams := [], type := .sort .zero, isUnsafe := false })\n", "addDecl"),
+            ("def p := Lean.ParserDescr.node `k 0 (.symbol \"x\")\n", "ParserDescr"),
+            ("def s := stx.setKind ``Lean.Parser.Command.axiom\n", "Command.axiom"),
+            ("def s2 := stx.setKind k\n", "setKind"),
+            ("def n := Lean.Syntax.node .none k #[]\n", "Syntax.node"),
+            ("def n2 : Lean.Syntax := .node .none k #[]\n", ".node"),
+            ("def sym := Lean.Parser.symbol myStr\n", "Non-literal parser symbol"),
+            ('def g := Lean. «addDecl»\n', "addDecl"),
+        ]
+        for sample, needle in forbidden_samples:
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit, msg=f"Sample did not fail closed: {sample!r}"):
+                    check_axioms.scan_lean_file_axioms(sample, "Compiler/Bypass.lean")
+            self.assertIn(needle, stderr.getvalue())
+
+    def test_scan_lean_file_axioms_ignores_guillemet_identifier_and_backtick_name_lit(self) -> None:
+        src = "\n".join(
+            [
+                "def «axiom» : Nat := 0",
+                "def k := (`axiom, ``Lean.Parser.Term.app)",
+                "def m (x : Lean.Syntax) : Nat := match x with",
+                "  | .node _ _ _ => 1",
+                "  | _ => 0",
+            ]
+        ) + "\n"
+        self.assertEqual(check_axioms.scan_lean_file_axioms(src, "Compiler/Benign.lean"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

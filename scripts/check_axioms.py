@@ -19,6 +19,12 @@ from property_utils import (
     ROOT,
     _LEAN_IDENT_SEG_PAT,
     _LEAN_ID_REST_PAT,
+    _consume_lean_ident_or_name_lit,
+    _is_lean_id_begin_escape,
+    _is_lean_id_first,
+    _is_lean_id_rest,
+    _is_lean_whitespace,
+    _skip_lean_whitespace,
     die,
     report_errors,
     scrub_lean_code,
@@ -82,6 +88,111 @@ NATIVE_DECIDE_AXIOM_ORIGINS = frozenset([
 
 BV_DECIDE_AXIOM_ORIGINS: frozenset[str] = frozenset()
 
+_DECL_SCOPE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "def",
+        "theorem",
+        "lemma",
+        "axiom",
+        "opaque",
+        "abbrev",
+        "structure",
+        "inductive",
+        "class",
+        "instance",
+        "example",
+        "macro",
+        "elab",
+        "syntax",
+        "notation",
+        "infix",
+        "infixl",
+        "infixr",
+        "prefix",
+        "postfix",
+        "macro_rules",
+        "elab_rules",
+        "mutual",
+    }
+)
+_DYNAMIC_AXIOM_BYPASS_TOKENS: tuple[str, ...] = (
+    "ParserDescr",
+    "TrailingParserDescr",
+    "leadingNode",
+    "trailingNode",
+    "parserExtension",
+    "addParser",
+    "addToken",
+    "registerParserCategory",
+    "runParserCategory",
+    "parseCommand",
+    "processCommands",
+    "runFrontend",
+    "processHeader",
+    "addDecl",
+    "addAndCompile",
+    "addAsAxiom",
+    "addConstAsync",
+    "ofKernelEnv",
+    "promiseChecked",
+    "replay",
+    "elabAxiom",
+    "elabDeclaration",
+    "elabCommandTopLevel",
+    "elabReprove",
+    "AxiomVal",
+    "axiomDecl",
+    "axiomInfo",
+    "Command.axiom",
+    "Command.declaration",
+    "reprove",
+    "setKind",
+    "interpolatedStrFn",
+    "interpolatedStrNoAntiquot",
+)
+_FORBIDDEN_SYNTAX_CONSTRUCTOR_TOKENS: tuple[str, ...] = (
+    "Syntax.atom",
+    ".atom",
+    "mkAtom",
+    "Syntax.node",
+    "Syntax.node1",
+    "Syntax.node2",
+    "Syntax.node3",
+    "Syntax.node4",
+    "Syntax.node5",
+    "Syntax.node6",
+    "Syntax.node7",
+    "Syntax.node8",
+    ".node1",
+    ".node2",
+    ".node3",
+    ".node4",
+    ".node5",
+    ".node6",
+    ".node7",
+    ".node8",
+    "mkNode",
+    ".node",
+)
+_QUOTED_SYNTAX_DECL_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "syntax",
+        "notation",
+        "infix",
+        "infixl",
+        "infixr",
+        "prefix",
+        "postfix",
+        "macro",
+        "elab",
+        "declare_syntax_cat",
+        "declare_simp_like_tactic",
+    }
+)
+_NON_LITERAL_SYMBOL_FNS: frozenset[str] = frozenset(
+    {"symbol", "unicodeSymbol", "nonReservedSymbol"}
+)
+
 
 def is_lean_builtin_axiom(name: str) -> bool:
     """Recognize Lean builtins, including 4.31's explicit per-proof auxiliary names."""
@@ -124,16 +235,280 @@ def _is_forbidden_aux_axiom_decl_name(name: str) -> bool:
     )
 
 
+def _line_col_of(text: str, index: int) -> tuple[int, int]:
+    line = text.count("\n", 0, index) + 1
+    last_nl = text.rfind("\n", 0, index)
+    return line, index - (last_nl + 1)
+
+
+def _ident_segment_boundary_before(text: str, index: int) -> bool:
+    if index <= 0:
+        return True
+    prev = text[index - 1]
+    return not (_is_lean_id_rest(prev) or prev in "«»")
+
+
+def _ident_segment_boundary_after(text: str, end: int) -> bool:
+    if end >= len(text):
+        return True
+    nxt = text[end]
+    return not (_is_lean_id_rest(nxt) or nxt in "«»")
+
+
+def _find_dynamic_axiom_bypass(scrubbed: str, rel_path: str) -> None:
+    unquoted = scrubbed.replace("«", " ").replace("»", " ")
+    for token in _DYNAMIC_AXIOM_BYPASS_TOKENS:
+        start = 0
+        while True:
+            found = unquoted.find(token, start)
+            if found < 0:
+                break
+            end = found + len(token)
+            before_ok = _ident_segment_boundary_before(unquoted, found)
+            after_ok = _ident_segment_boundary_after(unquoted, end)
+            if before_ok and after_ok:
+                line, _ = _line_col_of(unquoted, found)
+                die(
+                    f"Forbidden dynamic axiom/parser bypass {token!r} at {rel_path}:{line}"
+                )
+            start = found + 1
+
+    # Also guard low-level Syntax.atom / Syntax.node / .node / .atom constructors while
+    # allowing benign pattern matches (`| .node ... =>`) and audited kind-preserving
+    # / docComment / Term.app syntax helpers in Verity.Macro and SolidityImport.
+    lines = unquoted.splitlines()
+    raw_lines = scrubbed.splitlines()
+    for line_idx, line in enumerate(lines):
+        raw_line = raw_lines[line_idx] if line_idx < len(raw_lines) else line
+        stripped = line.lstrip()
+        for token in _FORBIDDEN_SYNTAX_CONSTRUCTOR_TOKENS:
+            start = 0
+            while True:
+                found = line.find(token, start)
+                if found < 0:
+                    break
+                end = found + len(token)
+                if token.startswith("."):
+                    before_ok = found == 0 or not (
+                        _is_lean_id_rest(line[found - 1]) or line[found - 1] in ".«»)]}"
+                    )
+                else:
+                    before_ok = _ident_segment_boundary_before(line, found)
+                after_ok = _ident_segment_boundary_after(line, end)
+                if before_ok and after_ok:
+                    if token == ".node":
+                        arrow_pos = line.find("=>")
+                        is_pattern = stripped.startswith("|") and (
+                            arrow_pos < 0 or found < arrow_pos
+                        )
+                        is_benign_node = (
+                            is_pattern
+                            or ".node info kind " in raw_line
+                            or ".node name (children.map " in raw_line
+                        )
+                        if not is_benign_node:
+                            die(
+                                f"Forbidden raw syntax constructor {token!r} at "
+                                f"{rel_path}:{line_idx + 1}"
+                            )
+                    else:
+                        is_benign = (
+                            '⟨mkNode ``Lean.Parser.Command.docComment #[mkAtom "' in raw_line
+                            or "⟨Syntax.node .none `Lean.Parser.Term.app" in raw_line
+                            or "Syntax.node info kind " in raw_line
+                        )
+                        if not is_benign:
+                            die(
+                                f"Forbidden raw syntax constructor {token!r} at "
+                                f"{rel_path}:{line_idx + 1}"
+                            )
+                start = found + 1
+
+
+def _reject_quoted_syntax_declarations(scrubbed: str, rel_path: str) -> None:
+    """Reject syntax/macro/elab/notation commands inside `` `(...)`` quotations."""
+    n = len(scrubbed)
+    i = 0
+    # Each entry is ``(closer_char, is_quotation_group)``.
+    stack: list[tuple[str, bool]] = []
+    quote_depth = 0
+    while i < n:
+        if scrubbed.startswith("`(", i):
+            stack.append((")", True))
+            quote_depth += 1
+            i += 2
+            cat_end = _consume_lean_ident_or_name_lit(scrubbed, i)
+            if cat_end is not None and cat_end < n and scrubbed[cat_end] == "|":
+                cat_bare = _unquote_lean_ident(scrubbed[i:cat_end]).rsplit(".", 1)[-1]
+                if cat_bare in {"stx", "syntax", "attr"}:
+                    line, _ = _line_col_of(scrubbed, i - 2)
+                    die(
+                        f"Forbidden syntax-category quotation {cat_bare!r} at {rel_path}:{line}"
+                    )
+                i = cat_end + 1
+            continue
+        ch = scrubbed[i]
+        if ch in "([{":
+            stack.append(({ "(": ")", "[": "]", "{": "}" }[ch], False))
+            i += 1
+            continue
+        if ch in ")]}":
+            if stack and stack[-1][0] == ch:
+                _, was_quote = stack.pop()
+                if was_quote:
+                    quote_depth -= 1
+            i += 1
+            continue
+        ident_end = _consume_lean_ident_or_name_lit(scrubbed, i)
+        if ident_end is not None and ident_end > i:
+            if quote_depth > 0 and scrubbed[i] != "`":
+                tok = scrubbed[i:ident_end]
+                if tok in _QUOTED_SYNTAX_DECL_KEYWORDS:
+                    line, _ = _line_col_of(scrubbed, i)
+                    die(
+                        f"Forbidden quoted syntax/macro declaration {tok!r} at {rel_path}:{line}"
+                    )
+            i = ident_end
+            continue
+        i += 1
+
+
+def _reject_nonliteral_symbol_args(scrubbed: str, rel_path: str) -> None:
+    n = len(scrubbed)
+    i = 0
+    while i < n:
+        ident_end = _consume_lean_ident_or_name_lit(scrubbed, i)
+        if ident_end is None or ident_end <= i:
+            i += 1
+            continue
+        bare = scrubbed[i:ident_end].replace("«", "").replace("»", "")
+        short = bare.rsplit(".", 1)[-1]
+        if short in _NON_LITERAL_SYMBOL_FNS and _ident_segment_boundary_before(scrubbed, i):
+            after = _skip_lean_whitespace(scrubbed, ident_end)
+            if after < n and not _is_lean_whitespace(scrubbed[ident_end - 1]):
+                if scrubbed[after] == "(":
+                    arg = _skip_lean_whitespace(scrubbed, after + 1)
+                else:
+                    arg = after
+                if arg < n and scrubbed[arg] not in {'"', "r", "&", ":", "=", ")", ",", "]"}:
+                    line, _ = _line_col_of(scrubbed, i)
+                    die(
+                        f"Non-literal parser symbol argument at {rel_path}:{line}; "
+                        "symbol/unicodeSymbol/nonReservedSymbol require a string literal"
+                    )
+        i = ident_end
+
+
+def _reject_dynamic_syntax_antiquotations(scrubbed: str, rel_path: str) -> None:
+    n = len(scrubbed)
+    i = 0
+    group_stack: list[str] = []
+    in_syntax_decl = False
+    while i < n:
+        if _is_lean_whitespace(scrubbed[i]):
+            i += 1
+            continue
+        if scrubbed[i] in "([{":
+            group_stack.append({ "(": ")", "[": "]", "{": "}" }[scrubbed[i]])
+            i += 1
+            continue
+        if scrubbed[i] in ")]}":
+            if group_stack and group_stack[-1] == scrubbed[i]:
+                group_stack.pop()
+            i += 1
+            continue
+        ident_end = _consume_lean_ident_or_name_lit(scrubbed, i)
+        if ident_end is not None and ident_end > i:
+            bare = scrubbed[i:ident_end].replace("«", "").replace("»", "")
+            if not group_stack and bare in {
+                "syntax",
+                "notation",
+                "infix",
+                "infixl",
+                "infixr",
+                "prefix",
+                "postfix",
+                "macro",
+                "elab",
+            }:
+                in_syntax_decl = True
+            elif not group_stack and bare in _DECL_SCOPE_KEYWORDS and bare not in {
+                "syntax",
+                "notation",
+                "infix",
+                "infixl",
+                "infixr",
+                "prefix",
+                "postfix",
+                "macro",
+                "elab",
+            }:
+                in_syntax_decl = False
+            i = ident_end
+            continue
+        if in_syntax_decl and scrubbed[i] == "$":
+            nxt = i + 1
+            if nxt < n and (
+                _is_lean_id_first(scrubbed[nxt]) or _is_lean_id_begin_escape(scrubbed[nxt])
+            ):
+                name_end = _consume_lean_ident_or_name_lit(scrubbed, nxt)
+                after_name = _skip_lean_whitespace(scrubbed, name_end or nxt)
+                if after_name < n and scrubbed[after_name] == ":":
+                    line, _ = _line_col_of(scrubbed, i)
+                    die(
+                        f"Forbidden dynamic syntax antiquotation at {rel_path}:{line}"
+                    )
+        if not group_stack and scrubbed.startswith(":=", i):
+            in_syntax_decl = False
+        if not group_stack and scrubbed.startswith("=>", i):
+            in_syntax_decl = False
+        i += 1
+
+
 def scan_lean_file_axioms(text: str, rel_path: str) -> list[tuple[str, int]]:
-    """Extract ``(unquoted_name, decl_line_1based)`` for every ``axiom`` in *text*.
+    """Extract ``(unquoted_short_or_dotted_name, decl_line_1based)`` for every ``axiom`` in *text*.
 
     Handles indented declarations inside ``section``/``namespace`` blocks, arbitrary
     prefixes (``@[simp]``, ``noncomputable``, ``set_option ... in``, ``private``/``protected``),
     guillemet-escaped identifiers (``«...»``), and split-line ``axiom\\n  name`` forms.
     Fails closed via ``die`` if a standalone ``axiom`` keyword cannot be paired with a
-    valid declaration name.
+    valid declaration name, appears inside a quotation or group, or if the file uses
+    a dynamic parser/environment construct that can inject an axiom the walker cannot
+    see as a literal declaration.
     """
-    scrubbed_lines = scrub_lean_code(text).splitlines()
+    scrubbed = scrub_lean_code(text)
+    _find_dynamic_axiom_bypass(scrubbed, rel_path)
+    _reject_nonliteral_symbol_args(scrubbed, rel_path)
+    _reject_quoted_syntax_declarations(scrubbed, rel_path)
+    _reject_dynamic_syntax_antiquotations(scrubbed, rel_path)
+
+    # First ensure `axiom` never appears inside any quotation or bracketed/parenthesized
+    # group (e.g. `` `(command| axiom ...)`` or ``(axiom ...)``).
+    group_depth = 0
+    idx = 0
+    n = len(scrubbed)
+    while idx < n:
+        ch = scrubbed[idx]
+        if ch in "([{⟨‹":
+            group_depth += 1
+            idx += 1
+            continue
+        if ch in ")]}⟩›":
+            group_depth = max(0, group_depth - 1)
+            idx += 1
+            continue
+        ident_end = _consume_lean_ident_or_name_lit(scrubbed, idx)
+        if ident_end is None or ident_end <= idx:
+            idx += 1
+            continue
+        if scrubbed[idx] != "`":
+            tok = scrubbed[idx:ident_end]
+            if tok == "axiom" and group_depth > 0:
+                line, _ = _line_col_of(scrubbed, idx)
+                die(f"Nested or quoted axiom keyword at {rel_path}:{line}")
+        idx = ident_end
+
+    scrubbed_lines = scrubbed.splitlines()
     results: list[tuple[str, int]] = []
     i = 0
     while i < len(scrubbed_lines):
@@ -143,22 +518,27 @@ def scan_lean_file_axioms(text: str, rel_path: str) -> list[tuple[str, int]]:
             i += 1
             continue
         for kw in kw_matches:
+            if kw.start() > 0 and line[kw.start() - 1] == "`":
+                continue
             tail = line[kw.start() :]
             inline = AXIOM_INLINE_DECL_RE.match(tail)
             if inline is not None:
-                results.append((_unquote_lean_ident(inline.group("name")), i + 1))
-                continue
-            if line[kw.end() :].strip():
-                die(f"Malformed axiom declaration at {rel_path}:{i + 1}")
-            j = i + 1
-            while j < len(scrubbed_lines) and not scrubbed_lines[j].strip():
-                j += 1
-            if j >= len(scrubbed_lines):
-                die(f"Incomplete axiom declaration at {rel_path}:{i + 1}")
-            split = AXIOM_SPLIT_NAME_RE.match(scrubbed_lines[j])
-            if split is None:
-                die(f"Malformed split-line axiom declaration at {rel_path}:{i + 1}")
-            results.append((_unquote_lean_ident(split.group("name")), i + 1))
+                raw_name = _unquote_lean_ident(inline.group("name"))
+            else:
+                if line[kw.end() :].strip():
+                    die(f"Malformed axiom declaration at {rel_path}:{i + 1}")
+                j = i + 1
+                while j < len(scrubbed_lines) and not scrubbed_lines[j].strip():
+                    j += 1
+                if j >= len(scrubbed_lines):
+                    die(f"Incomplete axiom declaration at {rel_path}:{i + 1}")
+                split = AXIOM_SPLIT_NAME_RE.match(scrubbed_lines[j])
+                if split is None:
+                    die(f"Malformed split-line axiom declaration at {rel_path}:{i + 1}")
+                raw_name = _unquote_lean_ident(split.group("name"))
+            if raw_name.startswith("_root_."):
+                raw_name = raw_name[len("_root_.") :]
+            results.append((raw_name, i + 1))
         i += 1
     return results
 
@@ -211,7 +591,15 @@ def run_location_check() -> int:
             errors.append(f"{axiom_name}: file {rel_path} not found")
             continue
 
-        file_axioms = dict(scan_lean_file_axioms(source_file.read_text(encoding="utf-8"), rel_path))
+        scanned_list = scan_lean_file_axioms(source_file.read_text(encoding="utf-8"), rel_path)
+        file_axioms: dict[str, int] = {}
+        for scanned_name, scanned_line in scanned_list:
+            if scanned_name in file_axioms:
+                die(
+                    f"Duplicate axiom name {scanned_name!r} in {rel_path}: "
+                    f"lines {file_axioms[scanned_name]} and {scanned_line}"
+                )
+            file_axioms[scanned_name] = scanned_line
         actual_line = file_axioms.get(axiom_name)
 
         if actual_line is None:
