@@ -291,6 +291,24 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             self.assertIn("from the artifact hub", r.stdout)
             self.assertTrue((work_b / "README.md").exists())
 
+    def test_artifact_hub_republish_replaces_stale_content(self) -> None:
+        """A re-run's publish drops files and the .ready of the earlier attempt first."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            hub = tmp / "hub"
+            stale = hub / "7" / "x"
+            stale.mkdir(parents=True)
+            (stale / "old.tar").write_text("attempt 1")
+            (stale / ".ready").write_text("")
+            new = tmp / "x.tar"
+            new.write_text("attempt 2")
+            r = self._persistence("publish", "--run-id", "7", "--name", "x", "--path", str(new),
+                                  env=dict(os.environ, VERITY_CI_HUB_ENV=str(tmp / "absent.env"),
+                                           VERITY_CI_HUB_DIR=str(hub),
+                                           VERITY_CI_ARTIFACT_ROOT=str(tmp / "store")))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(sorted(p.name for p in stale.iterdir()), [".ready", "x.tar"])
+
     def test_artifact_hub_ignores_incomplete_artifacts(self) -> None:
         """No .ready on the hub (producer still uploading): fall back to GitHub."""
         with tempfile.TemporaryDirectory() as tmp:

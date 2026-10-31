@@ -55,9 +55,14 @@ server_authorize() {
     usage >&2
     exit 1
   fi
-  local user home keys=""
+  local user home keys="" arg
   user="$(runner_user)"
   home="$(home_of "$user")"
+  for arg in "$@"; do
+    case "$arg" in
+      *[[:space:]]*|"") echo "key arguments must not contain whitespace" >&2; exit 1 ;;
+    esac
+  done
   while [ "$#" -ge 2 ]; do
     local type="$1" blob="$2" comment=""
     shift 2
@@ -69,12 +74,23 @@ server_authorize() {
       ssh-ed25519) ;;
       *) echo "only ssh-ed25519 keys are accepted: $type" >&2; exit 1 ;;
     esac
+    case "$blob" in
+      AAAA*) ;;
+      *) echo "not an ssh public key blob: $blob" >&2; exit 1 ;;
+    esac
     keys+="restrict,command=\"/usr/bin/rrsync ${CACHE_ROOT}/artifacts\" ${type} ${blob} ${comment}"$'\n'
   done
   install -d -m 0700 -o "$user" -g "$(id -gn "$user")" "$home/.ssh"
-  printf '%s' "$keys" > "$home/.ssh/authorized_keys"
-  chown "$user:$(id -gn "$user")" "$home/.ssh/authorized_keys"
-  chmod 0600 "$home/.ssh/authorized_keys"
+  local file="$home/.ssh/authorized_keys" begin="# BEGIN verity-ci-hub" end="# END verity-ci-hub"
+  touch "$file"
+  # Replace only the managed block; any other key in the file is kept.
+  {
+    awk -v b="$begin" -v e="$end" '$0==b{skip=1;next} $0==e{skip=0;next} !skip' "$file"
+    printf '%s\n%s%s\n' "$begin" "$keys" "$end"
+  } > "$file.new"
+  mv "$file.new" "$file"
+  chown "$user:$(id -gn "$user")" "$file"
+  chmod 0600 "$file"
   echo "Authorized $(printf '%s' "$keys" | grep -c .) hub client key(s) for ${user}"
 }
 
