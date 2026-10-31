@@ -265,6 +265,79 @@ class PropertyUtilsTheoremExtractionTests(unittest.TestCase):
         self.assertIn("axiom visible_after_quote_char : True", scrubbed)
         self.assertNotIn("fake_in_primed_str", scrubbed)
 
+    def test_scrub_lean_code_matches_lean_ascii_id_rules_and_interpolated_strings(self) -> None:
+        # `λ` (U+03BB), `Π` (U+03A0), `Σ` (U+03A3), `×` (U+00D7), and `÷` (U+00F7)
+        # are excluded from Lean `isLetterLike`; `λ'"'` must tokenize as `λ` plus
+        # char literal `'"'`, never as identifier `λ'` followed by an open string.
+        src = (
+            'macro "m_ign" term : command => `(command| def dummy := 0)\n'
+            "m_ign (λ'\"' => 0)\n"
+            "axiom visible_after_lambda_quote : False\n"
+            'def s1 := s!"prefix {"inner\\"quote"} {1 /- " -/ + 2} suffix"\n'
+            'def s2 := s!"escaped \\{\'\\\"\'}"\n'
+            'def s3 : IO Unit := println! "msg {(1 /- " -/ + 2)}"\n'
+            "axiom α_unicode_visible₁! : False\n"
+            "-- \"\n"
+            "theorem after_all : True := trivial\n"
+        )
+        scrubbed = property_utils.scrub_lean_code(src)
+        self.assertEqual(len(scrubbed.splitlines()), len(src.splitlines()))
+        self.assertIn("axiom visible_after_lambda_quote : False", scrubbed)
+        self.assertIn("axiom α_unicode_visible₁! : False", scrubbed)
+        self.assertIn("theorem after_all : True := trivial", scrubbed)
+        self.assertNotIn("inner", scrubbed)
+
+    def test_lean_id_predicates_exclude_lambda_pi_sigma_times_div_and_non_ascii_digits(self) -> None:
+        for ch in ("λ", "Π", "Σ", "×", "÷", "²", "٠"):
+            self.assertFalse(property_utils._is_lean_id_first(ch), ch)
+            self.assertFalse(property_utils._is_lean_id_rest(ch), ch)
+        for ch in ("α", "β", "Γ", "Ω", "𝔸"):
+            self.assertTrue(property_utils._is_lean_id_first(ch), ch)
+            self.assertTrue(property_utils._is_lean_id_rest(ch), ch)
+        for ch in ("₀", "₉", "ₐ", "'", "!", "?"):
+            self.assertFalse(property_utils._is_lean_id_first(ch), ch)
+            self.assertTrue(property_utils._is_lean_id_rest(ch), ch)
+
+    def test_scrub_lean_code_tracks_prime_suffix_builtins_and_custom_syntax_tokens(self) -> None:
+        src = "\n".join(
+            [
+                'def pprodPair := (1, 2) ×\'"\'close_pprod"',
+                "axiom ax_after_pprod : False",
+                'def psumVal : Nat ⊕\' String := ⊕\'.inl 0',
+                'def bracketGet (xs : Array String) (h : 0 < xs.size) := xs[0]\'"\'close_brk"',
+                "axiom ax_after_bracket_prime : False",
+                'infixl:65 " +\' " => HAdd.hAdd',
+                'def customPrime := "a" +\'"\'close_custom_prime"',
+                "axiom ax_after_custom_prime : False",
+                'syntax term (" ?\' " term)? : term',
+                'def parenOptAtom := 1 ?\'"\'close_paren_atom"',
+                "axiom ax_after_paren_atom : False",
+                'syntax ("myOpt! " interpolatedStr(term))? : term',
+                'def optInterp := myOpt! "{ \'\\\"\' }"',
+                "axiom ax_after_opt_interp : False",
+                'syntax "myBrk[" ident "]" interpolatedStr(term) : term',
+                'def brkInterp := myBrk[tag]"{ \'\\\"\' }"',
+                "axiom ax_after_brk_interp : False",
+                '@[term_parser] def lp := leading_parser " *\' " >> termParser',
+                'def lpUse := *\'"\'close_lp"',
+                "axiom ax_after_lp : False",
+                'def charThenNonBuiltin : Char × String := (\'a\', "ok")',
+                'def closeAll : String := "done"',
+            ]
+        ) + "\n"
+        scrubbed = property_utils.scrub_lean_code(src)
+        self.assertEqual(len(scrubbed.splitlines()), len(src.splitlines()))
+        for expected in (
+            "axiom ax_after_pprod : False",
+            "axiom ax_after_bracket_prime : False",
+            "axiom ax_after_custom_prime : False",
+            "axiom ax_after_paren_atom : False",
+            "axiom ax_after_opt_interp : False",
+            "axiom ax_after_brk_interp : False",
+            "axiom ax_after_lp : False",
+        ):
+            self.assertIn(expected, scrubbed)
+
 
 if __name__ == "__main__":
     unittest.main()
