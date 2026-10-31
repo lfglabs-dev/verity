@@ -211,7 +211,10 @@ publish_artifact() {
   # The hub host's local store is the hub: nothing to push.
   if hub_enabled && [ "${VERITY_CI_HUB_SELF:-}" != "1" ]; then
     # Payload first, .ready last: a consumer only trusts a complete artifact.
-    if hub_rsync -a --mkpath --exclude=.ready "$target_dir/" "$(hub_spec "${run_id}/${name}/")" &&
+    # --delete-excluded drops a .ready left by an earlier attempt of this run
+    # before the new payload lands.
+    if hub_rsync -a --mkpath --delete-before --delete-excluded --exclude=.ready \
+         "$target_dir/" "$(hub_spec "${run_id}/${name}/")" &&
        hub_rsync -a "$target_dir/.ready" "$(hub_spec "${run_id}/${name}/.ready")"; then
       echo "Published artifact '${name}' to the artifact hub"
       [ -n "${GITHUB_OUTPUT:-}" ] && echo "hub=true" >> "$GITHUB_OUTPUT"
@@ -240,14 +243,22 @@ fetch_from_hub() {
     rm -rf "$staging"
     mkdir -p "$staging"
     # The remote .ready is written last by the producer: no marker, no artifact.
-    if ! hub_rsync -a "$(hub_spec "${run_id}/${name}/.ready")" "$staging/.ready" 2>/dev/null ||
-       ! hub_rsync -a --exclude=.ready "$(hub_spec "${run_id}/${name}/")" "$staging/"; then
+    # rsync exits 23 when the marker is simply absent; anything else is a hub
+    # transport failure, which is surfaced (the GitHub upload may have been
+    # skipped because the hub publish had succeeded).
+    local rc=0
+    hub_rsync -a "$(hub_spec "${run_id}/${name}/.ready")" "$staging/.ready" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      hub_rsync -a --exclude=.ready "$(hub_spec "${run_id}/${name}/")" "$staging/" || rc=$?
+    fi
+    if [ "$rc" -ne 0 ] || ! { rm -rf "$target_dir" && mv "$staging" "$target_dir"; }; then
       rm -rf "$staging"
       exec {fd}>&-
+      if [ "$rc" -ne 0 ] && [ "$rc" -ne 23 ]; then
+        echo "::error::Artifact hub unreachable (rsync exit ${rc}) while fetching '${name}'. If the GitHub download below fails with 'Artifact not found', the artifact was published to the hub only: re-run all jobs of this workflow run."
+      fi
       return 1
     fi
-    rm -rf "$target_dir"
-    mv "$staging" "$target_dir"
   fi
   exec {fd}>&-
   echo "Fetched artifact '${name}' from the artifact hub"
