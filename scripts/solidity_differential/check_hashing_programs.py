@@ -32,7 +32,7 @@ def main():
         campaign = output / name / 'abc'
         subprocess.run([sys.executable, '-m', 'solidity_differential.check_abi_hashing',
             '--repo', str(repo), '--fixture-dir', str(project), '--output', str(campaign)],
-            cwd=repo, check=True, timeout=1200)
+            cwd=repo, check=True, timeout=2400)
         complete = json.loads((campaign / 'complete.json').read_text())
         if complete['exit'] != 0:
             raise HarnessError('variant did not finish successfully')

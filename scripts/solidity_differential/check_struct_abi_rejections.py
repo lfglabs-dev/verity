@@ -11,12 +11,14 @@ def main():
         ('memory', 'uint8 small;', 'Pair memory pair', 'Pair', 'return pair.small;', True),
         ('calldata', 'uint8 small;', 'Pair calldata pair', 'Pair', 'return pair.small;', True),
         ('unused', 'uint8 small;', 'Pair calldata pair', 'Pair', 'return 7;', True),
-        ('signed', 'int8 small;', 'Pair calldata pair', 'Pair', 'return uint256(int256(pair.small));', False),
+        # Signed narrow members are admitted since the int8 ABI support (#2577/#2609).
+        ('signed', 'int8 small;', 'Pair calldata pair', 'Pair', 'return uint256(int256(pair.small));', True),
         ('fixed-bytes', 'bytes16 small;', 'Pair calldata pair', 'Pair', 'return uint256(bytes32(pair.small));', False),
         ('array-read', 'uint8[2] small;', 'Pair calldata pair', 'Pair', 'return pair.small[0];', False),
         ('collision', 'uint8 small;', 'Pair calldata pair, uint256 pair_1', 'Pair,uint256', 'return pair.small + pair_1;', False),
         ('member-write', 'uint8 small;', 'Pair memory pair', 'Pair', 'pair.small = 3; return pair.small;', False),
     ]
+    failures = []
     for index, (name, member, declaration, signature, body, valid) in enumerate(cases):
         directory = output / str(index)
         directory.mkdir()
@@ -41,11 +43,15 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         (directory / 'check.log').write_text(text)
         if valid:
             if result.returncode or not artifact.exists():
-                raise RuntimeError(f'{signature}: positive control failed\n{text}')
+                failures.append(f'{name} ({signature}): positive control failed\n{text}')
+                continue
         elif (not result.returncode or artifact.exists()
               or not re.search(r'Fixture\.sol:\d+:\d+:', text)):
-            raise RuntimeError(f'{signature}: expected located struct rejection\n{text}')
+            failures.append(f'{name} ({signature}): expected located struct rejection\n{text}')
+            continue
         print(f'pass struct ABI {name}', flush=True)
+    if failures:
+        raise RuntimeError('\n'.join(failures))
     print(output)
 
 

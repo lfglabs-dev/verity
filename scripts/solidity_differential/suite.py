@@ -14,7 +14,8 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     # Finish all compilation before taking executable snapshots in adapters.
     command(['lake', 'build', 'SolidityImportSmoke', 'Compiler.Codegen',
              'Compiler.Yul.PrettyPrint', 'Compiler.SolidityImport.SequenceRunner',
-             'Compiler.SolidityImport.StaticOracleMocks'], timeout=1800, log=output / 'build.log')
+             'Compiler.SolidityImport.StaticOracleMocks',
+             'Compiler.SolidityImport.CallResponderMocks'], timeout=1800, log=output / 'build.log')
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
             log=output / 'transaction-smoke.log')
@@ -173,7 +174,9 @@ def run_checks(output, checks, transactions, seed, jobs=1):
     def run(index, name, args):
         print(f'stateful check {index}/{total}: {name}', flush=True)
         argv = [sys.executable, '-c', launcher, args[1], *args[2:]]
-        command(argv, timeout=1800, log=output / f'{name}.log')
+        # Per-check guard against hangs. Checks run `jobs` wide on one runner, so
+        # the slowest (extcodecopy-struct-decode, ~45 min under load) needs headroom.
+        command(argv, timeout=3600, log=output / f'{name}.log')
         print(f'stateful check {index}/{total}: {name} done', flush=True)
 
     failures = []

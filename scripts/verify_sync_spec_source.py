@@ -967,12 +967,12 @@ SPEC['expected_downloaded_artifact_paths'] = {
 
 # Tiered pipeline: compiler-regressions (~2 runner-hours) runs on main pushes,
 # nightly, dispatch, or PRs labelled ci:full; every stateful check now runs to
-# the end, so its job timeout is 150 min. foundry shards get 45 min (nippur).
+# the end (6 wide, slowest ~45 min), so its job timeout is 200 min. foundry shards get 45 min (nippur).
 SPEC['expected_job_if_conditions']['compiler-regressions'] = (
     "needs.checks.result == 'success' && needs.build.result == 'success' && "
     "needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true' && "
     "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))")
-SPEC['expected_job_timeouts']['compiler-regressions'] = 150
+SPEC['expected_job_timeouts']['compiler-regressions'] = 200
 SPEC['expected_job_timeouts']['foundry'] = 45
 
 # ci-gate: the single required status check on main.

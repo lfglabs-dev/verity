@@ -1293,7 +1293,7 @@ jobs:
 
   compiler-regressions:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    timeout-minutes: 150
+    timeout-minutes: 200
     needs: [changes, checks, build, build-compiler-binaries]
     # ~2 runner-hours: main pushes, nightly, dispatch, or PRs labelled ci:full.
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))
@@ -1382,7 +1382,7 @@ jobs:
 
       - name: Stateful Solidity instrument checks
         # Every check runs to the end and failures are reported together.
-        timeout-minutes: 90
+        timeout-minutes: 120
         run: |
           # 46 independent checks, ~90 minutes back to back; run them 6-wide.
           scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --jobs 6 --output .lake/import-differential/stateful
