@@ -1,172 +1,197 @@
 #!/usr/bin/env python3
-"""Generate PrintAxioms.lean from proof trees and explicit trusted-boundary theorems.
+"""Generate PrintAxioms.lean and scripts/VerityUnionAxioms.lean from the verified population.
 
-This script scans Lean proof files for top-level theorem/lemma declarations,
-resolves their fully-qualified names (accounting for namespace blocks), and
-generates a Lean file that runs a memoized axiom audit on each public theorem.
+Scans the canonical verified-module population under ``Verity``, ``Compiler``,
+and ``Contracts`` (discovered by ``scripts/check_union_coverage.py``), extracts
+every public theorem/lemma (including indented declarations inside ``mutual`` and
+``where`` blocks, skipping macro-splice placeholders containing ``$``), and emits:
+
+1. ``scripts/VerityUnionAxioms.lean`` — imports ``AxiomAudit`` and the minimal
+   verified root modules (transitively covering every verified module and zero
+   non-verified local modules) and runs ``#union_axioms_of_modules`` over
+   ``Verity, Compiler, Contracts``.
+2. ``PrintAxioms.lean`` — imports ``AxiomAudit`` and the same verified root
+   modules, verifies the whole-population union first, and then prints exact
+   from-scratch per-theorem axiom lines (no ``collectAxioms``, no per-constant
+   cycle cache) via ``Jaune.AxiomAudit.reportPrintAxiomsForRootsM``.
 
 Usage:
-    python3 scripts/generate_print_axioms.py          # overwrite PrintAxioms.lean
-    python3 scripts/generate_print_axioms.py --check   # verify PrintAxioms.lean is up-to-date
+    python3 scripts/generate_print_axioms.py          # overwrite generated files
+    python3 scripts/generate_print_axioms.py --check  # verify both files are up-to-date
 """
+
+from __future__ import annotations
 
 import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from property_utils import strip_lean_comments
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-ROOT = Path(__file__).resolve().parent.parent
-PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
-TRUST_BOUNDARY_FILES = [
-    ROOT / "Verity" / "Core" / "Model" / "BytesObjectMemory.lean",
-    ROOT / "Verity" / "Core" / "AccountState.lean",
-    ROOT / "Verity" / "Core" / "Model" / "DenoteCreate2.lean",
-    ROOT / "Verity" / "Core" / "Model" / "Create2ParentGas.lean",
-    ROOT / "Verity" / "Core" / "Model" / "Create2Opcode.lean",
-    ROOT / "Verity" / "Core" / "Model" / "AccountStorageBridge.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "DeploymentWorldChecks.lean",
-    ROOT / "Verity" / "Core" / "Model" / "InitCodeExecution.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "InitCodeExecutionChecks.lean",
-    ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
-    ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
-    ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AbiLoopFrames.lean",
-    ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "Smoke.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "StaticAbiChecks.lean",
-    ROOT / "Compiler" / "SolidityImport" / "EntryPointInvariants.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AdversarialEntryPointInvariants.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "EntryPointInvariantChecks.lean",
+from check_axioms import BV_DECIDE_AXIOM_ORIGINS, NATIVE_DECIDE_AXIOM_ORIGINS
+from check_union_coverage import check_union_coverage, discover_population
+from property_utils import scrub_lean_code
 
-    ROOT / "Compiler" / "SolidityImport" / "LoopInvariants.lean",
-    ROOT / "Compiler" / "SolidityImport" / "SymbolicExecution.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "SymbolicExecutionChecks.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "LoopInvariantChecks.lean",
-    ROOT / "Compiler" / "SolidityImport" / "Coverage.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AbiEncoding.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AbiByteLanes.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AbiMemory.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "PhysicalMemoryFrameChecks.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AbiPhysicalMemory.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AbiPhysicalCopy.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AbiMemoryGrid.lean",
-    ROOT / "Verity" / "Core" / "Model" / "ByteMemoryInverse.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "SolidityAbiPrimitiveChecks.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "AbiLoweringChecks.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "AbiCoverageChecks.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "ExplicitAbiChecks.lean",
-    ROOT / "Compiler" / "SolidityImport" / "AstIndex.lean",
-    ROOT / "Compiler" / "SolidityImport" / "TypeClassifier.lean",
-]
-
-def _collect_contract_proof_dirs() -> list[Path]:
-    """Collect Contracts/*/Proofs/ directories."""
-    contracts_dir = ROOT / "Contracts"
-    if not contracts_dir.is_dir():
-        return []
-    dirs = []
-    for d in sorted(contracts_dir.iterdir()):
-        proofs = d / "Proofs"
-        if proofs.is_dir():
-            dirs.append(proofs)
-    return dirs
+ROOT = SCRIPT_DIR.parent
 OUTPUT = ROOT / "PrintAxioms.lean"
+UNION_OUTPUT = ROOT / "scripts" / "VerityUnionAxioms.lean"
+
+# Allowed axiom union across the verified population in Phase 0a (before Phase 0b+1
+# removes `native_decide`/`bv_decide` origins and Phase 2 removes `solidityMappingSlot_injective`).
+ALLOWED_POPULATION_AXIOMS: tuple[str, ...] = (
+    "propext",
+    "Classical.choice",
+    "Quot.sound",
+    "Compiler.Proofs.solidityMappingSlot_injective",
+)
+
+SORRY_RE_BODY = re.compile(r"\bsorry\b")
+_DECL_PREFIX_RE = (
+    r"(?:(?:@\[[^\]]*\]|private|protected|noncomputable|unsafe|partial|local|scoped)\s+)*"
+)
+_INLINE_THEOREM_RE = re.compile(
+    rf"^(?P<prefix>{_DECL_PREFIX_RE})(?P<kind>theorem|lemma)\s+(?P<name>[^\s:({{\[⦃]+)"
+)
+_SPLIT_THEOREM_RE = re.compile(rf"^(?P<prefix>{_DECL_PREFIX_RE})(?P<kind>theorem|lemma)$")
+_SPLIT_NAME_RE = re.compile(r"^(?P<name>[^\s:({\[⦃]+)")
 
 
-def file_to_module(path: Path) -> str:
+def _lean_string_array(items: list[str] | tuple[str, ...]) -> str:
+    if not items:
+        return "#[]"
+    body = ",\n    ".join(f'"{item}"' for item in items)
+    return f"#[\n    {body}\n  ]"
+
+
+def _render_population_union_block() -> str:
+    allowed = _lean_string_array(list(ALLOWED_POPULATION_AXIOMS))
+    native_origins = _lean_string_array(sorted(NATIVE_DECIDE_AXIOM_ORIGINS))
+    bv_origins = _lean_string_array(sorted(BV_DECIDE_AXIOM_ORIGINS))
+    return (
+        "open Jaune.AxiomAudit Lean Elab Command in\n"
+        "run_cmd do\n"
+        "  let env ← getEnv\n"
+        "  let pfxs := #[`Verity, `Compiler, `Contracts]\n"
+        "  let mr := moduleRootsOf env pfxs\n"
+        "  let roots := mr.1\n"
+        "  let modules := mr.2\n"
+        f"  let allowed := {allowed}\n"
+        f"  let allowedNativeOrigins := {native_origins}\n"
+        f"  let allowedBvOrigins := {bv_origins}\n"
+        "  match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins) with\n"
+        '  | .error e => throwError "{e}"\n'
+        "  | .ok r =>\n"
+        "    logInfo (MessageData.ofFormat (Std.Format.text\n"
+        '      (s!"UNION-AXIOMS \'{unionLabel pfxs}\': [{", ".intercalate r.axioms.toList}] "\n'
+        '        ++ s!"roots={r.roots} modules={r.modules} visited={r.visited}")))\n'
+    )
+
+
+def file_to_module(path: Path, root: Path = ROOT) -> str:
     """Convert a file path to a Lean module name."""
-    rel = path.relative_to(ROOT).with_suffix("")
+    rel = path.relative_to(root).with_suffix("")
     return ".".join(rel.parts)
 
 
-SORRY_RE_BODY = re.compile(r"\bsorry\b")
-
-
 def extract_theorems(path: Path) -> list[tuple[str, bool, bool]]:
-    """Extract (fully_qualified_name, is_private, is_sorry) triples from a Lean file.
+    """Extract ``(fully_qualified_name, is_private, is_sorry)`` triples from a Lean file.
 
-    FQN construction: In Lean 4 the fully-qualified name of a declaration is
-    determined by the namespace stack, not the module (file) path. So a theorem
-    ``foo`` inside ``namespace A.B`` has FQN ``A.B.foo`` regardless of which file
-    it lives in.
-
-    Namespace tracking: ``end <name>`` closes the matching namespace. Bare
-    ``end`` (no name) closes ``mutual`` or ``section`` blocks, NOT namespaces,
-    so we only pop the stack when the ``end`` token matches a namespace name.
-
-    Comment handling: Uses the shared ``strip_lean_comments`` lexer which
-    correctly handles nested block comments, inline block comments, line
-    comments, and string literals.
-
-    Sorry detection: After comment stripping, if any line in a theorem's body
-    (from declaration to next declaration/end) contains ``sorry`` as a whole
-    word, the theorem is marked as sorry'd.
+    Matches top-level, indented, and split-header ``theorem``/``lemma`` declarations
+    (including declarations inside ``mutual`` blocks), resolves segmented namespaces
+    and sections/mutuals/macro ``interface ... where ... end`` blocks without stack
+    desynchronisation, scrubs comments and string literals, and skips macro quotation
+    placeholders whose names contain ``$``.
     """
-    text = path.read_text()
-    stripped_text = strip_lean_comments(text)
-    lines = stripped_text.splitlines()
+    text = path.read_text(encoding="utf-8")
+    scrubbed_text = scrub_lean_code(text)
+    lines = scrubbed_text.splitlines()
 
-    # Track namespace stack (each entry is a dotted namespace name)
-    ns_stack: list[str] = []
-    # Collect (fqn, is_private, start_line_idx) for each declaration
+    # Stack of `(kind, segment)` entries where `kind == "namespace"` contributes `segment`
+    # to the active FQN prefix and `"section"` / `"mutual"` / `"interface"` track scope depth.
+    scope_stack: list[tuple[str, str]] = []
     raw_results: list[tuple[str, bool, int]] = []
 
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-
-        # Skip blank lines
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
         if not stripped:
+            i += 1
             continue
 
-        # Track namespace openings
-        ns_match = re.match(r"^namespace\s+(\S+)", stripped)
+        if re.match(r"^interface\s+\S+\s+where$", stripped):
+            scope_stack.append(("interface", ""))
+            i += 1
+            continue
+
+        ns_match = re.match(r"^(?:noncomputable\s+)?namespace\s+(\S+)$", stripped)
         if ns_match:
-            ns_stack.append(ns_match.group(1))
+            for seg in ns_match.group(1).split("."):
+                scope_stack.append(("namespace", seg))
+            i += 1
             continue
 
-        # Track namespace closings: only pop when ``end X`` matches the top
-        # of the namespace stack. Bare ``end`` (closing mutual/section) and
-        # ``end X`` where X doesn't match the top namespace are ignored.
-        end_match = re.match(r"^end\s+(\S+)", stripped)
+        sec_match = re.match(r"^(?:noncomputable\s+)?section(?:\s+(\S+))?$", stripped)
+        if sec_match:
+            sec_name = sec_match.group(1)
+            if sec_name:
+                for seg in sec_name.split("."):
+                    scope_stack.append(("section", seg))
+            else:
+                scope_stack.append(("section", ""))
+            i += 1
+            continue
+
+        if re.match(r"^(?:noncomputable\s+)?mutual$", stripped):
+            scope_stack.append(("mutual", ""))
+            i += 1
+            continue
+
+        end_match = re.match(r"^end(?:\s+(\S+))?$", stripped)
         if end_match:
             end_name = end_match.group(1)
-            if ns_stack and ns_stack[-1] == end_name:
-                ns_stack.pop()
-            continue
-
-        # Bare ``end`` (no name): closes mutual/section, never a namespace
-        if stripped == "end":
-            continue
-
-        # Match theorem/lemma declarations, including those with attribute
-        # annotations like @[simp] theorem foo ...
-        decl_match = re.match(
-            r"^(?:@\[[^\]]*\]\s*)*(private\s+)?(protected\s+)?(theorem|lemma)\s+(\S+)",
-            stripped,
-        )
-        if decl_match:
-            is_private = decl_match.group(1) is not None
-            name = decl_match.group(4)
-            # Remove trailing colon/where if present
-            name = name.rstrip(":")
-
-            # FQN = namespace prefix + local name (no module prefix)
-            if ns_stack:
-                fqn = f"{'.'.join(ns_stack)}.{name}"
+            if end_name is None:
+                if scope_stack:
+                    scope_stack.pop()
             else:
-                fqn = f"{name}"
+                for seg in reversed(end_name.split(".")):
+                    if scope_stack and scope_stack[-1][1] == seg:
+                        scope_stack.pop()
+            i += 1
+            continue
 
-            raw_results.append((fqn, is_private, i))
+        decl_match = _INLINE_THEOREM_RE.match(stripped)
+        prefix_text: str | None = None
+        raw_name: str | None = None
+        step = 1
+        if decl_match:
+            prefix_text = decl_match.group("prefix")
+            raw_name = decl_match.group("name")
+        else:
+            split_match = _SPLIT_THEOREM_RE.match(stripped)
+            if split_match and i + 1 < len(lines):
+                next_match = _SPLIT_NAME_RE.match(lines[i + 1].strip())
+                if next_match:
+                    prefix_text = split_match.group("prefix")
+                    raw_name = next_match.group("name")
+                    step = 2
 
-    # Determine sorry status by scanning each theorem's body range
+        if prefix_text is not None and raw_name is not None:
+            is_private = bool(re.search(r"\bprivate\b", prefix_text))
+            name = raw_name.rstrip(":")
+            if "$" not in name:
+                ns_parts = [seg for kind, seg in scope_stack if kind == "namespace" and seg]
+                fqn = f"{'.'.join(ns_parts)}.{name}" if ns_parts else name
+                raw_results.append((fqn, is_private, i))
+            i += step
+            continue
+
+        i += 1
+
     results: list[tuple[str, bool, bool]] = []
     for idx, (fqn, is_private, start) in enumerate(raw_results):
-        if idx + 1 < len(raw_results):
-            end = raw_results[idx + 1][2]
-        else:
-            end = len(lines)
+        end = raw_results[idx + 1][2] if idx + 1 < len(raw_results) else len(lines)
         body = "\n".join(lines[start:end])
         is_sorry = bool(SORRY_RE_BODY.search(body))
         results.append((fqn, is_private, is_sorry))
@@ -174,209 +199,133 @@ def extract_theorems(path: Path) -> list[tuple[str, bool, bool]]:
     return results
 
 
-def generate() -> str:
-    """Generate the full PrintAxioms.lean content."""
-    all_files: list[Path] = [path for path in TRUST_BOUNDARY_FILES if path.is_file()]
-    for d in _collect_contract_proof_dirs() + PROOF_DIRS:
-        if d.exists():
-            all_files.extend(sorted(d.rglob("*.lean")))
+def generate_union_axioms(root: Path = ROOT) -> str:
+    """Generate ``scripts/VerityUnionAxioms.lean`` content."""
+    _, verified, _, roots = discover_population(root)
+    imports = "\n".join(["import AxiomAudit", *(f"import {mod}" for mod in roots)])
+    return (
+        "-- Auto-generated by scripts/generate_print_axioms.py\n"
+        f"-- Whole-library from-scratch axiom union over all {len(verified)} verified modules\n"
+        f"-- ({len(roots)} root imports, 0 non-verified local modules).\n"
+        "-- Regenerate with: python3 scripts/generate_print_axioms.py\n\n"
+        f"{imports}\n\n"
+        f"{_render_population_union_block()}"
+    )
 
-    # Skip files that don't compile against current definitions.
-    # Conversions.lean was fixed (stale mappings field removed) and
-    # Lemmas.lean/Codegen.lean had `default` keyword renamed, but
-    # deeper issues remain in these modules.  This list should shrink
-    # as the proof files are brought fully in sync.
-    EXCLUDED_PATHS = {
-        # Pre-existing proof failures (simp/tactic issues, API changes)
-        "Compiler/Proofs/IRGeneration/Expr.lean",                  # deep API mismatches (.setMapping, evmModulus)
-    }
-    all_files = [
-        f for f in all_files
-        if "README" not in f.name
-        and str(f.relative_to(ROOT)) not in EXCLUDED_PATHS
-    ]
 
-    # Some proof modules are imported transitively by broad end-to-end proofs.
-    # Keep direct dependencies before their transitive dependents so Lean does
-    # not load stale/generated declaration internals in the opposite order.
-    IMPORT_PRIORITY = {
-        "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeStepLemmas.lean": -1,
-    }
-    all_files.sort(key=lambda f: IMPORT_PRIORITY.get(str(f.relative_to(ROOT)), 0))
+def generate(root: Path = ROOT) -> str:
+    """Generate the full ``PrintAxioms.lean`` content."""
+    disk_map, verified, _, roots = discover_population(root)
 
-    imports: list[str] = []
+    imports = ["import AxiomAudit", *(f"import {mod}" for mod in roots)]
     sections: list[str] = []
+    public_count = 0
+    private_count = 0
+    sorry_count = 0
+    seen_public: dict[str, str] = {}
 
-    for path in all_files:
+    for module in sorted(verified):
+        path = disk_map[module]
         theorems = extract_theorems(path)
         if not theorems:
             continue
 
-        module = file_to_module(path)
-        imports.append(f"import {module}")
-
-        rel = path.relative_to(ROOT)
-        lines = [f"\n  -- {rel}"]
+        rel = path.relative_to(root).as_posix()
+        lines = [f"-- {rel}"]
         for fqn, is_private, is_sorry in theorems:
             if is_private:
-                lines.append(f"  -- {fqn}  -- private")
+                private_count += 1
+                lines.append(f"-- {fqn}  -- private")
             elif is_sorry:
-                lines.append(f"  -- {fqn}  -- sorry'd")
+                sorry_count += 1
+                lines.append(f"-- {fqn}  -- sorry'd")
             else:
-                lines.append(f"  {fqn}")
-
+                if fqn in seen_public:
+                    raise ValueError(
+                        f"duplicate public theorem FQN {fqn} in {seen_public[fqn]} and {rel}"
+                    )
+                seen_public[fqn] = rel
+                public_count += 1
+                lines.append(fqn)
         sections.append("\n".join(lines))
 
-    public_count = sum(
-        1
-        for path in all_files
-        for _, priv, sorry in extract_theorems(path)
-        if not priv and not sorry
-    )
-    private_count = sum(
-        1
-        for path in all_files
-        for _, priv, _ in extract_theorems(path)
-        if priv
-    )
-    sorry_count = sum(
-        1
-        for path in all_files
-        for _, priv, sorry in extract_theorems(path)
-        if not priv and sorry
+    blob_body = (
+        "\n\n".join(sections)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
     )
 
     header = (
         "-- Auto-generated by scripts/generate_print_axioms.py\n"
-        "-- Runs a memoized axiom audit on all top-level theorems/lemmas in proof directories.\n"
+        "-- Runs a fail-closed whole-population union check and an exact from-scratch\n"
+        "-- per-theorem axiom audit (no Lean.collectAxioms, no cycle sentinel cache)\n"
+        f"-- across all {len(verified)} verified modules ({len(roots)} root imports).\n"
         "-- Regenerate with: python3 scripts/generate_print_axioms.py\n"
     )
 
-    audit_impl = """
-import Lean
-import Lean.Util.FoldConsts
+    union_block = _render_population_union_block()
+    allowed_arr = _lean_string_array(list(ALLOWED_POPULATION_AXIOMS))
+    native_origins_arr = _lean_string_array(sorted(NATIVE_DECIDE_AXIOM_ORIGINS))
+    bv_origins_arr = _lean_string_array(sorted(BV_DECIDE_AXIOM_ORIGINS))
+    runner = f'''
+{union_block}
+open Jaune.AxiomAudit Lean Elab Command in
+private def verityAuditedTheoremBlob : String :=
+"{blob_body}"
 
-open Lean Elab Command
-
-namespace Verity.AxiomAudit
-
-structure State where
-  cache : Std.HashMap Name (Array Name) := {}
-
-def normalizeNames (names : Array Name) : Array Name := Id.run do
-  let mut seen : NameSet := {}
-  let mut out := #[]
-  for name in names.qsort Name.lt do
-    unless seen.contains name do
-      seen := seen.insert name
-      out := out.push name
-  return out
-
-mutual
-
-partial def collectExprMemo (expr : Expr) : StateT State CoreM (Array Name) := do
-  let mut axioms := #[]
-  for usedConst in expr.getUsedConstants do
-    axioms := axioms ++ (← collectMemo usedConst)
-  return axioms
-
-partial def collectMemo (constName : Name) : StateT State CoreM (Array Name) := do
-  let state ← get
-  if let some axioms := state.cache[constName]? then
-    return axioms
-
-  -- Break declaration cycles while computing the fixed result for this root.
-  modify fun s => { s with cache := s.cache.insert constName #[] }
-
-  let mut axioms := #[]
+open Jaune.AxiomAudit Lean Elab Command in
+run_cmd do
   let env ← getEnv
-  match env.checked.get.find? constName with
-  | some (ConstantInfo.axiomInfo _) =>
-      axioms := #[constName]
-  | some (ConstantInfo.defnInfo val) =>
-      axioms := axioms ++ (← collectExprMemo val.type)
-      axioms := axioms ++ (← collectExprMemo val.value)
-  | some (ConstantInfo.thmInfo val) =>
-      axioms := axioms ++ (← collectExprMemo val.type)
-      axioms := axioms ++ (← collectExprMemo val.value)
-  | some (ConstantInfo.opaqueInfo val) =>
-      axioms := axioms ++ (← collectExprMemo val.type)
-      axioms := axioms ++ (← collectExprMemo val.value)
-  | some (ConstantInfo.quotInfo _) =>
-      modify fun s => s
-  | some (ConstantInfo.ctorInfo val) =>
-      axioms := axioms ++ (← collectExprMemo val.type)
-  | some (ConstantInfo.recInfo val) =>
-      axioms := axioms ++ (← collectExprMemo val.type)
-  | some (ConstantInfo.inductInfo val) =>
-      axioms := axioms ++ (← collectExprMemo val.type)
-      for ctor in val.ctors do
-        axioms := axioms ++ (← collectMemo ctor)
-  | none =>
-      modify fun s => s
-
-  let result := normalizeNames axioms
-  modify fun s => { s with cache := s.cache.insert constName result }
-  return result
-
-end
-
-def formatResult (constName : Name) (axioms : Array Name) : String :=
-  if axioms.isEmpty then
-    s!"'{constName}' does not depend on any axioms"
-  else
-    s!"'{constName}' depends on axioms: {axioms.toList}"
-
-syntax (name := verityPrintAxioms) "#verity_print_axioms " "[" ident* "]" : command
-
-@[command_elab verityPrintAxioms] def elabVerityPrintAxioms : CommandElab := fun stx => do
-  let ids := stx[2].getArgs
-  let names := ids.map Syntax.getId
-  let (results, _state) ← liftCoreM <| (names.mapM fun name => do
-    let axioms ← collectMemo name
-    return (name, axioms)
-  ).run {}
-  for (name, axioms) in results do
-    liftIO <| IO.println (formatResult name axioms)
-
-end Verity.AxiomAudit
-"""
+  let roots := parseDottedNames verityAuditedTheoremBlob
+  let allowed := {allowed_arr}
+  let allowedNativeOrigins := {native_origins_arr}
+  let allowedBvOrigins := {bv_origins_arr}
+  match (← reportPrintAxiomsForRootsM env roots (some allowed) allowedNativeOrigins allowedBvOrigins) with
+  | .error e => throwError "{{e}}"
+  | .ok lines =>
+    for line in lines do
+      liftIO <| IO.println line
+'''
 
     footer = (
         f"\n-- Total: {public_count + private_count + sorry_count} theorems/lemmas"
         f" ({public_count} public, {private_count} private, {sorry_count} sorry'd)\n"
     )
 
-    return (
-        header
-        + "\n"
-        + "\n".join(imports)
-        + "\n"
-        + audit_impl
-        + "\n#verity_print_axioms [\n"
-        + "\n".join(sections)
-        + "\n]\n"
-        + footer
-    )
+    return header + "\n" + "\n".join(imports) + "\n" + runner + footer
 
 
-def main() -> None:
-    content = generate()
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    print_content = generate(ROOT)
+    union_content = generate_union_axioms(ROOT)
 
-    if "--check" in sys.argv:
-        if not OUTPUT.exists():
-            print(f"ERROR: {OUTPUT} does not exist. Run without --check to generate.")
-            sys.exit(1)
-        existing = OUTPUT.read_text()
-        if existing != content:
-            print(f"ERROR: {OUTPUT} is out of date. Regenerate with:")
-            print(f"  python3 scripts/generate_print_axioms.py")
-            sys.exit(1)
-        print(f"OK: {OUTPUT} is up to date.")
-    else:
-        OUTPUT.write_text(content)
-        print(f"Generated {OUTPUT}.")
+    if "--check" in args:
+        stale: list[Path] = []
+        for target, expected in ((OUTPUT, print_content), (UNION_OUTPUT, union_content)):
+            if not target.exists() or target.read_text(encoding="utf-8") != expected:
+                stale.append(target)
+        if stale:
+            rendered = ", ".join(str(p.relative_to(ROOT)) for p in stale)
+            print(f"ERROR: out of date: {rendered}. Regenerate with:")
+            print("  python3 scripts/generate_print_axioms.py")
+            return 1
+        try:
+            covered = check_union_coverage(ROOT)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: union coverage check failed: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"OK: {OUTPUT.relative_to(ROOT)} and {UNION_OUTPUT.relative_to(ROOT)} "
+            f"are up to date ({covered} verified modules covered)."
+        )
+        return 0
+
+    OUTPUT.write_text(print_content, encoding="utf-8")
+    UNION_OUTPUT.write_text(union_content, encoding="utf-8")
+    print(f"Generated {OUTPUT.relative_to(ROOT)} and {UNION_OUTPUT.relative_to(ROOT)}.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

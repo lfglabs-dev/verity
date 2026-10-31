@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-from property_utils import ROOT
+from property_utils import ROOT, scrub_lean_code, strip_lean_comments
 
 BACKENDS_DIR = (
     ROOT / "Compiler" / "Proofs" / "YulGeneration" / "Backends"
@@ -120,89 +120,12 @@ TOP_LEVEL_DECL_RE = re.compile(
 
 def _strip_lean_comments(text: str) -> str:
     """Remove Lean line/block comments while preserving line structure."""
-    result: list[str] = []
-    i = 0
-    n = len(text)
-    block_depth = 0
-    in_string = False
-    string_escape = False
-    while i < n:
-        if block_depth > 0:
-            if text.startswith("/-", i):
-                block_depth += 1
-                i += 2
-                continue
-            if text.startswith("-/", i):
-                block_depth -= 1
-                i += 2
-                continue
-            if text[i] == "\n":
-                result.append("\n")
-            i += 1
-            continue
-
-        ch = text[i]
-        if in_string:
-            result.append(ch)
-            if string_escape:
-                string_escape = False
-            elif ch == "\\":
-                string_escape = True
-            elif ch == '"':
-                in_string = False
-            i += 1
-            continue
-
-        if text.startswith("--", i):
-            newline = text.find("\n", i)
-            if newline == -1:
-                break
-            result.append("\n")
-            i = newline + 1
-            continue
-        if text.startswith("/-", i):
-            block_depth = 1
-            i += 2
-            continue
-
-        if ch == '"':
-            in_string = True
-        result.append(ch)
-        i += 1
-    return "".join(result)
+    return strip_lean_comments(text)
 
 
 def _strip_lean_strings(text: str) -> str:
-    """Blank Lean string literal contents while preserving line structure."""
-    result: list[str] = []
-    i = 0
-    n = len(text)
-    in_string = False
-    string_escape = False
-    while i < n:
-        ch = text[i]
-        if in_string:
-            if ch == "\n":
-                result.append("\n")
-                string_escape = False
-            else:
-                result.append(" ")
-            if string_escape:
-                string_escape = False
-            elif ch == "\\":
-                string_escape = True
-            elif ch == '"':
-                in_string = False
-            i += 1
-            continue
-        if ch == '"':
-            in_string = True
-            result.append(" ")
-            i += 1
-            continue
-        result.append(ch)
-        i += 1
-    return "".join(result)
+    """Blank Lean comments and string/char literal contents while preserving line structure."""
+    return scrub_lean_code(text)
 
 
 def _extract_block(text: str, start_marker: str, end_marker: str) -> list[str]:
@@ -284,7 +207,7 @@ def _parse_bridge_lemmas() -> tuple[list[str], list[str]]:
     if not BRIDGE_LEMMAS_FILE.exists():
         raise FileNotFoundError(f"Bridge lemmas file not found: {BRIDGE_LEMMAS_FILE}")
     text = BRIDGE_LEMMAS_FILE.read_text(encoding="utf-8")
-    code = _strip_lean_strings(_strip_lean_comments(text))
+    code = scrub_lean_code(text)
     all_lemmas = sorted({
         m.group(1)
         for m in BRIDGE_LEMMA_RE.finditer(code)
@@ -432,7 +355,7 @@ def _parse_context_bridge_lemmas() -> tuple[list[str], list[str]]:
     if not BRIDGE_LEMMAS_FILE.exists():
         raise FileNotFoundError(f"Bridge lemmas file not found: {BRIDGE_LEMMAS_FILE}")
     text = BRIDGE_LEMMAS_FILE.read_text(encoding="utf-8")
-    code = _strip_lean_strings(_strip_lean_comments(text))
+    code = scrub_lean_code(text)
     context_bridged: set[str] = set()
     fallthrough: set[str] = set()
     theorem_re = re.compile(rf"{MODIFIERS}theorem\s+([A-Za-z_][A-Za-z0-9_']*)\b", re.DOTALL)
@@ -492,7 +415,7 @@ def _parse_correctness_proofs() -> dict[str, object]:
             "dispatcher_tail": "missing",
         }
     text = "\n".join(path.read_text(encoding="utf-8") for path in existing_files)
-    code = _strip_lean_strings(_strip_lean_comments(text))
+    code = scrub_lean_code(text)
     return {
         "file": str(CORRECTNESS_FILE.relative_to(ROOT)),
         "runtime_lowering": "present" if "lowerRuntimeContractNative" in code else "missing",

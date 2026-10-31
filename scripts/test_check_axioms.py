@@ -185,6 +185,207 @@ class CheckAxiomsReportTests(unittest.TestCase):
         _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
         self.assertEqual(unexpected, {fake: ["Foo.bar"]})
 
+    def test_classifies_lean431_per_proof_bv_decide_axiom_when_origin_allowed(self) -> None:
+        origin = "Compiler.Proofs.MetaSpecs.hasMask_compl_eq_not_maskSubset"
+        generated = f"{origin}._native.bv_decide.ax_1_7"
+        old_bv = check_axioms.BV_DECIDE_AXIOM_ORIGINS
+        try:
+            check_axioms.BV_DECIDE_AXIOM_ORIGINS = frozenset([origin])
+            builtin, documented, forbidden, unexpected = check_axioms.classify_axioms(
+                {origin: [generated]}
+            )
+        finally:
+            check_axioms.BV_DECIDE_AXIOM_ORIGINS = old_bv
+        self.assertEqual(builtin, {generated})
+        self.assertEqual(documented, set())
+        self.assertEqual(forbidden, set())
+        self.assertEqual(unexpected, {})
+
+    def test_rejects_bv_decide_axiom_when_bv_allowlist_is_empty(self) -> None:
+        generated = (
+            "Compiler.Proofs.MetaSpecs.hasMask_compl_eq_not_maskSubset"
+            "._native.bv_decide.ax_1_7"
+        )
+        _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [generated]})
+        self.assertEqual(unexpected, {generated: ["Foo.bar"]})
+
+    def test_dependency_cannot_spoof_bv_decide_generated_name(self) -> None:
+        fake = "Dependency.foo._native.bv_decide.ax_1_7"
+        _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
+        self.assertEqual(unexpected, {fake: ["Foo.bar"]})
+
+    def test_same_origin_spoofed_native_decide_axiom_rejected_when_origin_does_not_use_it(
+        self,
+    ) -> None:
+        origin = "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_eq"
+        real_aux = f"{origin}._native.native_decide.ax_1_1"
+        spoof_aux = f"{origin}._native.native_decide.ax_999"
+        axiom_map = {
+            origin: [real_aux],
+            "Compiler.SpoofConsumer.bad": [spoof_aux],
+        }
+        builtin, _, _, unexpected = check_axioms.classify_axioms(axiom_map)
+        self.assertEqual(builtin, {real_aux})
+        self.assertEqual(unexpected, {spoof_aux: ["Compiler.SpoofConsumer.bad"]})
+
+    def test_discover_repo_axioms_rejects_dotted_aux_spoof_declaration_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "Spoof.lean").write_text(
+                "axiom thm._native.native_decide.ax_999 : False\n",
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                with redirect_stderr(stderr), self.assertRaises(SystemExit):
+                    check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertIn("Forbidden hand-written native_decide/bv_decide auxiliary axiom", stderr.getvalue())
+
+    def test_discover_repo_axioms_detects_indented_prefixed_quoted_and_split_axioms(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "Forms.lean").write_text(
+                "\n".join(
+                    [
+                        "section Inner",
+                        "  axiom indented_ax : True",
+                        "  @[simp] noncomputable axiom attr_ax : True",
+                        "  set_option linter.unusedVariables false in axiom opt_ax : True",
+                        "  axiom «quoted.ax» : True",
+                        "  axiom",
+                        "    split_line_ax : True",
+                        "  def keep («axiom» : Nat) : Nat := «axiom»",
+                        "end Inner",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {
+                "indented_ax": ("Compiler/Forms.lean", 2),
+                "attr_ax": ("Compiler/Forms.lean", 3),
+                "opt_ax": ("Compiler/Forms.lean", 4),
+                "quoted.ax": ("Compiler/Forms.lean", 5),
+                "split_line_ax": ("Compiler/Forms.lean", 6),
+            },
+        )
+
+    def test_discover_repo_axioms_not_blinded_by_double_quote_char_literal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "QuoteChar.lean").write_text(
+                "\n".join(
+                    [
+                        "def openQuote : Char := '\"'",
+                        "axiom hidden_between_quote_chars : False",
+                        "def closeQuote : Char := '\"'",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {"hidden_between_quote_chars": ("Compiler/QuoteChar.lean", 2)},
+        )
+
+    def test_discover_repo_axioms_not_blinded_by_lambda_char_literal_or_interpolated_string(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "LambdaAndInterp.lean").write_text(
+                "\n".join(
+                    [
+                        'macro "m_ign" term : command => `(command| def dummy := 0)',
+                        "m_ign (λ'\"' => 0)",
+                        "axiom after_lambda_char : False",
+                        'def msg := s!"hole {1 /- " -/ + 2} and {\\"q\\\\\\"uote\\"}"',
+                        "axiom α_unicode_ax₁ : False",
+                        '-- "',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {
+                "after_lambda_char": ("Compiler/LambdaAndInterp.lean", 3),
+                "α_unicode_ax₁": ("Compiler/LambdaAndInterp.lean", 5),
+            },
+        )
+
+    def test_discover_repo_axioms_not_blinded_by_prime_suffix_tokens_or_custom_syntax(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True, exist_ok=True)
+            (root / "Compiler" / "PrimeAndCustomSyntax.lean").write_text(
+                "\n".join(
+                    [
+                        'def p := (1, 2) ×\'"\'open_first"',
+                        "axiom ax_pprod : False",
+                        'syntax term (" +\' " term)? : term',
+                        'def q := 1 +\'"\'open_second"',
+                        "axiom ax_paren_atom : False",
+                        'syntax "myMany " ident* interpolatedStr(term) : term',
+                        'def r := myMany a b "{ \'\\\"\' }"',
+                        "axiom ax_many_interp : False",
+                        'syntax "myLP! " interpolatedStr(term) : term',
+                        'def s := myLP! "{ \'\\\"\' }"',
+                        "axiom ax_lp_interp : False",
+                        'def closeQuotes := "done"',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_root = check_axioms.ROOT
+            try:
+                check_axioms.ROOT = root
+                discovered = check_axioms.discover_repo_axioms()
+            finally:
+                check_axioms.ROOT = old_root
+        self.assertEqual(
+            discovered,
+            {
+                "ax_pprod": ("Compiler/PrimeAndCustomSyntax.lean", 2),
+                "ax_paren_atom": ("Compiler/PrimeAndCustomSyntax.lean", 5),
+                "ax_many_interp": ("Compiler/PrimeAndCustomSyntax.lean", 8),
+                "ax_lp_interp": ("Compiler/PrimeAndCustomSyntax.lean", 11),
+            },
+        )
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"
@@ -225,6 +426,95 @@ class CheckAxiomsReportTests(unittest.TestCase):
                 rc = check_axioms.main(["--log", str(log)])
         self.assertEqual(rc, 0)
         self.assertIn("Total theorems checked: 1", stdout.getvalue())
+
+    def test_scan_lean_file_axioms_fails_closed_on_bypass_constructs(self) -> None:
+        forbidden_samples = [
+            ('macro "sneak" : command => `(command| axiom hid : False)\n', "Nested or quoted axiom"),
+            ('macro "sneakStx" : command => `(command| syntax "z" : term)\n', "Forbidden quoted syntax"),
+            ('def q := `(stx| "bad")\n', "Forbidden syntax-category quotation"),
+            ("#eval Lean.addDecl (.axiomDecl { name := `bad, levelParams := [], type := .sort .zero, isUnsafe := false })\n", "addDecl"),
+            ("def p := Lean.ParserDescr.node `k 0 (.symbol \"x\")\n", "ParserDescr"),
+            ("def s := stx.setKind ``Lean.Parser.Command.axiom\n", "Command.axiom"),
+            ("def s2 := stx.setKind k\n", "setKind"),
+            ("def n := Lean.Syntax.node .none k #[]\n", "Syntax.node"),
+            ("def n2 : Lean.Syntax := .node .none k #[]\n", ".node"),
+            ("def sym := Lean.Parser.symbol myStr\n", "Non-literal parser symbol"),
+            ("def symPos := Lean.Parser.symbol (String.singleton 'a')\n", "Non-literal parser symbol"),
+            ('@[term_parser] def myP := leading_parser "x"\n', "leading_parser"),
+            ("def myCoe : Lean.Parser.Parser := nodeWithAntiquot \"n\" `k p\n@[term_parser] def regP := myCoe\n", "Forbidden parser attribute"),
+            ('notation3 "myN3" => True\n', "notation3"),
+            ('macro "sneakBp" : command => `(command| binder_predicate x "≺" y:term => `(True))\n', "Forbidden quoted syntax"),
+            ('def g := Lean. «addDecl»\n', "addDecl"),
+        ]
+        for sample, needle in forbidden_samples:
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit, msg=f"Sample did not fail closed: {sample!r}"):
+                    check_axioms.scan_lean_file_axioms(sample, "Compiler/Bypass.lean")
+            self.assertIn(needle, stderr.getvalue())
+
+    def test_scan_lean_file_axioms_detects_axioms_across_scoped_and_lexer_edge_tokens(self) -> None:
+        src = "\n".join(
+            [
+                'syntax:max " -open " term : term',
+                'def u1 := `(term| { x //-open "a" })',
+                "axiom ax_div_slash3 : False",
+                "-- -/",
+                'syntax:max " #\\\"a\\\" " : term',
+                'syntax:max term " ~r" term : term',
+                'def u2 := `(term| 1 ~r#"a")',
+                "axiom ax_tr_hashquote : False",
+                '-- "#',
+                'def u3 := `(term| (1a\'"\'open", 0xfg\'"\'open", 1.5e2a\'"\'open", 1e-2a\'"\'open"))',
+                "axiom ax_num_edges : False",
+                '-- "',
+                'def u4 : IO Unit := do aesop_trace![steps] "a {\'\\\"\'}" ; aesop_trace[steps] "b {\'\\\"\'}"',
+                "axiom ax_aesop_edges : False",
+                '-- "',
+                'def u5 := `(term| (f ∘\'"\'open", f ⁻¹\'"\'open"))',
+                "axiom ax_global_primes : False",
+                '-- "',
+                "namespace BitVec",
+                'def u6 := `(term| 1#\'"\'open")',
+                "axiom ax_bv_ns : False",
+                '-- "',
+                "end BitVec",
+                "def cUnscoped : Char := '#' -- \"",
+                "axiom ax_after_bv_end : False",
+                "open scoped Dioph in",
+                'def u7 := `(term| x D/-open "a")',
+                "axiom ax_dioph_open_in : False",
+                "-- -/",
+                "def u8 : Nat := D/- comment\n-/\n0",
+                "axiom ax_after_dioph_open_in : False",
+            ]
+        ) + "\n"
+        self.assertEqual(
+            check_axioms.scan_lean_file_axioms(src, "Compiler/LexerEdges.lean"),
+            [
+                ("ax_div_slash3", 3),
+                ("ax_tr_hashquote", 8),
+                ("ax_num_edges", 11),
+                ("ax_aesop_edges", 14),
+                ("ax_global_primes", 17),
+                ("ax_bv_ns", 21),
+                ("ax_after_bv_end", 25),
+                ("ax_dioph_open_in", 28),
+                ("ax_after_dioph_open_in", 33),
+            ],
+        )
+
+    def test_scan_lean_file_axioms_ignores_guillemet_identifier_and_backtick_name_lit(self) -> None:
+        src = "\n".join(
+            [
+                "def «axiom» : Nat := 0",
+                "def k := (`axiom, ``Lean.Parser.Term.app)",
+                "def m (x : Lean.Syntax) : Nat := match x with",
+                "  | .node _ _ _ => 1",
+                "  | _ => 0",
+            ]
+        ) + "\n"
+        self.assertEqual(check_axioms.scan_lean_file_axioms(src, "Compiler/Benign.lean"), [])
 
 
 if __name__ == "__main__":
