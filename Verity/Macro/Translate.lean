@@ -3660,6 +3660,20 @@ private def adaptHoistedWordContext (stx : Term) : CommandElabM Term := do
       `(term| totalSupply (externalArgAddress $token))
   | _ => pure stx
 
+/-- Whether `rhs` applies one of this contract's own internal helpers, matching
+    both the callee name and the arity. Helpers lower to `Contract`-valued Lean
+    `def`s, so a `let` whose right-hand side is such a call has to run the
+    helper before its result can be bound. -/
+private def rhsIsLocalHelperCall (helpers : Array FunctionDecl) (rhs : Term) : Bool :=
+  match SSADesugar.helperAppSyntaxParts? rhs with
+  | some (fn, args) =>
+      let rawName := toString fn.getId
+      let args := SSADesugar.normalizeZeroArgHelperArgs helpers rawName args
+      helpers.any fun helper =>
+        (helper.name == rawName || helper.ident.getId == fn.getId) &&
+          helper.params.size == args.size
+  | none => false
+
 private partial def threadAdversaryThroughExecutableSyntax
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
@@ -4281,8 +4295,20 @@ private partial def threadAdversaryThroughExecutableSyntax
       hoistLive true rhs fun rewritten =>
         `(doElem| let $name := $rewritten:term)
   | `(doElem| let $pat:term := $rhs:term) =>
-      hoistLive true rhs fun rewritten =>
-        `(doElem| let $pat:term := $rewritten:term)
+      -- Destructuring an internal helper call with a pure `let`
+      -- (`let (a, b) := helper x`) is a monadic bind: the helper returns
+      -- `Contract (α × β)`, so it has to run before the pattern can match its
+      -- result. Lean's `do` elaborator inserts that bind implicitly only while
+      -- the call stays a syntactically flat application; once this traversal
+      -- rewrites the callee (`helper_registry adv x`, or a namespace-qualified
+      -- callee for a shadowed binder) the implicit lift no longer fires and the
+      -- pattern is matched against `Contract (α × β)` instead. Emit the bind
+      -- explicitly and reuse the `←` path, which already threads the call.
+      if (tupleBinderNames? pat.raw).isSome && rhsIsLocalHelperCall helpers rhs then
+        go (← `(doElem| let $pat:term ← $rhs:term)).raw
+      else
+        hoistLive true rhs fun rewritten =>
+          `(doElem| let $pat:term := $rewritten:term)
   | `(doElem| $name:ident := $rhs:term) =>
       hoistLive true rhs fun rewritten =>
         `(doElem| $name:ident := $rewritten:term)
