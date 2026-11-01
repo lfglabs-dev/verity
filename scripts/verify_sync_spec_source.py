@@ -979,6 +979,7 @@ SPEC['expected_job_timeouts']['foundry'] = 45
 CI_GATE_NEEDS = ['changes', 'checks', 'build', 'build-audits', 'import-mutations',
                  'build-compiler-binaries', 'compiler-audits', 'compiler-regressions',
                  'foundry-gas-calibration', 'foundry', 'foundry-patched', 'foundry-multi-seed']
+SPEC['pull_request_unfiltered'] = True
 SPEC['expected_jobs'].append('ci-gate')
 SPEC['expected_job_needs']['ci-gate'] = CI_GATE_NEEDS
 SPEC['expected_job_if_conditions']['ci-gate'] = (

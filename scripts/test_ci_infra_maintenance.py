@@ -55,7 +55,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertNotIn(
             "runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]", text
         )
-        for job in ("changes", "checks", "timeout-watchdog", "failure-hints"):
+        for job in ("changes", "checks", "timeout-watchdog", "failure-hints", "ci-gate"):
             match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
             self.assertIsNotNone(match, job)
             self.assertIn(

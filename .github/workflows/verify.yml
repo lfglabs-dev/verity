@@ -33,32 +33,6 @@ on:
       - 'README.md'
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    paths:
-      - '.github/actions/**'
-      - '.github/ISSUE_TEMPLATE/**'
-      - '.github/workflows/**'
-      - '.github/workflows/verify.yml'
-      - 'artifacts/**'
-      - 'artifacts/*'
-      - 'Verity/**'
-      - 'Verity.lean'
-      - 'Compiler/**'
-      - 'Compiler.lean'
-      - 'Contracts/**'
-      - 'Contracts.lean'
-      - 'examples/**'
-      - 'packages/**'
-      - 'test/**'
-      - 'scripts/**'
-      - 'docs/**'
-      - 'docs-site/**'
-      - 'lakefile.lean'
-      - 'lake-manifest.json'
-      - 'lean-toolchain'
-      - 'foundry.toml'
-      - 'Makefile'
-      - 'PrintAxioms.lean'
-      - 'README.md'
   workflow_dispatch:
     inputs:
       clean_build:
