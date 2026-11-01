@@ -1,11 +1,10 @@
 """Require real EVM/model disagreement for event omission, indexing and ordering."""
 import json
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
-from .engine import HarnessError, write_json
+from .engine import HarnessError, MUTANT_BUILD_TIMEOUT, run_bounded, write_json
 
 
 def main():
@@ -29,7 +28,7 @@ def main():
                 '--model-driver', str(driver), '--output', str(campaign),
                 '--source-fixture', 'scripts/solidity_differential/fixtures/EventSequence.sol',
                 '--transactions', '3', '--seed', '2450', '--shrink-attempts', '15']
-        result = subprocess.run(argv, text=True, capture_output=True, timeout=600)
+        result = run_bounded(argv, timeout=MUTANT_BUILD_TIMEOUT)
         (output / (name + '.log')).write_text(result.stdout + result.stderr)
         if result.returncode == 0:
             raise HarnessError(f'event mutation survived: {name}')

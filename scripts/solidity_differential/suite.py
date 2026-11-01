@@ -149,6 +149,28 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('extcodecopy-struct-decode-rejections', ['-m',
         'solidity_differential.check_extcodecopy_struct_decode_rejections',
         '--output', str(output / 'extcodecopy-struct-decode-rejections')]))
+    # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min
+    # checks start at t=0 on a 6-wide pool instead of straggling past the step cap.
+    heavy_first = (
+        'extcodecopy-struct-decode',
+        'create2-struct-emit',
+        'hashing-programs',
+        'nested-dynamic-struct-abi',
+        'multiple-dynamic-abi',
+        'scalar-array-abi',
+        'event-mutations',
+        'mutations',
+        'pinned-sequence',
+        'struct-abi',
+        'abi',
+        'interface-static-call',
+        'abi-event-composition',
+        'reference-arguments',
+        'external-code-low-level-call',
+        'interface-word-static-call',
+    )
+    priority = {name: rank for rank, name in enumerate(heavy_first)}
+    checks.sort(key=lambda item: priority.get(item[0], len(heavy_first)))
     return run_checks(output, checks, transactions, seed, jobs)
 
 
@@ -176,7 +198,11 @@ def run_checks(output, checks, transactions, seed, jobs=1):
         argv = [sys.executable, '-c', launcher, args[1], *args[2:]]
         # Per-check guard against hangs. Checks run `jobs` wide on one runner, so
         # the slowest (extcodecopy-struct-decode, ~45 min under load) needs headroom.
-        command(argv, timeout=3600, log=output / f'{name}.log')
+        try:
+            command(argv, timeout=3600, log=output / f'{name}.log')
+        except BaseException:
+            print(f'stateful check {index}/{total}: {name} FAILED', flush=True)
+            raise
         print(f'stateful check {index}/{total}: {name} done', flush=True)
 
     failures = []

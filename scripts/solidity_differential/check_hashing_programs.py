@@ -3,9 +3,8 @@ import argparse
 import json
 from pathlib import Path
 import shutil
-import subprocess
 import sys
-from .engine import HarnessError, write_json
+from .engine import HarnessError, command, write_json
 from .programs import abi_hashing_variants
 
 
@@ -30,9 +29,9 @@ def main():
         (project / 'AbiHashingModel.lean').write_bytes((fixture / 'AbiHashingModel.lean').read_bytes())
         shutil.copytree(fixture / 'imported-types', project / 'imported-types')
         campaign = output / name / 'abc'
-        subprocess.run([sys.executable, '-m', 'solidity_differential.check_abi_hashing',
+        command([sys.executable, '-m', 'solidity_differential.check_abi_hashing',
             '--repo', str(repo), '--fixture-dir', str(project), '--output', str(campaign)],
-            cwd=repo, check=True, timeout=2400)
+            cwd=repo, timeout=2400, log=output / name / 'check.log')
         complete = json.loads((campaign / 'complete.json').read_text())
         if complete['exit'] != 0:
             raise HarnessError('variant did not finish successfully')
