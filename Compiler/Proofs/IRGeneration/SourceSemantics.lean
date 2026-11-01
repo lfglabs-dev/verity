@@ -353,7 +353,7 @@ def findDynamicArrayElementAtSlot
 `UINT256_MODULUS` literal are the same `Nat` (`2^256`). Used to discharge
 `% UInt256.size` modulo wraps that arise from `IRStorageWord.toNat`
 projection of values originally bounded by `Verity.Core.Uint256.isLt`. -/
-@[simp] theorem UInt256_size_eq_UINT256_MODULUS :
+theorem UInt256_size_eq_UINT256_MODULUS :
     EvmYul.UInt256.size = Verity.Core.UINT256_MODULUS := by
   unfold EvmYul.UInt256.size Verity.Core.UINT256_MODULUS
   rfl
@@ -5962,13 +5962,27 @@ def read (loc : StorageLoc) (s : Verity.ContractState) : Verity.Core.Uint256 :=
 /-- Write the 256-bit word `val` at `loc` in `s`. -/
 def write (loc : StorageLoc) (s : Verity.ContractState) (val : Verity.Core.Uint256) :
     Verity.ContractState :=
-  { s with
-      storageWords := fun k => if k == loc.toStorageKey then val else s.storageWords k }
+  match loc with
+  | .uintSlot slot => s.writeSlot slot val
+  | .mapSlot slot key => s.writeMap slot key val
+  | .mapUintSlot slot key => s.writeMapUint slot key val
+  | .map2Slot slot key1 key2 => s.writeMap2 slot key1 key2 val
+  | .transientSlot slot => s.writeTransient slot val
+
+private theorem write_eq_withStorageWords (loc : StorageLoc) (s : Verity.ContractState)
+    (val : Verity.Core.Uint256) :
+    loc.write s val =
+      s.withStorageWords (fun k => if k == loc.toStorageKey then val else s.storageWords k) := by
+  cases loc <;> rfl
 
 theorem toStorageKey_injective :
     ∀ {l₁ l₂ : StorageLoc}, l₁.toStorageKey = l₂.toStorageKey → l₁ = l₂ := by
   intro l₁ l₂ h
-  cases l₁ <;> cases l₂ <;> dsimp only [toStorageKey] at h <;> injection h <;> subst_vars <;> rfl
+  cases l₁ <;> cases l₂
+  all_goals dsimp only [toStorageKey] at h
+  all_goals injection h
+  all_goals subst_vars
+  all_goals rfl
 
 theorem toStorageKey_ne_of_ne {l₁ l₂ : StorageLoc} (h : l₁ ≠ l₂) :
     l₁.toStorageKey ≠ l₂.toStorageKey :=
@@ -5977,54 +5991,66 @@ theorem toStorageKey_ne_of_ne {l₁ l₂ : StorageLoc} (h : l₁ ≠ l₂) :
 @[simp] theorem read_write_same (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
     loc.read (loc.write s val) = val := by
-  simp only [read, write, beq_self_eq_true, ↓reduceIte]
+  rw [write_eq_withStorageWords]
+  simp only [read, Verity.ContractState.storageWords_withStorageWords, beq_self_eq_true, ↓reduceIte]
 
 @[simp] theorem read_write_ne (s : Verity.ContractState) {loc₁ loc₂ : StorageLoc}
     (val : Verity.Core.Uint256) (hne : loc₂ ≠ loc₁) :
     loc₂.read (loc₁.write s val) = loc₂.read s := by
   have hkne : (loc₂.toStorageKey == loc₁.toStorageKey) = false :=
     beq_false_of_ne (toStorageKey_ne_of_ne hne)
-  simp only [read, write, hkne, Bool.false_eq_true, ↓reduceIte]
+  rw [write_eq_withStorageWords]
+  simp only [read, Verity.ContractState.storageWords_withStorageWords, hkne, Bool.false_eq_true, ↓reduceIte]
 
 @[simp] theorem write_write_same (s : Verity.ContractState) (loc : StorageLoc)
     (v₁ v₂ : Verity.Core.Uint256) :
     loc.write (loc.write s v₁) v₂ = loc.write s v₂ := by
+  rw [write_eq_withStorageWords loc s v₁, write_eq_withStorageWords loc _ v₂,
+    write_eq_withStorageWords loc s v₂]
   cases s
-  simp only [write, Verity.ContractState.mk.injEq, and_true]
+  simp only [Verity.ContractState.withStorageWords, Verity.ContractState.mk.injEq, and_true]
   funext k
   cases (k == loc.toStorageKey) <;> rfl
 
 @[simp] theorem sender_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).sender = s.sender := rfl
+    (loc.write s val).sender = s.sender := by
+  cases loc <;> rfl
 
 @[simp] theorem this_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).thisAddress = s.thisAddress := rfl
+    (loc.write s val).thisAddress = s.thisAddress := by
+  cases loc <;> rfl
 
 @[simp] theorem msgValue_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).msgValue = s.msgValue := rfl
+    (loc.write s val).msgValue = s.msgValue := by
+  cases loc <;> rfl
 
 @[simp] theorem blockTimestamp_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).blockTimestamp = s.blockTimestamp := rfl
+    (loc.write s val).blockTimestamp = s.blockTimestamp := by
+  cases loc <;> rfl
 
 @[simp] theorem blockNumber_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).blockNumber = s.blockNumber := rfl
+    (loc.write s val).blockNumber = s.blockNumber := by
+  cases loc <;> rfl
 
 @[simp] theorem chainId_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).chainId = s.chainId := rfl
+    (loc.write s val).chainId = s.chainId := by
+  cases loc <;> rfl
 
 @[simp] theorem events_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).events = s.events := rfl
+    (loc.write s val).events = s.events := by
+  cases loc <;> rfl
 
 @[simp] theorem storageArray_write (s : Verity.ContractState) (loc : StorageLoc)
     (val : Verity.Core.Uint256) :
-    (loc.write s val).storageArray = s.storageArray := rfl
+    (loc.write s val).storageArray = s.storageArray := by
+  cases loc <;> rfl
 
 end StorageLoc
 

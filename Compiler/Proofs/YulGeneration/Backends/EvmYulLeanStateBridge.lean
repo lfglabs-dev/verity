@@ -836,41 +836,9 @@ def extractStorage (sharedState : SharedState .Yul) (addr : AccountAddress) :
 
 /-! ## Storage Bridge Proofs -/
 
-/-- The derived `Ord` for `UInt256` generates
-    `compare (mk a) (mk b) = Ordering.then (compare a b) .eq`
-    rather than `compare a b` directly. This helper reduces the
-    `Ordering.then` wrapper so we can delegate to `Fin`'s instances. -/
-private theorem ordering_then_eq (o : Ordering) : o.then .eq = o := by
-  cases o <;> rfl
-
-/-- The derived `Ord` on `UInt256` (a single-field structure wrapping `Fin`)
-    satisfies `compare (mk a) (mk b) = compare a b` on `Fin UInt256.size`.
-
-    Lean 4's `deriving Ord` generates `Ordering.then (compare a b) .eq`,
-    which we reduce via `ordering_then_eq`. -/
-private theorem UInt256_compare_eq_fin (a b : Fin UInt256.size) :
-    @compare UInt256 _ (UInt256.mk a) (UInt256.mk b) = @compare (Fin UInt256.size) _ a b := by
-  -- The derived Ord generates: Ordering.then (compare a b) .eq
-  -- We reduce this to compare a b by simplifying the Ordering.then wrapper.
-  -- Use `change` to assert the definitional form, then apply ordering_then_eq.
-  change (compare a b).then .eq = compare a b
-  exact ordering_then_eq _
-
-/-- `TransCmp` instance for `UInt256`'s derived `compare`.
-    `UInt256` derives `Ord` which compares via the `Fin` field.
-    `Fin n` has `TransOrd` and `LawfulEqOrd` in Lean 4's Std library.
-
-    We bridge the derived Ord (which wraps in `Ordering.then ... .eq`)
-    to `Fin`'s `TransCmp` instance. -/
-instance instTransCmpUInt256 : Std.TransCmp (α := UInt256) compare where
-  eq_swap {a b} := by
-    cases a with | mk va => cases b with | mk vb =>
-    simp only [UInt256_compare_eq_fin]
-    exact Std.OrientedCmp.eq_swap
-  isLE_trans {a b c} hab hbc := by
-    cases a with | mk va => cases b with | mk vb => cases c with | mk vc =>
-    simp only [UInt256_compare_eq_fin] at hab hbc ⊢
-    exact Std.TransCmp.isLE_trans hab hbc
+/-- `TransCmp` instance for `UInt256`'s `compare` (`uint256Cmp`). -/
+instance instTransCmpUInt256 : Std.TransCmp (α := UInt256) compare :=
+  inferInstanceAs (Std.TransCmp UInt256.uint256Cmp)
 
 /-- TreeMap lookup after insertion, stated with the lookup key first to match
 the storage-bridge induction hypotheses. -/
@@ -896,27 +864,18 @@ private theorem storage_get?_insert_of_eq
   apply if_pos
   exact Std.OrientedCmp.eq_comm.mpr h
 
-/-- `compare` on `UInt256` returning `.eq` implies equality.
-    Proved by reducing to `Fin`'s compare and using `LawfulEqOrd`. -/
+/-- `compare` on `UInt256` returning `.eq` implies equality. -/
 theorem UInt256_eq_of_compare_eq {u v : UInt256}
-    (h : compare u v = Ordering.eq) : u = v := by
-  cases u with | mk uv =>
-  cases v with | mk vv =>
-  rw [UInt256_compare_eq_fin] at h
-  have heq : uv = vv := Std.LawfulEqCmp.eq_of_compare h
-  subst heq
-  rfl
+    (h : compare u v = Ordering.eq) : u = v :=
+  Std.LawfulEqCmp.eq_of_compare (cmp := UInt256.uint256Cmp) h
 
-/-- `natToUInt256` is injective on values below `UInt256.size`.
-    Since `UInt256.ofNat n = ⟨⟨n % size, _⟩⟩`, when `n < size` we have
-    `n % size = n`, so the Fin value is exactly `n`. -/
+/-- `natToUInt256` is injective on values below `UInt256.size`. -/
 theorem natToUInt256_injective {a b : Nat}
     (ha : a < UInt256.size) (hb : b < UInt256.size)
     (h : natToUInt256 a = natToUInt256 b) : a = b := by
-  -- Unfold the full chain to expose the modular arithmetic
   have hval : a % UInt256.size = b % UInt256.size := by
-    have := congrArg (fun u => u.val.val) h
-    simpa [natToUInt256, UInt256.ofNat, Id.run, Fin.ofNat] using this
+    have := congrArg (fun u => u.toNat) h
+    simpa [natToUInt256, UInt256.ofNat, UInt256.toNat, UInt256.size] using this
   rwa [Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb] at hval
 
 /-- Distinct in-range Nats map to UInt256s with `compare ≠ .eq`. -/
@@ -1070,7 +1029,7 @@ theorem storageLookup_projectStorage_projected
     which follows from `Nat.mod_eq_of_lt h`. -/
 theorem uint256_roundtrip (n : Nat) (h : n < UInt256.size) :
     uint256ToNat (natToUInt256 n) = n := by
-  simp only [uint256ToNat, natToUInt256, UInt256.toNat, UInt256.ofNat, Id.run]
+  simp only [uint256ToNat, natToUInt256, UInt256.toNat, UInt256.ofNat]
   exact Nat.mod_eq_of_lt h
 
 end Compiler.Proofs.YulGeneration.Backends.StateBridge

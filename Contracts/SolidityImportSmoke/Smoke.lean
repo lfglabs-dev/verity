@@ -40,7 +40,7 @@ Mkt head and its empty uint128 array. No projected parameter is supplied. -/
 def witnessCalldata (maturity : Nat) : List Nat :=
   [96, 1, 2, 0, 96, maturity, 0]
 
-def witnessBindings (_maturity : Nat) : Env := []
+def witnessBindings (_maturity : Nat) : Denote.Env := []
 
 private def smokeBody : List Stmt :=
   match smoke.model.functions with

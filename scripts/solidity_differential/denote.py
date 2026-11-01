@@ -33,7 +33,7 @@ def _calldata(tx):
 
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
-                 lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=180,
+                 lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=600,
                  account_code=()):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()

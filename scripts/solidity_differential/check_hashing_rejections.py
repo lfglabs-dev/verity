@@ -26,8 +26,9 @@ def main():
         ('packed-member-array', 'struct S { uint256[] a; }', 'S memory s', 'keccak256(abi.encodePacked(s.a))',
          's.a', 'hash input must be a supported ABI encoding'),
         ('multi-struct', 'struct S { uint256 a; }', 'S memory s', 'keccak256(abi.encode(s, uint256(0)))', None, None),
+        # Dynamic-member structs are ABI-encodable since #2551 (lowerAbiEncodeArgs).
         ('multi-dynamic-struct', 'struct S { uint256[] a; }', 'S memory s', 'keccak256(abi.encode(s, uint256(0)))',
-         's, uint256', 'unsupported ABI encoding argument type struct'),
+         None, None),
         ('dynamic-bytes', '', 'bytes calldata value', 'keccak256(value)', None, None),
         ('msg-data-bytes', '', '', 'keccak256(msg.data)',
          'msg.data', 'hash input must be a supported ABI encoding'),

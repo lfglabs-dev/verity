@@ -7,12 +7,18 @@ import Verity.Core.Uint256
 namespace Compiler.Proofs.YulGeneration.Backends
 
 private theorem uint256_size_eq_evmModulus :
-    EvmYul.UInt256.size = Compiler.Constants.evmModulus := by
-  decide
+    EvmYul.UInt256.size = Compiler.Constants.evmModulus := rfl
 
 private theorem word_lt_uint256_size (x : Nat) :
     x % EvmYul.UInt256.size < 2 ^ 256 := by
-  simpa [EvmYul.UInt256.size] using Nat.mod_lt x (by decide : 0 < EvmYul.UInt256.size)
+  exact Nat.mod_lt x (by unfold EvmYul.UInt256.size; positivity)
+
+private theorem uint256_ofNat_eq_ofFin_mod (x : Nat)
+    (hx : x % Compiler.Constants.evmModulus < EvmYul.UInt256.size) :
+    EvmYul.UInt256.ofNat x = ⟨BitVec.ofFin ⟨x % Compiler.Constants.evmModulus, hx⟩⟩ := by
+  apply EvmYul.UInt256.ext
+  apply BitVec.eq_of_toNat_eq
+  simp [EvmYul.UInt256.ofNat, Compiler.Constants.evmModulus]
 
 @[simp] theorem evalPureBuiltinViaEvmYulLean_add_native (a b : Nat) :
     evalPureBuiltinViaEvmYulLean "add" [a, b] =
@@ -74,16 +80,16 @@ private theorem word_lt_uint256_size (x : Nat) :
   · have hb0 : ¬ (EvmYul.UInt256.ofNat b).val = 0 := by
       intro h
       exact hb (congrArg Fin.val h)
+    rw [if_neg hb]
     rw [show EvmYul.UInt256.mod (EvmYul.UInt256.ofNat a) (EvmYul.UInt256.ofNat b) =
-          ⟨(EvmYul.UInt256.ofNat a).val % (EvmYul.UInt256.ofNat b).val⟩ by
+          ⟨(EvmYul.UInt256.ofNat a).toBitVec % (EvmYul.UInt256.ofNat b).toBitVec⟩ by
             simp [EvmYul.UInt256.mod, hb0]]
-    simp [hb, EvmYul.UInt256.toNat]
-    rfl
+    simp [EvmYul.UInt256.toNat, EvmYul.UInt256.ofNat, EvmYul.UInt256.size]
 
 private theorem uint256_mul_toNat (a c : EvmYul.UInt256) :
     (a * c).toNat = (a.toNat * c.toNat) % EvmYul.UInt256.size := by
   show (EvmYul.UInt256.mul a c).toNat = _
-  simp [EvmYul.UInt256.mul, EvmYul.UInt256.toNat, Fin.mul_def]
+  simp [EvmYul.UInt256.mul, EvmYul.UInt256.toNat, EvmYul.UInt256.size]
 
 private theorem nat_pow_two_mul_succ (base acc m : Nat) :
     base * acc ^ (2 * m + 1) = base * acc * (acc * acc) ^ m := by
@@ -169,7 +175,7 @@ private theorem toNat_fromBool (b : Bool) :
 
 private theorem uint256_lt_iff_nat_lt {a b : Nat}
     (ha : a < EvmYul.UInt256.size) (hb : b < EvmYul.UInt256.size) :
-    ((⟨⟨a, ha⟩⟩ : EvmYul.UInt256) < ⟨⟨b, hb⟩⟩) ↔ (a < b) :=
+    ((⟨BitVec.ofFin ⟨a, ha⟩⟩ : EvmYul.UInt256) < ⟨BitVec.ofFin ⟨b, hb⟩⟩) ↔ (a < b) :=
   Iff.rfl
 
 private theorem slt_int256_eq_sltBool (a b : Nat)
@@ -179,19 +185,20 @@ private theorem slt_int256_eq_sltBool (a b : Nat)
         Verity.Core.Int256.toInt (Verity.Core.Int256.ofUint256 ⟨b, hb⟩)
      then (1 : Nat) else 0) =
     (EvmYul.UInt256.toNat
-      (EvmYul.UInt256.slt ⟨⟨a, by simpa [uint256_size_eq_evmModulus] using ha⟩⟩
-        ⟨⟨b, by simpa [uint256_size_eq_evmModulus] using hb⟩⟩)) := by
+      (EvmYul.UInt256.slt ⟨BitVec.ofFin ⟨a, by simpa [uint256_size_eq_evmModulus] using ha⟩⟩
+        ⟨BitVec.ofFin ⟨b, by simpa [uint256_size_eq_evmModulus] using hb⟩⟩)) := by
   unfold EvmYul.UInt256.slt
   rw [toNat_fromBool]
   unfold EvmYul.UInt256.sltBool
   simp only [EvmYul.UInt256.toNat, ge_iff_le]
   have ha' : a < EvmYul.UInt256.size := by simpa [uint256_size_eq_evmModulus] using ha
   have hb' : b < EvmYul.UInt256.size := by simpa [uint256_size_eq_evmModulus] using hb
+  unfold Compiler.Constants.evmModulus at ha hb
   simp only [uint256_lt_iff_nat_lt ha' hb']
   simp only [Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
     Verity.Core.Int256.signBit, Verity.Core.Int256.modulus,
     Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
-  split_ifs <;> simp_all [Compiler.Constants.evmModulus, EvmYul.UInt256.size] <;> omega
+  split_ifs <;> simp_all [EvmYul.UInt256.size, Int.ofNat_eq_natCast] <;> omega
 
 @[simp] theorem evalPureBuiltinViaEvmYulLean_slt_native (a b : Nat) :
     evalPureBuiltinViaEvmYulLean "slt" [a, b] =
@@ -217,13 +224,13 @@ private theorem slt_int256_eq_sltBool (a b : Nat)
            then 1 else 0)
   congr 1
   rw [show EvmYul.UInt256.ofNat a =
-      (⟨⟨a % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨a % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using ha⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   rw [show EvmYul.UInt256.ofNat b =
-      (⟨⟨b % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨b % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hb⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   have hmod_a :
       (a % Compiler.Constants.evmModulus) % Verity.Core.UINT256_MODULUS =
         a % Compiler.Constants.evmModulus := by
@@ -243,19 +250,20 @@ private theorem sgt_int256_eq_sgtBool (a b : Nat)
         Verity.Core.Int256.toInt (Verity.Core.Int256.ofUint256 ⟨a, ha⟩)
      then (1 : Nat) else 0) =
     (EvmYul.UInt256.toNat
-      (EvmYul.UInt256.sgt ⟨⟨a, by simpa [uint256_size_eq_evmModulus] using ha⟩⟩
-        ⟨⟨b, by simpa [uint256_size_eq_evmModulus] using hb⟩⟩)) := by
+      (EvmYul.UInt256.sgt ⟨BitVec.ofFin ⟨a, by simpa [uint256_size_eq_evmModulus] using ha⟩⟩
+        ⟨BitVec.ofFin ⟨b, by simpa [uint256_size_eq_evmModulus] using hb⟩⟩)) := by
   unfold EvmYul.UInt256.sgt
   rw [toNat_fromBool]
   unfold EvmYul.UInt256.sgtBool
   simp only [EvmYul.UInt256.toNat, ge_iff_le]
   have ha' : a < EvmYul.UInt256.size := by simpa [uint256_size_eq_evmModulus] using ha
   have hb' : b < EvmYul.UInt256.size := by simpa [uint256_size_eq_evmModulus] using hb
+  unfold Compiler.Constants.evmModulus at ha hb
   simp only [uint256_lt_iff_nat_lt hb' ha']
   simp only [Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
     Verity.Core.Int256.signBit, Verity.Core.Int256.modulus,
     Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
-  split_ifs <;> simp_all [Compiler.Constants.evmModulus, EvmYul.UInt256.size] <;> omega
+  split_ifs <;> simp_all [EvmYul.UInt256.size, Int.ofNat_eq_natCast] <;> omega
 
 @[simp] theorem evalPureBuiltinViaEvmYulLean_sgt_native (a b : Nat) :
     evalPureBuiltinViaEvmYulLean "sgt" [a, b] =
@@ -281,13 +289,13 @@ private theorem sgt_int256_eq_sgtBool (a b : Nat)
            then 1 else 0)
   congr 1
   rw [show EvmYul.UInt256.ofNat a =
-      (⟨⟨a % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨a % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using ha⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   rw [show EvmYul.UInt256.ofNat b =
-      (⟨⟨b % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨b % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hb⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   have hmod_a :
       (a % Compiler.Constants.evmModulus) % Verity.Core.UINT256_MODULUS =
         a % Compiler.Constants.evmModulus := by
@@ -320,13 +328,13 @@ private theorem sgt_int256_eq_sgtBool (a b : Nat)
         (Verity.Core.Uint256.ofNat (b % Compiler.Constants.evmModulus)))).toUint256.val
   congr 1
   rw [show EvmYul.UInt256.ofNat a =
-      (⟨⟨a % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨a % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using ha⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   rw [show EvmYul.UInt256.ofNat b =
-      (⟨⟨b % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨b % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hb⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   have hmod_a :
       (a % Compiler.Constants.evmModulus) % Verity.Core.UINT256_MODULUS =
         a % Compiler.Constants.evmModulus := by
@@ -359,13 +367,13 @@ private theorem sgt_int256_eq_sgtBool (a b : Nat)
         (Verity.Core.Uint256.ofNat (b % Compiler.Constants.evmModulus)))).toUint256.val
   congr 1
   rw [show EvmYul.UInt256.ofNat a =
-      (⟨⟨a % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨a % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using ha⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   rw [show EvmYul.UInt256.ofNat b =
-      (⟨⟨b % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨b % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hb⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   have hmod_a :
       (a % Compiler.Constants.evmModulus) % Verity.Core.UINT256_MODULUS =
         a % Compiler.Constants.evmModulus := by
@@ -398,13 +406,13 @@ private theorem sgt_int256_eq_sgtBool (a b : Nat)
         (Verity.Core.Uint256.ofNat (value % Compiler.Constants.evmModulus)))).toUint256.val
   congr 1
   rw [show EvmYul.UInt256.ofNat shift =
-      (⟨⟨shift % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨shift % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hs⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   rw [show EvmYul.UInt256.ofNat value =
-      (⟨⟨value % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨value % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hv⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   have hmod_s :
       (shift % Compiler.Constants.evmModulus) % Verity.Core.UINT256_MODULUS =
         shift % Compiler.Constants.evmModulus := by
@@ -433,13 +441,13 @@ private theorem sgt_int256_eq_sgtBool (a b : Nat)
       (Verity.Core.Uint256.ofNat (value % Compiler.Constants.evmModulus))).val
   congr 1
   rw [show EvmYul.UInt256.ofNat byteIdx =
-      (⟨⟨byteIdx % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨byteIdx % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hb⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   rw [show EvmYul.UInt256.ofNat value =
-      (⟨⟨value % Compiler.Constants.evmModulus, by
+      (⟨BitVec.ofFin ⟨value % Compiler.Constants.evmModulus, by
         simpa [uint256_size_eq_evmModulus] using hv⟩⟩ : EvmYul.UInt256) by
-        simp only [EvmYul.UInt256.ofNat, Id.run]; congr 1]
+        exact uint256_ofNat_eq_ofFin_mod _ _]
   have hmod_b :
       (byteIdx % Compiler.Constants.evmModulus) % Verity.Core.UINT256_MODULUS =
         byteIdx % Compiler.Constants.evmModulus := by
@@ -462,8 +470,7 @@ private theorem sgt_int256_eq_sgtBool (a b : Nat)
   congr 1
   rw [Nat.mod_eq_of_lt]
   exact Nat.bitwise_lt_two_pow (f := Bool.and) (n := 256)
-    (by simpa [EvmYul.UInt256.size] using Nat.mod_lt a (by decide : 0 < EvmYul.UInt256.size))
-    (by simpa [EvmYul.UInt256.size] using Nat.mod_lt b (by decide : 0 < EvmYul.UInt256.size))
+    (word_lt_uint256_size a) (word_lt_uint256_size b)
 
 @[simp] theorem evalPureBuiltinViaEvmYulLean_or_native (a b : Nat) :
     evalPureBuiltinViaEvmYulLean "or" [a, b] =
@@ -604,47 +611,29 @@ private theorem evalPureBuiltinViaEvmYulLean_byte_normalized (index value : Nat)
   change some (EvmYul.UInt256.toNat
       (EvmYul.UInt256.byteAt (EvmYul.UInt256.ofNat index) (EvmYul.UInt256.ofNat value))) = _
   by_cases hgt : index % EvmYul.UInt256.size > 31
-  · have hgt' : EvmYul.UInt256.ofNat index > (⟨31⟩ : EvmYul.UInt256) := by
-      show (31 : Fin EvmYul.UInt256.size) < (EvmYul.UInt256.ofNat index).val
-      show (31 : Nat) < index % EvmYul.UInt256.size
-      exact hgt
-    simp [hgt, EvmYul.UInt256.byteAt, hgt', EvmYul.UInt256.toNat]
-  · have hle' : ¬(EvmYul.UInt256.ofNat index > (⟨31⟩ : EvmYul.UInt256)) := by
-      show ¬((31 : Fin EvmYul.UInt256.size) < (EvmYul.UInt256.ofNat index).val)
-      show ¬((31 : Nat) < index % EvmYul.UInt256.size)
-      exact hgt
+  · have hgt' : (⟨31⟩ : EvmYul.UInt256) < EvmYul.UInt256.ofNat index := by
+      show (31 : Nat) < index % EvmYul.UInt256.size; exact hgt
+    rw [if_pos hgt]; congr 1; unfold EvmYul.UInt256.byteAt; rw [if_pos hgt']; rfl
+  · have hle' : ¬((⟨31⟩ : EvmYul.UInt256) < EvmYul.UInt256.ofNat index) := by
+      show ¬((31 : Nat) < index % EvmYul.UInt256.size); exact hgt
     have hshift_small : (31 - index % EvmYul.UInt256.size) * 8 < EvmYul.UInt256.size := by
       unfold EvmYul.UInt256.size; omega
     have hshift : EvmYul.UInt256.ofNat ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8) =
-        ⟨(31 - index % EvmYul.UInt256.size) * 8, hshift_small⟩ := by
-      unfold EvmYul.UInt256.ofNat EvmYul.UInt256.toNat
-      dsimp
-      congr
-      apply Fin.ext
+        ⟨BitVec.ofFin ⟨(31 - index % EvmYul.UInt256.size) * 8, hshift_small⟩⟩ := by
+      apply EvmYul.UInt256.ext; apply BitVec.eq_of_toNat_eq
       exact Nat.mod_eq_of_lt hshift_small
     have hguard : ¬ 256 ≤ (EvmYul.UInt256.ofNat ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8)).val := by
       change ¬ 256 ≤ ((31 - index % EvmYul.UInt256.size) * 8) % EvmYul.UInt256.size
       rw [Nat.mod_eq_of_lt hshift_small]; omega
-    unfold EvmYul.UInt256.byteAt; rw [if_neg hle']
-    show some (EvmYul.UInt256.toNat
-        (EvmYul.UInt256.land
-          (EvmYul.UInt256.shiftRight (EvmYul.UInt256.ofNat value)
-            (EvmYul.UInt256.ofNat ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8)))
-          ⟨255⟩)) = _
-    unfold EvmYul.UInt256.shiftRight
-    rw [if_neg hguard, hshift]; simp [hgt, EvmYul.UInt256.land, EvmYul.UInt256.toNat,
-      EvmYul.UInt256.ofNat, Id.run, Fin.land, Fin.ofNat,
-      Nat.shiftRight_eq_div_pow]
-    rw [show (255 : Nat) % EvmYul.UInt256.size = 255 from by unfold EvmYul.UInt256.size; omega]
-    change
-      (Nat.land (value % EvmYul.UInt256.size /
-        2 ^ ((31 - index % EvmYul.UInt256.size) * 8)) 255) % EvmYul.UInt256.size = _
+    unfold EvmYul.UInt256.byteAt; rw [if_neg hle', if_neg hgt]; congr 1
+    show EvmYul.UInt256.toNat (EvmYul.UInt256.land (EvmYul.UInt256.shiftRight (EvmYul.UInt256.ofNat value)
+      (EvmYul.UInt256.ofNat ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8))) ⟨255⟩) = _
+    unfold EvmYul.UInt256.shiftRight; rw [if_neg hguard, hshift]
+    simp [EvmYul.UInt256.land, EvmYul.UInt256.toNat, EvmYul.UInt256.ofNat,
+      Fin.land, Fin.ofNat, Nat.shiftRight_eq_div_pow, EvmYul.UInt256.size]
+    change (Nat.land (value % (2 ^ 256) / 2 ^ ((31 - index % (2 ^ 256)) * 8)) 255) % (2 ^ 256) = _
     rw [nat_land_0xFF]
-    have hmod256_lt_size :
-        (value % EvmYul.UInt256.size / 2 ^ ((31 - index % EvmYul.UInt256.size) * 8)) %
-          256 < EvmYul.UInt256.size :=
-      Nat.lt_trans (Nat.mod_lt _ (by omega)) (by unfold EvmYul.UInt256.size; omega)
-    rw [Nat.mod_eq_of_lt hmod256_lt_size]
+    exact Nat.mod_eq_of_lt (Nat.lt_trans (Nat.mod_lt _ (by omega)) (by omega))
 
 @[simp] theorem evalPureBuiltinViaEvmYulLean_byte_native (index value : Nat) :
     evalPureBuiltinViaEvmYulLean "byte" [index, value] =

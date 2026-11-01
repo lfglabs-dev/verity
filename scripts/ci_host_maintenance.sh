@@ -3,12 +3,14 @@ set -euo pipefail
 
 CACHE_ROOT="${CACHE_ROOT:-/srv/verity-ci-cache}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LAKE_BUILD_MAX_AGE_DAYS="${LAKE_BUILD_MAX_AGE_DAYS:-21}"
+LAKE_BUILD_MAX_AGE_DAYS="${LAKE_BUILD_MAX_AGE_DAYS:-7}"
+LAKE_BUILD_MAX_ENTRIES="${LAKE_BUILD_MAX_ENTRIES:-12}"
 LAKE_PACKAGES_MAX_AGE_DAYS="${LAKE_PACKAGES_MAX_AGE_DAYS:-14}"
 LAKE_PACKAGES_MAX_ENTRIES="${LAKE_PACKAGES_MAX_ENTRIES:-20}"
 MIN_FREE_GB="${MIN_FREE_GB:-100}"
-MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-6}"
-COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-21}"
+MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-12}"
+COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-7}"
+ELAN_MAX_AGE_DAYS="${ELAN_MAX_AGE_DAYS:-7}"
 ARTIFACT_MAX_AGE_HOURS="${ARTIFACT_MAX_AGE_HOURS:-24}"
 JOURNAL_VACUUM_TIME="${JOURNAL_VACUUM_TIME:-14d}"
 JOURNAL_VACUUM_SIZE="${JOURNAL_VACUUM_SIZE:-1G}"
@@ -18,22 +20,31 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/ci_host_maintenance.sh run
+  scripts/ci_host_maintenance.sh caches
   scripts/ci_host_maintenance.sh install-systemd
 
 Subcommands:
   run              Prune stale Verity CI cache entries, vacuum journald, and prune unused Docker data.
+  caches           Only prune the Verity CI cache trees under CACHE_ROOT (no root required).
   install-systemd  Install and enable a daily systemd timer for this script.
 
 Environment:
   CACHE_ROOT                    Default: /srv/verity-ci-cache
-  LAKE_BUILD_MAX_AGE_DAYS       Default: 21
+  LAKE_BUILD_MAX_AGE_DAYS       Default: 7
+  LAKE_BUILD_MAX_ENTRIES        Default: 12 (newest kept; up to three namespaces per PR)
   LAKE_PACKAGES_MAX_AGE_DAYS    Default: 14
   LAKE_PACKAGES_MAX_ENTRIES     Default: 20 (newest kept; one entry exists per PR/branch)
-  MIN_FREE_GB                   Default: 100 (LRU-evict lake-packages below this)
-  MIN_ENTRY_AGE_HOURS           Default: 6 (never delete entries touched more recently;
-                                ci_local_persistence.sh mount touches an entry on attach,
-                                so caches of running/recent jobs are spared)
-  COMPILER_CCACHE_MAX_AGE_DAYS  Default: 21
+  MIN_FREE_GB                   Default: 100 (LRU-evict lake-build, then lake-packages,
+                                below this)
+  MIN_ENTRY_AGE_HOURS           Default: 12 (never delete entries touched more recently;
+                                ci_local_persistence.sh mount touches an entry, and the
+                                fallback it copies from, on attach. 12h outlasts the
+                                longest job timeout (6h), so an attach is a lease for
+                                the whole consuming job. Attach and deletion also
+                                serialize on per-entry flock locks in CACHE_ROOT/.locks)
+  COMPILER_CCACHE_MAX_AGE_DAYS  Default: 7
+  ELAN_MAX_AGE_DAYS             Default: 7 (one toolchain copy per workflow prefix and
+                                toolchain hash; attach refreshes the mtime of live ones)
   ARTIFACT_MAX_AGE_HOURS        Default: 24
   JOURNAL_VACUUM_TIME           Default: 14d
   JOURNAL_VACUUM_SIZE           Default: 1G
@@ -59,8 +70,9 @@ prune_tree() {
 
   local count=0
   while IFS= read -r -d '' entry; do
-    rm -rf "$entry"
-    count=$((count + 1))
+    if delete_entry_if_idle "$entry"; then
+      count=$((count + 1))
+    fi
   done < <(find "$dir" -mindepth 1 -maxdepth 1 -mtime +"$max_age_days" -print0 2>/dev/null)
 
   echo "${label}: removed ${count} entries older than ${max_age_days} days"
@@ -101,6 +113,35 @@ current_mtime() {
   stat -c %Y "$1" 2>/dev/null || true
 }
 
+# Lock file shared with ci_local_persistence.sh for cache entry $1. Locks live
+# in CACHE_ROOT/.locks, outside every pruned tree, so they are never evicted.
+entry_lock_path() {
+  local tree
+  tree="$(dirname "$1")"
+  printf '%s/.locks/%s__%s.lock' "$(dirname "$tree")" "$(basename "$tree")" "$(basename "$1")"
+}
+
+# Delete cache entry $1 unless it is in use. The eligibility re-check and the
+# rm run under the entry's exclusive lock: an attach (which holds the same lock
+# while it validates, leases and seeds an entry) either completes first, so the
+# fresh lease makes the entry ineligible, or starts after the deletion and
+# re-creates it. A lock that is already held means "in use": skip.
+# Returns 0 if deleted, 1 if skipped, 2 if rm failed.
+delete_entry_if_idle() {
+  local entry="$1" lock mtime status=1 fd
+  lock="$(entry_lock_path "$entry")"
+  mkdir -p "$(dirname "$lock")"
+  exec {fd}>"$lock"
+  if flock -x -n "$fd"; then
+    mtime="$(current_mtime "$entry")"
+    if [ -n "$mtime" ] && ! entry_is_recent "$mtime"; then
+      if rm -rf "$entry"; then status=0; else status=2; fi
+    fi
+  fi
+  exec {fd}>&-
+  return "$status"
+}
+
 # Keep only the newest $2 entries of $1 (mtime order). Age-based pruning
 # alone cannot bound this cache: one ~6 GB entry exists per PR/branch, so
 # two weeks of PR churn filled 664 GB and took the runner host disk to 100%
@@ -114,24 +155,23 @@ cap_tree_entries() {
     return
   fi
 
-  local index=0 removed=0 failed=0 mtime entry
+  local index=0 removed=0 failed=0 rc mtime entry
   while IFS=$'\t' read -r -d '' mtime entry; do
+    # Main-branch entries seed every PR's cache: never count-evict them (age
+    # pruning and low-space eviction still apply).
+    case "$(basename "$entry")" in
+      *-ref-main-*) continue ;;
+    esac
     index=$((index + 1))
     if [ "$index" -le "$max_entries" ]; then
       continue
     fi
-    # Re-stat right before deleting: a job may have attached (touched) this
-    # entry after the snapshot above was taken.
-    mtime="$(current_mtime "$entry")"
-    if [ -z "$mtime" ]; then
-      continue
-    fi
-    if entry_is_recent "$mtime"; then
-      continue
-    fi
-    if rm -rf "$entry"; then
+    # Re-checked under the entry lock: a job may have attached it since the
+    # snapshot above was taken.
+    delete_entry_if_idle "$entry" && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
       removed=$((removed + 1))
-    else
+    elif [ "$rc" -eq 2 ]; then
       failed=$((failed + 1))
       echo "${label}: failed to remove ${entry}" >&2
     fi
@@ -157,22 +197,16 @@ evict_until_free() {
     return
   fi
 
-  local removed=0 mtime entry
+  local removed=0 rc mtime entry
   while IFS=$'\t' read -r -d '' mtime entry; do
     if [ "$(avail_gb "$dir")" -ge "$min_free_gb" ]; then
       break
     fi
-    # Re-stat right before deleting (same attach race as cap_tree_entries).
-    mtime="$(current_mtime "$entry")"
-    if [ -z "$mtime" ]; then
-      continue
-    fi
-    if entry_is_recent "$mtime"; then
-      continue
-    fi
-    if rm -rf "$entry"; then
+    # Re-checked under the entry lock (same attach race as cap_tree_entries).
+    delete_entry_if_idle "$entry" && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
       removed=$((removed + 1))
-    else
+    elif [ "$rc" -eq 2 ]; then
       echo "${label}: failed to evict ${entry}" >&2
     fi
   done < <(list_entries_with_mtime "$dir" | sort -z -n)
@@ -185,18 +219,44 @@ evict_until_free() {
   fi
 }
 
-run_maintenance() {
-  require_root
-
+prune_caches() {
   mkdir -p "$CACHE_ROOT"
   prune_tree "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_AGE_DAYS" "lake-build cache"
+  cap_tree_entries "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_ENTRIES" "lake-build cache"
   prune_tree "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_AGE_DAYS" "lake-packages cache"
   cap_tree_entries "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_ENTRIES" "lake-packages cache"
-  evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
   prune_tree "$CACHE_ROOT/compiler-ccache" "$COMPILER_CCACHE_MAX_AGE_DAYS" "compiler ccache"
+  prune_tree "$CACHE_ROOT/elan" "$ELAN_MAX_AGE_DAYS" "elan toolchains"
+  # Only after every age-based pass: build trees are the largest and cheapest
+  # to recreate (seeded from main), so evict them before package trees.
+  evict_until_free "$CACHE_ROOT/lake-build" "$MIN_FREE_GB" "lake-build cache"
+  evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
+}
+
+# Run "$@" as the owner of CACHE_ROOT (the runner user). The cache passes create
+# lock files in CACHE_ROOT/.locks; created by root they would be unwritable for
+# the runner, and every ci_local_persistence.sh mount on the host would fail.
+as_cache_owner() {
+  local owner
+  if [ "$(id -u)" -ne 0 ]; then
+    "$@"
+    return
+  fi
+  owner="$(stat -c %U "$CACHE_ROOT" 2>/dev/null || true)"
+  if [ -z "$owner" ] || [ "$owner" = "root" ]; then
+    echo "skipping cache maintenance: ${CACHE_ROOT} is missing or owned by root (expected the runner user)" >&2
+    return 0
+  fi
+  runuser -u "$owner" -- "$@"
+}
+
+run_maintenance() {
+  require_root
+  as_cache_owner env CACHE_ROOT="$CACHE_ROOT" "$(readlink -f "$0")" caches
 
   if [ -x "$SCRIPT_DIR/ci_local_persistence.sh" ]; then
-    "$SCRIPT_DIR/ci_local_persistence.sh" cleanup --max-age-hours "$ARTIFACT_MAX_AGE_HOURS"
+    as_cache_owner env VERITY_CI_ARTIFACT_ROOT="$CACHE_ROOT/artifacts" \
+      "$SCRIPT_DIR/ci_local_persistence.sh" cleanup --max-age-hours "$ARTIFACT_MAX_AGE_HOURS"
   fi
 
   if command -v journalctl >/dev/null 2>&1; then
@@ -247,6 +307,9 @@ EOF
 case "${1:-}" in
   run)
     run_maintenance
+    ;;
+  caches)
+    prune_caches
     ;;
   install-systemd)
     install_systemd

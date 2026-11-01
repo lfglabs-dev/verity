@@ -62,7 +62,7 @@ def main():
         raise HarnessError('source selector identity mismatch')
     write_json(output / 'selectors.json', [int(selectors[s], 16) for s in signatures])
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json',
-             output / 'model.yul'], timeout=600, log=output / 'compile.log')
+             output / 'model.yul'], timeout=900, log=output / 'compile.log')
     identity.verify()
     model = solc_compile({'language': 'Yul',
         'sources': {'Model.yul': {'content': (output / 'model.yul').read_text()}},

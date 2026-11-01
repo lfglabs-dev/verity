@@ -1599,6 +1599,8 @@ theorem Contract.run_ite_false {α : Type} {c : Prop} [Decidable c]
     (if c then t else e).run s = e.run s := by
   rw [if_neg hc]
 
+section VerityAutomationTactics
+
 /-- Simplify one monadic `Contract.run` / `Verity.bind` / `require` step. -/
 syntax (name := verity_step)
   "verity_step" : tactic
@@ -1767,6 +1769,8 @@ macro_rules
          simp only [$lems,*, Verity.Specs.FnSpec.Satisfies, Verity.Specs.fnUpdateSpec]
          verity_step
          try verity_frame))
+
+end VerityAutomationTactics
 
 example (msg : String) (x : Uint256) (s : ContractState) :
     (Verity.bind (require true msg) (fun _ => Verity.pure x)).run s =

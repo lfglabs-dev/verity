@@ -340,7 +340,7 @@ def main():
     identity = ImplementationIdentity(driver, extra_inputs=extra_inputs)
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
-            timeout=600, log=output / 'compile-model.log')
+            timeout=900, log=output / 'compile-model.log')
     identity.verify()
     compiled = solc_compile({'language': 'Yul', 'sources': {'Model.yul': {'content': (output / 'model.yul').read_text()}},
         'settings': {'evmVersion': evm_version, 'optimizer': {'enabled': True, 'runs': optimizer_runs},

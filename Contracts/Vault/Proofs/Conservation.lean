@@ -43,6 +43,33 @@ private theorem sub_sub_self_of_ge {x delta : Uint256} (h : x ≥ delta) :
   rw [Verity.Core.Uint256.subNoWrap h_sub_le, h_sub_val]
   omega
 
+/-- If `y = EVM.Uint256.add x delta` without overflow, `y - x = delta` and `y.val = x.val + delta.val`. -/
+private theorem add_delta_diff_and_val {x y delta : Uint256}
+    (h_eq : y = EVM.Uint256.add x delta)
+    (h_no_overflow : (x : Nat) + (delta : Nat) ≤ MAX_UINT256) :
+    y - x = delta ∧ y.val = x.val + delta.val := by
+  subst h_eq
+  exact ⟨add_sub_self_left x delta,
+    Verity.Core.Uint256.addNoWrap (lt_modulus_of_le_max_uint256 _ h_no_overflow)⟩
+
+/-- If `y = EVM.Uint256.sub x delta` with `x ≥ delta`, `x - y = delta` and `y.val = x.val - delta.val`. -/
+private theorem sub_delta_diff_and_val {x y delta : Uint256}
+    (h_eq : y = EVM.Uint256.sub x delta)
+    (h_ge : x ≥ delta) :
+    x - y = delta ∧ y.val = x.val - delta.val := by
+  subst h_eq
+  exact ⟨sub_sub_self_of_ge h_ge, Verity.Core.Uint256.subNoWrap (uint256_ge_val_le h_ge)⟩
+
+/-- If `y = EVM.Uint256.add x delta` without overflow, then `y ≥ delta`. -/
+private theorem ge_delta_of_add_no_overflow {x y delta : Uint256}
+    (h_eq : y = EVM.Uint256.add x delta)
+    (h_no_overflow : (x : Nat) + (delta : Nat) ≤ MAX_UINT256) :
+    y ≥ delta := by
+  have h_val := (add_delta_diff_and_val h_eq h_no_overflow).2
+  change delta.val ≤ y.val
+  rw [h_val]
+  omega
+
 /-! ## Deposit Unfold and Spec Compliance -/
 
 /-- Unfold `Vault.deposit` when share balance, totalAssets, and totalSupply additions do not overflow. -/
@@ -180,50 +207,13 @@ theorem deposit_share_asset_conservation (s : ContractState) (assets : Uint256)
   have h_spec := deposit_meets_spec s assets h_no_share_overflow h_no_asset_overflow h_no_supply_overflow
   dsimp only at h_spec
   rcases h_spec with ⟨h_shares_eq, h_assets_eq, h_supply_eq, _⟩
-  let s' := ((deposit assets).run s).snd
-  have h_shares_diff :
-      s'.storageMap shareBalancesSlot.slot s.sender - s.storageMap shareBalancesSlot.slot s.sender = assets := by
-    change s'.storageMap 2 s.sender - s.storageMap 2 s.sender = assets
-    rw [h_shares_eq]
-    exact add_sub_self_left (s.storageMap 2 s.sender) assets
-  have h_assets_diff :
-      s'.storage totalAssetsSlot.slot - s.storage totalAssetsSlot.slot = assets := by
-    change s'.storage 0 - s.storage 0 = assets
-    rw [h_assets_eq]
-    exact add_sub_self_left (s.storage 0) assets
-  have h_supply_diff :
-      s'.storage totalSupplySlot.slot - s.storage totalSupplySlot.slot = assets := by
-    change s'.storage 1 - s.storage 1 = assets
-    rw [h_supply_eq]
-    exact add_sub_self_left (s.storage 1) assets
-  have h_shares_val :
-      (s'.storageMap shareBalancesSlot.slot s.sender).val =
-        (s.storageMap shareBalancesSlot.slot s.sender).val + assets.val := by
-    change (s'.storageMap 2 s.sender).val = (s.storageMap 2 s.sender).val + assets.val
-    rw [h_shares_eq]
-    exact Verity.Core.Uint256.addNoWrap (lt_modulus_of_le_max_uint256 _ h_no_share_overflow)
-  have h_assets_val :
-      (s'.storage totalAssetsSlot.slot).val =
-        (s.storage totalAssetsSlot.slot).val + assets.val := by
-    change (s'.storage 0).val = (s.storage 0).val + assets.val
-    rw [h_assets_eq]
-    exact Verity.Core.Uint256.addNoWrap (lt_modulus_of_le_max_uint256 _ h_no_asset_overflow)
-  have h_supply_val :
-      (s'.storage totalSupplySlot.slot).val =
-        (s.storage totalSupplySlot.slot).val + assets.val := by
-    change (s'.storage 1).val = (s.storage 1).val + assets.val
-    rw [h_supply_eq]
-    exact Verity.Core.Uint256.addNoWrap (lt_modulus_of_le_max_uint256 _ h_no_supply_overflow)
-  refine ⟨?_, h_shares_diff, ?_, ?_⟩
-  · rw [h_assets_diff, h_supply_diff]
-  · change (s'.storage totalAssetsSlot.slot).val - (s.storage totalAssetsSlot.slot).val =
-      (s'.storage totalSupplySlot.slot).val - (s.storage totalSupplySlot.slot).val
-    rw [h_assets_val, h_supply_val]
-    omega
-  · change (s'.storageMap shareBalancesSlot.slot s.sender).val -
-      (s.storageMap shareBalancesSlot.slot s.sender).val = assets.val
-    rw [h_shares_val]
-    omega
+  rcases add_delta_diff_and_val h_shares_eq h_no_share_overflow with ⟨h_shares_diff, h_shares_val⟩
+  rcases add_delta_diff_and_val h_assets_eq h_no_asset_overflow with ⟨h_assets_diff, h_assets_val⟩
+  rcases add_delta_diff_and_val h_supply_eq h_no_supply_overflow with ⟨h_supply_diff, h_supply_val⟩
+  dsimp only [shareBalancesSlot, totalAssetsSlot, totalSupplySlot]
+  refine ⟨by rw [h_assets_diff, h_supply_diff], h_shares_diff, ?_, ?_⟩
+  · rw [h_assets_val, h_supply_val]; omega
+  · rw [h_shares_val]; omega
 
 /-- ERC-4626 1:1 withdraw conservation: after a successful `Vault.withdraw shares`,
     the decrease in `totalAssets` equals the decrease in `totalSupply`, and the
@@ -244,56 +234,16 @@ theorem withdraw_share_asset_conservation (s : ContractState) (shares : Uint256)
   have h_spec := withdraw_meets_spec s shares h_shares h_assets h_supply
   dsimp only at h_spec
   rcases h_spec with ⟨h_shares_eq, h_assets_eq, h_supply_eq, _⟩
-  let s' := ((withdraw shares).run s).snd
-  have h_shares_diff :
-      s.storageMap shareBalancesSlot.slot s.sender - s'.storageMap shareBalancesSlot.slot s.sender = shares := by
-    change s.storageMap 2 s.sender - s'.storageMap 2 s.sender = shares
-    rw [h_shares_eq]
-    exact sub_sub_self_of_ge h_shares
-  have h_assets_diff :
-      s.storage totalAssetsSlot.slot - s'.storage totalAssetsSlot.slot = shares := by
-    change s.storage 0 - s'.storage 0 = shares
-    rw [h_assets_eq]
-    exact sub_sub_self_of_ge h_assets
-  have h_supply_diff :
-      s.storage totalSupplySlot.slot - s'.storage totalSupplySlot.slot = shares := by
-    change s.storage 1 - s'.storage 1 = shares
-    rw [h_supply_eq]
-    exact sub_sub_self_of_ge h_supply
-  have h_shares_le : shares.val ≤ (s.storageMap shareBalancesSlot.slot s.sender).val :=
-    uint256_ge_val_le h_shares
-  have h_assets_le : shares.val ≤ (s.storage totalAssetsSlot.slot).val :=
-    uint256_ge_val_le h_assets
-  have h_supply_le : shares.val ≤ (s.storage totalSupplySlot.slot).val :=
-    uint256_ge_val_le h_supply
-  have h_shares_val :
-      (s'.storageMap shareBalancesSlot.slot s.sender).val =
-        (s.storageMap shareBalancesSlot.slot s.sender).val - shares.val := by
-    change (s'.storageMap 2 s.sender).val = (s.storageMap 2 s.sender).val - shares.val
-    rw [h_shares_eq]
-    exact Verity.Core.Uint256.subNoWrap h_shares_le
-  have h_assets_val :
-      (s'.storage totalAssetsSlot.slot).val =
-        (s.storage totalAssetsSlot.slot).val - shares.val := by
-    change (s'.storage 0).val = (s.storage 0).val - shares.val
-    rw [h_assets_eq]
-    exact Verity.Core.Uint256.subNoWrap h_assets_le
-  have h_supply_val :
-      (s'.storage totalSupplySlot.slot).val =
-        (s.storage totalSupplySlot.slot).val - shares.val := by
-    change (s'.storage 1).val = (s.storage 1).val - shares.val
-    rw [h_supply_eq]
-    exact Verity.Core.Uint256.subNoWrap h_supply_le
-  refine ⟨?_, h_shares_diff, ?_, ?_⟩
-  · rw [h_assets_diff, h_supply_diff]
-  · change (s.storage totalAssetsSlot.slot).val - (s'.storage totalAssetsSlot.slot).val =
-      (s.storage totalSupplySlot.slot).val - (s'.storage totalSupplySlot.slot).val
-    rw [h_assets_val, h_supply_val]
-    omega
-  · change (s.storageMap shareBalancesSlot.slot s.sender).val -
-      (s'.storageMap shareBalancesSlot.slot s.sender).val = shares.val
-    rw [h_shares_val]
-    omega
+  rcases sub_delta_diff_and_val h_shares_eq h_shares with ⟨h_shares_diff, h_shares_val⟩
+  rcases sub_delta_diff_and_val h_assets_eq h_assets with ⟨h_assets_diff, h_assets_val⟩
+  rcases sub_delta_diff_and_val h_supply_eq h_supply with ⟨h_supply_diff, h_supply_val⟩
+  have h_shares_le : shares.val ≤ (s.storageMap 2 s.sender).val := uint256_ge_val_le h_shares
+  have h_assets_le : shares.val ≤ (s.storage 0).val := uint256_ge_val_le h_assets
+  have h_supply_le : shares.val ≤ (s.storage 1).val := uint256_ge_val_le h_supply
+  dsimp only [shareBalancesSlot, totalAssetsSlot, totalSupplySlot]
+  refine ⟨by rw [h_assets_diff, h_supply_diff], h_shares_diff, ?_, ?_⟩
+  · rw [h_assets_val, h_supply_val]; omega
+  · rw [h_shares_val]; omega
 
 /-! ## Deposit-Withdraw Roundtrip -/
 
@@ -313,39 +263,22 @@ theorem deposit_withdraw_roundtrip (s : ContractState) (assets : Uint256)
   dsimp only at h_dep
   rcases h_dep with ⟨h_s1_shares, h_s1_assets, h_s1_supply, _, _, _, h_s1_ctx⟩
   have h_sender : s1.sender = s.sender := h_s1_ctx.1
-  have h_s1_shares_val : (s1.storageMap 2 s1.sender).val =
-      (s.storageMap 2 s.sender).val + assets.val := by
-    rw [h_sender, h_s1_shares]
-    exact Verity.Core.Uint256.addNoWrap (lt_modulus_of_le_max_uint256 _ h_no_share_overflow)
-  have h_s1_assets_val : (s1.storage 0).val = (s.storage 0).val + assets.val := by
-    rw [h_s1_assets]
-    exact Verity.Core.Uint256.addNoWrap (lt_modulus_of_le_max_uint256 _ h_no_asset_overflow)
-  have h_s1_supply_val : (s1.storage 1).val = (s.storage 1).val + assets.val := by
-    rw [h_s1_supply]
-    exact Verity.Core.Uint256.addNoWrap (lt_modulus_of_le_max_uint256 _ h_no_supply_overflow)
   have h_shares_ge : s1.storageMap shareBalancesSlot.slot s1.sender ≥ assets := by
-    change assets.val ≤ (s1.storageMap 2 s1.sender).val
-    rw [h_s1_shares_val]
-    omega
-  have h_assets_ge : s1.storage totalAssetsSlot.slot ≥ assets := by
-    change assets.val ≤ (s1.storage 0).val
-    rw [h_s1_assets_val]
-    omega
-  have h_supply_ge : s1.storage totalSupplySlot.slot ≥ assets := by
-    change assets.val ≤ (s1.storage 1).val
-    rw [h_s1_supply_val]
-    omega
+    dsimp only [shareBalancesSlot]; rw [h_sender]
+    exact ge_delta_of_add_no_overflow h_s1_shares h_no_share_overflow
+  have h_assets_ge : s1.storage totalAssetsSlot.slot ≥ assets :=
+    ge_delta_of_add_no_overflow h_s1_assets h_no_asset_overflow
+  have h_supply_ge : s1.storage totalSupplySlot.slot ≥ assets :=
+    ge_delta_of_add_no_overflow h_s1_supply h_no_supply_overflow
   have h_wd := withdraw_meets_spec s1 assets h_shares_ge h_assets_ge h_supply_ge
   dsimp only at h_wd
   rcases h_wd with ⟨h_s2_shares, h_s2_assets, h_s2_supply, _⟩
+  dsimp only [shareBalancesSlot, totalAssetsSlot, totalSupplySlot]
   refine ⟨?_, ?_, ?_⟩
-  · change ((withdraw assets).run s1).snd.storageMap 2 s.sender = s.storageMap 2 s.sender
-    rw [← h_sender, h_s2_shares, h_sender, h_s1_shares,
+  · rw [← h_sender, h_s2_shares, h_sender, h_s1_shares,
       EVM.Uint256.sub_add_cancel (s.storageMap 2 s.sender) assets]
-  · change ((withdraw assets).run s1).snd.storage 0 = s.storage 0
-    rw [h_s2_assets, h_s1_assets, EVM.Uint256.sub_add_cancel (s.storage 0) assets]
-  · change ((withdraw assets).run s1).snd.storage 1 = s.storage 1
-    rw [h_s2_supply, h_s1_supply, EVM.Uint256.sub_add_cancel (s.storage 1) assets]
+  · rw [h_s2_assets, h_s1_assets, EVM.Uint256.sub_add_cancel (s.storage 0) assets]
+  · rw [h_s2_supply, h_s1_supply, EVM.Uint256.sub_add_cancel (s.storage 1) assets]
 
 /-! ## Invariant Preservation (`assets_supply_synced` and `WellFormedState`) -/
 

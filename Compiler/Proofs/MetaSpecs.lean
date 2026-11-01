@@ -6,7 +6,6 @@ Authors: Verity Authors
 import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.TrustSurfaceLinear
 import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
-import Std.Tactic.BVDecide
 
 namespace Compiler.Proofs.MetaSpecs
 
@@ -369,8 +368,21 @@ exact boolean negation of `maskSubset m allowed`. -/
 @[simp]
 theorem hasMask_compl_eq_not_maskSubset (m allowed : SurfaceMask) :
     hasMask m (~~~allowed) = !maskSubset m allowed := by
-  simp only [hasMask, maskSubset, bne]
-  bv_decide
+  have hpart : (m &&& allowed) ||| (m &&& ~~~allowed) = m := by
+    apply UInt32.eq_of_toBitVec_eq; ext i hi
+    simp [← Bool.and_or_distrib_left]
+  apply Bool.eq_iff_iff.mpr
+  simp only [hasMask, maskSubset, bne_iff_ne, ne_eq, Bool.not_eq_true', beq_eq_false_iff_ne]
+  refine not_congr ⟨fun h0 => ?_, fun hsub => ?_⟩
+  · calc m &&& allowed
+        = (m &&& allowed) ||| 0 := (surfaceMask_or_zero (m &&& allowed)).symm
+      _ = (m &&& allowed) ||| (m &&& ~~~allowed) := by rw [h0]
+      _ = m := hpart
+  · calc m &&& ~~~allowed
+        = (m &&& allowed) &&& ~~~allowed := congrArg (· &&& ~~~allowed) hsub.symm
+      _ = m &&& (allowed &&& ~~~allowed) := surfaceMask_and_assoc m allowed (~~~allowed)
+      _ = m &&& 0 := by congr 1; apply UInt32.eq_of_toBitVec_eq; ext i hi; simp
+      _ = 0 := surfaceMask_and_zero m
 
 /-- Exact boolean equivalence between `maskSubset m allowed = false` and
 `hasMask m (~~~allowed) = true`. -/

@@ -112,7 +112,9 @@ def raw_payloads(pool):
         'empty': b'',
         'short': word(32)[:31],
         'struct-offset-high': blob(2**64, head()),
-        'struct-head-truncated': blob(32, head())[:5 * 32],
+        # One head word short, with both arrays empty and anchored inside the
+        # bytes that are present: only the struct head-size check rejects it.
+        'struct-head-truncated': blob(32, head(tag=0, legs=0, marks=0))[:5 * 32],
         'dirty-owner': blob(32, head(owner=2**160), word(0)),
         'dirty-mark': blob(32, head(legs=0xa0, marks=0xc0), word(0) + word(1) + word(2**64)),
         'dirty-weight': blob(32, head(legs=0xa0, marks=0xa0),

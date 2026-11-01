@@ -4,6 +4,7 @@ import os
 import json
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -32,10 +33,47 @@ def write_json(path, obj):
     path.write_text(json.dumps(obj, indent=2) + "\n")
 
 
+def run_bounded(argv, *, cwd=WORKSPACE, timeout=180, stdin=None, env=None):
+    proc = subprocess.Popen(
+        list(map(str, argv)),
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = proc.communicate()
+        raise subprocess.TimeoutExpired(proc.args, timeout, output=stdout, stderr=stderr) from error
+    except BaseException:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+        raise
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+
+
 def command(argv, *, cwd=WORKSPACE, timeout=180, stdin=None, log=None):
     try:
-        result = subprocess.run(list(map(str, argv)), cwd=cwd, input=stdin, text=True, capture_output=True, timeout=timeout)
+        result = run_bounded(argv, cwd=cwd, stdin=stdin, timeout=timeout)
     except subprocess.TimeoutExpired as error:
+        if log:
+            Path(log).write_text((error.stdout or "") + (error.stderr or ""))
         raise HarnessError(f"resource_limit: {argv[0]} exceeded {timeout}s") from error
     if log:
         Path(log).write_text(result.stdout + result.stderr)

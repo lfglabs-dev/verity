@@ -458,11 +458,12 @@ private theorem simpleStorageNativeDispatcherInnerStmts_eq_concrete_let_if_switc
       Backends.lowerSwitchCasesNativeWithSwitchIds reservedNames
         (Backends.freshNativeSwitchId reservedNames n0 + 1)
         simpleStorageBuildSwitchSourceCases = .ok (cases', midN) := by
-  obtain ⟨body1, body2, n1, -, h, hBody2⟩ := simpleStorageNativeDispatcherInnerStmts_decomp
-  obtain ⟨cases', midN, rfl, hLowerCases⟩ :=
+  obtain ⟨body1, body2, n1, n2, h, hBody2⟩ := simpleStorageNativeDispatcherInnerStmts_decomp
+  obtain ⟨cases', midN, hBody2Eq, hLowerCases⟩ :=
     Backends.Native.lowerStmtsNativeWithSwitchIds_singleton_switch_revert_default_eq_sourceLowered
-      _ _ _ _ _ _ hBody2
-  exact ⟨body1, _, n1, cases', midN, h, hLowerCases⟩
+      ssReservedNames n1 ssSelExpr simpleStorageBuildSwitchSourceCases body2 n2 hBody2
+  rw [hBody2Eq] at h
+  exact ⟨body1, ssReservedNames, n1, cases', midN, h, hLowerCases⟩
 
 /-- The `Classical.choose`-pinned let RHS of the SimpleStorage native dispatcher
 equals the lowered `iszero(lt(calldatasize(), 4))` Yul expression that
@@ -1127,8 +1128,7 @@ private theorem exec_block_simpleStorageLoweredStoreCaseBodyTail2_short_revert
     codeOverride (.Ok shared store) (.Ok shared store)
     (EvmYul.UInt256.ofNat 1) EvmYul.Yul.Exception.Revert ?_ ?_ ?_
   · rw [Backends.Native.eval_lowerExprNative_lt_calldatasize_ok_fuel]
-    simp [hSizeEq, EvmYul.UInt256.lt, EvmYul.UInt256.ofNat, Fin.ofNat,
-      EvmYul.UInt256.size]
+    simp [hSizeEq, EvmYul.UInt256.lt, EvmYul.UInt256.ofNat]
     decide
   · change (EvmYul.UInt256.ofNat 1 : EvmYul.UInt256) ≠ ⟨0⟩
     decide
@@ -1696,9 +1696,9 @@ private theorem nativeSwitchPostInitFreeMemorySharedState_weiValue_zero
       (⟨0⟩ : EvmYul.Literal) := by
   rw [nativeSwitchPostInitFreeMemorySharedState_weiValue]
   apply congrArg EvmYul.UInt256.mk
-  apply Fin.ext
+  apply BitVec.eq_of_toNat_eq
   simpa [Backends.StateBridge.natToUInt256,
-    EvmYul.UInt256.ofNat, Fin.ofNat] using hMsgValue
+    EvmYul.UInt256.ofNat, EvmYul.UInt256.size] using hMsgValue
 
 /-- In the concrete case list, the `store` case can only be split off with an
 empty prefix. -/
@@ -2418,8 +2418,7 @@ private theorem projectHaltReturn_mstore0_return32
     simpa [shared2, shared1, EvmYul.Yul.State.setMachineState,
       EvmYul.Yul.State.toMachineState, EvmYul.Yul.State.sharedState] using h
   have hHaltNotZero : (⟨1⟩ : EvmYul.Yul.Ast.Literal) ≠ ⟨0⟩ := by
-    intro h
-    norm_num [EvmYul.UInt256.size] at h
+    decide
   rw [Backends.Native.projectHaltReturn_32ByteReturn
     (EvmYul.Yul.State.Ok shared2 store) ⟨1⟩ hHaltNotZero hSize]
   rw [hH_return,
@@ -2666,7 +2665,8 @@ private theorem simpleStorageNativeStoreHitMatch_short
         (YulTransaction.ofIR tx) initialState.storage _
         (by simpa [YulTransaction.ofIR] using hArgs)
         (by simpa using hStore.symm)
-        (by simpa [YulTransaction.ofIR, evmModulus, Verity.Core.UINT256_MODULUS] using hNoWrap)
+        (by simpa [YulTransaction.ofIR, evmModulus,
+          Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using hNoWrap)
         (by simpa [YulTransaction.ofIR] using hMsgValue))
   · rw [interpretIR_simpleStorage_storeHit_short tx initialState hSelectorEq hArgs]
     exact ⟨rfl, rfl, (by intro slot _; rfl), rfl⟩
@@ -2704,8 +2704,9 @@ private theorem nativeResultsMatchOn_storeHit_postInit
       ssNC yulTx
       initialState.storage slots store arg slot (mem_materializedStorageSlots_of_mem _ _ _ hslot)
     have hArgMod : EvmYul.UInt256.ofNat arg = EvmYul.UInt256.ofNat (arg % evmModulus) := by
-      unfold EvmYul.UInt256.ofNat
-      simp [Id.run, Fin.ofNat, evmModulus, EvmYul.UInt256.size]
+      apply congrArg EvmYul.UInt256.mk
+      apply BitVec.eq_of_toNat_eq
+      simp [evmModulus]
     simpa [haltState, withValue, initialWithStore,
       Compiler.Proofs.abstractStoreStorageOrMapping,
       Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, hArgMod] using hNative.symm
@@ -2734,7 +2735,8 @@ private theorem simpleStorageNativeStoreHitMatch_arg
       (YulTransaction.ofIR tx) initialState.storage _ arg rest
       (by simpa [YulTransaction.ofIR] using hArgs)
       (by simpa using hStore.symm)
-      (by simpa [YulTransaction.ofIR, evmModulus, Verity.Core.UINT256_MODULUS] using hNoWrap)
+      (by simpa [YulTransaction.ofIR, evmModulus,
+        Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using hNoWrap)
       (by simpa [YulTransaction.ofIR] using hMsgValue)
   refine nativeDispatcherExecMatchesIRPositive_of_exec_yulHalt_project_eq_match
     (by simpa [simpleStorage_runtimeCode_eq_single_dispatcher] using hExec) rfl ?_
@@ -2760,7 +2762,8 @@ private theorem simpleStorageNativeRetrieveHitMatchBridge_proved
       (Backends.Native.materializedStorageSlots
         (Compiler.runtimeCode simpleStorageIRContract) observableSlots)
       (by simpa using hRetrieve.symm)
-      (by simpa [YulTransaction.ofIR, evmModulus, Verity.Core.UINT256_MODULUS] using hNoWrap)
+      (by simpa [YulTransaction.ofIR, evmModulus,
+        Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using hNoWrap)
       (by simpa [YulTransaction.ofIR] using hMsgValue)
   refine nativeDispatcherExecMatchesIRPositive_of_exec_yulHalt_project_eq_match
     (by simpa [simpleStorage_runtimeCode_eq_single_dispatcher] using hExec) rfl ?_

@@ -1,5 +1,5 @@
 {
-  "ecm_assumption_count": 31,
+  "ecm_assumption_count": 32,
   "ecm_assumptions": [
     {
       "file": "Compiler/Modules/Hashing.lean",
@@ -105,6 +105,11 @@
       "file": "Compiler/Modules/Precompiles.lean",
       "line": 37,
       "name": "evm_ecrecover_precompile"
+    },
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 514,
+      "name": "evm_scratch_space_single_word"
     },
     {
       "file": "Compiler/Modules/Hashing.lean",

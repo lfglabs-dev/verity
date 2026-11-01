@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import re
 import unittest
@@ -50,25 +51,75 @@ class EvmYulLeanForkConformanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", text)
         for path in [
             "Compiler/Proofs/EndToEnd.lean",
+            "Compiler/Proofs/EndToEnd/**",
+            "Compiler/Proofs/YulGeneration/Backends/**",
             "scripts/generate_evmyullean_native_lowering_report.py",
             "scripts/test_evmyullean_fork_conformance_workflow.py",
             "artifacts/evmyullean_native_lowering_report.json",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure.lean",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/**",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBridgeLemmas.lean",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBridgeTest.lean",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/**",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanSignedArithSpec.lean",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanSourceExprClosure.lean",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean",
+            "lake-manifest.json",
+            "lean-toolchain",
         ]:
             self.assertEqual(
                 text.count(path),
                 2,
                 f"{path} should trigger both push and pull_request probes",
             )
+
+        push_paths_match = re.search(
+            r"(?m)^  push:\n(?:    .+\n)*?    paths:\n(?P<paths>(?:      - '.+'\n)+)",
+            text,
+        )
+        pr_paths_match = re.search(
+            r"(?m)^  pull_request:\n(?:    .+\n)*?    paths:\n(?P<paths>(?:      - '.+'\n)+)",
+            text,
+        )
+        self.assertIsNotNone(push_paths_match)
+        self.assertIsNotNone(pr_paths_match)
+        push_globs = re.findall(r"- '([^']+)'", push_paths_match.group("paths"))
+        pr_globs = re.findall(r"- '([^']+)'", pr_paths_match.group("paths"))
+        self.assertEqual(push_globs, pr_globs)
+
+        def matches_any_workflow_glob(rel_path: str, globs: list[str]) -> bool:
+            for pattern in globs:
+                if pattern.endswith("/**"):
+                    prefix = pattern[:-2]
+                    if rel_path.startswith(prefix):
+                        return True
+                elif fnmatch.fnmatch(rel_path, pattern):
+                    return True
+            return False
+
+        import_re = re.compile(r"^\s*import\s+([A-Za-z0-9_.]+)", re.M)
+        seed_modules = [
+            "Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgeLemmas",
+            "Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgeTest",
+            "Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness",
+            "Compiler.Proofs.EndToEnd",
+        ]
+        seen_modules: set[str] = set()
+        queue = list(seed_modules)
+        while queue:
+            mod = queue.pop(0)
+            if mod in seen_modules:
+                continue
+            seen_modules.add(mod)
+            mod_path = ROOT / (mod.replace(".", "/") + ".lean")
+            if not mod_path.exists():
+                continue
+            for imported in import_re.findall(mod_path.read_text(encoding="utf-8")):
+                if imported not in seen_modules:
+                    queue.append(imported)
+
+        for mod in sorted(seen_modules):
+            rel = mod.replace(".", "/") + ".lean"
+            if (
+                rel.startswith("Compiler/Proofs/YulGeneration/Backends/")
+                or rel.startswith("Compiler/Proofs/EndToEnd")
+            ) and (ROOT / rel).exists():
+                self.assertTrue(
+                    matches_any_workflow_glob(rel, push_globs),
+                    f"Transitive probe dependency {rel} is not covered by workflow path filters",
+                )
 
         top_permissions = re.search(
             r"(?m)^permissions:\n(?P<body>(?:  .+\n)+)\n(?:env:|concurrency:|jobs:)",

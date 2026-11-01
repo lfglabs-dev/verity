@@ -439,43 +439,38 @@ theorem fromBytes'_lt (xs : List UInt8) :
 private theorem uint256_ofNat_eq_mk
     (value : Nat)
     (hvalue : value < EvmYul.UInt256.size) :
-    EvmYul.UInt256.ofNat value = ⟨⟨value, hvalue⟩⟩ := by
-  apply congrArg EvmYul.UInt256.mk
-  apply Fin.ext
-  simp [Nat.mod_eq_of_lt hvalue]
+    EvmYul.UInt256.ofNat value = ⟨BitVec.ofFin ⟨value, hvalue⟩⟩ := by
+  apply EvmYul.UInt256.ext
+  apply BitVec.eq_of_toNat_eq
+  simpa [EvmYul.UInt256.ofNat, EvmYul.UInt256.size] using Nat.mod_eq_of_lt hvalue
 
 private theorem uint256_eq_of_toNat_eq
     (a b : EvmYul.UInt256)
     (h : a.toNat = b.toNat) :
     a = b := by
-  cases a with
-  | mk av =>
-  cases b with
-  | mk bv =>
-  apply congrArg EvmYul.UInt256.mk
-  apply Fin.ext
+  apply EvmYul.UInt256.ext
+  apply BitVec.eq_of_toNat_eq
   simpa [EvmYul.UInt256.toNat] using h
 
 theorem uint256_ofNat_toNat_of_lt
     (value : Nat)
     (hvalue : value < EvmYul.UInt256.size) :
     (EvmYul.UInt256.ofNat value).toNat = value := by
-  change (Fin.ofNat EvmYul.UInt256.size value).val = value
-  simp [Fin.ofNat]
+  simp only [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, BitVec.toNat_ofNat]
   exact Nat.mod_eq_of_lt hvalue
 
 private theorem uint256_shiftRight_224_mk_toNat
     (value : Nat)
     (hvalue : value < EvmYul.UInt256.size) :
     EvmYul.UInt256.toNat
-      (EvmYul.UInt256.shiftRight ⟨⟨value, hvalue⟩⟩
-        ⟨⟨Compiler.Constants.selectorShift,
+      (EvmYul.UInt256.shiftRight ⟨BitVec.ofFin ⟨value, hvalue⟩⟩
+        ⟨BitVec.ofFin ⟨Compiler.Constants.selectorShift,
           by norm_num [Compiler.Constants.selectorShift, EvmYul.UInt256.size]⟩⟩) =
       value / 2^Compiler.Constants.selectorShift := by
   have hshift : Compiler.Constants.selectorShift < 256 := by
     norm_num [Compiler.Constants.selectorShift]
   have hg : ¬ 256 ≤
-      (⟨⟨Compiler.Constants.selectorShift,
+      (⟨BitVec.ofFin ⟨Compiler.Constants.selectorShift,
         by norm_num [Compiler.Constants.selectorShift, EvmYul.UInt256.size]⟩⟩ :
           EvmYul.UInt256).val := by
     change ¬ 256 ≤ Compiler.Constants.selectorShift
@@ -756,25 +751,10 @@ theorem byteArray_write_empty_zero_32_readWithPadding_eq_of_size
   rw [byteArray_write_empty_zero_32_eq_of_size source hSize]
   exact byteArray_readWithPadding_zero_32_eq_of_size source hSize
 
-elab "apply_evmyul_toBytes_uint256_length_le" : tactic => do
-  let theoremName :=
-    Name.str
-      (Name.str
-        (Name.num
-          (Name.str (Name.str (Name.str .anonymous "_private") "EvmYul") "UInt256")
-          0)
-        "EvmYul")
-      "toBytes'_UInt256_le"
-  let goals ← (← getMainGoal).apply (mkConst theoremName)
-  replaceMainGoal goals
-
 private theorem toBytesBigEndian_uint256_length_le
     {n : Nat} (h : n < EvmYul.UInt256.size) :
-    (EvmYul.toBytesBigEndian n).length ≤ 32 := by
-  unfold EvmYul.toBytesBigEndian
-  simp
-  apply_evmyul_toBytes_uint256_length_le
-  exact h
+    (EvmYul.toBytesBigEndian n).length ≤ 32 :=
+  EvmYul.length_toBytesBigEndian_le h
 
 private theorem list_toByteArray_loop_size (bytes : List UInt8) (acc : ByteArray) :
     (List.toByteArray.loop bytes acc).size = acc.size + bytes.length := by

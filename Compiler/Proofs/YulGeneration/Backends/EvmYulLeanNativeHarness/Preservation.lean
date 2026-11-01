@@ -1052,10 +1052,10 @@ theorem NativeStmtPreservesWord_if_of_eval_self
   | succ fuel' =>
       rcases hCond fuel' state hLookup with ⟨condValue, hEval⟩
       simp [EvmYul.Yul.exec, hEval] at hExec
-      by_cases hCondNonzero : condValue ≠ ⟨0⟩
+      by_cases hCondNonzero : condValue ≠ ⟨0#256⟩
       · simp [hCondNonzero] at hExec
         exact hBody fuel' state final hLookup hExec
-      · have hCondZero : condValue = ⟨0⟩ := by
+      · have hCondZero : condValue = ⟨0#256⟩ := by
           exact Decidable.not_not.mp hCondNonzero
         simp [hCondZero] at hExec
         cases hExec
@@ -1084,10 +1084,10 @@ theorem NativeStmtPreservesWord_if_of_eval_preserves
       rcases hCond fuel' state hLookup with
         ⟨condState, condValue, hEval, hCondLookup⟩
       simp [EvmYul.Yul.exec, hEval] at hExec
-      by_cases hCondNonzero : condValue ≠ ⟨0⟩
+      by_cases hCondNonzero : condValue ≠ ⟨0#256⟩
       · simp [hCondNonzero] at hExec
         exact hBody fuel' condState final hCondLookup hExec
-      · have hCondZero : condValue = ⟨0⟩ := by
+      · have hCondZero : condValue = ⟨0#256⟩ := by
           exact Decidable.not_not.mp hCondNonzero
         simp [hCondZero] at hExec
         cases hExec
@@ -1140,10 +1140,10 @@ theorem NativeStmtPreservesWord_if_of_cond_preserves
           have hCondLookup : condState[name]! = value :=
             hCond fuel' state condState condValue hLookup hEval
           simp [hEval] at hExec
-          by_cases hCondNonzero : condValue ≠ ⟨0⟩
+          by_cases hCondNonzero : condValue ≠ ⟨0#256⟩
           · simp [hCondNonzero] at hExec
             exact hBody fuel' condState final hCondLookup hExec
-          · have hCondZero : condValue = ⟨0⟩ :=
+          · have hCondZero : condValue = ⟨0#256⟩ :=
               Decidable.not_not.mp hCondNonzero
             simp [hCondZero] at hExec
             cases hExec
@@ -1203,10 +1203,10 @@ theorem NativeStmtPreservesWord_revived_if_of_cond_preserves_reviveJump
           have hCondLookup : condState.reviveJump[name]! = value := by
             rw [hReviveEq]; exact hLookup
           simp [hEval] at hExec
-          by_cases hCondNonzero : condValue ≠ ⟨0⟩
+          by_cases hCondNonzero : condValue ≠ ⟨0#256⟩
           · simp [hCondNonzero] at hExec
             exact hBody fuel' condState final hCondLookup hExec
-          · have hCondZero : condValue = ⟨0⟩ :=
+          · have hCondZero : condValue = ⟨0#256⟩ :=
               Decidable.not_not.mp hCondNonzero
             simp [hCondZero] at hExec
             cases hExec
@@ -1541,8 +1541,7 @@ theorem NativeStmtPreservesWord_let_none_of_not_mem
   | succ fuel' =>
       simp [EvmYul.Yul.exec] at hExec
       cases hExec
-      rw [state_getElem_foldr_insert_zero_of_not_mem state name vars hnot]
-      exact hLookup
+      simpa using (state_getElem_foldr_insert_zero_of_not_mem state name vars hnot).trans hLookup
 
 theorem NativeStmtPreservesWord_let_var_of_not_mem
     (name : EvmYul.Identifier)

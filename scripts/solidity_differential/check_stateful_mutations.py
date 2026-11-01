@@ -1,11 +1,10 @@
 """Detect an executable model mutation and verify real A/B/C sequence reduction."""
 import json
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
-from .engine import HarnessError, write_json
+from .engine import HarnessError, MUTANT_BUILD_TIMEOUT, run_bounded, write_json
 
 
 def main():
@@ -21,7 +20,7 @@ def main():
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',
             '--model-driver', str(driver), '--output', str(campaign),
             '--transactions', '6', '--seed', '2448', '--shrink-attempts', '30']
-    result = subprocess.run(argv, text=True, capture_output=True, timeout=600)
+    result = run_bounded(argv, timeout=MUTANT_BUILD_TIMEOUT)
     (output / 'campaign.log').write_text(result.stdout + result.stderr)
     # Tool/build failures cannot count as detection: require a completed comparison
     # and the reducer's separately reproduced, deletion-minimal semantic witness.

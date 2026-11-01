@@ -31,49 +31,49 @@ def evalState {α : Type} (r : Verity.ContractResult α) (preState : Verity.Cont
   | .success _ s' => s'
   | .revert _ _ => preState
 
-@[simp high, verity_unfold_simps high] theorem run_snd_eq_evalState
+theorem run_snd_eq_evalState
     {α : Type} (c : Verity.Contract α) (s : Verity.ContractState) :
     (c.run s).snd = evalState (c s) s := by
   unfold evalState Verity.Contract.run Verity.ContractResult.snd
   cases c s <;> rfl
 
-@[simp high, verity_unfold_simps high] theorem evalState_success
+theorem evalState_success
     {α : Type} (a : α) (s' preState : Verity.ContractState) :
     evalState (Verity.ContractResult.success a s') preState = s' := rfl
 
-@[simp high, verity_unfold_simps high] theorem evalState_revert
+theorem evalState_revert
     {α : Type} (msg : String) (s' preState : Verity.ContractState) :
     evalState (Verity.ContractResult.revert (α := α) msg s') preState = preState := rfl
 
-@[simp high, verity_unfold_simps high] theorem evalState_ite
+theorem evalState_ite
     {α : Type} (c : Prop) [Decidable c]
     (x y : Verity.ContractResult α) (preState : Verity.ContractState) :
     evalState (if c then x else y) preState =
       if c then evalState x preState else evalState y preState := by
   by_cases hc : c <;> simp [hc]
 
-@[simp high, verity_unfold_simps high] theorem bind_success_eq
+theorem bind_success_eq
     {α β : Type} (a : Verity.ContractState → α)
     (nextState : Verity.ContractState → Verity.ContractState)
     (f : α → Verity.Contract β) :
     Verity.bind (fun s => Verity.ContractResult.success (a s) (nextState s)) f =
       fun s => f (a s) (nextState s) := rfl
 
-@[simp high, verity_unfold_simps high] theorem bind_revert_eq
+theorem bind_revert_eq
     {α β : Type} (msg : Verity.ContractState → String)
     (nextState : Verity.ContractState → Verity.ContractState)
     (f : α → Verity.Contract β) :
     Verity.bind (fun s => Verity.ContractResult.revert (msg s) (nextState s)) f =
       fun s => Verity.ContractResult.revert (msg s) (nextState s) := rfl
 
-@[simp high, verity_unfold_simps high] theorem bind_require_eq
+theorem bind_require_eq
     {α : Type} (cond : Bool) (msg : String) (f : Unit → Verity.Contract α) :
     Verity.bind (Verity.require cond msg) f =
       fun s => if cond = true then f () s else Verity.ContractResult.revert msg s := by
   funext s
   cases cond <;> rfl
 
-@[simp high, verity_unfold_simps high] theorem bind_ite_eq
+theorem bind_ite_eq
     {α β : Type} (b : Verity.ContractState → Bool)
     (x y : Verity.ContractState → Verity.ContractResult α)
     (f : α → Verity.Contract β) :
@@ -82,7 +82,7 @@ def evalState {α : Type} (r : Verity.ContractResult α) (preState : Verity.Cont
   funext s
   cases hb : b s <;> simp [Verity.bind, hb]
 
-@[simp high, verity_unfold_simps high] theorem snd_ite_contractResult
+theorem snd_ite_contractResult
     {α : Type} (c : Prop) [Decidable c]
     (x y : Verity.ContractResult α) :
     (if c then x else y).snd = if c then x.snd else y.snd := by
@@ -155,6 +155,11 @@ macro_rules
                Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
                Verity.Macro.snd_ite_contractResult]);
              (try simp +zetaDelta [verity_unfold_simps, $[$extra],*,
+               Verity.Macro.run_snd_eq_evalState, Verity.Macro.evalState_success,
+               Verity.Macro.evalState_revert, Verity.Macro.evalState_ite,
+               Verity.Macro.bind_success_eq, Verity.Macro.bind_revert_eq,
+               Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
+               Verity.Macro.snd_ite_contractResult,
                Verity.Macro.slotsToBitmask, Verity.Macro.bitmaskDisjoint,
                Verity.Macro.slotBitDisjoint, Verity.Macro.slotInBitmask,
                Verity.Macro.PreservesSlot.slotIndex, Verity.Macro.PreservesSlot.preserved,
@@ -172,6 +177,11 @@ macro_rules
              repeat' (first
                | decide
                | simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Macro.run_snd_eq_evalState, Verity.Macro.evalState_success,
+                   Verity.Macro.evalState_revert, Verity.Macro.evalState_ite,
+                   Verity.Macro.bind_success_eq, Verity.Macro.bind_revert_eq,
+                   Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
+                   Verity.Macro.snd_ite_contractResult,
                    Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
                    Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
                    Verity.Specs.FnSpec.Satisfies,
@@ -179,6 +189,11 @@ macro_rules
                    Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage,
                    Verity.Specs.viewPreservesState]
                | (split <;> try simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Macro.run_snd_eq_evalState, Verity.Macro.evalState_success,
+                   Verity.Macro.evalState_revert, Verity.Macro.evalState_ite,
+                   Verity.Macro.bind_success_eq, Verity.Macro.bind_revert_eq,
+                   Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
+                   Verity.Macro.snd_ite_contractResult,
                    Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
                    Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
                    Verity.Specs.FnSpec.Satisfies,
@@ -206,6 +221,11 @@ macro_rules
                Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
                Verity.Macro.snd_ite_contractResult]);
              (try simp +zetaDelta [verity_unfold_simps, $[$extra],*,
+               Verity.Macro.run_snd_eq_evalState, Verity.Macro.evalState_success,
+               Verity.Macro.evalState_revert, Verity.Macro.evalState_ite,
+               Verity.Macro.bind_success_eq, Verity.Macro.bind_revert_eq,
+               Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
+               Verity.Macro.snd_ite_contractResult,
                Verity.Macro.slotsToBitmask, Verity.Macro.bitmaskDisjoint,
                Verity.Macro.slotBitDisjoint, Verity.Macro.slotInBitmask,
                Verity.Macro.PreservesSlot.slotIndex, Verity.Macro.PreservesSlot.preserved,
@@ -227,6 +247,11 @@ macro_rules
                | decide
                | omega
                | simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Macro.run_snd_eq_evalState, Verity.Macro.evalState_success,
+                   Verity.Macro.evalState_revert, Verity.Macro.evalState_ite,
+                   Verity.Macro.bind_success_eq, Verity.Macro.bind_revert_eq,
+                   Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
+                   Verity.Macro.snd_ite_contractResult,
                    Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
                    Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
                    Verity.Specs.FnSpec.Satisfies,
@@ -235,6 +260,11 @@ macro_rules
                    Verity.Specs.storageUnchangedExcept, Verity.Specs.storageAddrUnchangedExcept,
                    Verity.Specs.viewPreservesState]
                | (split <;> try simp_all +zetaDelta [verity_unfold_simps, $[$extra],*,
+                   Verity.Macro.run_snd_eq_evalState, Verity.Macro.evalState_success,
+                   Verity.Macro.evalState_revert, Verity.Macro.evalState_ite,
+                   Verity.Macro.bind_success_eq, Verity.Macro.bind_revert_eq,
+                   Verity.Macro.bind_require_eq, Verity.Macro.bind_ite_eq,
+                   Verity.Macro.snd_ite_contractResult,
                    Verity.Specs.ToSpecStorageKey.toSpecStorageKey, Verity.Specs.SpecStorageKey.Preserved,
                    Verity.Specs.unchangedExcept, Verity.Specs.fnUpdateSpec,
                    Verity.Specs.FnSpec.Satisfies,

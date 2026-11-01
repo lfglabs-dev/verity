@@ -7,11 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from solidity_differential.cases import generate, canonical
-from solidity_differential.engine import HarnessError, parse_evm, execute, command
+from solidity_differential.engine import HarnessError, parse_evm, execute, command, run_bounded
 from solidity_differential.programs import generated_campaign, source, smaller_expressions
 from solidity_differential.reduce import reduce_failure, signature
 from solidity_differential.mutations import mutation_campaign, snapshot, release
-from solidity_differential.suite import run_checks
+from solidity_differential.suite import run_checks, stateful_campaign
 
 
 class SolidityDifferentialTests(unittest.TestCase):
@@ -186,6 +186,86 @@ class SolidityDifferentialTests(unittest.TestCase):
             self.assertIn("unittest", seen[0])
             self.assertIn("check_stateful", seen[1])
 
+
+    def test_stateful_checks_report_every_failure(self):
+        seen = []
+
+        def fake_command(argv, **kwargs):
+            seen.append(argv[3])
+            if argv[3] in ("bad-a", "bad-b"):
+                raise RuntimeError(f"{argv[3]} broke")
+            return ""
+
+        checks = [(name, ["-m", name]) for name in ("bad-a", "good", "bad-b")]
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("solidity_differential.suite.command", fake_command), \
+                 patch("builtins.print") as printed:
+                with self.assertRaisesRegex(Exception, "2 stateful checks failed") as raised:
+                    run_checks(Path(directory), checks, 64, 2449, jobs=1)
+            messages = [call.args[0] for call in printed.call_args_list]
+            self.assertIn("stateful check 1/3: bad-a FAILED", messages)
+            self.assertIn("stateful check 3/3: bad-b FAILED", messages)
+            self.assertIn("bad-a broke", str(raised.exception))
+            self.assertIn("bad-b broke", str(raised.exception))
+            self.assertEqual(sorted(seen), ["bad-a", "bad-b", "good"])
+            self.assertEqual(json.loads((Path(directory) / "completed.json").read_text()), ["good"])
+
+    def test_run_bounded_kills_grandchild_processes_on_timeout(self):
+        import os
+        import subprocess
+        import sys
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            pid_file = Path(directory) / "grandchild.pid"
+            code = (
+                "import pathlib, subprocess, sys, time; "
+                "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                f"pathlib.Path({str(pid_file)!r}).write_text(str(p.pid)); "
+                "time.sleep(60)"
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_bounded([sys.executable, "-c", code], timeout=0.4)
+            grandchild_pid = int(pid_file.read_text().strip())
+            deadline = time.monotonic() + 2.0
+            alive = True
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(grandchild_pid, 0)
+                    time.sleep(0.05)
+                except ProcessLookupError:
+                    alive = False
+                    break
+            self.assertFalse(alive, f"grandchild {grandchild_pid} leaked after timeout")
+
+    def test_stateful_campaign_schedules_heaviest_checks_first(self):
+        captured = []
+
+        def fake_command(argv, **kwargs):
+            return ""
+
+        def fake_run_checks(output, checks, transactions, seed, jobs):
+            captured.extend(name for name, _ in checks)
+            return {"checks": captured, "transactionsPerVariant": transactions, "seed": seed, "divergences": []}
+
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "stateful"
+            with patch("solidity_differential.suite.command", fake_command), \
+                 patch("solidity_differential.suite.run_checks", fake_run_checks):
+                stateful_campaign(out, 64, 2449, jobs=6)
+        self.assertEqual(
+            captured[:6],
+            [
+                "extcodecopy-struct-decode",
+                "create2-struct-emit",
+                "hashing-programs",
+                "nested-dynamic-struct-abi",
+                "multiple-dynamic-abi",
+                "scalar-array-abi",
+            ],
+        )
+        self.assertEqual(len(captured), 61)
+        self.assertEqual(len(set(captured)), 61)
 
 if __name__ == "__main__":
     unittest.main()

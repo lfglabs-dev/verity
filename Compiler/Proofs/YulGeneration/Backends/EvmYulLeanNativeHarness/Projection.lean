@@ -1090,6 +1090,12 @@ def projectHaltReturn (state : EvmYul.Yul.State) (haltValue : EvmYul.Yul.Ast.Lit
     projectHaltReturn state ⟨0⟩ = none := by
   simp [projectHaltReturn]
 
+@[simp] theorem projectHaltReturn_stop_bitvec
+    (state : EvmYul.Yul.State) :
+    projectHaltReturn state { toBitVec := 0#256 } = none := by
+  change projectHaltReturn state ⟨0⟩ = none
+  exact projectHaltReturn_stop state
+
 @[simp] theorem projectHaltReturn_32ByteReturn
     (state : EvmYul.Yul.State)
     (haltValue : EvmYul.Yul.Ast.Literal)
@@ -1097,7 +1103,8 @@ def projectHaltReturn (state : EvmYul.Yul.State) (haltValue : EvmYul.Yul.Ast.Lit
     (hSize : state.sharedState.H_return.size = 32) :
     projectHaltReturn state haltValue =
       some (byteArrayWord state.sharedState.H_return 0) := by
-  simp [projectHaltReturn, hHalt, hSize]
+  have hHalt' : haltValue ≠ { toBitVec := 0#256 } := hHalt
+  simp [projectHaltReturn, hHalt', hSize]
 
 /-- Until wider returndata support lands, a non-`stop` halt with a native return
     buffer whose size is not exactly one ABI word projects to the conservative
@@ -1108,7 +1115,8 @@ def projectHaltReturn (state : EvmYul.Yul.State) (haltValue : EvmYul.Yul.Ast.Lit
     (hHalt : haltValue ≠ ⟨0⟩)
     (hSize : state.sharedState.H_return.size ≠ 32) :
     projectHaltReturn state haltValue = some 0 := by
-  simp [projectHaltReturn, hHalt, hSize]
+  have hHalt' : haltValue ≠ { toBitVec := 0#256 } := hHalt
+  simp [projectHaltReturn, hHalt', hSize]
 
 theorem primCall_mstore0_then_return32_emptyMemory_projectHaltReturn
     (mstoreFuel returnFuel : Nat)
@@ -1143,8 +1151,7 @@ theorem primCall_mstore0_then_return32_emptyMemory_projectHaltReturn
   · exact primCall_mstore0_then_return32_ok mstoreFuel returnFuel
       (.Ok sharedState store) value
   · have hHalt : (⟨1⟩ : EvmYul.Yul.Ast.Literal) ≠ ⟨0⟩ := by
-      intro h
-      norm_num [EvmYul.UInt256.size] at h
+      decide
     have hSize : returned.sharedState.H_return.size = 32 := by
       exact mstore0_then_return32_hReturn_size sharedState store value
     have hReturn : returned.sharedState.H_return = value.toByteArray := by
@@ -3186,7 +3193,13 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
       finalMappings :=
         Compiler.Proofs.storageAsMappings (projectStorageFromState tx state)
       events := initialEvents ++ projectLogsFromState state } := by
-  simp [projectResult, hHalt, hSize]
+  rw [show projectResult tx initialStorage initialEvents (.error (.YulHalt state value)) =
+    { success := true
+      returnValue := projectHaltReturn state value
+      finalStorage := projectStorageFromState tx state
+      finalMappings := Compiler.Proofs.storageAsMappings (projectStorageFromState tx state)
+      events := initialEvents ++ projectLogsFromState state } from rfl]
+  rw [projectHaltReturn_32ByteReturn state value hHalt hSize]
 
 @[simp] theorem projectResult_non32ByteReturn
     (tx : YulTransaction)
@@ -3204,7 +3217,13 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
       finalMappings :=
         Compiler.Proofs.storageAsMappings (projectStorageFromState tx state)
       events := initialEvents ++ projectLogsFromState state } := by
-  simp [projectResult, hHalt, hSize]
+  rw [show projectResult tx initialStorage initialEvents (.error (.YulHalt state value)) =
+    { success := true
+      returnValue := projectHaltReturn state value
+      finalStorage := projectStorageFromState tx state
+      finalMappings := Compiler.Proofs.storageAsMappings (projectStorageFromState tx state)
+      events := initialEvents ++ projectLogsFromState state } from rfl]
+  rw [projectHaltReturn_non32ByteReturn state value hHalt hSize]
 
 @[simp] theorem projectResult_revert
     (tx : YulTransaction)

@@ -52,6 +52,7 @@ structure FullContractLifecyclePreserved
     (fallbackSpec receiveSpec : Option FunctionSpec) : Prop where
   /-- Selector-dispatched runtime functions preserve source semantics. -/
   runtime_preserved :
+    ∀ (tx : IRTransaction) (initialWorld : Verity.ContractState),
       Function.TxContextNormalized tx →
       Function.TxCalldataSizeFitsEvm tx →
       FunctionBody.sourceResultMatchesIRResult
@@ -60,6 +61,7 @@ structure FullContractLifecyclePreserved
         (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld))
   /-- Constructor deploy semantics (when `model.constructor = some ctor`) are preserved. -/
   constructor_preserved :
+    ∀ (ctor : ConstructorSpec) (tx : IRTransaction) (initialWorld : Verity.ContractState)
       (bindings ctorBindings : List (String × Nat)),
       model.constructor = some ctor →
       SupportedConstructor model ctor →
@@ -85,6 +87,7 @@ structure FullContractLifecyclePreserved
               bodyStmts))
   /-- Selector-miss `fallback` and `receive` special entrypoints preserve source semantics. -/
   special_entrypoints_on_miss_preserved :
+    ∀ (tx : IRTransaction) (initialWorld : Verity.ContractState),
       Function.TxContextNormalized tx →
       Function.TxCalldataSizeFitsEvm tx →
       FunctionBody.sourceResultMatchesIRResult
@@ -178,6 +181,7 @@ theorem compile_preserves_helper_rich_contract_semantics
     (model : CompilationModel) (selectors : List Nat)
     (hSupported : SupportedSpecWithHelpers model selectors)
     (ir : IRContract) (irFuelSlack : Nat)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (htxNormalized : Function.TxContextNormalized tx)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hcompile : CompilationModel.compile model selectors = Except.ok ir)
