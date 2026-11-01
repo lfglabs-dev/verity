@@ -141,6 +141,13 @@ def _extract_trigger_keys(text: str) -> list[str]:
     return trigger_keys
 
 
+def _has_pr_paths(text: str) -> bool:
+    pr_match = re.search(r"^  pull_request:\n(?P<body>(?:^    .*\n)*)", text, re.MULTILINE)
+    if not pr_match:
+        return False
+    return re.search(r"^    paths:\s*$", pr_match.group("body"), re.MULTILINE) is not None
+
+
 def _extract_pr_paths(text: str) -> list[str]:
     return _extract_list_block(
         text,
@@ -777,7 +784,9 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
     errors: list[str] = []
     trigger_keys = _extract_trigger_keys(snapshot.workflow_text)
     push_paths = _extract_push_paths(snapshot.workflow_text)
-    pr_paths = _extract_pr_paths(snapshot.workflow_text)
+    pull_request_unfiltered = spec.get("pull_request_unfiltered", False)
+    has_pr_paths = _has_pr_paths(snapshot.workflow_text)
+    pr_paths = [] if (pull_request_unfiltered and not has_pr_paths) else _extract_pr_paths(snapshot.workflow_text)
     changes_paths = _extract_changes_filter_paths(snapshot.workflow_text, "code")
     build_changes_paths = (
         _extract_changes_filter_paths(snapshot.workflow_text, "build")
@@ -791,10 +800,11 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
 
     list_blocks = [
         ("on.push.paths", push_paths),
-        ("on.pull_request.paths", pr_paths),
         ("changes.filter.code", changes_paths),
         ("changes.filter.compiler", compiler_changes_paths),
     ]
+    if not pull_request_unfiltered:
+        list_blocks.insert(1, ("on.pull_request.paths", pr_paths))
     if "build_paths" in spec:
         list_blocks.append(("changes.filter.build", build_changes_paths))
     push_branches: list[str] = []
@@ -827,7 +837,11 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
             )
         )
 
-    errors.extend(_compare_lists("on.push.paths", push_paths, "on.pull_request.paths", pr_paths))
+    if pull_request_unfiltered:
+        if has_pr_paths:
+            errors.append("on.pull_request.paths must be omitted when pull_request_unfiltered is true")
+    else:
+        errors.extend(_compare_lists("on.push.paths", push_paths, "on.pull_request.paths", pr_paths))
 
     if require_workflow_dispatch and "\n  workflow_dispatch:\n" not in f"\n{snapshot.workflow_text}":
         errors.append("workflow_dispatch trigger is missing from verify.yml")

@@ -108,6 +108,7 @@ class VerifySyncTests(unittest.TestCase):
         expected_trigger_keys: list[str] | None = None,
         expected_push_branches: list[str] | None = None,
         require_workflow_dispatch: bool = False,
+        pull_request_unfiltered: bool = False,
     ) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory(dir=SCRIPT_DIR.parent) as td:
             root = Path(td)
@@ -122,6 +123,7 @@ class VerifySyncTests(unittest.TestCase):
                         "expected_trigger_keys": expected_trigger_keys or [],
                         "expected_push_branches": expected_push_branches or [],
                         "require_workflow_dispatch": require_workflow_dispatch,
+                        "pull_request_unfiltered": pull_request_unfiltered,
                     }
                 ),
                 encoding="utf-8",
@@ -2128,6 +2130,61 @@ class VerifySyncTests(unittest.TestCase):
         )
         self.assertEqual(rc, 0, err)
         self.assertIn("[PASS] artifacts", out)
+
+    def test_paths_check_supports_pull_request_unfiltered_mode(self) -> None:
+        workflow_unfiltered = textwrap.dedent(
+            """
+            name: verify
+            on:
+              push:
+                branches: [main]
+                paths:
+                  - 'src/**'
+                  - 'README.md'
+              pull_request:
+                types: [opened, synchronize, reopened, closed]
+            jobs:
+              changes:
+                runs-on: ubuntu-latest
+                steps:
+                  - id: filter
+                    uses: dorny/paths-filter@v3
+                    with:
+                      filters: |
+                        code:
+                          - 'src/**'
+                        compiler:
+                          - 'src/**'
+            """
+        )
+        rc, out, err = self._run_paths_check(
+            workflow_unfiltered,
+            check_only_paths=["README.md"],
+            compiler_paths=["src/**"],
+            expected_trigger_keys=["push", "pull_request"],
+            expected_push_branches=["main"],
+            pull_request_unfiltered=True,
+        )
+        self.assertEqual(rc, 0, err)
+        self.assertIn("[PASS] paths", out)
+
+        workflow_with_pr_paths = workflow_unfiltered.replace(
+            "  pull_request:\n    types: [opened, synchronize, reopened, closed]\n",
+            "  pull_request:\n    types: [opened, synchronize, reopened, closed]\n    paths:\n      - 'src/**'\n      - 'README.md'\n",
+        )
+        rc_bad, _, err_bad = self._run_paths_check(
+            workflow_with_pr_paths,
+            check_only_paths=["README.md"],
+            compiler_paths=["src/**"],
+            expected_trigger_keys=["push", "pull_request"],
+            expected_push_branches=["main"],
+            pull_request_unfiltered=True,
+        )
+        self.assertEqual(rc_bad, 1)
+        self.assertIn(
+            "on.pull_request.paths must be omitted when pull_request_unfiltered is true",
+            err_bad,
+        )
 
 
 if __name__ == "__main__":
