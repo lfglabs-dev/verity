@@ -385,6 +385,25 @@ class SorryAllowlistTests(HygieneFixtureTestBase):
         rc, output = self._run_main()
         self.assertEqual(rc, 0, output)
 
+    def test_union_axioms_fixture_sorry_excluded_only_there(self) -> None:
+        fixture = (
+            self.root
+            / "scripts"
+            / ".assurance_fixtures"
+            / "UnionAxiomsFixture"
+            / "NativeAndAttrs.lean"
+        )
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_text("theorem thmSorry : False := by sorry\n", encoding="utf-8")
+        rc, output = self._run_main()
+        self.assertEqual(rc, 0, output)
+
+        sibling = self.root / "scripts" / "OtherScript.lean"
+        sibling.write_text("theorem bad : False := by sorry\n", encoding="utf-8")
+        rc2, output2 = self._run_main()
+        self.assertNotEqual(rc2, 0)
+        self.assertIn("scripts/OtherScript.lean", output2)
+
 
 class NativeDecideTests(HygieneFixtureTestBase):
     """Check 4: native_decide in proof files."""

@@ -7,7 +7,13 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from property_utils import scrub_lean_code, strip_lean_comments
+
+ROOT = SCRIPT_DIR.parent
 BRIDGE_LEMMAS = ROOT / "Compiler" / "Proofs" / "YulGeneration" / "Backends" / "EvmYulLeanBridgeLemmas.lean"
 TARGET_FILES = {
     "TRUST_ASSUMPTIONS": ROOT / "docs" / "TRUST_ASSUMPTIONS.md",
@@ -48,92 +54,12 @@ PURE_BUILTINS = [
 
 def _strip_lean_comments(text: str) -> str:
     """Remove Lean line/block comments while preserving line structure."""
-    result: list[str] = []
-    i = 0
-    n = len(text)
-    block_depth = 0
-    in_string = False
-    escape = False
-    while i < n:
-        if in_string:
-            result.append(text[i])
-            if escape:
-                escape = False
-            elif text[i] == "\\":
-                escape = True
-            elif text[i] == '"':
-                in_string = False
-            i += 1
-            continue
-
-        if block_depth > 0:
-            if text.startswith("/-", i):
-                block_depth += 1
-                i += 2
-                continue
-            if text.startswith("-/", i):
-                block_depth -= 1
-                i += 2
-                continue
-            if text[i] == "\n":
-                result.append("\n")
-            i += 1
-            continue
-
-        if text.startswith("--", i):
-            newline = text.find("\n", i)
-            if newline == -1:
-                break
-            result.append("\n")
-            i = newline + 1
-            continue
-        if text.startswith("/-", i):
-            block_depth = 1
-            i += 2
-            continue
-
-        if text[i] == '"':
-            in_string = True
-            result.append(text[i])
-            i += 1
-            continue
-
-        result.append(text[i])
-        i += 1
-    return "".join(result)
+    return strip_lean_comments(text)
 
 
 def _strip_lean_strings(text: str) -> str:
-    """Blank Lean string literal contents while preserving line structure."""
-    result: list[str] = []
-    i = 0
-    n = len(text)
-    in_string = False
-    escape = False
-    while i < n:
-        ch = text[i]
-        if in_string:
-            if ch == "\n":
-                result.append("\n")
-                escape = False
-            else:
-                result.append(" ")
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            i += 1
-            continue
-        if ch == '"':
-            in_string = True
-            result.append(" ")
-            i += 1
-            continue
-        result.append(ch)
-        i += 1
-    return "".join(result)
+    """Blank Lean comments and string/char literal contents while preserving line structure."""
+    return scrub_lean_code(text)
 
 
 DECL_KEYWORDS = (
@@ -204,7 +130,7 @@ def plain_code_subject(names: list[str]) -> str:
 
 
 def extract_universal_builtins(text: str) -> list[str]:
-    code = _strip_lean_strings(_strip_lean_comments(text))
+    code = scrub_lean_code(text)
     found = {
         BRIDGE_DECL_RE.match(code[start:end]).group(1)
         for start, end, _name, is_bridge, _is_scope in _top_level_blocks(code)
@@ -228,7 +154,7 @@ def extract_admitted_builtins(text: str) -> list[str]:
     The ``@[simp]`` attribute and the ``theorem`` header may span
     multiple lines.
     """
-    code = _strip_lean_strings(_strip_lean_comments(text))
+    code = scrub_lean_code(text)
     sorry_re = re.compile(r"\bsorry\b")
     admitted: set[str] = set()
     admitted_helpers: set[str] = set()

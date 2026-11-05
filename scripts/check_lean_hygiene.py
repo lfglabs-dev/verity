@@ -21,6 +21,7 @@ import re
 from property_utils import ROOT, report_errors, scrub_lean_code
 
 SORRY_RE = re.compile(r"\bsorry\b")
+ASSURANCE_FIXTURE_PREFIX = "scripts/.assurance_fixtures/UnionAxiomsFixture/"
 # Optional declaration modifiers that may precede ``theorem``/``lemma`` or
 # declaration-boundary keywords (``def``, ``instance``, ...).  Any combination
 # and order of these modifiers is accepted.
@@ -104,6 +105,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         if ".lake" in str(lean_file):
             continue
         rel = lean_file.relative_to(ROOT)
+        if lean_file.relative_to(ROOT).as_posix().startswith(ASSURANCE_FIXTURE_PREFIX):
+            continue
         scrubbed_lines = scrub_lean_code(lean_file.read_text(encoding="utf-8")).splitlines()
         for i, line in enumerate(scrubbed_lines, 1):
             if "allowUnsafeReducibility" in line:
@@ -130,6 +133,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         if ".lake" in str(lean_file):
             continue
         rel = lean_file.relative_to(ROOT)
+        if lean_file.relative_to(ROOT).as_posix().startswith(ASSURANCE_FIXTURE_PREFIX):
+            continue
         rel_str = str(rel)
         scrubbed_lines = scrub_lean_code(lean_file.read_text(encoding="utf-8")).splitlines()
         for i, line in enumerate(scrubbed_lines, 1):

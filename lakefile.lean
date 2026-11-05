@@ -151,8 +151,41 @@ lean_lib «SolidityImportSmoke» where
 lean_lib «Compiler» where
   globs := #[.andSubmodules `Compiler]
 
--- Axiom dependency audit: imports all proof modules so `lake build PrintAxioms`
--- compiles them, then `lake env lean PrintAxioms.lean` can run #print axioms.
+-- Negative/positive control fixtures for `UnionAxiomsControls.lean`, kept under
+-- a dot-prefixed directory (`scripts/.assurance_fixtures`) so Turbo-Lean's
+-- project-wide `WalkDir` source hygiene scan skips intentional negative-control
+-- `axiom` / `sorry` / `native_decide` tokens while Lake still builds and checks them.
+lean_lib «AssuranceFixtures» where
+  srcDir := "scripts/.assurance_fixtures"
+  roots := #[
+    `UnionAxiomsFixture.Good,
+    `UnionAxiomsFixture.Bad,
+    `UnionAxiomsFixture.Dep,
+    `UnionAxiomsFixture.ViaDep,
+    `UnionAxiomsFixture.NativeAndAttrs
+  ]
+
+-- From-scratch axiom walker (`scripts/AxiomAudit.lean`), its negative/positive
+-- controls (`scripts/UnionAxiomsControls.lean`), and the whole-library union
+-- check (`scripts/VerityUnionAxioms.lean`).
+@[default_target]
+lean_lib «Assurance» where
+  srcDir := "scripts"
+  roots := #[
+    `AxiomAudit,
+    `UnionAxiomsControls
+  ]
+
+lean_lib «VerityUnionAxioms» where
+  srcDir := "scripts"
+  roots := #[`VerityUnionAxioms]
+
+-- Axiom dependency audit: imports `AxiomAudit`, `UnionAxiomsControls`,
+-- `VerityUnionAxioms`, plus the minimal verified-module roots covering all
+-- verified modules, so `lake build PrintAxioms` builds the walker, controls,
+-- whole-population `VerityUnionAxioms`, and verified closure, and
+-- `lake env lean PrintAxioms.lean` checks the whole-library union and emits
+-- exact per-theorem axiom sets.
 lean_lib «PrintAxioms» where
   globs := #[.one `PrintAxioms]
 
