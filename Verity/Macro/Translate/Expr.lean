@@ -137,7 +137,7 @@ partial def valueTypeFromModelParamType? : Compiler.CompilationModel.ParamType �
       some (.newtype name base)
   | .adt name maxFields => some (.adt name maxFields)
 
-unsafe def evalQualifiedFunctionSpec
+private unsafe def evalQualifiedFunctionSpecUnsafe
     (fnName : Name) : CommandElabM Compiler.CompilationModel.FunctionSpec := do
   let modelTerm : Term := ⟨(mkIdent (qualifiedFunctionModelName fnName)).raw⟩
   liftTermElabM do
@@ -145,12 +145,16 @@ unsafe def evalQualifiedFunctionSpec
     let expr ← Lean.Elab.Term.elabTermEnsuringType modelTerm expectedType
     Lean.Meta.evalExpr Compiler.CompilationModel.FunctionSpec expectedType expr .unsafe
 
-unsafe def qualifiedFunctionReturnTypes
+@[implemented_by evalQualifiedFunctionSpecUnsafe]
+private opaque evalQualifiedFunctionSpec
+    (fnName : Name) : CommandElabM Compiler.CompilationModel.FunctionSpec
+
+def qualifiedFunctionReturnTypes
     (stx : Syntax)
     (fnName : Name) : CommandElabM (Array ValueType) := do
   let spec ←
     try
-      unsafe evalQualifiedFunctionSpec fnName
+      evalQualifiedFunctionSpec fnName
     catch _ =>
       throwErrorAt stx
         s!"unable to inspect qualified helper '{qualifiedFunctionDisplayName fnName}'; expected generated model '{qualifiedFunctionModelName fnName}' to be in scope"
@@ -1644,11 +1648,11 @@ def requireSupportedLocalBindingType
     throwErrorAt stx
       s!"{context} currently cannot bind dynamic values ({renderValueType ty}) to local variables on the compilation-model path; use the parameter directly"
 
-unsafe def qualifiedTupleBindTypedLocals
+def qualifiedTupleBindTypedLocals
     (stx : Syntax)
     (fnName : Name)
     (names : Array (Option String)) : CommandElabM (Array TypedLocal) := do
-  let valueTys ← unsafe qualifiedFunctionReturnTypes stx fnName
+  let valueTys ← qualifiedFunctionReturnTypes stx fnName
   if names.size != valueTys.size then
     throwErrorAt stx
       s!"tuple destructuring binds {names.size} names, but qualified helper '{qualifiedFunctionDisplayName fnName}' returns {valueTys.size} values"
@@ -1658,10 +1662,10 @@ unsafe def qualifiedTupleBindTypedLocals
   pure <| (names.zip valueTys).filterMap fun (name?, ty) =>
     name?.map (fun name => mkTypedLocal name ty)
 
-unsafe def qualifiedSingleBindType
+def qualifiedSingleBindType
     (stx : Syntax)
     (fnName : Name) : CommandElabM ValueType := do
-  let valueTys ← unsafe qualifiedFunctionReturnTypes stx fnName
+  let valueTys ← qualifiedFunctionReturnTypes stx fnName
   match valueTys.toList with
   | [] =>
       throwErrorAt stx
@@ -2715,7 +2719,7 @@ partial def inferBindSourceType
       | none =>
           match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
-              unsafe qualifiedSingleBindType rhs.raw qualifiedName
+              qualifiedSingleBindType rhs.raw qualifiedName
           | none =>
               throwErrorAt rhs
                 "unsupported bind source; expected getStorage/getStorageAddr/getStorageArrayLength/getStorageArrayElement/getMapping/getMappingAddr/getMappingUint/getMappingUintAddr/getMappingWord/getMapping2/getMappingN/structMember/structMember2/msgSender/msgValue/selfBalance/tload/ecrecover/ecmCall, a direct internal helper call, or a qualified library helper call"
@@ -4161,16 +4165,20 @@ def validateTryCatchHandlerDoesNotUsePayload
         throwErrorAt handler
           s!"tryCatch catch payload '{payloadName}' is not available on the compilation-model path yet; use `_`/ignore it and read returndata explicitly if needed"
 
-unsafe def evalExternalCallModuleTerm
+private unsafe def evalExternalCallModuleTermUnsafe
     (moduleTerm : Term) : CommandElabM Compiler.ECM.ExternalCallModule := do
   liftTermElabM do
     let expectedType := mkConst ``Compiler.ECM.ExternalCallModule
     let expr ← Lean.Elab.Term.elabTermEnsuringType moduleTerm expectedType
     Lean.Meta.evalExpr Compiler.ECM.ExternalCallModule expectedType expr .unsafe
 
+@[implemented_by evalExternalCallModuleTermUnsafe]
+private opaque evalExternalCallModuleTerm
+    (moduleTerm : Term) : CommandElabM Compiler.ECM.ExternalCallModule
+
 def validateEffectOnlyEcmModuleTerm
     (moduleTerm : Term) : CommandElabM Unit := do
-  let mod ← unsafe evalExternalCallModuleTerm moduleTerm
+  let mod ← evalExternalCallModuleTerm moduleTerm
   if !mod.resultVars.isEmpty then
     throwErrorAt moduleTerm
       s!"ecmDo requires an effect-only ECM module, but '{mod.name}' binds {mod.resultVars.length} result value(s)"
@@ -4178,7 +4186,7 @@ def validateEffectOnlyEcmModuleTerm
 def validateSingleResultEcmModuleTerm
     (moduleTerm : Term)
     (boundVarName : String) : CommandElabM Unit := do
-  let mod ← unsafe evalExternalCallModuleTerm moduleTerm
+  let mod ← evalExternalCallModuleTerm moduleTerm
   if mod.resultVars != [boundVarName] then
     throwErrorAt moduleTerm
       s!"ecmCall must elaborate to an ECM module binding exactly ['{boundVarName}'], but '{mod.name}' binds {repr mod.resultVars}"
@@ -4186,7 +4194,7 @@ def validateSingleResultEcmModuleTerm
 def validateResultEcmModuleTerm
     (moduleTerm : Term)
     (boundVarNames : Array String) : CommandElabM Unit := do
-  let mod ← unsafe evalExternalCallModuleTerm moduleTerm
+  let mod ← evalExternalCallModuleTerm moduleTerm
   if mod.resultVars != boundVarNames.toList then
     throwErrorAt moduleTerm
       s!"ecmBind must elaborate to an ECM module binding exactly {repr boundVarNames.toList}, but '{mod.name}' binds {repr mod.resultVars}"
@@ -4846,7 +4854,7 @@ def tupleInternalCallAssignStmt?
   | none =>
       match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
       | some (qualifiedName, argTerms) =>
-          let _ ← unsafe qualifiedTupleBindTypedLocals rhs.raw qualifiedName names
+          let _ ← qualifiedTupleBindTypedLocals rhs.raw qualifiedName names
           let argExprs ← argTerms.mapM
             (translateDeclaredPureExpr
               fields constDecls immutableDecls externalDecls params locals)

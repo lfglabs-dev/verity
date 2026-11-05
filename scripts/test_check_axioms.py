@@ -540,6 +540,8 @@ class CheckAxiomsReportTests(unittest.TestCase):
                     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalModel",
                     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalProfile",
                     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport",
+                    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalExternalCallModuleTerm",
+                    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalQualifiedFunctionSpec",
                 }
             ),
         )
@@ -560,6 +562,18 @@ class CheckAxiomsReportTests(unittest.TestCase):
             self.assertIn(
                 f"@[implemented_by {unsafe_fn}]\nprivate opaque {opaque_fn}",
                 import_src,
+            )
+        macro_expr_src = (
+            check_axioms.ROOT / "Verity" / "Macro" / "Translate" / "Expr.lean"
+        ).read_text(encoding="utf-8")
+        self.assertIn("namespace Verity.Macro\n", macro_expr_src)
+        for unsafe_fn, opaque_fn in (
+            ("evalQualifiedFunctionSpecUnsafe", "evalQualifiedFunctionSpec"),
+            ("evalExternalCallModuleTermUnsafe", "evalExternalCallModuleTerm"),
+        ):
+            self.assertIn(
+                f"@[implemented_by {unsafe_fn}]\nprivate opaque {opaque_fn}",
+                macro_expr_src,
             )
 
 

@@ -131,7 +131,9 @@ run_cmd do
     "Compiler.Proofs.solidityMappingSlot",
     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalModel",
     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalProfile",
-    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport"
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport",
+    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalExternalCallModuleTerm",
+    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalQualifiedFunctionSpec"
   ]
   match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins allowedImplementedBy) with
   | .error e => throwError "{e}"
@@ -12058,7 +12060,9 @@ run_cmd do
     "Compiler.Proofs.solidityMappingSlot",
     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalModel",
     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalProfile",
-    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport"
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport",
+    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalExternalCallModuleTerm",
+    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalQualifiedFunctionSpec"
   ]
   match (← reportPrintAxiomsForRootsM env roots (some allowed) allowedNativeOrigins allowedBvOrigins allowedImplementedBy) with
   | .error e => throwError "{e}"

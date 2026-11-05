@@ -198,8 +198,15 @@ elaboration:
   lemmas and kernel `decide`; their former Lean 4.24 native-code trust boundary
   has been eliminated.
 - `@[implemented_by ...]` may redirect runtime execution to a faster
-  implementation. The proof term still sees the kernel-computable definition,
-  so this is a runtime/codegen trust boundary rather than a Lean axiom.
+  implementation (or isolate an elaborator-only `Meta.evalExpr` /
+  `evalConstCheck` bridge in `Compiler/SolidityImport/Import.lean` and
+  `Verity/Macro/Translate/Expr.lean` behind a `private opaque` `TermElabM` /
+  `CommandElabM` signature so safe elaborator helpers emit no synthesized
+  `.unsafe_impl_*` overrides). The proof term still sees the kernel-computable
+  definition (and elaborator `opaque` bridges live in `TermElabM`/`CommandElabM`
+  outside proof/specification terms), so this is a runtime/codegen trust
+  boundary rather than a Lean axiom, enforced against the explicit allowlist in
+  `scripts/AxiomAudit.lean` and `scripts/check_axioms.py`.
 - `partial def` marks recursive executable helpers whose termination is not
   kernel-proved. These helpers are allowed in macro, codegen, reporting, and
   native-test infrastructure, and their presence is registry-gated.

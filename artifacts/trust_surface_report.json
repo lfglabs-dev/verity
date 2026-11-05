@@ -172,7 +172,7 @@
     ]
   },
   "mechanisms": {
-    "@[implemented_by": 4,
+    "@[implemented_by": 6,
     "native_decide": 484,
     "partial def": 369
   },

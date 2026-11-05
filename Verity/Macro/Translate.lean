@@ -129,7 +129,7 @@ private partial def validateDoElemExprTypes
               pure (some (locals ++ typedNames))
           | _ => match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
-              let typedNames ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
+              let typedNames ← qualifiedTupleBindTypedLocals patDecl qualifiedName names
               pure (some (locals ++ typedNames))
           | none =>
               match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
@@ -159,7 +159,7 @@ private partial def validateDoElemExprTypes
               pure (some (locals ++ typedNames))
           | _ => match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
-              let typedNames ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
+              let typedNames ← qualifiedTupleBindTypedLocals patDecl qualifiedName names
               pure (some (locals ++ typedNames))
           | none =>
               match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
@@ -1294,7 +1294,7 @@ private partial def translateDoElem
                       | none =>
                           match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
                           | some (qualifiedName, _) =>
-                              let typedPairs ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
+                              let typedPairs ← qualifiedTupleBindTypedLocals patDecl qualifiedName names
                               pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
                           | none => throwErrorAt rhs "unable to infer tuple local types"
                   | none =>
@@ -1339,7 +1339,7 @@ private partial def translateDoElem
                           | none =>
                               match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
                               | some (qualifiedName, _) =>
-                                  let typedPairs ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
+                                  let typedPairs ← qualifiedTupleBindTypedLocals patDecl qualifiedName names
                                   pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
                               | none => throwErrorAt rhs "unable to infer tuple local types"
                       | none =>
@@ -1384,7 +1384,7 @@ private partial def translateDoElem
                   | none =>
                       match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
                       | some (qualifiedName, _) =>
-                          let typedPairs ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
+                          let typedPairs ← qualifiedTupleBindTypedLocals patDecl qualifiedName names
                           pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
                       | none => throwErrorAt rhs "unable to infer tuple local types"
               | none =>
@@ -3718,7 +3718,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls
             params scope rhs with
         | some (qualifiedName, _) =>
-            let typedNames ← unsafe qualifiedTupleBindTypedLocals origin qualifiedName names
+            let typedNames ← qualifiedTupleBindTypedLocals origin qualifiedName names
             pure (scope ++ typedNames)
         | none =>
             match ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls

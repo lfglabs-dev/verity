@@ -94,15 +94,19 @@ BV_DECIDE_AXIOM_ORIGINS: frozenset[str] = frozenset()
 #   redirects runtime execution to `solidityMappingSlot_ffi` while keeping
 #   kernel-computable Keccak for proofs.
 # - `_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.{evalProfile,evalModel,evalReport}`
-#   (`Compiler/SolidityImport/Import.lean`) are `Meta.evalExpr` / `evalConstCheck`
-#   `TermElabM` bridges used only inside the `elabSolidityImport` command
-#   elaborator (never inside proof/specification terms).
+#   (`Compiler/SolidityImport/Import.lean`) and
+#   `_private.Verity.Macro.Translate.Expr.0.Verity.Macro.{evalExternalCallModuleTerm,evalQualifiedFunctionSpec}`
+#   (`Verity/Macro/Translate/Expr.lean`) are `Meta.evalExpr` / `evalConstCheck`
+#   elaborator bridges (`TermElabM` / `CommandElabM`) used only during command
+#   macro elaboration (never inside proof/specification terms).
 # Tracked in `docs/AXIOMS.md` and `scripts/check_trust_surface_registry.py`.
 ALLOWED_PROJECT_COMPILER_OVERRIDES: frozenset[str] = frozenset([
     "Compiler.Proofs.solidityMappingSlot",
     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalModel",
     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalProfile",
     "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport",
+    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalExternalCallModuleTerm",
+    "_private.Verity.Macro.Translate.Expr.0.Verity.Macro.evalQualifiedFunctionSpec",
 ])
 
 _DECL_SCOPE_KEYWORDS: frozenset[str] = frozenset(
