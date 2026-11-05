@@ -442,6 +442,10 @@ class CheckAxiomsReportTests(unittest.TestCase):
             ("def symPos := Lean.Parser.symbol (String.singleton 'a')\n", "Non-literal parser symbol"),
             ('@[term_parser] def myP := leading_parser "x"\n', "leading_parser"),
             ("def myCoe : Lean.Parser.Parser := nodeWithAntiquot \"n\" `k p\n@[term_parser] def regP := myCoe\n", "Forbidden parser attribute"),
+            ("def regP2 : Lean.Parser.Parser := nodeWithAntiquot \"n\" `k p\nattribute [term_parser] regP2\n", "Forbidden parser attribute"),
+            ("def regP3 : Lean.Parser.Parser := nodeWithAntiquot \"n\" `k p\nscoped attribute [scoped command_parser] regP3\n", "Forbidden parser attribute"),
+            ("def regP4 : Lean.Parser.Parser := nodeWithAntiquot \"n\" `k p\nlocal «attribute» [local «term_parser»] regP4\n", "Forbidden parser attribute"),
+            ('macro "sneakAttr" : command => `(command| attribute [term_parser] regP)\n', "Forbidden parser attribute"),
             ('notation3 "myN3" => True\n', "notation3"),
             ('macro "sneakBp" : command => `(command| binder_predicate x "≺" y:term => `(True))\n', "Forbidden quoted syntax"),
             ('def g := Lean. «addDecl»\n', "addDecl"),
@@ -452,6 +456,12 @@ class CheckAxiomsReportTests(unittest.TestCase):
                 with self.assertRaises(SystemExit, msg=f"Sample did not fail closed: {sample!r}"):
                     check_axioms.scan_lean_file_axioms(sample, "Compiler/Bypass.lean")
             self.assertIn(needle, stderr.getvalue())
+        benign_attr_samples = [
+            "def f (x : Nat) : Nat := x\nattribute [simp] f\n",
+            "def term_parser_val : Nat := 0\ndef xs (s : S) := s.attribute [term_parser_val]\n",
+        ]
+        for benign in benign_attr_samples:
+            self.assertEqual(check_axioms.scan_lean_file_axioms(benign, "Compiler/Benign.lean"), [])
 
     def test_scan_lean_file_axioms_detects_axioms_across_scoped_and_lexer_edge_tokens(self) -> None:
         src = "\n".join(

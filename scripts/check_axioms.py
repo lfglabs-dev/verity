@@ -415,10 +415,20 @@ def _reject_parser_attributes_and_nonliteral_symbols(scrubbed: str, rel_path: st
     n = len(scrubbed)
     i = 0
     attr_depth = 0
+    pending_attr_cmd = False
     while i < n:
+        if _is_lean_whitespace(scrubbed[i]):
+            i += 1
+            continue
         if scrubbed.startswith("@[", i):
+            pending_attr_cmd = False
             attr_depth += 1
             i += 2
+            continue
+        if pending_attr_cmd and scrubbed[i] == "[":
+            pending_attr_cmd = False
+            attr_depth += 1
+            i += 1
             continue
         if attr_depth > 0 and scrubbed[i] == "[":
             attr_depth += 1
@@ -430,13 +440,19 @@ def _reject_parser_attributes_and_nonliteral_symbols(scrubbed: str, rel_path: st
             continue
         ident_end = _consume_lean_ident_or_name_lit(scrubbed, i)
         if ident_end is None or ident_end <= i:
+            pending_attr_cmd = False
             i += 1
             continue
         if scrubbed[i] == "`":
+            pending_attr_cmd = False
             i = ident_end
             continue
         bare = scrubbed[i:ident_end].replace("«", "").replace("»", "")
         short = bare.rsplit(".", 1)[-1]
+        if attr_depth == 0:
+            pending_attr_cmd = (
+                bare == "attribute" and _ident_segment_boundary_before(scrubbed, i)
+            )
         if attr_depth > 0 and short.endswith(_PARSER_ATTRIBUTE_SUFFIX):
             line, _ = _line_col_of(scrubbed, i)
             die(
