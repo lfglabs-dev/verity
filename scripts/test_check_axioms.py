@@ -531,6 +531,37 @@ class CheckAxiomsReportTests(unittest.TestCase):
         ) + "\n"
         self.assertEqual(check_axioms.scan_lean_file_axioms(src, "Compiler/Benign.lean"), [])
 
+    def test_allowed_project_compiler_overrides_resolve_to_declared_names(self) -> None:
+        self.assertEqual(
+            check_axioms.ALLOWED_PROJECT_COMPILER_OVERRIDES,
+            frozenset(
+                {
+                    "Compiler.Proofs.solidityMappingSlot",
+                    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalModel",
+                    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalProfile",
+                    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport",
+                }
+            ),
+        )
+        mapping_slot_src = (
+            check_axioms.ROOT / "Compiler" / "Proofs" / "MappingSlot.lean"
+        ).read_text(encoding="utf-8")
+        self.assertIn("namespace Compiler.Proofs\n", mapping_slot_src)
+        self.assertIn("@[implemented_by solidityMappingSlot_ffi]\ndef solidityMappingSlot", mapping_slot_src)
+        import_src = (
+            check_axioms.ROOT / "Compiler" / "SolidityImport" / "Import.lean"
+        ).read_text(encoding="utf-8")
+        self.assertIn("namespace Compiler.CompilationModel.SolidityImport\n", import_src)
+        for unsafe_fn, opaque_fn in (
+            ("evalProfileUnsafe", "evalProfile"),
+            ("evalModelUnsafe", "evalModel"),
+            ("evalReportUnsafe", "evalReport"),
+        ):
+            self.assertIn(
+                f"@[implemented_by {unsafe_fn}]\nprivate opaque {opaque_fn}",
+                import_src,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

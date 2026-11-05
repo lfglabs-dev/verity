@@ -127,7 +127,10 @@ run_cmd do
   ]
   let allowedBvOrigins := #[]
   let allowedImplementedBy := #[
-    "Compiler.Proofs.MappingSlot.solidityMappingSlot"
+    "Compiler.Proofs.solidityMappingSlot",
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalModel",
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalProfile",
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport"
   ]
   match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins allowedImplementedBy) with
   | .error e => throwError "{e}"

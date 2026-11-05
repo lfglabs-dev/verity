@@ -89,11 +89,20 @@ NATIVE_DECIDE_AXIOM_ORIGINS = frozenset([
 BV_DECIDE_AXIOM_ORIGINS: frozenset[str] = frozenset()
 
 # Audited project declarations permitted to carry `@[implemented_by]` in the
-# verified population (`Compiler.Proofs.MappingSlot.solidityMappingSlot` redirects
-# runtime execution to `solidityMappingSlot_ffi` while keeping kernel-computable
-# Keccak for proofs; see `docs/AXIOMS.md` and `scripts/check_trust_surface_registry.py`).
+# verified population:
+# - `Compiler.Proofs.solidityMappingSlot` (`Compiler/Proofs/MappingSlot.lean`)
+#   redirects runtime execution to `solidityMappingSlot_ffi` while keeping
+#   kernel-computable Keccak for proofs.
+# - `_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.{evalProfile,evalModel,evalReport}`
+#   (`Compiler/SolidityImport/Import.lean`) are `Meta.evalExpr` / `evalConstCheck`
+#   `TermElabM` bridges used only inside the `elabSolidityImport` command
+#   elaborator (never inside proof/specification terms).
+# Tracked in `docs/AXIOMS.md` and `scripts/check_trust_surface_registry.py`.
 ALLOWED_PROJECT_COMPILER_OVERRIDES: frozenset[str] = frozenset([
-    "Compiler.Proofs.MappingSlot.solidityMappingSlot",
+    "Compiler.Proofs.solidityMappingSlot",
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalModel",
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalProfile",
+    "_private.Compiler.SolidityImport.Import.0.Compiler.CompilationModel.SolidityImport.evalReport",
 ])
 
 _DECL_SCOPE_KEYWORDS: frozenset[str] = frozenset(
