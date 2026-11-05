@@ -18,10 +18,89 @@ from pathlib import Path
 from property_utils import ROOT
 
 WARNING_RE = re.compile(r"^warning:\s+(.+?\.lean):\d+:\d+:\s+(.*)$")
+TRACE_WARNING_RE = re.compile(r"^(.+?\.lean):\d+:\d+:\s+(.*)$")
 DEPENDENCY_SOURCE_PREFIXES = ("Conform/", "EvmYul/")
 
 
-def parse_warnings(log_path: Path) -> tuple[Counter[str], Counter[str]]:
+def normalize_warning_file_path(file_path: str, root: Path = ROOT) -> str:
+    candidate = file_path.strip()
+    if candidate.startswith("./"):
+        candidate = candidate[2:]
+    root_prefixes = {root.as_posix().rstrip("/") + "/"}
+    try:
+        root_prefixes.add(root.resolve().as_posix().rstrip("/") + "/")
+    except OSError:
+        pass
+    for prefix in sorted(root_prefixes, key=len, reverse=True):
+        if candidate.startswith(prefix):
+            candidate = candidate[len(prefix) :]
+            break
+    if candidate.startswith("./"):
+        candidate = candidate[2:]
+    return candidate
+
+
+def is_dependency_warning_path(file_path: str) -> bool:
+    return (
+        "/lake-packages/" in file_path
+        or "/.lake/packages/" in file_path
+        or file_path.startswith("lake-packages/")
+        or file_path.startswith(".lake/packages/")
+        or file_path.startswith("./lake-packages/")
+        or file_path.startswith("./.lake/packages/")
+        or file_path.startswith(DEPENDENCY_SOURCE_PREFIXES)
+    )
+
+
+def parse_trace_warnings(
+    trace_root: Path,
+    exclude_files: set[str],
+    root: Path = ROOT,
+) -> tuple[Counter[str], Counter[str]]:
+    by_file: Counter[str] = Counter()
+    by_message: Counter[str] = Counter()
+    if not trace_root.is_dir():
+        return by_file, by_message
+
+    for trace_path in sorted(trace_root.rglob("*.trace")):
+        try:
+            payload = json.loads(trace_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        entries = payload.get("log")
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("level") != "warning":
+                continue
+            raw_msg = entry.get("message")
+            if not isinstance(raw_msg, str):
+                continue
+            first_line = raw_msg.splitlines()[0].strip() if raw_msg.splitlines() else ""
+            if first_line.startswith("warning:"):
+                first_line = first_line[len("warning:") :].strip()
+            match = TRACE_WARNING_RE.match(first_line)
+            if not match:
+                continue
+            raw_file, message = match.groups()
+            if is_dependency_warning_path(raw_file):
+                continue
+            file_path = normalize_warning_file_path(raw_file, root=root)
+            if is_dependency_warning_path(file_path) or file_path in exclude_files:
+                continue
+            by_file[file_path] += 1
+            by_message[message.strip()] += 1
+    return by_file, by_message
+
+
+def parse_warnings(
+    log_path: Path,
+    *,
+    root: Path = ROOT,
+    trace_root: Path | None = None,
+) -> tuple[Counter[str], Counter[str]]:
     by_file: Counter[str] = Counter()
     by_message: Counter[str] = Counter()
 
@@ -34,22 +113,26 @@ def parse_warnings(log_path: Path) -> tuple[Counter[str], Counter[str]]:
         match = WARNING_RE.match(raw_line.strip())
         if not match:
             continue
-        file_path, message = match.groups()
+        raw_file, message = match.groups()
         # Skip warnings from dependency packages — we only track our own code.
         # Match both package-directory paths and the source-root-relative paths
         # emitted by the legacy remote runner for the pinned EVMYulLean package.
-        if (
-            "/lake-packages/" in file_path
-            or "/.lake/packages/" in file_path
-            or file_path.startswith("lake-packages/")
-            or file_path.startswith(".lake/packages/")
-            or file_path.startswith("./lake-packages/")
-            or file_path.startswith("./.lake/packages/")
-            or file_path.startswith(DEPENDENCY_SOURCE_PREFIXES)
-        ):
+        if is_dependency_warning_path(raw_file):
+            continue
+        file_path = normalize_warning_file_path(raw_file, root=root)
+        if is_dependency_warning_path(file_path):
             continue
         by_file[file_path] += 1
         by_message[message.strip()] += 1
+
+    if trace_root is not None:
+        trace_by_file, trace_by_message = parse_trace_warnings(
+            trace_root,
+            exclude_files=set(by_file),
+            root=root,
+        )
+        by_file.update(trace_by_file)
+        by_message.update(trace_by_message)
 
     return by_file, by_message
 
@@ -201,13 +284,18 @@ def main(argv: list[str] | None = None) -> None:
         help="Baseline warning artifact to compare against",
     )
     parser.add_argument(
+        "--trace-root",
+        type=Path,
+        help="Optional .lake/build/lib/lean directory to read cached .trace warnings for unlogged modules",
+    )
+    parser.add_argument(
         "--write-baseline",
         type=Path,
         help="Write baseline artifact from current log and exit",
     )
     args = parser.parse_args(argv)
 
-    by_file, by_message = parse_warnings(args.log)
+    by_file, by_message = parse_warnings(args.log, trace_root=args.trace_root)
 
     if args.write_baseline is not None:
         write_baseline(args.write_baseline, by_file, by_message)

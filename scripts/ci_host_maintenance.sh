@@ -11,6 +11,8 @@ MIN_FREE_GB="${MIN_FREE_GB:-100}"
 MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-12}"
 COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-7}"
 ELAN_MAX_AGE_DAYS="${ELAN_MAX_AGE_DAYS:-7}"
+TURBO_LEAN_CAS_MAX_AGE_DAYS="${TURBO_LEAN_CAS_MAX_AGE_DAYS:-14}"
+TURBO_LEAN_BIN_MAX_AGE_DAYS="${TURBO_LEAN_BIN_MAX_AGE_DAYS:-30}"
 ARTIFACT_MAX_AGE_HOURS="${ARTIFACT_MAX_AGE_HOURS:-24}"
 JOURNAL_VACUUM_TIME="${JOURNAL_VACUUM_TIME:-14d}"
 JOURNAL_VACUUM_SIZE="${JOURNAL_VACUUM_SIZE:-1G}"
@@ -227,9 +229,12 @@ prune_caches() {
   cap_tree_entries "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_ENTRIES" "lake-packages cache"
   prune_tree "$CACHE_ROOT/compiler-ccache" "$COMPILER_CCACHE_MAX_AGE_DAYS" "compiler ccache"
   prune_tree "$CACHE_ROOT/elan" "$ELAN_MAX_AGE_DAYS" "elan toolchains"
+  prune_tree "$CACHE_ROOT/turbo-lean-cas" "$TURBO_LEAN_CAS_MAX_AGE_DAYS" "turbo-lean CAS cache"
+  prune_tree "$CACHE_ROOT/turbo-lean" "$TURBO_LEAN_BIN_MAX_AGE_DAYS" "turbo-lean CLI binaries"
   # Only after every age-based pass: build trees are the largest and cheapest
   # to recreate (seeded from main), so evict them before package trees.
   evict_until_free "$CACHE_ROOT/lake-build" "$MIN_FREE_GB" "lake-build cache"
+  evict_until_free "$CACHE_ROOT/turbo-lean-cas" "$MIN_FREE_GB" "turbo-lean CAS cache"
   evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
 }
 

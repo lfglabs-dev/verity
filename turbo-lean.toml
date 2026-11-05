@@ -1,0 +1,35 @@
+[build]
+module_timeout_secs = 900
+
+[axioms]
+allow = [
+  "Lean.ofReduceBool",
+  "*._native.bv_decide.ax_*",
+  "*._native.native_decide.ax_*",
+  "Compiler.Proofs.solidityMappingSlot_injective",
+]
+
+[implemented_by]
+allow = [
+  "Compiler.Proofs.solidityMappingSlot",
+  "Compiler.CompilationModel.SolidityImport.evalProfile",
+  "Compiler.CompilationModel.SolidityImport.evalModel",
+  "Compiler.CompilationModel.SolidityImport.evalReport",
+]
+
+[unsafe]
+allow = [
+  "Verity.Macro.*",
+  "Compiler.compileModulesWithOptions",
+  "Compiler.CompileDriverCommon.compileModulesWithOptions",
+  "Compiler.CompileDriverTest.runTests",
+  "Compiler.Main.run",
+  "Compiler.MainTest.*",
+  "Compiler.ModuleInput.*",
+  "Compiler.ModuleInputTest.runTests",
+  "Compiler.Gas.main",
+  "Compiler.Modules.CallsTest.runTests",
+  "Compiler.SolidityImport.elabEmitVerityContractCmd",
+  "Compiler.CompilationModel.SolidityImport.*",
+  "main",
+]

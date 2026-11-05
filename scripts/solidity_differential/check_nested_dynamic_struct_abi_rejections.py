@@ -36,35 +36,39 @@ results=[]
 project_parent=repo/'.lake/imported-nested-struct-rejections'
 project_parent.mkdir(parents=True,exist_ok=True)
 project_root=Path(tempfile.mkdtemp(prefix=out.name+'-',dir=project_parent))
-for name,interface_text,source,signature,message in variants:
-    project=project_root/name
-    project.mkdir(parents=True,exist_ok=False)
-    dest=project/interface_path
-    dest.parent.mkdir(parents=True)
-    dest.write_text(interface_text)
-    (project/'Case.sol').write_text(source)
-    artifact=project/'Check.olean'
-    driver=project/'Check.lean'
-    driver.write_text('import Compiler.SolidityImport.Import\nimport Compiler.SolidityImport.Coverage\n'
-      'open Compiler.CompilationModel Compiler.CompilationModel.SolidityImport\n'
-      f'solidity_import tested from {json.dumps(str(project))} entry "Case.sol"\n'
-      '  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }\n'
-      f'  contract C\n  function {signature}\n')
-    if message is None:
-        with driver.open('a') as out_driver:
-            out_driver.write('example : (tested.model.functions.map (fun fn => fn.abiDecoding)) = [.explicitPrelude] := by decide\n')
-            out_driver.write('example : tested.report.projections.isEmpty = true := by decide\n')
-    proc=subprocess.run(['lake','env','lean','-j1',str(driver),'-o',str(artifact)],text=True,capture_output=True,timeout=180)
-    log=proc.stdout+proc.stderr
-    (out/(name+'.log')).write_text(log)
-    if message is None:
-        assert proc.returncode==0 and artifact.exists(),log
-        # Complete ABI metadata is checked by the permanent A/B/C driver.
-    else:
-        assert proc.returncode!=0 and not artifact.exists(),log
-        assert message in log,log
-        assert re.search(r'(?:Case\.sol|imported-types/interfaces/INestedRecord\.sol):\d+:\d+:',log),log
-    results.append({'name':name,'accepted':proc.returncode==0,'expected':message or 'accepted'})
-    write_json(out/'results.json',results)
-    print('PASS',name,flush=True)
+try:
+    for name,interface_text,source,signature,message in variants:
+        project=project_root/name
+        project.mkdir(parents=True,exist_ok=False)
+        dest=project/interface_path
+        dest.parent.mkdir(parents=True)
+        dest.write_text(interface_text)
+        (project/'Case.sol').write_text(source)
+        artifact=project/'Check.olean'
+        driver=project/'Check.lean'
+        driver.write_text('import Compiler.SolidityImport.Import\nimport Compiler.SolidityImport.Coverage\n'
+          'open Compiler.CompilationModel Compiler.CompilationModel.SolidityImport\n'
+          f'solidity_import tested from {json.dumps(str(project))} entry "Case.sol"\n'
+          '  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }\n'
+          f'  contract C\n  function {signature}\n')
+        if message is None:
+            with driver.open('a') as out_driver:
+                out_driver.write('example : (tested.model.functions.map (fun fn => fn.abiDecoding)) = [.explicitPrelude] := by decide\n')
+                out_driver.write('example : tested.report.projections.isEmpty = true := by decide\n')
+        proc=subprocess.run(['lake','env','lean','-j1',str(driver),'-o',str(artifact)],text=True,capture_output=True,timeout=180)
+        log=proc.stdout+proc.stderr
+        (out/(name+'.log')).write_text(log)
+        if message is None:
+            assert proc.returncode==0 and artifact.exists(),log
+            # Complete ABI metadata is checked by the permanent A/B/C driver.
+        else:
+            assert proc.returncode!=0 and not artifact.exists(),log
+            assert message in log,log
+            assert re.search(r'(?:Case\.sol|imported-types/interfaces/INestedRecord\.sol):\d+:\d+:',log),log
+        results.append({'name':name,'accepted':proc.returncode==0,'expected':message or 'accepted'})
+        write_json(out/'results.json',results)
+        print('PASS',name,flush=True)
+finally:
+    import shutil
+    shutil.rmtree(project_root,ignore_errors=True)
 write_json(out/'complete.json',{'exit':0,'cases':len(results)})

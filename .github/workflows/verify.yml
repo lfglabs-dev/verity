@@ -205,6 +205,7 @@ jobs:
               - 'packages/**'
               - 'lakefile.lean'
               - 'lake-manifest.json'
+              - 'scripts/setup_turbo_lean.sh'
               - 'scripts/solidity_differential/**'
               - 'scripts/solidity_import_differential.py'
               - 'scripts/check_solidity_differential.sh'
@@ -238,6 +239,7 @@ jobs:
               - 'scripts/property_utils.py'
               - 'lakefile.lean'
               - 'lake-manifest.json'
+              - 'scripts/setup_turbo_lean.sh'
               - 'scripts/solidity_differential/**'
               - 'scripts/solidity_import_differential.py'
               - 'scripts/check_solidity_differential.sh'
@@ -391,10 +393,10 @@ jobs:
       - name: Build and verify all proofs
         run: |
           set -o pipefail
-          lake build Verity Contracts 2>&1 | tee lake-build.log
+          turbo-lean build Verity Contracts 2>&1 | tee lake-build.log
 
       - name: Check Lean warning non-regression
-        run: python3 scripts/check_lean_warning_regression.py --log lake-build.log
+        run: python3 scripts/check_lean_warning_regression.py --log lake-build.log --trace-root .lake/build/lib/lean
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
@@ -402,7 +404,7 @@ jobs:
       - name: Prebuild shared audit Lean targets
         run: |
           set +e
-          lake build PrintAxioms 2>&1 | tee -a lake-build.log
+          turbo-lean build PrintAxioms 2>&1 | tee -a lake-build.log
           build_status=${PIPESTATUS[0]}
           if [ "${build_status}" -ne 0 ]; then
             diagnostics="$(grep -E 'error:|unsolved goals|declaration uses|failed to synthesize|maximum recursion depth' lake-build.log | tail -80)"
@@ -416,7 +418,7 @@ jobs:
       # The isolated importer/Denote mutation campaigns run in the sharded
       # `import-mutations` job from this job's prepared workspace build.
       - name: Build Solidity slice import smoke models
-        run: lake build SolidityImportSmoke Compiler.SolidityImport.Differential
+        run: turbo-lean build SolidityImportSmoke Compiler.SolidityImport.Differential Compiler.SolidityImport.StaticOracleMocks Compiler.SolidityImport.CallResponderMocks Compiler.SolidityImport.SequenceRunner
 
       - name: Check storage layout audit artifacts (#1897)
         run: make verify-storage-layout
@@ -496,7 +498,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-build.tar.zst && rm -f lean-workspace-build.tar.zst
 
       - name: Build split Lake packages independently
         run: python3 scripts/check_split_package_builds.py
@@ -505,7 +507,7 @@ jobs:
         run: python3 scripts/check_axioms.py
 
       - name: Build proof modules for axiom audit
-        run: lake build PrintAxioms
+        run: turbo-lean build PrintAxioms
 
       - name: Generate axiom dependency report
         run: |
@@ -588,7 +590,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-build.tar.zst && rm -f lean-workspace-build.tar.zst
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
@@ -734,7 +736,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-build.tar.zst && rm -f lean-workspace-build.tar.zst
 
       - name: Reset ccache statistics
         run: ccache -z
@@ -791,7 +793,7 @@ jobs:
             exit 1
           fi
 
-          stdbuf -oL -eL lake build "${manifest_targets[@]}"
+          stdbuf -oL -eL turbo-lean build "${manifest_targets[@]}"
           touch "${marker}"
 
       - name: Show compiler ccache statistics
@@ -827,7 +829,7 @@ jobs:
           if [ -f "${artifact}" ]; then
             exit 0
           fi
-          lake build Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke >/dev/null
+          turbo-lean build Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke >/dev/null
           ./compiler/bin/verity-compiler \
             --module Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke \
             --output compiler/yul >/dev/null
@@ -849,7 +851,7 @@ jobs:
             Contracts.StringEventSmoke
             Contracts.StringSmoke
           )
-          lake build "${smoke_modules[@]}" >/dev/null
+          turbo-lean build "${smoke_modules[@]}" >/dev/null
           mkdir -p compiler/yul-smoke
           for module in "${smoke_modules[@]}"; do
             ./compiler/bin/verity-compiler \
@@ -1098,7 +1100,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-build.tar.zst && rm -f lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1117,7 +1119,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst && rm -f lean-workspace-compiler-build.tar.zst
 
       - name: Restore generated Yul (local)
         id: local-restore-yul
@@ -1308,7 +1310,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-build.tar.zst && rm -f lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1327,7 +1329,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst && rm -f lean-workspace-compiler-build.tar.zst
 
       - name: Check preinstalled Foundry for Solidity slice comparisons
         id: preinstalled-foundry-slices
@@ -1410,7 +1412,7 @@ jobs:
           retention-days: 14
 
       - name: Build compiler CLI regression executable
-        run: stdbuf -oL -eL lake build compiler-main-test
+        run: stdbuf -oL -eL turbo-lean build compiler-main-test
 
       - name: Run compiler CLI regression module
         # #2214: one phase per process. The whole suite in a single process
@@ -1425,13 +1427,13 @@ jobs:
           done
 
       - name: Build CompilationModel feature regression module
-        run: stdbuf -oL -eL lake build Compiler.CompilationModelFeatureTest
+        run: stdbuf -oL -eL turbo-lean build Compiler.CompilationModelFeatureTest
 
       - name: Build four-features regression module
-        run: stdbuf -oL -eL lake build Compiler.FourFeaturesTest
+        run: stdbuf -oL -eL turbo-lean build Compiler.FourFeaturesTest
 
       - name: Build panic-code regression module
-        run: stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest
+        run: stdbuf -oL -eL turbo-lean build Compiler.PanicCodeRegressionTest
 
   lean-profile:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
@@ -1663,7 +1665,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-build.tar.zst && rm -f lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1682,7 +1684,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
+        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst && rm -f lean-workspace-compiler-build.tar.zst
 
       - name: Restore patched smoke Yul (local)
         id: local-restore-yul-patched-smoke

@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/actions/setup-lean/**'
+      - 'scripts/setup_turbo_lean.sh'
       - 'Verity/**'
       - 'Verity.lean'
       - 'Compiler/**'
@@ -18,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/actions/setup-lean/**'
+      - 'scripts/setup_turbo_lean.sh'
       - 'Verity/**'
       - 'Verity.lean'
       - 'Compiler/**'
@@ -51,7 +53,7 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
-  TURBO_LEAN_COMMIT: 1949eaac9d790d1dd13e357d45aad010fa0be644 # v0.1.0 (Season 14 / audit-spec v2.1)
+  TURBO_LEAN_COMMIT: 1277fc690394a77e489da6b34323a37e665b3ad0 # PR #317 (Lake input_dir/input_file/needs + #301/#318 kernel gates)
 
 jobs:
   turbo-lean-verify:
@@ -89,7 +91,7 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@1949eaac9d790d1dd13e357d45aad010fa0be644 # v0.1.0 (Season 14 / audit-spec v2.1)
+        uses: Th0rgal/turbo-lean@1277fc690394a77e489da6b34323a37e665b3ad0 # PR #317 (Lake input_dir/input_file/needs + #301/#318 kernel gates)
         with:
           project-dir: "."
           command: "check"

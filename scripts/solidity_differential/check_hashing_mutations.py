@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
-from .mutations import snapshot
+from .mutations import release, snapshot
 
 IMPORT = 'Compiler/SolidityImport/Import.lean'
 ENCODING = 'Compiler/SolidityImport/AbiEncoding.lean'
@@ -52,56 +52,59 @@ def main():
     output = args.output.resolve()
     directory = output / 'snapshot'
     snapshot(directory)
-    env = dict(os.environ, PYTHONPATH=str(directory / 'scripts'))
-    results = []
-    selected = args.mutant or list(MUTANTS)
-    for position, name in enumerate(selected):
-        filename, anchor, replacement, indices = MUTANTS[name]
-        source = directory / filename
-        original = source.read_text()
-        if original.count(anchor) != 1:
-            raise HarnessError(f'{name}: mutation anchor must be unique, found {original.count(anchor)}')
-        record = output / name
-        record.mkdir()
+    try:
+        env = dict(os.environ, PYTHONPATH=str(directory / 'scripts'))
+        results = []
+        selected = args.mutant or list(MUTANTS)
+        for position, name in enumerate(selected):
+            filename, anchor, replacement, indices = MUTANTS[name]
+            source = directory / filename
+            original = source.read_text()
+            if original.count(anchor) != 1:
+                raise HarnessError(f'{name}: mutation anchor must be unique, found {original.count(anchor)}')
+            record = output / name
+            record.mkdir()
 
-        def run(label):
-            target = record / label
-            argv = [sys.executable, '-m', 'solidity_differential.check_abi_hashing',
-                    '--repo', str(directory), '--output', str(target)]
-            for index in indices:
-                argv += ['--case-index', str(index)]
-            result = subprocess.run(argv, cwd=directory, env=env, capture_output=True,
-                                    text=True, timeout=1200)
-            (record / (label + '.log')).write_text(result.stdout + result.stderr)
-            return result.returncode, target
+            def run(label):
+                target = record / label
+                argv = [sys.executable, '-m', 'solidity_differential.check_abi_hashing',
+                        '--repo', str(directory), '--output', str(target)]
+                for index in indices:
+                    argv += ['--case-index', str(index)]
+                result = subprocess.run(argv, cwd=directory, env=env, capture_output=True,
+                                        text=True, timeout=1200)
+                (record / (label + '.log')).write_text(result.stdout + result.stderr)
+                return result.returncode, target
 
-        code, baseline = run('baseline')
-        if code or not (baseline / 'complete.json').is_file():
-            raise HarnessError(f'{name}: positive control failed')
-        source.write_text(original.replace(anchor, replacement))
-        command(['lake', 'build', 'Compiler.SolidityImport.Import',
-                 'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.Differential'],
-                cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'build.log')
-        code, campaign = run('mutated')
-        if not (campaign / 'campaign.json').is_file():
-            raise HarnessError(f'{name}: tool failure is not detection')
-        report = json.loads((campaign / 'campaign.json').read_text())
-        if code == 0 or not report['divergences']:
-            raise HarnessError(f'{name}: mutation survived')
-        witness = json.loads((campaign / 'reduced.json').read_text())
-        if not witness['deletion_minimal'] or not witness['transactions']:
-            raise HarnessError(f'{name}: missing minimal reproduced runtime witness')
-        results.append({'mutant': name, 'detected': True, 'baselinePassed': True,
-                        'indices': indices, 'witness': witness})
-        write_json(record / 'complete.json', results[-1])
-        write_json(output / 'results.json', results)
-        source.write_text(original)
-        # Only a later mutant in this snapshot needs the unmutated build back.
-        if position + 1 < len(selected):
+            code, baseline = run('baseline')
+            if code or not (baseline / 'complete.json').is_file():
+                raise HarnessError(f'{name}: positive control failed')
+            source.write_text(original.replace(anchor, replacement))
             command(['lake', 'build', 'Compiler.SolidityImport.Import',
                      'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.Differential'],
-                    cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'restore.log')
-        print(f'{name}: detected with positive control and reproduced minimal witness', flush=True)
+                    cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'build.log')
+            code, campaign = run('mutated')
+            if not (campaign / 'campaign.json').is_file():
+                raise HarnessError(f'{name}: tool failure is not detection')
+            report = json.loads((campaign / 'campaign.json').read_text())
+            if code == 0 or not report['divergences']:
+                raise HarnessError(f'{name}: mutation survived')
+            witness = json.loads((campaign / 'reduced.json').read_text())
+            if not witness['deletion_minimal'] or not witness['transactions']:
+                raise HarnessError(f'{name}: missing minimal reproduced runtime witness')
+            results.append({'mutant': name, 'detected': True, 'baselinePassed': True,
+                            'indices': indices, 'witness': witness})
+            write_json(record / 'complete.json', results[-1])
+            write_json(output / 'results.json', results)
+            source.write_text(original)
+            # Only a later mutant in this snapshot needs the unmutated build back.
+            if position + 1 < len(selected):
+                command(['lake', 'build', 'Compiler.SolidityImport.Import',
+                         'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.Differential'],
+                        cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'restore.log')
+            print(f'{name}: detected with positive control and reproduced minimal witness', flush=True)
+    finally:
+        release(directory)
     write_json(output / 'complete.json', {'exit': 0, 'results': results})
 
 

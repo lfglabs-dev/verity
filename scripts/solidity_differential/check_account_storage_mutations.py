@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 
 from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
@@ -91,6 +92,7 @@ def main():
             source.write_text(original)
     finally:
         source.write_text(original)
+        shutil.rmtree(work, ignore_errors=True)
     if command(['git', 'rev-parse', 'HEAD']).strip() != head or command(['git', 'status', '--porcelain']).strip():
         raise HarnessError('source checkout changed during storage conformance mutations')
     write_json(out / 'complete.json', {'head': head, 'exit': 0, 'mutants': len(rows),
