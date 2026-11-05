@@ -5,6 +5,8 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import AxiomAudit
+import UnionAxiomsControls
+import VerityUnionAxioms
 import Compiler.ABI
 import Compiler.Identifier
 import Compiler.Linker

@@ -165,8 +165,9 @@ lean_lib «AssuranceFixtures» where
     `UnionAxiomsFixture.NativeAndAttrs
   ]
 
--- From-scratch axiom walker (`scripts/AxiomAudit.lean`) and its negative/positive
--- controls (`scripts/UnionAxiomsControls.lean`).
+-- From-scratch axiom walker (`scripts/AxiomAudit.lean`), its negative/positive
+-- controls (`scripts/UnionAxiomsControls.lean`), and the whole-library union
+-- check (`scripts/VerityUnionAxioms.lean`).
 @[default_target]
 lean_lib «Assurance» where
   srcDir := "scripts"
@@ -174,21 +175,19 @@ lean_lib «Assurance» where
     `AxiomAudit,
     `UnionAxiomsControls
   ]
-  needs := #[AssuranceFixtures]
 
 lean_lib «VerityUnionAxioms» where
   srcDir := "scripts"
   roots := #[`VerityUnionAxioms]
-  needs := #[Assurance]
 
--- Axiom dependency audit: imports `AxiomAudit` plus the minimal verified-module
--- roots covering all verified modules, so `lake build PrintAxioms` builds
--- the walker, controls, whole-population `VerityUnionAxioms`, and verified closure,
--- and `lake env lean PrintAxioms.lean` checks the whole-library union and emits
+-- Axiom dependency audit: imports `AxiomAudit`, `UnionAxiomsControls`,
+-- `VerityUnionAxioms`, plus the minimal verified-module roots covering all
+-- verified modules, so `lake build PrintAxioms` builds the walker, controls,
+-- whole-population `VerityUnionAxioms`, and verified closure, and
+-- `lake env lean PrintAxioms.lean` checks the whole-library union and emits
 -- exact per-theorem axiom sets.
 lean_lib «PrintAxioms» where
   globs := #[.one `PrintAxioms]
-  needs := #[Assurance, VerityUnionAxioms]
 
 lean_exe «verity-compiler» where
   root := `Compiler.Main

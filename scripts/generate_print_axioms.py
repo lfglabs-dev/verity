@@ -223,7 +223,12 @@ def generate(root: Path = ROOT) -> str:
     """Generate the full ``PrintAxioms.lean`` content."""
     disk_map, verified, _, roots = discover_population(root)
 
-    imports = ["import AxiomAudit", *(f"import {mod}" for mod in roots)]
+    imports = [
+        "import AxiomAudit",
+        "import UnionAxiomsControls",
+        "import VerityUnionAxioms",
+        *(f"import {mod}" for mod in roots),
+    ]
     sections: list[str] = []
     public_count = 0
     private_count = 0
