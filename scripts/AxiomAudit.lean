@@ -312,27 +312,51 @@ def evalKernelNativeEqTrueLhs (lhs : Expr) : CommandElabM Bool := do
   catch _ =>
     pure false
 
+/-- Normalize audited project prefixes (`Verity`, `Compiler`, `Contracts`, plus `projectPrefixes`),
+deduplicating via `Std.HashSet` once per audit pass rather than per visited constant. -/
+def normalizeAuditedProjectPrefixes (projectPrefixes : Array Name) :
+    Array Name × Std.HashSet Name × Std.HashSet String := Id.run do
+  let mut seen : Std.HashSet Name := {}
+  let mut allPfxs : Array Name := #[]
+  let mut roots : Std.HashSet Name := {}
+  let mut rootStrs : Std.HashSet String := {}
+  for p in #[`Verity, `Compiler, `Contracts] ++ projectPrefixes do
+    if p != Name.anonymous && p != `_private && !seen.contains p then
+      seen := seen.insert p
+      allPfxs := allPfxs.push p
+      let r := p.getRoot
+      roots := roots.insert r
+      rootStrs := rootStrs.insert (toString r)
+  return (allPfxs, roots, rootStrs)
+
+def hasNormalizedPrefixInSet (s : Std.HashSet Name) (n : Name) : Bool :=
+  match n with
+  | .anonymous => false
+  | p@(.str parent _) => s.contains p || hasNormalizedPrefixInSet s parent
+  | p@(.num parent _) => s.contains p || hasNormalizedPrefixInSet s parent
+
+def isAuditedProjectConstantNormalized (env : Environment)
+    (pfxSet : Std.HashSet Name) (rootSet : Std.HashSet Name) (rootStrSet : Std.HashSet String)
+    (c : Name) : Bool :=
+  match env.getModuleIdxFor? c with
+  | some idx =>
+    if h : idx.toNat < env.header.moduleNames.size then
+      hasNormalizedPrefixInSet pfxSet env.header.moduleNames[idx.toNat]
+    else
+      false
+  | none =>
+    hasNormalizedPrefixInSet pfxSet c || rootSet.contains c.getRoot
+      || (match c with
+          | .str (.str _ "_private") modRoot => rootStrSet.contains modRoot
+          | _ => false)
+
 /-- Check whether `c` belongs to an audited project module (`Verity.*`, `Compiler.*`,
 `Contracts.*`, or any prefix in `projectPrefixes`), including Lean `_private.<Module>.0.*`
 hygiene names. -/
 def isAuditedProjectConstant (env : Environment) (projectPrefixes : Array Name) (c : Name) : Bool :=
-  let defaultPfxs : Array Name := #[`Verity, `Compiler, `Contracts]
-  let allPfxs := projectPrefixes.foldl (fun acc p =>
-    if p != Name.anonymous && p != `_private && !acc.contains p then acc.push p else acc) defaultPfxs
-  match env.getModuleIdxFor? c with
-  | some idx =>
-    if h : idx.toNat < env.header.moduleNames.size then
-      let m := env.header.moduleNames[idx.toNat]
-      allPfxs.any (fun pfx => pfx.isPrefixOf m)
-    else
-      false
-  | none =>
-    let r := c.getRoot
-    allPfxs.any (fun pfx => pfx.isPrefixOf c || r == pfx.getRoot)
-      || (match c with
-          | .str (.str _ "_private") modRoot =>
-            allPfxs.any (fun pfx => modRoot == toString pfx.getRoot)
-          | _ => false)
+  let (allPfxs, rootSet, rootStrSet) := normalizeAuditedProjectPrefixes projectPrefixes
+  let pfxSet := allPfxs.foldl (init := ({} : Std.HashSet Name)) (·.insert ·)
+  isAuditedProjectConstantNormalized env pfxSet rootSet rootStrSet c
 
 /-- Return any compiler-override tags (`@[implemented_by]`, `@[extern]`, `@[csimp]`) attached
 to `c` in `env`. -/
@@ -347,11 +371,31 @@ def projectCompilerOverrideTags (env : Environment) (c : Name) : Array String :=
     tags := tags.push "@[csimp]"
   return tags
 
+def collectRootModPrefixes (env : Environment) (roots : Array Name) : Array Name := Id.run do
+  let mut seen : Std.HashSet Name := {}
+  let mut ps : Array Name := #[]
+  for r in roots do
+    if let some idx := env.getModuleIdxFor? r then
+      if h : idx.toNat < env.header.moduleNames.size then
+        let m := env.header.moduleNames[idx.toNat]
+        unless seen.contains m do
+          seen := seen.insert m
+          ps := ps.push m
+    else
+      let rt := r.getRoot
+      if rt != Name.anonymous && rt != `_private && !seen.contains rt then
+        seen := seen.insert rt
+        ps := ps.push rt
+  return ps
+
 /-- Collect every audited project constant in the transitive reference cone of `roots` that
 carries `@[implemented_by]`, `@[extern]`, or `@[csimp]` and is not in `allowedCompilerOverrides`. -/
 def unallowedProjectCompilerOverridesInCone (env : Environment) (projectPrefixes : Array Name)
     (roots : Array Name) (allowedCompilerOverrides : Array String := #[]) : Array (Name × Array String) := Id.run do
   let env := env.setExporting false
+  let (allPfxs, rootSet, rootStrSet) := normalizeAuditedProjectPrefixes projectPrefixes
+  let pfxSet := allPfxs.foldl (init := ({} : Std.HashSet Name)) (·.insert ·)
+  let allowSet := allowedCompilerOverrides.foldl (init := ({} : Std.HashSet String)) (·.insert ·)
   let mut seen : Std.HashSet Name := {}
   let mut stack : Array Name := #[]
   for r in roots do
@@ -362,9 +406,9 @@ def unallowedProjectCompilerOverridesInCone (env : Environment) (projectPrefixes
   while h : 0 < stack.size do
     let c := stack.back
     stack := stack.pop
-    if isAuditedProjectConstant env projectPrefixes c then
+    if isAuditedProjectConstantNormalized env pfxSet rootSet rootStrSet c then
       let tags := projectCompilerOverrideTags env c
-      if !tags.isEmpty && !allowedCompilerOverrides.contains (toString c) then
+      if !tags.isEmpty && !allowSet.contains (toString c) then
         bad := bad.push (c, tags)
     if let some info := env.find? c then
       for n in constantRefs info do
@@ -499,19 +543,7 @@ def unionCheck (env : Environment) (label : String) (roots : Array Name)
     throw s!"#union_axioms_of_modules: {label} reaches {ms.size} constants absent \
       from the environment, e.g. {(ms.extract 0 20).map toString}\n\
       {"\n".intercalate where_.toList}"
-  let rootModPfxs : Array Name := Id.run do
-    let mut ps : Array Name := #[]
-    for r in roots do
-      if let some idx := env.getModuleIdxFor? r then
-        if h : idx.toNat < env.header.moduleNames.size then
-          let m := env.header.moduleNames[idx.toNat]
-          unless ps.contains m do
-            ps := ps.push m
-      else
-        let rt := r.getRoot
-        if rt != Name.anonymous && rt != `_private && !ps.contains rt then
-          ps := ps.push rt
-    return ps
+  let rootModPfxs := collectRootModPrefixes env roots
   let badOverrides := unallowedProjectCompilerOverridesInCone env rootModPfxs roots allowedImplementedBy
   unless badOverrides.isEmpty do
     let targets := badOverrides.map (·.1)
@@ -695,19 +727,7 @@ def reportPrintAxiomsForRoots (env : Environment) (roots : Array Name)
     let sample := (missing.toList.take 20).map toString
     return .error s!"reportPrintAxiomsForRoots: reached {missing.size} absent constant(s): {sample}"
   if let some allowed := allowed? then
-    let rootModPfxs : Array Name := Id.run do
-      let mut ps : Array Name := #[]
-      for r in roots do
-        if let some idx := env.getModuleIdxFor? r then
-          if h : idx.toNat < env.header.moduleNames.size then
-            let m := env.header.moduleNames[idx.toNat]
-            unless ps.contains m do
-              ps := ps.push m
-        else
-          let rt := r.getRoot
-          if rt != Name.anonymous && rt != `_private && !ps.contains rt then
-            ps := ps.push rt
-      return ps
+    let rootModPfxs := collectRootModPrefixes env roots
     let badOverrides := unallowedProjectCompilerOverridesInCone env rootModPfxs roots allowedImplementedBy
     unless badOverrides.isEmpty do
       let summary := badOverrides.map (fun (c, tags) => s!"{c} ({", ".intercalate tags.toList})")
@@ -748,19 +768,7 @@ def reportPrintAxiomsForRootsM (env : Environment) (roots : Array Name)
     let sample := (missing.toList.take 20).map toString
     return .error s!"reportPrintAxiomsForRoots: reached {missing.size} absent constant(s): {sample}"
   if let some allowed := allowed? then
-    let rootModPfxs : Array Name := Id.run do
-      let mut ps : Array Name := #[]
-      for r in roots do
-        if let some idx := env.getModuleIdxFor? r then
-          if h : idx.toNat < env.header.moduleNames.size then
-            let m := env.header.moduleNames[idx.toNat]
-            unless ps.contains m do
-              ps := ps.push m
-        else
-          let rt := r.getRoot
-          if rt != Name.anonymous && rt != `_private && !ps.contains rt then
-            ps := ps.push rt
-      return ps
+    let rootModPfxs := collectRootModPrefixes env roots
     let badOverrides := unallowedProjectCompilerOverridesInCone env rootModPfxs roots allowedImplementedBy
     unless badOverrides.isEmpty do
       let summary := badOverrides.map (fun (c, tags) => s!"{c} ({", ".intercalate tags.toList})")
