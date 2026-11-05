@@ -645,6 +645,12 @@ _LEAN_PARSER_COMBINATOR_DECL_KEYWORDS: frozenset[str] = frozenset(
         "Lean.Parser.symbol",
         "Lean.Parser.unicodeSymbol",
         "Lean.Parser.nonReservedSymbol",
+        "Lean.Parser.symbolNoAntiquot",
+        "Lean.Parser.symbolFn",
+        "Lean.Parser.symbolFnAux",
+        "Lean.Parser.nonReservedSymbolNoAntiquot",
+        "Lean.Parser.nonReservedSymbolFn",
+        "Lean.Parser.rawCh",
         "Lean.Parser.leadingNode",
         "Lean.Parser.trailingNode",
     }

@@ -1,4 +1,6 @@
 import Lean
+import Lean.Compiler.CSimpAttr
+import Lean.Compiler.ImplementedByAttr
 
 /-!
 Copyright (c) 2025 skbaek
@@ -80,6 +82,15 @@ namespace Jaune.AxiomAudit
 
 open Lean Elab Command
 
+/-- Direct kernel constant references of `info` across every `ConstantInfo` variant. -/
+def constantRefs (info : ConstantInfo) : Array Name :=
+  match info with
+  | .defnInfo v => info.type.getUsedConstants ++ v.value.getUsedConstants
+  | .thmInfo v => info.type.getUsedConstants ++ v.value.getUsedConstants
+  | .opaqueInfo v => info.type.getUsedConstants ++ v.value.getUsedConstants
+  | .inductInfo v => info.type.getUsedConstants ++ v.ctors.toArray
+  | .axiomInfo _ | .ctorInfo _ | .recInfo _ | .quotInfo _ => info.type.getUsedConstants
+
 /-- The axioms reachable from any of `roots`, any referenced constants that the
 environment does not contain, and the number of distinct constants visited
 (roots included, absent ones too). One visited set is shared by all roots, so a
@@ -106,13 +117,7 @@ def walkMany (env : Environment) (roots : Array Name) :
     | some info =>
       if info matches .axiomInfo _ then
         axioms := axioms.insert c
-      let mut refs := info.type.getUsedConstants
-      match info with
-      | .defnInfo v => refs := refs ++ v.value.getUsedConstants
-      | .thmInfo v => refs := refs ++ v.value.getUsedConstants
-      | .opaqueInfo v => refs := refs ++ v.value.getUsedConstants
-      | .inductInfo v => refs := refs ++ v.ctors.toArray
-      | _ => pure ()
+      let refs := constantRefs info
       for n in refs do
         unless seen.contains n do
           seen := seen.insert n
@@ -176,13 +181,7 @@ def locate (env : Environment) (roots : Array Name) (targets : Array Name)
     let c := stack.back
     stack := stack.pop
     if let some info := env.find? c then
-      let mut refs := info.type.getUsedConstants
-      match info with
-      | .defnInfo v => refs := refs ++ v.value.getUsedConstants
-      | .thmInfo v => refs := refs ++ v.value.getUsedConstants
-      | .opaqueInfo v => refs := refs ++ v.value.getUsedConstants
-      | .inductInfo v => refs := refs ++ v.ctors.toArray
-      | _ => pure ()
+      let refs := constantRefs info
       for n in refs do
         users := users.insert n ((users.getD n #[]).push c)
         unless seen.contains n do
@@ -226,6 +225,7 @@ def locate (env : Environment) (roots : Array Name) (targets : Array Name)
 the roots and modules counted, and the constants visited. -/
 structure UnionReport where
   axioms : Array String
+  axiomNames : Array Name := #[]
   roots : Nat
   modules : Nat
   visited : Nat
@@ -312,6 +312,85 @@ def evalKernelNativeEqTrueLhs (lhs : Expr) : CommandElabM Bool := do
   catch _ =>
     pure false
 
+/-- Check whether `c` belongs to an audited project module (`Verity.*`, `Compiler.*`,
+`Contracts.*`, or any prefix in `projectPrefixes`), including Lean `_private.<Module>.0.*`
+hygiene names. -/
+def isAuditedProjectConstant (env : Environment) (projectPrefixes : Array Name) (c : Name) : Bool :=
+  let defaultPfxs : Array Name := #[`Verity, `Compiler, `Contracts]
+  let allPfxs := projectPrefixes.foldl (fun acc p =>
+    if p != Name.anonymous && p != `_private && !acc.contains p then acc.push p else acc) defaultPfxs
+  match env.getModuleIdxFor? c with
+  | some idx =>
+    if h : idx.toNat < env.header.moduleNames.size then
+      let m := env.header.moduleNames[idx.toNat]
+      allPfxs.any (fun pfx => pfx.isPrefixOf m)
+    else
+      false
+  | none =>
+    let r := c.getRoot
+    allPfxs.any (fun pfx => pfx.isPrefixOf c || r == pfx.getRoot)
+      || (match c with
+          | .str (.str _ "_private") modRoot =>
+            allPfxs.any (fun pfx => modRoot == toString pfx.getRoot)
+          | _ => false)
+
+/-- Return any compiler-override tags (`@[implemented_by]`, `@[extern]`, `@[csimp]`) attached
+to `c` in `env`. -/
+def projectCompilerOverrideTags (env : Environment) (c : Name) : Array String := Id.run do
+  let mut tags : Array String := #[]
+  if (Lean.Compiler.getImplementedBy? env c).isSome then
+    tags := tags.push "@[implemented_by]"
+  if Lean.isExtern env c then
+    tags := tags.push "@[extern]"
+  let csimpState := Lean.Compiler.CSimp.ext.getState env
+  if csimpState.map.contains c || csimpState.thmNames.contains c then
+    tags := tags.push "@[csimp]"
+  return tags
+
+/-- Collect every audited project constant in the transitive reference cone of `roots` that
+carries `@[implemented_by]`, `@[extern]`, or `@[csimp]` and is not in `allowedCompilerOverrides`. -/
+def unallowedProjectCompilerOverridesInCone (env : Environment) (projectPrefixes : Array Name)
+    (roots : Array Name) (allowedCompilerOverrides : Array String := #[]) : Array (Name × Array String) := Id.run do
+  let env := env.setExporting false
+  let mut seen : Std.HashSet Name := {}
+  let mut stack : Array Name := #[]
+  for r in roots do
+    unless seen.contains r do
+      seen := seen.insert r
+      stack := stack.push r
+  let mut bad : Array (Name × Array String) := #[]
+  while h : 0 < stack.size do
+    let c := stack.back
+    stack := stack.pop
+    if isAuditedProjectConstant env projectPrefixes c then
+      let tags := projectCompilerOverrideTags env c
+      if !tags.isEmpty && !allowedCompilerOverrides.contains (toString c) then
+        bad := bad.push (c, tags)
+    if let some info := env.find? c then
+      for n in constantRefs info do
+        unless seen.contains n do
+          seen := seen.insert n
+          stack := stack.push n
+  return bad.qsort (fun a b => toString a.1 < toString b.1)
+
+/-- Check whether any constant declared by an audited project module (`Verity.*`,
+`Compiler.*`, `Contracts.*`, or the same module/top-level root as `ax`) inside the transitive
+reference cone of `lhs` carries a Lean `@[implemented_by]`, `@[extern]`, or `@[csimp]`
+override that is not in `allowedImplementedBy`. Core `Init`/`Lean`/`Std` and pinned external
+package runtime primitives are excluded so standard-library shims remain usable, while any
+unallowlisted project compiler override inside a `native_decide`/`bv_decide` cone fails closed. -/
+def hasUnallowedProjectImplementedByInExpr (env : Environment) (ax : Name) (lhs : Expr)
+    (allowedImplementedBy : Array String := #[]) : Bool :=
+  let axModPfx : Array Name :=
+    match env.getModuleIdxFor? ax with
+    | some idx =>
+      if h : idx.toNat < env.header.moduleNames.size then
+        #[env.header.moduleNames[idx.toNat]]
+      else
+        #[ax.getRoot]
+    | none => #[ax.getRoot]
+  !(unallowedProjectCompilerOverridesInCone env axModPfx lhs.getUsedConstants allowedImplementedBy).isEmpty
+
 /-- Check structural kernel/environment authentication of a Lean-generated
 `native_decide`/`bv_decide` auxiliary axiom `ax` for an allowlisted `origin`, returning
 `some lhs` when:
@@ -321,18 +400,29 @@ def evalKernelNativeEqTrueLhs (lhs : Expr) : CommandElabM Bool := do
 3. `ax` has single-ref tactic declaration ranges (`range == selectionRange`) lying inside
    `origin`'s own declaration range;
 4. `origin` exists in `env` as a theorem or definition in the exact same module as `ax`
-   (`env.getModuleIdxFor? origin == env.getModuleIdxFor? ax`); and
-5. `origin`'s own body (`value.getUsedConstants`) directly references `ax`. -/
+   (`env.getModuleIdxFor? origin == env.getModuleIdxFor? ax`);
+5. `origin`'s own body (`value.getUsedConstants`) directly references `ax`; and
+6. no project constant in `lhs`'s transitive cone carries an unallowlisted
+   `@[implemented_by]` compiler override. -/
 def verifiedGeneratedAuxAxiomLhs? (env : Environment) (kind : String)
-    (allowedOrigins : Array String) (ax : Name) : Option Expr :=
+    (allowedOrigins : Array String) (ax : Name)
+    (allowedImplementedBy : Array String := #[]) : Option Expr :=
   let env := env.setExporting false
-  match generatedAuxAxiomOrigin? kind (toString ax) with
+  let origOpt : Option (Name × String) :=
+    match ax with
+    | .str (.str (.str orig "_native") k) suffix =>
+      if k == kind && suffix.startsWith "ax_"
+          && isDigitsAndUnderscores (suffix.drop 3).toString then
+        some (orig, toString orig)
+      else
+        none
+    | _ => none
+  match origOpt with
   | none => none
-  | some origStr =>
+  | some (orig, origStr) =>
     if !allowedOrigins.contains origStr then
       none
     else
-      let orig := parseDottedName origStr
       match env.find? ax, env.find? orig with
       | some (.axiomInfo axVal), some origInfo =>
         match kernelNativeEqTrueLhs? axVal with
@@ -345,7 +435,8 @@ def verifiedGeneratedAuxAxiomLhs? (env : Environment) (kind : String)
             | _ => false
           if hasTacticTokenAuxDeclRange env orig ax
               && env.getModuleIdxFor? orig == env.getModuleIdxFor? ax
-              && usedByOrigin then
+              && usedByOrigin
+              && !hasUnallowedProjectImplementedByInExpr env ax lhs allowedImplementedBy then
             some lhs
           else
             none
@@ -355,8 +446,9 @@ def verifiedGeneratedAuxAxiomLhs? (env : Environment) (kind : String)
 for an allowlisted `origin`: structural/range/reference checks plus re-running
 `Lean.Meta.nativeEqTrue` on `lhs` under `withoutModifyingEnv`. -/
 def verifyGeneratedAuxAxiomM (env : Environment) (kind : String)
-    (allowedOrigins : Array String) (ax : Name) : CommandElabM Bool := do
-  match verifiedGeneratedAuxAxiomLhs? env kind allowedOrigins ax with
+    (allowedOrigins : Array String) (ax : Name)
+    (allowedImplementedBy : Array String := #[]) : CommandElabM Bool := do
+  match verifiedGeneratedAuxAxiomLhs? env kind allowedOrigins ax allowedImplementedBy with
   | none => pure false
   | some lhs => evalKernelNativeEqTrueLhs lhs
 
@@ -367,22 +459,24 @@ re-evaluate every candidate auxiliary axiom's `Bool` LHS via `Lean.Meta.nativeEq
 def isAllowedUnionAxiom (env : Environment) (allowed : Array String)
     (allowedNativeOrigins : Array String := #[])
     (allowedBvOrigins : Array String := #[])
-    (ax : Name) : Bool :=
+    (ax : Name)
+    (allowedImplementedBy : Array String := #[]) : Bool :=
   allowed.contains (toString ax)
-    || (verifiedGeneratedAuxAxiomLhs? env "native_decide" allowedNativeOrigins ax).isSome
-    || (verifiedGeneratedAuxAxiomLhs? env "bv_decide" allowedBvOrigins ax).isSome
+    || (verifiedGeneratedAuxAxiomLhs? env "native_decide" allowedNativeOrigins ax allowedImplementedBy).isSome
+    || (verifiedGeneratedAuxAxiomLhs? env "bv_decide" allowedBvOrigins ax allowedImplementedBy).isSome
 
 /-- Full CommandElabM check whether `ax` is in `allowed` or is a kernel-authenticated and
 natively re-evaluated auxiliary axiom of an explicitly allowlisted `origin`. -/
 def isAllowedUnionAxiomM (env : Environment) (allowed : Array String)
     (allowedNativeOrigins : Array String := #[])
     (allowedBvOrigins : Array String := #[])
-    (ax : Name) : CommandElabM Bool := do
+    (ax : Name)
+    (allowedImplementedBy : Array String := #[]) : CommandElabM Bool := do
   if allowed.contains (toString ax) then
     return true
-  if ← verifyGeneratedAuxAxiomM env "native_decide" allowedNativeOrigins ax then
+  if ← verifyGeneratedAuxAxiomM env "native_decide" allowedNativeOrigins ax allowedImplementedBy then
     return true
-  verifyGeneratedAuxAxiomM env "bv_decide" allowedBvOrigins ax
+  verifyGeneratedAuxAxiomM env "bv_decide" allowedBvOrigins ax allowedImplementedBy
 
 /-- The union audit proper, over an explicit root list (the command feeds it the
 module roots). Throws on an empty root list, on any reached constant absent from
@@ -392,7 +486,8 @@ where the problem is (see `locate`). -/
 def unionCheck (env : Environment) (label : String) (roots : Array Name)
     (modules : Nat) (allowed : Array String)
     (allowedNativeOrigins : Array String := #[])
-    (allowedBvOrigins : Array String := #[]) : Except String UnionReport := do
+    (allowedBvOrigins : Array String := #[])
+    (allowedImplementedBy : Array String := #[]) : Except String UnionReport := do
   if roots.isEmpty || modules == 0 then
     throw s!"#union_axioms_of_modules: no constants found for {label} \
       ({modules} matching modules, {roots.size} roots); an empty population \
@@ -404,14 +499,40 @@ def unionCheck (env : Environment) (label : String) (roots : Array Name)
     throw s!"#union_axioms_of_modules: {label} reaches {ms.size} constants absent \
       from the environment, e.g. {(ms.extract 0 20).map toString}\n\
       {"\n".intercalate where_.toList}"
+  let rootModPfxs : Array Name := Id.run do
+    let mut ps : Array Name := #[]
+    for r in roots do
+      if let some idx := env.getModuleIdxFor? r then
+        if h : idx.toNat < env.header.moduleNames.size then
+          let m := env.header.moduleNames[idx.toNat]
+          unless ps.contains m do
+            ps := ps.push m
+      else
+        let rt := r.getRoot
+        if rt != Name.anonymous && rt != `_private && !ps.contains rt then
+          ps := ps.push rt
+    return ps
+  let badOverrides := unallowedProjectCompilerOverridesInCone env rootModPfxs roots allowedImplementedBy
+  unless badOverrides.isEmpty do
+    let targets := badOverrides.map (·.1)
+    let where_ := locate env roots (targets.extract 0 20) 3
+    let summary := badOverrides.map (fun (c, tags) => s!"{c} ({", ".intercalate tags.toList})")
+    throw s!"#union_axioms_of_modules: {label} reaches unallowlisted project compiler overrides \
+      (@[implemented_by] / @[extern] / @[csimp]): {summary}\n{"\n".intercalate where_.toList}"
   let sorted := axioms.toList.toArray.qsort (fun a b => toString a < toString b)
   let bad := sorted.filter (fun a =>
-    !isAllowedUnionAxiom env allowed allowedNativeOrigins allowedBvOrigins a)
+    !isAllowedUnionAxiom env allowed allowedNativeOrigins allowedBvOrigins a allowedImplementedBy)
   unless bad.isEmpty do
     let where_ := locate env roots bad
     throw s!"#union_axioms_of_modules: {label} reaches axioms outside \
       {allowed.qsort (· < ·)}: {bad.map toString}\n{"\n".intercalate where_.toList}"
-  return { axioms := sorted.map toString, roots := roots.size, modules, visited }
+  return {
+    axioms := sorted.map toString
+    axiomNames := sorted
+    roots := roots.size
+    modules
+    visited
+  }
 
 /-- Full `CommandElabM` union audit over an explicit root list: identical to `unionCheck`,
 and additionally re-evaluates every candidate `native_decide`/`bv_decide` auxiliary axiom's
@@ -419,14 +540,14 @@ and additionally re-evaluates every candidate `native_decide`/`bv_decide` auxili
 def unionCheckM (env : Environment) (label : String) (roots : Array Name)
     (modules : Nat) (allowed : Array String)
     (allowedNativeOrigins : Array String := #[])
-    (allowedBvOrigins : Array String := #[]) : CommandElabM (Except String UnionReport) := do
-  match unionCheck env label roots modules allowed allowedNativeOrigins allowedBvOrigins with
+    (allowedBvOrigins : Array String := #[])
+    (allowedImplementedBy : Array String := #[]) : CommandElabM (Except String UnionReport) := do
+  match unionCheck env label roots modules allowed allowedNativeOrigins allowedBvOrigins allowedImplementedBy with
   | .error e => return .error e
   | .ok r =>
     let mut bad : Array Name := #[]
-    for axStr in r.axioms do
-      let ax := parseDottedName axStr
-      unless (← isAllowedUnionAxiomM env allowed allowedNativeOrigins allowedBvOrigins ax) do
+    for ax in r.axiomNames do
+      unless (← isAllowedUnionAxiomM env allowed allowedNativeOrigins allowedBvOrigins ax allowedImplementedBy) do
         bad := bad.push ax
     unless bad.isEmpty do
       let where_ := locate env roots bad
@@ -509,13 +630,7 @@ def exactAxiomsForRoots (env : Environment) (roots : Array Name) :
     | some info =>
       if info matches .axiomInfo _ then
         axioms := axioms.push c
-      let mut refs := info.type.getUsedConstants
-      match info with
-      | .defnInfo v => refs := refs ++ v.value.getUsedConstants
-      | .thmInfo v => refs := refs ++ v.value.getUsedConstants
-      | .opaqueInfo v => refs := refs ++ v.value.getUsedConstants
-      | .inductInfo v => refs := refs ++ v.ctors.toArray
-      | _ => pure ()
+      let refs := constantRefs info
       let mut localSeen : Std.HashSet Name := {}
       for n in refs do
         unless localSeen.contains n do
@@ -563,7 +678,8 @@ outside `isAllowedUnionAxiom`. -/
 def reportPrintAxiomsForRoots (env : Environment) (roots : Array Name)
     (allowed? : Option (Array String) := none)
     (allowedNativeOrigins : Array String := #[])
-    (allowedBvOrigins : Array String := #[]) :
+    (allowedBvOrigins : Array String := #[])
+    (allowedImplementedBy : Array String := #[]) :
     Except String (Array String) := Id.run do
   let mut unknown : Array Name := #[]
   for r in roots do
@@ -579,10 +695,27 @@ def reportPrintAxiomsForRoots (env : Environment) (roots : Array Name)
     let sample := (missing.toList.take 20).map toString
     return .error s!"reportPrintAxiomsForRoots: reached {missing.size} absent constant(s): {sample}"
   if let some allowed := allowed? then
+    let rootModPfxs : Array Name := Id.run do
+      let mut ps : Array Name := #[]
+      for r in roots do
+        if let some idx := env.getModuleIdxFor? r then
+          if h : idx.toNat < env.header.moduleNames.size then
+            let m := env.header.moduleNames[idx.toNat]
+            unless ps.contains m do
+              ps := ps.push m
+        else
+          let rt := r.getRoot
+          if rt != Name.anonymous && rt != `_private && !ps.contains rt then
+            ps := ps.push rt
+      return ps
+    let badOverrides := unallowedProjectCompilerOverridesInCone env rootModPfxs roots allowedImplementedBy
+    unless badOverrides.isEmpty do
+      let summary := badOverrides.map (fun (c, tags) => s!"{c} ({", ".intercalate tags.toList})")
+      return .error s!"reportPrintAxiomsForRoots: unallowlisted project compiler override(s): {summary}"
     let mut badSet : NameSet := {}
     for r in roots do
       for ax in perRoot.getD r #[] do
-        unless isAllowedUnionAxiom env allowed allowedNativeOrigins allowedBvOrigins ax do
+        unless isAllowedUnionAxiom env allowed allowedNativeOrigins allowedBvOrigins ax allowedImplementedBy do
           badSet := badSet.insert ax
     unless badSet.isEmpty do
       let bad := badSet.toList.toArray.qsort (fun a b => toString a < toString b)
@@ -598,7 +731,8 @@ and additionally re-evaluates every candidate `native_decide`/`bv_decide` auxili
 def reportPrintAxiomsForRootsM (env : Environment) (roots : Array Name)
     (allowed? : Option (Array String) := none)
     (allowedNativeOrigins : Array String := #[])
-    (allowedBvOrigins : Array String := #[]) :
+    (allowedBvOrigins : Array String := #[])
+    (allowedImplementedBy : Array String := #[]) :
     CommandElabM (Except String (Array String)) := do
   let mut unknown : Array Name := #[]
   for r in roots do
@@ -614,13 +748,30 @@ def reportPrintAxiomsForRootsM (env : Environment) (roots : Array Name)
     let sample := (missing.toList.take 20).map toString
     return .error s!"reportPrintAxiomsForRoots: reached {missing.size} absent constant(s): {sample}"
   if let some allowed := allowed? then
+    let rootModPfxs : Array Name := Id.run do
+      let mut ps : Array Name := #[]
+      for r in roots do
+        if let some idx := env.getModuleIdxFor? r then
+          if h : idx.toNat < env.header.moduleNames.size then
+            let m := env.header.moduleNames[idx.toNat]
+            unless ps.contains m do
+              ps := ps.push m
+        else
+          let rt := r.getRoot
+          if rt != Name.anonymous && rt != `_private && !ps.contains rt then
+            ps := ps.push rt
+      return ps
+    let badOverrides := unallowedProjectCompilerOverridesInCone env rootModPfxs roots allowedImplementedBy
+    unless badOverrides.isEmpty do
+      let summary := badOverrides.map (fun (c, tags) => s!"{c} ({", ".intercalate tags.toList})")
+      return .error s!"reportPrintAxiomsForRoots: unallowlisted project compiler override(s): {summary}"
     let mut allCandidateAxs : NameSet := {}
     for r in roots do
       for ax in perRoot.getD r #[] do
         allCandidateAxs := allCandidateAxs.insert ax
     let mut badSet : NameSet := {}
     for ax in allCandidateAxs.toList do
-      unless (← isAllowedUnionAxiomM env allowed allowedNativeOrigins allowedBvOrigins ax) do
+      unless (← isAllowedUnionAxiomM env allowed allowedNativeOrigins allowedBvOrigins ax allowedImplementedBy) do
         badSet := badSet.insert ax
     unless badSet.isEmpty do
       let bad := badSet.toList.toArray.qsort (fun a b => toString a < toString b)

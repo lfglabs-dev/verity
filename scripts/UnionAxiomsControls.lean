@@ -244,3 +244,41 @@ run_cmd do
         (some #["propext", "Lean.ofReduceBool", "Lean.trustCompiler"]) allowedNative #[]) with
     | .ok _ => throwError "control: reportPrintAxiomsForRootsM accepted spoofed auxiliary axiom via {spoofUser}"
     | .error _ => pure ()
+  -- Private `native_decide` theorem (`_private.*.0.*` `Name.num`) passes when its exact private
+  -- origin is allowlisted (no `parseDottedName` `Name.num` corruption) and fails when omitted.
+  let privRoots := (walkMany env #[``UnionAxiomsFixture.NativeAndAttrs.pubUsesPrivNativeDecide]).1.toList
+  let some privAux := privRoots.find? (fun a => (toString a).contains "privNativeDecide._native.native_decide.ax_")
+    | throwError "control: missing private native_decide aux axiom in {privRoots}"
+  let some (privOrigStr) := generatedAuxAxiomOrigin? "native_decide" (toString privAux)
+    | throwError "control: could not extract private native_decide origin from {privAux}"
+  match (← unionCheckM env "PrivNativeOk" #[``UnionAxiomsFixture.NativeAndAttrs.pubUsesPrivNativeDecide] 1
+      #["propext"] #[privOrigStr] #[]) with
+  | .error e => throwError "control: allowlisted private native_decide theorem was rejected: {e}"
+  | .ok _ => pure ()
+  match (← unionCheckM env "PrivNativeReject" #[``UnionAxiomsFixture.NativeAndAttrs.pubUsesPrivNativeDecide] 1
+      #["propext"] #[] #[]) with
+  | .ok _ => throwError "control: unallowlisted private native_decide theorem was accepted"
+  | .error _ => pure ()
+  -- Unallowlisted project compiler overrides (`@[implemented_by]`, `@[extern]`, `@[csimp]`) are
+  -- rejected across transitive walk cones and `native_decide` LHS cones, and accepted only when
+  -- explicitly allowlisted.
+  let nativeImplAllowed := #["UnionAxiomsFixture.NativeAndAttrs.thmNativeUsesImpl"]
+  match (← unionCheckM env "NativeImplReject" #[``UnionAxiomsFixture.NativeAndAttrs.thmNativeUsesImpl] 1
+      #["propext"] nativeImplAllowed #[] #[]) with
+  | .ok _ => throwError "control: native_decide cone with unallowlisted @[implemented_by] was accepted"
+  | .error _ => pure ()
+  match (← unionCheckM env "NativeImplAllow" #[``UnionAxiomsFixture.NativeAndAttrs.thmNativeUsesImpl] 1
+      #["propext"] nativeImplAllowed #[] #["UnionAxiomsFixture.NativeAndAttrs.implInc"]) with
+  | .error e => throwError "control: native_decide cone with allowlisted @[implemented_by] was rejected: {e}"
+  | .ok _ => pure ()
+  for overrideRoot in #[
+    ``UnionAxiomsFixture.NativeAndAttrs.usesImplInc,
+    ``UnionAxiomsFixture.NativeAndAttrs.usesExternOp,
+    ``UnionAxiomsFixture.NativeAndAttrs.usesPureIncCsimp
+  ] do
+    match (← unionCheckM env "OverrideConeReject" #[overrideRoot] 1 #["propext"] #[] #[] #[]) with
+    | .ok _ => throwError "control: transitive compiler override cone was accepted for {overrideRoot}"
+    | .error _ => pure ()
+    match (← reportPrintAxiomsForRootsM env #[overrideRoot] (some #["propext"]) #[] #[] #[]) with
+    | .ok _ => throwError "control: reportPrintAxiomsForRootsM accepted compiler override cone for {overrideRoot}"
+    | .error _ => pure ()

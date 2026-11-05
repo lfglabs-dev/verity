@@ -88,6 +88,14 @@ NATIVE_DECIDE_AXIOM_ORIGINS = frozenset([
 
 BV_DECIDE_AXIOM_ORIGINS: frozenset[str] = frozenset()
 
+# Audited project declarations permitted to carry `@[implemented_by]` in the
+# verified population (`Compiler.Proofs.MappingSlot.solidityMappingSlot` redirects
+# runtime execution to `solidityMappingSlot_ffi` while keeping kernel-computable
+# Keccak for proofs; see `docs/AXIOMS.md` and `scripts/check_trust_surface_registry.py`).
+ALLOWED_PROJECT_COMPILER_OVERRIDES: frozenset[str] = frozenset([
+    "Compiler.Proofs.MappingSlot.solidityMappingSlot",
+])
+
 _DECL_SCOPE_KEYWORDS: frozenset[str] = frozenset(
     {
         "def",
@@ -167,7 +175,25 @@ _DYNAMIC_AXIOM_BYPASS_TOKENS: tuple[str, ...] = (
     "interpolatedStrFn",
     "interpolatedStrNoAntiquot",
     "symbolNoAntiquot",
+    "symbolFn",
+    "symbolFnAux",
+    "nonReservedSymbolNoAntiquot",
+    "nonReservedSymbolFn",
+    "rawCh",
     "symbolInfo",
+    "nodeWithAntiquot",
+    "withAntiquot",
+    "mkAntiquotNode",
+    "applyAttributes",
+    "applyAttributesAt",
+    "applyAttributesCore",
+    "elabAttr",
+    "elabAttrs",
+    "registerBuiltinAttribute",
+    "registerAttributeOfBuilder",
+    "AttributeImpl",
+    "addLeadingParser",
+    "addTrailingParser",
 )
 _FORBIDDEN_SYNTAX_CONSTRUCTOR_TOKENS: tuple[str, ...] = (
     "Syntax.atom",
@@ -445,6 +471,14 @@ def _reject_parser_attributes_and_nonliteral_symbols(scrubbed: str, rel_path: st
             continue
         if scrubbed[i] == "`":
             pending_attr_cmd = False
+            lit_bare = scrubbed[i:ident_end].lstrip("`").replace("«", "").replace("»", "")
+            lit_short = lit_bare.rsplit(".", 1)[-1]
+            if lit_short.endswith(_PARSER_ATTRIBUTE_SUFFIX):
+                line, _ = _line_col_of(scrubbed, i)
+                die(
+                    f"Forbidden parser attribute name literal {scrubbed[i:ident_end]!r} at {rel_path}:{line}; "
+                    "use literal `syntax`/`macro`/`elab` declarations instead"
+                )
             i = ident_end
             continue
         bare = scrubbed[i:ident_end].replace("«", "").replace("»", "")
@@ -461,22 +495,23 @@ def _reject_parser_attributes_and_nonliteral_symbols(scrubbed: str, rel_path: st
             )
         if short in _NON_LITERAL_SYMBOL_FNS and _ident_segment_boundary_before(scrubbed, i):
             after = _skip_lean_whitespace(scrubbed, ident_end)
-            if after < n and not _is_lean_whitespace(scrubbed[ident_end - 1]):
-                if scrubbed[after] == "(":
-                    arg = _skip_lean_whitespace(scrubbed, after + 1)
-                    named_end = _consume_lean_ident_or_name_lit(scrubbed, arg)
-                    if named_end is not None and named_end > arg:
-                        after_name = _skip_lean_whitespace(scrubbed, named_end)
-                        if scrubbed.startswith(":=", after_name):
-                            arg = _skip_lean_whitespace(scrubbed, after_name + 2)
-                else:
-                    arg = after
-                if arg < n and scrubbed[arg] not in {":", "=", ")", ",", "]"} and not _is_scrubbed_string_start(scrubbed, arg):
-                    line, _ = _line_col_of(scrubbed, i)
-                    die(
-                        f"Non-literal parser symbol argument at {rel_path}:{line}; "
-                        "symbol/unicodeSymbol/nonReservedSymbol require a string literal"
-                    )
+            if after < n and scrubbed[after] in {":", "="}:
+                i = ident_end
+                continue
+            arg = after
+            if after < n and scrubbed[after] == "(":
+                cand = _skip_lean_whitespace(scrubbed, after + 1)
+                named_end = _consume_lean_ident_or_name_lit(scrubbed, cand)
+                if named_end is not None and named_end > cand:
+                    after_name = _skip_lean_whitespace(scrubbed, named_end)
+                    if scrubbed.startswith(":=", after_name):
+                        arg = _skip_lean_whitespace(scrubbed, after_name + 2)
+            if arg >= n or not _is_scrubbed_string_start(scrubbed, arg):
+                line, _ = _line_col_of(scrubbed, i)
+                die(
+                    f"Non-literal parser symbol argument at {rel_path}:{line}; "
+                    "symbol/unicodeSymbol/nonReservedSymbol require a string literal"
+                )
         i = ident_end
 
 

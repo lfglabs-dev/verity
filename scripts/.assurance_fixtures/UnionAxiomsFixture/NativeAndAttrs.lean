@@ -82,6 +82,18 @@ opaque externOp : Nat → Nat
 @[csimp]
 theorem pureInc_eq_fastInc : @pureInc = @fastInc := rfl
 
+-- Private `native_decide` theorem (`_private.*.0.*` `Name.num` hygiene component):
+-- verifies `AxiomAudit.unionCheckM` preserves `Name.num` without string round-trip corruption.
+private theorem privNativeDecide : (3 : Nat) + 3 = 6 := by native_decide
+theorem pubUsesPrivNativeDecide : (3 : Nat) + 3 = 6 := privNativeDecide
+
+-- Unallowlisted `@[implemented_by]` / `@[extern]` / `@[csimp]` inside a `native_decide` cone
+-- or transitive definition cone must fail closed unless explicitly allowlisted.
+theorem thmNativeUsesImpl : implInc 2 = 3 := by native_decide
+def usesImplInc (n : Nat) : Nat := implInc n
+def usesExternOp (n : Nat) : Nat := externOp n
+def usesPureIncCsimp (n : Nat) : Nat := pureInc n
+
 -- `sorry` emits `sorryAx` in the module's constant dependencies.
 set_option warn.sorry false in
 theorem thmSorry : False := by sorry

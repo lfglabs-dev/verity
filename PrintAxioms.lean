@@ -127,7 +127,10 @@ run_cmd do
     "Verity.keccak256_nat_empty"
   ]
   let allowedBvOrigins := #[]
-  match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins) with
+  let allowedImplementedBy := #[
+    "Compiler.Proofs.MappingSlot.solidityMappingSlot"
+  ]
+  match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins allowedImplementedBy) with
   | .error e => throwError "{e}"
   | .ok r =>
     logInfo (MessageData.ofFormat (Std.Format.text
@@ -12048,7 +12051,10 @@ run_cmd do
     "Verity.keccak256_nat_empty"
   ]
   let allowedBvOrigins := #[]
-  match (← reportPrintAxiomsForRootsM env roots (some allowed) allowedNativeOrigins allowedBvOrigins) with
+  let allowedImplementedBy := #[
+    "Compiler.Proofs.MappingSlot.solidityMappingSlot"
+  ]
+  match (← reportPrintAxiomsForRootsM env roots (some allowed) allowedNativeOrigins allowedBvOrigins allowedImplementedBy) with
   | .error e => throwError "{e}"
   | .ok lines =>
     for line in lines do

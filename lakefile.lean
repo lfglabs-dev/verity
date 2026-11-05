@@ -179,14 +179,16 @@ lean_lib «Assurance» where
 lean_lib «VerityUnionAxioms» where
   srcDir := "scripts"
   roots := #[`VerityUnionAxioms]
+  needs := #[Assurance]
 
 -- Axiom dependency audit: imports `AxiomAudit` plus the minimal verified-module
--- roots covering all 493 verified modules, so `lake build PrintAxioms` builds
--- the walker, controls, and verified closure, and `lake env lean PrintAxioms.lean`
--- checks the whole-library union and emits exact per-theorem axiom sets.
+-- roots covering all verified modules, so `lake build PrintAxioms` builds
+-- the walker, controls, whole-population `VerityUnionAxioms`, and verified closure,
+-- and `lake env lean PrintAxioms.lean` checks the whole-library union and emits
+-- exact per-theorem axiom sets.
 lean_lib «PrintAxioms» where
   globs := #[.one `PrintAxioms]
-  needs := #[Assurance]
+  needs := #[Assurance, VerityUnionAxioms]
 
 lean_exe «verity-compiler» where
   root := `Compiler.Main

@@ -30,7 +30,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from check_axioms import BV_DECIDE_AXIOM_ORIGINS, NATIVE_DECIDE_AXIOM_ORIGINS
+from check_axioms import (
+    ALLOWED_PROJECT_COMPILER_OVERRIDES,
+    BV_DECIDE_AXIOM_ORIGINS,
+    NATIVE_DECIDE_AXIOM_ORIGINS,
+)
 from check_union_coverage import check_union_coverage, discover_population
 from property_utils import scrub_lean_code
 
@@ -69,6 +73,7 @@ def _render_population_union_block() -> str:
     allowed = _lean_string_array(list(ALLOWED_POPULATION_AXIOMS))
     native_origins = _lean_string_array(sorted(NATIVE_DECIDE_AXIOM_ORIGINS))
     bv_origins = _lean_string_array(sorted(BV_DECIDE_AXIOM_ORIGINS))
+    impl_overrides = _lean_string_array(sorted(ALLOWED_PROJECT_COMPILER_OVERRIDES))
     return (
         "open Jaune.AxiomAudit Lean Elab Command in\n"
         "run_cmd do\n"
@@ -80,7 +85,8 @@ def _render_population_union_block() -> str:
         f"  let allowed := {allowed}\n"
         f"  let allowedNativeOrigins := {native_origins}\n"
         f"  let allowedBvOrigins := {bv_origins}\n"
-        "  match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins) with\n"
+        f"  let allowedImplementedBy := {impl_overrides}\n"
+        "  match (← unionCheckM env (unionLabel pfxs) roots modules allowed allowedNativeOrigins allowedBvOrigins allowedImplementedBy) with\n"
         '  | .error e => throwError "{e}"\n'
         "  | .ok r =>\n"
         "    logInfo (MessageData.ofFormat (Std.Format.text\n"
@@ -267,6 +273,7 @@ def generate(root: Path = ROOT) -> str:
     allowed_arr = _lean_string_array(list(ALLOWED_POPULATION_AXIOMS))
     native_origins_arr = _lean_string_array(sorted(NATIVE_DECIDE_AXIOM_ORIGINS))
     bv_origins_arr = _lean_string_array(sorted(BV_DECIDE_AXIOM_ORIGINS))
+    impl_overrides_arr = _lean_string_array(sorted(ALLOWED_PROJECT_COMPILER_OVERRIDES))
     runner = f'''
 {union_block}
 open Jaune.AxiomAudit Lean Elab Command in
@@ -280,7 +287,8 @@ run_cmd do
   let allowed := {allowed_arr}
   let allowedNativeOrigins := {native_origins_arr}
   let allowedBvOrigins := {bv_origins_arr}
-  match (← reportPrintAxiomsForRootsM env roots (some allowed) allowedNativeOrigins allowedBvOrigins) with
+  let allowedImplementedBy := {impl_overrides_arr}
+  match (← reportPrintAxiomsForRootsM env roots (some allowed) allowedNativeOrigins allowedBvOrigins allowedImplementedBy) with
   | .error e => throwError "{{e}}"
   | .ok lines =>
     for line in lines do
