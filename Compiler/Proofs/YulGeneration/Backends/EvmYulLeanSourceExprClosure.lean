@@ -1046,7 +1046,7 @@ private theorem compileExpr_adtTag_bridged
     exact bridgedExpr_adtTagRead_lit baseSlot
   · simp at hOk
 
-/-- ADT field reads compile to bridged Yul when the storage field resolves. -/
+/-- Standalone payload reads are rejected; tag-guarded match bindings lower separately. -/
 private theorem compileExpr_adtField_bridged
     {fields : List CompilationModel.Field} {src : DynamicDataSource}
     {adtName variantName fieldName storageField : String} {fieldIndex : Nat}
@@ -1054,13 +1054,7 @@ private theorem compileExpr_adtField_bridged
     (hOk : compileExpr fields src
       (.adtField adtName variantName fieldName fieldIndex storageField) = .ok out) :
     BridgedExpr out := by
-  simp only [compileExpr, compileExprWithInternals] at hOk
-  split at hOk
-  · rename_i baseSlot hFind
-    simp [Pure.pure, Except.pure] at hOk
-    subst out
-    exact bridgedExpr_adtFieldRead_lit baseSlot fieldIndex
-  · simp at hOk
+  simp [compileExpr, compileExprWithInternals] at hOk
 
 /-- A mapping read `compileMappingSlotRead … (← compileExpr key) …` is bridged
     whenever the key compiles to bridged Yul. -/

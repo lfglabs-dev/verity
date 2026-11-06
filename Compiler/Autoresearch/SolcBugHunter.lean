@@ -84,33 +84,34 @@ def classifyFourWayStep (step : FourWayTraceStep) : TriageVerdict :=
 
 /-- **Theorem 2.2.1 (`allFourAgree` Exact Characterization)**:
     `classifyFourWayStep step = .allFourAgree` holds if and only if all four lanes
-    produce identical canonical `Obs` records (`A = B = C = D`). -/
+     produce equivalent canonical observations (`A ≈ B ≈ C ≈ D`). -/
 theorem classifyFourWayStep_allFourAgree_iff (step : FourWayTraceStep) :
     classifyFourWayStep step = .allFourAgree ↔
-      (step.obsSolc = step.obsVerityEvm ∧
-       step.obsVerityEvm = step.obsEvmYulLean ∧
-       step.obsEvmYulLean = step.obsVerityDenote) := by
-  unfold classifyFourWayStep obsEquivBool
-  by_cases hab : step.obsSolc = step.obsVerityEvm <;>
-  by_cases hbc : step.obsVerityEvm = step.obsEvmYulLean <;>
-  by_cases hcd : step.obsEvmYulLean = step.obsVerityDenote <;>
-  by_cases hac : step.obsSolc = step.obsEvmYulLean <;>
+      (ObsEquiv step.obsSolc step.obsVerityEvm ∧
+       ObsEquiv step.obsVerityEvm step.obsEvmYulLean ∧
+       ObsEquiv step.obsEvmYulLean step.obsVerityDenote) := by
+  unfold classifyFourWayStep obsEquivBool ObsEquiv
+  by_cases hab : canonicalObs step.obsSolc = canonicalObs step.obsVerityEvm <;>
+  by_cases hbc : canonicalObs step.obsVerityEvm = canonicalObs step.obsEvmYulLean <;>
+  by_cases hcd : canonicalObs step.obsEvmYulLean = canonicalObs step.obsVerityDenote <;>
+  by_cases hac : canonicalObs step.obsSolc = canonicalObs step.obsEvmYulLean <;>
   simp_all
 
 /-- **Theorem 2.2.2 (`candidateSolcBug` Soundness)**:
     Whenever `classifyFourWayStep step = .candidateSolcBug`, the three formal lanes
-    (`obsVerityEvm`, `obsEvmYulLean`, `obsVerityDenote`) are mutually equal (`B = C = D`),
-    and `obsSolc` strictly disagrees with them (`A ≠ B`). -/
+     (`obsVerityEvm`, `obsEvmYulLean`, `obsVerityDenote`) are observationally equivalent,
+     and `obsSolc` disagrees with them modulo storage-map normalization. -/
 theorem classifyFourWayStep_candidateSolcBug_sound (step : FourWayTraceStep)
     (hbug : classifyFourWayStep step = .candidateSolcBug) :
-    step.obsVerityEvm = step.obsEvmYulLean ∧
-    step.obsEvmYulLean = step.obsVerityDenote ∧
-    step.obsSolc ≠ step.obsVerityEvm := by
+    ObsEquiv step.obsVerityEvm step.obsEvmYulLean ∧
+    ObsEquiv step.obsEvmYulLean step.obsVerityDenote ∧
+    ¬ ObsEquiv step.obsSolc step.obsVerityEvm := by
   unfold classifyFourWayStep obsEquivBool at hbug
-  by_cases hab : step.obsSolc = step.obsVerityEvm <;>
-  by_cases hbc : step.obsVerityEvm = step.obsEvmYulLean <;>
-  by_cases hcd : step.obsEvmYulLean = step.obsVerityDenote <;>
-  by_cases hac : step.obsSolc = step.obsEvmYulLean <;>
+  unfold ObsEquiv
+  by_cases hab : canonicalObs step.obsSolc = canonicalObs step.obsVerityEvm <;>
+  by_cases hbc : canonicalObs step.obsVerityEvm = canonicalObs step.obsEvmYulLean <;>
+  by_cases hcd : canonicalObs step.obsEvmYulLean = canonicalObs step.obsVerityDenote <;>
+  by_cases hac : canonicalObs step.obsSolc = canonicalObs step.obsEvmYulLean <;>
   simp_all
 
 /-! ## 2. Multi-Profile `solc` Optimizer Bug Localization (Part 2.4) -/
@@ -166,12 +167,13 @@ def localizeSolcBugSubsystem (m : SolcProfileMatrix) : SolcBugSubsystem :=
     proving that `solc`'s Yul optimizer introduced the semantic corruption. -/
 theorem localizeSolcBug_yulOptimizer_sound (m : SolcProfileMatrix)
     (hyul : localizeSolcBugSubsystem m = .yulOptimizerStepBug) :
-    m.obsViaIrNoOpt = m.obsRef ∧ m.obsViaIrOpt ≠ m.obsRef := by
+    ObsEquiv m.obsViaIrNoOpt m.obsRef ∧ ¬ ObsEquiv m.obsViaIrOpt m.obsRef := by
   unfold localizeSolcBugSubsystem obsEquivBool at hyul
-  by_cases h1 : m.obsLegacyNoOpt = m.obsRef <;>
-  by_cases h2 : m.obsLegacyOpt = m.obsRef <;>
-  by_cases h3 : m.obsViaIrNoOpt = m.obsRef <;>
-  by_cases h4 : m.obsViaIrOpt = m.obsRef <;>
+  unfold ObsEquiv
+  by_cases h1 : canonicalObs m.obsLegacyNoOpt = canonicalObs m.obsRef <;>
+  by_cases h2 : canonicalObs m.obsLegacyOpt = canonicalObs m.obsRef <;>
+  by_cases h3 : canonicalObs m.obsViaIrNoOpt = canonicalObs m.obsRef <;>
+  by_cases h4 : canonicalObs m.obsViaIrOpt = canonicalObs m.obsRef <;>
   simp_all
 
 /-- **Executable Witness Suite (`by decide`, `0 native_decide`)**:
@@ -197,6 +199,27 @@ theorem solcBugHunter_executable_witness :
         obsViaIrOpt := buggySolcObs }
     classifyFourWayStep step = .candidateSolcBug ∧
     localizeSolcBugSubsystem matrix = .yulOptimizerStepBug := by
+  decide
+
+/-- Reordering and explicit zero entries cannot create spurious solc bugs. -/
+example :
+    let refObs : Obs := { storage := [(1, 7), (2, 9)], transient := [(3, 8)] }
+    let reprObs : Obs :=
+      { storage := [(2, 9), (4, 0), (1, 5), (1, 7)], transient := [(5, 0), (3, 8)] }
+    let step : FourWayTraceStep :=
+      { txLabel := "map representation"
+        obsSolc := reprObs
+        obsVerityEvm := refObs
+        obsEvmYulLean := refObs
+        obsVerityDenote := refObs }
+    let matrix : SolcProfileMatrix :=
+      { obsRef := refObs
+        obsLegacyNoOpt := reprObs
+        obsLegacyOpt := reprObs
+        obsViaIrNoOpt := reprObs
+        obsViaIrOpt := reprObs }
+    classifyFourWayStep step = .allFourAgree ∧
+    localizeSolcBugSubsystem matrix = .noBug := by
   decide
 
 end Compiler.Autoresearch.SolcBugHunter

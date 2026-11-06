@@ -149,7 +149,7 @@ private def copyMemorySlice (dest src size : YulExpr) : List YulStmt :=
 
 private def materializeStaticSstore2Payload (base : String) (payload : FrameLayout) :
     Except String (List YulStmt × List YulExpr) := do
-  let (payloadPrelude, payloadArgs) := materializePayloadToMemory (base ++ "_payload") payload
+  let (payloadPrelude, payloadArgs) ← materializePayloadToMemory (base ++ "_payload") payload
   let payloadOffset ←
     match payloadArgs with
     | [offset, _size] => pure offset

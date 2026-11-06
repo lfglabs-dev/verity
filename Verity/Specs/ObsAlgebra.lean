@@ -4,7 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Verity Authors
 -/
 import Verity.Specs.Common
-import Compiler.Proofs.MappingSlot
+import EvmYul
+import Compiler.Constants
+import Compiler.Keccak.Sponge
 
 set_option autoImplicit false
 
@@ -72,13 +74,25 @@ structure Obs where
   transient : List (Nat × Nat) := []
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Observational equivalence between two execution outcomes. -/
+/-- Canonical finite storage map: last occurrence wins, absent slots read zero.
+    Remove zero values only after resolving duplicates, then sort by slot. No word
+    reduction is performed: callers remain responsible for their word-domain bounds. -/
+def canonicalStorage (entries : List (Nat × Nat)) : List (Nat × Nat) :=
+  let writes := entries.foldl (fun (m : Std.TreeMap Nat Nat) (p : Nat × Nat) =>
+    m.insert p.1 p.2) {}
+  writes.toList.filter (fun p => p.2 != 0)
+
+/-- Normalize only storage channels. Status, return bytes, and ordered logs stay exact. -/
+def canonicalObs (o : Obs) : Obs :=
+  Obs.mk o.status o.returndata o.logs (canonicalStorage o.storage) (canonicalStorage o.transient)
+
+/-- Observational equivalence modulo finite-map representation of storage channels. -/
 def ObsEquiv (a b : Obs) : Prop :=
-  a = b
+  canonicalObs a = canonicalObs b
 
 /-- Decidable check for `ObsEquiv`. -/
 def obsEquivBool (a b : Obs) : Bool :=
-  decide (a = b)
+  decide (canonicalObs a = canonicalObs b)
 
 @[simp]
 theorem obsEquiv_refl (a : Obs) : ObsEquiv a a := rfl
@@ -274,6 +288,21 @@ theorem obsAlgebra_executable_witness :
     obsEquivBool o1 o2 = false ∧
     o2.status = .revert ∧
     o2.storage = [(0, 10)] := by
+  decide
+
+/-- Storage observations use sorted last-write maps with implicit zero defaults;
+    log ordering and return bytes remain observable. -/
+example :
+    canonicalStorage [(2, 9), (1, 4), (2, 0), (3, 0), (1, 7)] = [(1, 7)] ∧
+    obsEquivBool (Obs.mk .success [] [] [(2, 9), (1, 7)] [(4, 0)])
+      (Obs.mk .success [] [] [(1, 7), (2, 9)] []) = true ∧
+    obsEquivBool (Obs.mk .success [] [] [(1, 7)] [])
+      (Obs.mk .success [] [] [(1, 8)] []) = false ∧
+    obsEquivBool { returndata := [1, 2] } { returndata := [2, 1] } = false ∧
+    obsEquivBool { logs := [{ emitter := 1, topics := [], data := [] },
+                            { emitter := 2, topics := [], data := [] }] }
+      { logs := [{ emitter := 2, topics := [], data := [] },
+                 { emitter := 1, topics := [], data := [] }] } = false := by
   decide
 
 end Verity.Specs.ObsAlgebra

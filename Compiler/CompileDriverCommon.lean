@@ -412,9 +412,14 @@ private def ensureNoAxiomatizedPrimitives (specs : List CompilationModel) : IO U
 
 private def ensureNoLocalObligations (specs : List CompilationModel) : IO Unit := do
   let localObligationSites := emitLocalObligationUsageSiteLines specs
-  if !localObligationSites.isEmpty then
+  -- Explicit ECM axioms are obligations too, independently of module status.
+  let ecmSites := specs.flatMap fun spec =>
+    (collectEcmAxioms spec).map fun (modName, assumption) =>
+      s!"- {spec.name} [ecm:{modName}]: {assumption}"
+  let obligations := localObligationSites ++ ecmSites
+  if !obligations.isEmpty then
     throw (IO.userError
-      s!"Undischarged local obligations remain:\n{String.intercalate "\n" localObligationSites}")
+      s!"Undischarged local obligations remain:\n{String.intercalate "\n" obligations}")
 
 private def ensureNoLinearMemoryMechanics (specs : List CompilationModel) : IO Unit := do
   let linearMemorySites := emitLinearMemoryUsageSiteLines specs

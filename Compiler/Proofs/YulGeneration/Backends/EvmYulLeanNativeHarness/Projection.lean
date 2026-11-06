@@ -1,7 +1,6 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Preservation
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.DispatchMetaSpecs
 
-import Lean
 
 namespace Compiler.Proofs.YulGeneration.Backends.Native
 
@@ -11,7 +10,6 @@ open Compiler.Proofs.YulGeneration
 
 open Compiler.Proofs.YulGeneration.Backends.StateBridge
 
-open Lean Elab Tactic Meta
 
 open Compiler.Proofs.IRGeneration
 

@@ -10,20 +10,12 @@ def collectEcmAxioms (spec : CompilationModel) : List (String × String) :=
     | some ctor => ctor.body
     | none => []
   let allStmts := stmtsFromCtor ++ spec.functions.flatMap stmtsFromFn
-  let pairs := allStmts.flatMap collectStmtEcmAxioms
+  let pairs := Stmt.foldList
+    (fun acc stmt _ =>
+      match stmt with
+      | .ecm mod _ => acc ++ mod.axioms.map (fun a => (mod.name, a))
+      | _ => acc)
+    [] allStmts
   pairs.foldl (fun acc p => if acc.contains p then acc else acc ++ [p]) []
-where
-  collectStmtEcmAxioms : Stmt → List (String × String)
-    | .ecm mod args =>
-        let fromArgs := args.flatMap collectExprEcmAxioms
-        mod.axioms.map (fun a => (mod.name, a)) ++ fromArgs
-    | .ite _ thenBr elseBr =>
-        thenBr.flatMap collectStmtEcmAxioms ++ elseBr.flatMap collectStmtEcmAxioms
-    | .forEach _ _ body => body.flatMap collectStmtEcmAxioms
-    | _ => []
-  collectExprEcmAxioms : Expr → List (String × String)
-    | .ite cond a b => collectExprEcmAxioms cond ++ collectExprEcmAxioms a ++ collectExprEcmAxioms b
-    | .forkIfAtLeast _ thenExpr elseExpr => collectExprEcmAxioms thenExpr ++ collectExprEcmAxioms elseExpr
-    | _ => []
 
 end Compiler.CompilationModel

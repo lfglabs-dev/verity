@@ -2156,6 +2156,35 @@ unsafe def runTests : IO Unit := do
     ["\"compatible\":true", "\"addedFields\":[\"pendingImplementation\"]"]
 
   let deniedTrustReportPath := s!"{trustReportDir}/trust-report-denied.json"
+  -- Each wrapper used to disappear from collectEcmAxioms' partial traversal.
+  let nestedEcm : Stmt := .ecm
+    { name := "nestedBoundary", numArgs := 0, resultVars := [], writesState := false,
+      readsState := false, axioms := ["test_call_interface"], compile := fun _ _ => pure [] } []
+  for (label, wrapper) in
+      [("unsafeBlock", Stmt.unsafeBlock "explicit boundary" [nestedEcm]),
+       ("matchAdt", Stmt.matchAdt "Choice" (.adtTag "Choice" "choice")
+         [("Some", [], [nestedEcm])]),
+       ("forEachSetBit", Stmt.forEachSetBit "bit" (.literal 1) [nestedEcm])] do
+    let spec : CompilationModel :=
+      { name := "NestedEcmBoundary"
+        fields := [{ name := "choice", ty := .adt "Choice" 0 }]
+        «constructor» := none
+        adtTypes := [{ name := "Choice", variants := [{ name := "Some", tag := 0, fields := [] }] }]
+        functions :=
+        [{ name := "exercise", params := [], returnType := none, body := [wrapper] }] }
+    let axioms := collectEcmAxioms spec
+    let moduleAxioms := (collectUsedEcmModules spec).flatMap fun mod =>
+      mod.axioms.map (fun a => (mod.name, a))
+    if axioms != [("nestedBoundary", "test_call_interface")] || axioms != moduleAxioms then
+      throw (IO.userError s!"{label}: ECM modules/axioms must have exact parity")
+    let report := emitTrustReportJson [spec]
+    if !contains report "\"ecmAxioms\":[{\"module\":\"nestedBoundary\",\"assumption\":\"test_call_interface\"" ||
+        !contains report "\"ecmModules\":[{\"module\":\"nestedBoundary\"" then
+      throw (IO.userError s!"{label}: trust JSON omitted nested ECM obligations")
+    expectFailureContains s!"{label}: deny-local-obligations rejects nested ECM axiom"
+      (compileSpecsWithOptions [spec] outDir false [] {} none (some deniedTrustReportPath)
+        none none false false false true false false false false false)
+      "[ecm:nestedBoundary]: test_call_interface"
   expectFailureContains
     "compileSpecsWithOptions rejects low-level call/returndata mechanics when deny flag enabled"
     (compileSpecsWithOptions
@@ -2489,4 +2518,3 @@ unsafe def runTests : IO Unit := do
 #eval! runTests
 
 end Compiler.CompileDriverTest
-

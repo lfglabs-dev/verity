@@ -12,6 +12,19 @@
   (Issue #998). Once primitive-level EDSL ≡ compiled-Yul lemmas are proven,
   this end-to-end theorem provides the composition spine.
 
+  **Storage footprint, fuel, and dispatcher boundary (not whole-EVM correctness)**:
+  `materializedStorageSlots` pre-populates only slot `0`, literal `.lit` arguments
+  to `sload` in the runtime code, and the caller's `observableSlots`. Unlisted
+  dynamic slots (including computed mapping slots) start at `0` in the native
+  harness even when the source storage function is nonzero there. Callers must
+  explicitly supply the real read footprint through `observableSlots` when using
+  these results for such programs; projecting final outputs alone does not establish
+  initial-state agreement on dynamic reads. The `hUserBodyResult` premise remains
+  an explicit body-correctness obligation, not a consequence of compilation.
+  Runtime execution uses `Nat.succ (sizeOf runtimeCode)` fuel at the stated seams;
+  the theorems do not assert arbitrary-program fuel adequacy. The target is native
+  Yul `callDispatcher` execution, not deployed bytecode or arbitrary EVM contexts.
+
   **Architecture**:
   - Layer 2: `compile spec selectors = .ok irContract`
              `interpretIR irContract tx irState ≡ interpretSpec spec ...`
