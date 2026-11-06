@@ -13,7 +13,7 @@ Mapping slot abstraction used by proof interpreters.
 
 The active backend is keccak-faithful (`solidityMappingSlot`).
 
-## Range axiom eliminated; slot collision-resistance is axiomatic
+## Kernel-proved range and finite accessed-footprint collision certificates
 
 The mapping-slot definition now uses the kernel-computable `KeccakEngine.keccak256`
 so that the output-length bound is structurally provable. The FFI version (`ffi.KEC`)
@@ -72,9 +72,7 @@ theorem abiEncodeMappingSlot_mod (baseSlot key : Nat) :
       abiEncodeMappingSlot baseSlot key := by
   simp only [abiEncodeMappingSlot, evmYul_uint256_ofNat_mod]
 
-/-- The mapping-slot derivation only sees base slot and key modulo `2^256`.
-    In particular `solidityMappingSlot b k = solidityMappingSlot b (k + 2^256)`,
-    which is why `solidityMappingSlot_injective` must be range-restricted. -/
+/-- The mapping-slot derivation only sees base slot and key modulo `2^256`. -/
 theorem solidityMappingSlot_mod (baseSlot key : Nat) :
     solidityMappingSlot (baseSlot % Compiler.Constants.evmModulus)
         (key % Compiler.Constants.evmModulus) =
@@ -82,46 +80,43 @@ theorem solidityMappingSlot_mod (baseSlot key : Nat) :
   unfold solidityMappingSlot
   rw [abiEncodeMappingSlot_mod]
 
-/-- Collision-resistance of Solidity mapping-slot derivation
-    `keccak256(abi.encode(key, baseSlot))` on in-range (`< 2^256`) base
-    slots and keys, i.e. on the 64-byte ABI words actually hashed.
+/-- Injectivity restricted to the concrete finite list of accessed ABI pairs.
+    This is an explicit hypothesis, never a claim for every finite list.
+    Even the full in-range ABI domain cannot inject into 256-bit slots. -/
+def CollisionFreeOn (accessedPairs : List (Nat × Nat)) : Prop :=
+  ∀ p ∈ accessedPairs, ∀ q ∈ accessedPairs,
+    solidityMappingSlot p.1 p.2 = solidityMappingSlot q.1 q.2 → p = q
 
-    **Not** injectivity of keccak256 on arbitrary `ByteArray`s (256-bit
-    output, infinite domain). The range hypotheses are required: the ABI
-    encoding reduces both arguments modulo `2^256` (`solidityMappingSlot_mod`),
-    so an unrestricted statement over `Nat` is refutable
-    (`solidityMappingSlot 0 0 = solidityMappingSlot 0 (2^256)`).
-    See `docs/AXIOMS.md`. -/
-axiom solidityMappingSlot_injective
-    (base₁ key₁ base₂ key₂ : Nat) :
-    base₁ < Compiler.Constants.evmModulus →
-    key₁ < Compiler.Constants.evmModulus →
-    base₂ < Compiler.Constants.evmModulus →
-    key₂ < Compiler.Constants.evmModulus →
-    solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
-    base₁ = base₂ ∧ key₁ = key₂
+/-- Equal hashes identify only pairs covered by this footprint's certificate. -/
+theorem mappingSlot_pair_eq_of_collisionFreeOn
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    {base₁ key₁ base₂ key₂ : Nat}
+    (hp : (base₁, key₁) ∈ accessedPairs) (hq : (base₂, key₂) ∈ accessedPairs)
+    (h : solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂) :
+    base₁ = base₂ ∧ key₁ = key₂ := by
+  exact Prod.mk.inj (cert _ hp _ hq h)
 
-/-- Unbounded consequence of `solidityMappingSlot_injective`: equal derived
-    slots force equal base slots and keys modulo `2^256`. -/
-theorem solidityMappingSlot_injective_mod (base₁ key₁ base₂ key₂ : Nat)
+/-- Modulo equality requires a certificate covering the normalized pairs. -/
+theorem mappingSlot_mod_eq_of_collisionFreeOn (base₁ key₁ base₂ key₂ : Nat)
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    (hp : (base₁ % Compiler.Constants.evmModulus,
+      key₁ % Compiler.Constants.evmModulus) ∈ accessedPairs)
+    (hq : (base₂ % Compiler.Constants.evmModulus,
+      key₂ % Compiler.Constants.evmModulus) ∈ accessedPairs)
     (h : solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂) :
     base₁ % Compiler.Constants.evmModulus = base₂ % Compiler.Constants.evmModulus ∧
       key₁ % Compiler.Constants.evmModulus = key₂ % Compiler.Constants.evmModulus := by
-  have hpos : 0 < Compiler.Constants.evmModulus := by decide
-  apply solidityMappingSlot_injective _ _ _ _
-    (Nat.mod_lt _ hpos) (Nat.mod_lt _ hpos) (Nat.mod_lt _ hpos) (Nat.mod_lt _ hpos)
+  apply mappingSlot_pair_eq_of_collisionFreeOn cert hp hq
   rw [solidityMappingSlot_mod, solidityMappingSlot_mod]
   exact h
 
 theorem solidityMappingSlot_ne {base₁ key₁ base₂ key₂ : Nat}
-    (hb₁ : base₁ < Compiler.Constants.evmModulus)
-    (hk₁ : key₁ < Compiler.Constants.evmModulus)
-    (hb₂ : base₂ < Compiler.Constants.evmModulus)
-    (hk₂ : key₂ < Compiler.Constants.evmModulus)
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    (hp : (base₁, key₁) ∈ accessedPairs) (hq : (base₂, key₂) ∈ accessedPairs)
     (h : base₁ ≠ base₂ ∨ key₁ ≠ key₂) :
     solidityMappingSlot base₁ key₁ ≠ solidityMappingSlot base₂ key₂ := by
   intro heq
-  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₂ hb₁ hk₁ hb₂ hk₂ heq with ⟨hb, hk⟩
+  rcases mappingSlot_pair_eq_of_collisionFreeOn cert hp hq heq with ⟨hb, hk⟩
   cases h with
   | inl hbase => exact hbase hb
   | inr hkey => exact hkey hk
@@ -321,41 +316,33 @@ theorem abstractMappingSlot_lt_evmModulus (baseSlot key : Nat) :
 
 theorem abstractNestedMappingSlot_injective
     (base₁ key₁ key₂ base₂ key₁' key₂' : Nat)
-    (hb₁ : base₁ < Compiler.Constants.evmModulus)
-    (hk₁ : key₁ < Compiler.Constants.evmModulus)
-    (hk₂ : key₂ < Compiler.Constants.evmModulus)
-    (hb₂ : base₂ < Compiler.Constants.evmModulus)
-    (hk₁' : key₁' < Compiler.Constants.evmModulus)
-    (hk₂' : key₂' < Compiler.Constants.evmModulus)
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    (hp : (base₁, key₁) ∈ accessedPairs) (hq : (base₂, key₁') ∈ accessedPairs)
+    (hpOuter : (solidityMappingSlot base₁ key₁, key₂) ∈ accessedPairs)
+    (hqOuter : (solidityMappingSlot base₂ key₁', key₂') ∈ accessedPairs)
     (h : abstractNestedMappingSlot base₁ key₁ key₂ =
       abstractNestedMappingSlot base₂ key₁' key₂') :
     base₁ = base₂ ∧ key₁ = key₁' ∧ key₂ = key₂' := by
   have hinj :=
-    solidityMappingSlot_injective
-      (solidityMappingSlot base₁ key₁) key₂
-      (solidityMappingSlot base₂ key₁') key₂'
-      (solidityMappingSlot_lt_evmModulus _ _) hk₂
-      (solidityMappingSlot_lt_evmModulus _ _) hk₂' (by
+    mappingSlot_pair_eq_of_collisionFreeOn cert hpOuter hqOuter (by
         simpa [abstractNestedMappingSlot, abstractMappingSlot] using h)
   rcases hinj with ⟨hinner, hkey2⟩
-  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₁' hb₁ hk₁ hb₂ hk₁' hinner
+  rcases mappingSlot_pair_eq_of_collisionFreeOn cert hp hq hinner
     with ⟨hbase, hkey1⟩
   exact ⟨hbase, hkey1, hkey2⟩
 
 theorem abstractNestedMappingSlot_ne
     {base₁ key₁ key₂ base₂ key₁' key₂' : Nat}
-    (hb₁ : base₁ < Compiler.Constants.evmModulus)
-    (hk₁ : key₁ < Compiler.Constants.evmModulus)
-    (hk₂ : key₂ < Compiler.Constants.evmModulus)
-    (hb₂ : base₂ < Compiler.Constants.evmModulus)
-    (hk₁' : key₁' < Compiler.Constants.evmModulus)
-    (hk₂' : key₂' < Compiler.Constants.evmModulus)
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    (hp : (base₁, key₁) ∈ accessedPairs) (hq : (base₂, key₁') ∈ accessedPairs)
+    (hpOuter : (solidityMappingSlot base₁ key₁, key₂) ∈ accessedPairs)
+    (hqOuter : (solidityMappingSlot base₂ key₁', key₂') ∈ accessedPairs)
     (h : base₁ ≠ base₂ ∨ key₁ ≠ key₁' ∨ key₂ ≠ key₂') :
     abstractNestedMappingSlot base₁ key₁ key₂ ≠
       abstractNestedMappingSlot base₂ key₁' key₂' := by
   intro heq
   rcases abstractNestedMappingSlot_injective base₁ key₁ key₂ base₂ key₁' key₂'
-      hb₁ hk₁ hk₂ hb₂ hk₁' hk₂' heq
+      cert hp hq hpOuter hqOuter heq
     with ⟨hb, hk1, hk2⟩
   rcases h with h | h | h
   · exact h hb

@@ -112,6 +112,17 @@ class CheckAxiomsLocationTests(unittest.TestCase):
 
 
 class CheckAxiomsReportTests(unittest.TestCase):
+    def test_removed_mapping_injectivity_axiom_is_rejected(self) -> None:
+        self.assertEqual(check_axioms.DOCUMENTED_AXIOMS, frozenset())
+        _, documented, forbidden, unexpected = check_axioms.classify_axioms({
+            "MappingProof": ["Compiler.Proofs.solidityMappingSlot_injective"],
+        })
+        self.assertEqual(documented, set())
+        self.assertEqual(forbidden, set())
+        self.assertEqual(unexpected, {
+            "Compiler.Proofs.solidityMappingSlot_injective": ["MappingProof"],
+        })
+
     def test_parse_axiom_output(self) -> None:
         text = (
             "'Foo.bar' depends on axioms: [propext, solidityMappingSlot_lt_evmModulus]\n"

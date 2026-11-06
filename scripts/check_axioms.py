@@ -53,9 +53,7 @@ LEAN_BUILTIN_AXIOMS = frozenset([
     "Lean.trustCompiler",
 ])
 
-DOCUMENTED_AXIOMS = frozenset([
-    "Compiler.Proofs.solidityMappingSlot_injective",
-])
+DOCUMENTED_AXIOMS: frozenset[str] = frozenset()
 
 FORBIDDEN_AXIOMS = frozenset([
     "sorryAx",

@@ -42,13 +42,11 @@ ROOT = SCRIPT_DIR.parent
 OUTPUT = ROOT / "PrintAxioms.lean"
 UNION_OUTPUT = ROOT / "scripts" / "VerityUnionAxioms.lean"
 
-# Allowed axiom union across the verified population in Phase 0a (before Phase 0b+1
-# removes `native_decide`/`bv_decide` origins and Phase 2 removes `solidityMappingSlot_injective`).
+# Only Lean's three foundational axioms are permitted in the population union.
 ALLOWED_POPULATION_AXIOMS: tuple[str, ...] = (
     "propext",
     "Classical.choice",
     "Quot.sound",
-    "Compiler.Proofs.solidityMappingSlot_injective",
 )
 
 SORRY_RE_BODY = re.compile(r"\bsorry\b")
