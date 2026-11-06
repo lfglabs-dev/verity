@@ -17,10 +17,9 @@
   array channel is a different `ContractState` field. No slot
   inequality.
 
-  Global aligned-write preservation of `MappingCoherent*` lives in
-  `MappingCoherence` under `solidityMappingSlot_injective`. This file
-  still has finite-set certificates; `*_of_mappingCoherent*` lifts the
-  global theorems to any list without a pairwise inequality.
+  Aligned-write preservation is finite-footprint only. Even the
+  `*_of_mappingCoherent*` wrappers require finite-set certificates:
+  initial global coherence does not imply non-aliasing of distinct entries.
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
@@ -556,42 +555,42 @@ theorem writeArray_preserves_mappingCoherentMap2On
     simp [storage, writeArray]
   exact (hmap.trans (hcoh p hp)).trans hflat.symm
 
-/-- Any finite list is coherent after an aligned address write if the
-    whole world was. No pairwise certificate. -/
+/-- Restrict initial global coherence to the accessed footprint; preservation
+    still requires that footprint's explicit non-alias certificate. -/
 theorem writeMap_aligned_preserves_on_of_mappingCoherent
     (s : ContractState) (pairs : List (Nat × Address))
     (slot : Nat) (key : Address) (v : Uint256)
-    (hslot : slot < Compiler.Constants.evmModulus)
+    (hna : DerivedAddrSlotsDistinct pairs) (hp : (slot, key) ∈ pairs)
     (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherent s) :
     MappingCoherentOn
       ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v)
       pairs :=
-  mappingCoherentOn_of_mappingCoherent _ _ hrange
-    (writeMap_aligned_preserves_mappingCoherent s slot key v hslot hcoh)
+  writeMap_aligned_preserves_on s pairs slot key v
+    (mappingCoherentOn_of_mappingCoherent s pairs hrange hcoh) hna hp
 
 theorem writeMapUint_aligned_preserves_uintOn_of_mappingCoherentUint
     (s : ContractState) (pairs : List (Nat × Uint256))
     (slot : Nat) (key v : Uint256)
-    (hslot : slot < Compiler.Constants.evmModulus)
+    (hna : DerivedUintSlotsDistinct pairs) (hp : (slot, key) ∈ pairs)
     (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherentUint s) :
     MappingCoherentUintOn
       ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v)
       pairs :=
-  mappingCoherentUintOn_of_mappingCoherentUint _ _ hrange
-    (writeMapUint_aligned_preserves_mappingCoherentUint s slot key v hslot hcoh)
+  writeMapUint_aligned_preserves_on s pairs slot key v
+    (mappingCoherentUintOn_of_mappingCoherentUint s pairs hrange hcoh) hna hp
 
 theorem writeMap2_aligned_preserves_map2On_of_mappingCoherentMap2
     (s : ContractState) (pairs : List (Nat × Address × Address))
     (slot : Nat) (k1 k2 : Address) (v : Uint256)
-    (hslot : slot < Compiler.Constants.evmModulus)
+    (hna : DerivedMap2SlotsDistinct pairs) (hp : (slot, k1, k2) ∈ pairs)
     (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherentMap2 s) :
     MappingCoherentMap2On
       ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v)
       pairs :=
-  mappingCoherentMap2On_of_mappingCoherentMap2 _ _ hrange
-    (writeMap2_aligned_preserves_mappingCoherentMap2 s slot k1 k2 v hslot hcoh)
+  writeMap2_aligned_preserves_on s pairs slot k1 k2 v
+    (mappingCoherentMap2On_of_mappingCoherentMap2 s pairs hrange hcoh) hna hp
 
 end Compiler.Proofs.Storage.MappingCoherenceOn

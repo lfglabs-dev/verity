@@ -113,8 +113,7 @@ run_cmd do
   let allowed := #[
     "propext",
     "Classical.choice",
-    "Quot.sound",
-    "Compiler.Proofs.solidityMappingSlot_injective"
+    "Quot.sound"
   ]
   let allowedNativeOrigins := #[
     "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq",
@@ -5047,7 +5046,8 @@ Compiler.Proofs.MacroSSAMetaSpec.witness_zero_arg_helper_normalization
 Compiler.Proofs.evmYul_uint256_ofNat_mod
 Compiler.Proofs.abiEncodeMappingSlot_mod
 Compiler.Proofs.solidityMappingSlot_mod
-Compiler.Proofs.solidityMappingSlot_injective_mod
+Compiler.Proofs.mappingSlot_pair_eq_of_collisionFreeOn
+Compiler.Proofs.mappingSlot_mod_eq_of_collisionFreeOn
 Compiler.Proofs.solidityMappingSlot_ne
 Compiler.Proofs.abstractMappingSlot_eq_solidity
 Compiler.Proofs.abstractMappingTag_eq_zero
@@ -5625,9 +5625,9 @@ Compiler.Proofs.Storage.MappingCoherence.addressToWord_val_lt
 Compiler.Proofs.Storage.MappingCoherence.mappingAddrSlot_ne_of_map_ne
 Compiler.Proofs.Storage.MappingCoherence.mappingUintSlot_ne_of_mapUint_ne
 Compiler.Proofs.Storage.MappingCoherence.mappingMap2Slot_ne_of_map2_ne
-Compiler.Proofs.Storage.MappingCoherence.writeMap_aligned_preserves_mappingCoherent
-Compiler.Proofs.Storage.MappingCoherence.writeMapUint_aligned_preserves_mappingCoherentUint
-Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_preserves_mappingCoherentMap2
+Compiler.Proofs.Storage.MappingCoherence.writeMap_aligned_preserves_mappingCoherent_on
+Compiler.Proofs.Storage.MappingCoherence.writeMapUint_aligned_preserves_mappingCoherentUint_on
+Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_preserves_mappingCoherentMap2_on
 Compiler.Proofs.Storage.MappingCoherence.writeTransient_preserves_mappingCoherent
 Compiler.Proofs.Storage.MappingCoherence.writeTransient_preserves_mappingCoherentUint
 Compiler.Proofs.Storage.MappingCoherence.writeTransient_preserves_mappingCoherentMap2
@@ -5718,9 +5718,9 @@ Compiler.Proofs.Storage.MappingCoherentGlobal.simple_ne_of_base_ne
 Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_aligned_map_case
 Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_aligned_mapUint_case
 Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_aligned_map2_case
-Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_aligned_preserves_mappingCoherentAllKeys
-Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_aligned_preserves_mappingCoherentAllKeys
-Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_aligned_preserves_mappingCoherentAllKeys
+Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_aligned_preserves_mappingCoherentOnKeys
+Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_aligned_preserves_mappingCoherentOnKeys
+Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_aligned_preserves_mappingCoherentOnKeys
 Compiler.Proofs.Storage.MappingCoherentGlobal.writeSlot_preserves_mappingCoherentAllKeys
 Compiler.Proofs.Storage.MappingCoherentGlobal.writeAddrSlot_preserves_mappingCoherentAllKeys
 Compiler.Proofs.Storage.MappingCoherentGlobal.writeTransient_preserves_mappingCoherentAllKeys
@@ -12042,8 +12042,7 @@ run_cmd do
   let allowed := #[
     "propext",
     "Classical.choice",
-    "Quot.sound",
-    "Compiler.Proofs.solidityMappingSlot_injective"
+    "Quot.sound"
   ]
   let allowedNativeOrigins := #[
     "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq",
@@ -12072,4 +12071,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11237 theorems/lemmas (8738 public, 2499 private, 0 sorry'd)
+-- Total: 11238 theorems/lemmas (8739 public, 2499 private, 0 sorry'd)

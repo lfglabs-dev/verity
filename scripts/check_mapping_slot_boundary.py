@@ -72,6 +72,11 @@ def main() -> int:
     mapping_slot_text = scrub_lean_code(MAPPING_SLOT_FILE.read_text(encoding="utf-8"))
     trust_text = TRUST_ASSUMPTIONS_FILE.read_text(encoding="utf-8")
 
+    if re.search(r"\baxiom\b", mapping_slot_text):
+        errors.append("Compiler/Proofs/MappingSlot.lean: custom axioms are forbidden")
+    if not re.search(r"def\s+CollisionFreeOn\s*\(accessedPairs\s*:\s*List", mapping_slot_text):
+        errors.append("MappingSlot must expose finite accessed-pair CollisionFreeOn evidence")
+
     if not ACTIVE_BACKEND_KECCAK_RE.search(mapping_slot_text):
         rel = MAPPING_SLOT_FILE.relative_to(ROOT)
         errors.append(

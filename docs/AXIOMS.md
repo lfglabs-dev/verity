@@ -33,7 +33,7 @@ chain.”
 
 ## Current Axioms
 
-- Active axioms: 1
+- Active axioms: 0
 
 C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
 not add a keccak-injectivity axiom. Source lens laws use constructor
@@ -44,14 +44,12 @@ mapping-chain constructors `StorageKey.mapChain` / `transientMapChain`
 (G2 residual) likewise add no axiom and make nested / struct mapping
 separation a constructor fact.
 
-C5 step 4 is complete under `solidityMappingSlot_injective` below —
-collision-resistance of the 64-byte ABI mapping preimage (range-restricted
-to base slots and keys `< 2^256`), **not**
-injectivity of keccak256 on arbitrary byte strings. Finite-set
-slices remain valid without the axiom. Global aligned `writeMap*`
-preservation uses the axiom; lone `writeSlot` still takes an
-image-avoidance `∀`. `writeAddrSlot` and `writeArray` discharge
-that `∀` (they never write `StorageKey.slot`) and add no axiom.
+C5 step 4 mapping-write preservation is restricted to finite accessed
+footprints with explicit non-alias certificates. `CollisionFreeOn accessedPairs`
+only covers ABI pairs in the supplied list; it is never assumed for every list.
+`LayoutNonAliasOn fields accessed` covers cross-channel mapping separation and
+reserved scalar slots included in `accessed`. Lone `writeSlot` still takes an
+image-avoidance hypothesis. `writeAddrSlot` and `writeArray` add no axiom.
 `FieldStorageKey` is a
 constructor match on `FieldType` / `isTransient`; struct-member
 slots add `wordOffset` via `mappingSlotLocation`. Compatibility
@@ -69,16 +67,11 @@ finite list is the same explicit slot inequality. Lone
 injectivity separates transient from persistent keys.
 `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
 from no write-slot conflict plus constructor facts.
-The all-keys global (`MappingCoherentGlobal.MappingCoherentAllKeys`,
-final slice of C5 step 4) adds no axiom either: cross-channel
-separation is the declared layout (`fieldMapKindAt` is a function of
-the base slot, so distinct mapping shapes force distinct base slots)
-plus the same `solidityMappingSlot_injective`. The simple-vs-nested
-cross case takes an explicit `MappingBasesNotDerived` layout
-certificate (together with `MappingBasesInRange`, the < 2^256 range of
-the declared mapping bases required by the bounded axiom) and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
-both are hypotheses of the existing image-avoidance shape, discharged
-per contract. Dynamic-array element slots are **not** covered: the
+The all-keys relation (`MappingCoherentGlobal.MappingCoherentAllKeys`)
+remains useful for initialization and mapping-free contracts such as
+OwnedCounter. Aligned mapping writes conclude `MappingCoherentOnKeys`,
+not global all-keys preservation. Distinct declared bases alone do not
+establish distinct hash images. Dynamic-array element slots are **not** covered: the
 source and Yul derivations diverge and the collapse returns `none` at
 dynamic-array roots rather than claiming an equality — see the
 `unsupported` row in `TRUST_ASSUMPTIONS.md` and
@@ -90,72 +83,25 @@ FunctionSpec call denotation (`DenoteFunctionCalls`), ETH-valued
 is an explicit `AdversaryModel` / `calleeStep` parameter, not an
 assumed transition.
 
-### 1. `solidityMappingSlot_injective`
-
-**Location**: `Compiler/Proofs/MappingSlot.lean:95`
-
-**Statement**:
-```lean
-axiom solidityMappingSlot_injective
-    (base₁ key₁ base₂ key₂ : Nat) :
-    base₁ < Compiler.Constants.evmModulus →
-    key₁ < Compiler.Constants.evmModulus →
-    base₂ < Compiler.Constants.evmModulus →
-    key₂ < Compiler.Constants.evmModulus →
-    solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
-    base₁ = base₂ ∧ key₁ = key₂
-```
-
-**Justification**:
-`solidityMappingSlot base key` is `keccak256(abi.encode(key, base))` —
-a 64-byte ABI preimage. Distinct `(base, key)` pairs colliding would
-alias two Solidity mapping entries onto one EVM word. Solidity's
-layout makes the same collision-resistance assumption. This is **not**
-a claim that keccak256 is injective on all `ByteArray`s (256-bit
-output, infinite domain).
-
-**Why the range hypotheses (`< 2^256`) are required**: the ABI encoding
-`abiEncodeMappingSlot` passes both arguments through
-`EvmYul.UInt256.ofNat`, i.e. reduces them modulo `2^256`
-(proved as `solidityMappingSlot_mod`). An unrestricted statement over
-all `Nat` is therefore refutable: `solidityMappingSlot 0 (2^256) =
-solidityMappingSlot 0 0` holds by computation, and the old unbounded
-axiom yielded `2^256 = 0`, i.e. `False`. With the bounds, distinct
-`(base, key)` pairs give distinct 64-byte preimages, so the axiom is
-exactly collision-resistance on the hashed words. The bound-free
-consequence `solidityMappingSlot_injective_mod` gives equality modulo
-`2^256`.
-
-Consequences for callers: keys come from `Uint256.val` / `addressToWord`
-and are in range by construction; nested inner slots are keccak outputs
-(`solidityMappingSlot_lt_evmModulus`). Base slots are raw `Nat`s, so
-`MappingCoherent*` quantify only over base slots `< 2^256`, the aligned
-`writeMap*` preservation theorems take `slot < 2^256`, and the all-keys
-layer takes a `MappingBasesInRange` layout certificate (discharged per
-contract, like `MappingBasesNotDerived`).
-
-**Risk**: Medium. A keccak collision on this preimage family would
-make the global `MappingCoherent` preservation theorem false. Finite
-listed-pair certificates remain valid without the axiom.
-
-**CI validation**:
-- `scripts/check_axioms.py` location + count check
-- `DOCUMENTED_AXIOMS` in that script
-- Kernel Keccak output is already cross-checked against FFI/EVM keccak
-
-**Not used by hashed mapping chains**: nested / word-offset / struct
-mappings (`getMappingN`, `getMappingWord`, `structMember*`) execute on the
-symbolic `StorageKey.mapChain` channel, so their executable-plane separation is
-constructor injectivity. Their Solidity-layout interpretation
-(`Compiler/Proofs/Storage/HashedMappingLayout.lean`) takes a finite
-`LayoutNonAlias` certificate as a hypothesis instead of this axiom.
-
-**Elimination path**:
-Replace with a theorem if a restricted-domain injectivity proof
-becomes available, or keep as an explicit cryptographic assumption
-and stop calling C5 step 4 axiom-free.
-
 ## Eliminated Axioms
+
+### `solidityMappingSlot_injective` (removed as inconsistent)
+
+The former bounded axiom asserted injectivity on all pairs of 256-bit words.
+The kernel-proved `solidityMappingSlot_lt_evmModulus` bounds every output to
+256 bits. Together they would inject `Fin (2^256) × Fin (2^256)` (2^512 elements)
+into `Fin (2^256)` (2^256 elements), contradicting finite cardinality by
+pigeonhole. Range restriction did not repair this inconsistency. This was a
+critical soundness defect, not a cryptographic assumption justified by Keccak.
+
+The replacement is explicit finite accessed-footprint evidence:
+`CollisionFreeOn accessedPairs`, `LayoutNonAliasOn fields accessed`, and
+`StorageSlotNonAliasCertificate slots`. Nested proofs include both inner and
+outer ABI pairs. Reserved scalar slots require separate separation evidence
+or inclusion in the layout footprint. Concrete certificates may be proved by
+kernel computation; symbolic theorems carry them as hypotheses. No theorem
+asserts collision freedom for every finite footprint. Only `propext`,
+`Classical.choice`, and `Quot.sound` are permitted by the population axiom gate.
 
 ### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)
 
@@ -469,8 +415,8 @@ The macro-shape and post-codegen rewrite regression tests use `native_decide`;
 that mechanism is reported in `artifacts/trust_surface_report.json` under the
 documented native-code trust boundary above and does not change the active
 axiom set. Unsafe-Yul fragments are marked as optimizer-opaque at the lowering
-boundary, so this provenance guard also introduces no axiom. `solidityMappingSlot_injective`
-therefore remains the single active project-level axiom.
+boundary, so this provenance guard also introduces no axiom. There are no
+active custom Lean axioms.
 
 ## Consumer Intrinsic Obligations (from verity_intrinsic)
 

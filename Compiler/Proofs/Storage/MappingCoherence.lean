@@ -1,11 +1,10 @@
 /-
   C5 step 4: structural StorageKey → Solidity-slot collapse and
-  shadow-vs-flat mapping coherence, complete under
-  `solidityMappingSlot_injective`.
+  shadow-vs-flat mapping coherence over certified finite footprints.
 
   Source `StorageKey` constructors stay injective. Keccak layout lives only
-  here. Global aligned `writeMap*` preservation uses the axiom (ABI
-  mapping-preimage collision-resistance, not keccak-on-all-bytes).
+  here. Aligned `writeMap*` preservation requires explicit non-alias evidence
+  for the supplied accessed footprint and concludes finite coherence.
   Lone `writeSlot` takes an image-avoidance `∀`.
   `writeAddrSlot` and `writeArray` preserve the globals with no `∀`:
   they never write a `StorageKey.slot`.
@@ -230,115 +229,139 @@ theorem addressToWord_val_lt (a : Address) :
   (addressToWord a).isLt
 
 theorem mappingAddrSlot_ne_of_map_ne {slot slot' : Nat} {key key' : Address}
-    (hs' : slot' < Compiler.Constants.evmModulus)
-    (hs : slot < Compiler.Constants.evmModulus)
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    (hp : (slot', (addressToWord key').val) ∈ accessedPairs)
+    (hq : (slot, (addressToWord key).val) ∈ accessedPairs)
     (h : StorageKey.map slot' key' ≠ StorageKey.map slot key) :
     solidityMappingSlot slot' (addressToWord key').val ≠
       solidityMappingSlot slot (addressToWord key).val := by
   intro heq
-  rcases solidityMappingSlot_injective slot' (addressToWord key').val
-      slot (addressToWord key).val hs' (addressToWord_val_lt key') hs
-      (addressToWord_val_lt key) heq with ⟨hs, hk⟩
+  rcases mappingSlot_pair_eq_of_collisionFreeOn cert hp hq heq with ⟨hs, hk⟩
   apply h
   rw [hs, addressToWord_injective (Core.Uint256.ext hk)]
 
 theorem mappingUintSlot_ne_of_mapUint_ne {slot slot' : Nat} {key key' : Uint256}
-    (hs' : slot' < Compiler.Constants.evmModulus)
-    (hs : slot < Compiler.Constants.evmModulus)
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    (hp : (slot', key'.val) ∈ accessedPairs) (hq : (slot, key.val) ∈ accessedPairs)
     (h : StorageKey.mapUint slot' key' ≠ StorageKey.mapUint slot key) :
     solidityMappingSlot slot' key'.val ≠ solidityMappingSlot slot key.val := by
   intro heq
-  rcases solidityMappingSlot_injective slot' key'.val slot key.val hs' key'.isLt hs key.isLt heq
+  rcases mappingSlot_pair_eq_of_collisionFreeOn cert hp hq heq
     with ⟨hs, hk⟩
   apply h
   rw [hs, Core.Uint256.ext hk]
 
 theorem mappingMap2Slot_ne_of_map2_ne
     {slot slot' : Nat} {k1 k1' k2 k2' : Address}
-    (hs' : slot' < Compiler.Constants.evmModulus)
-    (hs : slot < Compiler.Constants.evmModulus)
+    {accessedPairs : List (Nat × Nat)} (cert : CollisionFreeOn accessedPairs)
+    (hp : (slot', (addressToWord k1').val) ∈ accessedPairs)
+    (hq : (slot, (addressToWord k1).val) ∈ accessedPairs)
+    (hpOuter : (solidityMappingSlot slot' (addressToWord k1').val,
+      (addressToWord k2').val) ∈ accessedPairs)
+    (hqOuter : (solidityMappingSlot slot (addressToWord k1).val,
+      (addressToWord k2).val) ∈ accessedPairs)
     (h : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2) :
     abstractNestedMappingSlot slot' (addressToWord k1').val (addressToWord k2').val ≠
       abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val := by
   intro heq
   rcases abstractNestedMappingSlot_injective slot' (addressToWord k1').val
       (addressToWord k2').val slot (addressToWord k1).val (addressToWord k2).val
-      hs' (addressToWord_val_lt k1') (addressToWord_val_lt k2') hs
-      (addressToWord_val_lt k1) (addressToWord_val_lt k2) heq
+      cert hp hq hpOuter hqOuter heq
     with ⟨hs, hk1, hk2⟩
   apply h
   rw [hs, addressToWord_injective (Core.Uint256.ext hk1),
     addressToWord_injective (Core.Uint256.ext hk2)]
 
-/-- Global aligned-write preservation. Other-pair slot inequality comes
-    from `solidityMappingSlot_injective`, not from a listed certificate.
-    Not injectivity of keccak on all ByteArrays. -/
-theorem writeMap_aligned_preserves_mappingCoherent
+/-- Aligned writes preserve the explicitly accessed finite address footprint. -/
+theorem writeMap_aligned_preserves_mappingCoherent_on
     (s : ContractState) (slot : Nat) (key : Address) (v : Uint256)
-    (hslot : slot < Compiler.Constants.evmModulus)
-    (hcoh : MappingCoherent s) :
-    MappingCoherent
+    (pairs : List (Nat × Address))
+    (hna : ∀ p ∈ pairs, StorageKey.map p.1 p.2 ≠ StorageKey.map slot key →
+      solidityMappingSlot p.1 (addressToWord p.2).val ≠
+        solidityMappingSlot slot (addressToWord key).val)
+    (hcoh : ∀ p ∈ pairs, s.storageMap p.1 p.2 =
+      s.storage (solidityMappingSlot p.1 (addressToWord p.2).val)) :
+    ∀ p ∈ pairs,
       ((s.writeMap slot key v).writeSlot
-        (solidityMappingSlot slot (addressToWord key).val) v) := by
-  intro slot' key' hslot'
+        (solidityMappingSlot slot (addressToWord key).val) v).storageMap p.1 p.2 =
+      ((s.writeMap slot key v).writeSlot
+        (solidityMappingSlot slot (addressToWord key).val) v).storage
+          (solidityMappingSlot p.1 (addressToWord p.2).val) := by
+  intro ⟨slot', key'⟩ hp
   by_cases hs : slot' = slot
   · by_cases hk : key' = key
-    · simp [hs, hk]
+    · subst slot'; subst key'
+      exact writeMap_aligned_same s slot key v
     · have hkey : StorageKey.map slot' key' ≠ StorageKey.map slot key := by
         intro heq; injection heq with _ hk'; exact hk hk'
-      exact writeMap_aligned_other s slot key v slot' key' (hcoh slot' key' hslot')
-        hkey (mappingAddrSlot_ne_of_map_ne hslot' hslot hkey)
+      exact writeMap_aligned_other s slot key v slot' key' (hcoh (slot', key') hp)
+        hkey (hna (slot', key') hp hkey)
   · have hkey : StorageKey.map slot' key' ≠ StorageKey.map slot key := by
       intro heq; injection heq with hs' _; exact hs hs'
-    exact writeMap_aligned_other s slot key v slot' key' (hcoh slot' key' hslot')
-      hkey (mappingAddrSlot_ne_of_map_ne hslot' hslot hkey)
+    exact writeMap_aligned_other s slot key v slot' key' (hcoh (slot', key') hp)
+      hkey (hna (slot', key') hp hkey)
 
-theorem writeMapUint_aligned_preserves_mappingCoherentUint
+theorem writeMapUint_aligned_preserves_mappingCoherentUint_on
     (s : ContractState) (slot : Nat) (key v : Uint256)
-    (hslot : slot < Compiler.Constants.evmModulus)
-    (hcoh : MappingCoherentUint s) :
-    MappingCoherentUint
+    (pairs : List (Nat × Uint256))
+    (hna : ∀ p ∈ pairs, StorageKey.mapUint p.1 p.2 ≠ StorageKey.mapUint slot key →
+      solidityMappingSlot p.1 p.2.val ≠ solidityMappingSlot slot key.val)
+    (hcoh : ∀ p ∈ pairs, s.storageMapUint p.1 p.2 =
+      s.storage (solidityMappingSlot p.1 p.2.val)) :
+    ∀ p ∈ pairs,
       ((s.writeMapUint slot key v).writeSlot
-        (solidityMappingSlot slot key.val) v) := by
-  intro slot' key' hslot'
+        (solidityMappingSlot slot key.val) v).storageMapUint p.1 p.2 =
+      ((s.writeMapUint slot key v).writeSlot
+        (solidityMappingSlot slot key.val) v).storage (solidityMappingSlot p.1 p.2.val) := by
+  intro ⟨slot', key'⟩ hp
   by_cases hs : slot' = slot
   · by_cases hk : (key' : Nat) = (key : Nat)
     · have hk' : key' = key := Core.Uint256.ext hk
-      simpa [hs, hk'] using writeMapUint_aligned_same s slot key v
+      subst slot'; subst key'
+      exact writeMapUint_aligned_same s slot key v
     · have hkey : StorageKey.mapUint slot' key' ≠ StorageKey.mapUint slot key := by
         intro heq; injection heq with _ hk'; exact hk (congrArg (fun w : Uint256 => (w : Nat)) hk')
-      exact writeMapUint_aligned_other s slot key v slot' key' (hcoh slot' key' hslot')
-        hkey (mappingUintSlot_ne_of_mapUint_ne hslot' hslot hkey)
+      exact writeMapUint_aligned_other s slot key v slot' key' (hcoh (slot', key') hp)
+        hkey (hna (slot', key') hp hkey)
   · have hkey : StorageKey.mapUint slot' key' ≠ StorageKey.mapUint slot key := by
       intro heq; injection heq with hs' _; exact hs hs'
-    exact writeMapUint_aligned_other s slot key v slot' key' (hcoh slot' key' hslot')
-      hkey (mappingUintSlot_ne_of_mapUint_ne hslot' hslot hkey)
+    exact writeMapUint_aligned_other s slot key v slot' key' (hcoh (slot', key') hp)
+      hkey (hna (slot', key') hp hkey)
 
-theorem writeMap2_aligned_preserves_mappingCoherentMap2
+theorem writeMap2_aligned_preserves_mappingCoherentMap2_on
     (s : ContractState) (slot : Nat) (k1 k2 : Address) (v : Uint256)
-    (hslot : slot < Compiler.Constants.evmModulus)
-    (hcoh : MappingCoherentMap2 s) :
-    MappingCoherentMap2
+    (pairs : List (Nat × Address × Address))
+    (hna : ∀ p ∈ pairs, StorageKey.map2 p.1 p.2.1 p.2.2 ≠ StorageKey.map2 slot k1 k2 →
+      abstractNestedMappingSlot p.1 (addressToWord p.2.1).val (addressToWord p.2.2).val ≠
+        abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
+    (hcoh : ∀ p ∈ pairs, s.storageMap2 p.1 p.2.1 p.2.2 = s.storage
+      (abstractNestedMappingSlot p.1 (addressToWord p.2.1).val (addressToWord p.2.2).val)) :
+    ∀ p ∈ pairs,
       ((s.writeMap2 slot k1 k2 v).writeSlot
         (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
-        v) := by
-  intro slot' k1' k2' hslot'
+        v).storageMap2 p.1 p.2.1 p.2.2 =
+      ((s.writeMap2 slot k1 k2 v).writeSlot
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
+        v).storage
+          (abstractNestedMappingSlot p.1 (addressToWord p.2.1).val (addressToWord p.2.2).val) := by
+  intro ⟨slot', k1', k2'⟩ hp
   by_cases hs : slot' = slot
   · by_cases h1 : k1' = k1
     · by_cases h2 : k2' = k2
-      · simp [hs, h1, h2]
+      · subst slot'; subst k1'; subst k2'
+        exact writeMap2_aligned_same s slot k1 k2 v
       · have hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2 := by
           intro heq; injection heq with _ _ hk2; exact h2 hk2
         exact writeMap2_aligned_other s slot k1 k2 v slot' k1' k2'
-          (hcoh slot' k1' k2' hslot') hkey (mappingMap2Slot_ne_of_map2_ne hslot' hslot hkey)
+          (hcoh (slot', k1', k2') hp) hkey (hna (slot', k1', k2') hp hkey)
     · have hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2 := by
         intro heq; injection heq with _ hk1 _; exact h1 hk1
       exact writeMap2_aligned_other s slot k1 k2 v slot' k1' k2'
-        (hcoh slot' k1' k2' hslot') hkey (mappingMap2Slot_ne_of_map2_ne hslot' hslot hkey)
+        (hcoh (slot', k1', k2') hp) hkey (hna (slot', k1', k2') hp hkey)
   · have hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2 := by
       intro heq; injection heq with hs' _ _; exact hs hs'
     exact writeMap2_aligned_other s slot k1 k2 v slot' k1' k2'
-      (hcoh slot' k1' k2' hslot') hkey (mappingMap2Slot_ne_of_map2_ne hslot' hslot hkey)
+      (hcoh (slot', k1', k2') hp) hkey (hna (slot', k1', k2') hp hkey)
 
 /-- Transient writes never touch persistent `.slot` / `.map*`. Constructor
     injectivity; no keccak hypothesis. -/

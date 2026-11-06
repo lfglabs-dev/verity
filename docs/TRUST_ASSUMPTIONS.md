@@ -325,7 +325,7 @@ Yul
 EVM Bytecode
 ```
 
-The repository currently has 0 `sorry` placeholders across the `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules that participate in the verified compiler stack. Layer 2 (Source → IR) and Layer 3 (IR → Yul) proof scripts are fully discharged, and it now has 1 documented Lean axiom (`solidityMappingSlot_injective`). See [AXIOMS.md](AXIOMS.md) for details. Generated trust-boundary artifacts live in `artifacts/`.
+The repository currently has 0 `sorry` placeholders across the `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules that participate in the verified compiler stack. Layer 2 (Source → IR) and Layer 3 (IR → Yul) proof scripts are fully discharged, and it now has 0 custom Lean axioms. See [AXIOMS.md](AXIOMS.md) for details. Generated trust-boundary artifacts live in `artifacts/`.
 
 ## What's Verified
 
@@ -347,7 +347,7 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 
 ### 2. Lean Axioms
 - **Role**: Bridge remaining proof obligations not yet fully discharged.
-- **Status**: 1 documented axiom in [AXIOMS.md](AXIOMS.md): `solidityMappingSlot_injective` (collision-resistance of `keccak256(abi.encode(key, base))` for in-range base slots and keys `< 2^256`, not keccak injectivity on all inputs; the range hypotheses are required because the ABI encoding reduces its arguments modulo `2^256`, so the former unbounded statement was inconsistent). The mapping-slot *range* axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 generic body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge remains an explicit theorem hypothesis rather than a Lean axiom.
+- **Status**: 0 custom Lean axioms. The former `solidityMappingSlot_injective` was inconsistent even with in-range arguments: 2^512 input pairs cannot inject into 2^256 output slots. Mapping-write proofs now require explicit finite accessed-footprint non-alias certificates, including reserved-slot separation where needed. The mapping-slot range is kernel-proved. Selector computation is kernel-computable, the former generic body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge remains an explicit theorem hypothesis rather than a Lean axiom. See [AXIOMS.md](AXIOMS.md).
 - **Mitigation**: CI axiom reporting and location checks enforce explicit tracking.
 
 ### 3. Keccak-based Selector Computation
@@ -480,7 +480,7 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
-- **Trust**: Each module's `compile` produces correct Yul. Bug in one module doesn't affect others. `selfDelegateMulticallBytes` is an explicitly trusted ECM boundary under `self_delegate_multicall_bytes_revert_bubbling`: the compiler emits concrete bounds checks for ABI element offsets, including a pre-add overflow guard before forming the calldata head offset, but full non-empty multicall revert-bubbling semantics are not yet machine-proven. First-class self-delegate sequences (`Verity.MultiContract.denoteSelfDelegateCalls`) are ordinary Lean functions: success threads one world, failure/revert restores the sequence-entry world and records returndata; they do not discharge the ECM assumption. `solidityMappingSlot_injective` remains the one documented Lean axiom.
+- **Trust**: Each module's `compile` produces correct Yul. Bug in one module doesn't affect others. `selfDelegateMulticallBytes` is an explicitly trusted ECM boundary under `self_delegate_multicall_bytes_revert_bubbling`: the compiler emits concrete bounds checks for ABI element offsets, including a pre-add overflow guard before forming the calldata head offset, but full non-empty multicall revert-bubbling semantics are not yet machine-proven. First-class self-delegate sequences (`Verity.MultiContract.denoteSelfDelegateCalls`) are ordinary Lean functions: success threads one world, failure/revert restores the sequence-entry world and records returndata; they do not discharge the ECM assumption. There are 0 custom Lean axioms; mapping coherence uses explicit finite-footprint non-alias hypotheses.
 - **Mitigation**: Axiom aggregation at compile time (`--verbose`), machine-readable trust-surface emission via `--trust-report <path>`, and a fail-closed verification gate via `--deny-unchecked-dependencies` when unchecked foreign surfaces must be excluded. See [docs/EXTERNAL_CALL_MODULES.md](EXTERNAL_CALL_MODULES.md).
 - **Summary conformance bridge**: `Verity.Core.Model.SummaryBridge` defines `Conforms`, connecting `StatefulExternal.Summary` (the typed ECM interface contract) to the executable `AdversaryModel` boundary: caller proofs may quantify over summary-conforming adversaries, in which case each summary's `pre`/`post`/`revert` relations and its declared mutability become *proof obligations on the modeled adversary*, not axioms. The staticcall no-external-mutation law is derived from conformance. An adversary's `failure` response carries no summary obligation (opaque exceptional failure; never committed). Whether a given real callee satisfies its summary remains the per-summary trust assumption listed via `assumptionNames`.
 - **Caller-frame preservation**: The EVM frame condition (external `CALL` cannot mutate caller storage / transient storage / memory outside the declared output buffer) is now a *theorem* of `Verity.EVM.Frame` rather than an assumption. Downstream proofs consume `external_call_preserves_caller_storage` etc. directly. The abstract memory model used by these theorems is `Verity.EVM.MemoryModel`; the solc memory-layout schema and call-buffer-disjoint-from-heap result are in `Verity.EVM.Layout`. EvmYul ↔ abstract-model correspondence remains the open follow-up.
@@ -686,8 +686,8 @@ explicit pairwise derived-slot certificate (`MappingCoherentOn` /
 `MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a
 global (all-keys) claim. Cross-channel preservation of another
 list likewise takes an explicit derived-slot inequality. C5 step 4
-is complete under `solidityMappingSlot_injective`: global aligned
-`writeMap*`+`writeSlot` preserves `MappingCoherent*`;
+uses explicit finite accessed-footprint non-alias certificates: aligned
+`writeMap*`+`writeSlot` preserves finite coherence;
 `writeTransient` preserves them by constructor injectivity; a lone
 `writeSlot` needs an image-avoidance `∀`. That `∀` is discharged
 for `writeAddrSlot` and `writeArray` (they never write
@@ -701,17 +701,16 @@ stated against the field-list collapse
 model does not identify `contractSlot 0` with `slot`). The declared
 layout is load-bearing, not decoration: a mapping key collapses only
 when the resolved field at its base slot declares the matching
-`MappingType`, so two mapping channels cannot share a base slot and
-`solidityMappingSlot_injective` separates their derived images.
-Aligned `writeMap` / `writeMapUint` / `writeMap2` + `writeSlot`,
-`writeAddrSlot`, and `writeTransient` preserve it; a lone `writeSlot`
-takes the same image-avoidance `∀` (`DerivedMappingSlotsAvoid`). The
-simple-vs-nested cross case additionally takes an explicit per-contract
-layout certificate `MappingBasesNotDerived` (a declared mapping base
-slot is not itself keccak-derived) and `MappingBasesInRange` (declared
-mapping base slots are below 2^256, as the bounded
-`solidityMappingSlot_injective` requires) — hypotheses discharged per
-contract, not axioms. Under that invariant the lens read equals the
+`MappingType`. Distinct bases do not imply distinct hash images.
+Aligned `writeMap` / `writeMapUint` / `writeMap2` + `writeSlot` conclude
+`MappingCoherentOnKeys fields accessed`, requiring `LayoutNonAliasOn fields accessed`
+and membership of the written key. Include reserved non-mapping keys in the
+finite accessed list to certify their separation. `CollisionFreeOn accessedPairs`
+similarly covers only supplied ABI pairs, including inner and outer pairs for
+nested mappings; it is never assumed for every finite set. `writeAddrSlot` and
+`writeTransient` still preserve global coherence; a lone `writeSlot` takes
+image-avoidance (`DerivedMappingSlotsAvoid`). Under the global relation
+(available for initialization and mapping-free layouts), the lens read equals the
 flat `encodeStorageAt` read at the derived slot
 (`readMap_eq_encodeStorageAt_of_coherent` and the `mapUint` / `map2`
 variants), reusing the same non-occupation hypotheses `FieldEncode`

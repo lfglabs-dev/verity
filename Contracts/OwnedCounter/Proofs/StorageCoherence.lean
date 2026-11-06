@@ -37,10 +37,10 @@
   2. *Certificates.* Even with aligned writes, `MappingBasesNotDerived` would
      require `solidityMappingSlot _ _ ≠ b` at each declared mapping base slot
      `b` — the derived-slot image must miss the small declared-slot region.
-     The in-tree axiom set gives collision resistance
-     (`solidityMappingSlot_injective`) and an upper bound
-     (`solidityMappingSlot_lt_evmModulus`), and neither implies that, so a
-     mapping-bearing contract would carry the certificates as hypotheses.
+      The kernel-proved upper bound (`solidityMappingSlot_lt_evmModulus`)
+      does not imply that. Mapping-bearing contracts must use finite accessed
+      footprints with explicit mapping and reserved-slot separation evidence;
+      no global hash-injectivity axiom is available.
 
   The execution-threading in `MappingCoherentExec` is what generalises: it is
   layout-agnostic, and a mapping-bearing contract reuses it verbatim once

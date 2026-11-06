@@ -715,8 +715,8 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
     required={
         "AXIOMS": [
             "### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)",
-            "- Active axioms: 1",
-            "`solidityMappingSlot_injective`",
+            "- Active axioms: 0",
+            "`CollisionFreeOn accessedPairs`",
         ],
         "COMPILER_PROOFS_README": [
             "Generic whole-contract theorem",
@@ -741,7 +741,7 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
             "Layer 2: SUPPORTED-FRAGMENT GENERIC THEOREM -- CompilationModel → IR",
             "A generic whole-contract theorem is proved for the current supported `CompilationModel` fragment.",
             "former generic body-simulation axiom has been eliminated",
-            "it now has 1 documented Lean axiom",
+            "it now has 0 custom Lean axioms",
             "explicit theorem hypothesis rather than a Lean axiom",
         ],
         "DOCS_SITE_COMPILER": [
@@ -764,7 +764,7 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
         ],
         "LLMS": [
             "Generic whole-contract theorem for the supported fragment. 0 axioms.",
-            "1 documented Lean axiom",
+            "0 custom Lean axioms",
         ],
     },
     forbidden={
@@ -776,7 +776,7 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
             "### 2. `supported_function_body_correct_from_exact_state`",
             "supported_function_body_correct_from_exact_state",
             "- Active axioms: 3",
-            "- Active axioms: 0",
+            "- Active axioms: 1",
         ],
         "VERIFICATION_STATUS": [
             "## Layer 2: CompilationModel → IR — COMPLETE",

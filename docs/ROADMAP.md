@@ -58,11 +58,11 @@ Next: derive the executable shallow program from the deep model
 (`Stmt.denote`, macro retarget per-contract behind a flag), collapse the
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
-legacy-compatibility witness chain are already retired), C5 step 4 is currently implemented under `solidityMappingSlot_injective`
-(scheduled for immediate removal in **P0** above in favor of explicit finite accessed-footprint `StorageSlotNonAliasCertificate` / `LayoutNonAlias` hypotheses — global injectivity over all `< 2^256` `(base, key)` pairs is pigeonhole-inconsistent with `< 2^256` slot outputs):
-global aligned `writeMap*`+`writeSlot` preserves `MappingCoherent` /
-`MappingCoherentUint` / `MappingCoherentMap2`; any finite `*On` list
-lifts from that; `writeTransient` preserves the globals by constructor
+legacy-compatibility witness chain are already retired). C5 step 4 now uses
+explicit finite accessed-footprint non-alias certificates: aligned
+`writeMap*`+`writeSlot` preserves finite `MappingCoherentOn` /
+`MappingCoherentUintOn` / `MappingCoherentMap2On` relations;
+`writeTransient` preserves the globals by constructor
 injectivity; a lone `writeSlot` preserves a global when the written
 word avoids every derived mapping slot. That image-avoidance is
 discharged for `writeAddrSlot` and `writeArray` (they never write
@@ -82,10 +82,9 @@ as extra compiler write targets),
 and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot
 certificates, including cross-channel aligned-write, lone
-`writeSlot`, and lone `writeTransient` preservation. Global
-aligned `writeMap*`+`writeSlot` preservation of `MappingCoherent*`
-and the `*_of_mappingCoherent*` On-lifts currently rest on
-`solidityMappingSlot_injective` (being replaced by explicit finite-footprint non-alias hypotheses in **P0**). FunctionSpec
+`writeSlot`, and lone `writeTransient` preservation. Aligned mapping writes
+conclude finite coherence under explicit non-alias certificates; the
+`*_of_mappingCoherent*` On-lifts require the same finite evidence. FunctionSpec
 raw/linked calls with target, value and ETH debit are denoted in
 `DenoteFunctionCalls` (base `evalExpr`/`execStmt` stay
 `none`/`.revert` so `DenoteAgreement` holds). Payable calls credit
@@ -111,8 +110,9 @@ transient `fixedArrayUint128` lowers to `tload`/`tstore` and stays off the
 persistent `storageKeySlot` map; first-class `denoteSelfDelegateCalls`
 (self-`delegatecall` sequence with shared world, rollback, returndata
 bubble). Compiled FunctionSpec multicall remains #2365. ECM
-`selfDelegateMulticallBytes` is unchanged. `solidityMappingSlot_injective`
-is the sole remaining project Lean axiom on `main` and is slated for immediate deletion in **P0** above so `PrintAxioms.lean` permits only Lean's standard kernel axioms (`propext`, `Classical.choice`, `Quot.sound`).
+`selfDelegateMulticallBytes` is unchanged. P0 removes the inconsistent
+`solidityMappingSlot_injective`; `PrintAxioms.lean` permits only Lean's
+standard foundational axioms (`propext`, `Classical.choice`, `Quot.sound`).
 
 ---
 

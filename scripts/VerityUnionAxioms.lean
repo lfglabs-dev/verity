@@ -110,8 +110,7 @@ run_cmd do
   let allowed := #[
     "propext",
     "Classical.choice",
-    "Quot.sound",
-    "Compiler.Proofs.solidityMappingSlot_injective"
+    "Quot.sound"
   ]
   let allowedNativeOrigins := #[
     "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq",
