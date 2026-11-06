@@ -53,7 +53,7 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
-  TURBO_LEAN_COMMIT: 1277fc690394a77e489da6b34323a37e665b3ad0 # PR #317 (Lake input_dir/input_file/needs + #301/#318 kernel gates)
+  TURBO_LEAN_COMMIT: 6c6a8741769bf5f97bef0dfecdc1fb17924c3f67 # main (#343 fast proof-only pr-verify overlay + #317/#365/#366/#368 kernel gates)
 
 jobs:
   turbo-lean-verify:
@@ -91,7 +91,7 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@1277fc690394a77e489da6b34323a37e665b3ad0 # PR #317 (Lake input_dir/input_file/needs + #301/#318 kernel gates)
+        uses: Th0rgal/turbo-lean@6c6a8741769bf5f97bef0dfecdc1fb17924c3f67 # main (#343 fast proof-only pr-verify overlay + #317/#365/#366/#368 kernel gates)
         with:
           project-dir: "."
           command: "check"
