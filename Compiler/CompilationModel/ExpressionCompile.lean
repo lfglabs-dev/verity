@@ -725,12 +725,9 @@ def compileExprWithInternals (fields : List Field)
       | some baseSlot =>
           pure (compileAdtTagRead (YulExpr.lit baseSlot))
       | none => throw s!"Compilation error: unknown storage field '{storageField}' for ADT tag read"
-  | Expr.adtField _adtName _variantName _fieldName fieldIndex storageField =>
-      -- Field read: sload(baseSlot + fieldIndex + 1)
-      match findFieldSlot fields storageField with
-      | some baseSlot =>
-          pure (compileAdtFieldRead (YulExpr.lit baseSlot) fieldIndex)
-      | none => throw s!"Compilation error: unknown storage field '{storageField}' for ADT field read"
+  | Expr.adtField _ _ _ _ _ =>
+      -- Only matchAdt's validated, tag-guarded branch bindings may read payload words.
+      throw "Compilation error: standalone Expr.adtField is unsupported; use Stmt.matchAdt field bindings"
 end
 
 def compileExprList (fields : List Field)

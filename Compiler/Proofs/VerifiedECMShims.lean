@@ -90,8 +90,11 @@ def mkVerifiedCompilerShim
   frame_sound := hFrame
   non_vacuous := ⟨witness, trivial⟩
 
-/-- Construct a `.proved` `ExternalCallModule` descriptor with zero axioms for any
-verified compiler runtime shim. -/
+/-- **Specification-only stub**, not an executable compiler shim binding.
+Construct a `.proved` descriptor with zero axioms for specification/trust-accounting
+examples. Its `compile` callback emits no Yul and does not implement the described
+effects or bind result variables. Do not use it to lower executable ECM calls;
+an executable binding must separately supply and verify its actual Yul lowering. -/
 def mkProvedShimECMModule
     (name summaryName : String)
     (numArgs : Nat)

@@ -1,5 +1,7 @@
 import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.TrustSurface
+import Compiler.CompilationModel.ScopeValidation
+import Compiler.CompilationModel.ExpressionCompile
 open Compiler.CompilationModel
 
 -- These are deliberately kernel decisions; native execution cannot validate
@@ -32,6 +34,20 @@ example : collectUnguardedUnsafeBoundaryMechanicsFromStmts
      .forEach "i" (.literal 2) [.letVar "y" (.extcodesize (.literal 1))]] =
     ["mload", "calldataload", "mstore", "extcodesize"] := by
   decide +kernel
+
+-- Payload reads must name their storage dependency and cannot escape a checked
+-- match branch. Rejection is independent of supplied ADT/variant/index metadata.
+example : collectExprNames (.adtField "Choice" "Some" "value" 0 "choice") =
+    ["choice"] := by decide +kernel
+
+example : (validateScopedExprIdentifiers "test" [] [] [] [] [] none
+    (.adtField "Unknown" "Missing" "value" 99 "choice")).toOption = none := by
+  decide +kernel
+
+example : (compileExpr [] .calldata
+    (.adtField "Choice" "Some" "value" 0 "choice")).toOption = none := by
+  simp only [compileExpr, compileExprWithInternals]
+  rfl
 
 example : collectUnguardedUnsafeBoundaryMechanicsFromStmts
     [.letVar "x" (.add (.literal 1) (.literal 2)),

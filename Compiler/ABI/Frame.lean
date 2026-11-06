@@ -243,7 +243,7 @@ def copyRuntimePayloadToMemory (base : String) (prefixBytes : Nat) (l : FrameLay
   | _ =>
       throw s!"ABI frame '{base}' runtime payload copy expects exactly one pre-encoded field"
 
-partial def spillFieldsAbi (base : String) (headOffsetWords tailOffsetWords : Nat) : List FrameField → List YulStmt
+private partial def spillFieldsAbi (base : String) (headOffsetWords tailOffsetWords : Nat) : List FrameField → List YulStmt
   | [] => []
   | field :: rest =>
       let headWords := fieldHeadWords field
@@ -257,8 +257,10 @@ partial def spillFieldsAbi (base : String) (headOffsetWords tailOffsetWords : Na
 /-- Materialize a typed ABI frame into memory before lowering calls/logs/returns.
     Large or dynamic payloads are then passed as `(ptr, size)` instead of as a
     long list of Yul values. -/
-def spillPayloadToMemory (base : String) (l : FrameLayout) : List YulStmt :=
-  allocateFrame base l ++ spillFieldsAbi base 0 l.headWords l.fields
+def spillPayloadToMemory (base : String) (l : FrameLayout) : Except String (List YulStmt) := do
+  if !layoutSourcesSupported l || layoutHasRuntimeSize l then
+    throw s!"ABI frame '{base}' requires supported static fields for typed spilling"
+  pure (allocateFrame base l ++ spillFieldsAbi base 0 l.headWords l.fields)
 
 def pointerArgs (base : String) (l : FrameLayout) : List YulExpr :=
   [YulExpr.ident (ptrName base), frameSizeExpr l]
@@ -278,20 +280,28 @@ private partial def inlineArgsFrom : List FrameField → List YulExpr
         materializeSourceWord field wordIdx) ++
       inlineArgsFrom rest
 
-def inlineArgs (l : FrameLayout) : List YulExpr :=
-  inlineArgsFrom l.fields
+/-- Inline word loads require static, directly loadable sources. Code requires extcodecopy
+    into allocated memory, even when a caller manually constructs an inline layout. -/
+def inlineArgs (l : FrameLayout) : Except String (List YulExpr) := do
+  if !layoutSourcesSupported l || layoutHasRuntimeSize l ||
+      l.fields.any (fun field => field.source == .code) then
+    throw "ABI frame inline arguments require static calldata, memory, or storage fields"
+  pure (inlineArgsFrom l.fields)
 
-def loweredArgs (base : String) (l : FrameLayout) : List YulExpr :=
+def loweredArgs (base : String) (l : FrameLayout) : Except String (List YulExpr) :=
   match l.mode with
-  | .pointer => pointerArgs base l
+  | .pointer => pure (pointerArgs base l)
   | .inlineWords => inlineArgs l
 
-def materializePayloadToMemory (base : String) (l : FrameLayout) : List YulStmt × List YulExpr :=
+def materializePayloadToMemory (base : String) (l : FrameLayout) :
+    Except String (List YulStmt × List YulExpr) := do
   match l.mode with
   | .pointer =>
-      (spillPayloadToMemory base l, pointerArgs base l)
+      let prelude ← spillPayloadToMemory base l
+      pure (prelude, pointerArgs base l)
   | .inlineWords =>
-      (inlinePayloadToScratch (inlineArgs l), [YulExpr.lit 0, YulExpr.lit (frameSizeBytes l)])
+      let words ← inlineArgs l
+      pure (inlinePayloadToScratch words, [YulExpr.lit 0, YulExpr.lit (frameSizeBytes l)])
 
 def materializeRuntimePayloadToMemoryWithPrefix (base : String) (prefixBytes : Nat) (l : FrameLayout) :
     Except String (List YulStmt × List YulExpr) := do

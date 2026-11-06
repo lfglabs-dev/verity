@@ -19,17 +19,18 @@ def lowerFrameSpilled (base : String) (fields : List FrameField) : Except String
   let l := layout fields
   if !layoutSourcesSupported l then
     throw s!"ABI frame '{base}' uses an unsupported source"
-  let prologue :=
+  let prologue ←
     match l.mode with
     | .pointer => spillPayloadToMemory base l
-    | .inlineWords => []
-  pure { prologue, args := loweredArgs base l, layout := l }
+    | .inlineWords => pure []
+  let args ← loweredArgs base l
+  pure { prologue, args, layout := l }
 
 def lowerFrameAsMemoryPayload (base : String) (fields : List FrameField) : Except String (List YulStmt × List YulExpr × FrameLayout) := do
   let l := layout fields
   if !layoutSourcesSupported l then
     throw s!"ABI frame '{base}' uses an unsupported source"
-  let (prologue, args) := materializePayloadToMemory base l
+  let (prologue, args) ← materializePayloadToMemory base l
   pure (prologue, args, l)
 
 def lowerEventWithTopic (base : String) (topic0 : YulExpr) (fields : List FrameField) : Except String (List YulStmt) := do

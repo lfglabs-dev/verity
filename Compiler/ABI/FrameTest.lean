@@ -54,7 +54,8 @@ private def hasExtcodecopy : List YulStmt → Bool :=
   let takeLayout := layout takeFields
   assert "nested struct supported" (supportsNestedStructs takeLayout)
   assert "dynamic bytes/arrays force pointer mode" (takeLayout.mode == FramePassMode.pointer)
-  assert "Take frame passes pointer pair" ((loweredArgs "take" takeLayout).length == 2)
+  assert "Take frame passes pointer pair"
+    ((loweredArgs "take" takeLayout).toOption.any (fun (args : List YulExpr) => args.length == 2))
   assert "dynamic tail contributes to pointer payload size" (frameSizeBytes takeLayout == 320)
   assert "dynamic tail contributes to allocated words" (frameAllocBytes takeLayout == 320)
   assert "dynamic tail size is padded to full ABI words"
@@ -72,9 +73,26 @@ private def hasExtcodecopy : List YulStmt → Bool :=
   assert "runtime-sized dynamic memory layout is source-supported for CodeData-style copies"
     (layoutRuntimeSourcesSupported runtimeDynamicMemoryLayout)
   assert "dynamic source frame is pointer mode" (srcLayout.mode == FramePassMode.pointer)
-  assert "code source spills through extcodecopy" (hasExtcodecopy (spillPayloadToMemory "src" srcLayout))
-  let inlineNames := (inlineArgs (layout inlineFields)).filterMap calldataLoadName?
+  assert "code source spills through extcodecopy"
+    ((spillPayloadToMemory "src" srcLayout).toOption.any hasExtcodecopy)
+  let inlineNames := ((inlineArgs (layout inlineFields)).toOption.getD []).filterMap calldataLoadName?
   assert "inline source words are indexed per field"
     (inlineNames == ["pair", "pair", "amount"])
+  let manualCode : FrameLayout := { layout sourceFields with mode := .inlineWords }
+  assert "manual inline code arguments rejected" (inlineArgs manualCode).toOption.isNone
+  assert "manual inline code lowering rejected" (loweredArgs "code" manualCode).toOption.isNone
+  assert "manual inline code materialization rejected"
+    (materializePayloadToMemory "code" manualCode).toOption.isNone
+  assert "dynamic storage typed spills rejected"
+    (spillPayloadToMemory "storage" (layout dynamicStorageFields)).toOption.isNone
+  let dynamicCode := layout [{ name := "code", ty := .bytes, source := .code }]
+  assert "dynamic code typed spills rejected"
+    (spillPayloadToMemory "code" dynamicCode).toOption.isNone
+  assert "runtime-sized code pre-encoded copy supported"
+    (materializeRuntimePayloadToMemoryWithPrefix "code" 0
+      { dynamicCode with runtimeSize := some (.ident "size") }).toOption.isSome
+  assert "runtime-sized storage copy rejected"
+    (materializeRuntimePayloadToMemoryWithPrefix "storage" 0
+      { layout dynamicStorageFields with runtimeSize := some (.ident "size") }).toOption.isNone
 
 end Compiler.ABI.FrameTest

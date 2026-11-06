@@ -5,7 +5,6 @@ namespace Compiler.Proofs.YulGeneration.Backends.Native
 open Compiler.Yul
 open Compiler.Proofs.YulGeneration
 open Compiler.Proofs.YulGeneration.Backends.StateBridge
-open Lean Elab Tactic Meta
 open Compiler.Proofs.IRGeneration
   (IRResult IRState IRStorageSlot IRStorageWord IRTransaction)
 
