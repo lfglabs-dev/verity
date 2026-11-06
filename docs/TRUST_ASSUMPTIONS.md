@@ -325,7 +325,7 @@ Yul
 EVM Bytecode
 ```
 
-The repository currently has 0 `sorry` placeholders across the `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules that participate in the verified compiler stack. Layer 2 (Source → IR) and Layer 3 (IR → Yul) proof scripts are fully discharged, and it now has 0 custom Lean axioms. See [AXIOMS.md](AXIOMS.md) for details. Generated trust-boundary artifacts live in `artifacts/`.
+The repository currently has 0 `sorry` placeholders across the `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules that participate in the verified compiler stack. Layer 2 (Source → IR) and Layer 3 (IR → Yul) proof scripts contain no placeholders, but the generic native Layer 3 theorem still requires the semantic body-bridge premise described below, and it now has 0 custom Lean axioms. See [AXIOMS.md](AXIOMS.md) for details. Generated trust-boundary artifacts live in `artifacts/`.
 
 ## What's Verified
 
@@ -334,7 +334,7 @@ The repository currently has 0 `sorry` placeholders across the `Compiler/**/*.le
   contract-specific specification theorems in `Contracts/<Name>/Proofs/` are a
   separate proof layer about human-readable contract behavior.
 - **Layer 2**: A generic whole-contract theorem is proved for the current supported `CompilationModel` fragment. `supported_function_correct` is now a real theorem, the initial-state normalization step is proved, the former generic body-simulation axiom has been eliminated, and the theorem surface makes explicit that the observed transaction-context fields must already be normalized to the bounded source-side `Address`/`Uint256` domains. Remaining Layer 2 work is now about widening the supported fragment and helper-aware completeness, not repairing `sorry` placeholders.
-- **Layer 3**: IR → Yul preservation is generic at the proof surface, and the remaining dispatch bridge now lives as an explicit theorem hypothesis rather than a Lean axiom. The checked contract-level theorem surface makes the dispatch-guard safety preconditions explicit: non-payable cases must see word-level zero `msg.value`, and each selected function case must have a non-wrapping calldata-width guard.
+- **Layer 3**: IR → Yul preservation is generic at the proof surface, and the remaining dispatch bridge now lives as an explicit theorem hypothesis rather than a Lean axiom. The checked contract-level theorem surface makes the dispatch-guard safety preconditions explicit: non-payable cases must see word-level zero `msg.value`, and each selected function case must have a non-wrapping calldata-width guard. The generic native theorem `compile_preserves_native_evmYulLean_of_compile_ok_supported_generated_callDispatcher` and its private `..._via_result` wrapper still take `hUserBodyResult : NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state observableSlots`; compilation does not discharge this semantic premise. Results are compared only on the caller-selected finite `observableSlots : List Nat`, the target is native Yul AST execution through `EvmYul.Yul.callDispatcher` rather than bytecode, and `solc` remains trusted. The concrete SimpleStorage theorem discharges its cases separately and does not retain the generic hypothesis.
 
 Current theorem totals, property-test coverage, and proof status live in [docs/VERIFICATION_STATUS.md](VERIFICATION_STATUS.md).
 

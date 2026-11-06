@@ -1593,6 +1593,50 @@ unsafe def runTests : IO Unit := do
     (compileModulesWithOptions outDir ["Contracts.Counter.Counter", "Contracts.Counter.Counter"] false [] {} none none none (some abiDir))
     "Duplicate module input: Contracts.Counter.Counter"
 
+  let nestedEcm := Stmt.ecm
+    { name := "nestedCall"
+      numArgs := 0
+      resultVars := []
+      writesState := false
+      readsState := true
+      axioms := ["test_call_interface"]
+      compile := fun _ _ => pure [] } []
+  let wrappers : List (String × (List Stmt → Stmt)) := [
+    ("forEachSetBit", fun body => .forEachSetBit "bit" (.literal 1) body),
+    ("unsafeBlock", fun body => .unsafeBlock "nested ECM reporting" body),
+    ("matchAdt", fun body => .matchAdt "Choice" (.literal 0)
+      [("None", [], []), ("Some", [], body)]),
+    ("ite", fun body => .ite (.literal 1) [] body),
+    ("forEach", fun body => .forEach "idx" (.literal 1) body)
+  ]
+  for (label, wrap) in wrappers do
+    let body := [wrap [nestedEcm, nestedEcm]]
+    let specs : List CompilationModel := [
+      { name := "NestedExternal", fields := [], «constructor» := none, functions := [
+        { name := "run", params := [], returnType := none, body := body }] },
+      { name := "NestedInternal", fields := [], «constructor» := none, functions := [
+        { name := "helper", params := [], returnType := none, isInternal := true, body := body }] },
+      { name := "NestedConstructor", fields := [], functions := [],
+        «constructor» := some { params := [], body := body } }
+    ]
+    for spec in specs do
+      if collectEcmAxioms spec != [("nestedCall", "test_call_interface")] then
+        throw (IO.userError s!"{label}: incomplete or duplicate ECM axioms in {spec.name}")
+      let report := emitTrustReportJson [spec]
+      if !contains report
+          "\"ecmAxioms\":[{\"module\":\"nestedCall\",\"assumption\":\"test_call_interface\"" then
+        throw (IO.userError s!"{label}: missing ECM trust-report axioms in {spec.name}")
+      if !hasAssumedDependencies spec then
+        throw (IO.userError s!"{label}: assumed dependency not detected in {spec.name}")
+      let extVerbose := String.intercalate "\n"
+        (Compiler.CompileDriverCommon.emitVerboseExternalAssumptionLines [spec])
+      if !contains extVerbose s!"  {spec.name}:\n    [ecm:nestedCall] test_call_interface" then
+        throw (IO.userError s!"{label}: missing verbose external assumption report in {spec.name}")
+      let ecmVerbose := String.intercalate "\n"
+        (Compiler.CompileDriverCommon.emitVerboseEcmAxiomLines [spec])
+      if !contains ecmVerbose s!"  {spec.name}:\n    [nestedCall] test_call_interface" then
+        throw (IO.userError s!"{label}: missing verbose ECM axiom report in {spec.name}")
+
   let trustReport := emitTrustReportJson [trustSurfaceSpec]
   if !contains trustReport "\"contract\":\"TrustSurfaceSmoke\"" then
     throw (IO.userError "✗ trust report emits contract name")
