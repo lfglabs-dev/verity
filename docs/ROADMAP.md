@@ -2,7 +2,22 @@
 
 **Goal**: End-to-end verified smart contracts from EDSL to EVM bytecode with minimal trust assumptions.
 
-> **Long-Term Execution Plan (`EVMYulLean 2.0` + `fractal-autoresearch`)**: See [EVMYULLEAN_AND_CONFORMANCE_LONGTERM_PLAN.md](EVMYULLEAN_AND_CONFORMANCE_LONGTERM_PLAN.md) and [`artifacts/architecture_reviews/SYNTHESIS_AND_UNIFIED_ROADMAP.md`](../artifacts/architecture_reviews/SYNTHESIS_AND_UNIFIED_ROADMAP.md) for the multi-model architectural review (**Claude Fable 5.1**, **GPT-6 Astra**, **OpenCode `builtin/smart`**), the completed `EVMYulLean 2.0` foundation (255 theorems, `0 sorryAx`, `0 native_decide`, total Fork-indexed gas across Shanghai/Cancun/Prague/Osaka, and 5 proven MetaSpecs), the dependency-ordered plan to close all remaining Layer 1/2/3 & TCB phases (`Obs` unification, `SupportedHelperSummaryProofCatalog` wiring, `PipelineConfig` active codegen integration, removing `solc` and `Import.lean` from the TCB), and the real-world Ethereum corpus-driven certified gas superoptimization & `solc` bug-hunting campaign.
+> **Long-Term Execution Plan (`EVMYulLean 2.0` + `fractal-autoresearch`)**: See [EVMYULLEAN_AND_CONFORMANCE_LONGTERM_PLAN.md](EVMYULLEAN_AND_CONFORMANCE_LONGTERM_PLAN.md) and [`artifacts/architecture_reviews/SYNTHESIS_AND_UNIFIED_ROADMAP.md`](../artifacts/architecture_reviews/SYNTHESIS_AND_UNIFIED_ROADMAP.md) for the multi-model architectural review (**Claude Fable 5.1**, **GPT-6 Astra**, **OpenCode `builtin/smart`**), the completed `EVMYulLean 2.0` foundation (255 theorems, `0 sorryAx`, `0 native_decide`, total Fork-indexed gas across Shanghai/Cancun/Prague/Osaka, and 5 proven MetaSpecs), the **Phase 0 Formal Soundness & Boundary Audit Remediation Gate (P0–P3)** that precedes optimization/conformance waves, the dependency-ordered plan to close all remaining Layer 1/2/3 & TCB phases (`Obs` unification, `SupportedHelperSummaryProofCatalog` wiring, `PipelineConfig` active codegen integration, removing `solc` and `Import.lean` from the TCB), and the real-world Ethereum corpus-driven certified gas superoptimization & `solc` bug-hunting campaign.
+
+---
+
+## Formal Soundness & Boundary Audit Remediation Gate (P0 -> P3, Active Blocking Priority)
+
+Following the formal soundness and trust-boundary audit of `origin/main` (`84277b42bda38d346b1a1f37e73cd024e66c0412`), the four remediation items below take **top execution priority** ahead of new optimization passes, corpus ingestion, or differential bug-hunting waves. Every boundary hypothesis must be stated explicitly on theorem signatures (never hidden behind custom Lean axioms, `PrintAxioms` allowlist entries, or silent spec weakening):
+
+| Priority | Remediation Track | Target Surface | Exit Criteria |
+|---|---|---|---|
+| **P0 (Critical)** | **Eliminate inconsistent global `axiom solidityMappingSlot_injective` & reach zero custom Lean axioms** | `Compiler/Proofs/MappingSlot.lean`, `Compiler/Proofs/Storage/{MappingCoherence,MappingCoherentAllKeys}.lean`, `Contracts/OwnedCounter/Proofs/StorageCoherence.lean`, `Verity/Specs/ObsAlgebra.lean`, `PrintAxioms.lean`, `docs/{AXIOMS,TRUST_ASSUMPTIONS}.md` | Delete `axiom solidityMappingSlot_injective` (which asserts injectivity of `(Fin (2^256) × Fin (2^256)) → Fin (2^256)` and is logically inconsistent with `solidityMappingSlot_lt_evmModulus` + `Classical.choice` by pigeonhole — input `< 2^256` bounds do **not** restore consistency); shrink `PrintAxioms.lean` `allowed` to `{propext, Classical.choice, Quot.sound}` (**0 custom axioms**); thread explicit finite accessed-footprint non-alias hypotheses / `StorageSlotNonAliasCertificate` (`HashedMappingLayout.LayoutNonAlias` + separation from reserved non-mapping slots, never `∀ s : Finset, CollisionFreeOn s`); drop unused `MappingSlot` import from `ObsAlgebra.lean`; update `AXIOMS.md` & `TRUST_ASSUMPTIONS.md`. |
+| **P1** | **Unify `collectEcmAxioms` with exhaustive `Stmt.foldList` traversal** | `Compiler/CompilationModel/{EcmAxiomCollection,TrustSurface,CompileDriverCommon}.lean` | Replace the partial `collectStmtEcmAxioms` walk (which only recursed into `.ecm`, `.ite`, `.forEach` and silently dropped `.ecm` inside `Stmt.unsafeBlock`, `Stmt.matchAdt`, and `Stmt.forEachSetBit`) with `Stmt.foldList` / `TrustSurface.collectUsedEcmModules`, remove dead `collectExprEcmAxioms`, and enforce unit/Lean regression parity between `"ecmModules"` and `"ecmAxioms"` in `--trust-report` and `--deny-unchecked-dependencies`. |
+| **P2** | **Harden `Compiler.ABI.Frame` `.code` inline layouts & `Expr.adtField` validation/hygiene** | `Compiler/ABI/Frame.lean`, `Compiler/CompilationModel/{ValidationHelpers,ScopeValidation,ExpressionCompile,Compile}.lean` | Keep `shouldPassByPointer` intact for `Frame.layout` / `StackSafeAbi`, while closing the manual `.inlineWords` API hazard where `materializeSourceWord` on `.code` silently emits `mload(0)` (restrict `inlineArgs`, encode valid pass modes in `FrameLayout`, or return `Except String` rejecting `.code` in `.inlineWords`, plus enforce `fieldRuntimeLayoutSupported` on dynamic `.storage`/`.code` spills); fix `ValidationHelpers.collectExprNames` to return `[field]` on `Expr.adtField` (matching `Expr.adtTag` for loop-variable hygiene); validate standalone `Expr.adtField` (`adtName`, `variantName`, `fieldIndex` bounds / active-tag policy) before `ExpressionCompile` while preserving `compileAdtStorageWrite` trailing-slot clearing. |
+| **P3** | **Canonicalize `ObsAlgebra` storage maps & tighten `EndToEnd` / native harness / ECM shim hygiene** | `Verity/Specs/ObsAlgebra.lean`, `Compiler/Autoresearch/SolcBugHunter.lean`, `Compiler/Proofs/EndToEnd/Base.lean`, `Compiler/Proofs/YulGeneration/{EvmYulLeanNativeState,EvmYulLeanNativeHarness/Projection,EvmYulLeanNativeHarness/Runtime}.lean`, `Compiler/ECM/VerifiedECMShims.lean` | Canonicalize `Obs.storage` and `Obs.transient` `(slot, val)` observations (sorted, deduplicated, zero-normalized; keeping `events` and `returndata` exact) before `ObsEquiv` / `SolcBugHunter` classifies `.candidateSolcBug`; document or constrain `materializedStorageSlots` (slot `0` + literal `.lit` `sload`s + `observableSlots`, defaulting unlisted dynamic mapping slots to `0`), `hUserBodyResult`, `Nat.succ (sizeOf runtimeCode)` fuel, and Yul-dispatcher boundaries in `EndToEnd/Base.lean`; strip unused `import Lean` / `open Lean Elab Tactic Meta` in `Projection.lean` & `Runtime.lean`; and either bind `VerifiedECMShims.mkProvedShimECMModule` to real Yul emission or explicitly type/doc-mark it as a specification stub. |
+
+**Mandatory Remediation Gate**: Clean `lake build`, `scripts/AxiomAudit.lean` & `PrintAxioms.lean` (`0` custom axioms), `python3 scripts/check_lean_hygiene.py`, `python3 scripts/check_mapping_slot_boundary.py`, `python3 scripts/check_axioms.py`, `python3 scripts/docsync.py --check`, and dedicated regression tests for P0–P3 must all pass on exact `HEAD` in CI.
 
 ---
 
@@ -43,8 +58,8 @@ Next: derive the executable shallow program from the deep model
 (`Stmt.denote`, macro retarget per-contract behind a flag), collapse the
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
-legacy-compatibility witness chain are already retired), C5 step 4 is implemented under `solidityMappingSlot_injective`
-(ABI mapping-preimage collision-resistance, not keccak-on-all-bytes):
+legacy-compatibility witness chain are already retired), C5 step 4 is currently implemented under `solidityMappingSlot_injective`
+(scheduled for immediate removal in **P0** above in favor of explicit finite accessed-footprint `StorageSlotNonAliasCertificate` / `LayoutNonAlias` hypotheses — global injectivity over all `< 2^256` `(base, key)` pairs is pigeonhole-inconsistent with `< 2^256` slot outputs):
 global aligned `writeMap*`+`writeSlot` preserves `MappingCoherent` /
 `MappingCoherentUint` / `MappingCoherentMap2`; any finite `*On` list
 lifts from that; `writeTransient` preserves the globals by constructor
@@ -69,8 +84,8 @@ and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 certificates, including cross-channel aligned-write, lone
 `writeSlot`, and lone `writeTransient` preservation. Global
 aligned `writeMap*`+`writeSlot` preservation of `MappingCoherent*`
-and the `*_of_mappingCoherent*` On-lifts are under
-`solidityMappingSlot_injective`. FunctionSpec
+and the `*_of_mappingCoherent*` On-lifts currently rest on
+`solidityMappingSlot_injective` (being replaced by explicit finite-footprint non-alias hypotheses in **P0**). FunctionSpec
 raw/linked calls with target, value and ETH debit are denoted in
 `DenoteFunctionCalls` (base `evalExpr`/`execStmt` stay
 `none`/`.revert` so `DenoteAgreement` holds). Payable calls credit
@@ -97,7 +112,7 @@ persistent `storageKeySlot` map; first-class `denoteSelfDelegateCalls`
 (self-`delegatecall` sequence with shared world, rollback, returndata
 bubble). Compiled FunctionSpec multicall remains #2365. ECM
 `selfDelegateMulticallBytes` is unchanged. `solidityMappingSlot_injective`
-remains the one documented Lean axiom.
+is the sole remaining project Lean axiom on `main` and is slated for immediate deletion in **P0** above so `PrintAxioms.lean` permits only Lean's standard kernel axioms (`propext`, `Classical.choice`, `Quot.sound`).
 
 ---
 
@@ -557,6 +572,9 @@ The older Phase 1 / Phase 2 / Phase 3 calendar framing is no longer accurate. Th
 
 ### Active Work
 
+0. **Formal soundness & boundary audit remediation (P0–P3 — Immediate Blocking Gate)**
+   - Eliminate the pigeonhole-inconsistent global `solidityMappingSlot_injective` axiom via explicit finite-footprint non-alias hypotheses (**0 custom Lean axioms**), unify `collectEcmAxioms` over `Stmt.foldList`, harden `Compiler.ABI.Frame` manual `.code` inline layouts + `Expr.adtField` validation/hygiene, and canonicalize `ObsAlgebra` storage maps while documenting/tightening `EndToEnd` native-state & `VerifiedECMShims` boundaries (see the P0–P3 table at the top of this file).
+
 1. **Close the gap with Solidity**
    - Close the remaining `verity_contract` EDSL and interop gaps needed for production DeFi contracts.
    - Tracking: [#1680](https://github.com/lfglabs-dev/verity/issues/1680), [#586](https://github.com/lfglabs-dev/verity/issues/586)
@@ -591,5 +609,5 @@ See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for contribution guidelines and [`VE
 
 ---
 
-**Last Updated**: 2026-07-15
-**Status**: Layer 1 is complete for the current contract set; Layer 2 now has a generic whole-contract theorem for the current supported fragment, with remaining [#1510](https://github.com/lfglabs-dev/verity/issues/1510) work focused on fragment widening and legacy bridge migration; Layer 3 is complete. Trust reduction 1/3 done. Sum properties complete (7/7 proven). CompilationModel now supports real-world contracts (loops, branching, events, multi-mappings, internal call mechanics, verified externs).
+**Last Updated**: 2026-11-06
+**Status**: Phase 0 Soundness & Boundary Audit Remediation Gate (P0–P3) active ahead of optimization/conformance waves; Layer 1 is complete for the current contract set; Layer 2 now has a generic whole-contract theorem for the current supported fragment, with remaining [#1510](https://github.com/lfglabs-dev/verity/issues/1510) work focused on fragment widening and legacy bridge migration; Layer 3 is complete. Trust reduction 1/3 done (with P0 removing the sole remaining custom Lean axiom `solidityMappingSlot_injective`). Sum properties complete (7/7 proven). CompilationModel now supports real-world contracts (loops, branching, events, multi-mappings, internal call mechanics, verified externs).

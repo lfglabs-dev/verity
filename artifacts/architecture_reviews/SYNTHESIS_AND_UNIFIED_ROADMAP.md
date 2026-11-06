@@ -21,23 +21,38 @@ Aujourd'hui, Verity possède déjà une pile formelle remarquable (`FnSpec.Satis
 
 ## PARTIE 1 — Comment Terminer Proprement Toutes les Phases Restantes de la Roadmap Verity
 
+### Phase 0 — Barrière Préalable de Remédiation d'Audit Formel & Frontières TCB (`P0` → `P3`) [Bloquant Absolu]
+
+Suite à l'audit formel de cohérence logique et des frontières de confiance sur `origin/main` (`84277b42bda38d346b1a1f37e73cd024e66c0412`), **aucune nouvelle passe d'optimisation ni campagne différentielle** ne doit s'ouvrir avant la clôture de ces 4 chantiers :
+1. **`P0` (Critique — Cohérence logique du noyau : suppression de `solidityMappingSlot_injective` & 0 axiome personnalisé)** :
+   - L'axiome global `solidityMappingSlot_injective` (`MappingSlot.lean:95-102`) — tout comme toute variante bornée de type `keccak256_inj_on_lt_2_256` sur préimages $\le 128$ octets — injecte un domaine de taille $\ge 2^{512}$ (`Fin (2^256) × Fin (2^256)`) dans un codomaine de taille $2^{256}$ (`solidityMappingSlot_lt_evmModulus`), ce qui permet de dériver `False` par le principe des tiroirs avec `Classical.choice` (les bornes d'entrée `< 2^256` ne restaurent **pas** la cohérence).
+   - Supprimer `solidityMappingSlot_injective` et réduire `PrintAxioms.lean` aux seuls axiomes standard de Lean (`propext`, `Classical.choice`, `Quot.sound`). Propager explicitement une hypothèse finie de non-collision sur l'empreinte accédée (`HashedMappingLayout.LayoutNonAlias` / `StorageSlotNonAliasCertificate` + séparation vis-à-vis des slots scalaires réservés, **jamais** `∀ s : Finset, CollisionFreeOn s`) à travers `MappingSlot.lean`, `MappingCoherence.lean`, `MappingCoherentAllKeys.lean` et `OwnedCounter/Proofs/StorageCoherence.lean` ; retirer l'import inutilisé de `MappingSlot` dans `ObsAlgebra.lean` et corriger `TRUST_ASSUMPTIONS.md` / `AXIOMS.md`.
+2. **`P1` (Surface de confiance ECM exhaustive via `Stmt.foldList`)** :
+   - Remplacer la récursion partielle de `collectStmtEcmAxioms` (`EcmAxiomCollection.lean:7-28`, qui omettait `Stmt.unsafeBlock`, `Stmt.matchAdt` et `Stmt.forEachSetBit`) par `Stmt.foldList` / `TrustSurface.collectUsedEcmModules` pour aligner `"ecmAxioms"` et `--deny-unchecked-dependencies` sur `"ecmModules"`, supprimer `collectExprEcmAxioms` (code mort), et ajouter des tests de non-régression dédiés.
+3. **`P2` (Durcissement de `Compiler.ABI.Frame` sur `.code` en mode `.inlineWords` & validation/hygiène de `Expr.adtField`)** :
+   - Préserver `shouldPassByPointer` sur le chemin standard `Frame.layout` / `StackSafeAbi`, tout en fermant le piège API où `inlineArgs` / un layout manuel `.inlineWords` invoque `materializeSourceWord` sur `.code` et émet silencieusement `mload(0)` (et en imposant `fieldRuntimeLayoutSupported` sur les spills dynamiques `.storage`/`.code`) ; retourner `[field]` sur `Expr.adtField` dans `ValidationHelpers.collectExprNames` (comme `Expr.adtTag`) ; valider les bornes `adtName` / `variantName` / `fieldIndex` de `Expr.adtField` autonome avant `ExpressionCompile` tout en préservant l'effacement des slots résiduels dans `compileAdtStorageWrite`.
+4. **`P3` (Canonicalisation des maps `ObsAlgebra` & hygiène `EndToEnd` / `EvmYulLeanNativeHarness` / `VerifiedECMShims`)** :
+   - Canonicaliser `Obs.storage` et `Obs.transient` (triés par clé, dédupliqués au dernier write, valeurs zéro élaguées ; `logs`/`events` et `returndata` conservés à l'identique) avant que `ObsEquiv` et `SolcBugHunter` ne classent une divergence en `.candidateSolcBug` ; documenter/contraindre explicitement dans `EndToEnd/Base.lean` la portée de `materializedStorageSlots` (slot `0`, `sload` littéraux `.lit` et `observableSlots`, les slots de mapping dynamiques hors liste valant `0`), `hUserBodyResult`, le fuel `Nat.succ (sizeOf runtimeCode)` et la frontière dispatcher Yul ; nettoyer `import Lean` / `open Lean Elab Tactic Meta` dans `Projection.lean` et `Runtime.lean` ; et soit relier `VerifiedECMShims.mkProvedShimECMModule` à du vrai Yul émis, soit le typer/documenter explicitement comme stub de spécification.
+
+---
+
 ### Phase A — Unification de l'Algèbre d'Observation (`Obs`) et des Clés de Stockage (`SpecStorageKey`) [Prérequis P0]
 
-1. **Observation canonique `Obs` (`Verity/Specs/Common.lean` & `Compiler/Proofs/EndToEnd.lean`)** :
+1. **Observation canonique `Obs` (`Verity/Specs/Common.lean`, `Verity/Specs/ObsAlgebra.lean` & `Compiler/Proofs/EndToEnd.lean`)** :
    - Unifier l'observation entre Layer 1 (`Denote`), Layer 2 (`IRInterpreter`), Layer 3 (`EvmYul.Yul`) et `EvmYul.EVM` :
      ```lean
      structure Obs where
        status     : ExecStatus          -- success | revert | invalid
        returndata : ByteArray           -- ABI return ou sélecteur + payload d'erreur
        logs       : List Log            -- emitter × topics[≤4] × data
-       storage    : List (SpecStorageKey × UInt256)
-       transient  : List (SpecStorageKey × UInt256)
+       storage    : List (SpecStorageKey × UInt256) -- canonicalisé (trié, dédupliqué, sans zéros)
+       transient  : List (SpecStorageKey × UInt256) -- canonicalisé (trié, dédupliqué, sans zéros)
      ```
-   - **Séparation stricte** entre l'équivalence fonctionnelle (`ObsEquiv a b : Prop := a = b`, sous hypothèse de gaz suffisant) et le raffinement de gaz (`improves_cost : GasInterpreter.used fork (apply x) σ ≤ GasInterpreter.used fork x σ`). Comme le soulignent GPT-6 Astra et `builtin/smart`, le gaz ne doit pas être dans `ObsEquiv` sous peine d'interdire toute optimisation réduisant le coût en gaz.
+   - **Séparation stricte** entre l'équivalence fonctionnelle (`ObsEquiv a b : Prop := normalizeObs a = normalizeObs b`, sous hypothèse de gaz suffisant, avec `storage` et `transient` mis sous forme normale canonique finie) et le raffinement de gaz (`improves_cost : GasInterpreter.used fork (apply x) σ ≤ GasInterpreter.used fork x σ`). Comme le soulignent GPT-6 Astra et `builtin/smart`, le gaz ne doit pas être dans `ObsEquiv` sous peine d'interdire toute optimisation réduisant le coût en gaz.
 2. **Correction de la dérivation des tableaux dynamiques (`SourceSemantics.lean` vs Yul)** :
    - Actuellement, `SourceSemantics` utilise `solidityMappingSlot s i` (`keccak256(abi.encode(i, s))`) pour les éléments de tableaux dynamiques alors que Yul émet la formule Solidity standard `keccak256(bytes32(s)) + i * stride`.
    - Étendre `SpecStorageKey` avec `.arrayElem (slot : UInt256) (i stride : Nat)` et `.bytesData (slot : UInt256) (byteOff : Nat)` où `arrayBase s := keccak256 (pad32 s)` et `keyAddr (.arrayElem s i stride) := (arrayBase s + i * stride) mod 2^256` (avec garde de non-wrap).
-   - Dériver l'injectivité (`keyAddr_inj`) et la disjonction mapping vs array (`arrayElem_not_mapWord`) comme corollaires d'un **unique axiome Keccak borné** (`keccak256_inj_on_lt_2_256` sur préimages $\le 128$ octets).
+   - **Attention (Correction d'audit P0 — Principe des tiroirs)** : Ne **jamais** introduire d'axiome Keccak global ou borné en taille d'entrée tel que `keccak256_inj_on_lt_2_256` sur préimages $\le 128$ octets (qui injecterait $\ge 2^{512}$ préimages dans $2^{256}$ sorties et rendrait la logique inconsistante). Dériver l'injectivité locale (`keyAddr_inj_on`) et la disjonction mapping vs array (`arrayElem_not_mapWord_on`) uniquement sous une **hypothèse explicite de non-collision sur l'empreinte finie accédée** (`StorageSlotNonAliasCertificate` / `HashedMappingLayout.LayoutNonAlias`, déchargée concrètement par calcul noyau `keccak256` sur les clés connues ou transportée explicitement dans les signatures de théorèmes).
 
 ---
 
