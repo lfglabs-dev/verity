@@ -3,9 +3,13 @@ module_timeout_secs = 900
 
 [axioms]
 # Lean.ofReduceBool + explicit native_decide origins from scripts/check_axioms.py
-# (NATIVE_DECIDE_AXIOM_ORIGINS) and excluded *Test modules; zero bv_decide origins.
+# (NATIVE_DECIDE_AXIOM_ORIGINS) and excluded *Test modules, plus the 3 bv_decide
+# origins in Compiler.Autoresearch.MaxwellGasSuperoptimizer on main.
 allow = [
   "Lean.ofReduceBool",
+  "Compiler.Autoresearch.MaxwellGasSuperoptimizer.bitvec256_and_assoc_fuse._native.bv_decide.ax_*",
+  "Compiler.Autoresearch.MaxwellGasSuperoptimizer.bitvec256_or_assoc_fuse._native.bv_decide.ax_*",
+  "Compiler.Autoresearch.MaxwellGasSuperoptimizer.bitvec256_xor_involutive_cancel._native.bv_decide.ax_*",
   "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_ok._native.native_decide.ax_*",
   "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq._native.native_decide.ax_*",
   "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_ok._native.native_decide.ax_*",
