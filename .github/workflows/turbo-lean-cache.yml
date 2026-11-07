@@ -38,9 +38,9 @@ on:
         default: 'Verity/Core.lean'
         type: string
       check_decl:
-        description: 'Optional declaration for single-shard check (e.g. Uint256.add_comm)'
+        description: 'Optional declaration for single-shard check (e.g. Verity.Core.Uint256.add_comm)'
         required: false
-        default: 'Uint256.add_comm'
+        default: 'Verity.Core.Uint256.add_comm'
         type: string
 
 permissions:
@@ -96,7 +96,7 @@ jobs:
           project-dir: "."
           command: "check"
           check-file: ${{ inputs.check_file || 'Verity/Core.lean' }}
-          check-decl: ${{ inputs.check_decl || 'Uint256.add_comm' }}
+          check-decl: ${{ inputs.check_decl || 'Verity.Core.Uint256.add_comm' }}
           cache-key-prefix: verity-turbo-lean-cas-${{ env.VERIFY_CACHE_BUCKET }}
           max-reclaimable-bytes: "10737418240"
 
@@ -113,7 +113,7 @@ jobs:
           else
             BASE_REF="HEAD~1"
           fi
-          turbo-lean --json audit-spec Verity/Core.lean --decl Uint256.add_comm
+          turbo-lean --json audit-spec Verity/Core.lean --decl Verity.Core.Uint256.add_comm
           turbo-lean --json seed-shards --project-dir .
           turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
           turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json
