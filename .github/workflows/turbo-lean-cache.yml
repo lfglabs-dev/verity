@@ -92,6 +92,9 @@ jobs:
           build-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('turbo-lean-build-{0}-{1}-{2}-{3}-{4}-{5}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, runner.arch, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
           disable-lake-cache-restore: "true"
 
+      - name: Setup pinned solc for Solidity import
+        run: python3 scripts/setup_solc_import.py
+
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
         uses: Th0rgal/turbo-lean@c3071238e9e1467c4594974fbdcb236c90a8aa06 # main (#376 root turbo-lean.toml manifest + #372 v4.31 leantar trace & ProofWidgets)
         with:
