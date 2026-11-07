@@ -2,11 +2,23 @@
 module_timeout_secs = 900
 
 [axioms]
+# Lean.ofReduceBool + explicit native_decide origins from scripts/check_axioms.py
+# (NATIVE_DECIDE_AXIOM_ORIGINS) and excluded *Test modules; zero bv_decide origins.
 allow = [
   "Lean.ofReduceBool",
-  "*._native.bv_decide.ax_*",
-  "*._native.native_decide.ax_*",
-  "Compiler.Proofs.solidityMappingSlot_injective",
+  "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_ok._native.native_decide.ax_*",
+  "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq._native.native_decide.ax_*",
+  "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_ok._native.native_decide.ax_*",
+  "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_eq._native.native_decide.ax_*",
+  "Compiler.VaultMinimalNativeWitness.lowerRuntimeContractNative_ok._native.native_decide.ax_*",
+  "Compiler.VaultMinimalNativeWitness.lowerRuntimeContractNative_eq._native.native_decide.ax_*",
+  "Verity.Core.Free.witness_abiHeadParamShapes_compile._native.native_decide.ax_*",
+  "Verity.Core.Uint16.ofUint256_toUint256._native.native_decide.ax_*",
+  "Verity.keccak256_nat_empty._native.native_decide.ax_*",
+  "Verity.keccak256_lit_empty_val._native.native_decide.ax_*",
+  "Compiler.Proofs.IRGeneration.ContractFeatureTest.*._native.native_decide.ax_*",
+  "Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.*._native.native_decide.ax_*",
+  "KeccakEngine.Test.*._native.native_decide.ax_*",
 ]
 
 [implemented_by]
@@ -15,21 +27,35 @@ allow = [
   "Compiler.CompilationModel.SolidityImport.evalProfile",
   "Compiler.CompilationModel.SolidityImport.evalModel",
   "Compiler.CompilationModel.SolidityImport.evalReport",
+  "Verity.Macro.evalQualifiedFunctionSpec",
+  "Verity.Macro.evalExternalCallModuleTerm",
 ]
 
 [unsafe]
 allow = [
-  "Verity.Macro.*",
+  "Verity.Macro.elabCheckContract",
+  "Verity.Macro.evalQualifiedFunctionSpecUnsafe",
+  "Verity.Macro.evalExternalCallModuleTermUnsafe",
   "Compiler.compileModulesWithOptions",
   "Compiler.CompileDriverCommon.compileModulesWithOptions",
   "Compiler.CompileDriverTest.runTests",
   "Compiler.Main.run",
-  "Compiler.MainTest.*",
-  "Compiler.ModuleInput.*",
+  "Compiler.MainTest.expectErrorContains",
+  "Compiler.MainTest.runFlagAndUnitTests",
+  "Compiler.MainTest.runCompileModeTests",
+  "Compiler.MainTest.runStrictGateTests",
+  "Compiler.MainTest.runMechanicsAndProxyTests",
+  "Compiler.MainTest.runTests",
+  "Compiler.MainTest.runPhase",
+  "Compiler.ModuleInput.evalSpecConst",
+  "Compiler.ModuleInput.loadSpecsFromModules",
+  "Compiler.ModuleInput.loadSpecsFromRawModules",
   "Compiler.ModuleInputTest.runTests",
   "Compiler.Gas.main",
   "Compiler.Modules.CallsTest.runTests",
   "Compiler.SolidityImport.elabEmitVerityContractCmd",
-  "Compiler.CompilationModel.SolidityImport.*",
+  "Compiler.CompilationModel.SolidityImport.evalProfileUnsafe",
+  "Compiler.CompilationModel.SolidityImport.evalModelUnsafe",
+  "Compiler.CompilationModel.SolidityImport.evalReportUnsafe",
   "main",
 ]

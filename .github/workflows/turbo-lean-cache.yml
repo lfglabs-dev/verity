@@ -15,6 +15,7 @@ on:
       - 'lakefile.lean'
       - 'lake-manifest.json'
       - 'lean-toolchain'
+      - 'turbo-lean.toml'
       - '.github/workflows/turbo-lean-cache.yml'
   pull_request:
     paths:
@@ -29,6 +30,7 @@ on:
       - 'lakefile.lean'
       - 'lake-manifest.json'
       - 'lean-toolchain'
+      - 'turbo-lean.toml'
       - '.github/workflows/turbo-lean-cache.yml'
   workflow_dispatch:
     inputs:
@@ -53,7 +55,7 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
-  TURBO_LEAN_COMMIT: ceccf03818cea31a9763bb05ca58cd0340ba4c33 # main (#372 v4.31 leantar trace & ProofWidgets + #343/#317/#365/#366/#368)
+  TURBO_LEAN_COMMIT: c3071238e9e1467c4594974fbdcb236c90a8aa06 # main (#376 root turbo-lean.toml manifest + #372 v4.31 leantar trace & ProofWidgets)
 
 jobs:
   turbo-lean-verify:
@@ -91,7 +93,7 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@ceccf03818cea31a9763bb05ca58cd0340ba4c33 # main (#372 v4.31 leantar trace & ProofWidgets + #343/#317/#365/#366/#368)
+        uses: Th0rgal/turbo-lean@c3071238e9e1467c4594974fbdcb236c90a8aa06 # main (#376 root turbo-lean.toml manifest + #372 v4.31 leantar trace & ProofWidgets)
         with:
           project-dir: "."
           command: "check"

@@ -513,6 +513,42 @@ private def writeContract
   IO.FS.writeFile path text
   pure patchReport
 
+def emitVerboseExternalAssumptionLines (specs : List CompilationModel) : List String :=
+  let lines := specs.foldl (fun acc spec =>
+    let primitiveAssumptions := collectAxiomatizedPrimitives spec
+    let externals := collectUsedExternalAssumptions spec
+    let ecmAxioms := collectEcmAxioms spec
+    if primitiveAssumptions.isEmpty && externals.isEmpty && ecmAxioms.isEmpty then
+      acc
+    else
+      let primLines := primitiveAssumptions.map fun primitive =>
+        s!"    [primitive:{primitive}][assumed] {primitiveAssumptionName primitive}"
+      let extLines := externals.map fun ext =>
+        let renderedAxioms :=
+          if ext.axiomNames.isEmpty then "(no declared axioms)"
+          else String.intercalate ", " ext.axiomNames
+        s!"    [linked:{ext.name}][{ext.proofStatus.toJsonString}] {renderedAxioms}"
+      let ecmLines := ecmAxioms.map fun (modName, assumption) =>
+        s!"    [ecm:{modName}] {assumption}"
+      acc ++ [s!"  {spec.name}:"] ++ primLines ++ extLines ++ ecmLines) []
+  if lines.isEmpty then
+    ["  (no primitive assumptions, linked external assumptions, or ECM axioms)"]
+  else
+    lines
+
+def emitVerboseEcmAxiomLines (specs : List CompilationModel) : List String :=
+  let lines := specs.foldl (fun acc spec =>
+    let axioms := collectEcmAxioms spec
+    if axioms.isEmpty then
+      acc
+    else
+      acc ++ [s!"  {spec.name}:"] ++
+        axioms.map (fun (modName, assumption) => s!"    [{modName}] {assumption}")) []
+  if lines.isEmpty then
+    ["  (no ECM axioms — no external call modules used)"]
+  else
+    lines
+
 def compileSpecsWithOptions
     (backend : CodegenBackend)
     (specs : List CompilationModel)
@@ -827,41 +863,12 @@ def compileSpecsWithOptions
         IO.println line
     IO.println ""
     IO.println "External assumption report:"
-    let mut anyExternalAssumptions := false
-    for spec in specs do
-      let primitiveAssumptions := collectAxiomatizedPrimitives spec
-      let externals := collectUsedExternalAssumptions spec
-      let ecmAxioms := collectEcmAxioms spec
-      if !primitiveAssumptions.isEmpty || !externals.isEmpty || !ecmAxioms.isEmpty then
-        anyExternalAssumptions := true
-        IO.println s!"  {spec.name}:"
-        if !primitiveAssumptions.isEmpty then
-          for primitive in primitiveAssumptions do
-            IO.println
-              s!"    [primitive:{primitive}][assumed] {primitiveAssumptionName primitive}"
-        if !externals.isEmpty then
-          for ext in externals do
-            let renderedAxioms :=
-              if ext.axiomNames.isEmpty then "(no declared axioms)"
-              else String.intercalate ", " ext.axiomNames
-            IO.println s!"    [linked:{ext.name}][{ext.proofStatus.toJsonString}] {renderedAxioms}"
-        if !ecmAxioms.isEmpty then
-          for (modName, assumption) in ecmAxioms do
-            IO.println s!"    [ecm:{modName}] {assumption}"
-    if !anyExternalAssumptions then
-      IO.println "  (no primitive assumptions, linked external assumptions, or ECM axioms)"
+    for line in emitVerboseExternalAssumptionLines specs do
+      IO.println line
     IO.println ""
     IO.println "ECM axiom report:"
-    let mut anyAxioms := false
-    for spec in specs do
-      let axioms := collectEcmAxioms spec
-      if !axioms.isEmpty then
-        anyAxioms := true
-        IO.println s!"  {spec.name}:"
-        for (modName, assumption) in axioms do
-          IO.println s!"    [{modName}] {assumption}"
-    if !anyAxioms then
-      IO.println "  (no ECM axioms — no external call modules used)"
+    for line in emitVerboseEcmAxiomLines specs do
+      IO.println line
     IO.println ""
     IO.println "Compilation complete!"
     IO.println s!"Generated {specs.length} contracts in {outDir}"
