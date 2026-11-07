@@ -284,7 +284,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                                       '}}-${{ github.run_id }}'}},
                                        {'name': 'Prebuild shared audit Lean targets',
                                         'run': 'set +e\n'
-                                               'turbo-lean build PrintAxioms 2>&1 | tee -a lake-build.log\n'
+                                               'lake build PrintAxioms 2>&1 | tee -a lake-build.log\n'
                                                'build_status=${PIPESTATUS[0]}\n'
                                                'if [ "${build_status}" -ne 0 ]; then\n'
                                                "  diagnostics=\"$(grep -E 'error:|unsolved goals|declaration uses|failed to synthesize|maximum recursion depth' lake-build.log | tail -80)\"\n"
@@ -705,7 +705,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
  'expected_build_commands': ['check_lean_warning_regression.py --log lake-build.log --trace-root .lake/build/lib/lean',
                              'setup_solc_import.py',
                              'solidity_import_mutations.py'],
- 'required_build_run_commands': ['turbo-lean build PrintAxioms', 'turbo-lean build SolidityImportSmoke'],
+ 'required_build_run_commands': ['lake build PrintAxioms', 'turbo-lean build SolidityImportSmoke'],
  'expected_build_audit_commands': ['check_split_package_builds.py',
                                    'check_axioms.py',
                                    'check_proof_length.py --format=markdown >> '
@@ -714,7 +714,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                    '$GITHUB_STEP_SUMMARY',
                                    'check_storage_layout.py --format=markdown >> '
                                    '$GITHUB_STEP_SUMMARY'],
- 'required_build_audit_run_commands': ['turbo-lean build PrintAxioms', 'lake env lean PrintAxioms.lean'],
+ 'required_build_audit_run_commands': ['lake build PrintAxioms', 'lake env lean PrintAxioms.lean'],
  'expected_build_compiler_commands': [],
  'required_build_compiler_run_commands': ['verity-compiler',
                                           'difftest-interpreter',

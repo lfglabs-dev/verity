@@ -404,7 +404,7 @@ jobs:
       - name: Prebuild shared audit Lean targets
         run: |
           set +e
-          turbo-lean build PrintAxioms 2>&1 | tee -a lake-build.log
+          lake build PrintAxioms 2>&1 | tee -a lake-build.log
           build_status=${PIPESTATUS[0]}
           if [ "${build_status}" -ne 0 ]; then
             diagnostics="$(grep -E 'error:|unsolved goals|declaration uses|failed to synthesize|maximum recursion depth' lake-build.log | tail -80)"
@@ -507,7 +507,7 @@ jobs:
         run: python3 scripts/check_axioms.py
 
       - name: Build proof modules for axiom audit
-        run: turbo-lean build PrintAxioms
+        run: lake build PrintAxioms
 
       - name: Generate axiom dependency report
         run: |
