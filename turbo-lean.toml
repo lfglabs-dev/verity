@@ -33,6 +33,7 @@ allow = [
 
 [unsafe]
 allow = [
+  "Verity.Macro.elabCheckContract",
   "Verity.Macro.evalQualifiedFunctionSpecUnsafe",
   "Verity.Macro.evalExternalCallModuleTermUnsafe",
   "Compiler.compileModulesWithOptions",
