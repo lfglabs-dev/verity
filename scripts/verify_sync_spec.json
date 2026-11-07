@@ -23,6 +23,7 @@
     "packages/**",
     "lakefile.lean",
     "lake-manifest.json",
+    "scripts/setup_turbo_lean.sh",
     "scripts/solidity_differential/**",
     "scripts/solidity_import_differential.py",
     "scripts/check_solidity_differential.sh",
@@ -57,6 +58,7 @@
     "scripts/property_utils.py",
     "lakefile.lean",
     "lake-manifest.json",
+    "scripts/setup_turbo_lean.sh",
     "scripts/solidity_differential/**",
     "scripts/solidity_import_differential.py",
     "scripts/check_solidity_differential.sh",
@@ -681,7 +683,7 @@
       },
       {
         "name": "Build compiler CLI regression executable",
-        "run": "stdbuf -oL -eL lake build compiler-main-test"
+        "run": "stdbuf -oL -eL turbo-lean build compiler-main-test"
       },
       {
         "name": "Run compiler CLI regression module",
@@ -689,11 +691,11 @@
       },
       {
         "name": "Build CompilationModel feature regression module",
-        "run": "stdbuf -oL -eL lake build Compiler.CompilationModelFeatureTest"
+        "run": "stdbuf -oL -eL turbo-lean build Compiler.CompilationModelFeatureTest"
       },
       {
         "name": "Build panic-code regression module",
-        "run": "stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest"
+        "run": "stdbuf -oL -eL turbo-lean build Compiler.PanicCodeRegressionTest"
       }
     ],
     "lean-profile": [
@@ -871,12 +873,12 @@
   ],
   "expected_checks_other_commands": [],
   "expected_build_commands": [
-    "check_lean_warning_regression.py --log lake-build.log",
+    "check_lean_warning_regression.py --log lake-build.log --trace-root .lake/build/lib/lean",
     "setup_solc_import.py"
   ],
   "required_build_run_commands": [
     "lake build PrintAxioms",
-    "lake build SolidityImportSmoke"
+    "turbo-lean build SolidityImportSmoke"
   ],
   "expected_build_audit_commands": [
     "check_split_package_builds.py",

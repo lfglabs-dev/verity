@@ -173,7 +173,7 @@ def prepare(config_path, output):
     shutil.copyfile(Path(__file__).with_name("Runner.t.sol"), output / "Runner.t.sol")
     (output / "foundry.toml").write_text('[profile.default]\nsrc = "empty"\ntest = "."\n'
         + f'solc = {json.dumps(str(SOLC))}\nevm_version = "osaka"\noptimizer = true\nvia_ir = true\n'
-        + 'gas_limit = 9223372036854775807\ncode_size_limit = 100000\n'
+        + 'gas_limit = 9223372036854775807\nmemory_limit = 4294967296\ncode_size_limit = 100000\n'
         + 'fs_permissions = [{ access = "read-write", path = "./" }]\n')
     manifest = {"config": config, "configPath": str(config_path), "model": metadata,
                 "verity": command(["git", "rev-parse", "HEAD"], cwd=ROOT).strip(),

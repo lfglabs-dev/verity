@@ -62,5 +62,5 @@ runs:
         printf 'Building checkpoint %s with targets:\n' "${CHECKPOINT_KEY}"
         printf '  %s\n' "${targets[@]}"
 
-        stdbuf -oL -eL lake build "${targets[@]}"
+        stdbuf -oL -eL turbo-lean build "${targets[@]}"
         touch "${marker}"

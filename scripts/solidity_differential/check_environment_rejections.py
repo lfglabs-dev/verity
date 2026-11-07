@@ -1,6 +1,7 @@
 """Reject unsupported context near misses with located importer diagnostics."""
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 
@@ -74,6 +75,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         if mutability == 'payable' and 'closure: C.checked' not in text:
             raise RuntimeError(f'{name}: payable rejection names the wrong root\n{text}')
         print(f'pass environment-{name}', flush=True)
+    shutil.rmtree(output, ignore_errors=True)
     print(output)
 
 

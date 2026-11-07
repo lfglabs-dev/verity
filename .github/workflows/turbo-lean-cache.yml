@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/actions/setup-lean/**'
+      - 'scripts/setup_turbo_lean.sh'
       - 'Verity/**'
       - 'Verity.lean'
       - 'Compiler/**'
@@ -14,10 +15,12 @@ on:
       - 'lakefile.lean'
       - 'lake-manifest.json'
       - 'lean-toolchain'
+      - 'turbo-lean.toml'
       - '.github/workflows/turbo-lean-cache.yml'
   pull_request:
     paths:
       - '.github/actions/setup-lean/**'
+      - 'scripts/setup_turbo_lean.sh'
       - 'Verity/**'
       - 'Verity.lean'
       - 'Compiler/**'
@@ -27,6 +30,7 @@ on:
       - 'lakefile.lean'
       - 'lake-manifest.json'
       - 'lean-toolchain'
+      - 'turbo-lean.toml'
       - '.github/workflows/turbo-lean-cache.yml'
   workflow_dispatch:
     inputs:
@@ -36,9 +40,9 @@ on:
         default: 'Verity/Core.lean'
         type: string
       check_decl:
-        description: 'Optional declaration for single-shard check (e.g. Uint256.add_comm)'
+        description: 'Optional declaration for single-shard check (e.g. Verity.Core.Uint256.add_comm)'
         required: false
-        default: 'Uint256.add_comm'
+        default: 'Verity.Core.Uint256.add_comm'
         type: string
 
 permissions:
@@ -51,7 +55,7 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
-  TURBO_LEAN_COMMIT: 1949eaac9d790d1dd13e357d45aad010fa0be644 # v0.1.0 (Season 14 / audit-spec v2.1)
+  TURBO_LEAN_COMMIT: c3071238e9e1467c4594974fbdcb236c90a8aa06 # main (#376 root turbo-lean.toml manifest + #372 v4.31 leantar trace & ProofWidgets)
 
 jobs:
   turbo-lean-verify:
@@ -89,12 +93,12 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@1949eaac9d790d1dd13e357d45aad010fa0be644 # v0.1.0 (Season 14 / audit-spec v2.1)
+        uses: Th0rgal/turbo-lean@c3071238e9e1467c4594974fbdcb236c90a8aa06 # main (#376 root turbo-lean.toml manifest + #372 v4.31 leantar trace & ProofWidgets)
         with:
           project-dir: "."
           command: "check"
           check-file: ${{ inputs.check_file || 'Verity/Core.lean' }}
-          check-decl: ${{ inputs.check_decl || 'Uint256.add_comm' }}
+          check-decl: ${{ inputs.check_decl || 'Verity.Core.Uint256.add_comm' }}
           cache-key-prefix: verity-turbo-lean-cas-${{ env.VERIFY_CACHE_BUCKET }}
           max-reclaimable-bytes: "10737418240"
 
@@ -111,7 +115,7 @@ jobs:
           else
             BASE_REF="HEAD~1"
           fi
-          turbo-lean --json audit-spec Verity/Core.lean --decl Uint256.add_comm
+          turbo-lean --json audit-spec Verity/Core.lean --decl Verity.Core.Uint256.add_comm
           turbo-lean --json seed-shards --project-dir .
           turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
           turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json

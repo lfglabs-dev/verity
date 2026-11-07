@@ -244,21 +244,21 @@ theorem g8_unguarded_mulDivUp_eq_down_refuted :
     On 256-bit EVM words (`BitVec 256`), fusing `(x &&& m₁) &&& m₂` into `x &&& (m₁ &&& m₂)`
     is exact across all 256 bits. -/
 theorem bitvec256_and_assoc_fuse (x m₁ m₂ : BitVec 256) :
-    (x &&& m₁) &&& m₂ = x &&& (m₁ &&& m₂) := by
-  bv_decide
+    (x &&& m₁) &&& m₂ = x &&& (m₁ &&& m₂) :=
+  BitVec.and_assoc x m₁ m₂
 
 /-- **Theorem BV.2 (`BitVec 256` Consecutive `OR` Mask Fusion)**:
     On 256-bit EVM words (`BitVec 256`), fusing `(x ||| m₁) ||| m₂` into `x ||| (m₁ ||| m₂)`
     is exact across all 256 bits. -/
 theorem bitvec256_or_assoc_fuse (x m₁ m₂ : BitVec 256) :
-    (x ||| m₁) ||| m₂ = x ||| (m₁ ||| m₂) := by
-  bv_decide
+    (x ||| m₁) ||| m₂ = x ||| (m₁ ||| m₂) :=
+  BitVec.or_assoc x m₁ m₂
 
 /-- **Theorem BV.3 (`BitVec 256` Involutive `XOR` Mask Cancellation)**:
     On 256-bit EVM words (`BitVec 256`), `(x ^^^ m) ^^^ m = x` holds identically. -/
 theorem bitvec256_xor_involutive_cancel (x m : BitVec 256) :
     (x ^^^ m) ^^^ m = x := by
-  bv_decide
+  rw [BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero]
 
 /-- **Theorem BV.4 (`BitVec 256` Disjoint `AND` Mask Fold to Zero)**:
     When two 256-bit masks are disjoint (`m₁ &&& m₂ = 0`), `(x &&& m₁) &&& m₂ = 0`. -/

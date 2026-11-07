@@ -1201,7 +1201,7 @@ private partial def lowerYul (j : Json) : M Val := do
         failAt j "Yul create2 must be the whole value of a Yul assignment or variable declaration"
       let expectedArity? : Option Nat := match fname with
         | "caller" | "address" | "timestamp" | "number" | "chainid"
-        | "selfbalance" | "origin" => some 0
+        | "selfbalance" | "origin" | "basefee" | "gasprice" => some 0
         | "iszero" | "not" | "tload" | "sload" | "clz" => some 1
         | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "exp"
         | "and" | "or" | "xor" | "byte" | "shl" | "shr" | "sar" | "signextend"
@@ -6697,9 +6697,9 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     words := words.push word.expr
   let result ← fresh
   -- The transport writes its scratch at the free pointer and bumps it before the
-  -- call, so the root must start from solc's `mload(64) = 0x80` like every other
-  -- free-pointer user; a zero pointer would let the bump overlap argument words.
-  modify fun e => { e with encodingMemory := true }
+  -- call, so `ecmRequiresFreePointerInit` ensures the root starts from solc's
+  -- `mload(64) = 0x80` like every other free-pointer user; a zero pointer would
+  -- let the bump overlap argument words.
   pre := pre.push (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector words.size)
     (target.expr :: words.toList))
   if returnType == "bool" then

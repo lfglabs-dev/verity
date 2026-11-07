@@ -1606,24 +1606,29 @@ def minComparisonUsesUnsignedLowering : Bool :=
 
 example : minComparisonUsesUnsignedLowering = true := by native_decide
 
-run_cmd do
-  let valueIdent := mkIdent `value
-  let actualStx ← Verity.Macro.translatePureExpr
-    #[] #[] #[]
-    #[{ ident := valueIdent, name := "value", ty := Verity.Macro.ValueType.int256 }]
-    #[]
-    (← `($valueIdent < 0))
-  liftTermElabM do
-    let expectedStx ← `(
-      Compiler.CompilationModel.Expr.slt
-        (Compiler.CompilationModel.Expr.param "value")
-        (Compiler.CompilationModel.Expr.literal 0))
-    let actualExpr ← Lean.Elab.Term.elabTerm actualStx (some (mkConst ``Compiler.CompilationModel.Expr))
-    let expectedExpr ← Lean.Elab.Term.elabTerm expectedStx (some (mkConst ``Compiler.CompilationModel.Expr))
-    let actualExpr ← instantiateMVars actualExpr
-    let expectedExpr ← instantiateMVars expectedExpr
-    unless ← isDefEq actualExpr expectedExpr do
-      throwError m!"expected signed comparison lowering, got {actualStx}"
+syntax "#check_macro_int256_lowering_smoke" : command
+
+elab_rules : command
+  | `(command| #check_macro_int256_lowering_smoke) => do
+    let valueIdent := mkIdent `value
+    let actualStx ← Verity.Macro.translatePureExpr
+      #[] #[] #[]
+      #[{ ident := valueIdent, name := "value", ty := Verity.Macro.ValueType.int256 }]
+      #[]
+      (← `($valueIdent < 0))
+    liftTermElabM do
+      let expectedStx ← `(
+        Compiler.CompilationModel.Expr.slt
+          (Compiler.CompilationModel.Expr.param "value")
+          (Compiler.CompilationModel.Expr.literal 0))
+      let actualExpr ← Lean.Elab.Term.elabTerm actualStx (some (mkConst ``Compiler.CompilationModel.Expr))
+      let expectedExpr ← Lean.Elab.Term.elabTerm expectedStx (some (mkConst ``Compiler.CompilationModel.Expr))
+      let actualExpr ← instantiateMVars actualExpr
+      let expectedExpr ← instantiateMVars expectedExpr
+      unless ← isDefEq actualExpr expectedExpr do
+        throwError m!"expected signed comparison lowering, got {actualStx}"
+
+#check_macro_int256_lowering_smoke
 
 end MacroInt256LoweringSmoke
 

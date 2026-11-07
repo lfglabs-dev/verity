@@ -302,6 +302,79 @@ class CheckLeanWarningRegressionScriptTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0)
             self.assertIn("invalid UTF-8 in log input", proc.stderr)
 
+    def test_strips_workspace_root_prefix_and_reads_trace_fallback(self) -> None:
+        repo_root = SCRIPT.parent.parent.resolve()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            log_path = root / "lake-build.log"
+            trace_root = root / "trace"
+            (trace_root / "Verity").mkdir(parents=True, exist_ok=True)
+            baseline_path = root / "lean_warning_baseline.json"
+            log_path.write_text(
+                f"warning: {repo_root}/Compiler/Main.lean:1:1: declaration uses 'sorry'\n",
+                encoding="utf-8",
+            )
+            (trace_root / "Verity" / "Core.trace").write_text(
+                json.dumps(
+                    {
+                        "log": [
+                            {
+                                "level": "warning",
+                                "message": f"{repo_root}/Verity/Core.lean:924:2: try 'simp' instead of 'simpa'\n\nNote: disabled",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (trace_root / "Compiler.trace").write_text(
+                json.dumps(
+                    {
+                        "log": [
+                            {
+                                "level": "warning",
+                                "message": "Compiler/Main.lean:1:1: declaration uses 'sorry'",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            baseline_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "total_warnings": 2,
+                        "by_file": {"Compiler/Main.lean": 1, "Verity/Core.lean": 1},
+                        "by_message": {
+                            "declaration uses 'sorry'": 1,
+                            "try 'simp' instead of 'simpa'": 1,
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--log",
+                    str(log_path),
+                    "--trace-root",
+                    str(trace_root),
+                    "--baseline",
+                    str(baseline_path),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("Lean warnings observed: 2", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
