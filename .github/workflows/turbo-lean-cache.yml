@@ -55,7 +55,7 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
-  TURBO_LEAN_COMMIT: 5f02cd3790d50443b1bce8ea01addd444201b719 # main (#382 RecAudit loadExts hydration & trusted sink assurance targets)
+  TURBO_LEAN_COMMIT: ce83001d4de7b5f1aadf0567392795d49509c42a # main (#386 non-Lean gitlinks & recipe seeding in git-pinned deps)
 
 jobs:
   turbo-lean-verify:
@@ -96,7 +96,7 @@ jobs:
         run: python3 scripts/setup_solc_import.py
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@5f02cd3790d50443b1bce8ea01addd444201b719 # main (#382 RecAudit loadExts hydration & trusted sink assurance targets)
+        uses: Th0rgal/turbo-lean@ce83001d4de7b5f1aadf0567392795d49509c42a # main (#386 non-Lean gitlinks & recipe seeding in git-pinned deps)
         with:
           project-dir: "."
           command: "check"
