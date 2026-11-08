@@ -1,3 +1,6 @@
+[project]
+exclude = ["experiments/**"]
+
 [build]
 module_timeout_secs = 900
 

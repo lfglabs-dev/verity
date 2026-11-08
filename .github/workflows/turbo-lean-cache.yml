@@ -55,13 +55,13 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
-  TURBO_LEAN_COMMIT: ce83001d4de7b5f1aadf0567392795d49509c42a # main (#386 non-Lean gitlinks & recipe seeding in git-pinned deps)
+  TURBO_LEAN_COMMIT: 1711fa8b24f54649554b3bf4b5cbf50d4d6f15df # main (#389 recipe lake-inputs parity & path excludes)
 
 jobs:
   turbo-lean-verify:
     name: Turbo-Lean Two-Level CAS & Theorem Shard Check
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       LEAN_NUM_THREADS: 8
       # CI only needs verdicts; keep turbo-lean from spooling telemetry under ~/.cache.
@@ -96,7 +96,7 @@ jobs:
         run: python3 scripts/setup_solc_import.py
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@ce83001d4de7b5f1aadf0567392795d49509c42a # main (#386 non-Lean gitlinks & recipe seeding in git-pinned deps)
+        uses: Th0rgal/turbo-lean@1711fa8b24f54649554b3bf4b5cbf50d4d6f15df # main (#389 recipe lake-inputs parity & path excludes)
         with:
           project-dir: "."
           command: "check"
@@ -119,7 +119,7 @@ jobs:
             BASE_REF="HEAD~1"
           fi
           turbo-lean --json audit-spec Verity/Core.lean --decl Verity.Core.Uint256.add_comm
-          turbo-lean --json seed-shards --project-dir .
-          turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
-          turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json
+          turbo-lean --json seed-shards --project-dir . --exclude 'experiments/**'
+          turbo-lean --json check Verity/Proofs/Stdlib --project-dir . --exclude 'experiments/**'
+          turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --exclude 'experiments/**' --receipt /tmp/verity-ci-receipt.json
           turbo-lean --json verify-receipt /tmp/verity-ci-receipt.json

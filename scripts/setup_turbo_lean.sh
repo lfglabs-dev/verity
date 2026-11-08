@@ -9,7 +9,7 @@ set -euo pipefail
 # `scripts/ci_host_maintenance.sh`) so parallel runners on a shared host build
 # each version once and never race host maintenance eviction.
 
-DEFAULT_TURBO_LEAN_COMMIT="ce83001d4de7b5f1aadf0567392795d49509c42a"
+DEFAULT_TURBO_LEAN_COMMIT="1711fa8b24f54649554b3bf4b5cbf50d4d6f15df"
 TURBO_LEAN_COMMIT="${TURBO_LEAN_COMMIT:-$DEFAULT_TURBO_LEAN_COMMIT}"
 TURBO_LEAN_REPO_URL="${TURBO_LEAN_REPO_URL:-https://github.com/Th0rgal/turbo-lean.git}"
 USE_STICKY_DISKS="${USE_STICKY_DISKS:-false}"
