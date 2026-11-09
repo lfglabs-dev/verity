@@ -44,6 +44,7 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyPair() -> (NarrowPair)
     external dirtyPair_try() -> (Bool, NarrowPair)
     external dirtyBytesArg(Bytes) -> (Uint256)
+    external dirtyBytesArg_try(Bytes) -> (Bool, Uint256)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtyAddress() -> (Address)
