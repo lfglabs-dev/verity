@@ -448,7 +448,7 @@ example :
           | Compiler.CompilationModel.Stmt.ecm mod args =>
                 mod.name == "externalCallWithReturn" &&
                 mod.numArgs == 3 &&
-                mod.resultVars == ["__discard"] &&
+                mod.resultVars == ["discard"] &&
                 mod.readsState &&
                 mod.writesState &&
                 args.length == 3
