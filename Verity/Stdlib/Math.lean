@@ -118,7 +118,9 @@ def mulDiv512Down (a b c : Uint256) : Uint256 :=
 
 /-- `mulDiv512Up(a, b, c)` = full-precision `ceil((a * b) / c)`,
     matching the IR's revert-on-overflow Yul helper.  Defined
-    analogously to `mulDiv512Down` via `mulDiv512Up?`. (verity#1761) -/
+    analogously to `mulDiv512Down` via `mulDiv512Up?`: the Lean def returns
+    `0` on the failure boundary (zero divisor, or a rounded-up quotient of
+    `2^256` or more), where the compiled helper reverts. (verity#1761) -/
 def mulDiv512Up (a b c : Uint256) : Uint256 :=
   match mulDiv512Up? a b c with
   | some r => r
