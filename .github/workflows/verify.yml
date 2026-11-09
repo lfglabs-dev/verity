@@ -854,6 +854,7 @@ jobs:
             Contracts.Smoke.UnitReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
+            Contracts.Smoke.Int256CheckedSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke
             Contracts.StringArrayEventSmoke
@@ -903,6 +904,7 @@ jobs:
             Contracts.Smoke.UnitReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
+            Contracts.Smoke.Int256CheckedSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke
             Contracts.StringArrayEventSmoke
