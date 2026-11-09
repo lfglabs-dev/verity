@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyTryCatchArgSmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke/TryCatch.lean
+ * @dev Source: Contracts/Smoke/TryCatchArgSmoke.lean
  */
 contract PropertyTryCatchArgSmokeTest is YulTestBase {
     address target;
