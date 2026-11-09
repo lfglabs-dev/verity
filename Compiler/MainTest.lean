@@ -168,6 +168,30 @@ unsafe def runFlagAndUnitTests : IO Unit := do
       expectTrue "ECM with unbound result variable is a compile error"
         (contains err "does not bind it with a top-level `let`")
 
+  let oneLineLib :=
+    "function libA() -> r { r := 1 }\n" ++
+    "function libB() { libC() }\n" ++
+    "function libC() { sstore(0, 2) }\n"
+  let oneLineParsed := Compiler.Linker.parseLibrary oneLineLib
+  expectTrue "linker parses consecutive one-line functions separately"
+    (oneLineParsed.map (·.name) == ["libA", "libB", "libC"])
+  let linkObj : Compiler.Yul.YulObject := {
+    name := "LinkSmoke"
+    deployCode := [.let_ "x" (.call "libA" [])]
+    runtimeCode := [.exprStmt (.call "libB" [])] }
+  match Compiler.Linker.renderWithLibraries linkObj oneLineParsed with
+  | .error e => throw (IO.userError s!"✗ linker renders creation-code library calls: {e}")
+  | .ok rendered =>
+      let creation := (rendered.splitOn "object \"runtime\"").headD ""
+      let runtime := (rendered.splitOn "object \"runtime\"").getD 1 ""
+      expectTrue "linker injects library functions called from creation code"
+        (contains creation "function libA()")
+      expectTrue "linker leaves unreferenced library functions out of creation code"
+        (!contains creation "function libB()" && !contains creation "function libC()")
+      expectTrue "linker injects every library function into runtime code"
+        (contains runtime "function libA()" && contains runtime "function libB()" &&
+          contains runtime "function libC()")
+
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do
   let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
