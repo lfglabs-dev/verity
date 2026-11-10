@@ -28,6 +28,7 @@ from solidity_differential.check_external_code_and_low_level_call_mutations impo
     MUTANTS as LOW_LEVEL_CALL_MUTANTS)
 from solidity_differential.check_extcodecopy_struct_decode_mutations import (
     MUTANTS as EXTCODECOPY_STRUCT_DECODE_MUTANTS)
+from solidity_differential.check_memory_call_mutations import MUTANTS as MEMORY_CALL_MUTANTS
 
 ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
@@ -806,6 +807,15 @@ def low_level_call_mutant(mutant: str) -> None:
     print(f"pass {mutant}", flush=True)
 
 
+def memory_call_mutant(mutant: str) -> None:
+    result = module_campaign("check_memory_call_mutations", mutant, 2 * MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"memory call mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def extcodecopy_struct_decode_rejections() -> None:
     module_campaign_output("check_extcodecopy_struct_decode_rejections",
                            "extcodecopy-struct-decode-rejections", MUTANT_TIMEOUT)
@@ -858,6 +868,7 @@ def tasks(update_golden: bool) -> list:
     items += [(m, 2, (lambda m=m: low_level_call_mutant(m))) for m in LOW_LEVEL_CALL_MUTANTS]
     items += [(m, 2, (lambda m=m: extcodecopy_struct_decode_mutant(m)))
               for m in EXTCODECOPY_STRUCT_DECODE_MUTANTS]
+    items += [(m, 2, (lambda m=m: memory_call_mutant(m))) for m in MEMORY_CALL_MUTANTS]
     return items
 
 

@@ -138,6 +138,10 @@ inductive ByteTransport where
   | extCodeCopy (resultVar : String)
   /-- `return(offset, size)` of an ABI-encoded memory buffer, ending the frame. -/
   | returnMemory
+  /-- Inline-assembly `resultVar := call(gas(), target, 0, inOffset, inSize, outOffset, outSize)`,
+  or `staticcall(gas(), target, inOffset, inSize, outOffset, outSize)` when `isStatic`, over
+  the frame's physical memory. The success flag is bound; nothing reverts by itself. -/
+  | yulMemoryCall (isStatic : Bool) (resultVar : String)
   deriving DecidableEq, Repr
 
 /-- An External Call Module packages a reusable external call pattern.
@@ -818,6 +822,40 @@ def module (resultVar : String) : ExternalCallModule where
 
 end SolidityExtCodeSize
 
+namespace YulMemoryCall
+
+/-- `resultVar := call(gas(), target, 0, inOffset, inSize, outOffset, outSize)`, or the
+`staticcall` form, from five atomic arguments. -/
+def compile (isStatic : Bool) (resultVar : String) (args : List YulExpr) :
+    Except String (List YulStmt) :=
+  match args with
+  | [target, inOffset, inSize, outOffset, outSize] =>
+      let gas := YulExpr.call "gas" []
+      let call := if isStatic then
+          YulExpr.call "staticcall" [gas, target, inOffset, inSize, outOffset, outSize]
+        else
+          YulExpr.call "call" [gas, target, .lit 0, inOffset, inSize, outOffset, outSize]
+      pure [.let_ resultVar call]
+  | _ => throw "Yul memory call expects target, input offset and size, output offset and size"
+
+def module (isStatic : Bool) (resultVar : String) : ExternalCallModule where
+  name := if isStatic then "yulMemoryStaticCall" else "yulMemoryCall"
+  numArgs := 5
+  resultVars := [resultVar]
+  writesState := !isStatic
+  readsState := true
+  compile := fun _ args => compile isStatic resultVar args
+  byteTransport := some (.yulMemoryCall isStatic resultVar)
+  axioms := []
+  -- Denote runs the request against the explicit byte-call adversary; the compiled
+  -- transport is differentially tested.
+  proofStatus := .assumed
+  summaryName := if isStatic then "yul_memory_staticcall" else "yul_memory_call"
+  summaryMutability := if isStatic then .staticcall else .call
+  targetArg := some 0
+
+end YulMemoryCall
+
 namespace SolidityExtCodeCopy
 
 /-- Solidity's `Panic(0x41)` allocation failure. -/
@@ -955,6 +993,10 @@ def compileCanonical (module : ExternalCallModule) (context : CompilationContext
       unless module == SolidityReturnMemory.module do
         throw "closed Solidity memory return transport metadata differs"
       SolidityReturnMemory.compile args
+  | some (.yulMemoryCall isStatic resultVar) =>
+      unless module == YulMemoryCall.module isStatic resultVar do
+        throw "closed Yul memory call transport metadata differs"
+      YulMemoryCall.compile isStatic resultVar args
 
 end ExternalCallModule
 

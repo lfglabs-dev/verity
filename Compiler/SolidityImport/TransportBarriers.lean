@@ -35,6 +35,7 @@ def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
       mod == Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resultVar selector
   | some (.callBytesBool resultVar selector) =>
       mod == Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector
+  | some (.yulMemoryCall false resultVar) => mod == Compiler.ECM.YulMemoryCall.module false resultVar
   | _ => false
 
 abbrev isClosedOptionalBoolCall := isClosedLowLevelCall
@@ -70,6 +71,7 @@ def isClosedStaticCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
       mod == Compiler.ECM.SolidityStaticCall.bytesUint256Module resultVar selector
   | some (.staticBytesBool resultVar selector) =>
       mod == Compiler.ECM.SolidityStaticCall.bytesBoolModule resultVar selector
+  | some (.yulMemoryCall true resultVar) => mod == Compiler.ECM.YulMemoryCall.module true resultVar
   | _ => false
 
 abbrev isClosedInterfaceStaticCall := isClosedStaticCall
