@@ -47,19 +47,20 @@ DEFAULT_OUTPUT = ROOT / "artifacts" / "evmyullean_fork_audit.json"
 # commit in lake-manifest.json disagrees with ``pinned_commit`` here.
 FORK_AUDIT = {
     "schema_version": 1,
-    "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
+    "fork_url": "https://github.com/mab-xyz/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+    "pinned_commit": "d742f034a265b450dfe6ab3b70b0e106c835369f",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 23,
+    "fork_ahead_by": 25,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "The fork has 23 audited commits beyond the recorded upstream base, "
+        "The fork has 25 audited commits beyond the recorded upstream base, "
         "covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM "
         "proof-facing step/block/memory/interpreter/observation layers (#5, "
         "#6, #7, #8, #9, #10), and EVMYulLean 2.0 Waves E1-E4 (BitVec 256, "
         "total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall "
-        "EIP-214/frame fixes)."
+        "EIP-214/frame fixes), a CI change, and one EVM-conformance fix: the "
+        "Yul RETURNDATACOPY step halts on an out-of-bounds read (EIP-211)."
     ),
     "commits": [
         {
@@ -368,13 +369,38 @@ FORK_AUDIT = {
             "diff_summary": "31 files changed, 4500 insertions(+), 342 deletions(-).",
             "trust_impact": "Zero sorryAx, zero native_decide, 460/460 tight specs verified by turbo-lean audit-spec.",
         },
+        {
+            "sha": "f78945ce2cf2d522ec037ad1440cd153c3086064",
+            "title": "ci: install Python precompile dependencies before lean-action (#11)",
+            "file": ".github/workflows/lean_action_ci.yml",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "CI-only: install the Python precompile dependencies and run yulSemanticsTests in the Lean Action workflow.",
+            "diff_summary": "1 file changed, 13 insertions(+).",
+            "trust_impact": "None: no Lean source changes.",
+        },
+        {
+            "sha": "d742f034a265b450dfe6ab3b70b0e106c835369f",
+            "title": "fix(yul): halt on out-of-bounds RETURNDATACOPY (EIP-211)",
+            "file": "EvmYul/Semantics.lean, EvmYul/Yul/Exception.lean, EvmYul/Yul/Interpreter.lean, EvmYul/Yul/YulSemanticsTests/Main.lean",
+            "category": "semantic-change",
+            "semantic_change": True,
+            "conformance_fix": {
+                "eip": "EIP-211",
+                "tests": ["yulSemanticsTests test₆", "yulSemanticsTests test₇"],
+                "upstream_pr": "https://github.com/lfglabs-dev/EVMYulLean/pull/12",
+            },
+            "rationale": "The Yul RETURNDATACOPY step zero-padded a read past the return-data buffer, while the EVM (and EvmYul's own EVM semantics) halt exceptionally. The Yul step now raises InvalidMemoryAccess, mapped to the exceptional-halt state. This narrows the set of successful Yul executions to those a real EVM accepts.",
+            "diff_summary": "4 files changed, 27 insertions(+), 2 deletions(-).",
+            "trust_impact": "Closes a soundness gap: Layer-3 theorems no longer admit runs that a real EVM aborts. Verity proofs that used the unconditional step lemma now carry the in-bounds hypothesis.",
+        },
     ],
     "audit_methodology": [
         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
         "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
         "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
         "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
-        "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
+        "5. Reject a `semantic-change` commit unless it is an EVM-conformance fix: it must cite the EIP it brings the semantics in line with and the tests that check it (`conformance_fix`). Any other semantic change needs explicit Issue #1722 scope expansion.",
         "6. Commit this artifact alongside Verity's lake-manifest.json pin bump.",
     ],
     "reproduction": {
@@ -418,6 +444,17 @@ def _read_evmyul_package(manifest_path: Path) -> dict[str, object]:
     raise RuntimeError(f"evmyul package not found in {manifest_path.relative_to(ROOT)}")
 
 
+def _is_conformance_fix(commit: dict[str, object]) -> bool:
+    """A semantic change admitted because it aligns the semantics with the EVM:
+    category `semantic-change`, the EIP it follows, and at least one test."""
+    fix = commit.get("conformance_fix")
+    if commit.get("category") != "semantic-change" or not isinstance(fix, dict):
+        return False
+    eip, tests = fix.get("eip"), fix.get("tests")
+    return (isinstance(eip, str) and re.fullmatch(r"EIP-\d+", eip) is not None
+            and isinstance(tests, list) and len(tests) > 0)
+
+
 def _validate_audit() -> None:
     """Validate internal invariants of the audit record."""
     if FORK_AUDIT["fork_ahead_by"] != len(FORK_AUDIT["commits"]):
@@ -436,10 +473,11 @@ def _validate_audit() -> None:
                 f"commit {commit['sha'][:10]} has unsupported category "
                 f"{commit.get('category')!r}"
             )
-        if commit.get("semantic_change") is not False:
+        if commit.get("semantic_change") is not False and not _is_conformance_fix(commit):
             raise RuntimeError(
                 f"commit {commit['sha'][:10]} must be non-semantic; "
-                f"semantic changes require Issue #1722 scope expansion"
+                f"semantic changes require Issue #1722 scope expansion, unless "
+                f"they are EVM-conformance fixes with an EIP and tests (conformance_fix)"
             )
         if not re.match(r"^[0-9a-f]{40}$", commit["sha"]):
             raise RuntimeError(
