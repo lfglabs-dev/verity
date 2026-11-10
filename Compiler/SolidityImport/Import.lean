@@ -17803,11 +17803,14 @@ def elabSolidityImport : CommandElab := fun stx => do
       importSlice pkg project entry.getString (contract.getId.toString (escape := false)) roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
+    -- The quoted model is one deep term. A larger enclosing `maxRecDepth` (a model of many
+    -- roots) takes precedence over this floor.
+    let depth := Syntax.mkNumLit (toString (max 16384 (maxRecDepth.get (← getOptions))))
     if report.hasUnsupported then
       -- `collectUnsupported` survey with a failure: only the report is defined.
       -- No `model`, `covered`, `sourceDigest` or accessor exists, so nothing
       -- downstream can run or prove anything about an unsupported root.
-      elabCommand (← `(set_option maxRecDepth 16384 in
+      elabCommand (← `(set_option maxRecDepth $depth in
         def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
           $(← quoteReport report)))
       if ((← get).messages.toList.filter (·.severity == .error)).length > initErrorCount then
@@ -17822,14 +17825,14 @@ def elabSolidityImport : CommandElab := fun stx => do
       let lines := header :: unsupported.map FunctionStatus.toText
       logWarning (String.intercalate "\n" lines)
       return
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    elabCommand (← `(set_option maxRecDepth $depth in
       def $(name `model) : Compiler.CompilationModel.CompilationModel :=
         $(← quoteModel model)))
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    elabCommand (← `(set_option maxRecDepth $depth in
       def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
         $(← quoteReport report)))
     elabCommand (← `(def $(name `sourceDigest) : String := $(quote report.sourceDigest)))
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    elabCommand (← `(set_option maxRecDepth $depth in
       theorem $(name `covered) :
         Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
     for fn in model.functions do
