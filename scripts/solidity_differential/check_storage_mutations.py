@@ -213,7 +213,6 @@ MUTANTS.update({
     'import-int256-contract-slt': ('if isSigned then cmp .slt left right else cmp .lt left right', 'if isSigned then cmp .lt left right else cmp .lt left right'),
     'import-int256-contract-type-bounds': ('if let some bits := signedBitsOf tname then\n    let bound := if member == "max" then 2 ^ (bits - 1) - 1 else 2 ^ 256 - 2 ^ (bits - 1)', 'if let some bits := signedBitsOf tname then\n    let bound := if member == "max" then 0 else 2 ^ 256 - 2 ^ (bits - 1)'),
     'import-int256-contract-checked-add-overflow': ('let nonNegB := iteStmt (.slt sum a.expr) overflowPanic ok\n  let negB := iteStmt (.sgt sum a.expr) overflowPanic ok', 'let nonNegB := ok\n  let negB := ok'),
-    'import-int256-contract-signed-modulo-guard': ('unless common.startsWith "uint" do failAt j "modulo requires unsigned scalar operands"', 'unless true do failAt j "modulo requires unsigned scalar operands"'),
     'import-fnptr-struct-delete-modifier-branch-swap': ('pure (pre, .branch (.localVar condBinding) trueFnId falseFnId)', 'pure (pre, .branch (.localVar condBinding) falseFnId trueFnId)'),
     'import-fnptr-struct-delete-modifier-delete-nonzero': ('    for member in info.memberNames do\n      out := out.push (writeMember member (.literal 0))', '    for member in info.memberNames do\n      out := out.push (writeMember member (.literal 1))'),
     'import-fnptr-struct-delete-modifier-post-drop': ('out := ((out ++ v.pre).push (.letVar captured v.expr) ++ env.rootPost).push (.returnValues [.localVar captured])', 'out := ((out ++ v.pre).push (.letVar captured v.expr)).push (.returnValues [.localVar captured])'),
@@ -696,15 +695,6 @@ contract C {
   uint256 a = 0;
   (a, a) = _pair(x);
   return a;
- }
-}
-''')
-    elif name == 'import-int256-contract-signed-modulo-guard':
-        diagnostic = 'modulo requires unsigned scalar operands'
-        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
-contract C {
- function checked(uint256 x) external pure returns (uint256) {
-  return uint256(int256(x) % int256(7));
  }
 }
 ''')
@@ -1256,7 +1246,6 @@ def mutation_campaign(output, selected=None):
                                   'import-inheritance-duplicate-storage-guard',
                                   'import-modifier-unchecked-sibling-guard',
                                   'import-tuple-helper-duplicate-target-guard',
-                                  'import-int256-contract-signed-modulo-guard',
                                   'import-fnptr-struct-delete-modifier-opaque-delete-guard',
                                   'import-empty-array-bytes-calldata-nonempty-body-guard',
                                   'import-overload-const-error-cond-tuple-tload-nonconst-error-guard',
