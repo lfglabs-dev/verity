@@ -14643,6 +14643,63 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
       failAt fn "an explicit root return is required"
   pure (out, srcParams)
 
+/-! ### Named call arguments in declaration order
+
+A call `f({a: x, b: y})` whose names are the referenced declaration's parameters in their
+declared order is the positional call `f(x, y)`: Solidity evaluates the arguments in source
+order and binds them by name, and here both orders coincide. An attached (`using for`) call
+names every parameter but the receiver, so its names are the parameters after the first.
+Calls whose names follow any other order keep their located rejection: the legacy and
+via-IR code generators evaluate such arguments in different orders, and the importer does
+not choose one. The rewrite only clears `names`; every node keeps its `id` and `src`. -/
+
+/-- Parameter names of every function, event and error declaration, and member names of
+every struct, keyed by AST id, across all source units. -/
+private partial def declaredArgumentNames (acc : Std.HashMap Nat (Array String)) :
+    Json → Std.HashMap Nat (Array String)
+  | j@(.obj kvs) =>
+      let names (list? : Option Json) : Option (Array String) := do
+        let .arr items ← list? | none
+        items.mapM (optStr · "name")
+      let id? := (field? j "id").bind (·.getNat?.toOption)
+      let declared? := match optStr j "nodeType" with
+        | some "StructDefinition" => names (field? j "members")
+        | some "FunctionDefinition" | some "EventDefinition" | some "ErrorDefinition" =>
+            names ((field? j "parameters").bind (field? · "parameters"))
+        | _ => none
+      let acc := match id?, declared? with
+        | some id, some ns => acc.insert id ns
+        | _, _ => acc
+      kvs.foldl (fun acc _ v => declaredArgumentNames acc v) acc
+  | .arr items => items.foldl declaredArgumentNames acc
+  | _ => acc
+
+/-- Whether `written` names the trailing parameters of `declared`, in declared order: all
+of them for an ordinary call, all but the receiver for an attached call. -/
+def namedArgumentsInDeclaredOrder (declared written : Array String) : Bool :=
+  !written.isEmpty && written.size ≤ declared.size &&
+    written == declared.extract (declared.size - written.size) declared.size
+
+/-- Clears `names` on every call whose named arguments are in declaration order. -/
+private partial def positionalNamedArguments (declared : Std.HashMap Nat (Array String)) :
+    Json → Json
+  | .obj kvs =>
+      let j := Json.mkObj (kvs.toList.map fun (k, v) => (k, positionalNamedArguments declared v))
+      if optStr j "nodeType" != some "FunctionCall" then j
+      else
+        let written? : Option (Array String) := do
+          let .arr ns ← field? j "names" | none
+          ns.mapM (·.getStr?.toOption)
+        let target? := ((field? j "expression").bind (field? · "referencedDeclaration")
+          |>.bind (·.getNat?.toOption)).bind declared.get?
+        match written?, target? with
+        | some written, some params =>
+            if namedArgumentsInDeclaredOrder params written then j.setObjVal! "names" (.arr #[])
+            else j
+        | _, _ => j
+  | .arr items => .arr (items.map (positionalNamedArguments declared))
+  | other => other
+
 private partial def index (file : String) (contract? : Option (Nat × String)) (j : Json) : M Unit := do
   match j with
   | .obj o =>
@@ -15065,10 +15122,14 @@ private def importSlice
   for (logical, _) in sourceUnits do
     unless sources.contains logical do
       throwError "solc loaded uncollected source {logical}"
+  let mut asts : Array (String × Json) := #[]
   for (logical, _) in sources do
     let unit ← field sourcesOut logical
-    let ast ← field unit "ast"
-    ((), env) ← (index logical none ast).run env
+    asts := asts.push (logical, ← field unit "ast")
+  -- Named arguments in declaration order become positional before any lowering sees them.
+  let declared := asts.foldl (fun acc (_, ast) => declaredArgumentNames acc ast) {}
+  for (logical, ast) in asts do
+    ((), env) ← (index logical none (positionalNamedArguments declared ast)).run env
   let targetContractIds := env.contractNames.toList.filterMap fun (cid, cname) =>
     if env.nodeFile.find? cid == some entry && cname == contract then some cid else none
   let [targetContractId] := targetContractIds
