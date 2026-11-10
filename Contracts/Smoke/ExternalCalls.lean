@@ -472,7 +472,10 @@ def genericECMTripleResultModule : Compiler.ECM.ExternalCallModule where
   writesState := false
   readsState := false
   axioms := []
-  compile := fun _ctx _args => pure []
+  -- Binds every declared result variable (the compiler rejects an ECM that does not).
+  -- 19 = `stubWord "genericTripleResult" []`, the value the EDSL stub gives each result.
+  compile := fun _ctx _args => pure
+    [.let_ "first" (.lit 19), .let_ "second" (.lit 19), .let_ "third" (.lit 19)]
 
 verity_contract GenericECMTripleResultSmoke where
   storage
@@ -485,6 +488,11 @@ verity_contract GenericECMTripleResultSmoke where
 /-- A read-only ECM uses the deterministic stub without exposing an adversary parameter. -/
 example :
     ((GenericECMTripleResultSmoke.storeThird).run defaultState).getState.calls.length = 1 := by
+  decide
+
+/-- The EDSL stores the stub word 19, the same value the module's Yul binds. -/
+example :
+    ((GenericECMTripleResultSmoke.storeThird).run defaultState).getState.storage 0 = 19 := by
   decide
 
 verity_contract GenericECMWriteSmoke where
