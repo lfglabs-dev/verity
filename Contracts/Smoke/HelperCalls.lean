@@ -271,7 +271,6 @@ verity_contract Uint8Smoke where
     sentinel : Uint256 := slot 0
 
   function acceptSig (sig : Tuple [Uint8, Bytes32, Bytes32]) : Unit := do
-    let _sigValue := sig
     let v := sig_0
     let _r := sig_1
     let _s := sig_2
