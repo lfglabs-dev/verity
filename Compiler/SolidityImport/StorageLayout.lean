@@ -141,6 +141,7 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
   let mut mappings : Array StructMappingInfo := #[]
   let mut dynamicArrays : Array StructDynamicArrayInfo := #[]
   let mut subStructs : Array RawStructSubStructInfo := #[]
+  let mut opaqueMemberNames : Array String := #[]
   for mNode in sMembers do
     let mName ← mStr (← mField mNode "name")
     let mTy ← mType mNode
@@ -150,48 +151,74 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
       let vNode ← mField mTyNode "valueType"
       let kTy ← mType kNode
       let vTy ← mType vNode
-      let keyType ←
-        if kTy == "address" || kTy == "address payable" || kTy.startsWith "contract " then
-          pure MappingKeyType.address
-        else if kTy == "uint256" || kTy == "uint" || (bitsOf kTy).isSome || (signedBitsOf kTy).isSome then
-          pure MappingKeyType.uint256
-        else if kTy == "bytes32" || kTy == "bytes4" then
-          pure MappingKeyType.bytes32
+      let keyOf (ty : String) : Option MappingKeyType :=
+        if ty == "address" || ty == "address payable" || ty.startsWith "contract " then
+          some MappingKeyType.address
+        else if ty == "uint256" || ty == "uint" || (bitsOf ty).isSome || (signedBitsOf ty).isSome then
+          some MappingKeyType.uint256
+        else if ty == "bytes32" || ty == "bytes4" then
+          some MappingKeyType.bytes32
         else
-          failAt mNode s!"unsupported struct mapping key type {kTy}"
-      let (valueWidth, booleanValue, valueStructId?) ←
-        if vTy.startsWith "uint" then
-          match bitsOf vTy with
-          | some w => pure (w, false, none)
-          | none => failAt mNode s!"unsupported struct mapping value type {vTy}"
+          none
+      let keyType? := keyOf kTy
+      -- `mapping(K1 => mapping(K2 => V))` with a scalar `V`: the inner mapping is read through
+      -- the outer key, then its own key.
+      let (innerKeyType?, vNode, vTy) ←
+        if optStr vNode "nodeType" == some "Mapping" then do
+          let innerKeyNode ← mField vNode "keyType"
+          let innerValueNode ← mField vNode "valueType"
+          let innerValueTy ← mType innerValueNode
+          if optStr innerValueNode "nodeType" == some "Mapping" || innerValueTy.startsWith "struct " then
+            pure (none, vNode, vTy)
+          else
+            pure (keyOf (← mType innerKeyNode), innerValueNode, innerValueTy)
+        else pure (none, vNode, vTy)
+      let nested := optStr (← mField mTyNode "valueType") "nodeType" == some "Mapping"
+      let value? : Option (Nat × Bool × Option Nat) ←
+        if nested && innerKeyType?.isNone then
+          pure none
+        else if vTy.startsWith "uint" then
+          pure ((bitsOf vTy).map fun w => (w, false, none))
         else if vTy == "int256" || vTy == "int" || vTy == "bytes32" then
-          pure (256, false, none)
+          pure (some (256, false, none))
         else if vTy == "address" || vTy == "address payable" || vTy.startsWith "contract " then
-          pure (160, false, none)
+          pure (some (160, false, none))
         else if vTy == "bool" then
-          pure (8, true, none)
+          pure (some (8, true, none))
         else if vTy.startsWith "struct " && !vTy.contains "[" then do
           let valSid ← refInt vNode
           unless valSid >= 0 && (← get).structs.contains valSid.toNat do
             failAt mNode s!"unsupported struct mapping value type {vTy}"
           let _ ← resolveRawStructInfo valSid.toNat mNode
-          pure (256, false, some valSid.toNat)
+          pure (some (256, false, some valSid.toNat))
         else
-          failAt mNode s!"unsupported struct mapping value type {vTy}"
+          pure none
+      -- A mapping member always takes one whole slot of its own.
       if currByte > 0 then
         currWord := currWord + 1
         currByte := 0
       let wordOffset := currWord
       currWord := currWord + 1
-      mappings := mappings.push {
-        member := mName
-        solcType := mTy
-        wordOffset
-        keyType
-        valueWidth
-        booleanValue
-        valueStructId := valueStructId?
-      }
+      match keyType?, value? with
+      | some keyType, some (valueWidth, booleanValue, valueStructId?) =>
+          mappings := mappings.push {
+            member := mName
+            solcType := mTy
+            wordOffset
+            keyType
+            valueWidth
+            booleanValue
+            valueStructId := valueStructId?
+            innerKeyType := innerKeyType?
+          }
+      | _, _ => opaqueMemberNames := opaqueMemberNames.push mName
+    else if mTy == "string" || mTy == "bytes" then
+      -- Dynamic byte arrays also take one whole slot; their contents live elsewhere.
+      if currByte > 0 then
+        currWord := currWord + 1
+        currByte := 0
+      currWord := currWord + 1
+      opaqueMemberNames := opaqueMemberNames.push mName
     else if optStr mTyNode "nodeType" == some "ArrayTypeName" && (field? mTyNode "length").isNone then
       let baseNode ← mField mTyNode "baseType"
       let baseTy ← mType baseNode
@@ -275,7 +302,7 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
         isBool
       }
   let wordCount := if currByte > 0 then currWord + 1 else currWord
-  return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, wordCount }
+  return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, wordCount, opaqueMemberNames }
 
 partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat) (types structTy : Json) :
     M (Array StructMember × Array String × Array String × Array String × Array StructFixedArrayInfo × Array StructMappingInfo × Array StructDynamicArrayInfo × Array (String × Nat)) := do
