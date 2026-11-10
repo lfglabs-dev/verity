@@ -3801,8 +3801,11 @@ private partial def lowerBinary (j : Json) : M Val := do
         unless common.startsWith "uint" do failAt j s!"unsupported div type {common}"
         checkedDiv left right
   | "%" =>
-      unless common.startsWith "uint" do failAt j "modulo requires unsigned scalar operands"
-      checkedModulo left right
+      if signedBits?.isSome then
+        signedModulo left right
+      else
+        unless common.startsWith "uint" do failAt j "modulo requires integer scalar operands"
+        checkedModulo left right
   | "<" =>
       if isSigned then cmp .slt left right else cmp .lt left right
   | ">" =>
@@ -3966,6 +3969,20 @@ private partial def signedDiv (isUnchecked : Bool) (left right : Val) : M Val :=
         (iteStmt (.eq b.expr (.literal (2 ^ 256 - 1))) overflowPanic ok)
         ok
   let check := iteStmt (.eq b.expr (.literal 0)) divPanic nonZero
+  pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push check,
+         expr := .localVar dest }
+
+/-- Solidity signed `%`: EVM `smod` (truncated remainder, carrying the sign of
+the dividend, so `(-7) % 4 == -3`) after the zero-divisor guard (`Panic(0x12)`).
+Unlike `/` it cannot overflow (`type(intN).min % -1 == 0`), and Solidity 0.8
+keeps the zero-divisor guard inside `unchecked`. For narrow `intN` the
+sign-extended operands give an in-range, already sign-extended result. -/
+private partial def signedModulo (left right : Val) : M Val := do
+  let a ← atom left
+  let b ← atom right
+  let dest ← fresh
+  let ok := Stmt.assignVar dest (.smod a.expr b.expr)
+  let check := iteStmt (.eq b.expr (.literal 0)) divPanic ok
   pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push check,
          expr := .localVar dest }
 
@@ -11742,6 +11759,8 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
         checkedSignedMul { pre := #[], expr := lhs } { pre := #[], expr := rhs }
     else if operator == "/=" then
       signedDiv isUnchecked { pre := #[], expr := lhs } { pre := #[], expr := rhs }
+    else if operator == "%=" then
+      signedModulo { pre := #[], expr := lhs } { pre := #[], expr := rhs }
     else if operator == "<<=" then
       pure { pre := #[], expr := .shl rhs lhs }
     else if operator == ">>=" then

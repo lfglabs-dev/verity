@@ -929,6 +929,41 @@ def stateful_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown modulo variant: {variant}')
 
 
+def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
+    """Compare signed remainder with its truncated-quotient identity."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'x', 'r', 'r0', 'r1', 'high', 'low', 'negative', 'negativeDivisor',
+                 'narrow', 'minimum', 'folded', 'wrapped'}
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'truncated-quotient':
+        # Solidity signed `/` truncates toward zero, so `a % b == a - (a / b) * b`
+        # for every nonzero divisor except `type(int256).min % -1`, whose
+        # quotient overflows: that line and the zero-divisor probe stay verbatim.
+        for kept in ('% -1;', 'value % (value - value)'):
+            if fixture.count(kept) != 1:
+                raise ValueError(f'missing verbatim signed modulo anchor: {kept}')
+        replacements = {
+            'r0 = r % ALPHA;': 'r0 = r - (r / ALPHA) * ALPHA;',
+            '-int256(x % 1000) % 7;': '-int256(x % 1000) - (-int256(x % 1000) / 7) * 7;',
+            'int256(x % 1000) % -7;': 'int256(x % 1000) - (int256(x % 1000) / -7) * -7;',
+            'int8(int256(x % 256) - 128) % int8(-5);':
+                'int8(int256(x % 256) - 128) - (int8(int256(x % 256) - 128) / int8(-5)) * int8(-5);',
+            'folded %= 5;': 'folded = folded - (folded / 5) * 5;',
+            '(int256(x % 89) - 44) % 9;': '(int256(x % 89) - 44) - ((int256(x % 89) - 44) / 9) * 9;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing signed modulo fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown signed-modulo variant: {variant}')
+
+
 def stateful_default_local_source(fixture: str, variant: str) -> str:
     """Compare implicit scalar defaults to explicit defaults and renamed locals."""
     if variant == 'baseline':

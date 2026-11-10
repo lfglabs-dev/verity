@@ -106,6 +106,13 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-signed-modulo-value': ('Stmt.assignVar dest (.smod a.expr b.expr)', 'Stmt.assignVar dest (.mod a.expr b.expr)'),
+    'import-signed-modulo-zero': ('let check := iteStmt (.eq b.expr (.literal 0)) divPanic ok', 'let check := iteStmt (.eq b.expr (.literal 1)) divPanic ok'),
+    'import-signed-modulo-dispatch': ('        signedModulo left right', '        checkedModulo left right'),
+})
+
+
 MUTANTS.update({'import-local-write-value': ('return value.pre.push (.assignVar binding value.expr)', 'return value.pre.push (.assignVar binding (.literal 0))')})
 
 MUTANTS.update({'import-default-local-zero': ('return #[.letVar binding (.literal 0)]', 'return #[.letVar binding (.literal 1)]')})
@@ -521,6 +528,8 @@ def run(directory, output, name):
         fixture = "DefaultLocalSequence"
     if name.startswith("import-modulo-"):
         fixture = "ModuloSequence"
+    if name.startswith("import-signed-modulo-"):
+        fixture = "SignedModuloSequence"
     if name.startswith("import-constant-array-"):
         fixture = "ConstantArraySequence"
     if name.startswith("import-numeric-"):
