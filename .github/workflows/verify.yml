@@ -850,6 +850,7 @@ jobs:
             Contracts.Smoke.WholeCompositeValueSmoke
             Contracts.Smoke.InterfaceCompositeReturnSmoke
             Contracts.Smoke.NamedStructReturnSmoke
+            Contracts.Smoke.Create2AddressSmoke
             Contracts.Smoke.MemoryHashSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
@@ -906,6 +907,7 @@ jobs:
             Contracts.Smoke.WholeCompositeValueSmoke
             Contracts.Smoke.InterfaceCompositeReturnSmoke
             Contracts.Smoke.NamedStructReturnSmoke
+            Contracts.Smoke.Create2AddressSmoke
             Contracts.Smoke.MemoryHashSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
