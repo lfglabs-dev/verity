@@ -85,23 +85,53 @@ assumed transition.
 
 ## Eliminated Axioms
 
-### `solidityMappingSlot_injective` (removed as inconsistent)
+### `solidityMappingSlot_injective` (removed in `#2663`; footprint-scoped certificates)
 
-The former bounded axiom asserted injectivity on all pairs of 256-bit words.
-The kernel-proved `solidityMappingSlot_lt_evmModulus` bounds every output to
-256 bits. Together they would inject `Fin (2^256) × Fin (2^256)` (2^512 elements)
-into `Fin (2^256)` (2^256 elements), contradicting finite cardinality by
-pigeonhole. Range restriction did not repair this inconsistency. This was a
-critical soundness defect, not a cryptographic assumption justified by Keccak.
+`solidityMappingSlot` (`Compiler/Proofs/MappingSlot.lean`) interprets
+`keccak256(abi.encode(key, baseSlot))` through the kernel-computable Keccak
+engine, and `solidityMappingSlot_lt_evmModulus` (`Compiler/Proofs/MappingSlot.lean`)
+proves that every result is below `2^256`. The former global axiom asserting
+injectivity over every in-range `(base, key)` pair below that modulus was
+removed by `#2663`: a function into a `2^256`-element codomain cannot inject all
+`2^512` in-range `(base, key)` pairs (`Fin (2^256) × Fin (2^256) → Fin (2^256)`).
+This is a finite-domain cardinality fact, not a claim that a concrete hash
+collision has been found or that deployed Solidity contracts are exploitable;
+concrete Solidity safety remains the standard computational collision-resistance
+assumption for the accessed keys.
 
-The replacement is explicit finite accessed-footprint evidence:
-`CollisionFreeOn accessedPairs`, `LayoutNonAliasOn fields accessed`, and
-`StorageSlotNonAliasCertificate slots`. Nested proofs include both inner and
-outer ABI pairs. Reserved scalar slots require separate separation evidence
-or inclusion in the layout footprint. Concrete certificates may be proved by
-kernel computation; symbolic theorems carry them as hypotheses. No theorem
-asserts collision freedom for every finite footprint. Only `propext`,
-`Classical.choice`, and `Quot.sound` are permitted by the population axiom gate.
+The replacement scopes collision freedom and slot distinctness to the caller's
+finite accessed footprint:
+- `CollisionFreeOn` (`Compiler/Proofs/MappingSlot.lean`) is an explicit
+  hypothesis over a caller-supplied finite list of accessed `(base, key)` pairs.
+- `mappingSlot_pair_eq_of_collisionFreeOn` (`Compiler/Proofs/MappingSlot.lean`)
+  derives pair equality only for pairs covered by that certificate.
+- `LayoutNonAliasOn fields accessed` and `StorageSlotNonAliasCertificate`
+  (`Compiler/Proofs/MappingSlot.lean`) likewise scope layout separation and
+  storage-slot distinctness to one finite location list (including both inner
+  and outer ABI pairs for nested mappings, plus any reserved scalar slots).
+- The constructive finite-domain explanation and finite-footprint pattern are
+  recorded in `Th0rgal/lean-specs#1` (`06222a8b073b315c50c60808c3a7141508b9f27c`).
+
+Concrete certificates may be discharged by kernel computation; symbolic theorems
+carry them as explicit hypotheses. No theorem asserts collision freedom for
+every finite footprint, and only `propext`, `Classical.choice`, and `Quot.sound`
+are permitted by the population axiom gate.
+
+## Non-Axiom: Generic Native Layer 3 Body Hypothesis
+
+The generic native EndToEnd theorem
+`compile_preserves_native_evmYulLean_of_compile_ok_supported_generated_callDispatcher`
+and its private `..._via_result` wrapper (`Compiler/Proofs/EndToEnd/Base.lean`)
+introduce no Lean axiom, but retain the explicit theorem premise
+`hUserBodyResult : NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state observableSlots`.
+Compilation derives syntactic closure and dispatcher lowering rather than this
+semantic premise, and `Compiler/Proofs/EndToEnd/Base.lean` records that generic
+native user-body simulation remains missing. Results are projected onto the
+caller-selected finite `observableSlots : List Nat`, the semantic target is the
+native Yul AST `EvmYul.Yul.callDispatcher` rather than EVM bytecode (`solc`
+remains trusted), and the concrete SimpleStorage theorem
+(`Compiler/Proofs/EndToEnd/SimpleStorage.lean`) discharges its body cases
+separately without retaining `hUserBodyResult`.
 
 ### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)
 
@@ -448,7 +478,7 @@ proof exists.
 
 ## Trust Summary
 
-- Active project-level axioms: 1
+- Active project-level axioms: 0
 - Production blockers from project-level axioms: 0
 - Consumer intrinsic obligations: owned and documented by consumer packages
 - Enforcement: `scripts/check_axioms.py` ensures this file tracks exact source locations.
@@ -464,7 +494,7 @@ semantics must update this file and [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md)
 
 If this file is stale, trust analysis is stale.
 
-**Last Updated**: 2026-05 (intrinsics addition)
+**Last Updated**: 2026-11 (zero project axioms; footprint-scoped mapping-slot certificates and native Layer 3 body hypothesis boundary)
 
 The bounded-loop invariant rule and its concrete storage/panic checks in
 `Compiler/SolidityImport/LoopInvariants.lean` and
