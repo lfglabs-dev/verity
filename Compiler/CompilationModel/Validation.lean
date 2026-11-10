@@ -268,7 +268,12 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
           | [.literal 32, .calldatasize, .calldataload (.literal 0)], [.bytes] => params.isEmpty
           | _, _ => false then
         pure ()
-      else if values.length != expectedReturns.length then
+      else if values.length != expectedReturns.length &&
+          -- A static composite return (a struct, i.e. an ABI `tuple`) may be given as its
+          -- flattened words: externally `return(0, 32*n)` is exactly its ABI encoding, and
+          -- an internal function has one return slot per word (`freshInternalRetNames`).
+          (isDynamicParamTypeList expectedReturns ||
+            values.length * 32 != paramHeadSizeList expectedReturns) then
         throw s!"Compilation error: function '{fnName}' returnValues count mismatch: expected {expectedReturns.length}, got {values.length}"
       else
         pure ()

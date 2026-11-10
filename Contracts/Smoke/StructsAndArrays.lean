@@ -1,4 +1,5 @@
 import Contracts.Smoke.Declarations
+import Contracts.Smoke.NamedStructReturnSmoke
 
 namespace Contracts.Smoke
 
@@ -140,16 +141,6 @@ verity_contract NamedStructDynamicRootLeafProjection where
 
   function goodDynamicLeaf (config : DynamicConfig) : Address := do
     return config.maker
-
-verity_contract NamedStructReturnSmoke where
-  storage
-
-  struct FeeConfig where
-    borrowTakerFeeRatio : Uint256,
-    lendMakerFeeRatio : Uint256
-
-  function goodReturn (borrowFee : Uint256, lendFee : Uint256) : FeeConfig := do
-    return FeeConfig.mk borrowFee lendFee
 
 verity_contract CurveCutArraySmoke where
   storage
