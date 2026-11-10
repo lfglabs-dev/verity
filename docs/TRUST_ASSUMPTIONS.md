@@ -2037,6 +2037,19 @@ Trust boundary changes:
   differential evidence (`InterfaceVoidCallSequence` against recording call responders
   of every response shape, an account without code and an EOA), not a proof.
 
+### Validation instrument: selector-dispatched call responder
+
+`selector-call-responder-v1` (`SelectorResponderMocks.lean`) is the Denote twin of
+`SelectorCallResponder.sol`, for campaigns whose contract calls several functions of one
+account, some by `STATICCALL`. It answers from a table in the account's storage: the first
+entry whose selector matches the calldata answers, a view entry without writing, a recording
+entry after counting the call and recording its calldata (a `STATICCALL` to it is an
+exceptional halt), and a failing entry by reverting with its data; no match is an empty
+revert. `respond_staticcall_valid` proves that a `STATICCALL` commits only the world it
+started from. The mock establishes nothing about any deployed contract; its agreement with
+the Solidity responder is differential evidence (`check_selector_responder.py` over five
+tables, an account without code and an EOA).
+
 ### Imported `<address>.code.length` and optional-bool low-level calls
 
 `solidity_import` now admits `<addr>.code.length` on `address`-typed accounts
