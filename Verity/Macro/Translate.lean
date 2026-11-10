@@ -1617,6 +1617,30 @@ private partial def translateDoElem
                               let targetExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals target
                               let argExprs ← argTerms.mapM
                                 (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals)
+                              let leaves := staticLeafBindings varName retTy
+                              if !ext.isView && leaves.length > 1 then
+                                -- A static composite return (tuple/struct/fixed array) is
+                                -- ABI-decoded word by word into its leaves; `withReturnModule`
+                                -- would keep only the first word.
+                                unless some leaves.length == staticAbiWordCount? retTy do
+                                  throwErrorAt rhs s!"typed interface call '{ext.name}' returns {renderValueType retTy}, which has no static ABI word layout"
+                                let leafTerms := leaves.toArray.map (fun (leaf, _) => strTerm leaf)
+                                let stmt ← `(Compiler.CompilationModel.Stmt.ecm
+                                    (Compiler.Modules.Calls.withReturnsModule
+                                      [ $[$leafTerms],* ]
+                                      $(natTerm selector)
+                                      $(natTerm argExprs.size)
+                                      false)
+                                    [ $targetExpr, $[$argExprs],* ])
+                                let mut stmts := #[stmt]
+                                for (leaf, leafTy) in leaves do
+                                  if let some normalization ← normalizeBoundValueStmt? leafTy rhs leaf then
+                                    stmts := stmts.push normalization
+                                let leafLocals := leaves.toArray.map (fun (leaf, leafTy) => mkTypedLocal leaf leafTy)
+                                return (stmts,
+                                  (locals ++ leafLocals).push
+                                    { name := varName, ty := retTy, source := .compositeLeaves },
+                                  mutableLocals)
                               let stmt ←
                                 if ext.isView then
                                   match staticAbiWordCount? retTy with
