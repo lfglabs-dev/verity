@@ -5089,10 +5089,15 @@ theorem NativePrimCallPreservesWord_returndatacopy
   | zero =>
       simp [EvmYul.Yul.primCall] at hExec
   | succ fuel' =>
-      rw [primCall_returndatacopy_ok] at hExec
-      cases hExec
-      rw [state_getElem_setMachineState]
-      exact hLookup
+      by_cases hIn : rstart.toNat + size.toNat ≤
+          state.toSharedState.toMachineState.returnData.size
+      · rw [primCall_returndatacopy_ok _ _ _ _ _ hIn] at hExec
+        cases hExec
+        rw [state_getElem_setMachineState]
+        exact hLookup
+      · -- An out-of-bounds copy halts (EIP-211), contradicting `hExec`.
+        rw [primCall_returndatacopy_out_of_bounds _ _ _ _ _ (by omega)] at hExec
+        cases hExec
 
 theorem NativePrimCallPreservesWord_calldatacopy_values
     (name : EvmYul.Identifier)
