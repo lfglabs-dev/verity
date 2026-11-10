@@ -34,6 +34,11 @@ ExternalCallModule (Compiler/ECM.lean)
 Stmt.ecm (mod : ExternalCallModule) (args : List Expr)
 ```
 
+Every name in `resultVars` must be bound by a top-level `let` in the Yul that
+`compile` returns: the caller emits nothing for it, and a `let` inside a
+`block` goes out of scope at the closing brace. The compiler checks this
+before code generation (`firstEcmUnboundResultVar`).
+
 ## Foreign Link Modes
 
 Foreign dependencies must declare whether they are a deployed boundary or code
