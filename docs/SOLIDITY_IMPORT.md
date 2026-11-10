@@ -1066,3 +1066,24 @@ metamorphic source variants (`check_storage --fixture unchecked-blocks` /
 the right of tuple assignments remain rejected.
 
 Whole-contract frame proofs can use `Transactions.AdversarialEntryPointSequence` and `invariant_of_adversarial_entry_points` to vary both the transaction context and permitted oracle at each public call. Every permitted oracle must satisfy the actual per-entry-point execution obligation. The rule includes observed reverting frames through rollback; ABI decoding, dispatch and value transfers remain separate obligations. `adversarial_sequence_append` composes observed prefixes.
+
+These frameworks run every entry point with `executeBody`'s default byte-call environment,
+which has no adversary: an external call is then an instrumentation error, so no successful
+step makes one, and an invariant proved through them says nothing about the transactions
+that call out. `AllEntryPointsPreserveWith`, `CalleeEntryPointSequence` and
+`invariant_of_callee_entry_points` choose the callees' behaviour too, at every step, among the
+byte-call environments a predicate allows (a hypothesis about the callees, such as "they never
+write the caller's storage"), and admit each step by its oracle, function and prepared world
+(one fixed oracle for the whole sequence, or callers and calldata words from a given set);
+`all_entry_points_preserve_with_of_success` and
+`callee_sequence_append` are the counterparts of the rules above. `ReentrantCallees` lets
+callees call back into the contract, a bounded number of levels deep: a successful answer is
+then a nested callee-choosing sequence of the contract's own entry points from the call point,
+with the caller's frame restored; `reentrant_answer_preserves` carries an invariant of the
+contract's own storage through such an answer. Their steps also take ABI
+decoding into account: each step's bindings decode its own world's calldata (`DecodedCall`,
+through `Denote.bindExternalParams` as `denoteFunction` decodes), so a proof may use that a
+`uint104` parameter is below `2^104`, no step runs a body on arguments no transaction can
+pass, and a body with an explicit ABI prelude decodes the same calldata.
+`Contracts/SolidityImportSmoke/EntryPointInvariantChecks.lean` uses each of them on a
+three-entry model, including a step whose arguments decode from its frame.

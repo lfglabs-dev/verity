@@ -34,9 +34,9 @@ preservation is an explicit obligation rather than an implicit assumption. -/
 theorem executeBody_failed_world (oracle : DenoteOracle) (fields : List Field)
     (before : Verity.ContractState) (bindings : Env) (body : List Stmt)
     (errors : List ErrorDef) (result : FrameResult)
-    {immutables : String → Verity.Core.Uint256}
+    {byteCalls : ByteCallEnvironment} {immutables : String → Verity.Core.Uint256}
     (executed : executeBody oracle fields before bindings body errors
-      (immutables := immutables) = .ok result)
+      (byteCalls := byteCalls) (immutables := immutables) = .ok result)
     (failed : result.success = false) : result.world = beginTransaction before := by
   exact finishFrame_failed_world (beginTransaction before) _ result executed failed
 
@@ -73,6 +73,57 @@ theorem all_entry_points_preserve_of_success (oracle : DenoteOracle)
         fn.body model.errors result executed success]
       exact resetPreserves before initial
   | true => exact successPreserves fn member isPublic before bindings result initial executed success
+
+/-- `bindings` are what ABI-decoding `world`'s own calldata binds for `fn`'s parameters
+(`Denote.bindExternalParams`, as `denoteFunction` decodes): the arguments of the call the
+frame's calldata makes. Decoding cleans every scalar to its type's width, so a narrow
+parameter is bound in range. A body that decodes its arguments itself (an explicit ABI
+prelude, `bindingParams = []`) reads the same calldata. -/
+def DecodedCall (fn : FunctionSpec) (world : Verity.ContractState) (bindings : Env) : Prop :=
+  Denote.bindExternalParams world.selector fn.bindingParams world.calldata = some bindings
+
+/-- `AllEntryPointsPreserve` with the callees chosen too: every public entry point, run with
+the byte-call environment `calls` on decoded arguments, keeps `invariant`. `executeBody`'s
+default environment has no adversary, so under `AllEntryPointsPreserve` an external call is
+an instrumentation error and no successful frame makes one; obligations about frames that
+call out need this form. Unlike `AllEntryPointsPreserve`, the bindings are the decoded
+calldata of the frame (`DecodedCall`), not any environment: a body may rely on its
+parameters' widths. `admits` restricts the calls covered, by function and frame world (for
+instance the callers and calldata words a statement ranges over). -/
+def AllEntryPointsPreserveWith (oracle : DenoteOracle) (calls : ByteCallEnvironment)
+    (model : CompilationModel) (invariant : Verity.ContractState → Prop)
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0)
+    (admits : FunctionSpec → Verity.ContractState → Prop := fun _ _ => True) : Prop :=
+  ∀ fn ∈ model.functions, fn.isInternal = false →
+    ∀ before bindings result,
+      admits fn before → DecodedCall fn before bindings → invariant before →
+      executeBody oracle (effectiveFields model) before bindings fn.body model.errors
+        (byteCalls := calls) (immutables := immutables) = .ok result →
+      invariant result.world
+
+/-- As `all_entry_points_preserve_of_success`, with the callees chosen: reverting frames,
+whatever the callees did, roll back to the reset world. -/
+theorem all_entry_points_preserve_with_of_success (oracle : DenoteOracle)
+    (calls : ByteCallEnvironment) (model : CompilationModel)
+    (invariant : Verity.ContractState → Prop) {immutables : String → Verity.Core.Uint256}
+    {admits : FunctionSpec → Verity.ContractState → Prop}
+    (resetPreserves : ∀ world, invariant world → invariant (beginTransaction world))
+    (successPreserves : ∀ fn ∈ model.functions, fn.isInternal = false →
+      ∀ before bindings result, admits fn before → DecodedCall fn before bindings →
+        invariant before →
+        executeBody oracle (effectiveFields model) before bindings fn.body model.errors
+          (byteCalls := calls) (immutables := immutables) = .ok result →
+        result.success = true → invariant result.world) :
+    AllEntryPointsPreserveWith oracle calls model invariant immutables admits := by
+  intro fn member isPublic before bindings result admitted decoded initial executed
+  cases success : result.success with
+  | false =>
+      rw [executeBody_failed_world oracle (effectiveFields model) before bindings
+        fn.body model.errors result executed success]
+      exact resetPreserves before initial
+  | true =>
+      exact successPreserves fn member isPublic before bindings result admitted decoded initial
+        executed success
 
 /-- A sequence consists only of actual public model execution steps. Instrument
 errors have no constructor and cannot be mistaken for Solidity reverts. -/

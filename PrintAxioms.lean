@@ -8497,6 +8497,9 @@ Compiler.CompilationModel.SolidityImport.evalExpr_structMember_param
 -- Compiler/SolidityImport/AdversarialEntryPointInvariants.lean
 Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_adversarial_entry_points
 Compiler.CompilationModel.SolidityImport.Transactions.adversarial_sequence_append
+Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_callee_entry_points
+Compiler.CompilationModel.SolidityImport.Transactions.callee_sequence_append
+Compiler.CompilationModel.SolidityImport.Transactions.reentrant_answer_preserves
 
 -- Compiler/SolidityImport/AstIndex.lean
 Compiler.CompilationModel.SolidityImport.AstNodeIndex.empty_findById?
@@ -8611,6 +8614,7 @@ Compiler.CompilationModel.SolidityImport.execStmtList_slice_storageWords
 Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_failed_world
 Compiler.CompilationModel.SolidityImport.Transactions.executeBody_failed_world
 Compiler.CompilationModel.SolidityImport.Transactions.all_entry_points_preserve_of_success
+Compiler.CompilationModel.SolidityImport.Transactions.all_entry_points_preserve_with_of_success
 Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_all_entry_points
 Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_contextual_entry_points
 
@@ -12074,4 +12078,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11241 theorems/lemmas (8742 public, 2499 private, 0 sorry'd)
+-- Total: 11245 theorems/lemmas (8746 public, 2499 private, 0 sorry'd)
