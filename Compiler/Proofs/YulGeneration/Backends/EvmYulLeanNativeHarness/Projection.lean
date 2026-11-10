@@ -3305,6 +3305,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
   | InvalidExpression => rfl
   | YulEXTCODESIZENotImplemented => rfl
   | Revert => rfl
+  | InvalidMemoryAccess => rfl
 
 @[simp] theorem projectResult_hardError_success
     (tx : YulTransaction)
@@ -3326,6 +3327,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
   | InvalidExpression => rfl
   | YulEXTCODESIZENotImplemented => rfl
   | Revert => rfl
+  | InvalidMemoryAccess => rfl
 
 @[simp] theorem projectResult_hardError_returnValue
     (tx : YulTransaction)
@@ -3347,6 +3349,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
   | InvalidExpression => rfl
   | YulEXTCODESIZENotImplemented => rfl
   | Revert => rfl
+  | InvalidMemoryAccess => rfl
 
 @[simp] theorem projectResult_hardError_finalStorageSlot
     (tx : YulTransaction)
@@ -3370,6 +3373,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
   | InvalidExpression => rfl
   | YulEXTCODESIZENotImplemented => rfl
   | Revert => rfl
+  | InvalidMemoryAccess => rfl
 
 @[simp] theorem projectResult_hardError_finalMappings
     (tx : YulTransaction)
@@ -3392,6 +3396,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
   | InvalidExpression => rfl
   | YulEXTCODESIZENotImplemented => rfl
   | Revert => rfl
+  | InvalidMemoryAccess => rfl
 
 @[simp] theorem projectResult_hardError_events
     (tx : YulTransaction)
@@ -3414,6 +3419,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
   | InvalidExpression => rfl
   | YulEXTCODESIZENotImplemented => rfl
   | Revert => rfl
+  | InvalidMemoryAccess => rfl
 
 /-- Guarded selector-hit execution for a fully lowered native switch block,
     with the projected selected-body error result exposed at the same switch
