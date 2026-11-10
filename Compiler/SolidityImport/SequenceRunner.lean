@@ -36,6 +36,12 @@ private def eventWord (ty : ParamType) (value : Nat) : Except String Nat := do
   | .uintN bits =>
       unless 0 < bits && bits ≤ 256 && bits % 8 == 0 do throw "invalid event integer width"
       pure (value % 2^bits)
+  | .int256 => pure (value % 2^256)
+  | .intN bits =>
+      unless 0 < bits && bits < 256 && bits % 8 == 0 do throw "invalid event integer width"
+      -- `signextend`: the low `bits` bits, their sign copied into the upper bits.
+      let low := value % 2^bits
+      pure (if low < 2^(bits - 1) then low else low + (2^256 - 2^bits))
   | .bytesN 4 => pure ((value % 2^256) &&& ((2^32 - 1) * 2^224))
   | .bytesN 1 => pure ((value % 2^256) &&& ((2^8 - 1) * 2^248))
   | .address => pure (value % 2^160)

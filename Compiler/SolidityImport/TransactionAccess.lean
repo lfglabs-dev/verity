@@ -160,7 +160,12 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
       let [definition] := events.filter (·.name == name)
         | throw s!"observed event must resolve uniquely: {name}"
       unless definition.params.length == values.length do throw "event argument count differs"
-      unless definition.params.all (fun p => (Denote.errorScalarType p.ty).isSome || p.ty == .bytesN 4 || p.ty == .bytesN 1) do
+      let signedScalar (ty : ParamType) : Bool := match ty with
+        | .int256 => true
+        | .intN bits => 0 < bits && bits < 256 && bits % 8 == 0
+        | _ => false
+      unless definition.params.all (fun p => (Denote.errorScalarType p.ty).isSome ||
+          p.ty == .bytesN 4 || p.ty == .bytesN 1 || signedScalar p.ty) do
         throw "unsupported event observation parameter type"
       unless (definition.params.filter (fun p => p.kind == .indexed)).length ≤ 3 do
         throw "event has more than three indexed parameters"
