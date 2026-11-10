@@ -105,10 +105,12 @@ finite accessed footprint:
   hypothesis over a caller-supplied finite list of accessed `(base, key)` pairs.
 - `mappingSlot_pair_eq_of_collisionFreeOn` (`Compiler/Proofs/MappingSlot.lean`)
   derives pair equality only for pairs covered by that certificate.
-- `LayoutNonAliasOn fields accessed` and `StorageSlotNonAliasCertificate`
-  (`Compiler/Proofs/MappingSlot.lean`) likewise scope layout separation and
-  storage-slot distinctness to one finite location list (including both inner
-  and outer ABI pairs for nested mappings, plus any reserved scalar slots).
+- `LayoutNonAliasOn fields accessed`
+  (`Compiler/Proofs/Storage/MappingCoherentAllKeys.lean`) and
+  `StorageSlotNonAliasCertificate` (`Compiler/Proofs/MappingSlot.lean`) likewise
+  scope layout separation and storage-slot distinctness to one finite location
+  list (including both inner and outer ABI pairs for nested mappings, plus any
+  reserved scalar slots).
 - The constructive finite-domain explanation and finite-footprint pattern are
   recorded in `Th0rgal/lean-specs#1` (`06222a8b073b315c50c60808c3a7141508b9f27c`).
 
