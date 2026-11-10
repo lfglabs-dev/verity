@@ -105,6 +105,16 @@ MUTANTS.update({
     'import-named-arguments-order-guard': (
         'if namedArgumentsInDeclaredOrder params written then',
         'if written.size ≤ params.size then')})
+# Signed event parameters keep their declared type in the event signature, and the
+# observed ABI word is sign-extended.
+MUTANTS.update({
+    'import-signed-event-type': (
+        "    let some modelType := paramType ty | failAt parameter s!\"unsupported event parameter type {ty}\"\n",
+        "    let some modelType := (paramType ty).map (fun t => match t with\n"
+        "      | .int256 | .intN _ => .uint256 | other => other) | failAt parameter s!\"unsupported event parameter type {ty}\"\n"),
+    'observe-event-signed-narrow': (
+        '      pure (if low < 2^(bits - 1) then low else low + (2^256 - 2^bits))',
+        '      pure low')})
 MUTANTS.update({'import-numeric-separators': ('let raw := raw.replace "_" ""', 'let raw := raw.replace "_" "0"'),
  'import-numeric-leading-dot': ('if whole.isEmpty then some 0 else whole.toNat?', 'if whole.isEmpty then some 1 else whole.toNat?'),
  'import-numeric-decimal-scale': ('let scale := 10 ^ fraction.length',
@@ -575,6 +585,8 @@ def run(directory, output, name):
         fixture = "DividingWhileSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
+    if name in ("import-signed-event-type", "observe-event-signed-narrow"):
+        fixture = "SignedEventSequence"
     if name.startswith("import-constant-array-"):
         fixture = "ConstantArraySequence"
     if name.startswith("import-numeric-"):
@@ -585,7 +597,7 @@ def run(directory, output, name):
         fixture = "ShortCircuitSequence"
     if name.startswith('import-if-'):
         fixture = 'IfElseSequence'
-    if name.startswith(('import-event-', 'observe-event-')):
+    if name.startswith(('import-event-', 'observe-event-')) and name != 'observe-event-signed-narrow':
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
@@ -603,6 +615,11 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--senders', '3', '--immutable-sender', 'GUARD=1', '--immutable-sender', 'PAYEE=2',
                      '--change-prefix', '0', '1', '2', '15', '16'])
+    if fixture == 'SignedEventSequence':
+        # Values below and above 500 give negative and positive signed arguments.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 499, 500, 501, 999, 1000, 1499, (1 << 256) - 1])])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'

@@ -12688,11 +12688,15 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
     let ty ← mType parameter
     discard (validateEnumTypeIfNeeded parameter ty)
     let multiSlot := (← get).stateVars.size > 1
-    let some rawModelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
-    let modelType := match rawModelType with
-      | .int256 | .intN _ => if multiSlot then .uint256 else rawModelType
-      | _ => rawModelType
-    unless (Denote.errorScalarType modelType).isSome || modelType == .bytesN 4 || modelType == .bytesN 1 do
+    let some modelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
+    -- Signed parameters keep their type: it names them in the event signature (topic 0),
+    -- and the ABI word is the sign-extended value.
+    let signedScalar := match modelType with
+      | .int256 => true
+      | .intN bits => 0 < bits && bits < 256 && bits % 8 == 0
+      | _ => false
+    unless (Denote.errorScalarType modelType).isSome || modelType == .bytesN 4 ||
+        modelType == .bytesN 1 || signedScalar do
       failAt parameter s!"unsupported event parameter type {ty}"
     let indexed ← mBool (← mField parameter "indexed")
     let parameterName ← mStr (← mField parameter "name")
