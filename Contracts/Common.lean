@@ -1,5 +1,7 @@
 import Compiler.CompilationModel
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.YulGeneration.Calldata
+import Compiler.Keccak.MemorySlice
 import Verity.Core
 import Verity.Core.Semantics
 import Verity.Core.Model.ContractExternalCall
@@ -408,11 +410,25 @@ def calldataloadLive (offset : Uint256) : Contract Uint256 := fun state =>
       (Compiler.CompilationModel.Denote.calldataloadWord
         state.selector state.calldata offset.val))
     state
+/-- Deprecated pure placeholder (ignores memory); contract code lowers `mload` to
+`mloadLive` on the executable path. Kept for downstream code that names it. -/
 def mload (offset : Uint256) : Uint256 := offset
+/-- `mload(offset)`: the word at `offset` in word-addressed memory. -/
+def mloadLive (offset : Uint256) : Contract Uint256 := fun state =>
+  ContractResult.success (state.memory offset.val) state
 def tload (offset : Uint256) : Contract Uint256 := fun state =>
   ContractResult.success (state.transientStorage (offset : Nat)) state
 def extcodesize (addr : Uint256) : Uint256 := addr
+/-- Deprecated pure placeholder (`offset + size`); contract code lowers `keccak256` to
+`keccak256Live` on the executable path. Kept for downstream code that names it. -/
 def keccak256 (offset size : Uint256) : Uint256 := add offset size
+/-- `keccak256(offset, size)`: Keccak-256 of the `size`-byte memory slice at `offset`
+(`Compiler.Keccak.MemorySlice.keccak`, equal to the proof IR's model). -/
+def keccak256Live (offset size : Uint256) : Contract Uint256 := fun state =>
+  ContractResult.success
+    (Verity.Core.Uint256.ofNat
+      (Compiler.Keccak.MemorySlice.keccak (fun a => (state.memory a).val) offset.val size.val))
+    state
 def call (gas target value inOffset inSize outOffset outSize : Uint256) : Uint256 :=
   add gas (add target (add value (add inOffset (add inSize (add outOffset outSize)))))
 def staticcall (gas target inOffset inSize outOffset outSize : Uint256) : Uint256 :=
@@ -423,7 +439,40 @@ def ecrecover (hash v r sigS : Uint256) : Contract Address := fun state =>
   ContractResult.success
     (wordToAddress ((Verity.Env.ofWorld state).callOracle "ecrecover" [hash, v, r, sigS]))
     state
+/-- Length in bytes of a `Bytes` parameter (`bytesLength data` in contract code). -/
+def bytesLength (data : ByteArray) : Uint256 := Verity.Core.Uint256.ofNat data.size
+
+/-- The big-endian 32-byte word of `data` starting at byte `start` (zero-padded). -/
+def byteArrayWordBE (data : ByteArray) (start : Nat) : Nat :=
+  (List.range 32).foldl (fun acc j => acc * 256 + (data.get! (start + j)).toNat) 0
+
+/-- `copyBytes data dest`: copy a `Bytes` parameter to memory at `dest`, exactly like the
+compiled `calldatacopy(dest, data_offset, data_length)`: whole words replaced, the final
+partial word keeps its untouched low bytes (as `calldatacopyMemoryPadded`). -/
+def copyBytes (data : ByteArray) (dest : Uint256) : Contract Unit := fun state =>
+  let size := data.size
+  let d := dest.val
+  ContractResult.success ()
+    { state with
+      memory := fun offset => Verity.Core.Uint256.ofNat
+        (if size % 32 ≠ 0 ∧ offset = d + (size / 32) * 32 then
+          let shift := 8 * (32 - size % 32)
+          (byteArrayWordBE data ((size / 32) * 32) / 2 ^ shift) * 2 ^ shift +
+            (state.memory offset).val % 2 ^ shift
+        else if d ≤ offset ∧ offset < d + 32 * (size / 32) ∧ (offset - d) % 32 = 0 then
+          byteArrayWordBE data (offset - d)
+        else (state.memory offset).val) }
+
+/-- Deprecated no-op; contract code lowers `calldatacopy` to `calldatacopyLive`. -/
 def calldatacopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
+/-- `calldatacopy(dest, src, size)` on word-addressed memory, byte-exact on the final
+partial word (`Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded`). -/
+def calldatacopyLive (destOffset sourceOffset size : Uint256) : Contract Unit := fun state =>
+  ContractResult.success ()
+    { state with
+      memory := fun offset => Verity.Core.Uint256.ofNat
+        (Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded state.selector state.calldata
+          destOffset.val sourceOffset.val size.val (fun a => (state.memory a).val) offset) }
 def returndataCopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def revertReturndata : Contract Unit := pure ()
 /-- Executable length surface for `arrayLength`: dynamic ABI values that
