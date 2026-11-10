@@ -2015,7 +2015,19 @@ theorem erc20Read_stub_run (name : String) (token : Address)
           calls := s.calls ++ [erc20ReadEntry "totalSupply" token [] result]
           returndata := [(result : Nat)] } := by
   simpa [totalSupply] using erc20Read_stub_run "totalSupply" token [] s (by decide)
-def forEach (_name : String) (_count : Uint256) (body : Contract Unit) : Contract Unit := body
+/-- Run `body` `count` times, like the compiled `Stmt.forEach` loop (the index is not passed;
+contract code gets it through the macro's `forEach`). -/
+def forEach (_name : String) (count : Uint256) (body : Contract Unit) : Contract Unit :=
+  (List.range count.val).forM (fun _ => body)
+/-- Run `body` once per element of `indices`, in order, threading the loop state: the
+executable of a contract `forEach`/`forEachSetBit` (`Verity/Macro/Translate.lean`). -/
+def loopList {σ : Type} (indices : List Nat) (init : σ) (body : Nat → σ → Contract σ) :
+    Contract σ :=
+  List.foldlM (m := Contract) (fun acc i => body i acc) init indices
+/-- The set bits of `bitmap`, highest first: the order the compiled `Stmt.forEachSetBit` loop
+visits them (`255 - clz`, or an index counting down from 255). -/
+def setBitsDesc (bitmap : Uint256) : List Nat :=
+  (List.range 256).reverse.filter (fun j => bitmap.val.testBit j)
 def blockTimestamp : Contract Uint256 := Verity.blockTimestamp
 def blockNumber : Contract Uint256 := Verity.blockNumber
 def blobbasefee : Contract Uint256 := Verity.blobbasefee
