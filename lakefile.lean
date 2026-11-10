@@ -21,9 +21,12 @@ lean_lib «Verity» where
     .one `Verity.Specs.Composition,
     .submodules `Verity.Proofs.Stdlib,
     .one `Verity.Proofs.LoopSimulation,
-    .one `Verity.Proofs.LoopSimulationResultAware
+    .one `Verity.Proofs.LoopSimulationResultAware,
+    .one `Verity.Proofs.CheckedExternalCallConsumer,
+    .one `Verity.Proofs.Model.GeneratedEntrypointRegistry
   ]
 
+@[default_target]
 lean_lib «Contracts» where
   globs := #[
     .one `Contracts,
@@ -50,7 +53,12 @@ lean_lib «Contracts» where
     .andSubmodules `Contracts.SimpleToken,
     .andSubmodules `Contracts.CryptoHash,
     .andSubmodules `Contracts.ReentrancyExample,
-    .andSubmodules `Contracts.ReentrancyRelyGuarantee
+    .andSubmodules `Contracts.ReentrancyRelyGuarantee,
+    .one `Contracts.BytesEqSmoke,
+    .one `Contracts.LocalObligationMacroSmoke.SpecProofs,
+    .one `Contracts.StringEqSmoke,
+    .one `Contracts.StringErrorSmokeContract,
+    .one `Contracts.StringEventSmoke
   ]
 
 /-- Solidity read by `solidity_import`: editing it rebuilds the import. -/
@@ -59,6 +67,7 @@ input_dir solidityImportSmokeSources where
   filter := .extension "sol"
   text := true
 
+@[default_target]
 lean_lib «SolidityImportSmoke» where
   globs := #[.one `Contracts.SolidityImportSmoke.AccountStorageBridgeChecks,
     .one `Contracts.SolidityImportSmoke.Create2ParentGasChecks,
@@ -145,9 +154,42 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.ErrorPayloads,
     .one `Contracts.SolidityImportSmoke.ErrorSequenceModel,
     .one `Contracts.SolidityImportSmoke.Require,
-    .one `Contracts.SolidityImportSmoke.RequireCustom]
+    .one `Contracts.SolidityImportSmoke.RequireCustom,
+    .one `Contracts.SolidityImportSmoke.ArrayForAbiModel,
+    .one `Contracts.SolidityImportSmoke.BytesObjectMemoryDriver,
+    .one `Contracts.SolidityImportSmoke.Create2BytecodeAndStructEmitSequenceModel,
+    .one `Contracts.SolidityImportSmoke.Create2OpcodeDriver,
+    .one `Contracts.SolidityImportSmoke.Create2ParentGasDriver,
+    .one `Contracts.SolidityImportSmoke.DefaultLocalSequenceModel,
+    .one `Contracts.SolidityImportSmoke.DeploymentWorldChecks,
+    .one `Contracts.SolidityImportSmoke.DeploymentWorldDriver,
+    .one `Contracts.SolidityImportSmoke.DiscardedHelperSequenceModel,
+    .one `Contracts.SolidityImportSmoke.ERC2981HoldersArraysMsgHashSequenceModel,
+    .one `Contracts.SolidityImportSmoke.EmptyRevertSequenceModel,
+    .one `Contracts.SolidityImportSmoke.EncodedByteLocalSequenceModel,
+    .one `Contracts.SolidityImportSmoke.ExtCodeCopyStructDecodeSequenceModel,
+    .one `Contracts.SolidityImportSmoke.ExternalCodeAndLowLevelCallSequenceModel,
+    .one `Contracts.SolidityImportSmoke.FixedArrayWriteOrderSequenceModel,
+    .one `Contracts.SolidityImportSmoke.HelperEffectSequenceModel,
+    .one `Contracts.SolidityImportSmoke.HelperLoopSequenceModel,
+    .one `Contracts.SolidityImportSmoke.InitCodeExecutionChecks,
+    .one `Contracts.SolidityImportSmoke.InitCodeExecutionDriver,
+    .one `Contracts.SolidityImportSmoke.InterfaceStaticCallSequenceModel,
+    .one `Contracts.SolidityImportSmoke.InterfaceWordStaticCallSequenceModel,
+    .one `Contracts.SolidityImportSmoke.InvariantForSequenceModel,
+    .one `Contracts.SolidityImportSmoke.LocalWriteSequenceModel,
+    .one `Contracts.SolidityImportSmoke.MappingFixedArraySequenceModel,
+    .one `Contracts.SolidityImportSmoke.MerkleAndNoncesSequenceModel,
+    .one `Contracts.SolidityImportSmoke.MultiProofMappingKeysVerifiersSequenceModel,
+    .one `Contracts.SolidityImportSmoke.NamedHelperReturnSequenceModel,
+    .one `Contracts.SolidityImportSmoke.PackedMemberWriteSequenceModel,
+    .one `Contracts.SolidityImportSmoke.StorageStructParamsDequeShortStringsSequenceModel,
+    .one `Contracts.SolidityImportSmoke.StructMappingAndBytes4InterfaceSequenceModel,
+    .one `Contracts.SolidityImportSmoke.UdvtParamAssignStructHashSequenceModel,
+    .one `Contracts.SolidityImportSmoke.YulBlockMulmodTstoreSequenceModel]
   needs := #[solidityImportSmokeSources]
 
+@[default_target]
 lean_lib «Compiler» where
   globs := #[.andSubmodules `Compiler]
 
