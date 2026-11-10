@@ -105,6 +105,22 @@ MUTANTS.update({
     'import-named-arguments-order-guard': (
         'if namedArgumentsInDeclaredOrder params written then',
         'if written.size ≤ params.size then')})
+# A storage array push panics with 0x41 once the length reaches 2^64, as solc's does, for
+# value and struct elements; and not one element earlier or later.
+MUTANTS.update({
+    'import-push-length-guard-value': (
+        '    pushLengthGuard lenVal.expr,\n    .letVar newLen (.add lenVal.expr (.literal 1)),\n'
+        '    writeLenStmt,\n    .mstore (.literal 0) slotExpr,\n'
+        '    .letVar baseDataSlot (.keccak256 (.literal 0) (.literal 32))\n  ] ++ writeStmts',
+        '    .letVar newLen (.add lenVal.expr (.literal 1)),\n'
+        '    writeLenStmt,\n    .mstore (.literal 0) slotExpr,\n'
+        '    .letVar baseDataSlot (.keccak256 (.literal 0) (.literal 32))\n  ] ++ writeStmts'),
+    'import-push-length-guard-struct': (
+        '  let mut stmts : Array Stmt := #[\n    pushLengthGuard lenVal.expr,\n',
+        '  let mut stmts : Array Stmt := #[\n'),
+    'import-push-length-bound': (
+        '.ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]',
+        '.ite (.lt oldLen (.literal (2 ^ 64 + 1))) [] [.panicCode (.literal 0x41)]')})
 # Signed event parameters keep their declared type in the event signature, and the
 # observed ABI word is sign-extended.
 MUTANTS.update({
@@ -585,6 +601,8 @@ def run(directory, output, name):
         fixture = "DividingWhileSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
+    if name.startswith("import-push-length-"):
+        fixture = "PushLengthBoundSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
         fixture = "SignedEventSequence"
     if name.startswith("import-constant-array-"):
@@ -620,6 +638,15 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 1, 499, 500, 501, 999, 1000, 1499, (1 << 256) - 1])])
+    if fixture == 'PushLengthBoundSequence':
+        # Raise the three lengths to 2^64 - 2, then two pushes succeed and the next ones
+        # panic, for values (x % 4 == 1), struct pairs (2) and empty structs (3). A witness
+        # keeps the raise and both successful pushes, so proving it deletion-minimal from 24
+        # transactions takes more than the default 30 shrink attempts.
+        argv[argv.index('--transactions') + 1] = '24'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 5, 9, 13, 2, 6, 10, 0, 3, 7, 11, 4, 1])])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'

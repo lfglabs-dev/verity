@@ -512,6 +512,12 @@ private def readStorageDynamicArrayElement (pre : Array Stmt) (fieldName : Strin
   ]
   pure { pre := lenVal.pre ++ stmts, expr := .localVar dest }
 
+/-- solc's guard before a storage array grows, for value and struct elements alike:
+`if iszero(lt(oldLen, 2^64)) { panic_error_0x41() }`, before the new length is written. It
+keeps every element index below `2^64`. -/
+private def pushLengthGuard (oldLen : Expr) : Stmt :=
+  .ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]
+
 private def pushStorageDynamicArray (pre : Array Stmt) (fieldName : String) (slotExpr : Expr)
     (elemTy : String) (valExpr? : Option Expr) : M Val := do
   modify fun e => { e with encodingMemory := true, usedRawStorage := true }
@@ -526,6 +532,7 @@ private def pushStorageDynamicArray (pre : Array Stmt) (fieldName : String) (slo
   let elemVal := valExpr?.getD (.literal 0)
   let writeStmts ← writeStorageDynamicArrayElementAtUnchecked baseDataSlot elemTy lenVal.expr elemVal valExpr?.isNone
   let stmts : Array Stmt := #[
+    pushLengthGuard lenVal.expr,
     .letVar newLen (.add lenVal.expr (.literal 1)),
     writeLenStmt,
     .mstore (.literal 0) slotExpr,
@@ -549,6 +556,7 @@ private def pushStorageDynamicStructArray (pre : Array Stmt) (fieldName : String
     else .setStorageArrayElement rawStorageFieldName slotExpr (.localVar newLen)
   let wordOff := if rawInfo.wordCount == 1 then lenVal.expr else Expr.mul lenVal.expr (.literal rawInfo.wordCount)
   let mut stmts : Array Stmt := #[
+    pushLengthGuard lenVal.expr,
     .letVar newLen (.add lenVal.expr (.literal 1)),
     writeLenStmt,
     .mstore (.literal 0) slotExpr,
