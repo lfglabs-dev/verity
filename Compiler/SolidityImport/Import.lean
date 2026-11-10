@@ -13789,9 +13789,14 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
     if rawName.startsWith "_verity_memret_" then
       failAt p s!"parameter name {rawName} uses reserved _verity_memret_ prefix"
     let id ← mNat (← mField p "id")
-    let name ← if rawName == "" then fresh else do
-      modify fun e => { e with bound := rawName :: e.bound }
-      pure rawName
+    -- A Solidity name that is a Yul keyword or builtin (`caller`, `origin`, …) cannot
+    -- name a compiled Yul variable; it takes `freshFor`'s first free suffixed name.
+    let name ← if rawName == "" then fresh
+      else if yulKeywords.contains rawName ||
+          (Verity.Core.Intrinsics.yulBuiltinArity? rawName).isSome then freshFor rawName
+      else do
+        modify fun e => { e with bound := rawName :: e.bound }
+        pure rawName
     let ty ← mType p
     let loc := optStr p "storageLocation" |>.getD "default"
     out := out.push { name, id }
