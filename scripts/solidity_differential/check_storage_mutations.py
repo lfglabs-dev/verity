@@ -81,6 +81,11 @@ MUTANTS.update({
                                     '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
 })
 
+# An address immutable assigned from a constructor argument read as the contract's own
+# address: the rule this slice replaces.
+MUTANTS.update({'import-immutable-self-address': (
+    'let value := if selfAddress then Expr.contractAddress else Expr.immutable name',
+    'let value := Expr.contractAddress')})
 # Named call arguments in declaration order lower as positional; any other order rejects.
 MUTANTS.update({
     'import-named-arguments-binding': (
@@ -765,6 +770,8 @@ def run(directory, output, name):
         fixture = "BytesNamedReturnSliceStructSequence"
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         fixture = ROOT_PARAM_MUTANT_FIXTURES[name]
+    if name.startswith("import-immutable-"):
+        fixture = "ImmutableAddressSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
     if name.startswith("import-constant-array-"):
@@ -794,6 +801,13 @@ def run(directory, output, name):
     if fixture == 'CustomErrorFixedBytesSequence':
         # Each `next % 4` arm with nonzero `bytesN` contents, and `next * 3` overflow.
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 0xdeadbeef * 2 ** 224 + 1, 0x0123456789abcdef * 2 ** 192 + 0x7e, 2 ** 200 + 3, 2 ** 256 - 1, 2 ** 256 - 4])])
+    if fixture == 'ImmutableAddressSequence':
+        # Long enough to reach calls from the guard and the payee, which tell the
+        # constructor-argument immutables apart from the contract's own address.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--senders', '3', '--immutable-sender', 'GUARD=1', '--immutable-sender', 'PAYEE=2',
+                     '--change-prefix', '0', '1', '2', '15', '16'])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
