@@ -1174,8 +1174,9 @@ private def translateEffectStmt
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
       | some (ext, target, argTerms, none, selector) =>
           let targetExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals target
-          let argExprs ← argTerms.mapM
-            (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals)
+          -- One expression per ABI word (a static tuple argument contributes one per component).
+          let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals argTerms
+            (translateExpr? := some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))
           let isStaticTerm ← if ext.isView then `(true) else `(false)
           `(Compiler.CompilationModel.Stmt.ecm
               (Compiler.Modules.Calls.noReturnModule
@@ -1615,8 +1616,9 @@ private partial def translateDoElem
                           match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
                           | some (ext, target, argTerms, some retTy, selector) =>
                               let targetExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals target
-                              let argExprs ← argTerms.mapM
-                                (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals)
+                              -- One expression per ABI word (a static tuple argument contributes one per component).
+                              let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals argTerms
+                                (translateExpr? := some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))
                               let stmt ←
                                 if ext.isView then
                                   match staticAbiWordCount? retTy with
@@ -2051,7 +2053,9 @@ private def injectTupleParamAliases (params : Array ParamDecl) (body : Term) : C
   for param in params.reverse do
     match param.ty with
     | .tuple elemTys =>
-        let baseTerm : Term := mkIdent param.ident.getId
+        -- The user's own identifier (with its source position), so that the component
+        -- aliases count as a use of the tuple parameter for the unused-variable linter.
+        let baseTerm : Term := param.ident
         for (_elemTy, idx) in (elemTys.toArray.zipIdx).reverse do
           let aliasName := mkIdent <| Name.str .anonymous s!"{param.name}_{idx}"
           let projection ← mkTupleProjectionTerm baseTerm elemTys idx

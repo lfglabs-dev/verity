@@ -664,7 +664,19 @@ def isTupleComponentRef (params : Array ParamDecl) (name : String) : Bool :=
   | _ => false
 
 def lookupVarExpr (params : Array ParamDecl) (locals : Array String) (name : String) : CommandElabM Term := do
-  if params.any (fun p => p.name == name) then
+  if let some p := params.find? (fun p => p.name == name) then
+    -- A static tuple or struct parameter is ABI-decoded into its leaves `name_0`,
+    -- `name_1`, …; no Yul variable carries the whole value. (A scalar fixed array keeps
+    -- `name` as an alias of `name_0`.)
+    match p.ty with
+    | .tuple elemTys =>
+      throwError s!"tuple parameter '{name}' cannot be used as a single value on the \
+        compilation-model path; use its components '{name}_0' … '{name}_{elemTys.length - 1}' \
+        or destructure it with `let (…) := {name}`"
+    | .struct structName _ =>
+      throwError s!"parameter '{name}' of composite type '{structName}' cannot be used as a \
+        single value on the compilation-model path; use its fields"
+    | _ => pure ()
     `(Compiler.CompilationModel.Expr.param $(strTerm name))
   else if isTupleComponentRef params name then
     `(Compiler.CompilationModel.Expr.param $(strTerm name))
@@ -4723,6 +4735,14 @@ def translateLinkedExternalCallArgs
             if externalCallDynamicArgSupported ty then
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
+            else if isStaticCompositeInternalHelperType ty then
+              -- A static tuple/struct/fixed array is ABI-encoded as its words inline, which
+              -- are exactly the decoded leaves `name_0`, `name_0_1`, … in order.
+              let leaves := staticInternalHelperBindingNames name ty
+              unless some leaves.length == staticAbiWordCount? ty do
+                throwErrorAt arg s!"argument '{name}' has no static ABI word layout; it cannot be passed whole to an external call"
+              out := out ++ (← leaves.toArray.mapM fun leaf =>
+                `(Compiler.CompilationModel.Expr.param $(strTerm leaf)))
             else
               out := out.push (← translateScalar)
         | none =>
