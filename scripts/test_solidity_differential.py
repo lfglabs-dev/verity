@@ -37,6 +37,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "events-scoped",
     "extcodecopy-struct-decode",
     "extcodecopy-struct-decode-rejections",
+    "extcodehash",
+    "extcodehash-rejections",
     "external-code-low-level-call",
     "external-code-low-level-call-rejections",
     "hashing-programs",

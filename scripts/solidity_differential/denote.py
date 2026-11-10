@@ -34,7 +34,7 @@ def _calldata(tx):
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
                  lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=600,
-                 account_code=()):
+                 account_code=(), account_balance=()):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         if not isinstance(lean_command, (list, tuple)) or not lean_command or any(
@@ -60,6 +60,16 @@ class SequenceAdapter:
             if not isinstance(code, str) or not re.fullmatch(r'0x(?:[0-9a-fA-F]{2})*', code):
                 raise HarnessError('foreign account code must be 0x-prefixed hex bytes')
             self.account_code.append([str(int(owner, 16)), code.lower()])
+        # Foreign balances as held on the EVM routes (observed by code-hash reads,
+        # which tell an existing account without code from an empty one).
+        self.account_balance = []
+        for owner, balance in account_balance:
+            owner = _bytes(owner, 20)
+            if owner == self.account:
+                raise HarnessError('foreign account balance requires a foreign account')
+            if type(balance) is not int or not 0 < balance < 1 << 256:
+                raise HarnessError('foreign account balance must be a nonzero uint256')
+            self.account_balance.append([str(int(owner, 16)), str(balance)])
         for owner, slot, value in initial_storage:
             owner = _bytes(owner, 20)
             row = [str(int(_bytes(slot, 32), 16)), str(int(_bytes(value, 32), 16))]
@@ -113,6 +123,8 @@ class SequenceAdapter:
             payload['byteCallEnvironment'] = self.byte_call_environment
         if self.account_code:
             payload['accountCode'] = self.account_code
+        if self.account_balance:
+            payload['accountBalance'] = self.account_balance
         write_json(directory / 'input.json', payload)
         argv = [*self.lean_command, self.driver, directory / 'input.json', directory / 'output.json']
         command(argv, log=directory / 'lean.log', timeout=self.timeout)
