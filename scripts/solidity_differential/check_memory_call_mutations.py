@@ -1,5 +1,6 @@
 """Memory-call mutants in isolated source/cache snapshots: inline-assembly `call` /
-`staticcall` over memory through the closed memory-call transport.
+`staticcall` over memory and typed external calls without return values, which share
+the closed memory-call transport.
 
 Each mutant must survive an unmodified positive control of its A/B/C campaign and then
 produce a divergence with a reproduced deletion-minimal witness. A mutant that fails to
@@ -21,6 +22,8 @@ DENOTE = 'Verity/Core/Model/Denote.lean'
 ECM = 'Verity/Core/Model/ECM.lean'
 YUL = ('solidity_differential.check_yul_memory_call', '--transactions', '64', '--seed', '2531',
        'Contracts.SolidityImportSmoke.YulMemoryCallSequenceModel')
+VOID = ('solidity_differential.check_interface_void_call', '--transactions', '96', '--seed', '4219',
+        'Contracts.SolidityImportSmoke.InterfaceVoidCallSequenceModel')
 # name: (file, anchor, replacement, campaign)
 MUTANTS = {
     # A `call` lowered as a `staticcall`: the responders' fallback writes storage, so it fails.
@@ -36,6 +39,21 @@ MUTANTS = {
     'ecm-yul-call-value': (ECM,
         'YulExpr.call "call" [gas, target, .lit 0, inOffset, inSize, outOffset, outSize]',
         'YulExpr.call "call" [gas, target, .lit 1, inOffset, inSize, outOffset, outSize]', YUL),
+    'import-void-call-code-check': (IMPORT,
+        '.ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] [],',
+        '.ite (.eq (.localVar codeSize) (.literal 0)) [] [],', VOID),
+    'import-void-call-forward': (IMPORT,
+        '.ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] []]',
+        '.ite (.eq (.localVar success) (.literal 0)) [.revertEmpty] []]', VOID),
+    'import-void-call-selector': (IMPORT,
+        '.mstore (.localVar callBase) (.literal selector),',
+        '.mstore (.localVar callBase) (.literal (selector + 1)),', VOID),
+    'import-void-call-calldata-start': (IMPORT,
+        '.letVar dataPtr (.add (.localVar callBase) (.literal 28)),',
+        '.letVar dataPtr (.add (.localVar callBase) (.literal 27)),', VOID),
+    'import-void-call-calldata-size': (IMPORT,
+        '.letVar dataSize (.add payloadSize (.literal 4))]',
+        '.letVar dataSize (.add payloadSize (.literal 3))]', VOID),
 }
 MODULES = ['Compiler.SolidityImport.Import', 'Compiler.SolidityImport.Differential',
            'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.CallResponderMocks',

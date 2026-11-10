@@ -2342,6 +2342,21 @@ private def isInterfaceExternalCall (j : Json) : M Bool := do
         return false
   | none => return false
 
+/-- The declaration called by a typed external call `I(a).f(...)` when `f` has no
+return values and is `nonpayable` or `payable`; such a call lowers only as a
+whole expression statement. -/
+private def interfaceVoidCallDecl? (j : Json) : M (Option Json) := do
+  let some callee := field? j "expression" | return none
+  let id ← refInt callee
+  unless id ≥ 0 do return none
+  let some decl := (← get).funs.find? id.toNat | return none
+  let some returns := (field? decl "returnParameters").bind (field? · "parameters") | return none
+  unless returns == Json.arr #[] do return none
+  unless optStr decl "stateMutability" == some "nonpayable" ||
+      optStr decl "stateMutability" == some "payable" do
+    return none
+  return some decl
+
 /-- Located diagnostic for a low-level `.call` outside the admitted statement sequence. -/
 private def lowLevelCallPlacement : String :=
   "low-level call must be a (bool success, bytes memory returndata) declaration followed by " ++
@@ -5675,6 +5690,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
             (readAbiDecodeWord fromCalldata (.add offsetExpr (.mul (.localVar copyIdx) (.literal 32)))) ]
     let copyStmt := Stmt.forEach copyIdx wordCount copyBody
     return { pre := slicePre ++ (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := lenExpr }
+  -- The whole of `msg.data`, as a helper returning it already reads it.
+  if ← isMsgDataNode j then
+    return ← lowerMsgDataBuffer
   if (← mKind j) == "Conditional" then
     let condNode ← mField j "condition"
     unless (← mType condNode) == "bool" do failAt condNode "conditional condition must be bool"
@@ -6600,6 +6618,83 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   let vals ← lowerCallArgs j receiver?
   pure (fnId, vals)
 
+/-- `I(a).f(args...)` as a whole expression statement, for a `nonpayable` or
+`payable` external function without return values, called without value.
+solc 0.8.34 (via-IR) evaluates the receiver, then the arguments in source order;
+reverts with no data when `extcodesize(a)` is zero; writes the selector and the
+ABI-encoded arguments at the free pointer; emits `call(gas(), a, 0, p, len, p, 0)`;
+forwards a failed call's complete return data as the revert payload; and ignores
+the return data of a successful call. Here the calldata is assembled in a fresh
+allocation (solc writes it above the free pointer without advancing it, so only
+unallocated memory differs) and sent through the closed memory-call transport.
+`decl` is the called function's declaration. -/
+private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := do
+  let callee ← mField j "expression"
+  let params ← mArr (← mField (← mField decl "parameters") "parameters")
+  let args ← mArr (← mField j "arguments")
+  unless args.size == params.size do
+    failAt j "typed interface call argument count differs from its declaration"
+  let some hex := optStr decl "functionSelector"
+    | failAt callee "interface function has no functionSelector"
+  unless hex.length == 8 do
+    failAt callee s!"invalid functionSelector hex length {hex.length}"
+  let mut selector := 0
+  for c in hex.toList do
+    let some digit := Compiler.Hex.hexCharToNat? c
+      | failAt callee "invalid functionSelector hex digit"
+    selector := selector * 16 + digit
+  let base ← mField callee "expression"
+  let receiver ← if (← mKind base) == "FunctionCall" && optStr base "kind" == some "typeConversion" then do
+      let convArgs ← mArr (← mField base "arguments")
+      let #[inner] := convArgs
+        | failAt base "typed interface call receiver must convert exactly one address"
+      let innerTy ← mType inner
+      unless innerTy == "address" || innerTy == "address payable" || innerTy.startsWith "contract " do
+        failAt base "typed interface call receiver must be an interface conversion of an address"
+      pure inner
+    else
+      pure base
+  for operand in #[receiver] ++ args do
+    if statefulCallIn operand (← get) || assignmentIn operand then
+      failAt operand "typed interface call operands require explicit evaluation-order support"
+  let target ← atom (← lowerExpr receiver)
+  let mut pre := target.pre
+  let mut payloadPtr := Expr.literal 0
+  let mut payloadSize := Expr.literal 0
+  unless args.isEmpty do
+    let payload ← lowerAbiEncodeArgs args (some params)
+    let ptr ← atom { pre := payload.pre, expr := payload.pointer }
+    let size ← atom { pre := #[], expr := payload.size }
+    pre := pre ++ ptr.pre ++ size.pre
+    payloadPtr := ptr.expr
+    payloadSize := size.expr
+  -- The selector is the low four bytes of the first word of a word-aligned
+  -- allocation; the payload's words follow it, so the calldata starts at offset 28.
+  let callBase ← fresh
+  let callEnd ← fresh
+  let index ← fresh
+  let dataPtr ← fresh
+  let dataSize ← fresh
+  let words := Expr.div (.add payloadSize (.literal 31)) (.literal 32)
+  modify fun e => { e with encodingMemory := true }
+  pre := pre ++ (AbiEncoding.reserve callBase callEnd
+    (.add (.literal 32) (.mul words (.literal 32)))).toArray
+  pre := pre ++ #[
+    .mstore (.localVar callBase) (.literal selector),
+    .forEach index words [
+      .mstore (.add (.add (.localVar callBase) (.literal 32)) (.mul (.localVar index) (.literal 32)))
+        (.mload (.add payloadPtr (.mul (.localVar index) (.literal 32))))],
+    .letVar dataPtr (.add (.localVar callBase) (.literal 28)),
+    .letVar dataSize (.add payloadSize (.literal 4))]
+  let codeSize ← fresh
+  let success ← fresh
+  return pre ++ #[
+    .ecm (Compiler.ECM.SolidityExtCodeSize.module codeSize) [target.expr],
+    .ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] [],
+    .ecm (Compiler.ECM.YulMemoryCall.module false success)
+      [target.expr, .localVar dataPtr, .localVar dataSize, .literal 0, .literal 0],
+    .ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] []]
+
 /-- `I(a).f(args...)` for a `view` interface function returning a single
 `uint256`, `bytes32` or `bool` over scalar, struct or dynamic `bytes`/`string`
 arguments. solc 0.8.34 (via-IR) ABI-encodes the selector and arguments at the
@@ -6619,6 +6714,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     | failAt callee "unresolved interface function declaration"
   let isStateVarGetter := optStr decl "nodeType" == some "VariableDeclaration"
   let mutability := if isStateVarGetter then some "view" else optStr decl "stateMutability"
+  if (← interfaceVoidCallDecl? j).isSome then
+    failAt j "a typed external call without return values must be a whole expression statement"
   let (params, rawReturnTypes) ← if isStateVarGetter then do
     let (paramSpecs, leafNode) ← publicVarGetterParamTypes (← mField decl "typeName")
     pure (paramSpecs.map Prod.snd, #[← mType leafNode])
@@ -6633,9 +6730,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   let returnTypes := rawReturnTypes.map fun ty =>
     if ty.startsWith "contract " then "address" else ty
   let isNonpayableCallback := !env.stateVars.isEmpty && mutability == some "nonpayable" &&
-    ((!params.isEmpty && (returnTypes == #["uint256"] || returnTypes == #["bytes32"] ||
-      returnTypes == #["bool"] || returnTypes == #["address"])) ||
-     returnTypes.isEmpty)
+    !params.isEmpty && (returnTypes == #["uint256"] || returnTypes == #["bytes32"] ||
+      returnTypes == #["bool"] || returnTypes == #["address"])
   unless isNonpayableCallback || isStateVarGetter do
     unless optStr decl "stateMutability" == some "view" do
       failAt callee "typed interface calls to non-view functions are outside this slice"
@@ -6653,8 +6749,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   unless args.size == params.size do
     failAt j "typed interface staticcall argument count differs from its declaration"
   let isSupportedExtraReturn := env.stateVars.size > 1 &&
-    (returnTypes == #["address"] || returnTypes == #["uint8"] ||
-     (isNonpayableCallback && returnTypes.isEmpty))
+    (returnTypes == #["address"] || returnTypes == #["uint8"])
   let returnType := returnTypes.getD 0 "uint256"
   unless isSupportedExtraReturn do
     unless returnTypes.size == 1 && ["uint256", "bytes32", "bool"].contains returnType do
@@ -6687,27 +6782,6 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       failAt j ("typed interface staticcall must be a whole variable initializer, assignment " ++
         "right-hand side, expression statement, require condition or short-circuit operand of one")
   modify fun e => { e with admittedInterfaceCalls := e.admittedInterfaceCalls.erase callId }
-  if isNonpayableCallback && returnTypes.isEmpty then
-    let target ← atom (← lowerExpr convArgs[0]!)
-    let result ← fresh
-    let mut pre := target.pre
-    let mut callWords : Array Expr := #[]
-    for (param, arg) in params.zip args do
-      if statefulCallIn arg (← get) || assignmentIn arg then
-        failAt j "typed interface staticcall arguments are outside this slice"
-      let pty ← mType param
-      let argTy ← mType arg
-      unless (paramType pty).isSome && !pty.startsWith "enum " do
-        failAt j "typed interface staticcall arguments are outside this slice"
-      checkEncodingScalar arg
-      let word ← atom (← convert pty argTy (← lowerExpr arg) arg)
-      pre := pre ++ word.pre
-      callWords := callWords.push word.expr
-    modify fun env => { env with encodingMemory := true }
-    let callMod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule
-      result selector callWords.size
-    let callPre := pre.push (.ecm callMod (target.expr :: callWords.toList))
-    return { pre := callPre, expr := .localVar result }
   let hasExtendedArg ← if env.stateVars.size > 1 then
     (args.zip paramTypes).anyM fun (arg, ty) => do
       let argTy ← mType arg
@@ -11164,6 +11238,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     if isLibraryDelegateCall callee then
       failAt callee "external library calls are outside this slice"
     if ← isInterfaceExternalCall expression then
+      if let some decl ← interfaceVoidCallDecl? expression then
+        return ← lowerInterfaceVoidCall expression decl
       return (← lowerInterfaceStaticCall expression).pre
     if (← mKind callee) == "Identifier" && optStr callee "name" == some "_callOptionalReturn" then
       let callRef ← refInt callee
