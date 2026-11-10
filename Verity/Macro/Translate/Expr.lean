@@ -665,9 +665,9 @@ def isTupleComponentRef (params : Array ParamDecl) (name : String) : Bool :=
 
 def lookupVarExpr (params : Array ParamDecl) (locals : Array String) (name : String) : CommandElabM Term := do
   if let some p := params.find? (fun p => p.name == name) then
-    -- A static tuple or struct parameter is ABI-decoded into its leaves `name_0`,
-    -- `name_1`, …; no Yul variable carries the whole value. (A scalar fixed array keeps
-    -- `name` as an alias of `name_0`.)
+    -- A static tuple, struct or fixed-array parameter is ABI-decoded into its leaves
+    -- `name_0`, `name_1`, …; no Yul variable carries the whole value (the external
+    -- dispatcher's `name := name_0` alias does not exist in internal functions).
     match p.ty with
     | .tuple elemTys =>
       throwError s!"tuple parameter '{name}' cannot be used as a single value on the \
@@ -676,6 +676,9 @@ def lookupVarExpr (params : Array ParamDecl) (locals : Array String) (name : Str
     | .struct structName _ =>
       throwError s!"parameter '{name}' of composite type '{structName}' cannot be used as a \
         single value on the compilation-model path; use its fields"
+    | .fixedArray _ _ =>
+      throwError s!"fixed-array parameter '{name}' cannot be used as a single value on the \
+        compilation-model path; return it or pass it to a function directly"
     | _ => pure ()
     `(Compiler.CompilationModel.Expr.param $(strTerm name))
   else if isTupleComponentRef params name then
@@ -4555,7 +4558,14 @@ def tupleReturnValueExprs?
           | some leaves =>
               pure (some (← leaves.toArray.mapM fun (leaf, _) =>
                 `(Compiler.CompilationModel.Expr.localVar $(strTerm leaf))))
-          | none => tupleParamElemExprs? params (toString id.getId)
+          | none =>
+              -- A whole fixed-array or struct parameter: its ABI-decoded leaves, in order.
+              match params.find? (fun p => p.name == toString id.getId) with
+              | some { ty := ty@(.fixedArray ..), .. } | some { ty := ty@(.struct ..), .. } =>
+                  let leaves := staticLeafBindings (toString id.getId) ty
+                  pure (some (← leaves.toArray.mapM fun (leaf, _) =>
+                    `(Compiler.CompilationModel.Expr.param $(strTerm leaf))))
+              | _ => tupleParamElemExprs? params (toString id.getId)
       | _ =>
           pure none
 
