@@ -170,12 +170,12 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                           'changes': '[self-hosted, linux, verity, fastlane]',
                           'checks': '[self-hosted, linux, verity, fastlane]',
                           'timeout-watchdog': '[self-hosted, linux, verity, fastlane]',
-                          'build': 'blacksmith-16vcpu-ubuntu-2404',
+                          'build': 'lean-16vcpu-ubuntu-2604',
                           'build-audits': '[self-hosted, linux, x64, verity, build]',
-                          'build-compiler-binaries': 'blacksmith-16vcpu-ubuntu-2404',
+                          'build-compiler-binaries': 'lean-16vcpu-ubuntu-2604',
                           'compiler-audits': '[self-hosted, linux, x64, verity, build]',
-                          'compiler-regressions': 'blacksmith-32vcpu-ubuntu-2404',
-                          'lean-profile': 'blacksmith-16vcpu-ubuntu-2404',
+                          'compiler-regressions': 'lean-32vcpu-ubuntu-2604',
+                          'lean-profile': 'lean-16vcpu-ubuntu-2604',
                           'foundry-gas-calibration': '[self-hosted, linux, x64, verity, build]',
                           'foundry': '[self-hosted, linux, x64, verity, build]',
                           'foundry-patched': '[self-hosted, linux, x64, verity, build]',
@@ -846,7 +846,7 @@ SPEC['expected_job_if_conditions'].update({
 })
 
 SPEC['expected_job_runs_on'].update({
-    'build-compiler-binaries': 'blacksmith-16vcpu-ubuntu-2404',
+    'build-compiler-binaries': 'lean-16vcpu-ubuntu-2604',
 })
 
 SPEC['expected_job_timeouts'].update({

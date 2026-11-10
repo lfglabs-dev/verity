@@ -345,7 +345,7 @@ jobs:
             --branch ${{ github.event.pull_request.base.ref || github.ref_name }}
 
   build:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: lean-16vcpu-ubuntu-2604
     # Proof build + audit prebuilds + smoke imports (~30-45 min). The importer
     # mutation campaigns (~180 isolated snapshots, each recompiling
     # Compiler.SolidityImport.Import) moved to the sharded `import-mutations` job:
@@ -622,9 +622,9 @@ jobs:
         run: rm -rf .lake/import-mutations
 
   build-compiler-binaries:
-    # Ephemeral 16-vCPU Blacksmith runner (64 GiB RAM) builds compiler targets
+    # Ephemeral 16-vCPU lean.ci runner (64 GiB RAM) builds compiler targets
     # without serializing behind a single self-hosted build-heavy host.
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: lean-16vcpu-ubuntu-2604
     timeout-minutes: 360
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.compiler == 'true'
@@ -1266,7 +1266,7 @@ jobs:
       # Parity-pack identity report upload removed (see above).
 
   compiler-regressions:
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: lean-32vcpu-ubuntu-2604
     timeout-minutes: 200
     needs: [changes, checks, build, build-compiler-binaries]
     # ~2 runner-hours: main pushes, nightly, dispatch, or PRs labelled ci:full.
@@ -1434,7 +1434,7 @@ jobs:
         run: stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest
 
   lean-profile:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: lean-16vcpu-ubuntu-2604
     timeout-minutes: 45
     needs: [changes, build]
     # Profiling is diagnostic telemetry. Keep it behind the proof build and

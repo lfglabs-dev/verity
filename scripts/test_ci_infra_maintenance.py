@@ -356,7 +356,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             self.assertIsNotNone(match, job)
             body = match.group("body")
             self.assertIn("LEAN_NUM_THREADS: 16", body, job)
-            self.assertIn("runs-on: blacksmith-", body, job)
+            self.assertIn("runs-on: lean-", body, job)
 
     def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -31,8 +31,8 @@ The workflows route by capability, not by hostname:
 
 ```yaml
 runs-on: [self-hosted, linux, verity, fastlane]
-runs-on: blacksmith-16vcpu-ubuntu-2404
-runs-on: blacksmith-32vcpu-ubuntu-2404
+runs-on: lean-16vcpu-ubuntu-2604
+runs-on: lean-32vcpu-ubuntu-2604
 runs-on: [self-hosted, linux, x64, verity, build, build-medium]
 runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
 ```
@@ -44,8 +44,8 @@ them only for temporary debugging or deliberate host pinning.
 
 - Keep fast jobs and long proof/build jobs on separate runner labels.
 - Route heavy proof, compiler-binary, profiling, and `turbo-lean` jobs onto
-  ephemeral Blacksmith runners (`blacksmith-16vcpu-ubuntu-2404` and
-  `blacksmith-32vcpu-ubuntu-2404` with `LEAN_NUM_THREADS=16`) so concurrent PRs
+  ephemeral `lean.ci` runners (`lean-16vcpu-ubuntu-2604` and
+  `lean-32vcpu-ubuntu-2604` with `LEAN_NUM_THREADS=16`) so concurrent PRs
   do not serialize behind a single self-hosted `build-heavy` host. Ephemeral
   runners automatically fall back to GitHub Actions caches and `$RUNNER_TEMP`
   when `/srv/verity-ci-cache` is absent.
