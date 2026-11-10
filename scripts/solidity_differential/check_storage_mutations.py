@@ -72,6 +72,20 @@ MUTANTS.update({
 MUTANTS.update({'import-immutable-self-address': (
     'let value := if selfAddress then Expr.contractAddress else Expr.immutable name',
     'let value := Expr.contractAddress')})
+# Namespaced storage struct members: a member outside the slice keeps the slot solc
+# assigns it, and a two-key mapping member's inner mapping is at keccak256(key . slot).
+MUTANTS.update({
+    'import-namespaced-opaque-slot': (
+        '      currWord := currWord + 1\n      opaqueMemberNames := opaqueMemberNames.push mName',
+        '      opaqueMemberNames := opaqueMemberNames.push mName'),
+    'import-namespaced-inner-mapping-order': (
+        'Stmt.mstore (.literal 0) key.expr,\n'
+        '              Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
+        'Stmt.mstore (.literal 32) key.expr,\n'
+        '              Stmt.mstore (.literal 0) (rawStructMemberSlot baseSlot mapInfo.wordOffset),'),
+    'import-namespaced-inner-mapping-member': (
+        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
+        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1)),')})
 # Named call arguments in declaration order lower as positional; any other order rejects.
 MUTANTS.update({
     'import-named-arguments-binding': (
@@ -546,6 +560,8 @@ def run(directory, output, name):
         fixture = "SignedModuloSequence"
     if name.startswith("import-immutable-"):
         fixture = "ImmutableAddressSequence"
+    if name.startswith("import-namespaced-"):
+        fixture = "NamespacedStructMembersSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
     if name.startswith("import-constant-array-"):
@@ -580,6 +596,11 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 7, 12, (1 << 128) - 1, 1 << 128])])
+    if fixture == 'NamespacedStructMembersSequence':
+        # The two-key prefix (approvals, reads, spends) needs several senders and room.
+        argv[argv.index('--transactions') + 1] = '40'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--senders', '3', '--change-prefix', '0', '1', '2', '15', '16'])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -1251,6 +1272,7 @@ def mutation_source(directory, name):
                                   else 'Compiler/SolidityImport/Quote.lean' if name == 'import-modulo-quote'
                                   else 'Compiler/SolidityImport/AbiLowering.lean' if name == 'import-empty-array-bytes-calldata-tail-bound'
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
+                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
                                   else 'Compiler/SolidityImport/Import.lean')
 
 def preflight_mutation_anchors(directory, selected=None):

@@ -336,6 +336,9 @@ def main():
         'isGuard()',
         'payeeCredit()',
         'notDelegated()',
+        'approve(address,uint256)',
+        'spend(address,uint256)',
+        'allowance(address,address)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -395,6 +398,20 @@ def main():
     rng = random.Random(args.seed)
     calls = [(names[0], [7]), ('fail()', []), ('read()', [])]
     calls.extend((names[0], [value]) for value in args.change_prefix)
+    if 'spend(address,uint256)' in source['methodIdentifiers']:
+        # A two-key mapping member of a namespaced struct: approvals to every sender, reads
+        # across owners, then spends that succeed, exhaust and exceed the allowance.
+        owners = [int(s, 16) for s in senders]
+        two_key_prefix = ([('approve(address,uint256)', [o, 10 + i]) for i, o in enumerate(owners)] +
+                          [('allowance(address,address)', [owners[0], o]) for o in owners] +
+                          [('spend(address,uint256)', [o, 3]) for o in owners] +
+                          [('spend(address,uint256)', [o, 50]) for o in owners] + [('read()', [])])
+        calls.extend(two_key_prefix[:max(0, args.transactions - len(calls))])
+    if 'notDelegated()' in source['methodIdentifiers']:
+        # Reads of address immutables: the constructor-argument ones and the address(this) one.
+        immutable_prefix = [('isGuard()', []), ('notDelegated()', []), ('payeeCredit()', []),
+                            ('read()', [])]
+        calls.extend(immutable_prefix[:max(0, args.transactions - len(calls))])
     if 'inspectBytes(bytes,uint256)' in source['methodIdentifiers']:
         bytes_prefix = [
             ('getRewardTokens()', []),

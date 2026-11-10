@@ -2927,6 +2927,20 @@ private partial def lowerRef (j : Json) : M Ref := do
               let (name, _) := splitSPathField rawName
               let _ ← resolveField name j
           | .outer _ _ => failAt j "struct mapping element requires both outer mapping keys"
+          if let some innerKeyType := mapInfo.innerKeyType then
+            -- The outer key selects the inner mapping, whose slot is
+            -- keccak256(key . (base + offset)); the inner key is then an ordinary member key.
+            let .rawSlot _ baseSlot := path
+              | failAt j "two-key struct mapping members are supported only in raw-slot storage structs"
+            modify fun e => { e with encodingMemory := true, usedRawStorage := true }
+            let innerBase ← fresh
+            let slotStmts : Array Stmt := #[
+              Stmt.mstore (.literal 0) key.expr,
+              Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),
+              Stmt.letVar innerBase (.keccak256 (.literal 0) (.literal 64))]
+            return .structMapping (pre ++ key.pre ++ slotStmts) (.rawSlot 0 (.localVar innerBase))
+              { mapInfo with member := s!"{mapInfo.member}[]", wordOffset := 0,
+                             keyType := innerKeyType, innerKeyType := none }
           if let some valSid := mapInfo.valueStructId then
             let (slotStmts, slotExpr) ←
               if let .rawSlot _ baseSlot := path then do
@@ -3206,6 +3220,8 @@ private partial def lowerRef (j : Json) : M Ref := do
                 pure (.structDynamicArray pre path dynInfo)
               else if let some mInfo := rawInfo.scalars.find? (·.member == member) then
                 pure (.expr (← readRawStructScalar pre baseSlot mInfo))
+              else if rawInfo.opaqueMemberNames.contains member then
+                failAt j s!"{member} of {rawInfo.structName} has a storage type outside this slice"
               else
                 failAt j s!"{member} is not a supported member of {rawInfo.structName}"
             else if let .bytesSlot (fieldName, slotExpr) isString := path then
