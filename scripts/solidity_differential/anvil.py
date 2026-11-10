@@ -14,9 +14,13 @@ from .stateful import validate_observation
 
 
 class Anvil:
-    def __init__(self, directory, hardfork='osaka'):
+    def __init__(self, directory, hardfork='osaka', code_size_limit=None, gas_limit=None):
         self.directory = Path(directory)
         self.hardfork = hardfork
+        # EIP-170's limit by default; a contract compiled for a fork that raises it needs more.
+        self.code_size_limit = code_size_limit
+        # anvil's block gas limit by default; deploying a large contract may need more.
+        self.gas_limit = gas_limit
         self.process = None
         self.log = None
         self.counter = 0
@@ -30,6 +34,10 @@ class Anvil:
         self.log = (self.directory / 'anvil.log').open('w')
         argv = ['anvil', '--host', '127.0.0.1', '--port', str(port), '--hardfork', self.hardfork,
                 '--timestamp', '1000000000', '--chain-id', '31337', '--steps-tracing', '--quiet']
+        if self.code_size_limit is not None:
+            argv += ['--code-size-limit', str(int(self.code_size_limit))]
+        if self.gas_limit is not None:
+            argv += ['--gas-limit', str(int(self.gas_limit))]
         try:
             self.process = subprocess.Popen(argv, stdout=self.log, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 10
@@ -127,8 +135,11 @@ class SequenceAdapter:
     initial storage is installed verbatim from the fixture. ABI values and
     emitted events are observed without normalization.
     """
-    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', observer=None):
+    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', observer=None,
+                 code_size_limit=None, deploy_gas=10000000):
         self.directory = Path(directory)
+        self.code_size_limit = code_size_limit
+        self.deploy_gas = int(deploy_gas)
         self.bytecodes = tuple(bytecodes)
         self.initial_storage = tuple(tuple(row) for row in initial_storage)
         self.calldata_key = calldata_key
@@ -141,10 +152,11 @@ class SequenceAdapter:
         directory = self.directory / str(self.runs)
         self.runs += 1
         observations, receipts = [], []
-        with Anvil(directory) as node:
+        gas_limit = max(self.deploy_gas, 30000000) if self.deploy_gas > 10000000 else None
+        with Anvil(directory, code_size_limit=self.code_size_limit, gas_limit=gas_limit) as node:
             deployer = node.rpc('eth_accounts')[0]
             for code in self.bytecodes:
-                deployment = node.transact({'from': deployer, 'data': code, 'gas': hex(10000000)})
+                deployment = node.transact({'from': deployer, 'data': code, 'gas': hex(self.deploy_gas)})
                 if deployment['receipt']['status'] != '0x1':
                     raise HarnessError('fixture deployment failed')
             for account, slot, value in self.initial_storage:
