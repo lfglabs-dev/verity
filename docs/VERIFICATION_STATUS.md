@@ -107,7 +107,7 @@ Key files:
 - [`Contract.lean`](../Compiler/Proofs/IRGeneration/Contract.lean)
 - [`EndToEnd.lean`](../Compiler/Proofs/EndToEnd.lean)
 
-## Layer 3: IR → Native EVMYulLean, GENERIC, WITH EXPLICIT AXIOM BOUNDARY
+## Layer 3: IR → Native EVMYulLean, GENERIC, WITH EXPLICIT BRIDGE HYPOTHESIS
 
 **What it proves today**: generated runtime Yul is lowered into EVMYulLean and
 executed through the native `EvmYul.Yul.callDispatcher` theorem stack. The
@@ -281,4 +281,4 @@ See [`TRUST_ASSUMPTIONS.md`](TRUST_ASSUMPTIONS.md) for the full trust model and 
 
 ---
 
-**Last Updated**: 2026-06-19
+**Last Updated**: 2026-11-10

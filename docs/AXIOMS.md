@@ -117,23 +117,10 @@ finite accessed footprint:
 Concrete certificates may be discharged by kernel computation; symbolic theorems
 carry them as explicit hypotheses. No theorem asserts collision freedom for
 every finite footprint, and only `propext`, `Classical.choice`, and `Quot.sound`
-are permitted by the population axiom gate.
-
-## Non-Axiom: Generic Native Layer 3 Body Hypothesis
-
-The generic native EndToEnd theorem
-`compile_preserves_native_evmYulLean_of_compile_ok_supported_generated_callDispatcher`
-and its private `..._via_result` wrapper (`Compiler/Proofs/EndToEnd/Base.lean`)
-introduce no Lean axiom, but retain the explicit theorem premise
-`hUserBodyResult : NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state observableSlots`.
-Compilation derives syntactic closure and dispatcher lowering rather than this
-semantic premise, and `Compiler/Proofs/EndToEnd/Base.lean` records that generic
-native user-body simulation remains missing. Results are projected onto the
-caller-selected finite `observableSlots : List Nat`, the semantic target is the
-native Yul AST `EvmYul.Yul.callDispatcher` rather than EVM bytecode (`solc`
-remains trusted), and the concrete SimpleStorage theorem
-(`Compiler/Proofs/EndToEnd/SimpleStorage.lean`) discharges its body cases
-separately without retaining `hUserBodyResult`.
+(plus the explicitly allowlisted `native_decide` reduction origins documented
+below under `Trusted Reduction and Codegen Surface (Non-Axiom)`) are permitted
+by the population axiom gate (`scripts/VerityUnionAxioms.lean`,
+`scripts/check_axioms.py`).
 
 ### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)
 
@@ -155,6 +142,38 @@ axiom solidityMappingSlot_lt_evmModulus (baseSlot key : Nat) :
 
 **Runtime performance**: An `@[implemented_by]` annotation optionally redirects to
 the FFI version at runtime for speed, without affecting proof soundness.
+
+### 2. Selector computation (eliminated earlier)
+
+Function selector derivation (`bytes4(keccak256(signature))`) was previously
+axiomatic. It is now kernel-computable via the vendored unrolled Keccak engine
+in `Compiler/Keccak/` and `Compiler/Selectors.lean`.
+
+### 3. Layer 2 body-simulation axiom (eliminated earlier)
+
+The generic body-simulation axiom in Layer 2 was eliminated through explicit
+proof work (issue #1618). `supported_function_correct` is now a real theorem.
+
+### 4. Layer 3 dispatch bridge (eliminated earlier)
+
+The dispatch bridge in Layer 3 was converted from a Lean axiom to an explicit
+theorem hypothesis (in the former `Compiler/Proofs/YulGeneration/Preservation.lean`, since removed).
+
+## Non-Axiom: Generic Native Layer 3 Body Hypothesis
+
+The generic native EndToEnd theorem
+`compile_preserves_native_evmYulLean_of_compile_ok_supported_generated_callDispatcher`
+and its private `..._via_result` wrapper (`Compiler/Proofs/EndToEnd/Base.lean`)
+introduce no Lean axiom, but retain the explicit theorem premise
+`hUserBodyResult : NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state observableSlots`.
+Compilation derives syntactic closure and dispatcher lowering rather than this
+semantic premise, and `Compiler/Proofs/EndToEnd/Base.lean` records that generic
+native user-body simulation remains missing. Results are projected onto the
+caller-selected finite `observableSlots : List Nat`, the semantic target is the
+native Yul AST `EvmYul.Yul.callDispatcher` rather than EVM bytecode (`solc`
+remains trusted), and the concrete SimpleStorage theorem
+(`Compiler/Proofs/EndToEnd/SimpleStorage.lean`) discharges its body cases
+separately without retaining `hUserBodyResult`.
 
 ## Trusted Reduction and Codegen Surface (Non-Axiom)
 
@@ -192,22 +211,6 @@ elaboration:
 CI runs `scripts/check_trust_surface_registry.py` to ensure these mechanisms and
 all explicit ECM assumptions (`axioms := [...]`) remain documented when their
 source footprint changes.
-
-### 2. Selector computation (eliminated earlier)
-
-Function selector derivation (`bytes4(keccak256(signature))`) was previously
-axiomatic. It is now kernel-computable via the vendored unrolled Keccak engine
-in `Compiler/Keccak/` and `Compiler/Selectors.lean`.
-
-### 3. Layer 2 body-simulation axiom (eliminated earlier)
-
-The generic body-simulation axiom in Layer 2 was eliminated through explicit
-proof work (issue #1618). `supported_function_correct` is now a real theorem.
-
-### 4. Layer 3 dispatch bridge (eliminated earlier)
-
-The dispatch bridge in Layer 3 was converted from a Lean axiom to an explicit
-theorem hypothesis (in the former `Compiler/Proofs/YulGeneration/Preservation.lean`, since removed).
 
 ## Trusted Cryptographic Primitives (Non-Axiom)
 
