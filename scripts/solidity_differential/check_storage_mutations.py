@@ -81,6 +81,16 @@ MUTANTS.update({
                                     '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
 })
 
+# Named call arguments in declaration order lower as positional; any other order rejects.
+MUTANTS.update({
+    'import-named-arguments-binding': (
+        'if namedArgumentsInDeclaredOrder params written then j.setObjVal! "names" (.arr #[])',
+        'if namedArgumentsInDeclaredOrder params written then (match field? j "arguments" with\n'
+        '              | some (.arr #[a, b]) => (j.setObjVal! "names" (.arr #[])).setObjVal! "arguments" (.arr #[b, a])\n'
+        '              | _ => j.setObjVal! "names" (.arr #[]))'),
+    'import-named-arguments-order-guard': (
+        'if namedArgumentsInDeclaredOrder params written then',
+        'if written.size ≤ params.size then')})
 MUTANTS.update({'import-numeric-separators': ('let raw := raw.replace "_" ""', 'let raw := raw.replace "_" "0"'),
  'import-numeric-leading-dot': ('if whole.isEmpty then some 0 else whole.toNat?', 'if whole.isEmpty then some 1 else whole.toNat?'),
  'import-numeric-decimal-scale': ('let scale := 10 ^ fraction.length',
@@ -751,6 +761,8 @@ def run(directory, output, name):
         fixture = "BytesNamedReturnSliceStructSequence"
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         fixture = ROOT_PARAM_MUTANT_FIXTURES[name]
+    if name.startswith("import-named-arguments-"):
+        fixture = "NamedArgumentsSequence"
     if name.startswith("import-constant-array-"):
         fixture = "ConstantArraySequence"
     if name.startswith("import-numeric-"):
@@ -778,6 +790,10 @@ def run(directory, output, name):
     if fixture == 'CustomErrorFixedBytesSequence':
         # Each `next % 4` arm with nonzero `bytesN` contents, and `next * 3` overflow.
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 0xdeadbeef * 2 ** 224 + 1, 0x0123456789abcdef * 2 ** 192 + 0x7e, 2 ** 200 + 3, 2 ** 256 - 1, 2 ** 256 - 4])])
+    if fixture == 'NamedArgumentsSequence':
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 7, 12, (1 << 128) - 1, 1 << 128])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'NarrowForCounterSequence':
@@ -1462,6 +1478,14 @@ contract C {
  function checked(uint256 n) external { emit Before(tag(n), n); }
 }
 ''')
+    elif name == 'import-named-arguments-order-guard':
+        diagnostic = 'named call arguments are outside this slice'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ function diff(uint256 a, uint256 b) internal pure returns (uint256) { return a - b; }
+ function checked(uint256 x) external pure returns (uint256) { return diff({b: 1, a: x}); }
+}
+''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':
         diagnostic = 'event direct parameter type differs from its declaration'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1585,7 +1609,8 @@ def mutation_campaign(output, selected=None):
                                   'import-governor-slice-proposer-delay-unaligned-tail-offset-guard',
                                   'import-access-manager-target-role-narrow-bytes-event-guard',
                                   'import-event-scratch-competing-guard',
-                                  'import-string-event-data-before-indexed-guard'}
+                                  'import-string-event-data-before-indexed-guard',
+                                  'import-named-arguments-order-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)
