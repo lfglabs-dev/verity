@@ -2191,6 +2191,10 @@ partial def inferPureExprType
       for arg in [gas, target, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level staticcall" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
+  | `(term| bytesLength $name:term) =>
+      match directParamNameWithType? params name with
+      | some (_, .bytes) => pure .uint256
+      | _ => throwErrorAt name "bytesLength expects a Bytes parameter"
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: accept `arrayLength (arrayElement <param> <i>).<dynField>`
       -- projections where `dynField` is a dynamic member of the struct-array
@@ -3757,6 +3761,11 @@ partial def translatePureExprWithTypes
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants linkedExternalLowerer?)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants linkedExternalLowerer?)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants linkedExternalLowerer?))
+  | `(term| bytesLength $name:term) =>
+      match directParamNameWithType? params name with
+      | some (paramName, .bytes) =>
+          `(Compiler.CompilationModel.Expr.param $(strTerm s!"{paramName}_length"))
+      | _ => throwErrorAt name "bytesLength expects a Bytes parameter"
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: `arrayLength (arrayElement <param> <i>).<dynField>`
       -- lowers through `Expr.arrayElementDynamicMemberLength`, reading the
