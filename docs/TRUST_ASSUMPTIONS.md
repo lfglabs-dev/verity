@@ -1969,6 +1969,44 @@ Trust boundary changes:
   discovered from EVM CREATE2 traces), not a proof. `DenoteAgreement` excludes
   every closed byte transport, so no source-semantics agreement is claimed.
 
+### Imported inline-assembly `call` / `staticcall` over memory
+
+`solidity_import` admits, inside inline assembly, `call(gas(), target, 0, inOffset,
+inSize, outOffset, outSize)` and `staticcall(gas(), target, inOffset, inSize, outOffset,
+outSize)` with effect-free operands, as the OpenZeppelin 5 `SafeERC20` and
+`AuthorityUtils` blocks and Solady's `SafeTransferLib` write them; with them,
+`returndatasize()`, `extcodesize(a)`, `mload`/`mstore` at fixed addresses below `0x80`
+(scratch space, free-memory pointer, zero slot), and the bubbling pair
+`returndatacopy(p, 0, returndatasize())` + `revert(p, returndatasize())`, which lowers to
+`Stmt.revertReturndata`. A call with a nonzero value, without `gas()`, or with
+effectful operands, any other `returndatacopy`, and a block that leaves the zero slot
+nonzero fail closed with a located diagnostic. The calls lower to the closed byte
+transport `YulMemoryCall.module isStatic resultVar`, whose Denote arm is pinned by
+`execStmt_ecm_yulMemoryCall_arm` and admitted by `closedTransportCovered`.
+
+Trust boundary changes:
+- The callee is the explicit byte adversary of `ByteExternalCall`, as for the other
+  call transports: a successful `call` may commit any world, including the caller's
+  storage and memory, so re-entrant effects are part of the Denote semantics. A
+  `staticcall` must preserve the world (`Response.valid`). Proofs that rely on a callee
+  not re-entering, or not changing the caller's memory (which no EVM callee can), state
+  it as a hypothesis on the adversary.
+- As on the EVM, the first `min(outSize, returndatasize)` bytes of the returned or
+  revert data are copied to `outOffset` whether or not the call succeeds, the return
+  data buffer is replaced, and the transport binds `0`/`1` and never reverts by itself.
+  Calldata or output ranges beyond `2^32` bytes are an exceptional halt with empty
+  return data, standing for the memory-expansion cost no allowance covers.
+- Gas is not tracked: the transport forwards `gas()` in compiled code and the
+  instrument's `ByteCallEnvironment.gas` in Denote.
+- Writes below `0x80` act on the same physical memory the rest of the frame uses; the
+  importer's free-pointer prologue makes `mload(0x40)` start at `0x80` on every route.
+- A non-static call opens a cross-function reentrancy window and is classified with the
+  closed low-level calls (`isClosedLowLevelCall`); a `staticcall` with the closed static
+  calls (`isClosedStaticCall`).
+- Compilation keeps `proofStatus := .assumed`; agreement with solc and Denote is
+  differential evidence (`YulMemoryCallSequence` against recording call responders, an
+  account without code and an EOA), not a proof.
+
 ### Imported `<address>.code.length` and optional-bool low-level calls
 
 `solidity_import` now admits `<addr>.code.length` on `address`-typed accounts

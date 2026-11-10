@@ -79,6 +79,7 @@ partial def quoteExpr : Expr → m Term
   | .ge a b => do `(Compiler.CompilationModel.Expr.ge $(← quoteExpr a) $(← quoteExpr b))
   | .logicalNot a => do `(Compiler.CompilationModel.Expr.logicalNot $(← quoteExpr a))
   | .immutable name => `(Compiler.CompilationModel.Expr.immutable $(quote name))
+  | .returndataSize => `(Compiler.CompilationModel.Expr.returndataSize)
   | .constructorArg index => `(Compiler.CompilationModel.Expr.constructorArg $(quote index))
   | e => throwError "internal: the importer cannot quote {repr e}"
 
@@ -173,6 +174,11 @@ partial def quoteStmt : Stmt → m Term
           unless module == Compiler.ECM.SolidityReturnMemory.module do
             throwError "internal: closed ECM metadata differs from its descriptor"
           `(Compiler.CompilationModel.Stmt.ecm Compiler.ECM.SolidityReturnMemory.module $quotedArgs)
+      | some (.yulMemoryCall isStatic resultVar) =>
+          unless module == Compiler.ECM.YulMemoryCall.module isStatic resultVar do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.YulMemoryCall.module $(quote isStatic) $(quote resultVar)) $quotedArgs)
       | none => throwError "internal: the importer cannot quote an opaque ECM"
   | .mstore offset value => do
       `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))

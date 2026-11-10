@@ -1159,6 +1159,13 @@ private def yulByteBufferLoad? (addrNode : Json) (lowerYulFn : Json → M Val) :
     expr := .mload (.add buf.pointer (.literal (off - 32)))
   }
 
+/-- End of the memory solc reserves: scratch space `0x00`–`0x3f`, the free-memory pointer at
+`0x40` and the zero slot at `0x60`. Inline assembly may use fixed addresses below it. -/
+private def yulReservedMemoryEnd : Nat := 0x80
+
+/-- The zero slot at `0x60`, which Solidity relies on being zero. -/
+private def yulZeroSlot : Nat := 0x60
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1196,7 +1203,53 @@ private partial def lowerYul (j : Json) : M Val := do
             return v
           if let some v ← yulByteBufferLoad? args[0]! lowerYul then
             return v
+          -- A word of the scratch space, the free-memory pointer or the zero slot.
+          let addr ← lowerYul args[0]!
+          if let .literal off := addr.expr then
+            if addr.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd then
+              return { pre := #[], expr := .mload (.literal off) }
         failAt j "unsupported Yul builtin mload"
+      -- `add(buf, 0x20)` of a `bytes memory` local is the address of its payload.
+      if fname == "add" && args.size == 2 then
+        for (bufNode, offNode) in [(args[0]!, args[1]!), (args[1]!, args[0]!)] do
+          if let some buf ← yulByteBufferByName? bufNode then
+            if (← yulPositiveWordOffsetLiteral? offNode) == some 32 then
+              return { pre := buf.pre, expr := buf.pointer }
+      if fname == "call" || fname == "staticcall" then
+        let isStatic := fname == "staticcall"
+        let arity := if isStatic then 6 else 7
+        unless args.size == arity do failAt j s!"Yul {fname} expects {arity} arguments"
+        let gasArg := args[0]!
+        let forwardsGas ← do
+          if (← mKind gasArg) != "YulFunctionCall" then pure false
+          else pure ((← mStr (← mField (← mField gasArg "functionName") "name")) == "gas" &&
+            (← mArr (← mField gasArg "arguments")).isEmpty)
+        unless forwardsGas do
+          failAt gasArg s!"Yul {fname} must forward gas(); the call boundary supplies the allowance"
+        if !isStatic then
+          let value ← lowerYul args[2]!
+          unless value.pre.isEmpty && (match value.expr with | .literal 0 => true | _ => false) do
+            failAt args[2]! "Yul call with a nonzero value is outside this slice"
+        -- Yul evaluates arguments right to left; effect-free operands make the order moot.
+        let operands := if isStatic then args.extract 1 6 else #[args[1]!] ++ args.extract 3 7
+        let mut xs : Array Expr := #[]
+        for operand in operands do
+          let v ← lowerYul operand
+          unless v.pre.isEmpty do failAt operand s!"Yul {fname} operands must be effect-free"
+          xs := xs.push v.expr
+        let result ← fresh
+        return { pre := #[.ecm (Compiler.ECM.YulMemoryCall.module isStatic result) xs.toList],
+                 expr := .localVar result }
+      if fname == "extcodesize" then
+        unless args.size == 1 do failAt j "Yul extcodesize expects one argument"
+        let target ← lowerYul args[0]!
+        unless target.pre.isEmpty do failAt args[0]! "Yul extcodesize operand must be effect-free"
+        let result ← fresh
+        return { pre := #[.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]],
+                 expr := .localVar result }
+      if fname == "returndatasize" then
+        unless args.isEmpty do failAt j "Yul returndatasize takes no argument"
+        return { pre := #[], expr := .returndataSize }
       if fname == "create2" then
         failAt j "Yul create2 must be the whole value of a Yul assignment or variable declaration"
       let expectedArity? : Option Nat := match fname with
@@ -1794,10 +1847,46 @@ private def lowerYulPrefixKeccakBlock? (j : Json) (stmts refs : Array Json) (ret
     ])
   return none
 
+/-- `returndatacopy(p, 0, returndatasize())` followed by `revert(p, returndatasize())` with
+the same `p`: forwarding the complete return data as the revert payload. -/
+private def isYulReturndataBubble (copy rev : Json) : M Bool := do
+  let callOf (s : Json) : M (Option (String × Array Json)) := do
+    if (← mKind s) != "YulExpressionStatement" then return none
+    let e ← mField s "expression"
+    if (← mKind e) != "YulFunctionCall" then return none
+    return some (← mStr (← mField (← mField e "functionName") "name"), ← mArr (← mField e "arguments"))
+  let isSize (e : Json) : M Bool := do
+    if (← mKind e) != "YulFunctionCall" then return false
+    return (← mStr (← mField (← mField e "functionName") "name")) == "returndatasize" &&
+      (← mArr (← mField e "arguments")).isEmpty
+  let identName (e : Json) : M (Option String) := do
+    if (← mKind e) != "YulIdentifier" then return none
+    return some (← mStr (← mField e "name"))
+  let some ("returndatacopy", cargs) ← callOf copy | return false
+  let some ("revert", rargs) ← callOf rev | return false
+  unless cargs.size == 3 && rargs.size == 2 do return false
+  let zeroSource := (← mKind cargs[1]!) == "YulLiteral" && optStr cargs[1]! "value" == some "0x00" ||
+    (← mKind cargs[1]!) == "YulLiteral" && optStr cargs[1]! "value" == some "0"
+  let some dest ← identName cargs[0]! | return false
+  let some payload ← identName rargs[0]! | return false
+  return dest == payload && zeroSource && (← isSize cargs[2]!) && (← isSize rargs[1]!)
+
 private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retName : String) : M (Array Stmt) := do
   let mut yulLocals : RBMap String String compare := RBMap.empty
   let mut out : Array Stmt := #[]
-  for stmt in stmts do
+  -- The zero slot must hold zero again when the block ends if the block wrote it.
+  let mut zeroSlotDirty := false
+  let mut skipNext := false
+  for i in [:stmts.size] do
+    let stmt := stmts[i]!
+    if skipNext then
+      skipNext := false
+      continue
+    if i + 1 < stmts.size then
+      if ← isYulReturndataBubble stmt stmts[i+1]! then
+        out := out.push .revertReturndata
+        skipNext := true
+        continue
     match ← mKind stmt with
     | "YulVariableDeclaration" =>
         let vars ← mArr (← mField stmt "variables")
@@ -1852,13 +1941,16 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           let offVal ← lowerYul args[0]!
           let valVal ← lowerYul args[1]!
           let .literal off := offVal.expr
-            | failAt expr "only scratch-space mstore at 0x00 or 0x20 is supported"
-          unless offVal.pre.isEmpty && (off == 0 || off == 32) do
-            failAt expr "only scratch-space mstore at 0x00 or 0x20 is supported"
-          if off == 0 then
+            | failAt expr "Yul mstore requires a fixed address below 0x80"
+          unless offVal.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd do
+            failAt expr "Yul mstore requires a fixed address below 0x80"
+          if off < 32 then
             modify fun e => { e with yulScratch0 := true }
-          else
+          if off < 64 && off + 32 > 32 then
             modify fun e => { e with yulScratch32 := true }
+          if off + 32 > yulZeroSlot then
+            zeroSlotDirty := !(off == yulZeroSlot && valVal.pre.isEmpty &&
+              (match valVal.expr with | .literal 0 => true | _ => false))
           out := out ++ valVal.pre |>.push (.mstore (.literal off) valVal.expr)
         else if fname == "mstore8" then
           unless args.size == 2 do failAt expr "mstore8 expects 2 arguments"
@@ -1887,6 +1979,8 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         else
           failAt stmt "unsupported Yul statement YulIf"
     | kind => failAt stmt s!"unsupported Yul statement {kind}"
+  if zeroSlotDirty then
+    failAt j "inline assembly must restore the zero slot at 0x60 to zero before it ends"
   pure out
 
 private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array Stmt) := do

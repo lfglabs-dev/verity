@@ -8543,6 +8543,7 @@ Compiler.CompilationModel.SolidityImport.execStmt_ecm_log_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_optionalBoolCall_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_callBytesUint256_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_callBytesBool_arm
+Compiler.CompilationModel.SolidityImport.execStmt_ecm_yulMemoryCall_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_extCodeSize_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_extCodeCopy_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_returnMemory_arm
@@ -8563,6 +8564,7 @@ Compiler.CompilationModel.SolidityImport.evalExpr_blockNumber_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_chainid_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_caller_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_contractAddress_arm
+Compiler.CompilationModel.SolidityImport.evalExpr_returndataSize_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_immutable_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_selfBalance_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_txOrigin_arm
@@ -12072,4 +12074,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11239 theorems/lemmas (8740 public, 2499 private, 0 sorry'd)
+-- Total: 11241 theorems/lemmas (8742 public, 2499 private, 0 sorry'd)
