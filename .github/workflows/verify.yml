@@ -851,6 +851,7 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.UnitReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.SelfBalanceSmoke
@@ -899,6 +900,7 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.UnitReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.SelfBalanceSmoke

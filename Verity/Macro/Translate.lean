@@ -1686,6 +1686,12 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
               locals,
               mutableLocals)
+      | `(doElem| return ()) | `(doElem| return) =>
+          -- Early exit from a `Unit` function: the same `Stmt.stop` that ends its body
+          -- (EVM `stop()` externally, `leave` in an internal helper), not an empty tuple.
+          if returnTy != .unit then
+            throwErrorAt elem "`return ()` is only allowed in a function returning Unit"
+          pure (#[(← `(Compiler.CompilationModel.Stmt.stop))], locals, mutableLocals)
       | `(doElem| return $value:term) =>
           match (← arrayElementTupleReturnStmts? fields constDecls immutableDecls params locals mutableLocals value
             (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
