@@ -2007,6 +2007,36 @@ Trust boundary changes:
   differential evidence (`YulMemoryCallSequence` against recording call responders, an
   account without code and an EOA), not a proof.
 
+### Imported typed external calls without return values
+
+`solidity_import` admits `I(a).f(args...)` as a whole expression statement when `f` is
+`nonpayable` or `payable`, is called without value and returns nothing. solc 0.8.34
+(via-IR) evaluates the receiver and then the arguments, reverts with no data when
+`extcodesize(a)` is zero, encodes the selector and arguments at the free pointer,
+calls with `gas()`, forwards a failed call's return data and ignores a successful
+call's return data. The importer evaluates the same operands in the same order (effectful
+operands reject), reads the code size through the closed `SolidityExtCodeSize` transport,
+assembles the calldata in a fresh allocation and calls through the closed
+`YulMemoryCall.module false` transport with an empty output range, followed by
+`Stmt.revertReturndata` on failure.
+
+Trust boundary changes:
+- The callee is the explicit byte adversary of `ByteExternalCall`, as for the other
+  call transports; a successful call may commit any world, so re-entrant effects are
+  part of the Denote semantics, and the call is classified with the closed low-level
+  calls (`isClosedLowLevelCall`).
+- solc writes the calldata above the free pointer without advancing it; the import
+  allocates it, so the free pointer after the call and the contents of unallocated
+  memory differ from the source. Neither is observable to code that only reads memory
+  it allocated or wrote.
+- An earlier lowering sent these calls through the optional-bool low-level call
+  transport, which binds `1` for an account without code and reverts on return data
+  that is not a `bool`; solc reverts for the former and accepts the latter. That
+  lowering is removed.
+- Compilation keeps `proofStatus := .assumed`; agreement with solc and Denote is
+  differential evidence (`InterfaceVoidCallSequence` against recording call responders
+  of every response shape, an account without code and an EOA), not a proof.
+
 ### Imported `<address>.code.length` and optional-bool low-level calls
 
 `solidity_import` now admits `<addr>.code.length` on `address`-typed accounts
