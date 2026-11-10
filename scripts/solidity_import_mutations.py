@@ -569,10 +569,13 @@ MUTANT_TIMEOUT = 3600
 
 def run_differential_mutant(mutant: str) -> list:
     output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
-    subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
-                    "--mutations", "--mutant", mutant, "--output", str(output)],
-                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
-    return json.loads((output / "mutation-results.json").read_text())
+    try:
+        subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
+                        "--mutations", "--mutant", mutant, "--output", str(output)],
+                       cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+        return json.loads((output / "mutation-results.json").read_text())
+    finally:
+        shutil.rmtree(output, ignore_errors=True)
 
 
 def differential_mutant(mutant: str) -> None:
@@ -592,8 +595,12 @@ def guard_mutant(mutant: str) -> None:
 
 
 def module_campaign(module: str, label: str, timeout: int, *extra: str) -> dict:
-    output = module_campaign_output(module, label, timeout, *extra)
-    return json.loads((output / "complete.json").read_text())
+    output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
+    try:
+        run_module_campaign(module, output, timeout, *extra)
+        return json.loads((output / "complete.json").read_text())
+    finally:
+        shutil.rmtree(output.parent, ignore_errors=True)
 
 
 HASHING_MUTANTS = (
@@ -645,24 +652,39 @@ def storage_rejections(part: int) -> None:
 
 
 def abi_rejections() -> None:
-    module_campaign_output("check_scalar_array_abi_rejections", "scalar-array-rejections", 900)
-    module_campaign_output("check_nested_dynamic_struct_abi_rejections",
-                           "nested-dynamic-struct-rejections", 900)
+    run_ephemeral_module_campaign("check_scalar_array_abi_rejections", "scalar-array-rejections", 900)
+    run_ephemeral_module_campaign("check_nested_dynamic_struct_abi_rejections",
+                                  "nested-dynamic-struct-rejections", 900)
     print("pass ABI rejection campaigns", flush=True)
 
 
-def module_campaign_output(module: str, label: str, timeout: int, *extra: str) -> Path:
-    output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
+def run_module_campaign(module: str, output: Path, timeout: int, *extra: str) -> None:
     launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
                 f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
     subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output), *extra],
                    cwd=ROOT, check=True, timeout=timeout)
-    return output
+
+
+def run_ephemeral_module_campaign(module: str, label: str, timeout: int, *extra: str) -> None:
+    output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
+    try:
+        run_module_campaign(module, output, timeout, *extra)
+    finally:
+        shutil.rmtree(output.parent, ignore_errors=True)
+
+
+def run_json_module_campaign(module: str, label: str, filename: str, timeout: int, *extra: str) -> list:
+    output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
+    try:
+        run_module_campaign(module, output, timeout, *extra)
+        return json.loads((output / filename).read_text())
+    finally:
+        shutil.rmtree(output.parent, ignore_errors=True)
 
 
 def deployment_world_mutations() -> None:
-    results = json.loads((module_campaign_output("check_deployment_world_mutations", "deployment-world-mutations",
-                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    results = run_json_module_campaign("check_deployment_world_mutations", "deployment-world-mutations",
+                                       "mutation-results.json", MUTANT_TIMEOUT)
     names = {"denote-create2-drop-nonce", "denote-create2-empty-code", "denote-create2-drop-value",
              "denote-create2-drop-deposit", "denote-create2-ignore-collision"}
     if ({row['mutant'] for row in results} != names
@@ -673,8 +695,8 @@ def deployment_world_mutations() -> None:
 
 
 def create2_opcode_mutations() -> None:
-    results = json.loads((module_campaign_output("check_create2_opcode_mutations", "create2-opcode-mutations",
-                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    results = run_json_module_campaign("check_create2_opcode_mutations", "create2-opcode-mutations",
+                                       "mutation-results.json", MUTANT_TIMEOUT)
     names = {"create2-initcode-word-cost", "create2-eip150-divisor", "create2-parent-refund",
              "create2-memory-expansion"}
     if ({row['mutant'] for row in results} != names
@@ -685,8 +707,8 @@ def create2_opcode_mutations() -> None:
 
 
 def account_storage_mutations() -> None:
-    results = json.loads((module_campaign_output("check_account_storage_mutations", "account-storage-conformance",
-                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    results = run_json_module_campaign("check_account_storage_mutations", "account-storage-conformance",
+                                       "mutation-results.json", MUTANT_TIMEOUT)
     names = {"denote-physical-slot-account", "denote-physical-batch-account", "denote-physical-modify-account"}
     if ({row['mutant'] for row in results} != names
             or not all(row['detected'] and row['baselinePassed'] and row['implementationCompiles']
@@ -737,14 +759,14 @@ def byte_call_mutations() -> None:
 
 
 def interface_static_call_rejections() -> None:
-    module_campaign_output("check_interface_static_call_rejections",
-                           "interface-static-call-rejections", MUTANT_TIMEOUT)
+    run_ephemeral_module_campaign("check_interface_static_call_rejections",
+                                  "interface-static-call-rejections", MUTANT_TIMEOUT)
     print("pass interface staticcall located rejections", flush=True)
 
 
 def library_call_rejections() -> None:
-    module_campaign_output("check_library_call_rejections",
-                           "library-call-rejections", MUTANT_TIMEOUT)
+    run_ephemeral_module_campaign("check_library_call_rejections",
+                                  "library-call-rejections", MUTANT_TIMEOUT)
     print("pass external library call located rejections", flush=True)
 
 
@@ -759,8 +781,8 @@ def interface_static_call_mutant(mutant: str) -> None:
 
 
 def interface_word_static_call_rejections() -> None:
-    module_campaign_output("check_interface_word_static_call_rejections",
-                           "interface-word-static-call-rejections", MUTANT_TIMEOUT)
+    run_ephemeral_module_campaign("check_interface_word_static_call_rejections",
+                                  "interface-word-static-call-rejections", MUTANT_TIMEOUT)
     print("pass interface word staticcall located rejections", flush=True)
 
 
@@ -775,8 +797,8 @@ def interface_word_static_call_mutant(mutant: str) -> None:
 
 
 def create2_struct_emit_rejections() -> None:
-    module_campaign_output("check_create2_struct_emit_rejections",
-                           "create2-struct-emit-rejections", MUTANT_TIMEOUT)
+    run_ephemeral_module_campaign("check_create2_struct_emit_rejections",
+                                  "create2-struct-emit-rejections", MUTANT_TIMEOUT)
     print("pass CREATE2/struct-event located rejections", flush=True)
 
 
@@ -791,8 +813,8 @@ def create2_struct_emit_mutant(mutant: str) -> None:
 
 
 def low_level_call_rejections() -> None:
-    module_campaign_output("check_external_code_and_low_level_call_rejections",
-                           "external-code-low-level-call-rejections", MUTANT_TIMEOUT)
+    run_ephemeral_module_campaign("check_external_code_and_low_level_call_rejections",
+                                  "external-code-low-level-call-rejections", MUTANT_TIMEOUT)
     print("pass code-length/low-level call located rejections", flush=True)
 
 
@@ -807,8 +829,8 @@ def low_level_call_mutant(mutant: str) -> None:
 
 
 def extcodecopy_struct_decode_rejections() -> None:
-    module_campaign_output("check_extcodecopy_struct_decode_rejections",
-                           "extcodecopy-struct-decode-rejections", MUTANT_TIMEOUT)
+    run_ephemeral_module_campaign("check_extcodecopy_struct_decode_rejections",
+                                  "extcodecopy-struct-decode-rejections", MUTANT_TIMEOUT)
     print("pass code-copy/struct-decode located rejections", flush=True)
 
 

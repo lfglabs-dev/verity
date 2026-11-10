@@ -516,15 +516,15 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                        'uses': 'actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131',
                                                        'with': {'name': 'lean-workspace-compiler-build'}},
                                                       {'name': 'Build compiler CLI regression executable',
-                                                       'run': 'stdbuf -oL -eL lake build compiler-main-test'},
+                                                       'run': 'stdbuf -oL -eL turbo-lean build compiler-main-test'},
                                          {'name': 'Run compiler CLI regression module',
                                           'run': 'chmod +x ./.lake/build/bin/compiler-main-test\nfor phase in flags compile gates mechanics; do\n  echo "::group::compiler-main-test $phase"\n  stdbuf -oL -eL ./.lake/build/bin/compiler-main-test "$phase"\n  echo "::endgroup::"\ndone'},
                                                       {'name': 'Build CompilationModel feature '
                                                                'regression module',
-                                                               'run': 'stdbuf -oL -eL lake build '
+                                                               'run': 'stdbuf -oL -eL turbo-lean build '
                                                                'Compiler.CompilationModelFeatureTest'},
                                                       {'name': 'Build panic-code regression module',
-                                                       'run': 'stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest'}],
+                                                       'run': 'stdbuf -oL -eL turbo-lean build Compiler.PanicCodeRegressionTest'}],
                              'lean-profile': [{'uses': 'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803'},
                                              {'name': 'Setup Lean',
                                               'uses': './.github/actions/setup-lean',
@@ -702,10 +702,10 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                       'python3 scripts/check_issue_1060_integrity.py',
                                       "python3 -m unittest discover -s scripts -p 'test_*.py' -v"],
  'expected_checks_other_commands': [],
- 'expected_build_commands': ['check_lean_warning_regression.py --log lake-build.log',
+ 'expected_build_commands': ['check_lean_warning_regression.py --log lake-build.log --trace-root .lake/build/lib/lean',
                              'setup_solc_import.py',
                              'solidity_import_mutations.py'],
- 'required_build_run_commands': ['lake build PrintAxioms', 'lake build SolidityImportSmoke'],
+ 'required_build_run_commands': ['lake build PrintAxioms', 'turbo-lean build SolidityImportSmoke'],
  'expected_build_audit_commands': ['check_split_package_builds.py',
                                    'check_axioms.py',
                                    'check_proof_length.py --format=markdown >> '
@@ -931,7 +931,7 @@ def build_spec() -> dict:
 
 # Solidity slice differential changes require the compiled-model validation lane.
 for _lane in ("build_paths", "compiler_paths"):
-    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/solidity_differential/**', 'scripts/solidity_import_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_import_mutations.py', 'scripts/test_solidity_stateful*.py', 'scripts/setup_solc_import.py', 'scripts/solidity_import_coverage.py', 'scripts/solidity_import_corpus/**', 'scripts/test_solidity_import_coverage.py']
+    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/setup_turbo_lean.sh', 'scripts/solidity_differential/**', 'scripts/solidity_import_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_import_mutations.py', 'scripts/test_solidity_stateful*.py', 'scripts/setup_solc_import.py', 'scripts/solidity_import_coverage.py', 'scripts/solidity_import_corpus/**', 'scripts/test_solidity_import_coverage.py']
 SPEC["expected_uploaded_artifacts"]["compiler-regressions"] = ["solidity-import-differential", "solidity-import-coverage"]
 SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/import-differential/**\n.lake/stateful-*/**\n.lake/denote-rejections-*/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**", ".lake/solidity-import-coverage/**"]
 for _key in ("expected_uploaded_artifacts", "expected_uploaded_artifact_paths"):

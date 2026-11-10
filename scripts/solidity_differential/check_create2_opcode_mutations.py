@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -152,6 +153,7 @@ def main():
     finally:
         for name, source in originals.items():
             modules[name].write_text(source)
+        shutil.rmtree(work, ignore_errors=True)
     if command(['git', 'rev-parse', 'HEAD']).strip() != head or command(['git', 'status', '--porcelain']).strip():
         raise HarnessError('source checkout changed during opcode mutations')
     if source_hashes != {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in source_files}:

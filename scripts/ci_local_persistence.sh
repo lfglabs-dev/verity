@@ -375,7 +375,8 @@ cleanup_artifacts() {
   fi
   for cache_root in \
     "$(dirname "$ARTIFACT_ROOT")/lake-build" \
-    "$(dirname "$ARTIFACT_ROOT")/compiler-ccache"
+    "$(dirname "$ARTIFACT_ROOT")/compiler-ccache" \
+    "$(dirname "$ARTIFACT_ROOT")/turbo-lean-cas"
   do
     [ -d "$cache_root" ] || continue
     while IFS= read -r -d '' dir; do

@@ -18,7 +18,7 @@ inputs:
     description: Host-local root directory used for persistent Lean state on self-hosted runners
     default: "/srv/verity-ci-cache"
   sticky-disk-key-prefix:
-    description: Prefix used when deriving persistent cache keys for elan and Lake packages
+    description: Prefix used when deriving persistent cache keys for Lake packages (elan toolchains share one host copy per runner OS/arch and lean-toolchain hash)
     default: ""
   lake-packages-sticky-key:
     description: Fully qualified persistent cache key to use for `.lake/packages`
@@ -103,8 +103,25 @@ runs:
       shell: bash
       env:
         ELAN_VERSION: "v4.1.2"
+        USING_STICKY_DISKS: ${{ steps.persistence.outputs.use_sticky_disks }}
+        LOCAL_CACHE_ROOT: ${{ steps.persistence.outputs.local_cache_root }}
+        ELAN_STICKY_KEY: ${{ steps.persistence.outputs.elan_sticky_key }}
       run: |
+        set -euo pipefail
+        lock_fd=""
+        if [ "${USING_STICKY_DISKS}" = "true" ]; then
+          sanitized_key="$(printf '%s' "${ELAN_STICKY_KEY}" | tr -cs 'A-Za-z0-9._-' '_')"
+          lock_path="${LOCAL_CACHE_ROOT}/.locks/elan__${sanitized_key}.lock"
+          mkdir -p "$(dirname "${lock_path}")"
+          exec {lock_fd}>"${lock_path}"
+          if ! flock -x -w 600 "${lock_fd}"; then
+            echo "::error::Timed out waiting for shared elan lock ${lock_path}"
+            exit 1
+          fi
+        fi
+
         if [ -x "$HOME/.elan/bin/elan" ]; then
+          [ -n "${lock_fd}" ] && exec {lock_fd}>&-
           exit 0
         fi
         case "$(uname -s)-$(uname -m)" in
@@ -141,6 +158,10 @@ runs:
             && tar -xzf "${tmpdir}/${elan_archive}" -C "${tmpdir}" \
             && "${tmpdir}/elan-init" -y --default-toolchain none; then
             rm -rf "${tmpdir}"
+            # Pre-stage the repo's pinned toolchain under the exclusive lock so
+            # concurrent runners sharing ~/.elan never race toolchain unpacks.
+            "$HOME/.elan/bin/lean" --version >/dev/null
+            [ -n "${lock_fd}" ] && exec {lock_fd}>&-
             exit 0
           fi
           rm -rf "${tmpdir}"
@@ -222,24 +243,51 @@ runs:
           --path ".lake/build" \
           --fallback-key "${{ steps.persistence.outputs.build_main_fallback_sticky_key }}"
 
-    - name: Prune stale sticky Lake packages
-      if: steps.persistence.outputs.use_sticky_disks == 'true'
-      shell: bash
-      run: python3 scripts/prune_lake_cache.py --packages-only
-
-    - name: Refresh Lake dependency state on partial cache hit
-      if: steps.persistence.outputs.use_sticky_disks != 'true' && steps.cache-lake.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-        python3 scripts/prune_lake_cache.py
-
-    - name: Decide whether Lean dependency hydration is required
-      id: hydration
+    - name: Prune stale sticky Lake packages and hydrate Lean dependencies
       shell: bash
       env:
         USING_STICKY_DISKS: ${{ steps.persistence.outputs.use_sticky_disks }}
+        LOCAL_CACHE_ROOT: ${{ steps.persistence.outputs.local_cache_root }}
+        ELAN_STICKY_KEY: ${{ steps.persistence.outputs.elan_sticky_key }}
+        LAKE_PACKAGES_STICKY_KEY: ${{ steps.persistence.outputs.lake_packages_sticky_key }}
         LAKE_CACHE_HIT: ${{ steps.cache-lake.outputs.cache-hit }}
       run: |
+        set -euo pipefail
+
+        sanitize_lock_key() {
+          local sanitized hash
+          sanitized="$(printf '%s' "$1" | tr -cs 'A-Za-z0-9._-' '_')"
+          if [ "${#sanitized}" -le 200 ]; then
+            printf '%s' "${sanitized}"
+            return
+          fi
+          hash="$(printf '%s' "$1" | sha256sum | awk '{print $1}')"
+          printf '%s-%s' "${sanitized:0:160}" "${hash}"
+        }
+
+        pkg_lock_fd=""
+        if [ "${USING_STICKY_DISKS}" = "true" ]; then
+          elan_lock="${LOCAL_CACHE_ROOT}/.locks/elan__$(sanitize_lock_key "${ELAN_STICKY_KEY}").lock"
+          mkdir -p "$(dirname "${elan_lock}")"
+          exec {elan_fd}>"${elan_lock}"
+          if ! flock -x -w 600 "${elan_fd}"; then
+            echo "::error::Timed out waiting for shared elan toolchain lock ${elan_lock}"
+            exit 1
+          fi
+          lean --version >/dev/null
+          exec {elan_fd}>&-
+
+          pkg_lock="${LOCAL_CACHE_ROOT}/.locks/lake-packages__$(sanitize_lock_key "${LAKE_PACKAGES_STICKY_KEY}").lock"
+          exec {pkg_lock_fd}>"${pkg_lock}"
+          if ! flock -x -w 1800 "${pkg_lock_fd}"; then
+            echo "::error::Timed out waiting for shared Lake packages lock ${pkg_lock}"
+            exit 1
+          fi
+          python3 scripts/prune_lake_cache.py --packages-only
+        elif [ "${LAKE_CACHE_HIT}" != "true" ]; then
+          python3 scripts/prune_lake_cache.py
+        fi
+
         required=true
         if [ "${USING_STICKY_DISKS}" = "true" ]; then
           if [ -d ".lake/packages/mathlib/.lake/build" ]; then
@@ -248,50 +296,61 @@ runs:
         elif [ "${LAKE_CACHE_HIT}" = "true" ]; then
           required=false
         fi
-        echo "required=${required}" >> "$GITHUB_OUTPUT"
 
-    - name: Fetch mathlib compiled cache
-      id: fetch-mathlib-cache
-      if: steps.hydration.outputs.required == 'true'
-      shell: bash
-      run: lake exe cache get
-      continue-on-error: true
+        if [ "${required}" = "true" ]; then
+          cache_fetched=false
+          for delay in 0 5 15; do
+            if [ "${delay}" -gt 0 ]; then
+              echo "::warning::lake exe cache get failed; retrying in ${delay}s"
+              sleep "${delay}"
+            fi
+            if lake exe cache get; then
+              cache_fetched=true
+              break
+            fi
+          done
+          if [ "${cache_fetched}" != "true" ]; then
+            echo "::warning::Unable to download Lean compiled cache after retries; continuing with source builds."
+          fi
 
-    - name: Retry mathlib compiled cache fetch on transient failures
-      if: steps.hydration.outputs.required == 'true' && steps.fetch-mathlib-cache.outcome != 'success'
+          # Materialize packages strictly from the committed lake-manifest.json
+          # without `lake update` (which re-resolves upstream git refs and mutates
+          # lake-manifest.json in the checkout).
+          manifest_resolved=false
+          for delay in 0 5 15; do
+            if [ "${delay}" -gt 0 ]; then
+              echo "::warning::lake env true failed; retrying in ${delay}s"
+              sleep "${delay}"
+            fi
+            if lake env true; then
+              manifest_resolved=true
+              break
+            fi
+          done
+          if [ "${manifest_resolved}" != "true" ]; then
+            echo "::error::Unable to materialize Lake manifest dependencies after retries"
+            exit 1
+          fi
+
+          if ! git diff --exit-code -- lake-manifest.json; then
+            echo "::error::Lean dependency hydration unexpectedly modified lake-manifest.json"
+            git checkout -- lake-manifest.json
+            exit 1
+          fi
+        fi
+
+        if [ -n "${pkg_lock_fd}" ]; then
+          touch -h .lake/packages 2>/dev/null || true
+          [ -d .lake/packages ] && touch .lake/packages/. 2>/dev/null || true
+          exec {pkg_lock_fd}>&-
+        fi
+
+    - name: Setup turbo-lean CLI and host caches
       shell: bash
       run: |
-        set -u
-        for delay in 5 15; do
-          echo "::warning::lake exe cache get failed; retrying in ${delay}s"
-          sleep "${delay}"
-          if lake exe cache get; then
-            exit 0
-          fi
-        done
-        echo "::warning::Unable to download Lean compiled cache after retries; continuing with source builds."
-
-    - name: Resolve Lake dependencies
-      id: lake-resolve
-      if: steps.hydration.outputs.required == 'true'
-      shell: bash
-      run: lake update
-      continue-on-error: true
-
-    - name: Retry Lake dependency resolution on transient failures
-      if: steps.hydration.outputs.required == 'true' && steps.lake-resolve.outcome != 'success'
-      shell: bash
-      run: |
-        set -u
-        for delay in 5 15; do
-          echo "::warning::lake update failed; retrying in ${delay}s"
-          sleep "${delay}"
-          if lake update; then
-            exit 0
-          fi
-        done
-        echo "::error::Unable to update Lake dependencies after retries"
-        exit 1
+        scripts/setup_turbo_lean.sh \
+          --use-sticky-disks "${{ steps.persistence.outputs.use_sticky_disks }}" \
+          --local-cache-root "${{ steps.persistence.outputs.local_cache_root }}"
 
 outputs:
   cache-hit:

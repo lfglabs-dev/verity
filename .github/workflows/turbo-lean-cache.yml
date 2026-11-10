@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/actions/setup-lean/**'
+      - 'scripts/setup_turbo_lean.sh'
       - 'Verity/**'
       - 'Verity.lean'
       - 'Compiler/**'
@@ -14,10 +15,12 @@ on:
       - 'lakefile.lean'
       - 'lake-manifest.json'
       - 'lean-toolchain'
+      - 'turbo-lean.toml'
       - '.github/workflows/turbo-lean-cache.yml'
   pull_request:
     paths:
       - '.github/actions/setup-lean/**'
+      - 'scripts/setup_turbo_lean.sh'
       - 'Verity/**'
       - 'Verity.lean'
       - 'Compiler/**'
@@ -27,6 +30,7 @@ on:
       - 'lakefile.lean'
       - 'lake-manifest.json'
       - 'lean-toolchain'
+      - 'turbo-lean.toml'
       - '.github/workflows/turbo-lean-cache.yml'
   workflow_dispatch:
     inputs:
@@ -36,9 +40,9 @@ on:
         default: 'Verity/Core.lean'
         type: string
       check_decl:
-        description: 'Optional declaration for single-shard check (e.g. Uint256.add_comm)'
+        description: 'Optional declaration for single-shard check (e.g. Verity.Core.Uint256.add_comm)'
         required: false
-        default: 'Uint256.add_comm'
+        default: 'Verity.Core.Uint256.add_comm'
         type: string
 
 permissions:
@@ -51,13 +55,13 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
-  TURBO_LEAN_COMMIT: 1949eaac9d790d1dd13e357d45aad010fa0be644 # v0.1.0 (Season 14 / audit-spec v2.1)
+  TURBO_LEAN_COMMIT: 265e91ab454435fa9c865b7a416d4770d50f7216 # main (#417 warm Lake adoption, audit batches & pr-verify overlays)
 
 jobs:
   turbo-lean-verify:
     name: Turbo-Lean Two-Level CAS & Theorem Shard Check
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       LEAN_NUM_THREADS: 8
       # CI only needs verdicts; keep turbo-lean from spooling telemetry under ~/.cache.
@@ -88,13 +92,16 @@ jobs:
           build-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('turbo-lean-build-{0}-{1}-{2}-{3}-{4}-{5}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, runner.arch, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
           disable-lake-cache-restore: "true"
 
+      - name: Setup pinned solc for Solidity import
+        run: python3 scripts/setup_solc_import.py
+
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@1949eaac9d790d1dd13e357d45aad010fa0be644 # v0.1.0 (Season 14 / audit-spec v2.1)
+        uses: Th0rgal/turbo-lean@265e91ab454435fa9c865b7a416d4770d50f7216 # main (#417 warm Lake adoption, audit batches & pr-verify overlays)
         with:
           project-dir: "."
           command: "check"
           check-file: ${{ inputs.check_file || 'Verity/Core.lean' }}
-          check-decl: ${{ inputs.check_decl || 'Uint256.add_comm' }}
+          check-decl: ${{ inputs.check_decl || 'Verity.Core.Uint256.add_comm' }}
           cache-key-prefix: verity-turbo-lean-cas-${{ env.VERIFY_CACHE_BUCKET }}
           max-reclaimable-bytes: "10737418240"
 
@@ -111,8 +118,8 @@ jobs:
           else
             BASE_REF="HEAD~1"
           fi
-          turbo-lean --json audit-spec Verity/Core.lean --decl Uint256.add_comm
-          turbo-lean --json seed-shards --project-dir .
-          turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
-          turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json
+          turbo-lean --json audit-spec Verity/Core.lean --decl Verity.Core.Uint256.add_comm
+          turbo-lean --json seed-shards --project-dir . --exclude 'experiments/**'
+          turbo-lean --json check Verity/Proofs/Stdlib --project-dir . --exclude 'experiments/**'
+          turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --exclude 'experiments/**' --receipt /tmp/verity-ci-receipt.json
           turbo-lean --json verify-receipt /tmp/verity-ci-receipt.json

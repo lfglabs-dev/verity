@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
-from .mutations import snapshot
+from .mutations import release, snapshot
 
 MUTANTS = {'import-struct-tuple-order': ('Compiler/SolidityImport/Import.lean',
                                'ty := .tuple types }',
@@ -29,8 +29,8 @@ MUTANTS = {'import-struct-tuple-order': ('Compiler/SolidityImport/Import.lean',
                              '(.letVar mem.headBinding (.literal offset))',
                              '(.letVar mem.headBinding (.literal (offset+32)))'),
  'import-struct-memory-offset': ('Compiler/SolidityImport/Import.lean',
-                                 '(.literal (offset + 32*j))',
-                                 '(.literal (offset + 32*(j+1)))'),
+                                 '              let rawWord := Expr.calldataload (.literal (offset + 32*j))',
+                                 '              let rawWord := Expr.calldataload (.literal (offset + 32*(j+1)))'),
  'denote-struct-member-offset': ('Verity/Core/Model/DynamicAbi.lean',
                                  'let tail ← go rest (index + 1) (current + paramHeadSize elemTy)',
                                  'let tail ← go rest (index + 1) current'),
@@ -63,23 +63,26 @@ def mutation_campaign(output, selected=None):
         relative, before, after = MUTANTS[name]
         directory = output / name
         snapshot(directory)
-        code, baseline = run(directory, directory / '.lake/baseline')
-        if code or not baseline['transactions'] or baseline['divergences']:
-            raise HarnessError(f'{name}: positive control failed')
-        source = directory / relative
-        text = source.read_text()
-        if text.count(before) != 1:
-            raise HarnessError(f'{name}: nonunique mutation anchor')
-        source.write_text(text.replace(before, after))
-        command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-            timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
-        campaign = directory / '.lake/mutated'
-        code, report = run(directory, campaign)
-        if not code or not report['divergences']:
-            raise HarnessError(f'{name}: mutation survived')
-        witness = json.loads((campaign / 'witness.json').read_text())
-        if not witness['deletion_minimal'] or not witness['transactions'] or not witness['signature']:
-            raise HarnessError(f'{name}: missing reproduced minimal witness')
+        try:
+            code, baseline = run(directory, directory / '.lake/baseline')
+            if code or not baseline['transactions'] or baseline['divergences']:
+                raise HarnessError(f'{name}: positive control failed')
+            source = directory / relative
+            text = source.read_text()
+            if text.count(before) != 1:
+                raise HarnessError(f'{name}: nonunique mutation anchor')
+            source.write_text(text.replace(before, after))
+            command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
+                timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
+            campaign = directory / '.lake/mutated'
+            code, report = run(directory, campaign)
+            if not code or not report['divergences']:
+                raise HarnessError(f'{name}: mutation survived')
+            witness = json.loads((campaign / 'witness.json').read_text())
+            if not witness['deletion_minimal'] or not witness['transactions'] or not witness['signature']:
+                raise HarnessError(f'{name}: missing reproduced minimal witness')
+        finally:
+            release(directory)
         reports.append({'mutant': name, 'status': 'detected', 'detected': True,
             'baselinePassed': True, 'witness': witness, 'campaign': str(campaign)})
         write_json(output / 'mutation-results.json', reports)

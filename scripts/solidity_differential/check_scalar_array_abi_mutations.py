@@ -5,9 +5,9 @@ from pathlib import Path
 import subprocess
 import sys
 from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
-from .mutations import snapshot
+from .mutations import release, snapshot
 
-MUTANTS = {'import-scalar-array-source-stride': ('Compiler/SolidityImport/AbiLowering.lean', 'let value := Expr.calldataload (.add data (.mul (.localVar index) (.literal 32)))', 'let value := Expr.calldataload (.add data (.mul (.add (.localVar index) (.literal 1)) (.literal 32)))'), 'import-scalar-array-memory-stride': ('Compiler/SolidityImport/AbiLowering.lean', '(.mul (.localVar index) (.literal 32))) value])]', '(.mul (.localVar index) (.literal 64))) value])]'), 'import-scalar-array-validation': ('Compiler/SolidityImport/AbiLowering.lean', 'let checks := if bound = 2^256 then [] else [guard (.lt value (.literal bound))]\n  [.mstore', 'let checks := if bound = 2^256 then [] else [guard (.literal 1)]\n  [.mstore'), 'import-scalar-array-length': ('Compiler/SolidityImport/AbiLowering.lean', '[.mstore arrayPointer length,\n   .mstore', '[.mstore arrayPointer (.literal 0),\n   .mstore')}
+MUTANTS = {'import-scalar-array-source-stride': ('Compiler/SolidityImport/AbiLowering.lean', 'let value := Expr.calldataload (.add data (.mul (.localVar index) (.literal 32)))', 'let value := Expr.calldataload (.add data (.mul (.add (.localVar index) (.literal 1)) (.literal 32)))'), 'import-scalar-array-memory-stride': ('Compiler/SolidityImport/AbiLowering.lean', '(.mul (.localVar index) (.literal 32))) value])]', '(.mul (.localVar index) (.literal 64))) value])]'), 'import-scalar-array-validation': ('Compiler/SolidityImport/AbiLowering.lean', '  let checks :=\n    if rightPadMask != 0 then\n      [guard (.eq (.bitAnd value (.literal rightPadMask)) (.literal 0))]\n    else if bound = 2^256 then []\n    else [guard (.lt value (.literal bound))]\n  [.mstore', '  let checks :=\n    if rightPadMask != 0 then\n      [guard (.eq (.bitAnd value (.literal rightPadMask)) (.literal 0))]\n    else if bound = 2^256 then []\n    else [guard (.literal 1)]\n  [.mstore'), 'import-scalar-array-length': ('Compiler/SolidityImport/AbiLowering.lean', '[.mstore arrayPointer length,\n   .mstore', '[.mstore arrayPointer (.literal 0),\n   .mstore')}
 
 MUTANTS.update({
     'import-abi-array-length-calldata': ('Compiler/SolidityImport/Import.lean',
@@ -39,23 +39,26 @@ def mutation_campaign(output, selected=None):
         relative, before, after = MUTANTS[name]
         directory = output / name
         snapshot(directory)
-        code, baseline = run(directory, directory / '.lake/baseline')
-        if code or not baseline['transactions'] or baseline['divergences']:
-            raise HarnessError(f'{name}: positive control failed')
-        source = directory / relative
-        text = source.read_text()
-        if text.count(before) != 1:
-            raise HarnessError(f'{name}: nonunique mutation anchor')
-        source.write_text(text.replace(before, after))
-        command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-            timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
-        campaign = directory / '.lake/mutated'
-        code, report = run(directory, campaign)
-        if not code or not report['divergences']:
-            raise HarnessError(f'{name}: mutation survived')
-        witness = json.loads((campaign / 'witness.json').read_text())
-        if not witness['deletion_minimal'] or not witness['transactions'] or not witness['signature']:
-            raise HarnessError(f'{name}: missing reproduced minimal witness')
+        try:
+            code, baseline = run(directory, directory / '.lake/baseline')
+            if code or not baseline['transactions'] or baseline['divergences']:
+                raise HarnessError(f'{name}: positive control failed')
+            source = directory / relative
+            text = source.read_text()
+            if text.count(before) != 1:
+                raise HarnessError(f'{name}: nonunique mutation anchor')
+            source.write_text(text.replace(before, after))
+            command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
+                timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
+            campaign = directory / '.lake/mutated'
+            code, report = run(directory, campaign)
+            if not code or not report['divergences']:
+                raise HarnessError(f'{name}: mutation survived')
+            witness = json.loads((campaign / 'witness.json').read_text())
+            if not witness['deletion_minimal'] or not witness['transactions'] or not witness['signature']:
+                raise HarnessError(f'{name}: missing reproduced minimal witness')
+        finally:
+            release(directory)
         reports.append({'mutant': name, 'status': 'detected', 'detected': True,
             'baselinePassed': True, 'witness': witness, 'campaign': str(campaign)})
         write_json(output / 'mutation-results.json', reports)
