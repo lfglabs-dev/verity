@@ -77,6 +77,18 @@ def sha256Hex (bytes : ByteArray) : String :=
   (Sha256Engine.sha256 bytes).data.foldl (init := "") fun acc byte =>
     acc.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))
 
+/-- Marker type of `Env.helperResult` while a named `bytes memory` helper
+result is bound; no Solidity scalar type has this spelling. -/
+def namedBytesResultMarker : String := "bytes memory#named"
+
+/-- Marker type of `Env.helperResult` while a helper returning a memory struct
+with `bytes` members is inlined; the binding holds the struct pointer. -/
+def bytesStructResultMarker : String := "struct memory#bytes"
+
+/-- Whether `helperResult` binds a memory pointer rather than a scalar word. -/
+def isPointerResultMarker (ty : String) : Bool :=
+  ty == namedBytesResultMarker || ty == bytesStructResultMarker
+
 structure Env where
   sourceNames : List String
   nodeFile : RBMap Nat String compare
@@ -122,6 +134,13 @@ structure Env where
   bodyAssigned : List Nat := []
   helperResult : Option (String × String) := none
   helperReturnId : Option Nat := none
+  /-- Size binding of a named `bytes memory` helper result. It is consulted
+      only while `helperResult` carries the `bytes memory` marker type, whose
+      binding is the buffer's data pointer. -/
+  helperBytesSize : String := ""
+  /-- Struct id of a memory-struct helper result with `bytes` members, consulted
+      only while `helperResult` carries `bytesStructResultMarker`. -/
+  helperStructSid : Nat := 0
   multiHelperResults : Option (Array (String × String × Bool)) := none
   flatStructHelperResult : Option (Nat × String × Array (String × String × String) × Bool) := none
   helperPost : Array Stmt := #[]

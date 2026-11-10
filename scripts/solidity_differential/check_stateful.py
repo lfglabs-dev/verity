@@ -158,6 +158,33 @@ def _encode_verify_envelope_call(
     )
 
 
+def _bytes_words(payload):
+    """ABI tail of one `bytes` value: its length and zero-padded words."""
+    padded = payload + bytes(-len(payload) % 32)
+    return [len(payload)] + [int.from_bytes(padded[i:i + 32], 'big') for i in range(0, len(padded), 32)]
+
+
+_BYTE_PAYLOADS = {n: bytes(range(1, 1 + n)) for n in (0, 1, 3, 4, 5, 31, 32, 33, 40, 70)}
+
+
+def _byte_buffer_calls():
+    """Named `bytes memory` returns, calldata slices as helper arguments and
+    bytes-member structs: empty, short and word-boundary payloads, and slice
+    bounds on both sides of `start <= end <= length`."""
+    calls = []
+    for payload in _BYTE_PAYLOADS.values():
+        calls.append(('namedReturnCopy(bytes)', [32] + _bytes_words(payload)))
+        calls.append(('bytesStructDigest(bytes)', [32] + _bytes_words(payload)))
+    for mode, size in ((0, 5), (1, 0), (1, 5), (2, 4), (3, 33), (255, 70), (256, 1), (257, 32)):
+        calls.append(('namedReturnEarly(bytes,uint256)', [64, mode] + _bytes_words(_BYTE_PAYLOADS[size])))
+    for size, start, end in ((0, 0, 0), (5, 0, 5), (5, 1, 3), (5, 3, 3), (5, 4, 3), (5, 0, 6),
+                             (5, 6, 6), (40, 7, 39), (70, 0, 70), (33, 32, 33), (32, 31, 32),
+                             (5, (1 << 256) - 1, 0), (5, 0, (1 << 256) - 1)):
+        calls.append(('sliceArgumentDigest(bytes,uint256,uint256)',
+                      [96, start, end] + _bytes_words(_BYTE_PAYLOADS[size])))
+    return calls
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
@@ -328,6 +355,10 @@ def main():
         'checkCallPermission(address,address,bytes)',
         'configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)',
         'parseHexByte(bytes1,bytes)',
+        'namedReturnCopy(bytes)',
+        'namedReturnEarly(bytes,uint256)',
+        'sliceArgumentDigest(bytes,uint256,uint256)',
+        'bytesStructDigest(bytes)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -966,6 +997,10 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(access_manager_prefix[:remaining_budget])
+    if 'sliceArgumentDigest(bytes,uint256,uint256)' in source['methodIdentifiers']:
+        byte_buffer_prefix = _byte_buffer_calls() + [('read()', [])]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(byte_buffer_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1333,6 +1368,9 @@ def main():
                 [0xdead0001, 0xbeef0001, 2, 10, 15, 1],
                 [0xdead0000, 0xbeef0000, 1, 0, 5, 2],
             ])
+        elif name in ('namedReturnCopy(bytes)', 'namedReturnEarly(bytes,uint256)',
+                      'sliceArgumentDigest(bytes,uint256,uint256)', 'bytesStructDigest(bytes)'):
+            call_args = rng.choice([c for c in _byte_buffer_calls() if c[0] == name])[1]
         elif name == 'parseHexByte(bytes1,bytes)':
             call_args = rng.choice([
                 [0x61 << 248, 64, 32, 0x66 << 248],

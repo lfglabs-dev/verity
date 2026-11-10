@@ -110,6 +110,10 @@ MUTANTS.update({
     'import-signed-modulo-value': ('Stmt.assignVar dest (.smod a.expr b.expr)', 'Stmt.assignVar dest (.mod a.expr b.expr)'),
     'import-signed-modulo-zero': ('let check := iteStmt (.eq b.expr (.literal 0)) divPanic ok', 'let check := iteStmt (.eq b.expr (.literal 1)) divPanic ok'),
     'import-signed-modulo-dispatch': ('        signedModulo left right', '        checkedModulo left right'),
+    'import-bytes-named-slice-default': ('let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 0)]', 'let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 1)]'),
+    'import-bytes-named-slice-end': ('    AbiLowering.guard (.le (.localVar endVar) baseLen),', '    AbiLowering.guard (.lt (.localVar endVar) baseLen),'),
+    'import-bytes-named-slice-start': ('    | _ => Expr.add baseOff (.localVar startVar)', '    | _ => Expr.add baseOff (.add (.localVar startVar) (.literal 1))'),
+    'import-bytes-named-slice-member-order': ('pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * mIdx))) word)', 'pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * (members.size - 1 - mIdx)))) word)'),
 })
 
 
@@ -529,6 +533,8 @@ def run(directory, output, name):
         fixture = "ModuloSequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
+    if name.startswith("import-bytes-named-slice-"):
+        fixture = "BytesNamedReturnSliceStructSequence"
     if name.startswith("import-constant-array-"):
         fixture = "ConstantArraySequence"
     if name.startswith("import-numeric-"):
@@ -608,6 +614,12 @@ def run(directory, output, name):
         tx_idx = argv.index('--transactions')
         argv[tx_idx + 1] = '48'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 15, 31, 86399, 86400, 86401, 604799, 604800, 691199])])
+    if fixture == 'BytesNamedReturnSliceStructSequence':
+        # The byte-buffer calls follow this prefix (`check_stateful`), so the
+        # budget covers every slice bound and struct payload.
+        tx_idx = argv.index('--transactions')
+        argv[tx_idx + 1] = '64'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 255, 256, 257, (1 << 256) - 1])])
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]
