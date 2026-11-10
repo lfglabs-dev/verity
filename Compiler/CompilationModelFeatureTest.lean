@@ -291,13 +291,16 @@ def hashSliceModelUsesKeccak : Bool :=
 
 example : hashSliceModelUsesKeccak = true := by native_decide
 
-def hashSliceExecutableUsesRuntimeStub : Bool :=
+/-- The executable `keccak256` hashes the memory slice: 64 bytes of untouched (zero)
+memory hash to keccak256(0^64), as on the EVM. -/
+def hashSliceExecutableHashesMemory : Bool :=
   match MacroKeccak.hashSlice 11 64 Verity.defaultState with
   | .success digest state =>
-      digest == 75 && state.sender == Verity.defaultState.sender
+      digest.val == 0xad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5 &&
+        state.sender == Verity.defaultState.sender
   | .revert _ _ => false
 
-example : hashSliceExecutableUsesRuntimeStub = true := by native_decide
+example : hashSliceExecutableHashesMemory = true := by native_decide
 
 end MacroKeccakSmoke
 
