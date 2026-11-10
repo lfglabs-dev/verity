@@ -56,10 +56,10 @@ env:
 jobs:
   turbo-lean-verify:
     name: Turbo-Lean Two-Level CAS & Theorem Shard Check
-    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
-      LEAN_NUM_THREADS: 8
+      LEAN_NUM_THREADS: 16
       # CI only needs verdicts; keep turbo-lean from spooling telemetry under ~/.cache.
       TURBO_LEAN_TELEMETRY: "off"
     steps:

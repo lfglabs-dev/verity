@@ -51,6 +51,11 @@ class ImplementationIdentity:
                           p.name.endswith(('.olean.private', '.olean.server'))))
         return sorted(files)
 
+    @staticmethod
+    def _is_binary_artifact(path):
+        return (path.suffix in ('.olean', '.ilean', '.so', '.dylib', '.a') or
+                path.name.endswith(('.olean.private', '.olean.server')))
+
     def verify(self):
         revision = command(['git', '-C', self.workspace, 'rev-parse', 'HEAD']).strip()
         if revision != self.manifest['revision']:
@@ -58,7 +63,10 @@ class ImplementationIdentity:
         try:
             current = self._inventory()
             unchanged = current == self.paths and all(
-                self._stat(p) == self.stats[str(p)] for p in current)
+                self._stat(p) == self.stats[str(p)] and
+                (self._is_binary_artifact(p) or
+                 hashlib.sha256(p.read_bytes()).hexdigest() == self.manifest['files'][str(p)])
+                for p in current)
         except OSError as exc:
             raise HarnessError('Lean implementation snapshot became unavailable') from exc
         if not unchanged:
