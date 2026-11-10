@@ -3182,6 +3182,10 @@ private partial def lowerRef (j : Json) : M Ref := do
           pure (.expr { pre := #[], expr := .selfBalance })
         else
           failAt j "external account balance reads are outside this slice"
+      else if member == "codehash" &&
+          ((← mType base) == "address" || (← mType base) == "address payable") &&
+          (field? j "referencedDeclaration").isNone then
+        pure (.expr (← lowerExtCodeHash j))
       else if member == "code" &&
           ((← mType base) == "address" || (← mType base) == "address payable" ||
            (← mType base).startsWith "contract ") then
@@ -6735,6 +6739,21 @@ private partial def lowerExtCodeSize (code : Json) : M Val := do
   let target ← atom (← lowerExpr account)
   let result ← fresh
   let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]
+  pure { pre := target.pre.push read, expr := .localVar result }
+
+/-- `<address>.codehash` of an address-typed account other than the executing
+contract, as a `bytes32` word: `EXTCODEHASH` through the closed code-hash
+transport, which Denote answers from the account world with EIP-1052 semantics
+(`DenoteExternalCode.extCodeHash`). The executing contract's own code differs
+between the source and compiled routes and is not modeled, so
+`address(this).codehash` is rejected. -/
+private partial def lowerExtCodeHash (member : Json) : M Val := do
+  let account ← mField member "expression"
+  if ← isThisAddressConv account then
+    failAt member "code hash of the executing contract is unsupported"
+  let target ← atom (← lowerExpr account)
+  let result ← fresh
+  let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeHash.module result) [target.expr]
   pure { pre := target.pre.push read, expr := .localVar result }
 
 /-- `<address>.code` of an address-typed account other than the executing
