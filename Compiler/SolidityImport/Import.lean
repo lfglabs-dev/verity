@@ -9842,12 +9842,80 @@ private partial def boundedRangePopBounds? (fn sdecl : Json) : M (Option (String
   unless ← isBoundAdvance rest.back! paramId popped idxId fromHigh do return none
   return some (if fromHigh then (other, popped) else (popped, other))
 
+/-- `while (v > X)`, `while (X < v)` or `while (v != 0)` over an unsigned writable local `v`
+whose body contains exactly one top-level `v /= k` or `v = v / k` with a literal `k ≥ 2`, no
+other write to `v`, and no `break`, `continue` or `return`. The step runs on every iteration
+whose condition holds and at least halves `v`, so after `bits` such iterations `v` is `0` and
+the condition is false for every unsigned `X`; an iteration whose condition fails changes
+nothing, so the condition stays false. `bits` guarded iterations are the source loop. `none`
+when the loop has no such step. -/
+private partial def lowerDivisionWhile? (s cond : Json) (lowerBody : Json → M (Array Stmt)) :
+    M (Option (Array Stmt)) := do
+  unless (← mKind cond) == "BinaryOperation" do return none
+  let condOp ← mStr (← mField cond "operator")
+  let condLhs ← stripParens (← mField cond "leftExpression")
+  let condRhs ← stripParens (← mField cond "rightExpression")
+  let varNode? ←
+    if condOp == ">" then pure (some condLhs)
+    else if condOp == "<" then pure (some condRhs)
+    else if condOp == "!=" && (← isZeroLiteral condRhs) then pure (some condLhs)
+    else if condOp == "!=" && (← isZeroLiteral condLhs) then pure (some condRhs)
+    else pure none
+  let some varNode := varNode? | return none
+  unless (← mKind varNode) == "Identifier" do return none
+  let varRef ← refInt varNode
+  unless varRef ≥ 0 do return none
+  let varId := varRef.toNat
+  unless ((← get).writableLocals.find? varId).isSome do return none
+  let varTy ← mType varNode
+  let some bits := bitsOf varTy | return none
+  unless varTy.startsWith "uint" && bits > 0 && bits ≤ 256 do return none
+  let body ← mField s "body"
+  let bodyStmts ← unwrapLoopBodyStmts body
+  let isStep (st : Json) : M Bool := do
+    unless (← mKind st) == "ExpressionStatement" do return false
+    let e ← mField st "expression"
+    unless (← mKind e) == "Assignment" do return false
+    unless ← isIdentId (← mField e "leftHandSide") varId do return false
+    let op ← mStr (← mField e "operator")
+    let rhs ← mField e "rightHandSide"
+    if op == "/=" then return ← isDivisorConstGe2 rhs
+    unless op == "=" do return false
+    let r ← stripUintCast rhs bits
+    unless (← mKind r) == "BinaryOperation" && optStr r "operator" == some "/" do return false
+    return (← isIdentId (← mField r "leftExpression") varId) &&
+      (← isDivisorConstGe2 (← mField r "rightExpression"))
+  let steps ← bodyStmts.filterM isStep
+  unless steps.size == 1 do return none
+  if ← listContainsReturn bodyStmts then
+    failAt s "return inside a while loop is unsupported"
+  for st in bodyStmts do
+    if ← stmtContainsBreakOrContinue st then
+      failAt st "break or continue inside a dividing while loop is unsupported"
+    if !(← isStep st) && (bodyAssignedIds st).contains varId then
+      failAt st "a dividing while loop variable may only be updated by its division step"
+  let condVal ← lowerExpr cond
+  unless condVal.pre.isEmpty do
+    failAt cond "while loop condition must be a pure scalar comparison"
+  let loopVar ← fresh
+  let saved ← get
+  let bodyOut ← lowerBody body
+  let loopWrites := bodyAssignedIds body
+  modify fun e =>
+    { e with values := saved.values, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+  return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
+
 /-- Exact bounded while-loop lowering for:
     1. unsigned bit-clearing (`msb` + `clearBit` or `v &= v - 1`) and positive constant right-shift (`v >>= k`)
     2. binary-search `while (low < high)` / `while (high > low)` / `while (low != high)` (with `low == 0` at entry)
        loops where `mid = average(low, high)` and one branch sets `high = mid` while the other sets `low = mid + 1`
     3. `while (true)` do-while style loops (`Strings.toString`) where the penult statement divides an unsigned local `v`
-       by a constant `d ≥ 2` (or right-shifts by `k ≥ 1`) and the final statement is `if (v == 0) break;`. -/
+       by a constant `d ≥ 2` (or right-shifts by `k ≥ 1`) and the final statement is `if (v == 0) break;`
+    4. `while (v > X)` / `while (X < v)` / `while (v != 0)` loops that divide `v` by a constant
+       `d ≥ 2` once per iteration (`lowerDivisionWhile?`). -/
 private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
   let cond ← mField s "condition"
   if (← mKind cond) == "Literal" && optStr cond "kind" == some "bool" && optStr cond "value" == some "true" then
@@ -9968,6 +10036,8 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
     ]
   unless (← mKind cond) == "BinaryOperation" do
     failAt cond "a while loop condition must compare a loop variable against zero"
+  if let some stmts ← lowerDivisionWhile? s cond lowerBody then
+    return stmts
   let condOp ← mStr (← mField cond "operator")
   let condLhs ← stripParens (← mField cond "leftExpression")
   let condRhs ← stripParens (← mField cond "rightExpression")

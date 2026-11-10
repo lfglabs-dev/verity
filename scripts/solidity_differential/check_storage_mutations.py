@@ -86,6 +86,15 @@ MUTANTS.update({
     'import-namespaced-inner-mapping-member': (
         'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
         'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1)),')})
+# A `while` loop whose only progress divides its unsigned local by a constant >= 2 runs as
+# `bits` guarded iterations.
+MUTANTS.update({
+    'import-dividing-while-bound': (
+        'return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]',
+        'return some #[.forEach loopVar (.literal (bits / 4)) [.ite condVal.expr bodyOut.toList []]]'),
+    'import-dividing-while-guard': (
+        'return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]',
+        'return some #[.forEach loopVar (.literal bits) bodyOut.toList]')})
 # Named call arguments in declaration order lower as positional; any other order rejects.
 MUTANTS.update({
     'import-named-arguments-binding': (
@@ -562,6 +571,8 @@ def run(directory, output, name):
         fixture = "ImmutableAddressSequence"
     if name.startswith("import-namespaced-"):
         fixture = "NamespacedStructMembersSequence"
+    if name.startswith("import-dividing-while-"):
+        fixture = "DividingWhileSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
     if name.startswith("import-constant-array-"):
@@ -596,6 +607,12 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 7, 12, (1 << 128) - 1, 1 << 128])])
+    if fixture == 'DividingWhileSequence':
+        # Zero, short, revert-on-remainder, 73-iteration and full-width inputs.
+        argv[argv.index('--transactions') + 1] = '20'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 1000, 1001, 4095, 4096, 40950, 2 ** 24 - 1,
+                     4095 * 10 ** 73, 10 ** 76, 123456789 * 10 ** 60, (1 << 256) - 1])])
     if fixture == 'NamespacedStructMembersSequence':
         # The two-key prefix (approvals, reads, spends) needs several senders and room.
         argv[argv.index('--transactions') + 1] = '40'
