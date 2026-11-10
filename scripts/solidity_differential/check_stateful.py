@@ -171,6 +171,11 @@ def main():
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--senders', type=int, default=1, help='number of funded transaction senders (1 to 10)')
     parser.add_argument('--shrink-attempts', type=int, default=1000)
+    parser.add_argument('--immutable-sender', action='append', default=[], metavar='NAME=INDEX',
+                        help='construct both EVM routes with the funded sender INDEX as the next '
+                             'constructor argument, and give the model immutable NAME that value; '
+                             'list them in constructor-argument order, which must also be the '
+                             "model's immutable declaration order")
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
@@ -328,6 +333,9 @@ def main():
         'checkCallPermission(address,address,bytes)',
         'configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)',
         'parseHexByte(bytes1,bytes)',
+        'isGuard()',
+        'payeeCredit()',
+        'notDelegated()',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -355,6 +363,17 @@ def main():
         if len(senders) != args.senders:
             raise HarnessError('Anvil did not provide the requested funded senders')
         sender = senders[0]
+        # Immutables become constructor arguments of the source contract and of the model's
+        # synthesized constructor, in the same order; the model receives them by name.
+        immutables = []
+        for spec in args.immutable_sender:
+            name, _, index = spec.partition('=')
+            if not name or not index.isdigit() or int(index) >= len(senders):
+                raise HarnessError(f'invalid --immutable-sender {spec!r}')
+            immutables.append((name, int(senders[int(index)], 16)))
+        constructor_words = ''.join(format(value, '064x') for _, value in immutables)
+        source_code += constructor_words
+        compiled_code += constructor_words
         deployed = node.transact({'from': sender, 'data': source_code, 'gas': hex(10000000)})
         if deployed['receipt']['status'] != '0x1':
             raise HarnessError('source fixture deployment failed')
@@ -1356,7 +1375,8 @@ def main():
         'data': '0x' + source['methodIdentifiers'][name] + ''.join(format(arg, '064x') for arg in args)}
         for index, (name, args) in enumerate(calls)]
     adapters = {'source': EVMAdapter(output / 'A', [source_code], initial_storage=initial_storage),
-        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity),
+        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity,
+                               immutables=immutables),
         'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage)}
     write_json(output / 'provenance.json', {
         'solcSha256': hashlib.sha256(solc_bin.read_bytes()).hexdigest(),

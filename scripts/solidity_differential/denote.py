@@ -34,7 +34,7 @@ def _calldata(tx):
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
                  lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=600,
-                 account_code=()):
+                 account_code=(), immutables=()):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         if not isinstance(lean_command, (list, tuple)) or not lean_command or any(
@@ -69,6 +69,14 @@ class SequenceAdapter:
                 self.external_storage.append([str(int(owner, 16)), *row])
             else:
                 self.initial_storage.append(row)
+        # The deployment's immutable values, by model name, as the EVM routes were constructed.
+        self.immutables = []
+        for name, value in immutables:
+            if not isinstance(name, str) or not name or type(value) is not int or not 0 <= value < 1 << 256:
+                raise HarnessError('immutables must be named 256-bit words')
+            self.immutables.append([name, str(value)])
+        if len({name for name, _ in self.immutables}) != len(self.immutables):
+            raise HarnessError('duplicate immutable value')
         self.digest = hashlib.sha256(self.driver.read_bytes()).hexdigest()
         self.identity = identity or ImplementationIdentity(self.driver)
         self.runs = 0
@@ -113,6 +121,8 @@ class SequenceAdapter:
             payload['byteCallEnvironment'] = self.byte_call_environment
         if self.account_code:
             payload['accountCode'] = self.account_code
+        if self.immutables:
+            payload['immutables'] = self.immutables
         write_json(directory / 'input.json', payload)
         argv = [*self.lean_command, self.driver, directory / 'input.json', directory / 'output.json']
         command(argv, log=directory / 'lean.log', timeout=self.timeout)

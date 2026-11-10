@@ -67,6 +67,11 @@ MUTANTS.update({
                                     '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
 })
 
+# An address immutable assigned from a constructor argument read as the contract's own
+# address: the rule this slice replaces.
+MUTANTS.update({'import-immutable-self-address': (
+    'let value := if selfAddress then Expr.contractAddress else Expr.immutable name',
+    'let value := Expr.contractAddress')})
 # Named call arguments in declaration order lower as positional; any other order rejects.
 MUTANTS.update({
     'import-named-arguments-binding': (
@@ -539,6 +544,8 @@ def run(directory, output, name):
         fixture = "ModuloSequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
+    if name.startswith("import-immutable-"):
+        fixture = "ImmutableAddressSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
     if name.startswith("import-constant-array-"):
@@ -562,6 +569,13 @@ def run(directory, output, name):
             '--output', str(output)]
     if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence', 'DynamicBytesAndStringReturnSequence', 'BytesAndStringStorageSequence', 'YulBlockMulmodTstoreSequence', 'MerkleAndNoncesSequence', 'MultiProofMappingKeysVerifiersSequence', 'UdvtParamAssignStructHashSequence', 'StructMappingAndBytes4InterfaceSequence', 'ERC2981HoldersArraysMsgHashSequence', 'StorageStructParamsDequeShortStringsSequence', 'StorageSlotShortStringsTimeSequence', 'EnumerableSetMapSequence', 'CheckpointsAndStructArraysSequence', 'WadExpAndThreeKeyMappingSequence', 'StructHashAndDomainSeparatorSequence', 'AbiDecodeAndVerifierSequence', 'VotesCheckpointsArraysBitMapsSequence', 'PublicGettersAndBuiltinsSequence', 'EcrecoverAuthorizerArraysMapSequence', 'StructParamsAndBalancesSequence', 'PackedStructMappingAndTernaryTupleSequence', 'TimelockAndBytes4CastSequence', 'StringBytesMappingsUriStorageStringsSequence', 'StringsHexArraysBitmapsSequence', 'EcdsaMerkleCheckpointsStorageSlotSequence', 'Create2ClonesMsgDataDequeSequence', 'GovernorSliceProposerDelaySequence', 'AccessManagerTargetRoleSequence'}:
         argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence', 'DynamicBytesAndStringReturnSequence', 'BytesAndStringStorageSequence', 'YulBlockMulmodTstoreSequence', 'MerkleAndNoncesSequence', 'MultiProofMappingKeysVerifiersSequence', 'UdvtParamAssignStructHashSequence', 'StructMappingAndBytes4InterfaceSequence', 'ERC2981HoldersArraysMsgHashSequence', 'StorageStructParamsDequeShortStringsSequence', 'StorageSlotShortStringsTimeSequence', 'EnumerableSetMapSequence', 'CheckpointsAndStructArraysSequence', 'WadExpAndThreeKeyMappingSequence', 'StructHashAndDomainSeparatorSequence', 'AbiDecodeAndVerifierSequence', 'VotesCheckpointsArraysBitMapsSequence', 'PublicGettersAndBuiltinsSequence', 'EcrecoverAuthorizerArraysMapSequence', 'StructParamsAndBalancesSequence', 'PackedStructMappingAndTernaryTupleSequence', 'TimelockAndBytes4CastSequence', 'StringBytesMappingsUriStorageStringsSequence', 'StringsHexArraysBitmapsSequence', 'EcdsaMerkleCheckpointsStorageSlotSequence', 'Create2ClonesMsgDataDequeSequence', 'GovernorSliceProposerDelaySequence', 'AccessManagerTargetRoleSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture == 'ImmutableAddressSequence':
+        # Long enough to reach calls from the guard and the payee, which tell the
+        # constructor-argument immutables apart from the contract's own address.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--senders', '3', '--immutable-sender', 'GUARD=1', '--immutable-sender', 'PAYEE=2',
+                     '--change-prefix', '0', '1', '2', '15', '16'])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'

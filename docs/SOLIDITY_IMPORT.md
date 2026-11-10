@@ -97,6 +97,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Multiple selected entry points | One model with independently resolved root closures |
 | Named call arguments in declaration order (development; full release gates pending) | Before indexing, a call `f({a: x, b: y})` to a function, event, error or struct constructor whose names are the referenced declaration's parameters (or members) in declared order becomes the positional call `f(x, y)`; an attached (`using for`) call names every parameter but the receiver. Solidity evaluates the arguments in source order and binds them by name, and both orders coincide here. Names in any other order keep their located rejection, because the legacy and via-IR code generators evaluate such arguments in different orders. Node ids and source ranges are kept. `NamedArgumentsSequence` runs A/B/C. |
 | `msg.sender`, `address(this)` | Dedicated caller and current-contract expressions, resolved by solc builtin declaration ids |
+| Address immutables without an inline initializer (development; full release gates pending) | An immutable that the chain's constructors assign exactly once, as a top-level statement, to `address(this)` reads as `Expr.contractAddress`. Every other one reads as `Expr.immutable NAME`: `model.immutables` declares it in declaration order, and a synthesized constructor installs it from its argument (`Expr.constructorArg i`), so deployments and proofs supply its value. Denote reads it from `DenoteState.immutable`; `executeBody`, `AllEntryPointsPreserve` and `AdversarialEntryPointSequence` take the deployment's `immutables`, fixed for a whole sequence. Conditional, repeated or indirect `address(this)` assignments are unknown immutables. Inline initializers (`= address(this)`) keep their located rejection. `ImmutableAddressSequence` runs A/B/C with constructor arguments taken from distinct funded senders. `Expr.immutable` is an atom (`isAtom`, `isOrderIndependentSibling`), like `Expr.param`: it is total, effect-free and fixed for the deployment, so it can be a custom-error argument or a call operand without a binding. |
 | `block.timestamp`, `block.number`, `block.chainid`, `block.basefee`, `tx.origin`, `tx.gasprice`, `address(this).balance` | Dedicated transaction- and account-context expressions (`Expr.blockTimestamp`, `Expr.blockNumber`, `Expr.chainid`, `Expr.baseFee`, `Expr.txOrigin`, `Expr.gasPrice`, `Expr.selfBalance`), including `payable(address(this)).balance` and Yul `selfbalance()` / `origin()` / `basefee()` / `gasprice()` |
 | Ordinary nested root blocks | Ordered recursive lowering with unique local bindings, lexical lookup restoration, and propagated unconditional returns; unsupported nested control flow and statements after return reject with source locations |
 | Explicit scalar/tuple return | `returnValues`, preserving order |
@@ -200,6 +201,11 @@ signatures, the solc release, and the sources of `Import.lean`,
 denotation retains exact panic bytes; legacy scalar accessors erase failure
 bytes. Gas, public ABI decoding and bytecode equivalence remain outside the
 import certificate.
+
+An address immutable that a constructor assigns `address(this)` is modeled as
+the executing contract's address. That holds for code running at its own
+address and not behind a `DELEGATECALL` (a proxy), where `address(this)` is the
+caller of the delegate call; other immutables are explicit parameters.
 
 Consumers should re-elaborate in CI, check the fresh model is `rfl`-equal to
 the compiled import, and keep a reviewed inventory (`report.toText`) and a
@@ -932,6 +938,19 @@ Validation: `check_create2_struct_emit.py` replays the fixture and its `renamed`
 | `(bool success, bytes memory returndata) = token.call(abi.encodeCall(IERC20.transfer, (to, amount)));` followed by the returndata-forwarding `if` and the optional-bool `require` (`lowerLowLevelCallSequence?`, hooked into `lowerRootStatements` and `lowerVoidHelperFrom`) | The three statements are matched structurally (`lowLevelCallMember?`, `isReturndataForwarding`, `isOptionalBoolValidation`, `lowLevelEncodeCallParts`); `success` and `returndata` may not be referenced elsewhere (`jsonMentionsDecl`). The receiver and encoded arguments are lowered in source order (stateful operands reject), converted to the function's parameter types, and emitted as `Stmt.ecm (SolidityLowLevelCall.optionalBoolModule r selector n) (target :: words)` followed by the `require`'s own `reason` on `r` (`lowerRequireWith`). `Denote.executeByteOptionalBoolCall` prepares the calldata with `prepareByteWordCall .call` (free pointer advanced after the call), runs `ByteExternalCall.executeChecked`, and dispatches on `classifyOptionalBoolCall`: forward the child's bytes, revert empty on malformed returndata, or bind the decoded word. `DenoteLowLevelCall` proves the request is `callBytesRequest` and that the result is `1` exactly when `decodeOptionalBoolCall` accepts. Functions whose reentrancy windows are only these calls, after which no storage is read or written and nothing is logged, carry `reentrancyTrusted` with the unchecked obligation `solidity_trailing_low_level_call_reentrancy`. |
 
 Validation: `check_external_code_and_low_level_call.py` replays the fixture and its `renamed` and `expanded` variants on source EVM, Denote and the compiled model against eleven `RecordingCallResponder` configurations (true, false, empty, invalid and short words, extra bytes, short/empty/long revert payloads), an account without code and the sender EOA; responders record the call count, calldata size and first four calldata words, so selector, argument encoding and committed callee writes are compared in storage. Denote receives the responders' deployed runtime code for code-length reads. `check_external_code_and_low_level_call_rejections.py` pins 19 located near-miss rejections and 7 positive controls, and `check_external_code_and_low_level_call_mutations.py` holds ten runtime importer/Denote/ECM mutants and five admission-guard mutants.
+
+### Development slice: address immutables without an inline initializer
+
+Before this slice, every address immutable without an inline initializer read
+as `address(this)` once a contract had more than one state variable, so an
+immutable assigned from a constructor argument silently became the contract's
+own address. Such an immutable is now `Expr.immutable NAME`, declared in
+`model.immutables` and installed by a synthesized constructor from its
+argument; only an exactly-once, top-level `x = address(this)` keeps the
+`address(this)` binding (Uniswap v4's `NoDelegateCall.original`, whose
+PoolManager coverage stays 38/38). `check_immutable_lowering.py` pins the
+lowering of eight cases, including conditional, repeated, indirect and
+inherited assignments and the inline-initializer rejection.
 
 ### Development slice: `<address>.code` and dynamic-struct `abi.decode` returns
 

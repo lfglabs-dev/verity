@@ -8563,6 +8563,7 @@ Compiler.CompilationModel.SolidityImport.evalExpr_blockNumber_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_chainid_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_caller_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_contractAddress_arm
+Compiler.CompilationModel.SolidityImport.evalExpr_immutable_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_selfBalance_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_txOrigin_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_baseFee_arm
@@ -12071,4 +12072,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11238 theorems/lemmas (8739 public, 2499 private, 0 sorry'd)
+-- Total: 11239 theorems/lemmas (8740 public, 2499 private, 0 sorry'd)

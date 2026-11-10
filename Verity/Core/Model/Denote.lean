@@ -2341,7 +2341,8 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
     (externalCallSucceeded : Nat → Bool := fun _ => false)
     (externalCallReturnValues : Nat → List Nat := fun _ => [])
     (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none)
-    (byteCalls : ByteCallEnvironment := {}) : DenoteResult :=
+    (byteCalls : ByteCallEnvironment := {})
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
@@ -2349,7 +2350,7 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
   | some bindings =>
       match execStmtList oracle fields
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
-            errors := spec.errors,
+            errors := spec.errors, immutable := immutables,
             externalCallSucceeded := externalCallSucceeded,
             externalCallReturnValues := externalCallReturnValues,
             externalCallPostWorld := externalCallPostWorld,

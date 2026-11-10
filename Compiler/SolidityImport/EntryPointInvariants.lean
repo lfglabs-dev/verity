@@ -34,7 +34,9 @@ preservation is an explicit obligation rather than an implicit assumption. -/
 theorem executeBody_failed_world (oracle : DenoteOracle) (fields : List Field)
     (before : Verity.ContractState) (bindings : Env) (body : List Stmt)
     (errors : List ErrorDef) (result : FrameResult)
-    (executed : executeBody oracle fields before bindings body errors = .ok result)
+    {immutables : String → Verity.Core.Uint256}
+    (executed : executeBody oracle fields before bindings body errors
+      (immutables := immutables) = .ok result)
     (failed : result.success = false) : result.world = beginTransaction before := by
   exact finishFrame_failed_world (beginTransaction before) _ result executed failed
 
@@ -43,23 +45,27 @@ rich-reverting frames and the transaction-local reset performed by executeBody.
 ABI decoding, dispatch, value transfer, and environment installation are not
 claimed here: arguments and the initial world are explicit. -/
 def AllEntryPointsPreserve (oracle : DenoteOracle) (model : CompilationModel)
-    (invariant : Verity.ContractState → Prop) : Prop :=
+    (invariant : Verity.ContractState → Prop)
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) : Prop :=
   ∀ fn ∈ model.functions, fn.isInternal = false →
     ∀ before bindings result,
       invariant before →
-      executeBody oracle (effectiveFields model) before bindings fn.body model.errors = .ok result →
+      executeBody oracle (effectiveFields model) before bindings fn.body model.errors
+        (immutables := immutables) = .ok result →
       invariant result.world
 
 /-- It is enough to prove successful calls preserve the invariant, provided
 frame initialization preserves it too. Reverting calls follow by actual rollback. -/
 theorem all_entry_points_preserve_of_success (oracle : DenoteOracle)
     (model : CompilationModel) (invariant : Verity.ContractState → Prop)
+    {immutables : String → Verity.Core.Uint256}
     (resetPreserves : ∀ world, invariant world → invariant (beginTransaction world))
     (successPreserves : ∀ fn ∈ model.functions, fn.isInternal = false →
       ∀ before bindings result, invariant before →
-        executeBody oracle (effectiveFields model) before bindings fn.body model.errors = .ok result →
+        executeBody oracle (effectiveFields model) before bindings fn.body model.errors
+          (immutables := immutables) = .ok result →
         result.success = true → invariant result.world) :
-    AllEntryPointsPreserve oracle model invariant := by
+    AllEntryPointsPreserve oracle model invariant immutables := by
   intro fn member isPublic before bindings result initial executed
   cases success : result.success with
   | false =>

@@ -13687,16 +13687,85 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
       return false
   | _ => return false
 
+/-! ### Immutables without an inline initializer
+
+Such an immutable is fixed when the contract is deployed. If the chain's constructors assign
+it exactly once, as a top-level statement, to `address(this)`, it is the executing contract's
+address for code that runs at its own address, and reads lower to `Expr.contractAddress`. Any
+other such immutable is a fixed value the source does not determine: reads lower to
+`Expr.immutable name`, and the model declares it with a synthesized constructor that takes it
+as an argument, so deployment and proofs supply it explicitly. -/
+
+/-- Every assignment to the state variable `svId` in `j`. -/
+private partial def stateVarAssignments (svId : Nat) : Json → Array Json
+  | j@(.obj kvs) =>
+      let here :=
+        if optStr j "nodeType" == some "Assignment" &&
+            ((field? j "leftHandSide").bind (field? · "referencedDeclaration")
+              |>.bind (·.getNat?.toOption)) == some svId then #[j] else #[]
+      kvs.foldl (fun acc _ v => acc ++ stateVarAssignments svId v) here
+  | .arr items => items.foldl (fun acc v => acc ++ stateVarAssignments svId v) #[]
+  | _ => #[]
+
+/-- `address(this)`, as solc types it. -/
+private def isAddressOfThis (j : Json) : Bool :=
+  let typeString (n : Json) := (field? n "typeDescriptions").bind (optStr · "typeString")
+  let thisArg := match field? j "arguments" with
+    | some (.arr #[arg]) =>
+        optStr arg "nodeType" == some "Identifier" && optStr arg "name" == some "this" &&
+          ((typeString arg).map (·.startsWith "contract ")).getD false
+    | _ => false
+  optStr j "nodeType" == some "FunctionCall" && optStr j "kind" == some "typeConversion" &&
+    typeString j == some "address" && thisArg
+
+/-- Whether `constructors` assign `svId` exactly once, as a top-level statement of a
+constructor body, to `address(this)`. -/
+private def assignedSelfAddressOnce (constructors : Array Json) (svId : Nat) : Bool :=
+  let all := constructors.foldl (fun acc c => acc ++ stateVarAssignments svId c) #[]
+  let topLevel := constructors.foldl (fun acc c =>
+    match (field? c "body").bind (field? · "statements") with
+    | some (.arr stmts) => acc ++ stmts.filterMap fun s =>
+        if optStr s "nodeType" == some "ExpressionStatement" then field? s "expression" else none
+    | _ => acc) #[]
+  match all with
+  | #[a] =>
+      optStr a "operator" == some "=" &&
+        topLevel.any (fun e => field? e "id" == field? a "id") &&
+        ((field? a "rightHandSide").map isAddressOfThis).getD false
+  | _ => false
+
+/-- The constructors of the target contract's C3 chain. -/
+private def chainConstructors : M (Array Json) := do
+  let env ← get
+  let mut out := #[]
+  for cid in env.linearizedBases do
+    for n in env.contractNodes.find? cid |>.getD #[] do
+      if optStr n "nodeType" == some "FunctionDefinition" && optStr n "kind" == some "constructor" then
+        out := out.push n
+  return out
+
+/-- Address immutables of the chain without an inline initializer, in declaration order,
+with whether each keeps the `address(this)` binding. -/
+private def chainAddressImmutables : M (Array (Nat × String × Bool)) := do
+  let env ← get
+  let ctors ← chainConstructors
+  let mut out := #[]
+  for (svId, svDecl) in env.stateVars.toList do
+    let scope := (field? svDecl "scope").bind (·.getNat?.toOption)
+    if optStr svDecl "mutability" == some "immutable" &&
+        ((field? svDecl "value").filter (!·.isNull)).isNone &&
+        (scope.map env.linearizedBases.contains).getD false &&
+        (← mType svDecl) == "address" then
+      out := out.push (svId, ← mStr (← mField svDecl "name"), assignedSelfAddressOnce ctors svId)
+  return out.qsort (fun a b => a.1 < b.1)
+
 private def bindRoot (fn : Json) : M (Array SrcParam) := do
   noteFn fn
-  if (← get).stateVars.size > 1 then
-    for (svId, svDecl) in (← get).stateVars.toList do
-      if optStr svDecl "mutability" == some "immutable" &&
-          ((field? svDecl "value").filter (!·.isNull)).isNone &&
-          (← mType svDecl) == "address" then
-        modify fun e =>
-          { e with values := e.values.insert svId .contractAddress,
-                   scalarTy := e.scalarTy.insert svId .address }
+  for (svId, name, selfAddress) in ← chainAddressImmutables do
+    let value := if selfAddress then Expr.contractAddress else Expr.immutable name
+    modify fun e =>
+      { e with values := e.values.insert svId value,
+               scalarTy := e.scalarTy.insert svId .address }
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   let mut out : Array SrcParam := #[]
   for p in params do
@@ -15438,8 +15507,15 @@ private def importSlice
       sortedFields.push { name := rawStorageFieldName, ty := .uint256, slot := some (maxSlot + 1000) }
     else
       sortedFields
+  -- Unknown immutables become constructor arguments of the model, in declaration order.
+  let unknownImmutables := ((← (chainAddressImmutables.run' env)).filter (!·.2.2)).map (·.2.1)
+  let immutables : List ImmutableSpec := unknownImmutables.toList.zipIdx.map fun (name, i) =>
+    { name, ty := .address, init := .constructorArg i }
+  let ctor : Option ConstructorSpec := if immutables.isEmpty then none else
+    some { params := immutables.map fun imm => { name := imm.name, ty := .address },
+           body := immutables.map fun imm => Stmt.setImmutable imm.name imm.init }
   let model : CompilationModel :=
-    { name := contract, constructor := none, fields := sortedFields.toList,
+    { name := contract, constructor := ctor, immutables, fields := sortedFields.toList,
       errors := env.usedErrors, events := env.usedEvents.map Prod.snd, functions := specs.toList }
   let mut excluded : Array FnRec := #[]
   for (id, decl) in env.funs do
