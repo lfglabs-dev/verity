@@ -1581,6 +1581,37 @@ private partial def translateDoElem
                       source := .memoryArray },
                   mutableLocals)
           | _ =>
+              let compositeHelper? ← do
+                match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
+                | some (fn, argTerms) =>
+                    let leaves := staticLeafBindings varName fn.returnTy
+                    match fn.returnTy with
+                    -- (Tuples are destructured instead: `let (a, b) ← helper …`.)
+                    | .fixedArray .. | .struct .. =>
+                        if leaves.length > 1 && some leaves.length == staticAbiWordCount? fn.returnTy then
+                          pure (some (fn, argTerms, leaves))
+                        else pure none
+                    | _ => pure none
+                | none => pure none
+              match compositeHelper? with
+              | some (fn, argTerms, leaves) =>
+                  -- A helper returning a static composite returns one Yul value per ABI
+                  -- word; bind each to a leaf, as for a composite typed-interface result.
+                  ensureCallableAsInternalHelper rhs fn
+                  let argExprs ← translateInternalHelperCallArgs
+                    fields constDecls immutableDecls params locals fn argTerms
+                    (some (translateDeclaredPureExpr
+                      fields constDecls immutableDecls externalDecls params locals))
+                  let leafTerms := leaves.toArray.map (fun (leaf, _) => strTerm leaf)
+                  let leafLocals := leaves.toArray.map (fun (leaf, leafTy) => mkTypedLocal leaf leafTy)
+                  return (#[(← `(Compiler.CompilationModel.Stmt.internalCallAssign
+                            [ $[$leafTerms],* ]
+                            $(strTerm (internalHelperSpecNameFor fn))
+                            [ $[$argExprs],* ]))],
+                      (locals ++ leafLocals).push
+                        { name := varName, ty := fn.returnTy, source := .compositeLeaves },
+                      mutableLocals)
+              | none =>
               match ← localInternalArrayReturnBind? fields constDecls immutableDecls externalDecls functions params locals rhs with
               | some (fn, argTerms, elemTy) =>
                   let argExprs ← translateInternalHelperCallArgs
