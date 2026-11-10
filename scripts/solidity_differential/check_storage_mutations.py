@@ -113,6 +113,26 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    # Copy-vs-reference: the helper parameter gets a private copy, so its
+    # writes are no longer visible to the caller.
+    'import-fixed-memory-array-reference': (
+        'pre := pre ++ effects |>.push (.letVar binding (.localVar arr.pointer))',
+        'pre := pre ++ effects ++ fixedMemAllocate binding (binding ++ "_copy_end") arr.length ++ '
+        '((List.range arr.length).map fun i => Stmt.mstore (.add (.localVar binding) (.literal (32 * i))) '
+        '(.mload (.add (.localVar arr.pointer) (.literal (32 * i))))).toArray'),
+    'import-fixed-memory-array-offset': (
+        '  | _ => .add (.localVar arr.pointer) (.mul index (.literal 32))',
+        '  | _ => .add (.localVar arr.pointer) (.mul (.add index (.literal 1)) (.literal 32))'),
+    'import-fixed-memory-array-bound': (
+        '  | _ => #[.ite (.lt index (.literal arr.length)) [] [.panicCode (.literal 0x32)]]',
+        '  | _ => #[.ite (.lt index (.literal (arr.length + 2))) [] [.panicCode (.literal 0x32)]]'),
+    'import-fixed-memory-array-return': (
+        'pure ((valPre.push (.assignVar result.pointer (.localVar value.pointer))) ++ (← get).helperPost)',
+        'pure (valPre ++ (← get).helperPost)'),
+})
+
+
 MUTANTS.update({'import-local-write-value': ('return value.pre.push (.assignVar binding value.expr)', 'return value.pre.push (.assignVar binding (.literal 0))')})
 
 MUTANTS.update({'import-default-local-zero': ('return #[.letVar binding (.literal 0)]', 'return #[.letVar binding (.literal 1)]')})
@@ -527,6 +547,8 @@ def run(directory, output, name):
         fixture = "DefaultLocalSequence"
     if name.startswith("import-modulo-"):
         fixture = "ModuloSequence"
+    if name.startswith("import-fixed-memory-array-"):
+        fixture = "FixedMemoryArraySequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
     if name.startswith("import-constant-array-"):
@@ -611,6 +633,10 @@ def run(directory, output, name):
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]
+    if fixture == 'FixedMemoryArraySequence':
+        from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, FIXED_MEMORY_ARRAY_PREFIX)])
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     # Compiles the model against the (possibly mutated) importer, then replays up

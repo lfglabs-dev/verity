@@ -231,7 +231,8 @@ def main():
         ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', None),
         ('parameter-delete', '', 'delete x; return x;', 'uint256', 'only materialized scalar locals are writable'),
         ('helper-parameter-delete', 'function h(uint256 y) internal pure returns (uint256) { delete y; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only declaration-bound scalar locals are writable'),
-        ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', 'uninitialized reference locals'),
+        # Admitted since fixed-size memory arrays (#2625): a zeroed local array.
+        ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', None),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
     ]
     for name, fields, body, returns, expected in cases:

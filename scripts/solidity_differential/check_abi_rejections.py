@@ -14,6 +14,8 @@ def main():
     cases += [(ty, ty, False) for ty in ('bytes16',)]
     cases += [('bytes', 'bytes memory', True), ('string', 'string memory', True),
               ('uint256[]', 'uint256[] calldata', True), ('uint8[2]', 'uint8[2] calldata', False),
+              # Static memory arrays are decoded eagerly to memory (#2625).
+              ('uint8[2]', 'uint8[2] memory', True),
               ('uint256[][]', 'uint256[][] calldata', False), ('bytes[2]', 'bytes[2] calldata', False)]
     # Check every case before failing, so one run reports every stale control.
     failures = []

@@ -964,6 +964,45 @@ def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-modulo variant: {variant}')
 
 
+def stateful_fixed_memory_array_source(fixture: str, variant: str) -> str:
+    """Compare T[N] memory reference semantics with renamed and unrolled forms."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'st', 't', 'i', 'k', 'x', 'words', 'shifted', 'picked', 'narrow', 'probe',
+                 'bump', 'rotate', 'spread', 'pick'}
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'unrolled':
+        # Unrolled loops, a loop-based rotation, and expanded compound
+        # assignments write the same words through the same shared pointers.
+        replacements = {
+            '        for (uint256 i = 0; i < 4; i++) {\n'
+            '            st[i] = st[i] ^ (i + 1);\n'
+            '        }':
+            '        st[0] = st[0] ^ 1;\n'
+            '        st[1] = st[1] ^ 2;\n'
+            '        st[2] ^= 3;\n'
+            '        st[3] ^= 4;',
+            '        st[0] = st[1];\n'
+            '        st[1] = st[2];\n'
+            '        st[2] = st[3];':
+            '        for (uint256 i = 0; i < 3; i++) {\n'
+            '            st[i] = st[i + 1];\n'
+            '        }',
+            'picked[x % 4] += 7;': 'picked[x % 4] = picked[x % 4] + 7;',
+            'narrow[2] ^= 0x5a;': 'narrow[2] = narrow[2] ^ 0x5a;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing fixed memory array fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown fixed-memory-arrays variant: {variant}')
+
+
 def stateful_default_local_source(fixture: str, variant: str) -> str:
     """Compare implicit scalar defaults to explicit defaults and renamed locals."""
     if variant == 'baseline':
