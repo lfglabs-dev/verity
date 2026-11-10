@@ -14,7 +14,6 @@ verity_contract TupleSmoke where
     authorized : Address → Uint256 := slot 1
 
   function setFromPair (pair : Tuple [Uint256, Uint256]) : Unit := do
-    let _pairValue := pair
     let key := pair_0
     let value := pair_1
     setMappingUint values key value
@@ -23,7 +22,6 @@ verity_contract TupleSmoke where
     return (key, key)
 
   function processConfig (cfg : Tuple [Address, Address, Uint256]) : Unit := do
-    let _cfgValue := cfg
     let owner := cfg_0
     let _delegate := cfg_1
     let flag := cfg_2
@@ -79,6 +77,18 @@ verity_contract NestedStructStorageSmoke where
 example : NestedStructStorageSmoke.state.merkleTree.numberOfLeaves.slot = 1 := by decide
 example : NestedStructStorageSmoke.state.merkleTree.elements.slot = 2 := by decide
 example : NestedStructStorageSmoke.state.verifierRouter.slot = 4 := by decide
+
+/--
+error: tuple parameter 'pair' cannot be used as a single value on the compilation-model path; use its components 'pair_0' … 'pair_1' or destructure it with `let (…) := pair`
+-/
+#guard_msgs in
+verity_contract WholeTupleParamValueRejected where
+  storage
+    seen : Uint256 := slot 0
+
+  function keep (pair : Tuple [Uint256, Uint256]) : Unit := do
+    let _whole := pair
+    setStorage seen pair_0
 
 /--
 error: unknown variable 'feeConfig.borrowTakerFeeRatio'
