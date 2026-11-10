@@ -643,6 +643,23 @@ semantics provably collapses to the plain one). Outside the proven fragment:
   machine-checked at the theorem surface, but the trust-report slice does
   **not** enumerate it — the slice only ever names `rawLog`.
 
+### Executable EDSL memory, hashing and CREATE2
+
+On the executable EDSL path (`Contracts/Common.lean`), `mload`, `calldatacopy` and
+`keccak256` act on `ContractState.memory`/`calldata` (`mloadLive`, `calldatacopyLive`,
+`keccak256Live`); the macro lowers the source forms to them. `keccak256Live` hashes the
+word-addressed memory slice with the in-tree Keccak (`Compiler.Keccak.MemorySlice.keccak`),
+proved equal by `rfl` to the proof IR's `abstractKeccakMemorySlice`. `copyBytes data dest`
+/ `bytesLength data` copy and measure a `Bytes` parameter. `ecmCall
+Create2SSTORE2.deployModule` returns the EIP-1014 address
+(`Verity.Core.Model.Create2.create2Address` of `this`, the salt and the initcode hash);
+the deployment's effects (deployed code, its constructor) are not modelled, and a failed
+deployment (address 0 on the EVM) is not distinguished. Memory remains word-addressed:
+unaligned word reads/writes are outside this model, as in the proof IR.
+Checks: `MemoryHashSmoke` and `Create2AddressSmoke` (`native_decide` against keccak256
+and the EIP-1014 vector) and their Foundry tests (compiled code against Solidity's
+`keccak256` and `vm.computeCreate2Address`, fuzzed).
+
 ### Canonical `StorageKey` backing (`ContractState.storageWords`)
 Word-valued source storage is one map `StorageKey → Uint256`. The key is
 an injective inductive (`slot` / `contractSlot` / `transient` / `addr` /

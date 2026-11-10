@@ -439,6 +439,19 @@ def ecrecover (hash v r sigS : Uint256) : Contract Address := fun state =>
   ContractResult.success
     (wordToAddress ((Verity.Env.ofWorld state).callOracle "ecrecover" [hash, v, r, sigS]))
     state
+/-- CREATE2 of the `size`-byte initcode at memory `offset` with `salt`: returns the
+EIP-1014 address `keccak256(0xff ‖ this ‖ salt ‖ keccak256(initcode))[12:]`
+(`Verity.Core.Model.Create2.create2Address`), hashing the initcode exactly as
+`keccak256Live` does. The deployment's own effects (the deployed code, its constructor)
+are not modelled: a theorem about a successful caller holds for any deployed code. -/
+def create2Live (_value offset size salt : Uint256) : Contract Uint256 := fun state =>
+  let initcodeHash := Verity.Core.Uint256.ofNat
+    (Compiler.Keccak.MemorySlice.keccak (fun a => (state.memory a).val) offset.val size.val)
+  ContractResult.success
+    (Verity.Core.Uint256.ofNat
+      (Verity.Core.Model.Create2.create2Address salt initcodeHash state.thisAddress).val)
+    state
+
 /-- Length in bytes of a `Bytes` parameter (`bytesLength data` in contract code). -/
 def bytesLength (data : ByteArray) : Uint256 := Verity.Core.Uint256.ofNat data.size
 

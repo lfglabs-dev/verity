@@ -3369,6 +3369,14 @@ private def rewriteTypedInterfaceCall?
         (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
     some <$> withDeclaredExternalResultDecoder ext resultTy call
 
+/-- `Compiler.Modules.Create2SSTORE2.deployModule`, however it is qualified. -/
+private def isCreate2DeployModule (stx : Term) : Bool :=
+  match stripParens stx with
+  | `(term| $id:ident) =>
+      let n := id.getId.toString
+      n == "Compiler.Modules.Create2SSTORE2.deployModule" || n.endsWith "Create2SSTORE2.deployModule"
+  | _ => false
+
 private def rewriteLinkedCallTerm
     (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
     (adv : Term) (stx : Term)
@@ -3564,6 +3572,11 @@ private def rewriteLinkedCallTerm
       `(term| calldatacopyLive $destOffset $sourceOffset $size)
   | `(term| ecmCall $moduleFactory:term $args:term) =>
       let argList ← expectTermListLiteral args
+      -- CREATE2 has an exact model (EIP-1014 address over the hashed initcode).
+      if isCreate2DeployModule moduleFactory && argList.size == 4 then
+        `(term| create2Live ($(argList[0]!) : Uint256) ($(argList[1]!) : Uint256)
+            ($(argList[2]!) : Uint256) ($(argList[3]!) : Uint256))
+      else
       let argWords ← argList.mapM (executableEcmArgWords params)
       `(term| ecmCallWords (($moduleFactory) "__verity_ecm_result") $adv
         (List.flatten ([ $[$argWords],* ] : List (List Uint256))))
