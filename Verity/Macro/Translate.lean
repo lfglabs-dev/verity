@@ -841,7 +841,9 @@ private def translateEffectStmt
                [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
    | `(term| ecmDo $module:term $args:term) =>
       validateEffectOnlyEcmModuleTerm module
-      let argExprs ← expectExprList fields constDecls immutableDecls params locals args
+      -- Same expansion as `ecmCall`/`ecmBind` and as the model (`executableEcmArgWords`):
+      -- a direct dynamic parameter is passed as `data_offset, length`.
+      let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args
         (some (translateDeclaredPureExpr
           fields constDecls immutableDecls externalDecls params locals))
       `(Compiler.CompilationModel.Stmt.ecm

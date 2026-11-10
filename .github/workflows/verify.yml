@@ -840,6 +840,7 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.DirectDynamicECMArgSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke
@@ -887,6 +888,7 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.DirectDynamicECMArgSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke

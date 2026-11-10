@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyDirectDynamicECMArgSmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke/ExternalCalls.lean
+ * @dev Source: Contracts/Smoke/DirectDynamicECMArgSmoke.lean
  */
 contract PropertyDirectDynamicECMArgSmokeTest is YulTestBase {
     address target;
