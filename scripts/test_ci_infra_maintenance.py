@@ -344,17 +344,43 @@ class CiInfraMaintenanceTests(unittest.TestCase):
                                            VERITY_CI_ARTIFACT_ROOT=str(tmp / "store")))
             self.assertEqual(r.returncode, 2)
 
-    def test_parallel_build_jobs_use_four_lean_threads(self) -> None:
+    def test_ephemeral_heavy_build_jobs_use_sixteen_lean_threads(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
         for job in (
+            "build",
             "build-compiler-binaries",
             "compiler-regressions",
+            "lean-profile",
         ):
             match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
             self.assertIsNotNone(match, job)
             body = match.group("body")
-            self.assertIn("LEAN_NUM_THREADS: 4", body, job)
-            self.assertNotIn("LEAN_NUM_THREADS: 8", body, job)
+            self.assertIn("LEAN_NUM_THREADS: 16", body, job)
+            self.assertIn("runs-on: blacksmith-", body, job)
+
+    def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            target = tmp / "ccache"
+            env = dict(
+                os.environ,
+                VERITY_CI_HUB_ENV=str(tmp / "absent.env"),
+                RUNNER_TEMP=str(tmp / "runner-temp"),
+            )
+            env.pop("VERITY_CI_ARTIFACT_ROOT", None)
+            r = self._persistence(
+                "mount",
+                "--root",
+                "/proc/nonexistent-verity-ci-cache/compiler-ccache",
+                "--key",
+                "k1",
+                "--path",
+                str(target),
+                env=env,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(target.is_symlink())
+            self.assertIn("runner-temp", str(target.resolve()))
 
 
 if __name__ == "__main__":

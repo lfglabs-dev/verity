@@ -74,10 +74,10 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                    'foundry-multi-seed',
                    'failure-hints'],
  'heavy_runner_jobs': ['build',
+                       'build-compiler-binaries',
                        'compiler-regressions',
                        'lean-profile'],
  'medium_runner_jobs': ['build-audits',
-                        'build-compiler-binaries',
                         'compiler-audits',
                         'foundry-gas-calibration',
                         'foundry',
@@ -170,12 +170,12 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                           'changes': '[self-hosted, linux, verity, fastlane]',
                           'checks': '[self-hosted, linux, verity, fastlane]',
                           'timeout-watchdog': '[self-hosted, linux, verity, fastlane]',
-                          'build': '[self-hosted, linux, x64, verity, build]',
+                          'build': 'blacksmith-16vcpu-ubuntu-2404',
                           'build-audits': '[self-hosted, linux, x64, verity, build]',
-                          'build-compiler-binaries': '[self-hosted, linux, x64, verity, build]',
+                          'build-compiler-binaries': 'blacksmith-16vcpu-ubuntu-2404',
                           'compiler-audits': '[self-hosted, linux, x64, verity, build]',
-                          'compiler-regressions': '[self-hosted, linux, x64, verity, build]',
-                          'lean-profile': '[self-hosted, linux, x64, verity, build]',
+                          'compiler-regressions': 'blacksmith-32vcpu-ubuntu-2404',
+                          'lean-profile': 'blacksmith-16vcpu-ubuntu-2404',
                           'foundry-gas-calibration': '[self-hosted, linux, x64, verity, build]',
                           'foundry': '[self-hosted, linux, x64, verity, build]',
                           'foundry-patched': '[self-hosted, linux, x64, verity, build]',
@@ -846,7 +846,7 @@ SPEC['expected_job_if_conditions'].update({
 })
 
 SPEC['expected_job_runs_on'].update({
-    'build-compiler-binaries': '[self-hosted, linux, x64, verity, build]',
+    'build-compiler-binaries': 'blacksmith-16vcpu-ubuntu-2404',
 })
 
 SPEC['expected_job_timeouts'].update({
