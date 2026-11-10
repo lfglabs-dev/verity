@@ -847,6 +847,7 @@ jobs:
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.UnitReturnSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
             Contracts.Smoke.NamedStructReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
@@ -900,6 +901,7 @@ jobs:
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.UnitReturnSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
             Contracts.Smoke.NamedStructReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke

@@ -35,6 +35,10 @@ EXCLUDED_CONTRACTS = {
     # Nested fixed-array return decoding is covered by its executable Lean
     # regression; Solidity signature synthesis does not yet map FixedArray.
     "TypedInterfaceNestedFixedReturnSmoke",
+    # Composite typed-interface returns are covered on chain by
+    # test/InterfaceCompositeReturnSmoke.t.sol against a mock pool; generated stubs
+    # cannot map FixedArray and would call a random (non-pool) address.
+    "InterfaceCompositeReturnSmoke",
     # The generated no-revert stub cannot currently fund the contract before
     # exercising `callWithValue`; Lean/Yul/trust-report tests cover this ECM.
     "CallWithValueSmoke",
