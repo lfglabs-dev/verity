@@ -317,8 +317,14 @@ def quoteReport (r : ImportReport) : m Term := do
     let proof ← match st.compilerProof with
       | .unavailable reason =>
         `(Compiler.CompilationModel.SolidityImport.CompilerProofStatus.unavailable $(quote reason))
+    let construct (c : UnsupportedConstruct) : m Term := do
+      `(({ file := $(quote c.file), line := $(quote c.line), column := $(quote c.column),
+           kind := $(quote c.kind), reason := $(quote c.reason), closure := $(← strings c.closure),
+           followOn := $(quote c.followOn) } :
+          Compiler.CompilationModel.SolidityImport.UnsupportedConstruct))
     `(({ function := $(quote st.function), denoteCovered := $(quote st.denoteCovered),
-         compilerProof := $proof } : Compiler.CompilationModel.SolidityImport.FunctionStatus))
+         compilerProof := $proof, unsupported := $(← list (← st.unsupported.mapM construct)) } :
+        Compiler.CompilationModel.SolidityImport.FunctionStatus))
   `(({ importerVersion := $(quote r.importerVersion), solcLongVersion := $(quote r.solcLongVersion),
        solcSha256 := $(quote r.solcSha256), settingsJson := $(quote r.settingsJson),
        sourceDigest := $(quote r.sourceDigest), contract := $(quote r.contract),
