@@ -33,6 +33,8 @@ private def mappingMemberKeys (oracle : DenoteOracle) (fields : List Field)
 def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) : Expr → Except String (List Verity.StorageKey)
   | .literal _ | .param _ | .localVar _ => .ok []
+  -- A deployment's immutable is code, not storage.
+  | .immutable _ => .ok []
   | .caller | .contractAddress | .selfBalance | .txOrigin | .baseFee | .gasPrice | .blockTimestamp | .blockNumber | .chainid | .calldatasize | .returndataSize => .ok []
   | .storage name => do
       let some (field, slot) := findFieldWithResolvedSlot fields name
@@ -287,10 +289,12 @@ world is suitable as the persistent input to the next transaction. -/
 def executeTracedBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
     (events : List EventDef := []) (errors : List ErrorDef := []) (selector : Nat := 0)
-    (byteCalls : ByteCallEnvironment := {}) : Except String TracedFrameResult := do
+    (byteCalls : ByteCallEnvironment := {})
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) :
+    Except String TracedFrameResult := do
   let initial := beginTransaction world
   let traced ← traceStraightLine oracle fields
-    { world := initial, bindings, errors, selector,
+    { world := initial, bindings, errors, selector, immutable := immutables,
       byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body events
   let frame ← finishFrame initial traced.outcome
   return ⟨frame, traced.touched⟩

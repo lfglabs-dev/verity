@@ -46,14 +46,17 @@ def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String
   | .revertWithData bytes => .ok ⟨false, bytes, initial⟩
 
 /-- Execute a body through Denote, after installing fresh frame-local state.
-This function is a frame runner, not yet a full ABI/dispatch transaction runner. -/
+This function is a frame runner, not yet a full ABI/dispatch transaction runner.
+`immutables` are the deployed contract's immutable values: fixed at deployment, so a caller
+that runs several transactions passes the same function to each. -/
 def executeBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
-    (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {}) :
+    (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {})
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) :
     Except String FrameResult :=
   let initial := beginTransaction world
   finishFrame initial (execStmtList oracle fields
-    { world := initial, bindings, errors,
+    { world := initial, bindings, errors, immutable := immutables,
       byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body)
 
 @[simp] theorem beginTransaction_storage (world : Verity.ContractState) (slot : Nat) :
