@@ -16019,14 +16019,17 @@ def elabSolidityImport : CommandElab := fun stx => do
       importSlice pkg project entry.getString (contract.getId.toString (escape := false)) roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    -- The quoted model is one deep term. A larger enclosing `maxRecDepth` (a model of many
+    -- roots) takes precedence over this floor.
+    let depth := Syntax.mkNumLit (toString (max 16384 (maxRecDepth.get (← getOptions))))
+    elabCommand (← `(set_option maxRecDepth $depth in
       def $(name `model) : Compiler.CompilationModel.CompilationModel :=
         $(← quoteModel model)))
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    elabCommand (← `(set_option maxRecDepth $depth in
       def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
         $(← quoteReport report)))
     elabCommand (← `(def $(name `sourceDigest) : String := $(quote report.sourceDigest)))
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    elabCommand (← `(set_option maxRecDepth $depth in
       theorem $(name `covered) :
         Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
     for fn in model.functions do
