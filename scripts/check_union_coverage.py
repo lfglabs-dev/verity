@@ -48,6 +48,7 @@ EXACT_EXCLUDED_MODULES: frozenset[str] = frozenset(
         "Compiler.SolidityImport.SequenceRunner",
         "Compiler.SolidityImport.ByteCallTransactions",
         "Compiler.SolidityImport.CallResponderMocks",
+        "Compiler.SolidityImport.SelectorResponderMocks",
         "Compiler.SolidityImport.StaticOracleMocks",
     }
 )
