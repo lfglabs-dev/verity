@@ -27,10 +27,11 @@ def freshInternalRetNames (returns : List ParamType) (usedNames : List String) :
     returns.zipIdx.flatMap fun (retTy, idx) =>
       match retTy with
       | ParamType.array _ => [idx, idx]
-      -- A static tuple (struct) is returned as its flattened words, one slot each.
-      | ParamType.tuple elemTys =>
-          if isDynamicParamTypeList elemTys then [idx]
-          else List.replicate (paramHeadSizeList elemTys / 32) idx
+      -- A static tuple (struct) or fixed array is returned as its flattened words,
+      -- one slot each.
+      | ParamType.tuple _ | ParamType.fixedArray _ _ =>
+          if isDynamicParamType retTy then [idx]
+          else List.replicate (paramHeadSize retTy / 32) idx
       | _ => [idx]
   let (_, namesRev) := retIndices.foldl
     (fun (acc : List String × List String) idx =>
