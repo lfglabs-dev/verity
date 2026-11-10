@@ -1032,6 +1032,7 @@ jobs:
             Contracts.Smoke.MemoryHashSmoke
             Contracts.Smoke.DirectDynamicECMArgSmoke
             Contracts.Smoke.SpillFreeMemorySmoke
+            Contracts.Smoke.LoopSemanticsSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.Int256CheckedSmoke
@@ -1091,6 +1092,7 @@ jobs:
             Contracts.Smoke.MemoryHashSmoke
             Contracts.Smoke.DirectDynamicECMArgSmoke
             Contracts.Smoke.SpillFreeMemorySmoke
+            Contracts.Smoke.LoopSemanticsSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.Int256CheckedSmoke
