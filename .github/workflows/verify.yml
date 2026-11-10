@@ -840,6 +840,7 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
             Contracts.Smoke.NamedStructReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke
@@ -888,6 +889,7 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
             Contracts.Smoke.NamedStructReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke

@@ -678,12 +678,38 @@ inductive LocalSource where
   | arrayElement (paramName : String) (index : Term) (elemTy : ValueType)
   | memoryArray
   | externalStaticStruct (fields : List (String × String))
+  /-- A static composite (tuple/struct/fixed array) bound by a typed interface call; it
+  exists in Yul only as its leaves (`staticLeafBindings`). -/
+  | compositeLeaves
 
 structure TypedLocal where
   name : String
   ty : ValueType
   source : LocalSource := .value
   interfaceName? : Option String := none
+
+/-- Leaves `(name, type)` of a static composite value, in ABI order, named like the
+ABI decoder names parameter leaves (`x_0`, `x_0_1`, …). Scalars are their own leaf. -/
+partial def staticLeafBindings (name : String) (ty : ValueType) : List (String × ValueType) :=
+  let indexed (tys : List ValueType) : List (String × ValueType) :=
+    (tys.zipIdx).flatMap fun (elemTy, idx) => staticLeafBindings s!"{name}_{idx}" elemTy
+  match ty with
+  | .fixedArray elemTy size => indexed (List.replicate size elemTy)
+  | .tuple elemTys => indexed elemTys
+  | .struct _ fields => indexed (fields.map (·.snd))
+  | .newtype _ baseTy =>
+      match baseTy with
+      | .fixedArray .. | .tuple _ | .struct .. => staticLeafBindings name baseTy
+      | _ => [(name, ty)]
+  | _ => [(name, ty)]
+
+/-- A local bound to a static composite value (a tuple, struct or fixed array returned by
+a typed interface call) lives in Yul as its leaves; this is the leaf list, if `name` is one. -/
+def compositeLocalLeaves? (locals : Array TypedLocal) (name : String) :
+    Option (List (String × ValueType)) :=
+  match locals.find? (fun entry => entry.name == name) with
+  | some { source := .compositeLeaves, ty, .. } => some (staticLeafBindings name ty)
+  | _ => none
 
 def mkTypedLocal (name : String) (ty : ValueType) (interfaceName? : Option String := none) : TypedLocal :=
   { name, ty, interfaceName? }
@@ -1286,6 +1312,7 @@ def localArrayElementAlias?
   | .value => none
   | .memoryArray => none
   | .externalStaticStruct _ => none
+  | .compositeLeaves => none
 
 def localExternalStaticStructProjection?
     (locals : Array TypedLocal)
@@ -3431,6 +3458,8 @@ partial def translatePureExprWithTypes
       throwPureContextAccessorError stx "chainid"
   | `(term| $id:ident) =>
       let name := toString id.getId
+      if (compositeLocalLeaves? locals name).isSome then
+        throwErrorAt id s!"local '{name}' holds a tuple/struct/fixed-array value, which has no single-word form on the compilation-model path; return it, or destructure it"
       if params.any (fun p => p.name == name) || isTupleComponentRef params name || localNames.contains name then
         lookupVarExpr params localNames name
       else if let some actualName := findContextAccessorShadowName? params localNames name then
@@ -4510,7 +4539,11 @@ def tupleReturnValueExprs?
   | none =>
       match stripParens rhs with
       | `(term| $id:ident) =>
-          tupleParamElemExprs? params (toString id.getId)
+          match compositeLocalLeaves? locals (toString id.getId) with
+          | some leaves =>
+              pure (some (← leaves.toArray.mapM fun (leaf, _) =>
+                `(Compiler.CompilationModel.Expr.localVar $(strTerm leaf))))
+          | none => tupleParamElemExprs? params (toString id.getId)
       | _ =>
           pure none
 

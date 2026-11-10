@@ -10,9 +10,9 @@
   "schema_version": 1,
   "tests": {
     "differential_total": 110000,
-    "foundry_functions": 526,
+    "foundry_functions": 530,
     "property_functions": 239,
-    "suites": 53
+    "suites": 54
   },
   "theorems": {
     "categories": 15,
