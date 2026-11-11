@@ -408,6 +408,46 @@ def stateful_create2_struct_emit_source(original, variant):
     raise ValueError('unknown CREATE2/struct-event program variant')
 
 
+def stateful_extcodehash_source(original, variant):
+    """Equivalent `<address>.codehash` programs over one sequence.
+
+    Observable names stay fixed: root functions and the custom error (its
+    selector is the revert payload).
+    """
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('requireBound', 'checkBound'), ('BOUND_CODEHASH', 'EXPECTED_HASH'),
+                         ('EMPTY_CODEHASH', 'NO_CODE_HASH'), ('account', 'target'),
+                         ('found', 'observed'), ('left', 'first'), ('right', 'second'),
+                         ('checks', 'count'), ('last', 'latest'), ('seen', 'hashes')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ('if (account.codehash != BOUND_CODEHASH) revert UnboundCode();',
+             """bytes32 actual = account.codehash;
+        if (!(actual == BOUND_CODEHASH)) revert UnboundCode();""", 2),
+            ('return left.codehash == right.codehash;',
+             """bytes32 leftHash = left.codehash;
+        bytes32 rightHash = right.codehash;
+        return !(leftHash != rightHash);""", 1),
+            ('if (found == bytes32(0)) return 0;', 'if (!(found != bytes32(0))) return 0;', 1),
+            ('seen[account] = account.codehash;\n        last = seen[account];',
+             """bytes32 observed = account.codehash;
+        seen[account] = observed;
+        last = observed;""", 1),
+        ]
+        expanded = original
+        for old, new, count in replacements:
+            if expanded.count(old) != count:
+                raise ValueError('nonunique code-hash variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown code-hash program variant')
+
+
 def stateful_external_code_and_low_level_call_source(original, variant):
     """Equivalent code-length and optional-bool low-level call programs over one sequence.
 

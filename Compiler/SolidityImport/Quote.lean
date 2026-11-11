@@ -162,6 +162,11 @@ partial def quoteStmt : Stmt → m Term
             throwError "internal: closed ECM metadata differs from its descriptor"
           `(Compiler.CompilationModel.Stmt.ecm
             (Compiler.ECM.SolidityExtCodeSize.module $(quote resultVar)) $quotedArgs)
+      | some (.extCodeHash resultVar) =>
+          unless module == Compiler.ECM.SolidityExtCodeHash.module resultVar do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityExtCodeHash.module $(quote resultVar)) $quotedArgs)
       | some (.extCodeCopy resultVar) =>
           unless module == Compiler.ECM.SolidityExtCodeCopy.module resultVar do
             throwError "internal: closed ECM metadata differs from its descriptor"
