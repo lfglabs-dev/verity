@@ -9,6 +9,7 @@ set_option autoImplicit false
 Construct-generic classifiers over `CompilationModel.Stmt` and
 `Compiler.ECM.ExternalCallModule` used by `Compiler.SolidityImport.Import`:
 * Closed byte-transport recognizers (`isClosedLowLevelCall`, `isClosedExtCodeSize`,
+  `isClosedExtCodeHash`,
   `isClosedExtCodeCopy`, `isClosedReturnMemory`, `isClosedStaticCall`,
   `isClosedCreate2`, `isClosedLog`)
 * CEI and reentrancy barrier erasure / window classifiers (`eraseClosedStaticCalls`,
@@ -43,6 +44,12 @@ abbrev isClosedOptionalBoolCall := isClosedLowLevelCall
 def isClosedExtCodeSize (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
   | some (.extCodeSize resultVar) => mod == Compiler.ECM.SolidityExtCodeSize.module resultVar
+  | _ => false
+
+/-- The closed `<address>.codehash` transport emitted by the importer. -/
+def isClosedExtCodeHash (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.extCodeHash resultVar) => mod == Compiler.ECM.SolidityExtCodeHash.module resultVar
   | _ => false
 
 /-- The closed `<address>.code` transport emitted by the importer. -/
@@ -101,13 +108,13 @@ def isClosedLog (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   | _ => false
 
 /-- Replace every closed transport except the low-level `CALL` by a call-free
-statement: a staticcall, `create2`, code length or code copy by its
+statement: a staticcall, `create2`, code length, code hash or code copy by its
 zero-initialised result binding, a log by an empty branch, a memory return by
 `stop`. -/
 partial def eraseClosedTransports : Stmt → Stmt
   | .ecm mod args =>
       if isClosedStaticCall mod || isClosedCreate2 mod || isClosedExtCodeSize mod ||
-          isClosedExtCodeCopy mod || isClosedLowLevelCall mod then
+          isClosedExtCodeHash mod || isClosedExtCodeCopy mod || isClosedLowLevelCall mod then
         .letVar (mod.resultVars.headD "") (.literal 0)
       else if isClosedLog mod then .ite (.literal 0) [] []
       else if isClosedReturnMemory mod then .stop
@@ -168,7 +175,9 @@ partial def stmtAfterTrailingCall : Stmt → Bool
   | .requireError condition _ args => exprStorageFree condition && args.all exprStorageFree
   | .ite condition yes no =>
       exprStorageFree condition && yes.all stmtAfterTrailingCall && no.all stmtAfterTrailingCall
-  | .ecm mod args => (isClosedLowLevelCall mod || isClosedExtCodeSize mod) && args.all exprStorageFree
+  | .ecm mod args =>
+      (isClosedLowLevelCall mod || isClosedExtCodeSize mod || isClosedExtCodeHash mod) &&
+        args.all exprStorageFree
   | .return value => exprStorageFree value
   | .returnValues values => values.all exprStorageFree
   | .revertEmpty | .stop => true

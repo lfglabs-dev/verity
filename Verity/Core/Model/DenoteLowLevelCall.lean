@@ -6,6 +6,8 @@ optional-bool low-level `.call(bytes)` to the byte-exact boundary of
 `DenoteExternalCode` and `DenoteByteExternalCalls`.
 
 * The code-length arm binds exactly `DenoteExternalCode.extCodeSize`.
+* The code-hash arm binds exactly `DenoteExternalCode.extCodeHash` under the
+  model Keccak oracle (`oracleBytesHash`).
 * The request the low-level call transport hands to the adversary is a
   `DenoteByteExternalCalls.callBytesRequest` from the prepared frame.
 * The transport continues with result `1` exactly when
@@ -47,6 +49,39 @@ theorem executeByteExtCodeSize_of_code_nil (oracle : DenoteOracle) (fields : Lis
         (Compiler.ECM.SolidityExtCodeSize.module resultVar) resultVar [target] =
       .ok (.continue { state with bindings := bindValue state.bindings resultVar 0 }) := by
   simp [executeByteExtCodeSize_eq oracle fields state resultVar target address htarget, hcode]
+
+/-! ## Code hash -/
+
+theorem extCodeHash_module_beq_self (resultVar : String) :
+    (Compiler.ECM.SolidityExtCodeHash.module resultVar ==
+      Compiler.ECM.SolidityExtCodeHash.module resultVar) = true := by
+  simp [BEq.beq, Compiler.ECM.SolidityExtCodeHash.module, List.beq]
+  exact ⟨beq_self_eq_true (some (Compiler.ECM.ByteTransport.extCodeHash resultVar)),
+    rfl, rfl, rfl, rfl⟩
+
+theorem executeByteExtCodeHash_eq (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (target : Expr) (address : Nat)
+    (htarget : evalExprList oracle fields state [target] = some [address]) :
+    executeByteExtCodeHash oracle fields state
+        (Compiler.ECM.SolidityExtCodeHash.module resultVar) resultVar [target] =
+      .ok (.continue { state with
+        bindings := bindValue state.bindings resultVar
+          (DenoteExternalCode.extCodeHash (oracleBytesHash oracle) state.world
+            (Verity.Core.Address.ofNat address)) }) := by
+  simp [executeByteExtCodeHash, htarget, extCodeHash_module_beq_self]
+  rfl
+
+/-- An empty account (EIP-161) has code hash zero. -/
+theorem executeByteExtCodeHash_of_accountEmpty (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (target : Expr) (address : Nat)
+    (htarget : evalExprList oracle fields state [target] = some [address])
+    (hempty : DenoteExternalCode.accountEmpty state.world
+      (Verity.Core.Address.ofNat address) = true) :
+    executeByteExtCodeHash oracle fields state
+        (Compiler.ECM.SolidityExtCodeHash.module resultVar) resultVar [target] =
+      .ok (.continue { state with bindings := bindValue state.bindings resultVar 0 }) := by
+  rw [executeByteExtCodeHash_eq oracle fields state resultVar target address htarget,
+    DenoteExternalCode.extCodeHash_of_accountEmpty _ _ _ hempty]
 
 /-! ## Request shape -/
 

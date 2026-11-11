@@ -138,6 +138,30 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
       let address := Address.ofNat owner
       unless (world.accountWorld address).code.isEmpty do throw "duplicate foreign code account"
       world := world.writeAccount address { world.accountWorld address with code }
+  -- Balances and nonces of foreign accounts, as held on the EVM routes; observed by
+  -- code-hash reads, which tell an existing account without code from an empty one (EIP-161).
+  if let .ok rows := input.getObjVal? "accountBalance" then
+    for row in ← rows.getArr? do
+      let (owner, balance) ← pair row
+      unless owner < 2^160 && owner != account && balance != 0 do
+        throw "invalid foreign balance account"
+      let address := Address.ofNat owner
+      unless (world.accountWorld address).balance.val == 0 do
+        throw "duplicate foreign balance account"
+      world := world.writeAccount address
+        { world.accountWorld address with balance := Uint256.ofNat balance }
+  if let .ok rows := input.getObjVal? "externalAccountNonce" then
+    for row in ← rows.getArr? do
+      let (owner, nonce) ← pair row
+      unless owner < 2^160 && owner != account && nonce != 0 do
+        throw "invalid foreign nonce account"
+      let some bounded := (if h : nonce < 2^64 then some (⟨nonce, h⟩ : Fin (2^64)) else none)
+        | throw "foreign account nonce exceeds 64 bits"
+      let address := Address.ofNat owner
+      unless (world.accountWorld address).nonce.val == 0 do
+        throw "duplicate foreign nonce account"
+      world := world.writeAccount address
+        { world.accountWorld address with nonce := bounded }
   -- A deployed EVM contract starts at nonce 1 (EIP-161); the caller states it.
   if let .ok nonce := input.getObjVal? "accountNonce" then
     let nonce ← word nonce

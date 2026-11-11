@@ -2067,6 +2067,44 @@ Trust boundary changes:
   discovered from EVM CREATE2 traces), not a proof. `DenoteAgreement` excludes
   every closed byte transport.
 
+### Imported `<address>.codehash`
+
+`solidity_import` now admits `<addr>.codehash` on `address`-typed accounts other
+than `address(this)`, as a `bytes32` value. It lowers to a new closed byte
+transport, `SolidityExtCodeHash.module` (`let r := extcodehash(addr)`), whose
+Denote arm is pinned by `execStmt_ecm_extCodeHash_arm` and admitted by
+`closedTransportCovered`. `address(this).codehash` fails closed with a located
+diagnostic.
+
+Trust boundary changes:
+- Denote answers `DenoteExternalCode.extCodeHash` over
+  `ContractState.accountWorld` with EIP-1052 semantics: `0` when the account is
+  empty in the EIP-161 sense (`accountEmpty`: nonce `0`, balance `0`, no code;
+  storage does not count), otherwise the hash of its runtime code, so an
+  existing account without code observes `keccak256("")`. The hash is the
+  model Keccak oracle over the code bytes (`oracleBytesHash`, the same
+  `keccakMemorySlice` boundary as error selectors and CREATE2), not a new hash.
+  `DenoteLowLevelCall.executeByteExtCodeHash_eq` proves the arm binds exactly
+  this value.
+- Existence is read from the account world, which Denote does not populate for
+  accounts it never writes. Differential campaigns install the runtime code of
+  every coded account they probe (`accountCode` input), the balance of every
+  funded EOA (`accountBalance` input, anvil's genesis balance), and any explicit
+  foreign account nonces (`externalAccountNonce` input, e.g. zero-balance nonce > 0
+  accounts). Per-transaction EOA gas payments are not modeled; only existence is
+  observed. The executing
+  contract's own code and nonce differ between the routes and are not modeled:
+  `address(this).codehash` rejects, and passing the executing contract's own
+  address as a runtime argument is outside the validated domain.
+- The transport hands control to no account, so `eraseClosedTransports` erases
+  it for the CEI check and `stmtAfterTrailingCall` admits it after a trailing
+  low-level call, as for code length.
+- Compilation keeps `proofStatus := .assumed`; agreement of the compiled model
+  with solc and Denote is differential evidence (`ExtCodeHashSequence`, three
+  equivalent variants over coded accounts, two funded EOAs, a never-touched
+  address and a precompile address), not a proof. `DenoteAgreement` excludes
+  every closed byte transport.
+
 ### ABI memory proof integration
 
 The ABI reserve, clearing and byte-insertion proofs use the canonical physical

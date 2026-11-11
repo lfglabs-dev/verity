@@ -127,10 +127,12 @@ class SequenceAdapter:
     initial storage is installed verbatim from the fixture. ABI values and
     emitted events are observed without normalization.
     """
-    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', observer=None):
+    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', observer=None,
+                 account_nonces=()):
         self.directory = Path(directory)
         self.bytecodes = tuple(bytecodes)
         self.initial_storage = tuple(tuple(row) for row in initial_storage)
+        self.account_nonces = tuple((account, int(nonce)) for account, nonce in account_nonces)
         self.calldata_key = calldata_key
         self.observer = observer
         self.runs = 0
@@ -149,6 +151,8 @@ class SequenceAdapter:
                     raise HarnessError('fixture deployment failed')
             for account, slot, value in self.initial_storage:
                 node.rpc('anvil_setStorageAt', account, slot, value)
+            for account, nonce in self.account_nonces:
+                node.rpc('anvil_setNonce', account, hex(nonce))
             for transaction, slots in zip(transactions, plan):
                 # Require exact environments. Silently filling these from the
                 # host clock would make block-dependent imports incomparable.

@@ -180,6 +180,9 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
   | some (.extCodeSize resultVar) =>
       mod == Compiler.ECM.SolidityExtCodeSize.module resultVar && args.length == 1 &&
         exprListCovered args
+  | some (.extCodeHash resultVar) =>
+      mod == Compiler.ECM.SolidityExtCodeHash.module resultVar && args.length == 1 &&
+        exprListCovered args
   | some (.extCodeCopy resultVar) =>
       mod == Compiler.ECM.SolidityExtCodeCopy.module resultVar && args.length == 1 &&
         exprListCovered args
@@ -454,6 +457,16 @@ theorem execStmt_ecm_extCodeSize_arm (oracle : DenoteOracle) (fields : List Fiel
     execStmt oracle fields state (.ecm (Compiler.ECM.SolidityExtCodeSize.module resultVar) args) =
       (match executeByteExtCodeSize oracle fields state
           (Compiler.ECM.SolidityExtCodeSize.module resultVar) resultVar args with
+       | .ok outcome => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed code-hash arm reads the account world; an instrumentation error
+is a payload-free `.revert`. -/
+theorem execStmt_ecm_extCodeHash_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.SolidityExtCodeHash.module resultVar) args) =
+      (match executeByteExtCodeHash oracle fields state
+          (Compiler.ECM.SolidityExtCodeHash.module resultVar) resultVar args with
        | .ok outcome => outcome
        | .error _ => .revert) := rfl
 

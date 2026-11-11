@@ -133,6 +133,9 @@ inductive ByteTransport where
   | callBytesBool (resultVar : String) (selector : Nat)
   /-- `resultVar := extcodesize(target)`: the runtime code length of an account. -/
   | extCodeSize (resultVar : String)
+  /-- `resultVar := extcodehash(target)`: the EIP-1052 code hash of an account
+  (`0` for an empty account, otherwise the Keccak-256 of its runtime code). -/
+  | extCodeHash (resultVar : String)
   /-- `resultVar := <target>.code`: `extcodesize` then `extcodecopy` of the runtime
   code into a fresh `bytes memory` allocation (length word, then the bytes). -/
   | extCodeCopy (resultVar : String)
@@ -818,6 +821,30 @@ def module (resultVar : String) : ExternalCallModule where
 
 end SolidityExtCodeSize
 
+namespace SolidityExtCodeHash
+
+/-- `<address>.codehash`, i.e. `extcodehash(target)` of an atomic target. -/
+def compile (resultVar : String) (args : List YulExpr) : Except String (List YulStmt) :=
+  match args with
+  | [target] => pure [.let_ resultVar (.call "extcodehash" [target])]
+  | _ => throw "Solidity code hash expects one target"
+
+def module (resultVar : String) : ExternalCallModule where
+  name := "solidityExtCodeHash"
+  numArgs := 1
+  resultVars := [resultVar]
+  writesState := false
+  readsState := true
+  compile := fun _ args => compile resultVar args
+  byteTransport := some (.extCodeHash resultVar)
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "solidity_external_code_hash"
+  -- Reading a code hash hands control to no account.
+  summaryMutability := .staticcall
+
+end SolidityExtCodeHash
+
 namespace SolidityExtCodeCopy
 
 /-- Solidity's `Panic(0x41)` allocation failure. -/
@@ -947,6 +974,10 @@ def compileCanonical (module : ExternalCallModule) (context : CompilationContext
       unless module == SolidityExtCodeSize.module resultVar do
         throw "closed Solidity code length transport metadata differs"
       SolidityExtCodeSize.compile resultVar args
+  | some (.extCodeHash resultVar) =>
+      unless module == SolidityExtCodeHash.module resultVar do
+        throw "closed Solidity code hash transport metadata differs"
+      SolidityExtCodeHash.compile resultVar args
   | some (.extCodeCopy resultVar) =>
       unless module == SolidityExtCodeCopy.module resultVar do
         throw "closed Solidity external code transport metadata differs"

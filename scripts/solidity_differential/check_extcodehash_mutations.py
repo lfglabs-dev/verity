@@ -1,0 +1,159 @@
+"""Code-hash mutants in isolated source/cache snapshots.
+
+Runtime mutants must survive an unmodified positive control and then produce an
+A/B/C divergence with a reproduced deletion-minimal witness. Admission-guard
+mutants must turn a pinned located rejection into a failure of the exact
+near-miss check. A mutant that fails to build is invalid, never detected.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+from solidity_differential.engine import HarnessError, command, write_json
+from solidity_differential.mutations import release, snapshot
+
+IMPORT = 'Compiler/SolidityImport/Import.lean'
+DENOTE = 'Verity/Core/Model/Denote.lean'
+EXTERNAL_CODE = 'Verity/Core/Model/DenoteExternalCode.lean'
+ECM = 'Verity/Core/Model/ECM.lean'
+# name: (file, anchor, replacement, kind, rejection case)
+MUTANTS = {
+    # Lowered as `<address>.code.length`: every route reads EXTCODESIZE.
+    'import-code-hash-as-code-size': (IMPORT,
+        'let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeHash.module result) [target.expr]',
+        'let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]',
+        'runtime', None),
+    'import-code-hash-target': (IMPORT,
+        'let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeHash.module result) [target.expr]',
+        'let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeHash.module result) [.caller]',
+        'runtime', None),
+    # Denote hashes the code of every account, so an empty (non-existent)
+    # account answers keccak256("") instead of 0.
+    'denote-code-hash-empty-account': (DENOTE,
+        'let hash := DenoteExternalCode.extCodeHash (oracleBytesHash oracle) state.world',
+        'let hash := (fun world target => oracleBytesHash oracle\n'
+        '      (DenoteExternalCode.accountCode world target)) state.world', 'runtime', None),
+    # Denote ignores the balance: a funded EOA with nonce 0 looks empty.
+    'denote-code-hash-existence': (EXTERNAL_CODE,
+        'account.nonce.val == 0 && account.balance.val == 0 && account.code.isEmpty',
+        'account.nonce.val == 0 && account.code.isEmpty', 'runtime', None),
+    # Denote ignores the nonce: a zero-balance account with nonce > 0 looks empty.
+    'denote-code-hash-nonce-existence': (EXTERNAL_CODE,
+        'account.nonce.val == 0 && account.balance.val == 0 && account.code.isEmpty',
+        'account.balance.val == 0 && account.code.isEmpty', 'runtime', None),
+    # Compiled code reads EXTCODESIZE; source and Denote keep EXTCODEHASH.
+    'ecm-code-hash-opcode': (ECM,
+        '| [target] => pure [.let_ resultVar (.call "extcodehash" [target])]',
+        '| [target] => pure [.let_ resultVar (.call "extcodesize" [target])]', 'runtime', None),
+    'import-code-hash-this-guard': (IMPORT,
+        'if ← isThisAddressConv account then\n    failAt member',
+        'if false then\n    failAt member', 'admission', 'this-code-hash'),
+}
+
+
+def environment(directory):
+    env = dict(os.environ)
+    env['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + env.get('PYTHONPATH', '')
+    return env
+
+
+def runtime(directory, output):
+    argv = [sys.executable, '-m', 'solidity_differential.check_extcodehash',
+            '--single', '--transactions', '128', '--seed', '2627', '--shrink-attempts', '40',
+            '--output', str(output)]
+    result = subprocess.run(argv, cwd=directory, env=environment(directory), text=True,
+                            capture_output=True, timeout=10800)
+    output.with_suffix('.log').write_text(result.stdout + result.stderr)
+    report_path = output / 'campaign.json'
+    if not report_path.exists():
+        raise HarnessError(f'no differential report; tool failure is not detection: {output.with_suffix(".log")}')
+    return result.returncode, json.loads(report_path.read_text())
+
+
+def rejection(directory, case, output):
+    argv = [sys.executable, '-m', 'solidity_differential.check_extcodehash_rejections',
+            '--only', case, '--output', str(output)]
+    result = subprocess.run(argv, cwd=directory, env=environment(directory), text=True,
+                            capture_output=True, timeout=1800)
+    output.with_suffix('.log').write_text(result.stdout + result.stderr)
+    return result.returncode, result.stdout + result.stderr
+
+
+def mutation_campaign(output, selected=None):
+    root = Path.cwd()
+    for name in selected or MUTANTS:
+        relative, before, _, _, _ = MUTANTS[name]
+        if (root / relative).read_text().count(before) != 1:
+            raise HarnessError(f'{name}: mutation anchor must occur exactly once in {relative}')
+    output = Path(output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    reports = []
+    for name in selected or MUTANTS:
+        relative, before, after, kind, case = MUTANTS[name]
+        directory = output / name
+        snapshot(directory)
+        try:
+            modules = ['Compiler.SolidityImport.Import', 'Compiler.SolidityImport.Differential',
+                       'Compiler.SolidityImport.SequenceRunner', 'Compiler.Codegen', 'Compiler.Yul.PrettyPrint']
+            command(['lake', 'build', *modules], cwd=directory, timeout=3600, log=directory / 'baseline-build.log')
+            if kind == 'runtime':
+                code, baseline = runtime(directory, directory / '.lake/baseline')
+                if code or baseline['divergences'] or not baseline['transactions']:
+                    raise HarnessError(f'{name}: unmodified positive control failed')
+            else:
+                code, log = rejection(directory, case, directory / '.lake/baseline-rejection')
+                if code:
+                    raise HarnessError(f'{name}: unmodified located rejection failed\n{log[-2000:]}')
+            source = directory / relative
+            text = source.read_text()
+            if text.count(before) != 1:
+                raise HarnessError(f'{name}: nonunique mutation anchor')
+            source.write_text(text.replace(before, after))
+            command(['lake', 'build', *modules], cwd=directory, timeout=3600, log=directory / 'build.log')
+            if kind == 'runtime':
+                campaign = directory / '.lake/mutated'
+                code, report = runtime(directory, campaign)
+                if code == 0 or not report['divergences']:
+                    raise HarnessError(f'{name}: mutation survived')
+                reduced = json.loads((campaign / 'reduced.json').read_text())
+                if not reduced['deletion_minimal'] or not reduced['transactions'] or not reduced['signature']:
+                    raise HarnessError(f'{name}: unexpected or unreproduced minimal witness: {reduced}')
+                entry = {'witness': reduced, 'campaign': str(campaign)}
+            else:
+                code, log = rejection(directory, case, directory / '.lake/mutated-rejection')
+                if code == 0 or f'{case}: expected exact located rejection' not in log:
+                    raise HarnessError(f'{name}: guard removal escaped the {case} near-miss check')
+                entry = {'kind': 'unsupported-admission', 'case': case}
+        finally:
+            release(directory)
+        reports.append({'mutant': name, 'status': 'detected', 'detected': True,
+                        'baselinePassed': True, 'path': relative, **entry})
+        write_json(output / 'mutation-results.json', reports)
+        print(f'{name}: detected', flush=True)
+    return {'mutants': reports, 'divergences': []}
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--only')
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args()
+    selected = None
+    if args.only:
+        selected = [name for name in MUTANTS if args.only == name]
+        if not selected:
+            raise HarnessError(f'no mutants matched --only {args.only}')
+    output = (args.output.resolve() if args.output else
+              Path(tempfile.mkdtemp(prefix='extcodehash-mutations-', dir='.lake')).resolve())
+    result = mutation_campaign(output, selected)
+    write_json(output / 'complete.json', {'exit': 0, 'selected': selected or list(MUTANTS),
+                                          'results': result['mutants']})
+    print(output)
+
+
+if __name__ == '__main__':
+    main()

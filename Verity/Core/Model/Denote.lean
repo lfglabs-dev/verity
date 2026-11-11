@@ -1667,6 +1667,25 @@ def executeByteExtCodeSize (oracle : DenoteOracle) (fields : List Field)
   let size := DenoteExternalCode.extCodeSize state.world (Verity.Core.Address.ofNat target)
   return .continue { state with bindings := bindValue state.bindings resultVar size }
 
+/-- Keccak-256 of a byte string through the model Keccak oracle, as for error
+selectors and CREATE2 hashes. -/
+def oracleBytesHash (oracle : DenoteOracle) (bytes : List UInt8) : Nat :=
+  oracle.keccakMemorySlice (signatureMemory bytes) 0 bytes.length
+
+/-- The closed `<address>.codehash` transport: the EIP-1052 code hash of the
+account world (`DenoteExternalCode.extCodeHash` under the model Keccak oracle),
+with the target taken modulo `2^160` as by `EXTCODEHASH`. -/
+def executeByteExtCodeHash (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (resultVar : String)
+    (args : List Expr) : Except String StmtOutcome := do
+  unless mod == Compiler.ECM.SolidityExtCodeHash.module resultVar do
+    throw "closed code hash metadata differs"
+  let some [target] := evalExprList oracle fields state args
+    | throw "code hash argument evaluation unsupported"
+  let hash := DenoteExternalCode.extCodeHash (oracleBytesHash oracle) state.world
+    (Verity.Core.Address.ofNat target)
+  return .continue { state with bindings := bindValue state.bindings resultVar hash }
+
 /-- The closed `<address>.code` transport, as solc's `external_code_at`: the
 runtime code of the account world (`DenoteExternalCode.accountCode`, target taken
 modulo `2^160`) is copied into a fresh `bytes memory` allocation at the free
@@ -2163,6 +2182,10 @@ mutual
             | .error _ => .revert
         | some (.extCodeSize resultVar) =>
             match executeByteExtCodeSize oracle fields state mod resultVar args with
+            | .ok outcome => outcome
+            | .error _ => .revert
+        | some (.extCodeHash resultVar) =>
+            match executeByteExtCodeHash oracle fields state mod resultVar args with
             | .ok outcome => outcome
             | .error _ => .revert
         | some (.extCodeCopy resultVar) =>

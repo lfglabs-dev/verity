@@ -8545,6 +8545,7 @@ Compiler.CompilationModel.SolidityImport.execStmt_ecm_optionalBoolCall_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_callBytesUint256_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_callBytesBool_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_extCodeSize_arm
+Compiler.CompilationModel.SolidityImport.execStmt_ecm_extCodeHash_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_extCodeCopy_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_returnMemory_arm
 Compiler.CompilationModel.SolidityImport.execStmt_revertEmpty_arm
@@ -10748,6 +10749,10 @@ Compiler.CompilationModel.DenoteExternalCode.extCodeSlice_zero
 Compiler.CompilationModel.DenoteExternalCode.getElem_extCodeSlice
 Compiler.CompilationModel.DenoteExternalCode.extCodeSlice_of_le
 Compiler.CompilationModel.DenoteExternalCode.extCodeSlice_of_ge
+Compiler.CompilationModel.DenoteExternalCode.extCodeHash_of_accountEmpty
+Compiler.CompilationModel.DenoteExternalCode.extCodeHash_of_not_accountEmpty
+Compiler.CompilationModel.DenoteExternalCode.extCodeHash_of_extCodeSize_ne_zero
+Compiler.CompilationModel.DenoteExternalCode.extCodeHash_of_code_nil
 Compiler.CompilationModel.DenoteExternalCode.sstore2Payload?_eq_none_iff
 Compiler.CompilationModel.DenoteExternalCode.sstore2Payload?_of_extCodeSize_ne_zero
 Compiler.CompilationModel.DenoteExternalCode.sstore2Payload?_of_accountCode_cons
@@ -10783,6 +10788,9 @@ Compiler.CompilationModel.DenoteFunctionCalls.execStmt_externalCallBind_outside_
 Compiler.CompilationModel.DenoteLowLevelCall.extCodeSize_module_beq_self
 Compiler.CompilationModel.DenoteLowLevelCall.executeByteExtCodeSize_eq
 Compiler.CompilationModel.DenoteLowLevelCall.executeByteExtCodeSize_of_code_nil
+Compiler.CompilationModel.DenoteLowLevelCall.extCodeHash_module_beq_self
+Compiler.CompilationModel.DenoteLowLevelCall.executeByteExtCodeHash_eq
+Compiler.CompilationModel.DenoteLowLevelCall.executeByteExtCodeHash_of_accountEmpty
 Compiler.CompilationModel.DenoteLowLevelCall.prepareByteWordCall_request
 Compiler.CompilationModel.DenoteLowLevelCall.prepareByteWordCall_call_eq_callBytesRequest
 Compiler.CompilationModel.DenoteLowLevelCall.leadingWord_eq_firstWord
@@ -12072,4 +12080,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11239 theorems/lemmas (8739 public, 2500 private, 0 sorry'd)
+-- Total: 11247 theorems/lemmas (8747 public, 2500 private, 0 sorry'd)

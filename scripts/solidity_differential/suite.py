@@ -149,6 +149,11 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('extcodecopy-struct-decode-rejections', ['-m',
         'solidity_differential.check_extcodecopy_struct_decode_rejections',
         '--output', str(output / 'extcodecopy-struct-decode-rejections')]))
+    checks.append(('extcodehash', ['-m', 'solidity_differential.check_extcodehash',
+        '--transactions', str(max(128, min(transactions, 160))), '--seed', str(seed),
+        '--output', str(output / 'extcodehash')]))
+    checks.append(('extcodehash-rejections', ['-m', 'solidity_differential.check_extcodehash_rejections',
+        '--output', str(output / 'extcodehash-rejections')]))
     # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min
     # checks start at t=0 on a 6-wide pool instead of straggling past the step cap.
     heavy_first = (
