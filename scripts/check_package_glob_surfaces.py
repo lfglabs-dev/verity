@@ -20,6 +20,7 @@ BRIDGE_GLOBS = {
     ("one", "Verity.Proofs.LoopSimulation"),
     ("one", "Verity.Proofs.Stdlib.Automation"),
     ("one", "Verity.Proofs.Stdlib.MappingAutomation"),
+    ("one", "Verity.Specs.ObsAlgebra"),
 }
 
 PACKAGE_SURFACES = (

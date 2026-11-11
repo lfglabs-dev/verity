@@ -327,12 +327,22 @@ def findResolvedFieldAtStorageSlot (fields : List Field) (isTransient : Bool)
 def findResolvedFieldAtSlot (fields : List Field) (slot : Nat) : Option Field :=
   findResolvedFieldAtStorageSlot fields false slot
 
+/-- Solidity dynamic-array base slot `keccak256(bytes32(baseSlot))`, evaluated
+through `keccakMemorySlice` over a single 32-byte word at offset `0`. -/
+def arrayBaseSlot (baseSlot : Nat) : Nat :=
+  keccakMemorySlice
+    (fun off => if off = 0 then Verity.Core.Uint256.ofNat baseSlot else 0) 0 32
+
+/-- Solidity dynamic-array element slot `(keccak256(bytes32(baseSlot)) + idx) % 2^256`. -/
+def arrayElementSlot (baseSlot idx : Nat) : Nat :=
+  wordNormalize (arrayBaseSlot baseSlot + idx)
+
 def findDynamicArrayElementAtSlot
     (fields : List Field) (world : Verity.ContractState) (targetSlot : Nat) : Option Nat :=
   let rec scanElements (baseSlot : Nat) : List Verity.Core.Uint256 → Nat → Option Nat
     | [], _ => none
     | value :: rest, idx =>
-        if Compiler.Proofs.solidityMappingSlot baseSlot idx = wordNormalize targetSlot then
+        if arrayElementSlot baseSlot idx = wordNormalize targetSlot then
           some value.val
         else
           scanElements baseSlot rest (idx + 1)

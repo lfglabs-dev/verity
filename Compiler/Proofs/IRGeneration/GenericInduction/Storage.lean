@@ -386,7 +386,7 @@ def findDynamicArrayElementAtSlotCopy
   let rec scanElements (baseSlot : Nat) : List Verity.Core.Uint256 → Nat → Option Nat
     | [], _ => none
     | value :: rest, idx =>
-        if Compiler.Proofs.solidityMappingSlot baseSlot idx = SourceSemantics.wordNormalize targetSlot then
+        if SourceSemantics.arrayElementSlot baseSlot idx = SourceSemantics.wordNormalize targetSlot then
           some value.val
         else
           scanElements baseSlot rest (idx + 1)

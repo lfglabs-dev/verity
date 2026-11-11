@@ -20,7 +20,7 @@ open Verity.Specs
 ## Verity 2.0 Unified Roadmap — Phase A (Branch `V5-1`)
 
 This module resolves the two foundational Phase A blockers identified across the
-three-model architectural review (Claude Fable 5.1, GPT-6 Astra, OpenCode `builtin/smart`):
+multi-model architectural review:
 
 1. **Canonical Cross-Layer Observation (`Obs` & `ObsEquiv`)**:
    Unifies the observable outcome of execution across Layer 1 (`Denote`), Layer 2 (`IR`),

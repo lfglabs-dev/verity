@@ -23,6 +23,8 @@ Following the formal soundness and trust-boundary audit of `origin/main` (`84277
 
 ## Current Status
 
+- ✅ **Phase 0 Formal Soundness & Boundary Audit Remediation Gate (P0 -> P3) Complete**: `solidityMappingSlot_injective` eliminated (`0` custom axioms in `PrintAxioms.lean`), exhaustive `Stmt.foldList` ECM axiom traversal, `.code` inline frame & `Expr.adtField` validation hardened, and canonical `ObsAlgebra` storage maps landed (#2662, #2663, #2666, #2671).
+- ✅ **Phase A (`V2.1`) Canonical Observation (`Obs`, `ObsEquiv`) & Dynamic-Array Slot Unification Complete**: Layer 1 (`Denote` / `SourceSemantics`), Layer 2 (`IRResult`), and Layer 3 (`YulResult` / `EvmYul.Yul.callDispatcher`) bridged onto gas-free `ObsEquiv` (`Compiler/Proofs/EndToEnd/ObsBridge.lean`, `compile_preserves_obsEquiv_native_evmYulLean`), and `Denote.arrayElementSlot` / `SourceSemantics.arrayElementSlot` aligned with `ObsAlgebra.solidityArrayElemSlot` and `storageArrayElementPointer` (`keccak256(bytes32(s)) + i`).
 - ✅ **Layer 1 Complete**: see [VERIFICATION_STATUS.md](VERIFICATION_STATUS.md) for the current theorem totals and contract coverage table
 - 🟢 **Layer 2 Generic Theorem**: the generic whole-contract `CompilationModel.compile` theorem is proved for the current supported fragment; theorem-shape work is complete under [#1510](https://github.com/lfglabs-dev/verity/issues/1510), and widening/completeness work now follows the ranked plan in [#1630](https://github.com/lfglabs-dev/verity/issues/1630)
 - ✅ **Layer 3 Complete**: All 8 statement equivalence proofs + universal dispatcher (PR #42)
