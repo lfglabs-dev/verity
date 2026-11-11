@@ -1003,6 +1003,36 @@ def stateful_fixed_memory_array_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown fixed-memory-arrays variant: {variant}')
 
 
+def stateful_inline_array_literal_source(fixture: str, variant: str) -> str:
+    """Compare inline array literals with zeroed arrays filled element by element."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'t', 'k', 'x', 'table', 'acc', 'mixed', 'small', 'probe', 'field'}
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'element-writes':
+        # A literal bound to a local is the same memory array as a zeroed
+        # local written element by element in the same order.
+        replacements = {
+            'uint256[4] memory table = [uint256(0x0000000100000002), 0x0000000300000004, 0x0000000500000006, 0x0000000700000008];':
+            'uint256[4] memory table;\n        table[0] = 0x0000000100000002;\n        table[1] = 0x0000000300000004;\n'
+            '        table[2] = 0x0000000500000006;\n        table[3] = 0x0000000700000008;',
+            'uint256[3] memory mixed = [x & 0xffff, x >> 240, uint256(7)];':
+            'uint256[3] memory mixed;\n        mixed[0] = x & 0xffff;\n        mixed[1] = x >> 240;\n        mixed[2] = 7;',
+            'uint8[3] memory small = [1, 2, 3];':
+            'uint8[3] memory small;\n        small[0] = 1;\n        small[1] = 2;\n        small[2] = 3;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing inline array literal fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown inline-array-literals variant: {variant}')
+
+
 def stateful_default_local_source(fixture: str, variant: str) -> str:
     """Compare implicit scalar defaults to explicit defaults and renamed locals."""
     if variant == 'baseline':

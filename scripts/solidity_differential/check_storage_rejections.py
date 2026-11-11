@@ -143,7 +143,8 @@ def main():
         ('inline-array-guarded-element', '', 'return [uint256(1), 100 / x][x];', 'uint256', 'inline array elements must be exact natural constants'),
         ('inline-array-bool', '', 'return [true, false][x];', 'bool', 'inline constant arrays require unsigned scalar elements'),
         ('inline-array-signed', '', 'return uint256([int256(-1), int256(2)][x]);', 'uint256', 'inline constant arrays require unsigned scalar elements'),
-        ('inline-array-escape', '', 'uint256[2] memory a = [uint256(1), 2]; return a[x];', 'uint256', 'inline arrays are outside this slice'),
+        # Admitted since inline array literals are memory arrays (#2626).
+        ('inline-array-escape', '', 'uint256[2] memory a = [uint256(1), 2]; return a[x];', 'uint256', None),
         ('if-else', '', 'if (x > 1) { return 1; } else { return 2; }', 'uint256', None),
         ('if-early-return', 'uint256 value;', 'if (x == 0) return 0; value = x; return value;', 'uint256', None),
         ('if-helper-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; require(y == 0, "one"); return 0; }', 'return h(x);', 'uint256', None),

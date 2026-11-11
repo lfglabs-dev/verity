@@ -7995,7 +7995,32 @@ private partial def isFixedMemArrayValue (j : Json) : M Bool := do
   | "FunctionCall" =>
       pure (optStr j "kind" == some "functionCall" && !(← isAbiDecodeCall j) &&
         (← mKind (← mField j "expression")) != "NewExpression")
+  | "TupleExpression" => mBool (← mField j "isInlineArray")
   | _ => pure false
+
+/-- An inline array literal `[e_0, ..., e_{N-1}]` of type `T[N] memory`: solc
+allocates the N words first (`allocate_memory_array`, no zeroing), then
+evaluates each component in order, converts it to the common element type and
+stores it. The literal is an ordinary memory array: indexable at runtime,
+writable and passed by reference. -/
+private partial def lowerInlineArrayLiteral (j : Json) (arr : FixedMemArray) :
+    M (Array Stmt) := do
+  let components ← mArr (← mField j "components")
+  unless components.size == arr.length do
+    failAt j "inline array literal length differs from its type"
+  let next ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let mut pre := fixedMemAllocate arr.pointer next arr.length
+  for index in [:components.size] do
+    let component := components[index]!
+    if component.isNull then failAt j "empty inline array component"
+    if components.size > 1 && (statefulCallIn component (← get) || assignmentIn component) then
+      failAt component "stateful or assignment inline array component requires explicit evaluation-order support"
+    let value ← atom (← convert arr.elementType (← mType component) (← lowerExpr component) component)
+    let stored := if arr.elementType == "bool" then Expr.logicalNot (.logicalNot value.expr) else value.expr
+    let slot := fixedMemElementAddr arr (.literal index)
+    pre := pre ++ value.pre |>.push (.mstore slot stored)
+  pure pre
 
 /-- A `T[N] memory` value: a memory array binding (an alias, no copy) or the
 result of an internal helper returning `T[N] memory` (the callee's pointer, no
@@ -8018,6 +8043,13 @@ private partial def lowerFixedMemArrayValue (j : Json) : M (Array Stmt × FixedM
           failAt j "unsupported fixed-size memory array call"
         let (fnId, vals) ← resolveCallTargetAndArgs j
         inlineFixedArrayFn fnId vals j
+    | "TupleExpression" => do
+        unless (← mBool (← mField j "isInlineArray")) do
+          failAt j "unsupported fixed-size memory array tuple"
+        let some ty := fixedMemArrayType? (← mType j)
+          | failAt j "unsupported inline array literal type"
+        let arr ← freshFixedMemArray "" ty
+        pure (← lowerInlineArrayLiteral j arr, arr)
     | _ => failAt j "unsupported fixed-size memory array expression"
   unless arr.elementType == elem && arr.length == length do
     failAt j "fixed-size memory array type differs"
