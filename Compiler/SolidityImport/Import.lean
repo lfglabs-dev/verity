@@ -153,10 +153,24 @@ private partial def memoryReferenceIn (j : Json) : Bool :=
   | .obj o => memoryReferenceNode j || o.foldl (fun found _ child => found || memoryReferenceIn child) false
   | _ => false
 
+/-- Yul `j` may write memory: a memory-writing builtin (`mstore`, the `*copy`
+    family, calls returning into memory). A missing Yul AST counts as writing. -/
+private partial def yulMemoryWriteIn (j : Json) : Bool :=
+  match j with
+  | .null => true
+  | .arr xs => xs.any yulMemoryWriteIn
+  | .obj o =>
+      let own := optStr j "nodeType" == some "YulFunctionCall" &&
+        (((field? j "functionName").bind (optStr · "name")).any fun name =>
+          ["mstore", "mstore8", "mcopy", "calldatacopy", "codecopy", "extcodecopy",
+            "returndatacopy", "call", "callcode", "delegatecall", "staticcall"].contains name)
+      own || o.foldl (fun found _ child => found || (child matches .obj _ | .arr _) && yulMemoryWriteIn child) false
+  | _ => false
+
 /-- `j` may write memory visible outside the call it occurs in: an internal call
     with a by-reference memory argument or receiver whose callee (transitively)
-    assigns, deletes or increments through a memory reference, uses inline
-    assembly, or has modifiers. `pure`/`view` callees count: `statefulCallIn`
+    assigns, deletes or increments through a memory reference, writes memory
+    in inline assembly (`yulMemoryWriteIn`), or has modifiers. `pure`/`view` callees count: `statefulCallIn`
     does not see these writes. Unresolved callees and function pointers count
     as writing; `seen` cuts recursion. -/
 private partial def memoryWriteIn (j : Json) (env : Env) (seen : List Nat := []) : Bool :=
@@ -166,7 +180,7 @@ private partial def memoryWriteIn (j : Json) (env : Env) (seen : List Nat := [])
       let kind := optStr j "nodeType"
       let op := optStr j "operator" |>.getD ""
       let own :=
-        if kind == some "InlineAssembly" then true
+        if kind == some "InlineAssembly" then yulMemoryWriteIn ((field? j "AST").getD Json.null)
         else if kind == some "Assignment" then
           ((field? j "leftHandSide").map memoryReferenceIn).getD true
         else if kind == some "UnaryOperation" && ["++", "--", "delete"].contains op then
