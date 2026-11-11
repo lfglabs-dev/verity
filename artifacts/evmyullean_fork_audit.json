@@ -262,16 +262,16 @@
       "file": "EvmYul/Semantics.lean, EvmYul/Yul/Exception.lean, EvmYul/Yul/Interpreter.lean, EvmYul/Yul/YulSemanticsTests/Main.lean",
       "rationale": "The Yul RETURNDATACOPY step zero-padded a read past the return-data buffer, while the EVM (and EvmYul's own EVM semantics) halt exceptionally. The Yul step now raises InvalidMemoryAccess, mapped to the exceptional-halt state. This narrows the set of successful Yul executions to those a real EVM accepts.",
       "semantic_change": true,
-      "sha": "d742f034a265b450dfe6ab3b70b0e106c835369f",
-      "title": "fix(yul): halt on out-of-bounds RETURNDATACOPY (EIP-211)",
+      "sha": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
+      "title": "fix(yul): halt on out-of-bounds RETURNDATACOPY (EIP-211) (#12)",
       "trust_impact": "Closes a soundness gap: Layer-3 theorems no longer admit runs that a real EVM aborts. Verity proofs that used the unconditional step lemma now carry the in-bounds hypothesis."
     }
   ],
   "divergence_summary": "The fork has 25 audited commits beyond the recorded upstream base, covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM proof-facing step/block/memory/interpreter/observation layers (#5, #6, #7, #8, #9, #10), and EVMYulLean 2.0 Waves E1-E4 (BitVec 256, total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall EIP-214/frame fixes), a CI change, and one EVM-conformance fix: the Yul RETURNDATACOPY step halts on an out-of-bounds read (EIP-211).",
   "fork_ahead_by": 25,
   "fork_behind_by": 0,
-  "fork_url": "https://github.com/mab-xyz/EVMYulLean",
-  "pinned_commit": "d742f034a265b450dfe6ab3b70b0e106c835369f",
+  "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
+  "pinned_commit": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
   "reproduction": {
     "script": "scripts/generate_evmyullean_fork_audit.py",
     "steps": [
