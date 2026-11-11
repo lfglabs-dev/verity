@@ -251,7 +251,8 @@ private def buildField (types item : Json) : M FieldInfo := do
       let rawInfo ← try resolveRawStructInfo sid Json.null catch _ =>
         throwError "unsupported storage encoding {encoding} for {name}"
       unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty &&
-          rawInfo.subStructs.isEmpty && !rawInfo.scalars.isEmpty && rawInfo.wordCount > 0 do
+          rawInfo.subStructs.isEmpty && rawInfo.opaqueMemberNames.isEmpty &&
+          !rawInfo.scalars.isEmpty && rawInfo.wordCount > 0 do
         throwError "unsupported storage encoding {encoding} for {name}"
       unless (← mNat (← mField base "numberOfBytes")) == rawInfo.wordCount * 32 do
         throwError "unsupported storage encoding {encoding} for {name}"
@@ -512,6 +513,12 @@ private def readStorageDynamicArrayElement (pre : Array Stmt) (fieldName : Strin
   ]
   pure { pre := lenVal.pre ++ stmts, expr := .localVar dest }
 
+/-- solc's guard before a storage array grows, for value and struct elements alike:
+`if iszero(lt(oldLen, 2^64)) { panic_error_0x41() }`, before the new length is written. It
+keeps every element index below `2^64`. -/
+private def pushLengthGuard (oldLen : Expr) : Stmt :=
+  .ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]
+
 private def pushStorageDynamicArray (pre : Array Stmt) (fieldName : String) (slotExpr : Expr)
     (elemTy : String) (valExpr? : Option Expr) : M Val := do
   modify fun e => { e with encodingMemory := true, usedRawStorage := true }
@@ -526,6 +533,7 @@ private def pushStorageDynamicArray (pre : Array Stmt) (fieldName : String) (slo
   let elemVal := valExpr?.getD (.literal 0)
   let writeStmts ← writeStorageDynamicArrayElementAtUnchecked baseDataSlot elemTy lenVal.expr elemVal valExpr?.isNone
   let stmts : Array Stmt := #[
+    pushLengthGuard lenVal.expr,
     .letVar newLen (.add lenVal.expr (.literal 1)),
     writeLenStmt,
     .mstore (.literal 0) slotExpr,
@@ -549,6 +557,7 @@ private def pushStorageDynamicStructArray (pre : Array Stmt) (fieldName : String
     else .setStorageArrayElement rawStorageFieldName slotExpr (.localVar newLen)
   let wordOff := if rawInfo.wordCount == 1 then lenVal.expr else Expr.mul lenVal.expr (.literal rawInfo.wordCount)
   let mut stmts : Array Stmt := #[
+    pushLengthGuard lenVal.expr,
     .letVar newLen (.add lenVal.expr (.literal 1)),
     writeLenStmt,
     .mstore (.literal 0) slotExpr,
@@ -578,6 +587,8 @@ private def popStorageDynamicArray (pre : Array Stmt) (fieldName : String) (slot
   let clearStmts ← match elemStructId? with
     | some elemSid => do
         let rawInfo ← resolveRawStructInfo elemSid at_
+        unless rawInfo.opaqueMemberNames.isEmpty do
+          failAt at_ "cannot pop struct array with opaque members"
         let elemSlot ← fresh
         let wordOff := if rawInfo.wordCount == 1 then Expr.localVar newLen else Expr.mul (.localVar newLen) (.literal rawInfo.wordCount)
         let mut clears : Array Stmt := #[
@@ -1159,6 +1170,13 @@ private def yulByteBufferLoad? (addrNode : Json) (lowerYulFn : Json → M Val) :
     expr := .mload (.add buf.pointer (.literal (off - 32)))
   }
 
+/-- End of the memory solc reserves: scratch space `0x00`–`0x3f`, the free-memory pointer at
+`0x40` and the zero slot at `0x60`. Inline assembly may use fixed addresses below it. -/
+private def yulReservedMemoryEnd : Nat := 0x80
+
+/-- The zero slot at `0x60`, which Solidity relies on being zero. -/
+private def yulZeroSlot : Nat := 0x60
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1196,7 +1214,53 @@ private partial def lowerYul (j : Json) : M Val := do
             return v
           if let some v ← yulByteBufferLoad? args[0]! lowerYul then
             return v
+          -- A word of the scratch space, the free-memory pointer or the zero slot.
+          let addr ← lowerYul args[0]!
+          if let .literal off := addr.expr then
+            if addr.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd then
+              return { pre := #[], expr := .mload (.literal off) }
         failAt j "unsupported Yul builtin mload"
+      -- `add(buf, 0x20)` of a `bytes memory` local is the address of its payload.
+      if fname == "add" && args.size == 2 then
+        for (bufNode, offNode) in [(args[0]!, args[1]!), (args[1]!, args[0]!)] do
+          if let some buf ← yulByteBufferByName? bufNode then
+            if (← yulPositiveWordOffsetLiteral? offNode) == some 32 then
+              return { pre := buf.pre, expr := buf.pointer }
+      if fname == "call" || fname == "staticcall" then
+        let isStatic := fname == "staticcall"
+        let arity := if isStatic then 6 else 7
+        unless args.size == arity do failAt j s!"Yul {fname} expects {arity} arguments"
+        let gasArg := args[0]!
+        let forwardsGas ← do
+          if (← mKind gasArg) != "YulFunctionCall" then pure false
+          else pure ((← mStr (← mField (← mField gasArg "functionName") "name")) == "gas" &&
+            (← mArr (← mField gasArg "arguments")).isEmpty)
+        unless forwardsGas do
+          failAt gasArg s!"Yul {fname} must forward gas(); the call boundary supplies the allowance"
+        if !isStatic then
+          let value ← lowerYul args[2]!
+          unless value.pre.isEmpty && (match value.expr with | .literal 0 => true | _ => false) do
+            failAt args[2]! "Yul call with a nonzero value is outside this slice"
+        -- Yul evaluates arguments right to left; effect-free operands make the order moot.
+        let operands := if isStatic then args.extract 1 6 else #[args[1]!] ++ args.extract 3 7
+        let mut xs : Array Expr := #[]
+        for operand in operands do
+          let v ← lowerYul operand
+          unless v.pre.isEmpty do failAt operand s!"Yul {fname} operands must be effect-free"
+          xs := xs.push v.expr
+        let result ← fresh
+        return { pre := #[.ecm (Compiler.ECM.YulMemoryCall.module isStatic result) xs.toList],
+                 expr := .localVar result }
+      if fname == "extcodesize" then
+        unless args.size == 1 do failAt j "Yul extcodesize expects one argument"
+        let target ← lowerYul args[0]!
+        unless target.pre.isEmpty do failAt args[0]! "Yul extcodesize operand must be effect-free"
+        let result ← fresh
+        return { pre := #[.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]],
+                 expr := .localVar result }
+      if fname == "returndatasize" then
+        unless args.isEmpty do failAt j "Yul returndatasize takes no argument"
+        return { pre := #[], expr := .returndataSize }
       if fname == "create2" then
         failAt j "Yul create2 must be the whole value of a Yul assignment or variable declaration"
       let expectedArity? : Option Nat := match fname with
@@ -1794,10 +1858,46 @@ private def lowerYulPrefixKeccakBlock? (j : Json) (stmts refs : Array Json) (ret
     ])
   return none
 
+/-- `returndatacopy(p, 0, returndatasize())` followed by `revert(p, returndatasize())` with
+the same `p`: forwarding the complete return data as the revert payload. -/
+private def isYulReturndataBubble (copy rev : Json) : M Bool := do
+  let callOf (s : Json) : M (Option (String × Array Json)) := do
+    if (← mKind s) != "YulExpressionStatement" then return none
+    let e ← mField s "expression"
+    if (← mKind e) != "YulFunctionCall" then return none
+    return some (← mStr (← mField (← mField e "functionName") "name"), ← mArr (← mField e "arguments"))
+  let isSize (e : Json) : M Bool := do
+    if (← mKind e) != "YulFunctionCall" then return false
+    return (← mStr (← mField (← mField e "functionName") "name")) == "returndatasize" &&
+      (← mArr (← mField e "arguments")).isEmpty
+  let identName (e : Json) : M (Option String) := do
+    if (← mKind e) != "YulIdentifier" then return none
+    return some (← mStr (← mField e "name"))
+  let some ("returndatacopy", cargs) ← callOf copy | return false
+  let some ("revert", rargs) ← callOf rev | return false
+  unless cargs.size == 3 && rargs.size == 2 do return false
+  let zeroSource := (← mKind cargs[1]!) == "YulLiteral" && optStr cargs[1]! "value" == some "0x00" ||
+    (← mKind cargs[1]!) == "YulLiteral" && optStr cargs[1]! "value" == some "0"
+  let some dest ← identName cargs[0]! | return false
+  let some payload ← identName rargs[0]! | return false
+  return dest == payload && zeroSource && (← isSize cargs[2]!) && (← isSize rargs[1]!)
+
 private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retName : String) : M (Array Stmt) := do
   let mut yulLocals : RBMap String String compare := RBMap.empty
   let mut out : Array Stmt := #[]
-  for stmt in stmts do
+  -- The zero slot must hold zero again when the block ends if the block wrote it.
+  let mut zeroSlotDirty := false
+  let mut skipNext := false
+  for i in [:stmts.size] do
+    let stmt := stmts[i]!
+    if skipNext then
+      skipNext := false
+      continue
+    if i + 1 < stmts.size then
+      if ← isYulReturndataBubble stmt stmts[i+1]! then
+        out := out.push .revertReturndata
+        skipNext := true
+        continue
     match ← mKind stmt with
     | "YulVariableDeclaration" =>
         let vars ← mArr (← mField stmt "variables")
@@ -1852,13 +1952,16 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           let offVal ← lowerYul args[0]!
           let valVal ← lowerYul args[1]!
           let .literal off := offVal.expr
-            | failAt expr "only scratch-space mstore at 0x00 or 0x20 is supported"
-          unless offVal.pre.isEmpty && (off == 0 || off == 32) do
-            failAt expr "only scratch-space mstore at 0x00 or 0x20 is supported"
-          if off == 0 then
+            | failAt expr "Yul mstore requires a fixed address below 0x80"
+          unless offVal.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd do
+            failAt expr "Yul mstore requires a fixed address below 0x80"
+          if off < 32 then
             modify fun e => { e with yulScratch0 := true }
-          else
+          if off < 64 && off + 32 > 32 then
             modify fun e => { e with yulScratch32 := true }
+          if off + 32 > yulZeroSlot then
+            zeroSlotDirty := !(off == yulZeroSlot && valVal.pre.isEmpty &&
+              (match valVal.expr with | .literal 0 => true | _ => false))
           out := out ++ valVal.pre |>.push (.mstore (.literal off) valVal.expr)
         else if fname == "mstore8" then
           unless args.size == 2 do failAt expr "mstore8 expects 2 arguments"
@@ -1872,6 +1975,8 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))
         else if fname == "revert" && (← get).stateVars.size > 1 then
           unless args.size == 2 do failAt expr "revert requires two arguments"
+          unless (← yulNatLit? args[1]!) == some 0 do
+            failAt expr "Yul revert with nonzero payload size must follow returndatacopy"
           let offVal ← lowerYul args[0]!
           let szVal ← lowerYul args[1]!
           out := out ++ offVal.pre ++ szVal.pre |>.push .revertEmpty
@@ -1887,6 +1992,8 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         else
           failAt stmt "unsupported Yul statement YulIf"
     | kind => failAt stmt s!"unsupported Yul statement {kind}"
+  if zeroSlotDirty then
+    failAt j "inline assembly must restore the zero slot at 0x60 to zero before it ends"
   pure out
 
 private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array Stmt) := do
@@ -2247,6 +2354,21 @@ private def isInterfaceExternalCall (j : Json) : M Bool := do
       else
         return false
   | none => return false
+
+/-- The declaration called by a typed external call `I(a).f(...)` when `f` has no
+return values and is `nonpayable` or `payable`; such a call lowers only as a
+whole expression statement. -/
+private def interfaceVoidCallDecl? (j : Json) : M (Option Json) := do
+  let some callee := field? j "expression" | return none
+  let id ← refInt callee
+  unless id ≥ 0 do return none
+  let some decl := (← get).funs.find? id.toNat | return none
+  let some returns := (field? decl "returnParameters").bind (field? · "parameters") | return none
+  unless returns == Json.arr #[] do return none
+  unless optStr decl "stateMutability" == some "nonpayable" ||
+      optStr decl "stateMutability" == some "payable" do
+    return none
+  return some decl
 
 /-- Located diagnostic for a low-level `.call` outside the admitted statement sequence. -/
 private def lowLevelCallPlacement : String :=
@@ -2927,6 +3049,20 @@ private partial def lowerRef (j : Json) : M Ref := do
               let (name, _) := splitSPathField rawName
               let _ ← resolveField name j
           | .outer _ _ => failAt j "struct mapping element requires both outer mapping keys"
+          if let some innerKeyType := mapInfo.innerKeyType then
+            -- The outer key selects the inner mapping, whose slot is
+            -- keccak256(key . (base + offset)); the inner key is then an ordinary member key.
+            let .rawSlot _ baseSlot := path
+              | failAt j "two-key struct mapping members are supported only in raw-slot storage structs"
+            modify fun e => { e with encodingMemory := true, usedRawStorage := true }
+            let innerBase ← fresh
+            let slotStmts : Array Stmt := #[
+              Stmt.mstore (.literal 0) key.expr,
+              Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),
+              Stmt.letVar innerBase (.keccak256 (.literal 0) (.literal 64))]
+            return .structMapping (pre ++ key.pre ++ slotStmts) (.rawSlot 0 (.localVar innerBase))
+              { mapInfo with member := s!"{mapInfo.member}[]", wordOffset := 0,
+                             keyType := innerKeyType, innerKeyType := none }
           if let some valSid := mapInfo.valueStructId then
             let (slotStmts, slotExpr) ←
               if let .rawSlot _ baseSlot := path then do
@@ -3206,6 +3342,8 @@ private partial def lowerRef (j : Json) : M Ref := do
                 pure (.structDynamicArray pre path dynInfo)
               else if let some mInfo := rawInfo.scalars.find? (·.member == member) then
                 pure (.expr (← readRawStructScalar pre baseSlot mInfo))
+              else if rawInfo.opaqueMemberNames.contains member then
+                failAt j s!"{member} of {rawInfo.structName} has a storage type outside this slice"
               else
                 failAt j s!"{member} is not a supported member of {rawInfo.structName}"
             else if let .bytesSlot (fieldName, slotExpr) isString := path then
@@ -5565,6 +5703,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
             (readAbiDecodeWord fromCalldata (.add offsetExpr (.mul (.localVar copyIdx) (.literal 32)))) ]
     let copyStmt := Stmt.forEach copyIdx wordCount copyBody
     return { pre := slicePre ++ (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := lenExpr }
+  -- The whole of `msg.data`, as a helper returning it already reads it.
+  if ← isMsgDataNode j then
+    return ← lowerMsgDataBuffer
   if (← mKind j) == "Conditional" then
     let condNode ← mField j "condition"
     unless (← mType condNode) == "bool" do failAt condNode "conditional condition must be bool"
@@ -6490,6 +6631,85 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   let vals ← lowerCallArgs j receiver?
   pure (fnId, vals)
 
+/-- `I(a).f(args...)` as a whole expression statement, for a `nonpayable` or
+`payable` external function without return values, called without value.
+solc 0.8.34 (via-IR) evaluates the receiver, then the arguments in source order;
+reverts with no data when `extcodesize(a)` is zero; writes the selector and the
+ABI-encoded arguments at the free pointer; emits `call(gas(), a, 0, p, len, p, 0)`;
+forwards a failed call's complete return data as the revert payload; and ignores
+the return data of a successful call. Here the calldata is assembled in a fresh
+allocation (solc writes it above the free pointer without advancing it, so only
+unallocated memory differs) and sent through the closed memory-call transport.
+`decl` is the called function's declaration. -/
+private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := do
+  let names ← mArr (← mField j "names")
+  unless names.isEmpty do failAt j "named call arguments are outside this slice"
+  let callee ← mField j "expression"
+  let params ← mArr (← mField (← mField decl "parameters") "parameters")
+  let args ← mArr (← mField j "arguments")
+  unless args.size == params.size do
+    failAt j "typed interface call argument count differs from its declaration"
+  let some hex := optStr decl "functionSelector"
+    | failAt callee "interface function has no functionSelector"
+  unless hex.length == 8 do
+    failAt callee s!"invalid functionSelector hex length {hex.length}"
+  let mut selector := 0
+  for c in hex.toList do
+    let some digit := Compiler.Hex.hexCharToNat? c
+      | failAt callee "invalid functionSelector hex digit"
+    selector := selector * 16 + digit
+  let base ← mField callee "expression"
+  let receiver ← if (← mKind base) == "FunctionCall" && optStr base "kind" == some "typeConversion" then do
+      let convArgs ← mArr (← mField base "arguments")
+      let #[inner] := convArgs
+        | failAt base "typed interface call receiver must convert exactly one address"
+      let innerTy ← mType inner
+      unless innerTy == "address" || innerTy == "address payable" || innerTy.startsWith "contract " do
+        failAt base "typed interface call receiver must be an interface conversion of an address"
+      pure inner
+    else
+      pure base
+  for operand in #[receiver] ++ args do
+    if statefulCallIn operand (← get) || assignmentIn operand then
+      failAt operand "typed interface call operands require explicit evaluation-order support"
+  let target ← atom (← lowerExpr receiver)
+  let mut pre := target.pre
+  let mut payloadPtr := Expr.literal 0
+  let mut payloadSize := Expr.literal 0
+  unless args.isEmpty do
+    let payload ← lowerAbiEncodeArgs args (some params)
+    let ptr ← atom { pre := payload.pre, expr := payload.pointer }
+    let size ← atom { pre := #[], expr := payload.size }
+    pre := pre ++ ptr.pre ++ size.pre
+    payloadPtr := ptr.expr
+    payloadSize := size.expr
+  -- The selector is the low four bytes of the first word of a word-aligned
+  -- allocation; the payload's words follow it, so the calldata starts at offset 28.
+  let callBase ← fresh
+  let callEnd ← fresh
+  let index ← fresh
+  let dataPtr ← fresh
+  let dataSize ← fresh
+  let words := Expr.div (.add payloadSize (.literal 31)) (.literal 32)
+  modify fun e => { e with encodingMemory := true }
+  pre := pre ++ (AbiEncoding.reserve callBase callEnd
+    (.add (.literal 32) (.mul words (.literal 32)))).toArray
+  pre := pre ++ #[
+    .mstore (.localVar callBase) (.literal selector),
+    .forEach index words [
+      .mstore (.add (.add (.localVar callBase) (.literal 32)) (.mul (.localVar index) (.literal 32)))
+        (.mload (.add payloadPtr (.mul (.localVar index) (.literal 32))))],
+    .letVar dataPtr (.add (.localVar callBase) (.literal 28)),
+    .letVar dataSize (.add payloadSize (.literal 4))]
+  let codeSize ← fresh
+  let success ← fresh
+  return pre ++ #[
+    .ecm (Compiler.ECM.SolidityExtCodeSize.module codeSize) [target.expr],
+    .ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] [],
+    .ecm (Compiler.ECM.YulMemoryCall.module false success)
+      [target.expr, .localVar dataPtr, .localVar dataSize, .literal 0, .literal 0],
+    .ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] []]
+
 /-- `I(a).f(args...)` for a `view` interface function returning a single
 `uint256`, `bytes32` or `bool` over scalar, struct or dynamic `bytes`/`string`
 arguments. solc 0.8.34 (via-IR) ABI-encodes the selector and arguments at the
@@ -6509,6 +6729,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     | failAt callee "unresolved interface function declaration"
   let isStateVarGetter := optStr decl "nodeType" == some "VariableDeclaration"
   let mutability := if isStateVarGetter then some "view" else optStr decl "stateMutability"
+  if (← interfaceVoidCallDecl? j).isSome then
+    failAt j "a typed external call without return values must be a whole expression statement"
   let (params, rawReturnTypes) ← if isStateVarGetter then do
     let (paramSpecs, leafNode) ← publicVarGetterParamTypes (← mField decl "typeName")
     pure (paramSpecs.map Prod.snd, #[← mType leafNode])
@@ -6523,9 +6745,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   let returnTypes := rawReturnTypes.map fun ty =>
     if ty.startsWith "contract " then "address" else ty
   let isNonpayableCallback := !env.stateVars.isEmpty && mutability == some "nonpayable" &&
-    ((!params.isEmpty && (returnTypes == #["uint256"] || returnTypes == #["bytes32"] ||
-      returnTypes == #["bool"] || returnTypes == #["address"])) ||
-     returnTypes.isEmpty)
+    !params.isEmpty && (returnTypes == #["uint256"] || returnTypes == #["bytes32"] ||
+      returnTypes == #["bool"] || returnTypes == #["address"])
   unless isNonpayableCallback || isStateVarGetter do
     unless optStr decl "stateMutability" == some "view" do
       failAt callee "typed interface calls to non-view functions are outside this slice"
@@ -6543,8 +6764,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   unless args.size == params.size do
     failAt j "typed interface staticcall argument count differs from its declaration"
   let isSupportedExtraReturn := env.stateVars.size > 1 &&
-    (returnTypes == #["address"] || returnTypes == #["uint8"] ||
-     (isNonpayableCallback && returnTypes.isEmpty))
+    (returnTypes == #["address"] || returnTypes == #["uint8"])
   let returnType := returnTypes.getD 0 "uint256"
   unless isSupportedExtraReturn do
     unless returnTypes.size == 1 && ["uint256", "bytes32", "bool"].contains returnType do
@@ -6577,27 +6797,6 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       failAt j ("typed interface staticcall must be a whole variable initializer, assignment " ++
         "right-hand side, expression statement, require condition or short-circuit operand of one")
   modify fun e => { e with admittedInterfaceCalls := e.admittedInterfaceCalls.erase callId }
-  if isNonpayableCallback && returnTypes.isEmpty then
-    let target ← atom (← lowerExpr convArgs[0]!)
-    let result ← fresh
-    let mut pre := target.pre
-    let mut callWords : Array Expr := #[]
-    for (param, arg) in params.zip args do
-      if statefulCallIn arg (← get) || assignmentIn arg then
-        failAt j "typed interface staticcall arguments are outside this slice"
-      let pty ← mType param
-      let argTy ← mType arg
-      unless (paramType pty).isSome && !pty.startsWith "enum " do
-        failAt j "typed interface staticcall arguments are outside this slice"
-      checkEncodingScalar arg
-      let word ← atom (← convert pty argTy (← lowerExpr arg) arg)
-      pre := pre ++ word.pre
-      callWords := callWords.push word.expr
-    modify fun env => { env with encodingMemory := true }
-    let callMod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule
-      result selector callWords.size
-    let callPre := pre.push (.ecm callMod (target.expr :: callWords.toList))
-    return { pre := callPre, expr := .localVar result }
   let hasExtendedArg ← if env.stateVars.size > 1 then
     (args.zip paramTypes).anyM fun (arg, ty) => do
       let argTy ← mType arg
@@ -9658,12 +9857,80 @@ private partial def boundedRangePopBounds? (fn sdecl : Json) : M (Option (String
   unless ← isBoundAdvance rest.back! paramId popped idxId fromHigh do return none
   return some (if fromHigh then (other, popped) else (popped, other))
 
+/-- `while (v > X)`, `while (X < v)` or `while (v != 0)` over an unsigned writable local `v`
+whose body contains exactly one top-level `v /= k` or `v = v / k` with a literal `k ≥ 2`, no
+other write to `v`, and no `break`, `continue` or `return`. The step runs on every iteration
+whose condition holds and at least halves `v`, so after `bits` such iterations `v` is `0` and
+the condition is false for every unsigned `X`; an iteration whose condition fails changes
+nothing, so the condition stays false. `bits` guarded iterations are the source loop. `none`
+when the loop has no such step. -/
+private partial def lowerDivisionWhile? (s cond : Json) (lowerBody : Json → M (Array Stmt)) :
+    M (Option (Array Stmt)) := do
+  unless (← mKind cond) == "BinaryOperation" do return none
+  let condOp ← mStr (← mField cond "operator")
+  let condLhs ← stripParens (← mField cond "leftExpression")
+  let condRhs ← stripParens (← mField cond "rightExpression")
+  let varNode? ←
+    if condOp == ">" then pure (some condLhs)
+    else if condOp == "<" then pure (some condRhs)
+    else if condOp == "!=" && (← isZeroLiteral condRhs) then pure (some condLhs)
+    else if condOp == "!=" && (← isZeroLiteral condLhs) then pure (some condRhs)
+    else pure none
+  let some varNode := varNode? | return none
+  unless (← mKind varNode) == "Identifier" do return none
+  let varRef ← refInt varNode
+  unless varRef ≥ 0 do return none
+  let varId := varRef.toNat
+  unless ((← get).writableLocals.find? varId).isSome do return none
+  let varTy ← mType varNode
+  let some bits := bitsOf varTy | return none
+  unless varTy.startsWith "uint" && bits > 0 && bits ≤ 256 do return none
+  let body ← mField s "body"
+  let bodyStmts ← unwrapLoopBodyStmts body
+  let isStep (st : Json) : M Bool := do
+    unless (← mKind st) == "ExpressionStatement" do return false
+    let e ← mField st "expression"
+    unless (← mKind e) == "Assignment" do return false
+    unless ← isIdentId (← mField e "leftHandSide") varId do return false
+    let op ← mStr (← mField e "operator")
+    let rhs ← mField e "rightHandSide"
+    if op == "/=" then return ← isDivisorConstGe2 rhs
+    unless op == "=" do return false
+    let r ← stripUintCast rhs bits
+    unless (← mKind r) == "BinaryOperation" && optStr r "operator" == some "/" do return false
+    return (← isIdentId (← mField r "leftExpression") varId) &&
+      (← isDivisorConstGe2 (← mField r "rightExpression"))
+  let steps ← bodyStmts.filterM isStep
+  unless steps.size == 1 do return none
+  if ← listContainsReturn bodyStmts then
+    failAt s "return inside a while loop is unsupported"
+  for st in bodyStmts do
+    if ← stmtContainsBreakOrContinue st then
+      failAt st "break or continue inside a dividing while loop is unsupported"
+    if !(← isStep st) && (bodyAssignedIds st).contains varId then
+      failAt st "a dividing while loop variable may only be updated by its division step"
+  let condVal ← lowerExpr cond
+  unless condVal.pre.isEmpty do
+    failAt cond "while loop condition must be a pure scalar comparison"
+  let loopVar ← fresh
+  let saved ← get
+  let bodyOut ← lowerBody body
+  let loopWrites := bodyAssignedIds body
+  modify fun e =>
+    { e with values := saved.values, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+  return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
+
 /-- Exact bounded while-loop lowering for:
     1. unsigned bit-clearing (`msb` + `clearBit` or `v &= v - 1`) and positive constant right-shift (`v >>= k`)
     2. binary-search `while (low < high)` / `while (high > low)` / `while (low != high)` (with `low == 0` at entry)
        loops where `mid = average(low, high)` and one branch sets `high = mid` while the other sets `low = mid + 1`
     3. `while (true)` do-while style loops (`Strings.toString`) where the penult statement divides an unsigned local `v`
-       by a constant `d ≥ 2` (or right-shifts by `k ≥ 1`) and the final statement is `if (v == 0) break;`. -/
+       by a constant `d ≥ 2` (or right-shifts by `k ≥ 1`) and the final statement is `if (v == 0) break;`
+    4. `while (v > X)` / `while (X < v)` / `while (v != 0)` loops that divide `v` by a constant
+       `d ≥ 2` once per iteration (`lowerDivisionWhile?`). -/
 private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
   let cond ← mField s "condition"
   if (← mKind cond) == "Literal" && optStr cond "kind" == some "bool" && optStr cond "value" == some "true" then
@@ -9784,6 +10051,8 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
     ]
   unless (← mKind cond) == "BinaryOperation" do
     failAt cond "a while loop condition must compare a loop variable against zero"
+  if let some stmts ← lowerDivisionWhile? s cond lowerBody then
+    return stmts
   let condOp ← mStr (← mField cond "operator")
   let condLhs ← stripParens (← mField cond "leftExpression")
   let condRhs ← stripParens (← mField cond "rightExpression")
@@ -10940,6 +11209,8 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
         failAt target "cannot delete struct with dynamic-array members"
       unless rawInfo.subStructs.isEmpty do
         failAt target "cannot delete struct with nested struct members"
+      unless rawInfo.opaqueMemberNames.isEmpty do
+        failAt target "cannot delete struct with opaque members"
       unless rawInfo.wordCount > 0 && !rawInfo.scalars.isEmpty do
         failAt target "cannot delete empty struct layout"
       modify fun e => { e with usedRawStorage := true }
@@ -10948,7 +11219,8 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
         out := out.push (.setStorageArrayElement rawStorageFieldName (rawStructMemberSlot baseSlot w) (.literal 0))
       return out
     unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty &&
-        rawInfo.subStructs.isEmpty && !rawInfo.scalars.isEmpty do
+        rawInfo.subStructs.isEmpty && rawInfo.opaqueMemberNames.isEmpty &&
+        !rawInfo.scalars.isEmpty do
       failAt target "whole struct storage assignment requires a scalar-member struct layout"
     let (targetSid, sDecl) ← resolveStructDeclFromType target
     unless targetSid == rawSid do
@@ -11054,6 +11326,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     if isLibraryDelegateCall callee then
       failAt callee "external library calls are outside this slice"
     if ← isInterfaceExternalCall expression then
+      if let some decl ← interfaceVoidCallDecl? expression then
+        return ← lowerInterfaceVoidCall expression decl
       return (← lowerInterfaceStaticCall expression).pre
     if (← mKind callee) == "Identifier" && optStr callee "name" == some "_callOptionalReturn" then
       let callRef ← refInt callee
@@ -12432,11 +12706,15 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
     let ty ← mType parameter
     discard (validateEnumTypeIfNeeded parameter ty)
     let multiSlot := (← get).stateVars.size > 1
-    let some rawModelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
-    let modelType := match rawModelType with
-      | .int256 | .intN _ => if multiSlot then .uint256 else rawModelType
-      | _ => rawModelType
-    unless (Denote.errorScalarType modelType).isSome || modelType == .bytesN 4 || modelType == .bytesN 1 do
+    let some modelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
+    -- Signed parameters keep their type: it names them in the event signature (topic 0),
+    -- and the ABI word is the sign-extended value.
+    let signedScalar := match modelType with
+      | .int256 => true
+      | .intN bits => 0 < bits && bits < 256 && bits % 8 == 0
+      | _ => false
+    unless (Denote.errorScalarType modelType).isSome || modelType == .bytesN 4 ||
+        modelType == .bytesN 1 || signedScalar do
       failAt parameter s!"unsupported event parameter type {ty}"
     let indexed ← mBool (← mField parameter "indexed")
     let parameterName ← mStr (← mField parameter "name")
@@ -13687,16 +13965,90 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
       return false
   | _ => return false
 
+/-! ### Immutables without an inline initializer
+
+Such an immutable is fixed when the contract is deployed. If the chain's constructors assign
+it exactly once, as a top-level statement, to `address(this)`, it is the executing contract's
+address for code that runs at its own address, and reads lower to `Expr.contractAddress`. Any
+other such immutable is a fixed value the source does not determine: reads lower to
+`Expr.immutable name`, and the model declares it with a synthesized constructor that takes it
+as an argument, so deployment and proofs supply it explicitly. -/
+
+/-- Every assignment to the state variable `svId` in `j`. -/
+private partial def stateVarAssignments (svId : Nat) : Json → Array Json
+  | j@(.obj kvs) =>
+      let here :=
+        if optStr j "nodeType" == some "Assignment" &&
+            ((field? j "leftHandSide").bind (field? · "referencedDeclaration")
+              |>.bind (·.getNat?.toOption)) == some svId then #[j] else #[]
+      kvs.foldl (fun acc _ v => acc ++ stateVarAssignments svId v) here
+  | .arr items => items.foldl (fun acc v => acc ++ stateVarAssignments svId v) #[]
+  | _ => #[]
+
+/-- `address(this)`, as solc types it. -/
+private def isAddressOfThis (j : Json) : Bool :=
+  let typeString (n : Json) := (field? n "typeDescriptions").bind (optStr · "typeString")
+  let thisArg := match field? j "arguments" with
+    | some (.arr #[arg]) =>
+        optStr arg "nodeType" == some "Identifier" && optStr arg "name" == some "this" &&
+          ((typeString arg).map (·.startsWith "contract ")).getD false
+    | _ => false
+  optStr j "nodeType" == some "FunctionCall" && optStr j "kind" == some "typeConversion" &&
+    typeString j == some "address" && thisArg
+
+/-- Whether `constructors` assign `svId` exactly once, as a top-level statement of a
+constructor body, to `address(this)`. -/
+private def assignedSelfAddressOnce (constructors : Array Json) (svId : Nat) : Bool :=
+  let noModifiers := constructors.all fun c =>
+    match field? c "modifiers" with
+    | some (.arr mods) => mods.isEmpty
+    | _ => true
+  let all := constructors.foldl (fun acc c => acc ++ stateVarAssignments svId c) #[]
+  let topLevel := constructors.foldl (fun acc c =>
+    match (field? c "body").bind (field? · "statements") with
+    | some (.arr stmts) => acc ++ stmts.filterMap fun s =>
+        if optStr s "nodeType" == some "ExpressionStatement" then field? s "expression" else none
+    | _ => acc) #[]
+  match all with
+  | #[a] =>
+      noModifiers &&
+        optStr a "operator" == some "=" &&
+        topLevel.any (fun e => field? e "id" == field? a "id") &&
+        ((field? a "rightHandSide").map isAddressOfThis).getD false
+  | _ => false
+
+/-- The constructors of the target contract's C3 chain. -/
+private def chainConstructors : M (Array Json) := do
+  let env ← get
+  let mut out := #[]
+  for cid in env.linearizedBases do
+    for n in env.contractNodes.find? cid |>.getD #[] do
+      if optStr n "nodeType" == some "FunctionDefinition" && optStr n "kind" == some "constructor" then
+        out := out.push n
+  return out
+
+/-- Address immutables of the chain without an inline initializer, in declaration order,
+with whether each keeps the `address(this)` binding. -/
+private def chainAddressImmutables : M (Array (Nat × String × Bool)) := do
+  let env ← get
+  let ctors ← chainConstructors
+  let mut out := #[]
+  for (svId, svDecl) in env.stateVars.toList do
+    let scope := (field? svDecl "scope").bind (·.getNat?.toOption)
+    if optStr svDecl "mutability" == some "immutable" &&
+        ((field? svDecl "value").filter (!·.isNull)).isNone &&
+        (scope.map env.linearizedBases.contains).getD false &&
+        (← mType svDecl) == "address" then
+      out := out.push (svId, ← mStr (← mField svDecl "name"), assignedSelfAddressOnce ctors svId)
+  return out.qsort (fun a b => a.1 < b.1)
+
 private def bindRoot (fn : Json) : M (Array SrcParam) := do
   noteFn fn
-  if (← get).stateVars.size > 1 then
-    for (svId, svDecl) in (← get).stateVars.toList do
-      if optStr svDecl "mutability" == some "immutable" &&
-          ((field? svDecl "value").filter (!·.isNull)).isNone &&
-          (← mType svDecl) == "address" then
-        modify fun e =>
-          { e with values := e.values.insert svId .contractAddress,
-                   scalarTy := e.scalarTy.insert svId .address }
+  for (svId, name, selfAddress) in ← chainAddressImmutables do
+    let value := if selfAddress then Expr.contractAddress else Expr.immutable name
+    modify fun e =>
+      { e with values := e.values.insert svId value,
+               scalarTy := e.scalarTy.insert svId .address }
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   let mut out : Array SrcParam := #[]
   for p in params do
@@ -13704,9 +14056,14 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
     if rawName.startsWith "_verity_memret_" then
       failAt p s!"parameter name {rawName} uses reserved _verity_memret_ prefix"
     let id ← mNat (← mField p "id")
-    let name ← if rawName == "" then fresh else do
-      modify fun e => { e with bound := rawName :: e.bound }
-      pure rawName
+    -- A Solidity name that is a Yul keyword or builtin (`caller`, `origin`, …) cannot
+    -- name a compiled Yul variable; it takes `freshFor`'s first free suffixed name.
+    let name ← if rawName == "" then fresh
+      else if yulKeywords.contains rawName ||
+          (Verity.Core.Intrinsics.yulBuiltinArity? rawName).isSome then freshFor rawName
+      else do
+        modify fun e => { e with bound := rawName :: e.bound }
+        pure rawName
     let ty ← mType p
     let loc := optStr p "storageLocation" |>.getD "default"
     out := out.push { name, id }
@@ -14332,7 +14689,8 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
     let k0 := paramExprs.getD 0 (.literal 0)
     if let some elemSid := info.dynamicArrayStructId then
       let rawInfo ← resolveRawStructInfo elemSid varDecl
-      unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty do
+      unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty &&
+          rawInfo.subStructs.isEmpty && rawInfo.opaqueMemberNames.isEmpty do
         failAt varDecl s!"public struct array getter for {name} with nested or non-scalar members is outside this slice"
       let (elemPre, elemPath) ← storageDynamicStructElementPath #[] name (.literal info.slot) elemSid k0 varDecl .revertEmpty
       let (pre, retExprs, retTypes) ← readPublicStructGetterMembers elemPath elemPre
@@ -14458,7 +14816,8 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       let some mapInfo := info.thirdKeyMapping | failAt varDecl "missing 3-key mapping info"
       if let some valSid := mapInfo.valueStructId then
         let rawInfo ← resolveRawStructInfo valSid varDecl
-        unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty do
+        unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty &&
+            rawInfo.subStructs.isEmpty && rawInfo.opaqueMemberNames.isEmpty do
           failAt varDecl s!"public 3-key mapping struct getter for {name} with nested or non-scalar members is outside this slice"
         markField name
         markStructMapping name mapInfo.member
@@ -14642,6 +15001,63 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     else
       failAt fn "an explicit root return is required"
   pure (out, srcParams)
+
+/-! ### Named call arguments in declaration order
+
+A call `f({a: x, b: y})` whose names are the referenced declaration's parameters in their
+declared order is the positional call `f(x, y)`: Solidity evaluates the arguments in source
+order and binds them by name, and here both orders coincide. An attached (`using for`) call
+names every parameter but the receiver, so its names are the parameters after the first.
+Calls whose names follow any other order keep their located rejection: the legacy and
+via-IR code generators evaluate such arguments in different orders, and the importer does
+not choose one. The rewrite only clears `names`; every node keeps its `id` and `src`. -/
+
+/-- Parameter names of every function, event and error declaration, and member names of
+every struct, keyed by AST id, across all source units. -/
+private partial def declaredArgumentNames (acc : Std.HashMap Nat (Array String)) :
+    Json → Std.HashMap Nat (Array String)
+  | j@(.obj kvs) =>
+      let names (list? : Option Json) : Option (Array String) := do
+        let .arr items ← list? | none
+        items.mapM (optStr · "name")
+      let id? := (field? j "id").bind (·.getNat?.toOption)
+      let declared? := match optStr j "nodeType" with
+        | some "StructDefinition" => names (field? j "members")
+        | some "FunctionDefinition" | some "EventDefinition" | some "ErrorDefinition" =>
+            names ((field? j "parameters").bind (field? · "parameters"))
+        | _ => none
+      let acc := match id?, declared? with
+        | some id, some ns => acc.insert id ns
+        | _, _ => acc
+      kvs.foldl (fun acc _ v => declaredArgumentNames acc v) acc
+  | .arr items => items.foldl declaredArgumentNames acc
+  | _ => acc
+
+/-- Whether `written` names the trailing parameters of `declared`, in declared order: all
+of them for an ordinary call, all but the receiver for an attached call. -/
+def namedArgumentsInDeclaredOrder (declared written : Array String) : Bool :=
+  !written.isEmpty && written.size ≤ declared.size &&
+    written == declared.extract (declared.size - written.size) declared.size
+
+/-- Clears `names` on every call whose named arguments are in declaration order. -/
+private partial def positionalNamedArguments (declared : Std.HashMap Nat (Array String)) :
+    Json → Json
+  | .obj kvs =>
+      let j := Json.mkObj (kvs.toList.map fun (k, v) => (k, positionalNamedArguments declared v))
+      if optStr j "nodeType" != some "FunctionCall" then j
+      else
+        let written? : Option (Array String) := do
+          let .arr ns ← field? j "names" | none
+          ns.mapM (·.getStr?.toOption)
+        let target? := ((field? j "expression").bind (field? · "referencedDeclaration")
+          |>.bind (·.getNat?.toOption)).bind declared.get?
+        match written?, target? with
+        | some written, some params =>
+            if namedArgumentsInDeclaredOrder params written then j.setObjVal! "names" (.arr #[])
+            else j
+        | _, _ => j
+  | .arr items => .arr (items.map (positionalNamedArguments declared))
+  | other => other
 
 private partial def index (file : String) (contract? : Option (Nat × String)) (j : Json) : M Unit := do
   match j with
@@ -15065,10 +15481,14 @@ private def importSlice
   for (logical, _) in sourceUnits do
     unless sources.contains logical do
       throwError "solc loaded uncollected source {logical}"
+  let mut asts : Array (String × Json) := #[]
   for (logical, _) in sources do
     let unit ← field sourcesOut logical
-    let ast ← field unit "ast"
-    ((), env) ← (index logical none ast).run env
+    asts := asts.push (logical, ← field unit "ast")
+  -- Named arguments in declaration order become positional before any lowering sees them.
+  let declared := asts.foldl (fun acc (_, ast) => declaredArgumentNames acc ast) {}
+  for (logical, ast) in asts do
+    ((), env) ← (index logical none (positionalNamedArguments declared ast)).run env
   let targetContractIds := env.contractNames.toList.filterMap fun (cid, cname) =>
     if env.nodeFile.find? cid == some entry && cname == contract then some cid else none
   let [targetContractId] := targetContractIds
@@ -15377,8 +15797,15 @@ private def importSlice
       sortedFields.push { name := rawStorageFieldName, ty := .uint256, slot := some (maxSlot + 1000) }
     else
       sortedFields
+  -- Unknown immutables become constructor arguments of the model, in declaration order.
+  let unknownImmutables := ((← (chainAddressImmutables.run' env)).filter (!·.2.2)).map (·.2.1)
+  let immutables : List ImmutableSpec := unknownImmutables.toList.zipIdx.map fun (name, i) =>
+    { name, ty := .address, init := .constructorArg i }
+  let ctor : Option ConstructorSpec := if immutables.isEmpty then none else
+    some { params := immutables.map fun imm => { name := imm.name, ty := .address },
+           body := immutables.map fun imm => Stmt.setImmutable imm.name imm.init }
   let model : CompilationModel :=
-    { name := contract, constructor := none, fields := sortedFields.toList,
+    { name := contract, constructor := ctor, immutables, fields := sortedFields.toList,
       errors := env.usedErrors, events := env.usedEvents.map Prod.snd, functions := specs.toList }
   let mut excluded : Array FnRec := #[]
   for (id, decl) in env.funs do
@@ -15621,14 +16048,17 @@ def elabSolidityImport : CommandElab := fun stx => do
       importSlice pkg project entry.getString (contract.getId.toString (escape := false)) roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    -- The quoted model is one deep term. A larger enclosing `maxRecDepth` (a model of many
+    -- roots) takes precedence over this floor.
+    let depth := Syntax.mkNumLit (toString (max 16384 (maxRecDepth.get (← getOptions))))
+    elabCommand (← `(set_option maxRecDepth $depth in
       def $(name `model) : Compiler.CompilationModel.CompilationModel :=
         $(← quoteModel model)))
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    elabCommand (← `(set_option maxRecDepth $depth in
       def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
         $(← quoteReport report)))
     elabCommand (← `(def $(name `sourceDigest) : String := $(quote report.sourceDigest)))
-    elabCommand (← `(set_option maxRecDepth 16384 in
+    elabCommand (← `(set_option maxRecDepth $depth in
       theorem $(name `covered) :
         Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
     for fn in model.functions do

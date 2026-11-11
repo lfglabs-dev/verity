@@ -34,14 +34,28 @@ def record (world : Verity.ContractState) (account : Nat) (calldata : Bytes) :
 empty success and touch nothing. -/
 def respond (accounts : List Nat) (request : Request) (world : Verity.ContractState) :
     Response Verity.ContractState Verity.StorageKey :=
-  if request.kind != .call || request.value != 0 then .revert [] []
+  if request.value != 0 then .revert [] []
   else if accounts.contains request.target then
+    -- A responder's fallback writes storage, which a `staticcall` forbids: the call fails.
+    if request.kind != .call then .revert [] [] else
     let slot := fun index => (world.storageWords (.contractSlot request.target index)).val
     let touched := (List.range 9).map (Verity.StorageKey.contractSlot request.target)
     let data := responseBytes (slot 0) (slot 2)
     if slot 1 % 256 != 0 then .revert data touched
     else .success (record world request.target request.calldata) data touched
   else .success world [] []
+
+/-- A `staticcall` reverts at a responder and succeeds without effect elsewhere. -/
+theorem respond_staticcall_valid (accounts : List Nat) (request : Request)
+    (world : Verity.ContractState) (hstatic : request.kind = .staticcall) :
+    Response.valid request world (respond accounts request world) := by
+  unfold respond
+  by_cases hvalue : (request.value != 0) = true
+  · simp [hvalue, Response.valid]
+  · by_cases haccount : request.target ∈ accounts
+    · simp [hvalue, haccount, hstatic, Response.valid,
+        show (Kind.staticcall != Kind.call) = true from rfl]
+    · simp [hvalue, haccount, Response.valid]
 
 def environment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := []) :
     ByteCallEnvironment :=
@@ -50,7 +64,7 @@ def environment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := [
       { respond := respond accounts
         -- The counter never overflows within a campaign; its wrap is outside the domain.
         accepts := fun request world =>
-          request.kind == .call && request.value == 0 &&
+          (request.kind == .call || request.kind == .staticcall) && request.value == 0 &&
           request.target != world.thisAddress.val && !reservedPrecompile request.target &&
           (emptyAccounts.contains request.target ||
             (accounts.contains request.target &&
@@ -58,10 +72,7 @@ def environment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := [
         valid := by
           intro request world
           by_cases hstatic : request.kind = .staticcall
-          · have hrevert : respond accounts request world = .revert [] [] := by
-              simp [respond, hstatic, show (Kind.staticcall != Kind.call) = true from rfl]
-            rw [hrevert]
-            trivial
+          · exact respond_staticcall_valid accounts request world hstatic
           · cases respond accounts request world <;> simp [Response.valid, hstatic] } }
 
 private def decimal (value : Lean.Json) : Except String Nat := do

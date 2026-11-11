@@ -13,18 +13,22 @@ def isTransientKey : Verity.StorageKey → Bool
   | .scoped _ key => isTransientKey key
   | _ => false
 
-/-- Start a fresh top-level frame while preserving persistent world state.
-The caller supplies the explicit transaction environment in `world` first.
-Value transfers, dispatch and ABI decoding are separate adapter obligations. -/
-def beginTransaction (world : Verity.ContractState) : Verity.ContractState :=
-  let fresh := world.withStorageWords fun key =>
-    if isTransientKey key then 0 else world.storageWords key
-  { fresh with
+/-- Start a fresh call frame within the current transaction while preserving both
+persistent world state and transaction-scoped transient storage (EIP-1153). -/
+def beginFrame (world : Verity.ContractState) : Verity.ContractState :=
+  { world with
     memory := fun _ => 0
     byteMemory := DenoteMemory.Memory.empty
     returndata := []
     events := []
     calls := [] }
+
+/-- Start a fresh top-level frame while preserving persistent world state.
+The caller supplies the explicit transaction environment in `world` first.
+Value transfers, dispatch and ABI decoding are separate adapter obligations. -/
+def beginTransaction (world : Verity.ContractState) : Verity.ContractState :=
+  beginFrame (world.withStorageWords fun key =>
+    if isTransientKey key then 0 else world.storageWords key)
 
 structure FrameResult where
   success : Bool
@@ -46,15 +50,36 @@ def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String
   | .revertWithData bytes => .ok ⟨false, bytes, initial⟩
 
 /-- Execute a body through Denote, after installing fresh frame-local state.
-This function is a frame runner, not yet a full ABI/dispatch transaction runner. -/
+This function is a frame runner, not yet a full ABI/dispatch transaction runner.
+`immutables` are the deployed contract's immutable values: fixed at deployment, so a caller
+that runs several transactions passes the same function to each. -/
 def executeBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
-    (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {}) :
+    (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {})
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) :
     Except String FrameResult :=
   let initial := beginTransaction world
   finishFrame initial (execStmtList oracle fields
-    { world := initial, bindings, errors,
+    { world := initial, bindings, errors, immutable := immutables,
       byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body)
+
+/-- Execute a nested call frame through Denote, preserving transaction-scoped
+transient storage across internal/reentrant frames within the same transaction. -/
+def executeFrameBody (oracle : DenoteOracle) (fields : List Field)
+    (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
+    (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {})
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) :
+    Except String FrameResult :=
+  let initial := beginFrame world
+  finishFrame initial (execStmtList oracle fields
+    { world := initial, bindings, errors, immutable := immutables,
+      byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body)
+
+@[simp] theorem beginFrame_storageWords (world : Verity.ContractState) (key : Verity.StorageKey) :
+    (beginFrame world).storageWords key = world.storageWords key := rfl
+
+@[simp] theorem beginFrame_accounts (world : Verity.ContractState) :
+    (beginFrame world).accountWorld = world.accountWorld := rfl
 
 @[simp] theorem beginTransaction_storage (world : Verity.ContractState) (slot : Nat) :
     (beginTransaction world).storageWords (.slot slot) = world.storageWords (.slot slot) := rfl

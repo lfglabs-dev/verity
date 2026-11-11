@@ -45,6 +45,8 @@ def exprCovered : Expr → Bool
   | .localVar _ => true
   | .blockTimestamp => true
   | .blockNumber | .chainid | .caller | .contractAddress | .msgValue | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
+  | .immutable _ => true
+  | .returndataSize => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .storageArrayElement _ index => exprCovered index
@@ -185,6 +187,9 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
         exprListCovered args
   | some .returnMemory =>
       mod == Compiler.ECM.SolidityReturnMemory.module && args.length == 2 && exprListCovered args
+  | some (.yulMemoryCall isStatic resultVar) =>
+      mod == Compiler.ECM.YulMemoryCall.module isStatic resultVar && args.length == 5 &&
+        exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -449,6 +454,14 @@ theorem execStmt_ecm_callBytesBool_arm (oracle : DenoteOracle) (fields : List Fi
 
 /-- The closed code-length arm reads the account world; an instrumentation error
 is a payload-free `.revert`. -/
+theorem execStmt_ecm_yulMemoryCall_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (isStatic : Bool) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.YulMemoryCall.module isStatic resultVar) args) =
+      (match executeByteYulMemoryCall oracle fields state
+          (Compiler.ECM.YulMemoryCall.module isStatic resultVar) isStatic resultVar args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
 theorem execStmt_ecm_extCodeSize_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (resultVar : String) (args : List Expr) :
     execStmt oracle fields state (.ecm (Compiler.ECM.SolidityExtCodeSize.module resultVar) args) =
@@ -604,6 +617,15 @@ theorem evalExpr_caller_arm (oracle : DenoteOracle) (fields : List Field)
 theorem evalExpr_contractAddress_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) :
     evalExpr oracle fields s .contractAddress = some s.world.thisAddress.val := rfl
+
+theorem evalExpr_returndataSize_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .returndataSize =
+      some (s.rawReturndata.map List.length |>.getD s.world.returndataSize) := rfl
+
+theorem evalExpr_immutable_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (name : String) :
+    evalExpr oracle fields s (.immutable name) = some (s.immutable name).val := rfl
 
 theorem evalExpr_selfBalance_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) :

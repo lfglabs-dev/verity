@@ -427,7 +427,7 @@ def convertStructCalldataToMemory (descriptor : MemParam) (at_ : Json) :
   failAt at_ "struct reference has no supported complete ABI schema"
 
 def isAtom : Expr → Bool
-  | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
+  | .literal _ | .localVar _ | .param _ | .immutable _ | .blockTimestamp | .blockNumber
   | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | _ => false
 
@@ -589,7 +589,7 @@ mutual
 end
 
 def isOrderIndependentSibling : Expr → Bool
-  | .literal _ | .param _ | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .blockTimestamp | .blockNumber
   | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | _ => false
 

@@ -8497,6 +8497,10 @@ Compiler.CompilationModel.SolidityImport.evalExpr_structMember_param
 -- Compiler/SolidityImport/AdversarialEntryPointInvariants.lean
 Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_adversarial_entry_points
 Compiler.CompilationModel.SolidityImport.Transactions.adversarial_sequence_append
+Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_callee_entry_points
+Compiler.CompilationModel.SolidityImport.Transactions.callee_sequence_append
+Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_callee_frame_entry_points
+Compiler.CompilationModel.SolidityImport.Transactions.reentrant_answer_preserves
 
 -- Compiler/SolidityImport/AstIndex.lean
 Compiler.CompilationModel.SolidityImport.AstNodeIndex.empty_findById?
@@ -8543,6 +8547,7 @@ Compiler.CompilationModel.SolidityImport.execStmt_ecm_log_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_optionalBoolCall_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_callBytesUint256_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_callBytesBool_arm
+Compiler.CompilationModel.SolidityImport.execStmt_ecm_yulMemoryCall_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_extCodeSize_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_extCodeCopy_arm
 Compiler.CompilationModel.SolidityImport.execStmt_ecm_returnMemory_arm
@@ -8563,6 +8568,8 @@ Compiler.CompilationModel.SolidityImport.evalExpr_blockNumber_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_chainid_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_caller_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_contractAddress_arm
+Compiler.CompilationModel.SolidityImport.evalExpr_returndataSize_arm
+Compiler.CompilationModel.SolidityImport.evalExpr_immutable_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_selfBalance_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_txOrigin_arm
 Compiler.CompilationModel.SolidityImport.evalExpr_baseFee_arm
@@ -8607,7 +8614,10 @@ Compiler.CompilationModel.SolidityImport.execStmtList_slice_storageWords
 -- Compiler/SolidityImport/EntryPointInvariants.lean
 Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_failed_world
 Compiler.CompilationModel.SolidityImport.Transactions.executeBody_failed_world
+Compiler.CompilationModel.SolidityImport.Transactions.executeFrameBody_failed_world
 Compiler.CompilationModel.SolidityImport.Transactions.all_entry_points_preserve_of_success
+Compiler.CompilationModel.SolidityImport.Transactions.all_entry_points_preserve_with_of_success
+Compiler.CompilationModel.SolidityImport.Transactions.all_entry_points_preserve_frame_with_of_success
 Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_all_entry_points
 Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_contextual_entry_points
 
@@ -8736,6 +8746,8 @@ Compiler.CompilationModel.SolidityImport.SymbolicExecution.prefix_continue
 Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
 
 -- Compiler/SolidityImport/Transactions.lean
+Compiler.CompilationModel.SolidityImport.Transactions.beginFrame_storageWords
+Compiler.CompilationModel.SolidityImport.Transactions.beginFrame_accounts
 Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_storage
 Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_accounts
 Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_revert_accounts
@@ -12071,4 +12083,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11238 theorems/lemmas (8739 public, 2499 private, 0 sorry'd)
+-- Total: 11250 theorems/lemmas (8751 public, 2499 private, 0 sorry'd)

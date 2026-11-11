@@ -1667,6 +1667,44 @@ def executeByteExtCodeSize (oracle : DenoteOracle) (fields : List Field)
   let size := DenoteExternalCode.extCodeSize state.world (Verity.Core.Address.ofNat target)
   return .continue { state with bindings := bindValue state.bindings resultVar size }
 
+/-- Byte ranges a Yul memory call may name. Wider ranges exhaust any gas allowance in
+memory expansion, so the call is an exceptional halt with empty return data. -/
+def yulMemoryCallRangeLimit : Nat := 2 ^ 32
+
+/-- Inline-assembly `call` / `staticcall` over physical memory. The calldata is the
+`[inOffset, inOffset + inSize)` bytes, the gas is the call boundary's allowance, and the value
+is zero. As on the EVM, the first `min(outSize, returndatasize)` bytes of the returned or
+revert data are copied to `outOffset` whether or not the call succeeds, the return-data buffer
+is replaced, and the frame continues with `resultVar` bound to `1` or `0`. -/
+def executeByteYulMemoryCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (isStatic : Bool)
+    (resultVar : String) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.YulMemoryCall.module isStatic resultVar do
+    throw "closed Yul memory call metadata differs"
+  let some adversary := state.byteCallAdversary | throw "Yul memory call adversary missing"
+  let some gas := state.byteCallGas | throw "byte call gas environment missing"
+  let some [target, inOffset, inSize, outOffset, outSize] :=
+      evalExprList oracle fields state args
+    | throw "Yul memory call argument evaluation unsupported"
+  if (inSize != 0 && yulMemoryCallRangeLimit < inOffset + inSize) ||
+      (outSize != 0 && yulMemoryCallRangeLimit < outOffset + outSize) then
+    return (.revertWithData [], [])
+  let request : ByteExternalCall.Request :=
+    { kind := if isStatic then .staticcall else .call,
+      caller := state.world.thisAddress.val, target := target % 2^160, value := 0, gas,
+      calldata := (List.range inSize).map fun index =>
+        UInt8.ofNat (state.world.physicalByte (inOffset + index)).val }
+  let observed ← ByteExternalCall.executeChecked adversary request state.world
+  let copied := Nat.min outSize observed.returndata.length
+  let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+    outOffset 0 copied
+  return (.continue { state with
+    world
+    bindings := bindValue state.bindings resultVar (if observed.success then 1 else 0)
+    rawReturndata := Option.some observed.returndata
+    byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
 /-- The closed `<address>.code` transport, as solc's `external_code_at`: the
 runtime code of the account world (`DenoteExternalCode.accountCode`, target taken
 modulo `2^160`) is copied into a fresh `bytes memory` allocation at the free
@@ -2173,6 +2211,10 @@ mutual
             match executeByteReturnMemory oracle fields state mod args with
             | .ok outcome => outcome
             | .error _ => .revert
+        | some (.yulMemoryCall isStatic resultVar) =>
+            match executeByteYulMemoryCall oracle fields state mod isStatic resultVar args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
         | none =>
             match evalExprList oracle fields state args with
             | some _ =>
@@ -2341,7 +2383,8 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
     (externalCallSucceeded : Nat → Bool := fun _ => false)
     (externalCallReturnValues : Nat → List Nat := fun _ => [])
     (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none)
-    (byteCalls : ByteCallEnvironment := {}) : DenoteResult :=
+    (byteCalls : ByteCallEnvironment := {})
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
@@ -2349,7 +2392,7 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
   | some bindings =>
       match execStmtList oracle fields
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
-            errors := spec.errors,
+            errors := spec.errors, immutable := immutables,
             externalCallSucceeded := externalCallSucceeded,
             externalCallReturnValues := externalCallReturnValues,
             externalCallPostWorld := externalCallPostWorld,
