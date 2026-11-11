@@ -16,12 +16,16 @@ lean_prefix="${LEAN_SYSROOT:-$(lean --print-prefix)}"
 lean_clang="${lean_prefix}/bin/clang"
 
 if $is_compile; then
-  exec ccache clang -fuse-ld=lld "$@"
+  if command -v ccache >/dev/null 2>&1; then
+    exec ccache "$lean_clang" -isystem "$lean_prefix/include/clang" -B "$lean_prefix/bin" "$@"
+  else
+    exec "$lean_clang" -isystem "$lean_prefix/include/clang" -B "$lean_prefix/bin" "$@"
+  fi
 else
   # Use the compiler shipped with Lean: its libc++ ABI matches the distributed
   # Lean 4.31 runtime archives, unlike an independently installed host clang.
   # Link libunwind statically so packaged binaries do not retain the builder's
   # absolute Lean prefix in DT_RUNPATH.
-  exec "$lean_clang" -fuse-ld=lld -L "$lean_prefix/lib" \
+  exec "$lean_clang" -B "$lean_prefix/bin" -fuse-ld=lld -L "$lean_prefix/lib" \
     "$@" "$lean_prefix/lib/libunwind.a"
 fi
