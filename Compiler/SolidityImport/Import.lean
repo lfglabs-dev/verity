@@ -11328,7 +11328,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
         field? expression "rightHandSide"
       else none
     else some expression
-  withAdmittedInterfaceCall admitted (lowerEffectCore statement)
+  recoverAt statement #[] (withAdmittedInterfaceCall admitted (lowerEffectCore statement))
 
 private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
   let assignedHere := bodyAssignedIds statement
@@ -12705,7 +12705,10 @@ private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
   let (pre, name, values) ← lowerErrorArguments call
   return pre.push (.requireError (.literal 0) name values)
 
-private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
+private partial def lowerEmit (statement : Json) : M (Array Stmt) :=
+  recoverAt statement #[] (lowerEmitCore statement)
+
+private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "eventCall"
   unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
     failAt call "event must be a resolved declaration call"
@@ -13043,7 +13046,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   let single := match field? s "declarations" with
     | some (.arr declarations) => declarations.size == 1
     | _ => false
-  withAdmittedInterfaceCall (if single then field? s "initialValue" else none) (lowerLocalCore s)
+  recoverAt s #[] <|
+    withAdmittedInterfaceCall (if single then field? s "initialValue" else none) (lowerLocalCore s)
 
 private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
   let assignedHere := bodyAssignedIds s
@@ -14225,137 +14229,241 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
       consumed := consumed - 1
       continue
     let stmtIsTail := isTail && idx + 1 == stmts.size
-    if returned then failAt s "statement after root return"
-    match ← mKind s with
-    | "Block" =>
-        let saved ← get
-        let (nested, nestedReturned) ← lowerRootStatements (← mArr (← mField s "statements")) stmtIsTail
-        -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
-        modify fun e =>
-          { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
-                   snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
-        out := out ++ nested
-        returned := nestedReturned
-    | "UncheckedBlock" =>
-        let saved ← get
-        modify fun e => { e with unchecked := true }
-        let (uncheckedNested, uncheckedReturned) ← lowerRootStatements (← mArr (← mField s "statements")) stmtIsTail
-        modify fun e =>
-          { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
-                   snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
-        out := out ++ uncheckedNested
-        returned := uncheckedReturned
-    | "VariableDeclarationStatement" =>
-        if let some callStmts ← lowerLowLevelCallSequence? s (stmts.toList.drop (idx + 1)) then
-          out := out ++ callStmts
-          consumed := 2
-        else
-          out := out ++ (← lowerLocal s)
-    | "ExpressionStatement" =>
-        out := out ++ (← lowerEffect s)
-        if ← stmtAlwaysReverts [] s then
+    -- A per-statement recovery point under `collectUnsupported` (see `recoverAt`;
+    -- the failed statement's `Env` and its `out` contribution are discarded).
+    try
+      if returned then failAt s "statement after root return"
+      match ← mKind s with
+      | "Block" =>
+          let saved ← get
+          let (nested, nestedReturned) ← lowerRootStatements (← mArr (← mField s "statements")) stmtIsTail
+          -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
+          modify fun e =>
+            { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
+                     snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+          out := out ++ nested
+          returned := nestedReturned
+      | "UncheckedBlock" =>
+          let saved ← get
+          modify fun e => { e with unchecked := true }
+          let (uncheckedNested, uncheckedReturned) ← lowerRootStatements (← mArr (← mField s "statements")) stmtIsTail
+          modify fun e =>
+            { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
+                     snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
+          out := out ++ uncheckedNested
+          returned := uncheckedReturned
+      | "VariableDeclarationStatement" =>
+          if let some callStmts ← lowerLowLevelCallSequence? s (stmts.toList.drop (idx + 1)) then
+            out := out ++ callStmts
+            consumed := 2
+          else
+            out := out ++ (← lowerLocal s)
+      | "ExpressionStatement" =>
+          out := out ++ (← lowerEffect s)
+          if ← stmtAlwaysReverts [] s then
+            returned := true
+      | "EmitStatement" =>
+          out := out ++ (← lowerEmit s)
+      | "RevertStatement" =>
           returned := true
-    | "EmitStatement" =>
-        out := out ++ (← lowerEmit s)
-    | "RevertStatement" =>
-        returned := true
-        out := out ++ (← lowerRevert s)
-    | "InlineAssembly" =>
-        let env ← get
-        let savedAsmYul := env.yulNames
-        let extPre ← bindYulExternalConstants s
-        let mut handledScratchReturn := false
-        if stmtIsTail && env.rootPost.isEmpty && env.rootReturnTypes.size == 1 &&
-            ["bytes32", "uint256", "uint", "int256", "int"].contains env.rootReturnTypes[0]! then
-          if let some scratchStmts ← lowerTailScratchReturnAssembly? s then
-            modify fun e => { e with yulNames := savedAsmYul }
-            out := out ++ extPre ++ scratchStmts
-            returned := true
-            handledScratchReturn := true
-        if !handledScratchReturn && stmtIsTail && env.rootPost.isEmpty &&
-            env.rootReturnTypes == #["bytes32[]"] && env.stateVars.size > 1 then
-          if let [(_, arr)] := env.scalarArrays.toList then
-            let isTransient := (s.compress.splitOn "\"tload\"").length > 1
-            let shimStmts ← lowerBatchArrayLoadShim arr isTransient
-            modify fun e => { e with yulNames := savedAsmYul }
-            out := out ++ extPre ++ shimStmts
-            returned := true
-            handledScratchReturn := true
-          else if let (some startExpr, some nSlotsExpr) := (env.yulNames.find? "startSlot", env.yulNames.find? "nSlots") then
-            let shimStmts ← lowerBatchRangeSloadShim startExpr nSlotsExpr
-            modify fun e => { e with yulNames := savedAsmYul }
-            out := out ++ extPre ++ shimStmts
-            returned := true
-            handledScratchReturn := true
-        unless handledScratchReturn do
-          let mut asmRetName := ""
-          let savedHelperResult := env.helperResult
-          let savedHelperReturnId := env.helperReturnId
-          if stmtIsTail && env.rootPost.isEmpty then
-            if let some (rid, rname, rty, rbinding) := env.rootNamedReturn then
-              if yulOnlyAssignsDecl s rid then
-                asmRetName := rname
-                modify fun e => { e with helperResult := some (rbinding, rty), helperReturnId := some rid }
-          let asmStmts ← lowerAssemblyStmts s asmRetName
-          modify fun e => { e with helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, yulNames := savedAsmYul }
-          out := out ++ extPre ++ asmStmts
-    | "ForStatement" =>
-        out := out ++ (← lowerFor s fun body => do
-          let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
-          let (lowered, _) ← lowerRootStatements statements false
-          pure lowered)
-    | "WhileStatement" =>
-        out := out ++ (← lowerWhile s fun body => do
-          let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
-          let (lowered, _) ← lowerRootStatements statements false
-          pure lowered)
-    | "IfStatement" | "TryStatement" =>
-        let (condition, yes, no) ←
-          if (← mKind s) == "IfStatement" then
-            ifParts s
-          else do
-            let some parts ← lowerThisTryCall? s
-              | failAt s "unsupported statement TryStatement"
-            pure parts
-        let saved ← get
-        let restore : M Unit := modify fun e =>
-          { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
-        -- A root return inside a branch stops execution, so the continuation
-        -- stays after the conditional and runs only on fallthrough.
-        let (yesOut, yesReturned) ← lowerRootStatements yes stmtIsTail
-        restore
-        let (noOut, noReturned) ← lowerRootStatements no stmtIsTail
-        restore
-        out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)
-        returned := yesReturned && noReturned
-    | "Return" =>
-        returned := true
-        let expr := field? s "expression" |>.getD Json.null
-        let env ← get
-        if expr.isNull then
-          if env.rootIsVoid then
-            out := out ++ env.rootPost ++ #[.stop]
-          else if !env.rootReturns.isEmpty then
-            out := out ++ env.rootPost ++ #[.returnValues env.rootReturns.toList]
-          else
-            failAt s "bare return requires a void or named-return root function"
-        else if let some (elemTy, _, length) := env.rootFixedArrayReturn then
-          let isInlineArr ← if (← mKind expr) == "TupleExpression" then
-            mBool (← mField expr "isInlineArray")
-          else
-            pure false
-          if isInlineArr then
+          out := out ++ (← lowerRevert s)
+      | "InlineAssembly" =>
+          let env ← get
+          let savedAsmYul := env.yulNames
+          let extPre ← bindYulExternalConstants s
+          let mut handledScratchReturn := false
+          if stmtIsTail && env.rootPost.isEmpty && env.rootReturnTypes.size == 1 &&
+              ["bytes32", "uint256", "uint", "int256", "int"].contains env.rootReturnTypes[0]! then
+            if let some scratchStmts ← lowerTailScratchReturnAssembly? s then
+              modify fun e => { e with yulNames := savedAsmYul }
+              out := out ++ extPre ++ scratchStmts
+              returned := true
+              handledScratchReturn := true
+          if !handledScratchReturn && stmtIsTail && env.rootPost.isEmpty &&
+              env.rootReturnTypes == #["bytes32[]"] && env.stateVars.size > 1 then
+            if let [(_, arr)] := env.scalarArrays.toList then
+              let isTransient := (s.compress.splitOn "\"tload\"").length > 1
+              let shimStmts ← lowerBatchArrayLoadShim arr isTransient
+              modify fun e => { e with yulNames := savedAsmYul }
+              out := out ++ extPre ++ shimStmts
+              returned := true
+              handledScratchReturn := true
+            else if let (some startExpr, some nSlotsExpr) := (env.yulNames.find? "startSlot", env.yulNames.find? "nSlots") then
+              let shimStmts ← lowerBatchRangeSloadShim startExpr nSlotsExpr
+              modify fun e => { e with yulNames := savedAsmYul }
+              out := out ++ extPre ++ shimStmts
+              returned := true
+              handledScratchReturn := true
+          unless handledScratchReturn do
+            let mut asmRetName := ""
+            let savedHelperResult := env.helperResult
+            let savedHelperReturnId := env.helperReturnId
+            if stmtIsTail && env.rootPost.isEmpty then
+              if let some (rid, rname, rty, rbinding) := env.rootNamedReturn then
+                if yulOnlyAssignsDecl s rid then
+                  asmRetName := rname
+                  modify fun e => { e with helperResult := some (rbinding, rty), helperReturnId := some rid }
+            let asmStmts ← lowerAssemblyStmts s asmRetName
+            modify fun e => { e with helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, yulNames := savedAsmYul }
+            out := out ++ extPre ++ asmStmts
+      | "ForStatement" =>
+          out := out ++ (← lowerFor s fun body => do
+            let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+            let (lowered, _) ← lowerRootStatements statements false
+            pure lowered)
+      | "WhileStatement" =>
+          out := out ++ (← lowerWhile s fun body => do
+            let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+            let (lowered, _) ← lowerRootStatements statements false
+            pure lowered)
+      | "IfStatement" | "TryStatement" =>
+          let (condition, yes, no) ←
+            if (← mKind s) == "IfStatement" then
+              ifParts s
+            else do
+              let some parts ← lowerThisTryCall? s
+                | failAt s "unsupported statement TryStatement"
+              pure parts
+          let saved ← get
+          let restore : M Unit := modify fun e =>
+            { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
+                     scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+          -- A root return inside a branch stops execution, so the continuation
+          -- stays after the conditional and runs only on fallthrough.
+          let (yesOut, yesReturned) ← lowerRootStatements yes stmtIsTail
+          restore
+          let (noOut, noReturned) ← lowerRootStatements no stmtIsTail
+          restore
+          out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)
+          returned := yesReturned && noReturned
+      | "Return" =>
+          returned := true
+          let expr := field? s "expression" |>.getD Json.null
+          let env ← get
+          if expr.isNull then
+            if env.rootIsVoid then
+              out := out ++ env.rootPost ++ #[.stop]
+            else if !env.rootReturns.isEmpty then
+              out := out ++ env.rootPost ++ #[.returnValues env.rootReturns.toList]
+            else
+              failAt s "bare return requires a void or named-return root function"
+          else if let some (elemTy, _, length) := env.rootFixedArrayReturn then
+            let isInlineArr ← if (← mKind expr) == "TupleExpression" then
+              mBool (← mField expr "isInlineArray")
+            else
+              pure false
+            if isInlineArr then
+              let cs ← mArr (← mField expr "components")
+              unless cs.size == length do
+                failAt expr s!"inline return array length {cs.size} does not match return type length {length}"
+              let mut pres : Array Stmt := #[]
+              let mut exprs : Array Expr := #[]
+              for c in cs do
+                if c.isNull then failAt expr "empty return component"
+                if cs.size > 1 && (statefulCallIn c (← get) || assignmentIn c) then
+                  failAt c "stateful or assignment expression in inline return array requires explicit evaluation-order support"
+                let v ← atom (← convert elemTy (← mType c) (← lowerExpr c) c)
+                pres := pres ++ v.pre
+                if env.rootPost.isEmpty then
+                  exprs := exprs.push v.expr
+                else
+                  let captured ← fresh
+                  pres := pres.push (.letVar captured v.expr)
+                  exprs := exprs.push (.localVar captured)
+              out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
+            else if (← mKind expr) == "Identifier" then
+              let id ← refInt expr
+              if id ≥ 0 then
+                if let some elements := env.snapshots.find? id.toNat then
+                  unless elements.size == length && ((← mType expr).splitOn " ").head! == s!"{elemTy}[{length}]" do
+                    failAt expr "fixed-size array return snapshot type differs from return type"
+                  if env.rootPost.isEmpty then
+                    out := out.push (.returnValues elements.toList)
+                  else
+                    let mut pres : Array Stmt := #[]
+                    let mut exprs : Array Expr := #[]
+                    for elem in elements do
+                      let captured ← fresh
+                      pres := pres.push (.letVar captured elem)
+                      exprs := exprs.push (.localVar captured)
+                    out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
+                else
+                  failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
+              else
+                failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
+            else
+              failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
+          else if env.rootDynamicBytesReturn.isSome && (← canLowerDynamicBytesReturnExpr expr) then
+            let buf ← lowerEncodedBytes expr
+            let stem ← fresh
+            let memStem := s!"_verity_memret_{stem}"
+            let dataBinding := s!"{memStem}_data_offset"
+            let lenBinding := s!"{memStem}_length"
+            if (← get).sourceNames.contains dataBinding || (← get).sourceNames.contains lenBinding then
+              failAt s s!"generated return buffer name {memStem} collides with a source identifier"
+            modify fun e =>
+              { e with encodingMemory := true,
+                       bound := dataBinding :: lenBinding :: e.bound }
+            let bindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
+            out := (out ++ buf.pre ++ bindStmts ++ env.rootPost).push (.returnBytes memStem)
+          else if let some (retSid, _) := env.rootDynamicStructReturn then
+            let (rootId, effects) ← lowerDynamicStructReturnValue expr retSid
+            let buffer ← lowerEncodedMem rootId effects expr
+            let pointer ← atom { pre := buffer.pre, expr := buffer.pointer }
+            let returnSize ← atom { pre := #[], expr := buffer.size }
+            -- The transport halts the frame. `Stmt.ecm` metadata cannot state
+            -- termination, so an unreachable empty revert closes the path for
+            -- the compiler's exhaustive return analysis (#738).
+            out := (out ++ pointer.pre ++ returnSize.pre ++ env.rootPost) ++
+              #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, returnSize.expr],
+                .revertEmpty]
+          else if env.rootMsgDataReturn then
+            let msgDataPre ← lowerMsgDataExpr expr
+            out := (out ++ msgDataPre ++ env.rootPost).push
+              (.returnValues [.literal 32, .calldatasize, .calldataload (.literal 0)])
+          else if let some (retSid, _, memberBindings, isNamed) := env.rootFlatStructReturn then
+            let isSameNamedReturn ← if isNamed && (← mKind expr) == "Identifier" then do
+              let id ← refInt expr
+              if id ≥ 0 then
+                if let some flat := env.flatStructs.find? id.toNat then
+                  pure (flat.members == memberBindings)
+                else pure false
+              else pure false
+            else pure false
+            if isSameNamedReturn then
+              if env.rootPost.isEmpty then
+                out := out.push (.returnValues env.rootReturns.toList)
+              else
+                let mut pres : Array Stmt := #[]
+                let mut exprs : Array Expr := #[]
+                for retExpr in env.rootReturns do
+                  let captured ← fresh
+                  pres := pres.push (.letVar captured retExpr)
+                  exprs := exprs.push (.localVar captured)
+                out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
+            else
+              let (exprSid, _, valPre, memberVals) ← lowerFlatStructValue expr (some retSid) true
+              unless exprSid == retSid && memberVals.size == memberBindings.size do
+                failAt expr "root struct return member count mismatch"
+              let mut pres := valPre
+              let mut exprs : Array Expr := #[]
+              for (_, _, valExpr) in memberVals do
+                if env.rootPost.isEmpty then
+                  exprs := exprs.push valExpr
+                else
+                  let captured ← fresh
+                  pres := pres.push (.letVar captured valExpr)
+                  exprs := exprs.push (.localVar captured)
+              out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
+          else if (← mKind expr) == "TupleExpression" then
+            if ← mBool (← mField expr "isInlineArray") then
+              failAt expr "inline arrays are outside this slice"
             let cs ← mArr (← mField expr "components")
-            unless cs.size == length do
-              failAt expr s!"inline return array length {cs.size} does not match return type length {length}"
             let mut pres : Array Stmt := #[]
             let mut exprs : Array Expr := #[]
             for c in cs do
               if c.isNull then failAt expr "empty return component"
-              if cs.size > 1 && (statefulCallIn c (← get) || assignmentIn c) then
-                failAt c "stateful or assignment expression in inline return array requires explicit evaluation-order support"
-              let v ← atom (← convert elemTy (← mType c) (← lowerExpr c) c)
+              let v ← atom (← lowerExpr c)
               pres := pres ++ v.pre
               if env.rootPost.isEmpty then
                 exprs := exprs.push v.expr
@@ -14364,83 +14472,14 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 pres := pres.push (.letVar captured v.expr)
                 exprs := exprs.push (.localVar captured)
             out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
-          else if (← mKind expr) == "Identifier" then
-            let id ← refInt expr
-            if id ≥ 0 then
-              if let some elements := env.snapshots.find? id.toNat then
-                unless elements.size == length && ((← mType expr).splitOn " ").head! == s!"{elemTy}[{length}]" do
-                  failAt expr "fixed-size array return snapshot type differs from return type"
-                if env.rootPost.isEmpty then
-                  out := out.push (.returnValues elements.toList)
-                else
-                  let mut pres : Array Stmt := #[]
-                  let mut exprs : Array Expr := #[]
-                  for elem in elements do
-                    let captured ← fresh
-                    pres := pres.push (.letVar captured elem)
-                    exprs := exprs.push (.localVar captured)
-                  out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
-              else
-                failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
-            else
-              failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
-          else
-            failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
-        else if env.rootDynamicBytesReturn.isSome && (← canLowerDynamicBytesReturnExpr expr) then
-          let buf ← lowerEncodedBytes expr
-          let stem ← fresh
-          let memStem := s!"_verity_memret_{stem}"
-          let dataBinding := s!"{memStem}_data_offset"
-          let lenBinding := s!"{memStem}_length"
-          if (← get).sourceNames.contains dataBinding || (← get).sourceNames.contains lenBinding then
-            failAt s s!"generated return buffer name {memStem} collides with a source identifier"
-          modify fun e =>
-            { e with encodingMemory := true,
-                     bound := dataBinding :: lenBinding :: e.bound }
-          let bindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
-          out := (out ++ buf.pre ++ bindStmts ++ env.rootPost).push (.returnBytes memStem)
-        else if let some (retSid, _) := env.rootDynamicStructReturn then
-          let (rootId, effects) ← lowerDynamicStructReturnValue expr retSid
-          let buffer ← lowerEncodedMem rootId effects expr
-          let pointer ← atom { pre := buffer.pre, expr := buffer.pointer }
-          let returnSize ← atom { pre := #[], expr := buffer.size }
-          -- The transport halts the frame. `Stmt.ecm` metadata cannot state
-          -- termination, so an unreachable empty revert closes the path for
-          -- the compiler's exhaustive return analysis (#738).
-          out := (out ++ pointer.pre ++ returnSize.pre ++ env.rootPost) ++
-            #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, returnSize.expr],
-              .revertEmpty]
-        else if env.rootMsgDataReturn then
-          let msgDataPre ← lowerMsgDataExpr expr
-          out := (out ++ msgDataPre ++ env.rootPost).push
-            (.returnValues [.literal 32, .calldatasize, .calldataload (.literal 0)])
-        else if let some (retSid, _, memberBindings, isNamed) := env.rootFlatStructReturn then
-          let isSameNamedReturn ← if isNamed && (← mKind expr) == "Identifier" then do
-            let id ← refInt expr
-            if id ≥ 0 then
-              if let some flat := env.flatStructs.find? id.toNat then
-                pure (flat.members == memberBindings)
-              else pure false
-            else pure false
-          else pure false
-          if isSameNamedReturn then
-            if env.rootPost.isEmpty then
-              out := out.push (.returnValues env.rootReturns.toList)
-            else
-              let mut pres : Array Stmt := #[]
-              let mut exprs : Array Expr := #[]
-              for retExpr in env.rootReturns do
-                let captured ← fresh
-                pres := pres.push (.letVar captured retExpr)
-                exprs := exprs.push (.localVar captured)
-              out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
-          else
-            let (exprSid, _, valPre, memberVals) ← lowerFlatStructValue expr (some retSid) true
-            unless exprSid == retSid && memberVals.size == memberBindings.size do
-              failAt expr "root struct return member count mismatch"
-            let mut pres := valPre
+          else if env.rootReturnTypes.size > 1 && env.rootFixedArrayReturn.isNone then
+            let expectedTypes := env.rootReturnTypes.map some
+            let (branchPre, retExprs) ← lowerMultiBranch expr (some expectedTypes)
+            unless retExprs.size == env.rootReturnTypes.size do
+              failAt expr s!"root multi-return arity {retExprs.size} does not match {env.rootReturnTypes.size}"
+            let mut pres := branchPre
             let mut exprs : Array Expr := #[]
-            for (_, _, valExpr) in memberVals do
+            for (valExpr, _) in retExprs do
               if env.rootPost.isEmpty then
                 exprs := exprs.push valExpr
               else
@@ -14448,62 +14487,35 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 pres := pres.push (.letVar captured valExpr)
                 exprs := exprs.push (.localVar captured)
             out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
-        else if (← mKind expr) == "TupleExpression" then
-          if ← mBool (← mField expr "isInlineArray") then
-            failAt expr "inline arrays are outside this slice"
-          let cs ← mArr (← mField expr "components")
-          let mut pres : Array Stmt := #[]
-          let mut exprs : Array Expr := #[]
-          for c in cs do
-            if c.isNull then failAt expr "empty return component"
-            let v ← atom (← lowerExpr c)
-            pres := pres ++ v.pre
-            if env.rootPost.isEmpty then
-              exprs := exprs.push v.expr
-            else
-              let captured ← fresh
-              pres := pres.push (.letVar captured v.expr)
-              exprs := exprs.push (.localVar captured)
-          out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
-        else if env.rootReturnTypes.size > 1 && env.rootFixedArrayReturn.isNone then
-          let expectedTypes := env.rootReturnTypes.map some
-          let (branchPre, retExprs) ← lowerMultiBranch expr (some expectedTypes)
-          unless retExprs.size == env.rootReturnTypes.size do
-            failAt expr s!"root multi-return arity {retExprs.size} does not match {env.rootReturnTypes.size}"
-          let mut pres := branchPre
-          let mut exprs : Array Expr := #[]
-          for (valExpr, _) in retExprs do
-            if env.rootPost.isEmpty then
-              exprs := exprs.push valExpr
-            else
-              let captured ← fresh
-              pres := pres.push (.letVar captured valExpr)
-              exprs := exprs.push (.localVar captured)
-          out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
-        else if env.rootReturnTypes.size == 1 && (env.rootReturnTypes[0]!).startsWith "struct " &&
-            !(env.rootReturnTypes[0]!).contains "[" && env.rootFlatStructReturn.isNone && env.rootDynamicStructReturn.isNone then
-          match ← lowerRef expr with
-          | .path rpre rpath =>
-              let (slotPre, slotExpr) ← match rpath with
-                | .rawSlot _ sl => pure (#[], sl)
-                | .zero rawField | .one rawField _ | .two rawField _ _ => do
-                    let (f, _) := splitSPathField rawField
-                    let info ← resolveField f s
-                    markField f
-                    computeSPathBaseSlot rpath info 0 s
-                | _ => failAt expr "unsupported storage struct return path"
-              let v ← atom { pre := rpre ++ slotPre, expr := slotExpr }
-              out := out ++ v.pre ++ env.rootPost |>.push (.returnValues [v.expr])
-          | .mem .. => failAt expr "ABI returns of memory structs with bytes members are unsupported"
-          | _ => failAt expr "storage struct return requires a storage path"
-        else
-          let v ← atom (← lowerExpr expr)
-          if env.rootPost.isEmpty then
-            out := out ++ v.pre |>.push (.returnValues [v.expr])
+          else if env.rootReturnTypes.size == 1 && (env.rootReturnTypes[0]!).startsWith "struct " &&
+              !(env.rootReturnTypes[0]!).contains "[" && env.rootFlatStructReturn.isNone && env.rootDynamicStructReturn.isNone then
+            match ← lowerRef expr with
+            | .path rpre rpath =>
+                let (slotPre, slotExpr) ← match rpath with
+                  | .rawSlot _ sl => pure (#[], sl)
+                  | .zero rawField | .one rawField _ | .two rawField _ _ => do
+                      let (f, _) := splitSPathField rawField
+                      let info ← resolveField f s
+                      markField f
+                      computeSPathBaseSlot rpath info 0 s
+                  | _ => failAt expr "unsupported storage struct return path"
+                let v ← atom { pre := rpre ++ slotPre, expr := slotExpr }
+                out := out ++ v.pre ++ env.rootPost |>.push (.returnValues [v.expr])
+            | .mem .. => failAt expr "ABI returns of memory structs with bytes members are unsupported"
+            | _ => failAt expr "storage struct return requires a storage path"
           else
-            let captured ← fresh
-            out := ((out ++ v.pre).push (.letVar captured v.expr) ++ env.rootPost).push (.returnValues [.localVar captured])
-    | kind => failAt s s!"unsupported statement {kind}"
+            let v ← atom (← lowerExpr expr)
+            if env.rootPost.isEmpty then
+              out := out ++ v.pre |>.push (.returnValues [v.expr])
+            else
+              let captured ← fresh
+              out := ((out ++ v.pre).push (.letVar captured v.expr) ++ env.rootPost).push (.returnValues [.localVar captured])
+      | kind => failAt s s!"unsupported statement {kind}"
+    catch e =>
+      let some sink := (← get).unsupportedSink | throw e
+      if e.isInterrupt || e.isRuntime then throw e
+      recordUnsupported sink s e
+      sink.skippedDecls.modify (· ++ declaredVariables s)
   pure (out, returned)
 
 private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcParam) := do
@@ -15410,247 +15422,290 @@ private def importSlice
   let mut projections : Array ParamProjection := #[]
   let mut signatures : Array Json := #[]
   let mut rootIds : Array Nat := #[]
+  -- Names of the roots selected so far. Unlike `specs`, this is never rolled
+  -- back by the per-root recovery point, so the name collision check below does
+  -- not depend on whether an earlier root was unsupported (or on root order).
+  -- With `collectUnsupported` off it equals `specs.map (·.name)` here.
+  let mut rootNames : Array String := #[]
+  let mut unsupportedRoots : Array (String × List UnsupportedConstruct) := #[]
+  if profile.collectUnsupported then
+    let pending ← IO.mkRef (none : Option (String × UnsupportedConstruct × Array Nat))
+    let recorded ← IO.mkRef (#[] : Array UnsupportedConstruct)
+    let skippedDecls ← IO.mkRef (#[] : Array (Nat × String))
+    let sink : UnsupportedSink := { pending, recorded, skippedDecls }
+    env := { env with unsupportedSink := some sink }
   for (functionName, written) in roots do
     let (fn, paramTys) ← (selectFunction contract functionName written).run' env
     let rootId ← flexNat (← field fn "id")
     if rootIds.contains rootId then throwError "function {contract}.{functionName} is imported twice"
-    if specs.any (·.name == functionName) then
+    -- A collision is an error in the root list, not an unsupported construct:
+    -- like `imported twice`, it is rejected in survey mode too.
+    if rootNames.contains functionName then
       let rootFile := env.nodeFile.find? rootId |>.getD entry
       (failAt fn s!"root function name collision: {contract}.{functionName}; import overloaded roots in separate slices").run' { env with currentFile := rootFile }
     rootIds := rootIds.push rootId
+    rootNames := rootNames.push functionName
     signatures := signatures.push (Json.mkObj
       [("function", Json.str functionName), ("parameterTypes", Json.arr (paramTys.map Json.str))])
-    -- Each root is lowered on its own: bindings, generated names and projections
-    -- do not leak between functions. Field layouts and the closure are shared.
     let rootFile := env.nodeFile.find? rootId |>.getD entry
-    env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[] }
-    let ((body, srcParams), env2) ← (lowerRoot fn).run env
-    env := env2
-    let mut modelParams : Array Param := #[]
-    let mut modelParamNames : Array String := #[]
-    for p in srcParams do
-      if env.mems.contains p.id then
-        let some mem := env.mems.find? p.id | throwError "missing memory parameter {p.name}"
-        if let some schema := mem.schema then
+    -- Per-root recovery point under `collectUnsupported`: a root whose lowering
+    -- records a construct or throws is rolled back (environment, specs and
+    -- projections), so it contributes nothing to the model or the closure.
+    let envBefore := env
+    let specsBefore := specs
+    let projectionsBefore := projections
+    if let some sink := env.unsupportedSink then
+      sink.pending.set none
+      sink.recorded.set #[]
+      sink.skippedDecls.set #[]
+    try
+      -- Each root is lowered on its own: bindings, generated names and projections
+      -- do not leak between functions. Field layouts and the closure are shared.
+      env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
+                        snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[] }
+      let ((body, srcParams), env2) ← (lowerRoot fn).run env
+      env := env2
+      let mut modelParams : Array Param := #[]
+      let mut modelParamNames : Array String := #[]
+      for p in srcParams do
+        if env.mems.contains p.id then
+          let some mem := env.mems.find? p.id | throwError "missing memory parameter {p.name}"
+          if let some schema := mem.schema then
+            if modelParamNames.contains p.name then
+              (failAt fn s!"parameter name collision: {p.name}").run' env
+            modelParamNames := modelParamNames.push p.name
+            modelParams := modelParams.push { name := p.name, ty := AbiSchema.paramType schema }
+            continue
+          if let some types := mem.staticTypes then
+            if modelParamNames.contains p.name then
+              (failAt fn s!"parameter name collision: {p.name}").run' env
+            modelParamNames := modelParamNames.push p.name
+            modelParams := modelParams.push { name := p.name, ty := .tuple types }
+            continue
+          (failAt fn s!"struct parameter {p.name} has no supported complete ABI schema").run' env
+        else if let some cb := env.calldataBytes.find? p.id then
           if modelParamNames.contains p.name then
             (failAt fn s!"parameter name collision: {p.name}").run' env
           modelParamNames := modelParamNames.push p.name
-          modelParams := modelParams.push { name := p.name, ty := AbiSchema.paramType schema }
-          continue
-        if let some types := mem.staticTypes then
+          modelParams := modelParams.push { name := p.name, ty := if cb.isString then .string else .bytes }
+        else if let some arr := env.scalarArrays.find? p.id then
           if modelParamNames.contains p.name then
             (failAt fn s!"parameter name collision: {p.name}").run' env
           modelParamNames := modelParamNames.push p.name
-          modelParams := modelParams.push { name := p.name, ty := .tuple types }
-          continue
-        (failAt fn s!"struct parameter {p.name} has no supported complete ABI schema").run' env
-      else if let some cb := env.calldataBytes.find? p.id then
-        if modelParamNames.contains p.name then
-          (failAt fn s!"parameter name collision: {p.name}").run' env
-        modelParamNames := modelParamNames.push p.name
-        modelParams := modelParams.push { name := p.name, ty := if cb.isString then .string else .bytes }
-      else if let some arr := env.scalarArrays.find? p.id then
-        if modelParamNames.contains p.name then
-          (failAt fn s!"parameter name collision: {p.name}").run' env
-        modelParamNames := modelParamNames.push p.name
-        modelParams := modelParams.push { name := p.name, ty := .array arr.modelElementType }
-      else
-        let some pty := env.scalarTy.find? p.id | throwError "missing parameter type"
-        if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
-        modelParamNames := modelParamNames.push p.name
-        modelParams := modelParams.push { name := p.name, ty := pty }
-    -- ABI cleanup is not validation: Solidity rejects noncanonical scalar
-    -- words before executing the function. Inspect the original calldata word,
-    -- since the model parameter loader has already masked/normalized it.
-    let mut abiGuards : Array Stmt := if env.explicitAbi || env.encodingMemory || stmtListRequiresFreePointerInit body.toList then #[.mstore (.literal 64) (.literal 128)] else #[]
-    let rootHeadWords := (modelParams.toList.foldl (fun n p => n + paramHeadSize p.ty) 0) / 32
-    for p in srcParams do
-      if let some mem := env.mems.find? p.id then
-        if let some schema := mem.schema then
-          let some i := modelParamNames.findIdx? (· == p.name)
-            | throwError "missing full struct parameter"
-          let headWord := (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0 / 32
-          let plan := AbiRootLowering.root mem.abiStem rootHeadWords headWord schema (!mem.calldataLocation)
-          abiGuards := abiGuards ++ plan.body.toArray
-        if let some types := mem.staticTypes then
-          let some i := modelParamNames.findIdx? (· == p.name)
-            | throwError "missing tuple model parameter {p.name}"
-          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
-          if env.explicitAbi then
-            abiGuards := abiGuards.push (.ite
-              (.lt .calldatasize (.literal (offset + 32 * types.length)))
-              [.revertEmpty] [])
-          abiGuards := abiGuards.push (.letVar mem.headBinding (.literal offset))
-          unless mem.calldataLocation do
-            for (ty, j) in types.zipIdx do
-              let limit := match ty with
-                | .uintN bits => if bits < 256 then some (2^bits) else none
-                | .address => some (2^160)
-                | .bool => some 2
-                | _ => none
-              let rawWord := Expr.calldataload (.literal (offset + 32*j))
-              if let some bound := limit then
-                abiGuards := abiGuards.push (.ite
-                  (.lt rawWord (.literal bound))
-                  [] [.revertEmpty])
-              if let .intN bits := ty then
-                if 0 < bits && bits < 256 && bits % 8 == 0 then
+          modelParams := modelParams.push { name := p.name, ty := .array arr.modelElementType }
+        else
+          let some pty := env.scalarTy.find? p.id | throwError "missing parameter type"
+          if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
+          modelParamNames := modelParamNames.push p.name
+          modelParams := modelParams.push { name := p.name, ty := pty }
+      -- ABI cleanup is not validation: Solidity rejects noncanonical scalar
+      -- words before executing the function. Inspect the original calldata word,
+      -- since the model parameter loader has already masked/normalized it.
+      let mut abiGuards : Array Stmt := if env.explicitAbi || env.encodingMemory || stmtListRequiresFreePointerInit body.toList then #[.mstore (.literal 64) (.literal 128)] else #[]
+      let rootHeadWords := (modelParams.toList.foldl (fun n p => n + paramHeadSize p.ty) 0) / 32
+      for p in srcParams do
+        if let some mem := env.mems.find? p.id then
+          if let some schema := mem.schema then
+            let some i := modelParamNames.findIdx? (· == p.name)
+              | throwError "missing full struct parameter"
+            let headWord := (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0 / 32
+            let plan := AbiRootLowering.root mem.abiStem rootHeadWords headWord schema (!mem.calldataLocation)
+            abiGuards := abiGuards ++ plan.body.toArray
+          if let some types := mem.staticTypes then
+            let some i := modelParamNames.findIdx? (· == p.name)
+              | throwError "missing tuple model parameter {p.name}"
+            let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+            if env.explicitAbi then
+              abiGuards := abiGuards.push (.ite
+                (.lt .calldatasize (.literal (offset + 32 * types.length)))
+                [.revertEmpty] [])
+            abiGuards := abiGuards.push (.letVar mem.headBinding (.literal offset))
+            unless mem.calldataLocation do
+              for (ty, j) in types.zipIdx do
+                let limit := match ty with
+                  | .uintN bits => if bits < 256 then some (2^bits) else none
+                  | .address => some (2^160)
+                  | .bool => some 2
+                  | _ => none
+                let rawWord := Expr.calldataload (.literal (offset + 32*j))
+                if let some bound := limit then
                   abiGuards := abiGuards.push (.ite
-                    (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord))
+                    (.lt rawWord (.literal bound))
                     [] [.revertEmpty])
-          if env.explicitAbi then
-            for (_, j) in types.zipIdx do
-              abiGuards := abiGuards.push (.letVar s!"{p.name}_{j}" (Expr.calldataload (.literal (offset + 32*j))))
-      if let some cb := env.calldataBytes.find? p.id then
-        let some i := modelParamNames.findIdx? (· == p.name)
-          | throwError "missing calldata bytes model parameter {p.name}"
-        let headOffset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
-        let checks :=
-          if cb.inMemory then
-            AbiLowering.bytesMemoryHead cb.memoryPointer cb.offsetBinding cb.headerBinding cb.lengthBinding cb.dataBinding cb.nextFreeBinding cb.copyIndexBinding rootHeadWords headOffset
-          else
-            AbiLowering.bytesCalldataHead cb.offsetBinding cb.headerBinding cb.lengthBinding cb.dataBinding rootHeadWords headOffset
-        abiGuards := abiGuards ++ checks.toArray
-      if let some arr := env.scalarArrays.find? p.id then
-        let some i := modelParamNames.findIdx? (· == p.name)
-          | throwError "missing scalar array model parameter {p.name}"
-        let headOffset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
-        let checks :=
-          if arr.inMemory then
-            AbiLowering.scalarArrayMemoryHead arr.memoryPointer arr.offsetBinding arr.headerBinding arr.lengthBinding arr.dataBinding arr.nextFreeBinding arr.namePrefix rootHeadWords headOffset arr.abiKind
-              (if arr.elementType == "bytes4" then 2 ^ 224 - 1 else 0)
-          else
-            AbiLowering.scalarArrayCalldataHead arr.offsetBinding arr.headerBinding arr.lengthBinding arr.dataBinding rootHeadWords headOffset
-        abiGuards := abiGuards ++ checks.toArray
-      if let some ty := env.scalarTy.find? p.id then
-        -- Static tuples occupy their complete inline head; dynamic tuples
-        -- occupy one offset word. Compute scalar offsets from the full ABI.
-        let some i := modelParamNames.findIdx? (· == p.name)
-          | throwError "missing scalar model parameter {p.name}"
-        let limit := match env.enumBounds.find? p.id with
-          | some enumMax => some enumMax
-          | none => match ty with
-            | .uint8 => some (2^8)
-            | .uint16 => some (2^16)
-            | .uintN bits => if bits < 256 then some (2^bits) else none
-            | .address => some (2^160)
-            | .bool => some 2
-            | _ => none
-        if let some bound := limit then
-          -- Source scalar validation precedes every source statement and
-          -- uses an explicit empty revert, independent of EIP-211 state.
-          abiGuards := abiGuards.push (.ite
-            (.lt (.calldataload (.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0))) (.literal bound))
-            [] [.revertEmpty])
-        let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
-        let rawWord := Expr.calldataload (.literal offset)
-        if let .intN bits := ty then
-          if 0 < bits && bits < 256 && bits % 8 == 0 then
+                if let .intN bits := ty then
+                  if 0 < bits && bits < 256 && bits % 8 == 0 then
+                    abiGuards := abiGuards.push (.ite
+                      (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord))
+                      [] [.revertEmpty])
+            if env.explicitAbi then
+              for (_, j) in types.zipIdx do
+                abiGuards := abiGuards.push (.letVar s!"{p.name}_{j}" (Expr.calldataload (.literal (offset + 32*j))))
+        if let some cb := env.calldataBytes.find? p.id then
+          let some i := modelParamNames.findIdx? (· == p.name)
+            | throwError "missing calldata bytes model parameter {p.name}"
+          let headOffset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+          let checks :=
+            if cb.inMemory then
+              AbiLowering.bytesMemoryHead cb.memoryPointer cb.offsetBinding cb.headerBinding cb.lengthBinding cb.dataBinding cb.nextFreeBinding cb.copyIndexBinding rootHeadWords headOffset
+            else
+              AbiLowering.bytesCalldataHead cb.offsetBinding cb.headerBinding cb.lengthBinding cb.dataBinding rootHeadWords headOffset
+          abiGuards := abiGuards ++ checks.toArray
+        if let some arr := env.scalarArrays.find? p.id then
+          let some i := modelParamNames.findIdx? (· == p.name)
+            | throwError "missing scalar array model parameter {p.name}"
+          let headOffset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+          let checks :=
+            if arr.inMemory then
+              AbiLowering.scalarArrayMemoryHead arr.memoryPointer arr.offsetBinding arr.headerBinding arr.lengthBinding arr.dataBinding arr.nextFreeBinding arr.namePrefix rootHeadWords headOffset arr.abiKind
+                (if arr.elementType == "bytes4" then 2 ^ 224 - 1 else 0)
+            else
+              AbiLowering.scalarArrayCalldataHead arr.offsetBinding arr.headerBinding arr.lengthBinding arr.dataBinding rootHeadWords headOffset
+          abiGuards := abiGuards ++ checks.toArray
+        if let some ty := env.scalarTy.find? p.id then
+          -- Static tuples occupy their complete inline head; dynamic tuples
+          -- occupy one offset word. Compute scalar offsets from the full ABI.
+          let some i := modelParamNames.findIdx? (· == p.name)
+            | throwError "missing scalar model parameter {p.name}"
+          let limit := match env.enumBounds.find? p.id with
+            | some enumMax => some enumMax
+            | none => match ty with
+              | .uint8 => some (2^8)
+              | .uint16 => some (2^16)
+              | .uintN bits => if bits < 256 then some (2^bits) else none
+              | .address => some (2^160)
+              | .bool => some 2
+              | _ => none
+          if let some bound := limit then
+            -- Source scalar validation precedes every source statement and
+            -- uses an explicit empty revert, independent of EIP-211 state.
             abiGuards := abiGuards.push (.ite
-              (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord))
+              (.lt (.calldataload (.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0))) (.literal bound))
               [] [.revertEmpty])
-        if env.bytes4Params.contains p.id then
-          abiGuards := abiGuards.push (.ite
-            (.eq (.bitAnd rawWord (.literal (2 ^ 224 - 1))) (.literal 0))
-            [] [.revertEmpty])
-        if ty == .bytesN 1 then
-          abiGuards := abiGuards.push (.ite
-            (.eq (.bitAnd rawWord (.literal (2 ^ 248 - 1))) (.literal 0))
-            [] [.revertEmpty])
-        if let some binding := env.rawBindings.find? p.id then
-          abiGuards := abiGuards.push (.letVar binding rawWord)
-    let body := abiGuards ++ body
-    let returns ← (do
-      if (← mKind fn) == "VariableDeclaration" then
-        return (← get).publicVarGetterReturns
-      if let some arrayRetTy ← functionEmptyBodyArrayReturnType? fn then
-        return #[arrayRetTy]
-      if let some (_, elemPty, length) ← functionFixedArrayReturnType? fn then
-        return Array.replicate length elemPty
-      if let some (_, _, _, _, memberSpecs) ← functionFlatStructReturnType? fn then
-        return (memberSpecs.map (fun (p : String × String × ParamType) => p.2.2) : Array ParamType)
-      if let some (_, schema) ← functionDynamicStructReturn? fn then
-        return #[AbiSchema.paramType schema]
-      if ← functionMsgDataReturn? fn then
-        return #[.bytes]
-      if let some dynRetTy ← functionDynamicBytesReturn? fn then
-        return #[dynRetTy]
-      if ← functionStorageStructReturn? fn then
-        return #[.uint256]
-      if (← get).stateVars.size > 1 then
+          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+          let rawWord := Expr.calldataload (.literal offset)
+          if let .intN bits := ty then
+            if 0 < bits && bits < 256 && bits % 8 == 0 then
+              abiGuards := abiGuards.push (.ite
+                (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord))
+                [] [.revertEmpty])
+          if env.bytes4Params.contains p.id then
+            abiGuards := abiGuards.push (.ite
+              (.eq (.bitAnd rawWord (.literal (2 ^ 224 - 1))) (.literal 0))
+              [] [.revertEmpty])
+          if ty == .bytesN 1 then
+            abiGuards := abiGuards.push (.ite
+              (.eq (.bitAnd rawWord (.literal (2 ^ 248 - 1))) (.literal 0))
+              [] [.revertEmpty])
+          if let some binding := env.rawBindings.find? p.id then
+            abiGuards := abiGuards.push (.letVar binding rawWord)
+      let body := abiGuards ++ body
+      let returns ← (do
+        if (← mKind fn) == "VariableDeclaration" then
+          return (← get).publicVarGetterReturns
+        if let some arrayRetTy ← functionEmptyBodyArrayReturnType? fn then
+          return #[arrayRetTy]
+        if let some (_, elemPty, length) ← functionFixedArrayReturnType? fn then
+          return Array.replicate length elemPty
+        if let some (_, _, _, _, memberSpecs) ← functionFlatStructReturnType? fn then
+          return (memberSpecs.map (fun (p : String × String × ParamType) => p.2.2) : Array ParamType)
+        if let some (_, schema) ← functionDynamicStructReturn? fn then
+          return #[AbiSchema.paramType schema]
+        if ← functionMsgDataReturn? fn then
+          return #[.bytes]
+        if let some dynRetTy ← functionDynamicBytesReturn? fn then
+          return #[dynRetTy]
+        if ← functionStorageStructReturn? fn then
+          return #[.uint256]
+        if (← get).stateVars.size > 1 then
+          let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+          if rets.size == 1 then
+            if let some (_, elemPty, _) := scalarArrayElement? (← mType rets[0]!) then
+              return #[.array elemPty]
         let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
-        if rets.size == 1 then
-          if let some (_, elemPty, _) := scalarArrayElement? (← mType rets[0]!) then
-            return #[.array elemPty]
-      let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
-      let mut out : Array ParamType := #[]
-      for r in rets do
-        let ty ← mType r
-        let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
-        out := out.push pty
-      pure out) |>.run' env
-    let isView ←
-      if optStr fn "nodeType" == some "VariableDeclaration" then
-        pure true
-      else do
-        let mutability ← str (← field fn "stateMutability")
-        pure (mutability == "view" || mutability == "pure")
-    specs := specs.push
-      { name := functionName, params := modelParams.toList, returnType := none,
-        returns := returns.toList, isView, body := body.toList,
-        abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
-        allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
-          onlyClosedTransportCEIBarriers body.toList,
-        reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList ||
-          onlyTrailingCallReentrancyWindows body.toList,
-        localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
-          name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
-          obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
-          proofStatus := .unchecked }]) ++
-          (if onlyStaticCallCEIBarriers body.toList then [{
-            name := "solidity_static_call_cei"
-            obligation := "State writes follow only closed typed-interface STATICCALLs, which cannot change any state, so the CEI opt-out admits no reentrant write window. Removing those calls leaves a CEI-clean body; this is checked by the importer, not proved."
-            proofStatus := .unchecked }] else []) ++
-          (if !onlyStaticCallCEIBarriers body.toList &&
-              onlyClosedTransportCEIBarriers body.toList then [{
-            name := "solidity_closed_transport_cei"
-            obligation := "State writes follow only closed STATICCALL, CREATE2, LOG and " ++
-              "EXTCODESIZE transports. A LOG or EXTCODESIZE hands control to no account, and " ++
-              "Denote executes CREATE2 " ++
-              "only for checked initcode templates that copy and return their payload " ++
-              "without a call, so the CEI opt-out admits no reentrant write window. " ++
-              "Removing those transports leaves a CEI-clean body; this is checked by the " ++
-              "importer, not proved."
-            proofStatus := .unchecked }] else []) ++
-          (if onlyCreate2ReentrancyWindows body.toList then [{
-            name := "solidity_create2_initcode_reentrancy"
-            obligation := "The only external interactions are closed CREATE2 transports " ++
-              "whose buffers start with a checked initcode template. That initcode copies " ++
-              "and returns its payload and calls no account, so no entrypoint can be " ++
-              "re-entered. Initcode bytes are checked by Denote at execution, not proved " ++
-              "for the compiled model."
-            proofStatus := .unchecked }] else []) ++
-          (if onlyTrailingCallReentrancyWindows body.toList then [{
-            name := "solidity_trailing_low_level_call_reentrancy"
-            obligation := "Every external interaction that can re-enter is a closed value-free " ++
-              "low-level CALL after which the body reads and writes no storage and logs " ++
-              "nothing, so a re-entrant entrypoint observes only the completed state " ++
-              "updates. Denote lets the callee's committed world change any account, " ++
-              "including this one. The trailing position is checked by the importer, not proved."
-            proofStatus := .unchecked }] else []) }
-    for proj in env.projections do
-      let ignored :=
-        match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
-        | some (_, mem) => mem.members.filterMap fun (pair : String × String) =>
-            if env.projections.any (fun q => q.parameter == proj.parameter && q.member == pair.1)
-            then none else some pair.1
-        | none => #[]
-      projections := projections.push
-        { function := functionName, parameter := proj.parameter, member := proj.member,
-          structName := proj.structName, headWord := proj.headWord, modelParam := proj.modelParam,
-          ignoredMembers := ignored.toList }
+        let mut out : Array ParamType := #[]
+        for r in rets do
+          let ty ← mType r
+          let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
+          out := out.push pty
+        pure out) |>.run' env
+      let isView ←
+        if optStr fn "nodeType" == some "VariableDeclaration" then
+          pure true
+        else do
+          let mutability ← str (← field fn "stateMutability")
+          pure (mutability == "view" || mutability == "pure")
+      specs := specs.push
+        { name := functionName, params := modelParams.toList, returnType := none,
+          returns := returns.toList, isView, body := body.toList,
+          abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
+          allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
+            onlyClosedTransportCEIBarriers body.toList,
+          reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList ||
+            onlyTrailingCallReentrancyWindows body.toList,
+          localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
+            name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
+            obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
+            proofStatus := .unchecked }]) ++
+            (if onlyStaticCallCEIBarriers body.toList then [{
+              name := "solidity_static_call_cei"
+              obligation := "State writes follow only closed typed-interface STATICCALLs, which cannot change any state, so the CEI opt-out admits no reentrant write window. Removing those calls leaves a CEI-clean body; this is checked by the importer, not proved."
+              proofStatus := .unchecked }] else []) ++
+            (if !onlyStaticCallCEIBarriers body.toList &&
+                onlyClosedTransportCEIBarriers body.toList then [{
+              name := "solidity_closed_transport_cei"
+              obligation := "State writes follow only closed STATICCALL, CREATE2, LOG and " ++
+                "EXTCODESIZE transports. A LOG or EXTCODESIZE hands control to no account, and " ++
+                "Denote executes CREATE2 " ++
+                "only for checked initcode templates that copy and return their payload " ++
+                "without a call, so the CEI opt-out admits no reentrant write window. " ++
+                "Removing those transports leaves a CEI-clean body; this is checked by the " ++
+                "importer, not proved."
+              proofStatus := .unchecked }] else []) ++
+            (if onlyCreate2ReentrancyWindows body.toList then [{
+              name := "solidity_create2_initcode_reentrancy"
+              obligation := "The only external interactions are closed CREATE2 transports " ++
+                "whose buffers start with a checked initcode template. That initcode copies " ++
+                "and returns its payload and calls no account, so no entrypoint can be " ++
+                "re-entered. Initcode bytes are checked by Denote at execution, not proved " ++
+                "for the compiled model."
+              proofStatus := .unchecked }] else []) ++
+            (if onlyTrailingCallReentrancyWindows body.toList then [{
+              name := "solidity_trailing_low_level_call_reentrancy"
+              obligation := "Every external interaction that can re-enter is a closed value-free " ++
+                "low-level CALL after which the body reads and writes no storage and logs " ++
+                "nothing, so a re-entrant entrypoint observes only the completed state " ++
+                "updates. Denote lets the callee's committed world change any account, " ++
+                "including this one. The trailing position is checked by the importer, not proved."
+              proofStatus := .unchecked }] else []) }
+      for proj in env.projections do
+        let ignored :=
+          match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
+          | some (_, mem) => mem.members.filterMap fun (pair : String × String) =>
+              if env.projections.any (fun q => q.parameter == proj.parameter && q.member == pair.1)
+              then none else some pair.1
+          | none => #[]
+        projections := projections.push
+          { function := functionName, parameter := proj.parameter, member := proj.member,
+            structName := proj.structName, headWord := proj.headWord, modelParam := proj.modelParam,
+            ignoredMembers := ignored.toList }
+    catch e =>
+      let some sink := envBefore.unsupportedSink | throw e
+      if e.isInterrupt || e.isRuntime then throw e
+      (recordUnsupported sink fn e (boundary := true)).run'
+        { envBefore with currentFile := rootFile, stack := [rootId] }
+    if let some sink := envBefore.unsupportedSink then
+      let found := (← sink.recorded.get).toList
+      unless found.isEmpty do
+        env := envBefore
+        specs := specsBefore
+        projections := projectionsBefore
+        -- Source order (stable, so equal positions keep lowering order), then
+        -- one entry per distinct (site, reason, closure).
+        let ordered := found.mergeSort fun x y =>
+          x.file < y.file || (x.file == y.file &&
+            (x.line < y.line || (x.line == y.line && x.column <= y.column)))
+        unsupportedRoots := unsupportedRoots.push (functionName, ordered.eraseDups)
   let mut fields : Array (Nat × Field) := #[]
   for name in env.referenced do
     let some info := env.fieldsByName.find? name | throwError "missing field {name}"
@@ -15740,9 +15795,14 @@ private def importSlice
   let report : ImportReport :=
     { importerVersion, solcLongVersion := release.longVersion, solcSha256 := solcSha, settingsJson := settings.compress,
       sourceDigest := digest, contract, roots := (roots.map (·.1)).toList,
-      functions := specs.toList.map fun f =>
-        { function := f.name, denoteCovered := executableStmtListCovered f.body,
-          compilerProof := .unavailable noCompilerProofReason },
+      functions := roots.toList.filterMap fun (functionName, _) =>
+        match unsupportedRoots.find? (·.1 == functionName) with
+        | some (_, constructs) =>
+            some { function := functionName, denoteCovered := false,
+                   compilerProof := .unavailable noCompilerProofReason, unsupported := constructs }
+        | none => (specs.find? (·.name == functionName)).map fun f =>
+            { function := f.name, denoteCovered := executableStmtListCovered f.body,
+              compilerProof := .unavailable noCompilerProofReason },
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,
@@ -15939,6 +15999,25 @@ def elabSolidityImport : CommandElab := fun stx => do
       importSlice pkg project entry.getString (contract.getId.toString (escape := false)) roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
+    if report.hasUnsupported then
+      -- `collectUnsupported` survey with a failure: only the report is defined.
+      -- No `model`, `covered`, `sourceDigest` or accessor exists, so nothing
+      -- downstream can run or prove anything about an unsupported root.
+      elabCommand (← `(set_option maxRecDepth 16384 in
+        def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
+          $(← quoteReport report)))
+      if ((← get).messages.toList.filter (·.severity == .error)).length > initErrorCount then
+        throwError "Solidity import failed to check"
+      let backReport ← liftTermElabM <| evalReport (ns ++ `report)
+      unless backReport == report do
+        throwError "internal: the elaborated report differs from the imported value"
+      let unsupported := report.functions.filter (!·.unsupported.isEmpty)
+      let header := s!"collectUnsupported: {unsupported.length} of {report.functions.length} " ++
+        "roots unsupported; no model, theorem or accessor is emitted, and an unsupported " ++
+        "root proves nothing"
+      let lines := header :: unsupported.map FunctionStatus.toText
+      logWarning (String.intercalate "\n" lines)
+      return
     elabCommand (← `(set_option maxRecDepth 16384 in
       def $(name `model) : Compiler.CompilationModel.CompilationModel :=
         $(← quoteModel model)))
