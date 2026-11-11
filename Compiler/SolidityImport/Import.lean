@@ -6269,7 +6269,12 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
               lengthBinding := lenBinding, dataBinding := offBinding }
           vals := vals.push (.calldataBytes desc slicePre)
       | false, _, _ =>
-          vals := vals.push (.byteBuffer { pre := slicePre, pointer := offExpr, size := lenExpr })
+          -- A slice of a memory-backed `bytes calldata` value (a conditional
+          -- argument): solc's slice is still calldata, so the memory
+          -- parameter gets a fresh copy rather than the source's memory.
+          let (copyPre, header) ← copyToLengthPrefixed false offExpr lenExpr
+          vals := vals.push (.byteBuffer
+            { pre := slicePre ++ copyPre, pointer := .add header (.literal 32), size := lenExpr })
       | _, _, _ => failAt arg "unsupported calldata slice argument"
     else if argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
             argTy == "bytes storage ref" || argTy == "bytes storage pointer" then
@@ -7176,14 +7181,18 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             let pointer ← fresh
             let finish ← fresh
             let copyIdx ← fresh
+            -- The copy owns its length binding: reassigning the parameter
+            -- (`p = ...`) rebinds the callee's pair, never the caller's length.
+            let size ← fresh
             let wordCount := Expr.div (.add (.localVar descriptor.lengthBinding) (.literal 31)) (.literal 32)
             modify fun e => { e with encodingMemory := true }
             let alloc := AbiEncoding.reserve pointer finish (.mul (.literal 32) wordCount)
             let copyStmt := Stmt.forEach copyIdx wordCount
               [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
                 (.calldataload (.add (.localVar descriptor.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
-            pre := pre ++ effects ++ (alloc ++ [copyStmt]).toArray
-            pure ({ pre := #[], pointer := .localVar pointer, size := .localVar descriptor.lengthBinding } : EncodedBytes)
+            let sizeStmt := Stmt.letVar size (.localVar descriptor.lengthBinding)
+            pre := pre ++ effects ++ (alloc ++ [copyStmt, sizeStmt]).toArray
+            pure ({ pre := #[], pointer := .localVar pointer, size := .localVar size } : EncodedBytes)
           if descriptor.isString then
             modify fun e =>
               { e with stringBuffers := e.stringBuffers.insert pid retained,
@@ -10866,6 +10875,11 @@ private partial def lowerBytesStructPointer (j : Json) (sid : Nat) : M (Array St
     unless args.size == members.size do failAt j "struct constructor argument count mismatch"
     unless names.isEmpty || names.size == args.size do
       failAt j "named struct constructor name/argument count mismatch"
+    -- solc's legacy pipeline evaluates named arguments in declaration order and
+    -- via-IR in written order; they agree only when the two orders coincide.
+    for i in [:names.size] do
+      unless (← mStr names[i]!) == members[i]!.1 do
+        failAt j "named arguments of a struct with bytes members must follow the declaration order"
     let mut pre : Array Stmt := #[]
     let mut words : Array (String × Expr) := #[]
     for i in [:args.size] do
@@ -11725,7 +11739,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               if rTy == "bytes memory" || rTy == "bytes calldata" || rTy == "bytes" ||
                   rTy == "bytes calldata slice" then
                 let rhsBuf ← lowerEncodedBytes right
-                return rhsBuf.pre ++ #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
+                let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
+                return rhsBuf.pre ++ rebind
   if (← mKind target) == "MemberAccess" then
     let member ← mStr (← mField target "memberName")
     match ← lowerRef (← mField target "expression") with
@@ -13896,10 +13911,6 @@ private def lowerDynamicStructReturnValue (expr : Json) (retSid : Nat) :
     let rootId := 1000000000 + (← get).next
     modify fun e => { e with next := e.next + 1, mems := e.mems.insert rootId descriptor }
     return (rootId, decodePre)
-  if (← mKind expr) == "FunctionCall" && (← bytesStructSchema? retSid).isSome &&
-      (optStr expr "kind" == some "structConstructorCall" || optStr expr "kind" == some "functionCall") then
-    let .mem rootId effects ← lowerRef expr | failAt expr unsupported
-    return (rootId, effects)
   unless (← mKind expr) == "Identifier" do failAt expr unsupported
   let .mem rootId effects ← lowerRef expr | failAt expr unsupported
   let some mem := (← get).mems.find? rootId | failAt expr unsupported

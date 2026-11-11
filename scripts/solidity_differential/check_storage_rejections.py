@@ -1444,6 +1444,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'FunctionCall: [solidity-import:unsupported] ABI returns of memory structs with bytes members are unsupported'),
+        # solc's legacy pipeline evaluates named struct constructor arguments in
+        # declaration order (via-IR: in written order), so a reverting slice
+        # written before a panicking member diverges unless the orders agree.
+        ('bytes-struct-named-constructor-order-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 n; bytes head; }\n  function checked(bytes calldata data) external pure returns (uint256) {\n    S memory s = S({head: data[0:4], n: data.length - 4});\n    return s.n + s.head.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] named arguments of a struct with bytes members must follow the declaration order'),
+        ('bytes-struct-named-constructor-declaration-order-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 n; bytes head; }\n  function checked(bytes calldata data) external pure returns (uint256) {\n    S memory s = S({n: data.length - 4, head: data[0:4]});\n    return s.n + s.head.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        # Element writes to a named `bytes memory` result fail closed, also
+        # after it aliases a parameter.
+        ('bytes-named-result-element-write-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function rebound(bytes memory part) internal pure returns (bytes memory out) {\n    out = part;\n    out[0] = 0xff;\n  }\n  function checked(bytes calldata data) external pure returns (bytes32) {\n    bytes memory source = data;\n    return keccak256(rebound(source)) ^ keccak256(source);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] encoded byte locals are limited to hash and packed encoding operands'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if next(ordinal) % parts != part:
@@ -1460,7 +1480,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             (directory / 'sub').mkdir()
             (directory / 'sub' / 'Dep.sol').write_text('pragma solidity 0.8.34;\nlibrary DepLib { string internal constant REASON = "bad"; }\n')
         fn_sig = (
-            'checked(bytes)' if name.startswith('bytes-param-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected', 'named-bytes-return-slice-struct-positive', 'bytes-struct-shared-memory-member-rejected', 'bytes-struct-root-return-rejected'}
+            'checked(bytes)' if name.startswith('bytes-param-') or name.startswith('bytes-struct-') or name.startswith('bytes-named-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected', 'named-bytes-return-slice-struct-positive', 'bytes-struct-shared-memory-member-rejected', 'bytes-struct-root-return-rejected'}
             else 'checked(bytes2)' if name == 'access-manager-target-role-bytes2-root-param-rejected'
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
