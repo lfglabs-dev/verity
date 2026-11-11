@@ -159,4 +159,36 @@ theorem compile_preserves_semantics_guarded
       initialWorld fn (hparamsSupported fn hmem) hbindNone)
     hcompiled hparamsSupported hfunction
 
+/-- Helper-aware guarded whole-contract theorem over `interpretIRWithInternals`:
+transfers `compile_preserves_semantics_guarded` from `interpretIR` to
+`interpretIRWithInternals ir 0` on any `DisjointRuntimeContract ir`. -/
+theorem compile_preserves_semantics_guarded_with_internals_of_disjointRuntimeContract
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecGuarded model selectors)
+    (ir : IRContract) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hdisjointIR : DisjointRuntimeContract ir)
+    (hfunction :
+      ∀ fn sel irFn bindings,
+        fn ∈ selectorDispatchedFunctions model →
+        compileGuardedFunctionSpec model.fields model.events model.errors []
+          [] sel fn = Except.ok irFn →
+        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
+        FunctionBody.sourceResultMatchesIRResult
+          (guardedFunctionChoice model tx initialWorld fn)
+          (execIRFunction irFn tx.args
+            (FunctionBody.initialIRStateForTx model tx initialWorld))) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretGuardedContract model selectors tx initialWorld)
+      (interpretIRWithInternals ir 0 tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hbase :=
+    compile_preserves_semantics_guarded model selectors hSupported ir tx
+      initialWorld hcompile hfunction
+  have hhelperIR :=
+    interpretIRWithInternalsZeroConservativeExtensionGoalOfDisjoint_closed ir
+      hdisjointIR tx (FunctionBody.initialIRStateForTx model tx initialWorld)
+  simpa [hhelperIR] using hbase
+
 end Compiler.Proofs.IRGeneration

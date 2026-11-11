@@ -4873,6 +4873,33 @@ theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
   · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
       fuel state.world argVals
 
+/-- Whole-contract helper-summary closure: every internal helper call of every
+selector-dispatched function obeys the once-proved catalog contract. -/
+def SupportedSpecHelperProofs.wholeContractHelperCallClosure
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors)
+    (_hProofs : SupportedSpecHelperProofs spec selectors hSupported) : Prop :=
+  ∀ {fn : FunctionSpec} (hfn : fn ∈ selectorDispatchedFunctions spec)
+    {calleeName : String} (hmem : calleeName ∈ helperCallNames fn),
+      InternalHelperSummarySound spec
+        ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall
+          hmem).callee
+        ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryContractOfCall
+          hmem)
+
+/-- **Theorem B.1 (Catalog Implies Whole-Contract Helper Call Closure)**:
+    `SupportedHelperSummaryProofCatalog` discharges every helper call of every
+    selector-dispatched function without a per-caller `helperSurfaceClosed` proof. -/
+theorem SupportedSpecHelperProofs.wholeContractHelperCallClosure_of_catalog
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors)
+    (hProofs : SupportedSpecHelperProofs spec selectors hSupported) :
+    SupportedSpecHelperProofs.wholeContractHelperCallClosure hSupported hProofs := by
+  intro fn hfn calleeName hmem
+  exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
+
 private theorem evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed_externalCall2
     (spec : CompilationModel) (fields : List Field) (fuel : Nat) (state : RuntimeState)
     (name : String) (base exponent : Expr)

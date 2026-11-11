@@ -43,6 +43,11 @@ private structure CLIArgs where
   mappingSlotScratchBase : Nat := 0
   mappingSlotScratchBaseExplicit : Bool := false
   maxStackLocals : Nat := Compiler.Yul.TempReuse.defaultMaxStackLocals
+  useDynamicSpillBase : Bool := false
+  memoryHighWaterMark : Nat := 512
+  enableDispatchTree : Bool := false
+  dispatchThreshold : Nat := Compiler.Selector.defaultSelectorDispatchThreshold
+  enableAstPasses : Bool := false
   denyUncheckedDependencies : Bool := false
   denyAssumedDependencies : Bool := false
   denyAxiomatizedPrimitives : Bool := false
@@ -148,6 +153,11 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --strict-boundary             Fail if any entrypoint transitively calls an internal helper outside the proved Layer 3 boundary"
         IO.println "  --mapping-slot-scratch-base <n>  Scratch memory base for mappingSlot helper (default: 0)"
         IO.println "  --max-stack-locals <n>  Max stack locals per block before reusing/spilling temporaries (default: 12)"
+        IO.println "  --dynamic-spill-base    Compute dynamic spill watermark above memory high-water mark"
+        IO.println "  --memory-high-water-mark <n>  Memory high-water mark for dynamic spill base (default: 512)"
+        IO.println "  --dispatch-tree         Lower runtime selector switch into a binary-search dispatch tree"
+        IO.println "  --dispatch-threshold <n>  Max leaf size for binary-search selector dispatch tree (default: 4)"
+        IO.println "  --enable-ast-passes     Enable certified G1-G8 AST passes (bitmask, control, storage CSE)"
         IO.println "  --verbose          Enable verbose output"
         IO.println "  -v                 Short form of --verbose"
         IO.println "  --help             Show this help message"
@@ -298,6 +308,24 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         | none => throw (IO.userError s!"Invalid value for --max-stack-locals: {raw}")
     | ["--max-stack-locals"] =>
         throw (IO.userError "Missing value for --max-stack-locals")
+    | "--dynamic-spill-base" :: rest =>
+        go rest { cfg with useDynamicSpillBase := true }
+    | "--memory-high-water-mark" :: raw :: rest =>
+        match raw.toNat? with
+        | some n => go rest { cfg with useDynamicSpillBase := true, memoryHighWaterMark := n }
+        | none => throw (IO.userError s!"Invalid value for --memory-high-water-mark: {raw}")
+    | ["--memory-high-water-mark"] =>
+        throw (IO.userError "Missing value for --memory-high-water-mark")
+    | "--dispatch-tree" :: rest =>
+        go rest { cfg with enableDispatchTree := true }
+    | "--dispatch-threshold" :: raw :: rest =>
+        match raw.toNat? with
+        | some n => go rest { cfg with enableDispatchTree := true, dispatchThreshold := n }
+        | none => throw (IO.userError s!"Invalid value for --dispatch-threshold: {raw}")
+    | ["--dispatch-threshold"] =>
+        throw (IO.userError "Missing value for --dispatch-threshold")
+    | "--enable-ast-passes" :: rest =>
+        go rest { cfg with enableAstPasses := true }
     | "--verbose" :: rest | "-v" :: rest =>
         go rest { cfg with verbose := true }
     | unknown :: _ =>
@@ -389,6 +417,11 @@ unsafe def run (args : List String) : IO Unit := do
         requiredProofRefs := packRequiredProofRefs
       }
       mappingSlotScratchBase := cfg.mappingSlotScratchBase
+      useDynamicSpillBase := cfg.useDynamicSpillBase
+      memoryHighWaterMark := cfg.memoryHighWaterMark
+      enableDispatchTree := cfg.enableDispatchTree
+      dispatchThreshold := cfg.dispatchThreshold
+      enableAstPasses := cfg.enableAstPasses
     }
     Compiler.compileModulesWithOptions
       cfg.outDir rawModules cfg.verbose cfg.libs options cfg.patchReportPath cfg.trustReportPath

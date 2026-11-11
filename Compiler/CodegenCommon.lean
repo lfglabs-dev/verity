@@ -34,6 +34,17 @@ structure YulEmitOptions where
   /-- Scratch memory base used by compiler-generated mapping-slot helpers.
       Default `0` preserves historical behavior (`mstore(0, key); mstore(32, baseSlot)`). -/
   mappingSlotScratchBase : Nat := 0
+  /-- Enable dynamic spill watermark `defaultSpillBase + memoryHighWaterMark + 64`
+      in `reuseAndSpillTempsObjectWithSpillBase`. -/
+  useDynamicSpillBase : Bool := false
+  /-- Function/ABI memory high-water mark used when `useDynamicSpillBase = true`. -/
+  memoryHighWaterMark : Nat := 512
+  /-- Enable logarithmic `SelectorDispatchTree` lowering on runtime selector switches. -/
+  enableDispatchTree : Bool := false
+  /-- Maximum leaf size before splitting a selector switch into a binary-search tree. -/
+  dispatchThreshold : Nat := 4
+  /-- Enable certified G1–G8 AST rewrite passes (`applyCertifiedAstPassesToObject`). -/
+  enableAstPasses : Bool := false
 
 structure RuntimeEmitReport where
   runtimeCode : List YulStmt

@@ -54,6 +54,10 @@ def tamaTomlTargetFork? : IO (Option Verity.Core.Intrinsics.HardFork) := do
 
 structure CodegenBackend where
   emitYulWithOptionsReport : IRContract → YulEmitOptions → YulObject × Yul.PatchPassReport
+  applyPostPasses :
+    YulEmitOptions → Nat → YulObject → YulObject :=
+      fun _ maxStackLocals obj =>
+        Compiler.Yul.TempReuse.reuseAndSpillTempsObject maxStackLocals obj
 
 private def orThrow (r : Except String Unit) : IO Unit :=
   match r with
@@ -484,7 +488,7 @@ private def writeContract
     spec.externals.map fun ext =>
       YulStmt.comment s!"verity linked external {ext.name} linkMode={ext.linkMode.toJsonString}"
   let yulObj :=
-    Compiler.Yul.TempReuse.reuseAndSpillTempsObject maxStackLocals
+    backend.applyPostPasses options maxStackLocals
       { baseYulObj with
         runtimeCode := linkModeComments ++ baseYulObj.runtimeCode }
 

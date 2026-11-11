@@ -5,6 +5,7 @@ Authors: Verity Authors
 -/
 import Compiler.Codegen
 import Compiler.Codegen.AccelPlugin
+import Compiler.Selector
 import Compiler.Proofs.SlotCoalescingShim
 import Compiler.Proofs.YulGeneration.TempReuseSoundness
 
@@ -15,6 +16,7 @@ namespace Compiler.Codegen.Profile
 open Compiler
 open Compiler.Yul
 open Compiler.Yul.TempReuse
+open Compiler.Selector
 open Compiler.Codegen.AccelPlugin
 open Compiler.Proofs.SlotCoalescingShim
 open Compiler.Proofs.YulGeneration.TempReuseSoundness
@@ -94,6 +96,8 @@ theorem dynamicSpillSlotAddr_nonOverlapping
     Defaults to the certified optimized setup (`certifiedOptimized`, passes G1–G7). -/
 structure PipelineConfig where
   yulOptions : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } }
+  enableDispatchTree : Bool := true
+  dispatchThreshold : Nat := defaultSelectorDispatchThreshold
   enableSlotCoalescingShim : Bool := true
   enableDynamicSpillWatermark : Bool := true
   maxStackLocals : Nat := defaultMaxStackLocals
@@ -105,18 +109,22 @@ structure PipelineConfig where
     an individual speculative fallback gate (`evalWithUntrustedAccelPlugin`). -/
 def PipelineConfig.unoptimized (opts : YulEmitOptions := {}) : PipelineConfig where
   yulOptions := opts
+  enableDispatchTree := false
+  dispatchThreshold := defaultSelectorDispatchThreshold
   enableSlotCoalescingShim := false
   enableDynamicSpillWatermark := false
   maxStackLocals := defaultMaxStackLocals
   memoryHighWaterMark := 0
   activePlugins := []
 
-/-- Certified optimized profile enabling `SlotCoalescingShim`, `TempReuse`, dynamic
-    spill watermarks, and the G1–G7 certified acceleration plugin catalog. -/
+/-- Certified optimized profile enabling `SelectorDispatchTree`, `SlotCoalescingShim`,
+    `TempReuse`, dynamic spill watermarks, and the G1–G7 certified acceleration plugin catalog. -/
 def PipelineConfig.certifiedOptimized
     (opts : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } })
     (memoryHighWaterMark : Nat := 512) : PipelineConfig where
   yulOptions := opts
+  enableDispatchTree := true
+  dispatchThreshold := defaultSelectorDispatchThreshold
   enableSlotCoalescingShim := true
   enableDynamicSpillWatermark := true
   maxStackLocals := defaultMaxStackLocals
@@ -137,21 +145,128 @@ instance : Inhabited PipelineConfig where
 theorem default_eq_certifiedOptimized :
     PipelineConfig.default = PipelineConfig.certifiedOptimized := rfl
 
-/-- Apply `reuseBlockTemps` to the runtime code of a `YulObject` when enabled. -/
-def applyTempReuseToObject (maxStackLocals : Nat) (obj : YulObject) : YulObject :=
-  { obj with
-    runtimeCode := reuseBlockTemps maxStackLocals [] obj.runtimeCode }
+/-- Lower a `SelectorDispatchTree (List YulStmt)` into nested binary-search Yul `.switch`
+    statements comparing `lt(selExpr, pivot)` on internal nodes and emitting a leaf `.switch`
+    at each leaf. -/
+def emitDispatchTreeStmt
+    (selExpr : YulExpr)
+    (defaultCase : Option (List YulStmt)) :
+    SelectorDispatchTree (List YulStmt) → YulStmt
+  | .leaf entries => .switch selExpr entries defaultCase
+  | .branch pivot left right =>
+      .switch (.call "lt" [selExpr, .lit pivot])
+        [(1, [emitDispatchTreeStmt selExpr defaultCase left])]
+        (some [emitDispatchTreeStmt selExpr defaultCase right])
 
-/-- Apply `reuseBlockTempsWithSpillBase` with dynamic watermark `computedSpillBase memoryHighWaterMark`
-    to the runtime code of a `YulObject`. -/
+/-- **Theorem C1.0b (`emitDispatchTreeStmt` on `.leaf` is definitionally `.switch`)**:
+    When `buildSelectorDispatchTree` returns a `.leaf` (e.g., `cases.length ≤ threshold`),
+    `emitDispatchTreeStmt` produces the exact flat `.switch` statement unchanged. -/
+@[simp]
+theorem emitDispatchTreeStmt_leaf
+    (selExpr : YulExpr)
+    (defaultCase : Option (List YulStmt))
+    (entries : List (Nat × List YulStmt)) :
+    emitDispatchTreeStmt selExpr defaultCase (.leaf entries) =
+      .switch selExpr entries defaultCase := rfl
+
+/-- Insert a `(selector, body)` entry into a selector-sorted list. -/
+def insertSelectorCase (entry : Nat × List YulStmt) : List (Nat × List YulStmt) → List (Nat × List YulStmt)
+  | [] => [entry]
+  | head :: tail =>
+      if entry.1 < head.1 then entry :: head :: tail
+      else head :: insertSelectorCase entry tail
+
+/-- Sort `(selector, body)` cases in ascending selector order before building a
+    binary-search `SelectorDispatchTree`. -/
+def sortSelectorCases (cases : List (Nat × List YulStmt)) : List (Nat × List YulStmt) :=
+  cases.foldl (fun acc entry => insertSelectorCase entry acc) []
+
+/-- Rewrite selector `.switch` statements in `stmts` (including inside `.block` and `.if_`)
+    into logarithmic binary-search trees whenever `cases.length > threshold`. -/
+def rewriteSelectorSwitchesInStmts (threshold : Nat) (stmts : List YulStmt) : List YulStmt :=
+  stmts.map (fun stmt =>
+    match stmt with
+    | .switch expr cases defaultCase =>
+        if cases.length ≤ threshold then
+          .switch expr cases defaultCase
+        else
+          emitDispatchTreeStmt expr defaultCase
+            (buildSelectorDispatchTree threshold (sortSelectorCases cases))
+    | .if_ cond body => .if_ cond (rewriteSelectorSwitchesInStmts threshold body)
+    | .block body => .block (rewriteSelectorSwitchesInStmts threshold body)
+    | other => other)
+
+/-- Apply logarithmic `SelectorDispatchTree` lowering to the runtime code of a `YulObject`. -/
+def applyDispatchTreeToObject (threshold : Nat) (obj : YulObject) : YulObject :=
+  { obj with
+    runtimeCode := rewriteSelectorSwitchesInStmts threshold obj.runtimeCode }
+
+/-- **Theorem C1.0c (`SelectorDispatchTree` Preserves Lookup Semantics for Every Threshold)**:
+    Lookup in `buildSelectorDispatchTree threshold cases` agrees identically with linear
+    `.switch` case lookup (`linearSelectorLookup cases sel`) for all sorted selector lists. -/
+theorem selectorDispatchTree_lookup_eq_linear_of_sorted
+    (threshold : Nat)
+    (cases : List (Nat × List YulStmt))
+    (hSorted : SelectorsStrictSorted cases)
+    (sel : Nat) :
+    (buildSelectorDispatchTree threshold cases).lookup sel =
+      linearSelectorLookup cases sel :=
+  buildSelectorDispatchTree_lookup_eq_linear threshold cases hSorted sel
+
+/-- Compute the exact runtime spill base for a `PipelineConfig`:
+    uses `computedSpillBase cfg.memoryHighWaterMark` when `cfg.enableDynamicSpillWatermark`
+    is enabled, and `defaultSpillBase` (`4096`) otherwise. -/
+def PipelineConfig.effectiveSpillBase (cfg : PipelineConfig) : Nat :=
+  if cfg.enableDynamicSpillWatermark then
+    computedSpillBase cfg.memoryHighWaterMark
+  else
+    defaultSpillBase
+
+/-- **Theorem C1.0a (`unoptimized` Effective Spill Base is `defaultSpillBase`)**:
+    When `enableDynamicSpillWatermark = false`, `effectiveSpillBase` is definitionally
+    `defaultSpillBase` (`4096`). -/
+@[simp]
+theorem effectiveSpillBase_unoptimized (opts : YulEmitOptions) :
+    (PipelineConfig.unoptimized opts).effectiveSpillBase = defaultSpillBase := rfl
+
+/-- Apply `PipelineConfig`'s post-emission AST and temporary-reuse passes to a `YulObject`
+    already produced by `emitYulWithOptionsReport`:
+    1. Logarithmic `SelectorDispatchTree` lowering when `cfg.enableDispatchTree = true`,
+    2. Certified G1–G8 AST passes (`applyCertifiedAstPassesToObject`) when `!cfg.activePlugins.isEmpty`,
+    3. Recursive temporary reuse and spilling (`reuseAndSpillTempsObjectWithSpillBase`)
+       with `cfg.maxStackLocals` and `cfg.effectiveSpillBase`. -/
+def applyProfilePostPasses (cfg : PipelineConfig) (obj : YulObject) : YulObject :=
+  let dispatchedObj :=
+    if cfg.enableDispatchTree then
+      applyDispatchTreeToObject cfg.dispatchThreshold obj
+    else
+      obj
+  let astPatchedObj :=
+    if !cfg.activePlugins.isEmpty then
+      applyCertifiedAstPassesToObject dispatchedObj
+    else
+      dispatchedObj
+  reuseAndSpillTempsObjectWithSpillBase cfg.maxStackLocals cfg.effectiveSpillBase astPatchedObj
+
+/-- **Theorem C1.0d (`applyProfilePostPasses` under `unoptimized` Equals Legacy `reuseAndSpillTempsObject`)**:
+    Under `PipelineConfig.unoptimized`, `applyProfilePostPasses` is definitionally equal to
+    `reuseAndSpillTempsObject defaultMaxStackLocals obj`. -/
+@[simp]
+theorem applyProfilePostPasses_unoptimized_eq_reuseAndSpillTempsObject (opts : YulEmitOptions) (obj : YulObject) :
+    applyProfilePostPasses (PipelineConfig.unoptimized opts) obj =
+      reuseAndSpillTempsObject defaultMaxStackLocals obj := rfl
+
+/-- Apply `reuseAndSpillTempsObjectWithSpillBase` with dynamic watermark
+    `computedSpillBase memoryHighWaterMark` across the entire `YulObject` (including
+    nested `funcDef` and `switch` bodies). -/
 def applyDynamicTempReuseToObject
     (maxStackLocals memoryHighWaterMark : Nat) (obj : YulObject) : YulObject :=
-  { obj with
-    runtimeCode :=
-      reuseBlockTempsWithSpillBase maxStackLocals (computedSpillBase memoryHighWaterMark) [] obj.runtimeCode }
+  reuseAndSpillTempsObjectWithSpillBase
+    maxStackLocals (computedSpillBase memoryHighWaterMark) obj
 
 /-- Profile-guided Yul emission wrapper around `emitYulWithOptionsReport`.
-    Wires `cfg.enableSlotCoalescingShim`, `cfg.activePlugins` (`applyCertifiedAstPassesToObject`),
+    Wires `cfg.enableDispatchTree` (`applyDispatchTreeToObject`),
+    `cfg.enableSlotCoalescingShim`, `cfg.activePlugins` (`applyCertifiedAstPassesToObject`),
     and `cfg.enableDynamicSpillWatermark` (`computedSpillBase cfg.memoryHighWaterMark`).
     When `cfg = PipelineConfig.unoptimized opts`, this reduces definitionally (`rfl`) to
     `emitYulWithOptionsReport model opts`. -/
@@ -164,11 +279,16 @@ def emitYulWithProfile (model : IRContract) (cfg : PipelineConfig) :
     else
       cfg.yulOptions
   let baseReport := emitYulWithOptionsReport model effectiveOpts
-  let astPatchedObj :=
-    if !cfg.activePlugins.isEmpty then
-      applyCertifiedAstPassesToObject baseReport.1
+  let dispatchedObj :=
+    if cfg.enableDispatchTree then
+      applyDispatchTreeToObject cfg.dispatchThreshold baseReport.1
     else
       baseReport.1
+  let astPatchedObj :=
+    if !cfg.activePlugins.isEmpty then
+      applyCertifiedAstPassesToObject dispatchedObj
+    else
+      dispatchedObj
   if cfg.enableDynamicSpillWatermark then
     (applyDynamicTempReuseToObject cfg.maxStackLocals cfg.memoryHighWaterMark astPatchedObj, baseReport.2)
   else
@@ -191,6 +311,11 @@ theorem certifiedOptimized_preserves_slotCoalescing_semantics
     execCoalescedPackedWrites st writes = execUncoalescedPackedWrites st writes :=
   execCoalescedPackedWrites_eq_uncoalesced st writes
 
+/-- Apply `reuseBlockTemps` to the runtime code of a `YulObject` when enabled. -/
+def applyTempReuseToObject (maxStackLocals : Nat) (obj : YulObject) : YulObject :=
+  { obj with
+    runtimeCode := reuseBlockTemps maxStackLocals [] obj.runtimeCode }
+
 /-- **Theorem C1.6 (`TempReuse` Fast-Path Identity on `YulObject`)**:
     Whenever `obj.runtimeCode` has `≤ maxStackLocals` `let` bindings,
     `applyTempReuseToObject` returns `obj` unchanged. -/
@@ -201,5 +326,33 @@ theorem applyTempReuseToObject_eq_self_of_le
     applyTempReuseToObject maxStackLocals obj = obj := by
   unfold applyTempReuseToObject
   rw [reuseBlockTemps_eq_self_of_le maxStackLocals [] obj.runtimeCode hLe]
+
+/-- Construct a `PipelineConfig` from `YulEmitOptions` and `maxStackLocals`
+    for the active production compiler driver (`CompileDriverCommon.writeContract`). -/
+def PipelineConfig.fromEmitOptions
+    (options : YulEmitOptions)
+    (maxStackLocals : Nat := defaultMaxStackLocals) : PipelineConfig where
+  yulOptions := options
+  enableDispatchTree := options.enableDispatchTree
+  dispatchThreshold := options.dispatchThreshold
+  enableSlotCoalescingShim := false
+  enableDynamicSpillWatermark := options.useDynamicSpillBase
+  maxStackLocals := maxStackLocals
+  memoryHighWaterMark := options.memoryHighWaterMark
+  activePlugins :=
+    if options.enableAstPasses then
+      defaultCertifiedPluginCatalog
+    else
+      []
+
+/-- **Theorem C1.0e (`applyProfilePostPasses` under Default `YulEmitOptions` Equals Legacy `reuseAndSpillTempsObject`)**:
+    With all new `YulEmitOptions` flags at their defaults (`false`),
+    `applyProfilePostPasses (PipelineConfig.fromEmitOptions {} maxStackLocals) obj`
+    is definitionally `reuseAndSpillTempsObject maxStackLocals obj`. -/
+@[simp]
+theorem applyProfilePostPasses_fromEmitOptions_default
+    (maxStackLocals : Nat) (obj : YulObject) :
+    applyProfilePostPasses (PipelineConfig.fromEmitOptions {} maxStackLocals) obj =
+      reuseAndSpillTempsObject maxStackLocals obj := rfl
 
 end Compiler.Codegen.Profile

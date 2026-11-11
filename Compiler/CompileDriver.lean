@@ -1,6 +1,7 @@
 import Std
 import Compiler.Selector
 import Compiler.Codegen
+import Compiler.Codegen.Profile
 import Compiler.CompileDriverCommon
 import Compiler.Yul.PrettyPrint
 import Compiler.Linker
@@ -15,7 +16,11 @@ namespace Compiler
 open Compiler.CompilationModel
 
 private def backend : Compiler.CompileDriverCommon.CodegenBackend :=
-  { emitYulWithOptionsReport := Compiler.emitYulWithOptionsReport }
+  { emitYulWithOptionsReport := Compiler.emitYulWithOptionsReport
+    applyPostPasses := fun options maxStackLocals obj =>
+      Compiler.Codegen.Profile.applyProfilePostPasses
+        (Compiler.Codegen.Profile.PipelineConfig.fromEmitOptions options maxStackLocals)
+        obj }
 
 def compileSpecsWithOptions
     (specs : List CompilationModel)

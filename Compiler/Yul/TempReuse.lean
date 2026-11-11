@@ -415,4 +415,86 @@ def reuseAndSpillTempsObject
     deployCode := reuseAndSpillTemps maxStackLocals [] obj.deployCode
     runtimeCode := reuseAndSpillTemps maxStackLocals [] obj.runtimeCode }
 
+mutual
+/-- Recursively apply temporary reuse and spilling across a `YulStmt` with an explicit
+    scratch-memory `spillBase`. -/
+def reuseAndSpillTempsInStmtWithSpillBase
+    (maxStackLocals : Nat)
+    (spillBase : Nat)
+    (protectedNames : List String) : YulStmt → YulStmt
+  | .comment text => .comment text
+  | .let_ name value => .let_ name value
+  | .letMany names value => .letMany names value
+  | .assign name value => .assign name value
+  | .exprStmt value => .exprStmt value
+  | .leave => .leave
+  | .if_ cond body =>
+      .if_ cond (reuseAndSpillTempsWithSpillBase maxStackLocals spillBase protectedNames body)
+  | .for_ init cond post body =>
+      .for_
+        (reuseAndSpillTempsWithSpillBase maxStackLocals spillBase protectedNames init)
+        cond
+        (reuseAndSpillTempsWithSpillBase maxStackLocals spillBase protectedNames post)
+        (reuseAndSpillTempsWithSpillBase maxStackLocals spillBase protectedNames body)
+  | .switch expr cases default =>
+      .switch
+        expr
+        (reuseAndSpillTempsInCasesWithSpillBase maxStackLocals spillBase protectedNames cases)
+        (match default with
+         | none => none
+         | some body => some (reuseAndSpillTempsWithSpillBase maxStackLocals spillBase protectedNames body))
+  | .block stmts =>
+      .block (reuseAndSpillTempsWithSpillBase maxStackLocals spillBase protectedNames stmts)
+  | .funcDef name params rets body =>
+      .funcDef name params rets
+        (reuseAndSpillTempsWithSpillBase maxStackLocals spillBase (params ++ rets) body)
+
+/-- Recursively apply temporary reuse and spilling across a list of `YulStmt` with an explicit
+    scratch-memory `spillBase`. -/
+def reuseAndSpillTempsChildrenWithSpillBase
+    (maxStackLocals : Nat)
+    (spillBase : Nat)
+    (protectedNames : List String) : List YulStmt → List YulStmt
+  | [] => []
+  | s :: ss =>
+      reuseAndSpillTempsInStmtWithSpillBase maxStackLocals spillBase protectedNames s ::
+        reuseAndSpillTempsChildrenWithSpillBase maxStackLocals spillBase protectedNames ss
+
+/-- Recursively apply temporary reuse and spilling across switch cases with an explicit
+    scratch-memory `spillBase`. -/
+def reuseAndSpillTempsInCasesWithSpillBase
+    (maxStackLocals : Nat)
+    (spillBase : Nat)
+    (protectedNames : List String) : List (Nat × List YulStmt) → List (Nat × List YulStmt)
+  | [] => []
+  | (tag, body) :: rest =>
+      (tag, reuseAndSpillTempsWithSpillBase maxStackLocals spillBase protectedNames body) ::
+        reuseAndSpillTempsInCasesWithSpillBase maxStackLocals spillBase protectedNames rest
+
+/-- Apply temporary reuse and scratch-memory spilling with an explicit `spillBase` to a
+    statement list and all nested blocks. -/
+def reuseAndSpillTempsWithSpillBase
+    (maxStackLocals : Nat := defaultMaxStackLocals)
+    (spillBase : Nat := defaultSpillBase)
+    (protectedNames : List String := [])
+    (stmts : List YulStmt) : List YulStmt :=
+  reuseBlockTempsWithSpillBase maxStackLocals spillBase protectedNames
+    (reuseAndSpillTempsChildrenWithSpillBase maxStackLocals spillBase protectedNames stmts)
+end
+
+/-- Apply temporary reuse and scratch-memory spilling with an explicit `spillBase` to a full
+    `YulObject` (including all nested function definitions and switch cases). -/
+def reuseAndSpillTempsObjectWithSpillBase
+    (maxStackLocals : Nat := defaultMaxStackLocals)
+    (spillBase : Nat := defaultSpillBase)
+    (obj : YulObject) : YulObject :=
+  { obj with
+    deployCode := reuseAndSpillTempsWithSpillBase maxStackLocals spillBase [] obj.deployCode
+    runtimeCode := reuseAndSpillTempsWithSpillBase maxStackLocals spillBase [] obj.runtimeCode }
+
+theorem reuseBlockTempsWithSpillBase_default
+    (maxStackLocals : Nat) (protectedNames : List String) (stmts : List YulStmt) :
+    reuseBlockTempsWithSpillBase maxStackLocals defaultSpillBase protectedNames stmts =
+      reuseBlockTemps maxStackLocals protectedNames stmts := rfl
+
 end Compiler.Yul.TempReuse

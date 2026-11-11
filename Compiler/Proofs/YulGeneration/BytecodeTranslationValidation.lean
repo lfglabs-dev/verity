@@ -51,7 +51,7 @@ structure YulHelperDef where
   params : List String
   rets : List String
   body : List YulStmt
-  deriving Repr
+  deriving Repr, DecidableEq
 
 /-- Frozen top-level function table extracted from a `YulObject`. -/
 abbrev FrozenYulFunctionTable := List YulHelperDef
@@ -59,6 +59,38 @@ abbrev FrozenYulFunctionTable := List YulHelperDef
 /-- Lookup an outlined helper definition by name in a `FrozenYulFunctionTable`. -/
 def lookupYulHelper (table : FrozenYulFunctionTable) (name : String) : Option YulHelperDef :=
   table.find? (fun h => h.name == name)
+
+/-- Extract top-level `.funcDef` statements from a Yul statement list into a
+    `FrozenYulFunctionTable`. -/
+def extractYulFunctionTableFromStmts (stmts : List YulStmt) : FrozenYulFunctionTable :=
+  stmts.filterMap (fun stmt =>
+    match stmt with
+    | .funcDef name params rets body =>
+        some { name := name, params := params, rets := rets, body := body }
+    | _ => none)
+
+/-- Extract the frozen runtime helper table from a `YulObject`. -/
+def extractYulFunctionTable (obj : YulObject) : FrozenYulFunctionTable :=
+  extractYulFunctionTableFromStmts obj.runtimeCode
+
+/-- **Theorem D1.0 (`extractYulFunctionTableFromStmts` Distributes over `++`)**:
+    Appending statement lists distributes over `extractYulFunctionTableFromStmts`. -/
+@[simp]
+theorem extractYulFunctionTableFromStmts_append (s₁ s₂ : List YulStmt) :
+    extractYulFunctionTableFromStmts (s₁ ++ s₂) =
+      extractYulFunctionTableFromStmts s₁ ++ extractYulFunctionTableFromStmts s₂ := by
+  unfold extractYulFunctionTableFromStmts
+  exact List.filterMap_append
+
+/-- **Theorem D1.0b (`extractYulFunctionTableFromStmts` on a `.funcDef` Head)**:
+    A top-level `.funcDef name params rets body` prepends `{ name, params, rets, body }`
+    to the extracted `FrozenYulFunctionTable`. -/
+@[simp]
+theorem extractYulFunctionTableFromStmts_cons_funcDef
+    (name : String) (params rets : List String) (body rest : List YulStmt) :
+    extractYulFunctionTableFromStmts (.funcDef name params rets body :: rest) =
+      { name := name, params := params, rets := rets, body := body } ::
+        extractYulFunctionTableFromStmts rest := rfl
 
 /-- **Theorem D1.1 (Helper Table Monotonicity Under Non-Shadowing Extension)**:
     If `lookupYulHelper baseTable name = some defn`, then appending additional outlined
@@ -196,5 +228,39 @@ theorem push1_immediate_0x5b_not_jumpdest :
     isValidJumpdestList sampleCode 2 = true ∧
     allECMsProved [.proved, .proved, .proved] = true := by
   decide
+
+/-- Phase D bridge from a `Codegen`-emitted `YulObject` to bytecode translation
+    validation. `yulFunctionTable` is the frozen runtime helper table extracted
+    from the object; `translation` is the post-`solc` certificate checked by
+    `validateBytecodeTranslation`. -/
+structure CodegenBytecodeBridge where
+  yulObject : YulObject
+  yulFunctionTable : FrozenYulFunctionTable
+  translation : BytecodeTranslationCertificate
+
+/-- Boolean checker for `CodegenBytecodeBridge`: the frozen helper table matches
+    `extractYulFunctionTable yulObject`, and the translation certificate is valid. -/
+def checkCodegenBytecodeBridge (bridge : CodegenBytecodeBridge) : Bool :=
+  decide (bridge.yulFunctionTable = extractYulFunctionTable bridge.yulObject) &&
+    validateBytecodeTranslation bridge.translation
+
+/-- **Theorem D2.4 (Soundness of the `Codegen` → Bytecode Bridge)**:
+    Whenever `checkCodegenBytecodeBridge bridge = true`, the frozen helper table is
+    exactly `extractYulFunctionTable bridge.yulObject`, and every basic block in the
+    translation certificate satisfies `checkBytecodeBlockCert_sound`. -/
+theorem checkCodegenBytecodeBridge_sound
+    (bridge : CodegenBytecodeBridge)
+    (hok : checkCodegenBytecodeBridge bridge = true)
+    (blk : BytecodeBlockCert)
+    (hmem : blk ∈ bridge.translation.blocks) :
+    bridge.yulFunctionTable = extractYulFunctionTable bridge.yulObject ∧
+    blk.entryPc < blk.exitPc ∧
+    blk.evmSlicePostDigest = blk.yulBlockPostDigest ∧
+    (blk.requiresJumpdestEntry = true →
+      isValidJumpdestList bridge.translation.bytecode blk.entryPc = true) := by
+  unfold checkCodegenBytecodeBridge at hok
+  rcases Bool.and_eq_true_iff.mp hok with ⟨htable, hvalid⟩
+  refine ⟨of_decide_eq_true htable, ?_⟩
+  exact validateBytecodeTranslation_sound bridge.translation hvalid blk hmem
 
 end Compiler.Proofs.YulGeneration.BytecodeTranslationValidation

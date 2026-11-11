@@ -2559,6 +2559,43 @@ unsafe def runTests : IO Unit := do
     quoteTierHighThresholdPath
     ["let bestTier7 :=", "let bestSeq7 :=", "let lowest7 :=", "let h7 :="]
 
+  let quoteTierDynamicSpillOutDir := s!"/tmp/compile-driver-quotetier-dynamic-spill-{nonce}"
+  let dynamicSpillOptions : YulEmitOptions := {
+    useDynamicSpillBase := true
+    memoryHighWaterMark := 512
+  }
+  compileSpecsWithOptions
+    [quoteTierStackPressureSpec] quoteTierDynamicSpillOutDir false [] dynamicSpillOptions none none none none
+  let quoteTierDynamicSpillPath := s!"{quoteTierDynamicSpillOutDir}/QuoteTierStackPressure.yul"
+  expectFileContains
+    "8-tier quoteTier uses dynamic spill base computedSpillBase(512) = 4672 when useDynamicSpillBase is enabled (Phase C1)"
+    quoteTierDynamicSpillPath
+    ["mstore(4672,", "mload(4672)"]
+
+  let dispatchTreeSpec : CompilationModel := {
+    name := "DispatchTreeSmoke"
+    fields := []
+    «constructor» := none
+    functions :=
+      (List.range 6).map (fun idx =>
+        { name := s!"fn{idx}"
+          params := []
+          returnType := some FieldType.uint256
+          body := [Stmt.return (Expr.literal (idx + 1))] })
+  }
+  let dispatchTreeOutDir := s!"/tmp/compile-driver-dispatch-tree-{nonce}"
+  let dispatchTreeOptions : YulEmitOptions := {
+    enableDispatchTree := true
+    dispatchThreshold := 2
+  }
+  compileSpecsWithOptions
+    [dispatchTreeSpec] dispatchTreeOutDir false [] dispatchTreeOptions none none none none
+  let dispatchTreePath := s!"{dispatchTreeOutDir}/DispatchTreeSmoke.yul"
+  expectFileContains
+    "6-function contract lowers runtime selector switch to binary-search lt(shr(224, calldataload(0)), pivot) tree when enableDispatchTree is enabled (Phase C1)"
+    dispatchTreePath
+    ["switch lt(shr(224, calldataload(0)),"]
+
 #eval! runTests
 
 end Compiler.CompileDriverTest

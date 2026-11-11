@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Verity Authors
 -/
 import Compiler.Codegen
-import Compiler.Autoresearch.MaxwellGasSuperoptimizer
+import Compiler.Autoresearch.ShimArena
 
 set_option autoImplicit false
 
@@ -12,7 +12,7 @@ namespace Compiler.Codegen.AccelPlugin
 
 open Compiler
 open Compiler.Yul
-open Compiler.Autoresearch.MaxwellGasSuperoptimizer
+open Compiler.Autoresearch.ShimArena
 
 /-!
 # Segregated Acceleration Plugin Architecture, Semantic `MetaGateSpec` & Active AST Passes

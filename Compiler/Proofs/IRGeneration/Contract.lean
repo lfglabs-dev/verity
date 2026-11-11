@@ -2223,6 +2223,30 @@ theorem compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed
     (hlegacyIR := hlegacyIR)
     (hhelperIRGoal := interpretIRWithInternalsZeroConservativeExtensionGoal_closed ir)
 
+/-- Direct helper-catalog whole-contract theorem over `interpretIRWithInternals`:
+given a `SupportedHelperSummaryProofCatalog model`, `compile_preserves_semantics`
+transfers directly to `interpretIRWithInternals ir 0` on any `DisjointRuntimeContract ir`
+without requiring manual `SupportedSpecHelperProofs` packaging at the call site. -/
+theorem compile_preserves_semantics_of_helperCatalog_and_disjointRuntimeContract
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hCatalog : SourceSemantics.SupportedHelperSummaryProofCatalog model)
+    (ir : IRContract)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hdisjointIR : DisjointRuntimeContract ir) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceContractSemantics model selectors hSupported tx initialWorld)
+      (interpretIRWithInternals ir 0 tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
+  compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_disjointRuntimeContract
+    model selectors hSupported { helperCatalog := hCatalog } ir tx initialWorld
+    htxNormalized hcalldataSizeFits hcompile hdisjointIR
+
 /-- Contract-facing wrapper for the helper-rich Function support boundary.
 The caller supplies the exact helper-aware body/IR preservation goal, while
 parameter support and helper fuel come from `SupportedSpecWithHelpers`. -/

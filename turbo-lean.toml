@@ -21,8 +21,11 @@ allow = [
   "Verity.keccak256_nat_empty._native.native_decide.ax_*",
   "Verity.keccak256_lit_empty_val._native.native_decide.ax_*",
   "Compiler.Proofs.IRGeneration.ContractFeatureTest.*._native.native_decide.ax_*",
+  "_private.Compiler.Proofs.IRGeneration.ContractFeatureTest.*._native.native_decide.ax_*",
   "Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.*._native.native_decide.ax_*",
+  "_private.Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.*._native.native_decide.ax_*",
   "KeccakEngine.Test.*._native.native_decide.ax_*",
+  "_private.KeccakEngine.Test.*._native.native_decide.ax_*",
 ]
 
 [implemented_by]
