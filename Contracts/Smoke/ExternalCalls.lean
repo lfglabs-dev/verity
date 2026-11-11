@@ -427,9 +427,9 @@ verity_contract ERC20HelperSmoke where
     safeApprove token spender amount
 
   function allow_post_interaction_writes snapshotBalance (token : Address, owner : Address) : Uint256 := do
-    let ownerBalance ← balanceOf token owner
-    setStorage lastBalance ownerBalance
-    return ownerBalance
+    let balance ← balanceOf token owner
+    setStorage lastBalance balance
+    return balance
 
   function allow_post_interaction_writes snapshotAllowance (token : Address, owner : Address, spender : Address) : Uint256 := do
     let current ← allowance token owner spender

@@ -3188,7 +3188,9 @@ private partial def lowerRef (j : Json) : M Ref := do
         failAt j "external contract code reads are outside this slice"
       else if ((← mKind base) == "FunctionCall" || (← mKind base) == "Conditional" || (← mKind base) == "TupleExpression") &&
           (← mType base).startsWith "struct " && !(← mType base).contains "[" &&
-          (← mType base).endsWith " memory" then
+          (← mType base).endsWith " memory" &&
+          -- A struct with `bytes` members lives in memory (`lowerRef` below).
+          !(← hasBytesStructType base) then
         let (_, sName, initPre, memberVals) ← lowerFlatStructValue base none false
         let some (_, _, mExpr) := memberVals.find? (fun (mName, _, _) => mName == member)
           | failAt j s!"{member} is not a member of {sName}"
@@ -3420,6 +3422,13 @@ private partial def lowerRef (j : Json) : M Ref := do
         let (fnId, vals) ← resolveCallTargetAndArgs j
         let (pre, path) ← inlineStorageRefFn fnId vals j
         pure (.path pre path)
+      else if (kind == "functionCall" || kind == "structConstructorCall") && (← hasBytesStructType j) then
+        let (sid, _) ← resolveStructDeclFromType j
+        let (valPre, ptr) ← lowerBytesStructPointer j sid
+        let (boundPre, desc) ← bindBytesStructPointer sid valPre ptr j
+        let rootId := 1000000000 + (← get).next
+        modify fun e => { e with next := e.next + 1, mems := e.mems.insert rootId desc }
+        pure (.mem rootId boundPre)
       else
         failAt j s!"unsupported reference FunctionCall ({kind} : {ty})"
   | kind => failAt j s!"unsupported reference {kind}"
@@ -5253,7 +5262,15 @@ private partial def abiDecodesDynamicStruct (j : Json) : M Bool := do
 
 private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array Stmt × Bool × Expr × Expr) := do
   let inner ← unwrapBytesConversion (← stripParens rawNode)
-  if let some (slicePre, offsetExpr, lenExpr, fromCalldata, _) ← lowerCalldataSlice? inner then
+  if let some (slicePre, offsetExpr, lenExpr, fromCalldata, isMsgData) ← lowerCalldataSlice? inner then
+    if isMsgData then
+      let buf ← lowerEncodedBytes inner
+      let ptrVar ← fresh
+      let lenVar ← fresh
+      return (buf.pre ++ #[
+        .letVar ptrVar buf.pointer,
+        .letVar lenVar buf.size
+      ], false, .localVar ptrVar, .localVar lenVar)
     return (slicePre, fromCalldata, offsetExpr, lenExpr)
   if (← mKind inner) == "Identifier" then
     let id ← refInt inner
@@ -6094,7 +6111,13 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
       failAt arg "assignment expression in multi-argument call requires explicit evaluation-order support"
     let argTy ← mType arg
     if argTy.startsWith "struct " && !argTy.contains "[" then
-      if (← mKind arg) == "FunctionCall" &&
+      if (← mKind arg) == "FunctionCall" && argTy.endsWith " memory" &&
+          (optStr arg "kind" == some "structConstructorCall" || optStr arg "kind" == some "functionCall") &&
+          (← hasBytesStructType arg) then
+        let .mem id mpre ← lowerRef arg | failAt arg "unsupported bytes-member struct argument"
+        let some descriptor := (← get).mems.find? id | failAt arg "unknown reference argument"
+        vals := vals.push (.memory descriptor mpre)
+      else if (← mKind arg) == "FunctionCall" &&
           (optStr arg "kind" == some "structConstructorCall" ||
            (optStr arg "kind" == some "functionCall" && argTy.endsWith " memory")) then
         let (sid, sName, initPre, memberVals) ← lowerFlatStructValue arg none false
@@ -6241,6 +6264,25 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
         continue
       let buf ← lowerEncodedBytes arg
       vals := vals.push (.stringBuffer buf)
+    else if argTy == "bytes calldata slice" then
+      -- `data[a:b]` passed to a helper: solc's range checks (plain empty
+      -- reverts, not panics), then the `(offset, length)` pair as a calldata
+      -- argument; a `bytes memory` parameter copies it at binding time.
+      let some (slicePre, offExpr, lenExpr, fromCalldata, isMsgData) ← lowerCalldataSlice? arg
+        | failAt arg "unsupported calldata slice argument"
+      if isMsgData then
+        let buf ← lowerEncodedBytes arg
+        vals := vals.push (.byteBuffer buf)
+      else
+        match fromCalldata, offExpr, lenExpr with
+        | true, .localVar offBinding, .localVar lenBinding =>
+            let desc : CalldataBytesParam :=
+              { param := "", offsetBinding := "", headerBinding := "",
+                lengthBinding := lenBinding, dataBinding := offBinding }
+            vals := vals.push (.calldataBytes desc slicePre)
+        | false, _, _ =>
+            vals := vals.push (.byteBuffer { pre := slicePre, pointer := offExpr, size := lenExpr })
+        | _, _, _ => failAt arg "unsupported calldata slice argument"
     else if argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
             argTy == "bytes storage ref" || argTy == "bytes storage pointer" then
       if (← mKind arg) == "Identifier" then
@@ -7140,20 +7182,26 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           modify fun e => { e with calldataBytes := e.calldataBytes.insert pid descriptor }
         else if location == "memory" then
           let retained ← if descriptor.inMemory then do
-            pre := pre ++ effects
-            pure ({ pre := #[], pointer := .add (.localVar descriptor.memoryPointer) (.literal 32), size := .localVar descriptor.lengthBinding } : EncodedBytes)
+            let ptrBinding ← freshFor (if pname == "" then "bytes_ptr" else pname)
+            let sizeBinding ← fresh
+            pre := pre ++ effects ++ #[
+              .letVar ptrBinding (.add (.localVar descriptor.memoryPointer) (.literal 32)),
+              .letVar sizeBinding (.localVar descriptor.lengthBinding)
+            ]
+            pure ({ pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding } : EncodedBytes)
           else do
             let pointer ← fresh
             let finish ← fresh
             let copyIdx ← fresh
+            let sizeBinding ← fresh
             let wordCount := Expr.div (.add (.localVar descriptor.lengthBinding) (.literal 31)) (.literal 32)
             modify fun e => { e with encodingMemory := true }
             let alloc := AbiEncoding.reserve pointer finish (.mul (.literal 32) wordCount)
             let copyStmt := Stmt.forEach copyIdx wordCount
               [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
                 (.calldataload (.add (.localVar descriptor.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
-            pre := pre ++ effects ++ (alloc ++ [copyStmt]).toArray
-            pure ({ pre := #[], pointer := .localVar pointer, size := .localVar descriptor.lengthBinding } : EncodedBytes)
+            pre := pre ++ effects ++ (alloc ++ [copyStmt, .letVar sizeBinding (.localVar descriptor.lengthBinding)]).toArray
+            pure ({ pre := #[], pointer := .localVar pointer, size := .localVar sizeBinding } : EncodedBytes)
           if descriptor.isString then
             modify fun e =>
               { e with stringBuffers := e.stringBuffers.insert pid retained,
@@ -7694,6 +7742,38 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
           return { pre, pointer := .localVar ptr, size := .localVar size }
       | _ => failAt s "string helper must end with a return statement"
 
+/-- A helper with a named `bytes memory` result: the name is bound to an
+empty buffer (solc's zero slot `0x60`, length 0) before the body, assignments
+`out = <buffer>` rebind its pointer and size, `return <buffer>` stores the
+buffer into the same bindings, and fallthrough returns the bound buffer. -/
+private partial def inlineNamedBytesFn (fn : Json) (params : Array Json) (args : Array CallArg)
+    (body r at_ : Json) (saved : Env) : M EncodedBytes := do
+  let rname ← mStr (← mField r "name")
+  let rid ← mNat (← mField r "id")
+  let (boundPre, yul) ← bindHelperParams params args body at_ saved.yulNames
+  noteFn fn
+  let ptrBinding ← freshFor rname
+  let sizeBinding ← fresh
+  let retained : EncodedBytes :=
+    { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
+  modify fun e =>
+    { e with yulNames := yul.erase rname,
+             byteBuffers := e.byteBuffers.insert rid retained,
+             nonLiteralByteLocals := if e.nonLiteralByteLocals.contains rid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push rid,
+             yulMemoryStructs := e.yulMemoryStructs.insert rname rid,
+             encodingMemory := true,
+             helperResult := some (ptrBinding, namedBytesResultMarker), helperBytesSize := sizeBinding,
+             helperReturnId := some rid, multiHelperResults := none, flatStructHelperResult := none,
+             zeroInitLocals := #[] }
+  let stmts ← mArr (← mField body "statements")
+  let (bodyPre, result) ← lowerHelperFrom stmts.toList rname
+  let some resultPtr := result | failAt fn "named bytes helper did not produce a result"
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := saved.currentFile, unchecked := saved.unchecked,
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperBytesSize := saved.helperBytesSize, helperStructSid := saved.helperStructSid, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+  let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 0)]
+  return { pre := boundPre ++ initPre ++ bodyPre, pointer := resultPtr, size := .localVar sizeBinding }
+
 private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M EncodedBytes := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
@@ -7734,9 +7814,11 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
       { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
                values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
     return { pre := boundPre ++ resBuf.pre, pointer := resBuf.pointer, size := resBuf.size }
-  unless rname == "" do failAt r "named string helper return is unsupported"
   let rloc := optStr r "storageLocation" |>.getD "default"
   let rty ← mType r
+  if rname != "" && rloc == "memory" && rty == "bytes" then
+    return ← inlineNamedBytesFn fn params args body r at_ saved
+  unless rname == "" do failAt r "named string helper return is unsupported"
   unless rloc == "memory" && (rty == "string" || rty == "bytes") do
     failAt r "string helper return must be string memory or bytes memory"
   let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
@@ -10147,6 +10229,9 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
         | "Return" =>
             if let some next := rest.head? then failAt next "statement after helper result"
             let expression := field? statement "expression" |>.getD Json.null
+            if let some (_, ty) := (← get).helperResult then
+              if isPointerResultMarker ty then
+                failAt statement "returns inside loops of a helper with a bytes memory or bytes-member struct result are unsupported"
             if expression.isNull then
               if let some (retBinding, _) := (← get).helperResult then
                 pure #[.assignVar retVal (.localVar retBinding), .assignVar retFlag (.literal 1)]
@@ -10266,10 +10351,25 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
             pure (#[], some (.localVar retBinding))
           else
             failAt s "bare helper returns are unsupported"
+        else if let some (ptrBinding, ty) := (← get).helperResult then
+          if ty == namedBytesResultMarker then
+            let buf ← lowerEncodedBytes expression
+            let sizeBinding := (← get).helperBytesSize
+            pure (buf.pre ++ #[.assignVar ptrBinding buf.pointer, .assignVar sizeBinding buf.size],
+              some (.localVar ptrBinding))
+          else if ty == bytesStructResultMarker then
+            let (valPre, structPtr) ← lowerBytesStructPointer expression (← get).helperStructSid
+            pure (valPre.push (.assignVar ptrBinding structPtr), some (.localVar ptrBinding))
+          else
+            let v ← lowerExpr expression
+            pure (v.pre, some v.expr)
         else
           let v ← lowerExpr expression
           pure (v.pre, some v.expr)
     | "InlineAssembly" =>
+        if let some (_, ty) := (← get).helperResult then
+          if isPointerResultMarker ty then
+            failAt s "inline assembly in a helper with a bytes memory or bytes-member struct result is unsupported"
         let isSingleRetAssign ← do
           let ast ← mField s "AST"
           if (← mKind ast) == "YulBlock" then
@@ -10678,6 +10778,204 @@ private partial def isStorageStructBytesMember (j : Json) : M Bool := do
   let baseTy ← mType (← mField j "expression")
   return baseTy.startsWith "struct " && !baseTy.contains "[" &&
     (baseTy.endsWith " storage pointer" || baseTy.endsWith " storage ref")
+
+/-- The solc memory layout of a struct whose members are ABI scalars and at
+least one `bytes` member: one word per member, a `bytes` word pointing to a
+length-prefixed buffer. Returns its name, members, and schema. -/
+private partial def bytesStructSchema? (sid : Nat) :
+    M (Option (String × Array (String × String) × List AbiSchema.Member)) := do
+  let structs := (← get).structs
+  let some decl := structs.find? sid | return none
+  let .ok schema := AbiSchema.root (fun id => structs.find? id) decl | return none
+  unless schema.any (fun | .bytesField _ => true | _ => false) do return none
+  unless schema.all (fun | .bytesField _ | .scalar _ => true | _ => false) do return none
+  let sName ← mStr (← mField decl "name")
+  let sMembers ← mArr (← mField decl "members")
+  let members ← sMembers.mapM fun mNode => do
+    return (← mStr (← mField mNode "name"), ← mType mNode)
+  return some (sName, members, schema)
+
+/-- Whether `j` has a memory struct type with a `bytes`-member layout. The
+type string is checked before the declaration is resolved. -/
+private partial def hasBytesStructType (j : Json) : M Bool := do
+  let ty ← mType j
+  unless ty.startsWith "struct " && !ty.contains "[" && ty.endsWith " memory" do return false
+  let (sid, _) ← resolveStructDeclFromType j
+  return (← bytesStructSchema? sid).isSome
+
+/-- A fresh length-prefixed memory copy of `len` bytes at `src` (calldata or
+memory), with the bytes after the end of the last word zeroed as solc's copy
+routines leave them. Returns the header pointer. -/
+private partial def copyToLengthPrefixed (fromCalldata : Bool) (src len : Expr) :
+    M (Array Stmt × Expr) := do
+  let srcB ← fresh
+  let lenB ← fresh
+  let header ← fresh
+  let finish ← fresh
+  let idx ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let wordCount := Expr.div (.add (.localVar lenB) (.literal 31)) (.literal 32)
+  let load (a : Expr) : Expr := if fromCalldata then .calldataload a else .mload a
+  let dataStart := Expr.add (.localVar header) (.literal 32)
+  let pre : Array Stmt := #[.letVar srcB src, .letVar lenB len] ++
+    (AbiEncoding.reserve header finish (.add (.literal 32) (.mul (.literal 32) wordCount))).toArray ++
+    #[.mstore (.localVar header) (.localVar lenB),
+      .forEach idx wordCount
+        [.mstore (.add dataStart (.mul (.localVar idx) (.literal 32)))
+          (load (.add (.localVar srcB) (.mul (.localVar idx) (.literal 32))))],
+      .mstore (.add dataStart (.localVar lenB)) (.literal 0)]
+  return (pre, .localVar header)
+
+/-- The word stored for a `bytes` member of a memory struct. solc copies a
+calldata value or slice into a fresh buffer; a freshly encoded buffer is
+copied too, which is unobservable. An existing memory buffer is shared by
+solc, so it is rejected rather than copied. -/
+private partial def lowerBytesMemberWord (arg : Json) : M (Array Stmt × Expr) := do
+  let arg ← stripParens arg
+  let argTy ← mType arg
+  if argTy == "bytes calldata slice" then
+    let buf ← lowerEncodedBytes arg
+    let (copyPre, header) ← copyToLengthPrefixed false buf.pointer buf.size
+    return (buf.pre ++ copyPre, header)
+  if argTy == "bytes calldata" && (← mKind arg) == "Identifier" then
+    let id ← refInt arg
+    if id ≥ 0 then
+      if let some cb := (← get).calldataBytes.find? id.toNat then
+        if !cb.inMemory then
+          return ← copyToLengthPrefixed true (.localVar cb.dataBinding) (.localVar cb.lengthBinding)
+  if argTy == "bytes memory" && (← mKind arg) == "FunctionCall" &&
+      optStr arg "kind" == some "functionCall" then
+    let callee ← mField arg "expression"
+    if (← mKind callee) == "MemberAccess" && (field? callee "referencedDeclaration").isNone then
+      let buf ← lowerEncodedBytes arg
+      let (copyPre, header) ← copyToLengthPrefixed false buf.pointer buf.size
+      return (buf.pre ++ copyPre, header)
+  failAt arg "a bytes struct member must be a calldata value, a calldata slice, or a builtin encoding; an existing memory buffer would be shared"
+
+/-- Binds a struct pointer as a schema-checked memory struct descriptor. -/
+private partial def bindBytesStructPointer (sid : Nat) (pre : Array Stmt) (ptr : Expr) (at_ : Json) :
+    M (Array Stmt × MemParam) := do
+  let some (sName, members, schema) ← bytesStructSchema? sid
+    | failAt at_ "struct has no supported bytes-member memory layout"
+  let stem ← fresh
+  let binding := stem ++ "_memory"
+  if (← get).sourceNames.contains binding then
+    failAt at_ s!"generated struct pointer name {binding} collides with a source identifier"
+  modify fun e => { e with bound := binding :: e.bound, encodingMemory := true }
+  return (pre.push (.letVar binding ptr),
+    { structId := sid, param := stem, structName := sName, members,
+      schema := some schema, abiStem := stem })
+
+/-- The pointer of a memory struct with `bytes` members: a constructor
+allocates one word per member after evaluating the arguments, a helper call is
+inlined, and a struct local is its pointer. -/
+private partial def lowerBytesStructPointer (j : Json) (sid : Nat) : M (Array Stmt × Expr) := do
+  let j ← stripParens j
+  let some (_, members, schema) ← bytesStructSchema? sid
+    | failAt j "struct has no supported bytes-member memory layout"
+  if (← mKind j) == "FunctionCall" && optStr j "kind" == some "structConstructorCall" then
+    let (ctorSid, _) ← resolveStructDeclFromType j
+    unless ctorSid == sid do failAt j "struct constructor type mismatch"
+    let names ← match field? j "names" with
+      | some n => mArr n
+      | none => pure #[]
+    let args ← mArr (← mField j "arguments")
+    unless args.size == members.size do failAt j "struct constructor argument count mismatch"
+    unless names.isEmpty || names.size == args.size do
+      failAt j "named struct constructor name/argument count mismatch"
+    let mut pre : Array Stmt := #[]
+    let mut words : Array (String × Expr) := #[]
+    for i in [:args.size] do
+      let arg := args[i]!
+      let mName ← if names.isEmpty then pure (members[i]!.1) else mStr names[i]!
+      if !names.isEmpty && (statefulCallIn arg (← get) || assignmentIn arg) then
+        failAt j "named struct constructor with stateful or assignment argument is outside this slice"
+      if words.any (·.1 == mName) then
+        failAt j s!"duplicate named struct constructor argument {mName}"
+      let some mIdx := members.findIdx? (·.1 == mName)
+        | failAt j s!"unknown struct constructor member {mName}"
+      let mTy := members[mIdx]!.2
+      match schema[mIdx]? with
+      | some (.bytesField _) =>
+          let (wPre, word) ← lowerBytesMemberWord arg
+          let w ← atom { pre := wPre, expr := word }
+          pre := pre ++ w.pre
+          words := words.push (mName, w.expr)
+      | _ =>
+          let v ← atom (← convert mTy (← mType arg) (← lowerExpr arg) arg)
+          let normExpr := if mTy == "bool" then Expr.logicalNot (.logicalNot v.expr) else v.expr
+          let w ← atom { pre := v.pre, expr := normExpr }
+          pre := pre ++ w.pre
+          words := words.push (mName, w.expr)
+    let ptr ← fresh
+    let finish ← fresh
+    modify fun e => { e with encodingMemory := true }
+    pre := pre ++ (AbiEncoding.reserve ptr finish (.literal (32 * members.size))).toArray
+    for mIdx in [:members.size] do
+      let some (_, word) := words.find? (·.1 == members[mIdx]!.1)
+        | failAt j s!"missing struct constructor member {members[mIdx]!.1}"
+      pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * mIdx))) word)
+    return (pre, .localVar ptr)
+  if (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" then
+    let (fnId, vals) ← resolveCallTargetAndArgs j
+    return ← inlineBytesStructFn fnId vals j sid
+  if (← mKind j) == "Identifier" then
+    if let .mem rootId refPre ← lowerRef j then
+      if let some mem := (← get).mems.find? rootId then
+        if mem.structId == sid && mem.schema.isSome && !mem.calldataLocation then
+          return (refPre, .localVar (mem.abiStem ++ "_memory"))
+  failAt j "a bytes-member struct value must be a constructor, a helper call, or a memory struct local"
+
+/-- Inlines a helper returning a memory struct with `bytes` members. Every
+`return` stores the struct pointer in one binding; the helper must return on
+every path, as an unnamed result has no source-visible default here. -/
+private partial def inlineBytesStructFn (fnId : Nat) (args : Array CallArg) (at_ : Json) (sid : Nat) :
+    M (Array Stmt × Expr) := do
+  if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
+  let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  let visibility := optStr fn "visibility" |>.getD ""
+  unless visibility == "internal" || visibility == "private" || visibility == "public" do
+    failAt at_ "struct helper calls require an internal, private, or public declaration"
+  let saved ← get
+  let frameFile := saved.nodeFile.find? fnId |>.getD saved.currentFile
+  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? fn "body").filter (!·.isNull)
+    | failAt fn "function has no body"
+  unless implemented do failAt fn "function has no body"
+  modify fun e => { e with stack := fnId :: saved.stack, currentFile := frameFile, unchecked := false,
+                           bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
+  unless (← mArr (← mField fn "modifiers")).isEmpty do
+    failAt fn "modifiers on helpers returning a bytes-member struct are outside this slice"
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  unless params.size == args.size do
+    failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do failAt fn "struct helper must have one return parameter"
+  let r := rets[0]!
+  unless (← mStr (← mField r "name")) == "" do
+    failAt r "named bytes-member struct helper returns are unsupported"
+  let (retSid, _) ← resolveStructDeclFromType r
+  unless retSid == sid && optStr r "storageLocation" == some "memory" do
+    failAt r "struct helper return type mismatch"
+  let stmts ← mArr (← mField body "statements")
+  let definitelyReturns ← match stmts.back? with
+    | some b => voidHelperReturns b
+    | none => pure false
+  unless definitelyReturns do
+    failAt fn "inlined struct helper does not return on every path"
+  let (boundPre, yul) ← bindHelperParams params args body at_ saved.yulNames
+  noteFn fn
+  let ptrBinding ← fresh
+  modify fun e =>
+    { e with yulNames := yul, helperResult := some (ptrBinding, bytesStructResultMarker),
+             helperStructSid := sid, helperReturnId := none, multiHelperResults := none,
+             flatStructHelperResult := none }
+  let (bodyPre, result) ← lowerHelperFrom stmts.toList ""
+  let some resultPtr := result | failAt fn "struct helper did not produce a result"
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := saved.currentFile, unchecked := saved.unchecked,
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperBytesSize := saved.helperBytesSize, helperStructSid := saved.helperStructSid, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+  return (boundPre.push (.letVar ptrBinding (.literal 0)) ++ bodyPre, resultPtr)
 
 private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) (allowFlatLocalSource : Bool) :
     M (Nat × String × Array Stmt × Array (String × String × Expr)) := do
@@ -11435,6 +11733,16 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               return target.pre ++ payloadPtr.pre ++ payloadSize.pre ++
                 #[.ecm callMod [target.expr, payloadPtr.expr, payloadSize.expr]] ++ encStmts ++
                 #[.assignVar ptrBinding (.localVar ptr), .assignVar sizeBinding (.literal 32)]
+          -- A writable `bytes memory` local (a named result, or a local whose
+          -- binding is not a literal) is rebound to the right-hand buffer, as
+          -- solc's memory pointer assignment does; a calldata source is copied.
+          if (← get).nonLiteralByteLocals.contains id.toNat then
+            if let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) then
+              let rTy ← mType right
+              if rTy == "bytes memory" || rTy == "bytes calldata" || rTy == "bytes" ||
+                  rTy == "bytes calldata slice" then
+                let rhsBuf ← lowerEncodedBytes right
+                return rhsBuf.pre ++ #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
   if (← mKind target) == "MemberAccess" then
     let member ← mStr (← mField target "memberName")
     match ← lowerRef (← mField target "expression") with
@@ -13323,6 +13631,18 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                  yulNames := e.yulNames.erase name,
                  yulMemoryStructs := e.yulMemoryStructs.insert name id }
       return decodePre
+    if loc == "memory" && (← bytesStructSchema? sid.toNat).isSome &&
+        (← mKind innerInit) == "FunctionCall" &&
+        (optStr innerInit "kind" == some "structConstructorCall" || optStr innerInit "kind" == some "functionCall") then
+      if (← get).bodyAssigned.contains id then
+        failAt d "reassigned struct locals are outside this slice"
+      let (valPre, ptr) ← lowerBytesStructPointer innerInit sid.toNat
+      let (boundPre, desc) ← bindBytesStructPointer sid.toNat valPre ptr d
+      modify fun e =>
+        { e with mems := e.mems.insert id desc,
+                 yulNames := e.yulNames.erase name,
+                 yulMemoryStructs := e.yulMemoryStructs.insert name id }
+      return boundPre
     if loc == "memory" &&
         (((← mKind innerInit) == "FunctionCall" &&
           (optStr innerInit "kind" == some "structConstructorCall" || optStr innerInit "kind" == some "functionCall")) ||
@@ -13525,7 +13845,6 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
   unless loc == "memory" || loc == "calldata" do return none
   match ← mType r with
   | "bytes" =>
-      unless rname == "" || (← get).stateVars.size > 1 do return none
       return some .bytes
   | "string" =>
       unless rname == "" do return none
@@ -13594,6 +13913,10 @@ private def lowerDynamicStructReturnValue (expr : Json) (retSid : Nat) :
     let rootId := 1000000000 + (← get).next
     modify fun e => { e with next := e.next + 1, mems := e.mems.insert rootId descriptor }
     return (rootId, decodePre)
+  if (← mKind expr) == "FunctionCall" && (← bytesStructSchema? retSid).isSome &&
+      (optStr expr "kind" == some "structConstructorCall" || optStr expr "kind" == some "functionCall") then
+    let .mem rootId effects ← lowerRef expr | failAt expr unsupported
+    return (rootId, effects)
   unless (← mKind expr) == "Identifier" do failAt expr unsupported
   let .mem rootId effects ← lowerRef expr | failAt expr unsupported
   let some mem := (← get).mems.find? rootId | failAt expr unsupported
@@ -14177,6 +14500,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 | _ => failAt expr "unsupported storage struct return path"
               let v ← atom { pre := rpre ++ slotPre, expr := slotExpr }
               out := out ++ v.pre ++ env.rootPost |>.push (.returnValues [v.expr])
+          | .mem .. => failAt expr "ABI returns of memory structs with bytes members are unsupported"
           | _ => failAt expr "storage struct return requires a storage path"
         else
           let v ← atom (← lowerExpr expr)

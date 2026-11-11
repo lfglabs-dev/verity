@@ -9,7 +9,6 @@ import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.InternalNaming
 import Compiler.CompilationModel.IssueRefs
 import Compiler.CompilationModel.ScopeValidation
-import Compiler.CompilationModel.SelectorInteropHelpers
 import Compiler.CompilationModel.UsageAnalysis
 
 namespace Compiler.CompilationModel
@@ -703,15 +702,6 @@ private def ensureNonReservedYulIdentifier (kind name : String) : Except String 
   if name.startsWith "__" then
     throw s!"Compilation error: {kind} '{name}' uses reserved compiler prefix '__' ({issue756Ref}). Rename it."
 
-/-- Source identifiers that lower to Yul variables (parameters and local
-binders) must also avoid Yul keywords and builtin names, which Solidity's Yul
-parser rejects as variable names (e.g. a parameter named `gas` or a local named
-`balance`). -/
-private def ensureYulVariableIdentifier (kind name : String) : Except String Unit := do
-  ensureNonReservedYulIdentifier kind name
-  if isYulReservedIdentifier name then
-    throw s!"Compilation error: {kind} '{name}' is a Yul keyword or builtin name and cannot be declared as a Yul variable. Rename it."
-
 private def isInternalImmutableStorageName (name : String) : Bool :=
   name.startsWith "__immutable_"
 
@@ -719,7 +709,7 @@ private def validateContractIdentifiers (kind : String) : List String → Except
   | [] => pure ()
   | name :: rest => do
       ensureContractIdentifier kind name
-      ensureYulVariableIdentifier kind name
+      ensureNonReservedYulIdentifier kind name
       validateContractIdentifiers kind rest
 
 private def validateFieldIdentifiers : List Field → Except String Unit
@@ -789,16 +779,6 @@ private theorem ensureNonReservedYulIdentifier_ok
   · simp [ensureNonReservedYulIdentifier, hreserved] at hvalidate
   · exact hreserved
 
-private theorem ensureYulVariableIdentifier_ok
-    {kind name : String}
-    (hvalidate : ensureYulVariableIdentifier kind name = Except.ok ()) :
-    ¬ name.startsWith "__" := by
-  cases hreserved : ensureNonReservedYulIdentifier kind name with
-  | error err =>
-      simp [ensureYulVariableIdentifier, hreserved, bind, Except.bind] at hvalidate
-  | ok u =>
-      exact ensureNonReservedYulIdentifier_ok hreserved
-
 private theorem validateContractIdentifiers_ok_of_mem
     {kind name : String}
     {names : List String}
@@ -814,7 +794,7 @@ private theorem validateContractIdentifiers_ok_of_mem
           simp [validateContractIdentifiers, hcontract] at hvalidate
           cases hvalidate
       | ok _ =>
-          cases hreserved : ensureYulVariableIdentifier kind head with
+          cases hreserved : ensureNonReservedYulIdentifier kind head with
           | error err =>
               simp [validateContractIdentifiers, hcontract, hreserved] at hvalidate
               cases hvalidate
@@ -824,7 +804,7 @@ private theorem validateContractIdentifiers_ok_of_mem
                 exact hvalidate
               simp at hmem
               rcases hmem with rfl | hmem
-              · exact ensureYulVariableIdentifier_ok hreserved
+              · exact ensureNonReservedYulIdentifier_ok hreserved
               · exact ih htail hmem
 
 private theorem validateFieldIdentifiers_ok_of_mem

@@ -964,6 +964,88 @@ def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-modulo variant: {variant}')
 
 
+def stateful_bytes_named_return_slice_struct_source(fixture: str, variant: str) -> str:
+    """Compare named `bytes memory` returns, calldata-slice helper arguments and
+    a bytes-member memory struct with the unnamed-return, inline-slice dialect.
+    The inline slices keep solc's range-check order: `data[start:end]` is
+    checked before `data.length - start`, and `data[0:4]` before `data.length - 4`."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'x', 'encoded', 'tagged', 'data', 'mode', 'start', 'end', 'a', 'b', 'c',
+                 'pair', 'input', 'domain', 'out', 'part', 'head', 'tail', 'first'}
+        token = r'//[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + 'Renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'unnamed-returns':
+        replacements = {
+            """returns (bytes memory out) {
+        out = abi.encodePacked(domain, keccak256(input));
+    }""": """returns (bytes memory) {
+        return abi.encodePacked(domain, keccak256(input));
+    }""",
+            """returns (bytes memory out) {
+        if (x % 3 == 0) return out;
+        if (x % 3 == 1) {
+            out = abi.encodePacked(uint32(x));
+        }
+    }""": """returns (bytes memory) {
+        if (x % 3 == 1) {
+            return abi.encodePacked(uint32(x));
+        }
+        return "";
+    }""",
+            """returns (bytes memory out) {
+        out = part;
+    }""": """returns (bytes memory) {
+        return part;
+    }""",
+            """returns (bytes memory out) {
+        out = data;
+    }""": """returns (bytes memory) {
+        return data;
+    }""",
+            """returns (bytes memory out) {
+        if (mode == 0) return out;
+        out = abi.encodePacked(data, uint8(mode));
+        if (mode == 1) return out;
+        if (mode == 2) {
+            out = copied(data[1:]);
+            return out;
+        }
+        out = taggedDigest(out, uint8(mode));
+    }""": """returns (bytes memory) {
+        if (mode == 0) return "";
+        if (mode == 1) return abi.encodePacked(data, uint8(mode));
+        if (mode == 2) return copied(data[1:]);
+        return taggedDigest(abi.encodePacked(data, uint8(mode)), uint8(mode));
+    }""",
+            """        bytes32 a = calldataDigest(data[start:end]);
+        bytes32 b = memoryDigest(data[start:]);
+        bytes32 c = calldataDigest(data[:end]) ^ memoryDigest(msg.data[0:4]);
+        lastDigest = a ^ b ^ c ^ keccak256(abi.encodePacked(data, uint8(data.length)));""": """        bytes32 a = keccak256(data[start:end]);
+        bytes32 b = keccak256(abi.encodePacked(data[start:], uint8(data.length - start))) ^
+            keccak256(abi.encodePacked(uint8(9), uint8(1)));
+        bytes32 c = keccak256(data[:end]) ^
+            keccak256(abi.encodePacked(msg.data[0:4], uint8(4))) ^
+            keccak256(abi.encodePacked(uint8(9), uint8(1)));
+        lastDigest = a ^ b ^ c ^ keccak256(abi.encodePacked(data, uint8(data.length)));""",
+            """        BytePair memory pair = splitPair(data);
+        lastLength = pair.tail.length;
+        lastDigest = keccak256(abi.encodePacked(keccak256(splitPair(data).head), pair.tail)) ^ memoryDigest(pair.head);""": """        lastDigest = keccak256(abi.encodePacked(keccak256(data[0:4]), data[4:data.length])) ^
+            keccak256(abi.encodePacked(data[0:4], uint8(4))) ^
+            keccak256(abi.encodePacked(uint8(9), uint8(1)));
+        lastLength = data.length - 4;""",
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing bytes-named-return-slice-struct anchor: {before.splitlines()[0]}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown bytes-named-return-slice-struct variant: {variant}')
+
+
 def stateful_default_local_source(fixture: str, variant: str) -> str:
     """Compare implicit scalar defaults to explicit defaults and renamed locals."""
     if variant == 'baseline':

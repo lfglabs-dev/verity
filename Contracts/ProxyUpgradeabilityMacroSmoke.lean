@@ -21,10 +21,10 @@ verity_contract ProxyUpgradeabilityMacroSmoke where
       local_obligations [upgrade_authorization := assumed "Caller must separately prove that only the intended admin can authorize upgrades.", storage_layout_compatibility := unchecked "Storage-layout compatibility across versions remains a manual proof obligation."] : Unit := do
     setStorageAddr implementation newImplementation
 
-  function reentrancy_trusted forward (gasLimit : Uint256, inOffset : Uint256, inSize : Uint256, outOffset : Uint256, outSize : Uint256)
+  function reentrancy_trusted forward (gas : Uint256, inOffset : Uint256, inSize : Uint256, outOffset : Uint256, outSize : Uint256)
       local_obligations [delegatecall_refinement := assumed "Delegatecall fallback behavior must be shown to refine the selected proxy semantics."] : Uint256 := do
     let target ← getStorageAddr implementation
-    let ok := delegatecall gasLimit (addressToWord target) inOffset inSize outOffset outSize
+    let ok := delegatecall gas (addressToWord target) inOffset inSize outOffset outSize
     return ok
 
 end Contracts

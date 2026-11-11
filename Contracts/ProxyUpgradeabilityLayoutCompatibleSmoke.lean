@@ -26,10 +26,10 @@ verity_contract ProxyUpgradeabilityLayoutCompatibleSmoke where
     let nextImplementation ← getStorageAddr pendingImplementation
     setStorageAddr implementation nextImplementation
 
-  function reentrancy_trusted forward (gasLimit : Uint256, inOffset : Uint256, inSize : Uint256, outOffset : Uint256, outSize : Uint256)
+  function reentrancy_trusted forward (gas : Uint256, inOffset : Uint256, inSize : Uint256, outOffset : Uint256, outSize : Uint256)
       local_obligations [delegatecall_refinement := assumed "Delegatecall fallback behavior must be shown to refine the selected proxy semantics."] : Uint256 := do
     let target ← getStorageAddr implementation
-    let ok := delegatecall gasLimit (addressToWord target) inOffset inSize outOffset outSize
+    let ok := delegatecall gas (addressToWord target) inOffset inSize outOffset outSize
     return ok
 
 end Contracts

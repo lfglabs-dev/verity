@@ -23,21 +23,6 @@ def interopBuiltinCallNames : List String :=
 def isInteropBuiltinCallName (name : String) : Bool :=
   (isLowLevelCallName name) || interopBuiltinCallNames.contains name
 
-/-- Yul keywords and EVM-dialect builtin names. Solidity's Yul parser rejects a
-variable or function parameter declared with any of these names, so a source
-identifier that lowers to a Yul variable must avoid them. -/
-def yulReservedIdentifiers : List String :=
-  ["let", "if", "switch", "case", "default", "for", "break", "continue", "leave",
-   "function", "true", "false",
-   "call", "staticcall", "delegatecall", "callcode",
-   "datasize", "dataoffset", "datacopy", "loadimmutable", "setimmutable",
-   "linkersymbol", "memoryguard"] ++ interopBuiltinCallNames
-
-/-- `true` when `name` cannot be declared as a Yul variable (keyword, builtin,
-or `verbatim_*` builtin family). -/
-def isYulReservedIdentifier (name : String) : Bool :=
-  yulReservedIdentifiers.contains name || name.startsWith "verbatim_"
-
 /-- Returns true for special entrypoint names (fallback/receive) that are not
     dispatched via selector. Used by Selector.computeSelectors, ABI.lean, and
     CompilationModel.compile to consistently filter these from selector-dispatched

@@ -495,9 +495,9 @@ verity_contract MacroERC20 where
     safeApprove token spender amount
 
   function snapshotBalance (token : Address, owner : Address) : Uint256 := do
-    let ownerBalance ← balanceOf token owner
-    setStorage lastBalance ownerBalance
-    return ownerBalance
+    let balance ← balanceOf token owner
+    setStorage lastBalance balance
+    return balance
 
   function snapshotAllowance (token : Address, owner : Address, spender : Address) : Uint256 := do
     let current ← allowance token owner spender
@@ -542,10 +542,10 @@ example : approveTokensModelUsesSafeApprove = true := by native_decide
 def snapshotBalanceModelUsesBalanceOfModule : Bool :=
   match MacroERC20.snapshotBalance_modelBody with
   | [Stmt.ecm mod [Expr.param "token", Expr.param "owner"],
-      Stmt.setStorage "lastBalance" (Expr.localVar "ownerBalance"),
-      Stmt.return (Expr.localVar "ownerBalance")] =>
+      Stmt.setStorage "lastBalance" (Expr.localVar "balance"),
+      Stmt.return (Expr.localVar "balance")] =>
       mod.name == "balanceOf" &&
-      mod.resultVars == ["ownerBalance"] &&
+      mod.resultVars == ["balance"] &&
       mod.axioms == ["erc20_balanceOf_interface"]
   | _ => false
 
@@ -2794,61 +2794,6 @@ private def reservedParamSpec : CompilationModel := {
   ]
 }
 
-/-- A parameter named after a Yul builtin (`gas`) lowers to `function f(gas)`,
-which Solidity's Yul parser rejects. -/
-private def yulBuiltinParamSpec : CompilationModel := {
-  name := "YulBuiltinParam"
-  fields := [{ name := "value", ty := FieldType.uint256 }]
-  «constructor» := none
-  functions := [
-    { name := "store"
-      params := [{ name := "gas", ty := ParamType.uint256 }]
-      returnType := none
-      body := [
-        Stmt.setStorage "value" (Expr.param "gas"),
-        Stmt.stop
-      ]
-    }
-  ]
-}
-
-/-- A local named after a Yul builtin (`balance`) lowers to `let balance := ...`,
-which Solidity's Yul parser rejects. -/
-private def yulBuiltinLocalBinderSpec : CompilationModel := {
-  name := "YulBuiltinLocalBinder"
-  fields := [{ name := "value", ty := FieldType.uint256 }]
-  «constructor» := none
-  functions := [
-    { name := "store"
-      params := [{ name := "next", ty := ParamType.uint256 }]
-      returnType := none
-      body := [
-        Stmt.letVar "balance" (Expr.param "next"),
-        Stmt.setStorage "value" (Expr.localVar "balance"),
-        Stmt.stop
-      ]
-    }
-  ]
-}
-
-/-- A local named after a Yul keyword (`default`) is rejected the same way. -/
-private def yulKeywordLocalBinderSpec : CompilationModel := {
-  name := "YulKeywordLocalBinder"
-  fields := [{ name := "value", ty := FieldType.uint256 }]
-  «constructor» := none
-  functions := [
-    { name := "store"
-      params := [{ name := "next", ty := ParamType.uint256 }]
-      returnType := none
-      body := [
-        Stmt.letVar "default" (Expr.param "next"),
-        Stmt.setStorage "value" (Expr.localVar "default"),
-        Stmt.stop
-      ]
-    }
-  ]
-}
-
 private def duplicateInternalNameSpec : CompilationModel := {
   name := "DuplicateInternalName"
   fields := []
@@ -4942,10 +4887,10 @@ private def erc20BalanceOfSmokeSpec : CompilationModel := {
       returns := [ParamType.uint256]
       body := [
         Compiler.Modules.ERC20.balanceOf
-          "ownerBalance"
+          "balance"
           (Expr.param "token")
           (Expr.param "owner"),
-        Stmt.returnValues [Expr.localVar "ownerBalance"]
+        Stmt.returnValues [Expr.localVar "balance"]
       ]
     }
   ]
@@ -5702,18 +5647,6 @@ set_option maxRecDepth 4096 in
     "reserved compiler prefix is rejected in function parameters"
     reservedParamSpec
     "function parameter '__has_selector' uses reserved compiler prefix '__'"
-  expectCompileErrorContains
-    "Yul builtin names are rejected in function parameters"
-    yulBuiltinParamSpec
-    "function parameter 'gas' is a Yul keyword or builtin name"
-  expectCompileErrorContains
-    "Yul builtin names are rejected in local binders"
-    yulBuiltinLocalBinderSpec
-    "local binder 'balance' is a Yul keyword or builtin name"
-  expectCompileErrorContains
-    "Yul keywords are rejected in local binders"
-    yulKeywordLocalBinderSpec
-    "local binder 'default' is a Yul keyword or builtin name"
   expectCompileErrorContains
     "same-name internal helpers are rejected before Yul lowering"
     duplicateInternalNameSpec
