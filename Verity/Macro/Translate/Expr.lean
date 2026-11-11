@@ -621,8 +621,11 @@ def ensureFreshLocalNames
     if locals.contains name then
       throwErrorAt stx s!"duplicate local variable '{name}'"
 
+/-- Fresh CompilationModel binder for the `idx`-th `_` of a tuple binding. The
+base avoids the compiler-reserved `__` prefix because the binder lowers to a
+Yul variable that identifier validation must accept. -/
 def freshDiscardName (usedNames : List String) (idx : Nat) : String :=
-  let base := s!"__tuple_discard_{idx}"
+  let base := s!"tuple_discard_{idx}"
   if !usedNames.contains base then
     base
   else
