@@ -219,6 +219,11 @@ failure is recorded and lowering continues:
   branch), so a root never continues from a half-lowered statement. A root
   with a recorded construct is rolled back entirely and contributes nothing
   to the closure, fields or projections of the import.
+- **Root list errors.** A root that cannot be selected, a root imported
+  twice, and two roots with the same name (`root function name collision`,
+  e.g. two overloads) are errors in the command, not unsupported constructs.
+  They are not recovered: the import fails as without the flag, whatever the
+  root order and whether or not the earlier root is unsupported.
 - **Follow-on failures.** Skipping can cause later failures, e.g. a read of a
   local whose declaration was skipped. An entry is tagged
   `[possibly consequential: ...]` when it reads a variable declared in a

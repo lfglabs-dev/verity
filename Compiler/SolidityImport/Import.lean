@@ -15104,6 +15104,11 @@ private def importSlice
   let mut projections : Array ParamProjection := #[]
   let mut signatures : Array Json := #[]
   let mut rootIds : Array Nat := #[]
+  -- Names of the roots selected so far. Unlike `specs`, this is never rolled
+  -- back by the per-root recovery point, so the name collision check below does
+  -- not depend on whether an earlier root was unsupported (or on root order).
+  -- With `collectUnsupported` off it equals `specs.map (·.name)` here.
+  let mut rootNames : Array String := #[]
   let mut unsupportedRoots : Array (String × List UnsupportedConstruct) := #[]
   if profile.collectUnsupported then
     let pending ← IO.mkRef (none : Option (String × UnsupportedConstruct × Array Nat))
@@ -15115,10 +15120,13 @@ private def importSlice
     let (fn, paramTys) ← (selectFunction contract functionName written).run' env
     let rootId ← flexNat (← field fn "id")
     if rootIds.contains rootId then throwError "function {contract}.{functionName} is imported twice"
-    if specs.any (·.name == functionName) then
+    -- A collision is an error in the root list, not an unsupported construct:
+    -- like `imported twice`, it is rejected in survey mode too.
+    if rootNames.contains functionName then
       let rootFile := env.nodeFile.find? rootId |>.getD entry
       (failAt fn s!"root function name collision: {contract}.{functionName}; import overloaded roots in separate slices").run' { env with currentFile := rootFile }
     rootIds := rootIds.push rootId
+    rootNames := rootNames.push functionName
     signatures := signatures.push (Json.mkObj
       [("function", Json.str functionName), ("parameterTypes", Json.arr (paramTys.map Json.str))])
     let rootFile := env.nodeFile.find? rootId |>.getD entry
