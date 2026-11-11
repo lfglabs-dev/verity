@@ -160,6 +160,9 @@ Four questions are answered separately, per root; none implies the next.
 
 1. **Importable.** The command succeeds, or fails with the diagnostic above.
    A partial model is never produced, so every listed root is importable.
+   Under `collectUnsupported` a root can instead be `unsupported`; such a
+   root proves nothing and the import defines no model
+   ([below](#collecting-every-unsupported-construct)).
 2. **Runs on Denote** (`denoteCovered`). Every constructor in the body has an
    explicit denotation arm (not the catch-all). The kernel proof for all roots
    together is `x.covered`.
@@ -184,6 +187,71 @@ function f
   compilable true
   compilerProofCovered unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)
 ```
+
+## Collecting every unsupported construct
+
+By default the importer stops at the first construct it cannot lower. For an
+inventory of what a contract needs, set `collectUnsupported := true` in the
+profile:
+
+```lean
+solidity_profile survey where
+  evmVersion := "osaka"
+  viaIR := true
+  optimizerRuns := some 466
+  bytecodeHash := "none"
+  collectUnsupported := true
+```
+
+The flag is not a solc setting and is not part of the digest. With it, a
+failure is recorded and lowering continues:
+
+- **Recovery points.** Every variable declaration, expression statement and
+  `emit`, wherever it is lowered (roots, inlined helper and modifier bodies,
+  loop bodies), and every statement of a root body (`if`, loops, `return`,
+  inline assembly, ...). A failure inside a structural statement of a helper
+  (its `return`, `if` or loop) is recovered at the enclosing statement. A
+  failure outside any statement (parameters, modifiers, return types) is
+  recovered for the whole root. There is no expression-level placeholder: the
+  failing statement is skipped.
+- **State.** A recovered statement leaves no trace: the importer state is
+  rolled back to its value before the statement (`StateT` discards the failed
+  branch), so a root never continues from a half-lowered statement. A root
+  with a recorded construct is rolled back entirely and contributes nothing
+  to the closure, fields or projections of the import.
+- **Root list errors.** A root that cannot be selected, a root imported
+  twice, and two roots with the same name (`root function name collision`,
+  e.g. two overloads) are errors in the command, not unsupported constructs.
+  They are not recovered: the import fails as without the flag, whatever the
+  root order and whether or not the earlier root is unsupported.
+- **Follow-on failures.** Skipping can cause later failures, e.g. a read of a
+  local whose declaration was skipped. An entry is tagged
+  `[possibly consequential: ...]` when it reads a variable declared in a
+  skipped statement, or when it is a root-level failure after an earlier
+  skip. Untagged entries are not proved independent either: the list is every
+  failure at a recovery point, in source order, not a minimal or exact set of
+  blockers. Clearing one entry may expose constructs it hid.
+
+Each root with a recorded construct is `unsupported` in the report; `toText`
+renders its entries (position, AST node kind, reason, closure path) under its
+`status` line. From `CollectUnsupportedSurveyChecks`:
+
+```text
+status first unsupported constructs 4 denoteCovered false compilerProof unavailable (...)
+  CollectUnsupportedSurvey.sol:12:26 Identifier: builtin call is outside this slice (closure CollectUnsupportedSurvey.first -> CollectUnsupportedSurvey.scaled)
+  CollectUnsupportedSurvey.sol:13:20 Identifier: unresolved identifier 17 (closure CollectUnsupportedSurvey.first -> CollectUnsupportedSurvey.scaled) [possibly consequential: reads budget bound by a skipped statement]
+  CollectUnsupportedSurvey.sol:17:9 DoWhileStatement: unsupported statement DoWhileStatement (closure CollectUnsupportedSurvey.first)
+  CollectUnsupportedSurvey.sol:19:18 MemberAccess: unsupported block context member prevrandao (closure CollectUnsupportedSurvey.first)
+```
+
+If any root is `unsupported`, the command succeeds with a warning listing
+these lines and defines **only** `x.report`: there is no `x.model`, no
+`x.covered`, no `x.sourceDigest` and no accessor, so no proof, differential
+run or compilation can use the import. **An `unsupported` root proves
+nothing**, and the `importable` roots of such an import have no kernel-checked
+`covered` theorem either; import them again without the flag. If nothing is
+recorded, the flag changes nothing: model and report equal the flag-off
+import (`CollectUnsupportedSurveyChecks`).
 
 ## Trust boundary
 
