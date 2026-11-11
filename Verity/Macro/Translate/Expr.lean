@@ -621,8 +621,11 @@ def ensureFreshLocalNames
     if locals.contains name then
       throwErrorAt stx s!"duplicate local variable '{name}'"
 
+/-- Fresh CompilationModel binder for the `idx`-th `_` of a tuple binding. The
+base avoids the compiler-reserved `__` prefix because the binder lowers to a
+Yul variable that identifier validation must accept. -/
 def freshDiscardName (usedNames : List String) (idx : Nat) : String :=
-  let base := s!"__tuple_discard_{idx}"
+  let base := s!"tuple_discard_{idx}"
   if !usedNames.contains base then
     base
   else
@@ -5621,7 +5624,8 @@ def translateSafeRequireBind
       let guardExpr : Term ← `(Compiler.CompilationModel.Expr.lt $valueExpr
         (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits))))
       pure (some #[
-        (← `(Compiler.CompilationModel.Stmt.require $guardExpr "Panic(0x11): narrow arithmetic overflow")),
+        (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
   | `(term| narrowSubPanic $a:term $b:term) =>
@@ -5630,7 +5634,8 @@ def translateSafeRequireBind
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
       let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
       pure (some #[
-        (← `(Compiler.CompilationModel.Stmt.require $guardExpr "Panic(0x11): narrow arithmetic underflow")),
+        (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
   | `(term| narrowMulPanic $a:term $b:term) =>
@@ -5651,7 +5656,8 @@ def translateSafeRequireBind
       let guardExpr : Term ←
         `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $withinWidthExpr)
       pure (some #[
-        (← `(Compiler.CompilationModel.Stmt.require $guardExpr "Panic(0x11): narrow arithmetic overflow")),
+        (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
   | `(term| requireSomeUint $optExpr:term $msg:term) =>
@@ -5673,14 +5679,14 @@ def translateSafeRequireBind
         (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
-  -- Unsigned checked arithmetic emits typed Solidity panic payloads. Signed
-  -- arithmetic retains its type-specific overflow guards and diagnostic path.
+  -- Checked arithmetic (unsigned, signed and narrow) emits Solidity's typed
+  -- `Panic(uint256)` payload: 0x11 on overflow, 0x12 on division by zero.
+  -- Signed arithmetic keeps its type-specific overflow guards.
   | `(term| addPanic $a:term $b:term) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
       let aExpr ← translateOperand a
       let bExpr ← translateOperand b
       if isSignedWordValueType lhsTy then
-        let msgLit := strTerm "Panic(0x11): arithmetic overflow"
         let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
         let aNeg : Term ← `(Compiler.CompilationModel.Expr.slt $aExpr $zeroExpr)
@@ -5693,7 +5699,8 @@ def translateSafeRequireBind
         let overflow : Term ← `(Compiler.CompilationModel.Expr.logicalAnd $sameSign $signChanged)
         let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalNot $overflow)
         pure (some #[
-          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
           (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
         ])
       else
@@ -5709,7 +5716,6 @@ def translateSafeRequireBind
       let aExpr ← translateOperand a
       let bExpr ← translateOperand b
       if isSignedWordValueType lhsTy then
-        let msgLit := strTerm "Panic(0x11): arithmetic overflow"
         let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
         let aNeg : Term ← `(Compiler.CompilationModel.Expr.slt $aExpr $zeroExpr)
@@ -5724,7 +5730,8 @@ def translateSafeRequireBind
         let overflow : Term ← `(Compiler.CompilationModel.Expr.logicalAnd $differentSign $signChanged)
         let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalNot $overflow)
         pure (some #[
-          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
           (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
         ])
       else
@@ -5739,7 +5746,6 @@ def translateSafeRequireBind
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
       let aExpr ← translateOperand a
       let bExpr ← translateOperand b
-      let msgLit := strTerm "Panic(0x11): arithmetic overflow"
       if isSignedWordValueType lhsTy then
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
         let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
@@ -5760,7 +5766,8 @@ def translateSafeRequireBind
               (Compiler.CompilationModel.Expr.logicalAnd $reconEq
                 (Compiler.CompilationModel.Expr.logicalNot $special)))
         pure (some #[
-          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
           (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
         ])
       else
@@ -5783,8 +5790,6 @@ def translateSafeRequireBind
       let bExpr ← translateOperand b
       let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
       if isSignedWordValueType lhsTy then
-        let overflowLit := strTerm "Panic(0x11): arithmetic overflow"
-        let zeroLit := strTerm "Panic(0x12): division by zero"
         let minusOne : Term ←
           `(Compiler.CompilationModel.Expr.sub
               (Compiler.CompilationModel.Expr.literal 0)
@@ -5800,8 +5805,10 @@ def translateSafeRequireBind
                 (Compiler.CompilationModel.Expr.eq $bExpr $minusOne)))
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sdiv $aExpr $bExpr)
         pure (some #[
-          (← `(Compiler.CompilationModel.Stmt.require $nonzero $zeroLit)),
-          (← `(Compiler.CompilationModel.Stmt.require $notMinDivNeg1 $overflowLit)),
+          (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $nonzero)
+          [Compiler.CompilationModel.Stmt.panic .divisionByZero] [])),
+          (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $notMinDivNeg1)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
           (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
         ])
       else
@@ -5814,7 +5821,6 @@ def translateSafeRequireBind
         ])
   | `(term| negPanic $a:term) => do
       let aExpr ← translateOperand a
-      let msgLit := strTerm "Panic(0x11): arithmetic overflow"
       let minVal : Term ← `(Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ 255)))
       let guardExpr : Term ←
         `(Compiler.CompilationModel.Expr.logicalNot
@@ -5823,20 +5829,21 @@ def translateSafeRequireBind
         `(Compiler.CompilationModel.Expr.sub
             (Compiler.CompilationModel.Expr.literal 0) $aExpr)
       pure (some #[
-        (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+        (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .arithmeticOverflow] [])),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
   | `(term| modPanic $a:term $b:term) => do
       let aExpr ← translateOperand a
       let bExpr ← translateOperand b
-      let msgLit := strTerm "Panic(0x12): division by zero"
       let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
       let guardExpr : Term ←
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.smod $aExpr $bExpr)
       pure (some #[
-        (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+        (← `(Compiler.CompilationModel.Stmt.ite (Compiler.CompilationModel.Expr.logicalNot $guardExpr)
+          [Compiler.CompilationModel.Stmt.panic .divisionByZero] [])),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
   | _ => pure none

@@ -182,7 +182,7 @@ private partial def validateDoElemExprTypes
   match tupleCase? with
   | some typedLocals => pure typedLocals
   | none =>
-      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params (typedLocalNames locals) #[] elem then
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "discard" params (typedLocalNames locals) #[] elem then
         validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
           errorDecls eventDecls functions params locals desugared
       else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
@@ -271,6 +271,10 @@ private partial def validateDoElemExprTypes
           let some localInfo := locals.find? (fun entry => entry.name == toString name.getId)
             | throwErrorAt name s!"cannot resolve type of variable '{toString name.getId}'"
           requireDeclaredValueType rhs s!"assignment to '{localInfo.name}'" localInfo.ty actualTy
+          pure locals
+      | `(doElem| return ()) | `(doElem| return) =>
+          if returnTy != .unit then
+            throwErrorAt elem s!"`return ()` is only allowed in a function returning Unit ('{ownerName}' returns {renderValueType returnTy})"
           pure locals
       | `(doElem| return $value:term) =>
           let actualTy ←
@@ -841,7 +845,9 @@ private def translateEffectStmt
                [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
    | `(term| ecmDo $module:term $args:term) =>
       validateEffectOnlyEcmModuleTerm module
-      let argExprs ← expectExprList fields constDecls immutableDecls params locals args
+      -- Same expansion as `ecmCall`/`ecmBind` and as the model (`executableEcmArgWords`):
+      -- a direct dynamic parameter is passed as `data_offset, length`.
+      let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args
         (some (translateDeclaredPureExpr
           fields constDecls immutableDecls externalDecls params locals))
       `(Compiler.CompilationModel.Stmt.ecm
@@ -1398,7 +1404,7 @@ private partial def translateDoElem
   match tupleCase? with
   | some result => pure result
   | none =>
-      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params localNames mutableLocals elem then
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "discard" params localNames mutableLocals elem then
         translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
       else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
         translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
@@ -1686,6 +1692,12 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
               locals,
               mutableLocals)
+      | `(doElem| return ()) | `(doElem| return) =>
+          -- Early exit from a `Unit` function: the same `Stmt.stop` that ends its body
+          -- (EVM `stop()` externally, `leave` in an internal helper), not an empty tuple.
+          if returnTy != .unit then
+            throwErrorAt elem "`return ()` is only allowed in a function returning Unit"
+          pure (#[(← `(Compiler.CompilationModel.Stmt.stop))], locals, mutableLocals)
       | `(doElem| return $value:term) =>
           match (← arrayElementTupleReturnStmts? fields constDecls immutableDecls params locals mutableLocals value
             (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
@@ -1750,27 +1762,58 @@ private partial def translateDoElem
       | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
           let trySuccessName :=
             freshSyntheticLocalName "verity_try_success" params locals mutableLocals
-          let attemptExpr ←
+          -- `this.f(args)`: ABI-encode `f`'s selector and single-word static arguments
+          -- at the free memory pointer (scratch, not reserved) and CALL this contract
+          -- with all available gas (a `2^256 - 1` request is capped by EIP-150).
+          let selfCallEncoding (fn : Ident) (args : Array Term) :
+              CommandElabM (Array Term × Term) := do
+            let some target := functions.find? (fun f => f.name == toString fn.getId)
+              | throwErrorAt fn s!"selfCall '{fn.getId}' does not name a function of this contract"
+            if target.isInternal then
+              throwErrorAt fn s!"selfCall '{fn.getId}' targets an internal function; `this.f()` needs an external function"
+            for param in target.params do
+              unless isSingleWordStaticValueType param.ty do
+                throwErrorAt fn s!"selfCall '{fn.getId}' parameter '{param.name}' has type {valueTypeToSolidityString param.ty}; only single-word static parameters are ABI-encoded on the compilation path"
+            let selector := Compiler.keccak256_first_4_bytes
+              (interfaceFunctionSignature target.name (target.params.map (·.ty)))
+            let ptrName := freshSyntheticLocalName "verity_self_call_ptr" params locals mutableLocals
+            let ptr : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm ptrName))
+            let mut stmts : Array Term := #[
+              (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm ptrName)
+                    (Compiler.CompilationModel.Expr.mload (Compiler.CompilationModel.Expr.literal 64)))),
+              (← `(Compiler.CompilationModel.Stmt.mstore $ptr
+                    (Compiler.CompilationModel.Expr.shl (Compiler.CompilationModel.Expr.literal 224)
+                      (Compiler.CompilationModel.Expr.literal $(natTerm selector)))))]
+            for i in [0:args.size] do
+              let argExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals args[i]!
+              stmts := stmts.push (← `(Compiler.CompilationModel.Stmt.mstore
+                (Compiler.CompilationModel.Expr.add $ptr (Compiler.CompilationModel.Expr.literal $(natTerm (4 + 32 * i))))
+                $argExpr))
+            let bumpBytes := ((4 + 32 * args.size + 31) / 32) * 32
+            stmts := stmts.push (← `(Compiler.CompilationModel.Stmt.mstore
+              (Compiler.CompilationModel.Expr.literal 64)
+              (Compiler.CompilationModel.Expr.add $ptr (Compiler.CompilationModel.Expr.literal $(natTerm bumpBytes)))))
+            let callExpr ← `(Compiler.CompilationModel.Expr.call
+                (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ 256 - 1)))
+                Compiler.CompilationModel.Expr.contractAddress
+                (Compiler.CompilationModel.Expr.literal 0)
+                $ptr
+                (Compiler.CompilationModel.Expr.literal $(natTerm (4 + 32 * args.size)))
+                (Compiler.CompilationModel.Expr.literal 0)
+                (Compiler.CompilationModel.Expr.literal 0))
+            pure (stmts, callExpr)
+          let (encodeStmts, attemptExpr) ←
             match stripParens attempt with
-            | `(term| selfCall $_fn:ident) | `(term| selfCall $_fn:ident($[$_args:term],*)) =>
-                -- CALL-with-status to this (empty calldata). Selector/argument
-                -- encoding of the named function is a documented compilation-model gap.
-                `(Compiler.CompilationModel.Expr.call
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    Compiler.CompilationModel.Expr.contractAddress
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0))
+            | `(term| selfCall $fn:ident) => selfCallEncoding fn #[]
+            | `(term| selfCall $fn:ident($[$args:term],*)) => selfCallEncoding fn args
             | _ =>
-                translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt
+                pure (#[], ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt)
           let succSeq ← expectDoBlock succ
           let failSeq ← expectDoBlock fail
           let succStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals succSeq
           let failStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals failSeq
           pure
-            (#[
+            (encodeStmts ++ #[
               (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm trySuccessName) $attemptExpr)),
               (← `(Compiler.CompilationModel.Stmt.ite
                     (Compiler.CompilationModel.Expr.eq
@@ -2155,6 +2198,59 @@ private def structMembersExecutableReads?
       mkReads (fun member => `($structMember2Fn:ident $field $key1 $key2 $member)) members
   | _ => return none
 
+/-- Names bound by a `let`/reassignment binder (an identifier or a tuple pattern). -/
+private def loopBinderNames (binder : Syntax) : Array String :=
+  match binder with
+  | .ident _ raw _ _ => #[raw.toString]
+  | .node _ `Lean.Parser.Term.letId #[.ident _ raw _ _] => #[raw.toString]
+  | _ => (tupleBinderNames? binder).getD #[] |>.filterMap id
+
+/-- Locals a loop body reassigns (`x := e`, `x ← e`) and locals it declares, at the body's own
+`do` level (nested lambdas, such as an inner loop's step function, are their own scope). -/
+private partial def loopBodyNames (stx : Syntax) : Array String × Array String :=
+  if stx.getKind == `Lean.Parser.Term.fun then (#[], #[]) else
+  let kind := stx.getKind
+  let here : Array String × Array String :=
+    if kind == `Lean.Parser.Term.doReassign || kind == `Lean.Parser.Term.doReassignArrow then
+      (loopBinderNames stx[0][0], #[])
+    else if kind == `Lean.Parser.Term.doLet then (#[], loopBinderNames stx[3][0][0])
+    else if kind == `Lean.Parser.Term.doLetArrow then (#[], loopBinderNames stx[3][0])
+    else (#[], #[])
+  stx.getArgs.foldl (fun acc arg =>
+    let (r, d) := loopBodyNames arg
+    (acc.1 ++ r, acc.2 ++ d)) here
+
+/-- The executable of a loop: run `inner` once per element of `indices`, with `loopIdent`
+bound to the index, threading every enclosing `let mut` local the body reassigns through
+`Contracts.loopList` (Lean's `for` cannot elaborate in `Contract`, an `abbrev` of a function
+type). An early `return` in the body is rejected by type checking. -/
+private def loopExecutableDoElem (loopIdent : Ident) (indices : Term)
+    (inner : Array (TSyntax `doElem)) : CommandElabM (TSyntax `doElem) := do
+  let (reassigned, declared) := inner.foldl (fun acc elem =>
+    let (r, d) := loopBodyNames elem.raw
+    (acc.1 ++ r, acc.2 ++ d)) (#[], #[])
+  let threaded := reassigned.foldl (fun acc n =>
+    if declared.contains n || acc.contains n then acc else acc.push n) #[]
+  let ids : Array Ident := threaded.map fun n => mkIdent (Name.mkSimple n)
+  let bindIdx ← `(doElem| let $loopIdent : Uint256 := _root_.Verity.Core.Uint256.ofNat __loopIdx)
+  match ids.toList with
+  | [] =>
+      let body := #[bindIdx] ++ inner ++ #[← `(doElem| pure ())]
+      `(doElem| let _ ← _root_.Contracts.loopList $indices () (fun __loopIdx _ => do $[$body:doElem]*))
+  | [x] =>
+      let body := #[← `(doElem| let mut $x:ident := __loopState), bindIdx] ++ inner ++
+        #[← `(doElem| pure $x:ident)]
+      `(doElem| $x:ident ← _root_.Contracts.loopList $indices $x:ident
+        (fun __loopIdx __loopState => do $[$body:doElem]*))
+  | x :: rest =>
+      let restArr : Array Term := rest.toArray.map fun i => ⟨i.raw⟩
+      let tuple ← `(term| ($x, $[$restArr],*))
+      let muts ← ids.mapM fun i => `(doElem| let mut $i:ident := $i:ident)
+      let body := #[← `(doElem| let $tuple:term := __loopState)] ++ muts ++ #[bindIdx] ++ inner ++
+        #[← `(doElem| pure $tuple:term)]
+      `(doElem| $tuple:term ← _root_.Contracts.loopList $indices $tuple:term
+        (fun __loopIdx __loopState => do $[$body:doElem]*))
+
 mutual
 
 private partial def rewriteForEachExecutableDoSeq
@@ -2333,19 +2429,24 @@ private partial def rewriteForEachExecutableDoElem
                   | none => pure (#[elem], locals)
               | _ => pure (#[elem], locals)
       | none => pure (#[elem], locals)
-  | `(doElem| forEach $name:term $_count:term $body:term) =>
+  -- Loops run like the compiled Yul (`Compile.lean`, `Stmt.forEach`/`Stmt.forEachSetBit`):
+  -- the bound is evaluated once, the body runs once per index the compiled loop visits, in
+  -- the same order, threading the `let mut` locals the body reassigns (`loopExecutableDoElem`).
+  | `(doElem| forEach $name:term $count:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
           let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
-          pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
+          let indices ← `(term| List.range (($count : Uint256)).val)
+          pure (#[← loopExecutableDoElem loopIdent indices inner], locals)
       | _ => throwErrorAt body "forEach body must be a do block"
-  | `(doElem| forEachSetBit $name:term $_bitmap:term $body:term) =>
+  | `(doElem| forEachSetBit $name:term $bitmap:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
           let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
-          pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
+          let indices ← `(term| _root_.Contracts.setBitsDesc ($bitmap : Uint256))
+          pure (#[← loopExecutableDoElem loopIdent indices inner], locals)
       | _ => throwErrorAt body "forEachSetBit body must be a do block"
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
       let thenBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals thenBranch

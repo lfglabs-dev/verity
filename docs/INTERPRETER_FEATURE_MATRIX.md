@@ -123,6 +123,16 @@ proved, and positive literal loops with non-empty bodies remain future work.
 This is the current IR-generation proof boundary, not a claim about arbitrary
 non-empty loop-body preservation.
 
+The EDSL executable that `verity_contract` generates (the Lean function contract
+theorems are stated about) runs loops like the compiled Yul: `forEach i n body`
+runs `body` once for each `i` in `0 … n-1` (`n` evaluated once), and
+`forEachSetBit i bitmap body` once for each set bit of `bitmap`, highest bit
+first. Locals declared with `let mut` before the loop and reassigned in its body
+are threaded through the iterations (`Contracts.loopList`); an early `return`
+inside a loop body is rejected by type checking. `Contracts.Smoke.LoopSemanticsSmoke`
+pins this with theorems and `test/LoopSemanticsSmoke.t.sol` checks the same values
+on the bytecode.
+
 ECMs include standard Verity-core modules for generic external-call mechanics,
 including `Compiler.Modules.Calls.bubblingValueCall`, which lowers
 Solidity-style `call{value: v}(data)` wrappers to Yul `call` and forwards exact

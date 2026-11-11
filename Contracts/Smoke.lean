@@ -33,3 +33,5 @@ import Contracts.Smoke.HopContextAndMutableTuples
 import Contracts.Smoke.LinkedRuntimeTarget
 import Contracts.Smoke.Erc20BalanceHop
 import Contracts.Smoke.ConstructorExecutable
+import Contracts.Smoke.UnitReturnSmoke
+import Contracts.Smoke.LoopSemanticsSmoke
