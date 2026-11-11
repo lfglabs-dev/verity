@@ -114,6 +114,10 @@ MUTANTS.update({
     'import-bytes-named-slice-end': ('    AbiLowering.guard (.le (.localVar endVar) baseLen),', '    AbiLowering.guard (.lt (.localVar endVar) baseLen),'),
     'import-bytes-named-slice-start': ('    | _ => Expr.add baseOff (.localVar startVar)', '    | _ => Expr.add baseOff (.add (.localVar startVar) (.literal 1))'),
     'import-bytes-named-slice-member-order': ('pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * mIdx))) word)', 'pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * (members.size - 1 - mIdx)))) word)'),
+    'import-bytes-named-slice-return-size': ('pure (buf.pre ++ #[.assignVar ptrBinding buf.pointer, .assignVar sizeBinding buf.size],', 'pure (buf.pre ++ #[.assignVar ptrBinding buf.pointer],'),
+    'import-bytes-named-slice-param-size': ('pointer := .localVar pointer, size := .localVar size } : EncodedBytes)', 'pointer := .localVar pointer, size := .localVar descriptor.lengthBinding } : EncodedBytes)'),
+    'import-bytes-named-slice-param-copy': ('(.calldataload (.add (.localVar descriptor.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]', '(.calldataload (.add (.add (.localVar descriptor.dataBinding) (.literal 1)) (.mul (.localVar copyIdx) (.literal 32))))]'),
+    'import-bytes-named-slice-reassign-size': ('let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]', 'let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer]'),
 })
 
 
@@ -618,7 +622,7 @@ def run(directory, output, name):
         # The byte-buffer calls follow this prefix (`check_stateful`), so the
         # budget covers every slice bound and struct payload.
         tx_idx = argv.index('--transactions')
-        argv[tx_idx + 1] = '64'
+        argv[tx_idx + 1] = '96'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 255, 256, 257, (1 << 256) - 1])])
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
         prefix = argv.index('--change-prefix')

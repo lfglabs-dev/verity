@@ -182,6 +182,51 @@ def _byte_buffer_calls():
                              (5, (1 << 256) - 1, 0), (5, 0, (1 << 256) - 1)):
         calls.append(('sliceArgumentDigest(bytes,uint256,uint256)',
                       [96, start, end] + _bytes_words(_BYTE_PAYLOADS[size])))
+    # Reassigned `bytes memory` parameters and locals, named-result reads and
+    # writes, and struct members beside `bytes` (#2678 review follow-up).
+    for size in (0, 1, 5, 32, 33):
+        calls.append(('parameterReassign(bytes)', [32] + _bytes_words(_BYTE_PAYLOADS[size])))
+    for mode, size in ((0, 5), (1, 5), (2, 33), (3, 5), (4, 33), (3, 0), (1, 0)):
+        calls.append(('localReassign(bytes,uint256)', [64, mode] + _bytes_words(_BYTE_PAYLOADS[size])))
+    for mode, size in ((0, 0), (0, 5), (1, 5), (1, 0), (2, 33), (1, 70)):
+        calls.append(('namedResultAlias(bytes,uint256)', [64, mode] + _bytes_words(_BYTE_PAYLOADS[size])))
+    for n, size in ((0, 0), (1, 1), (2, 3), (3, 5), ((1 << 256) - 1, 40), (7, 70)):
+        calls.append(('structMembers(bytes,uint256)', [64, n] + _bytes_words(_BYTE_PAYLOADS[size])))
+    return calls
+
+
+def _bytes_args(*payloads):
+    """ABI arguments of a call taking only `bytes` values."""
+    head, tail = [], []
+    for payload in payloads:
+        head.append(32 * len(payloads) + 32 * len(tail))
+        tail.extend(_bytes_words(payload))
+    return head + tail
+
+
+def _stateless_byte_calls():
+    """The stateless #2623 shape: named `bytes memory` / `bytes calldata` root
+    returns, a slice-built struct, slice arguments, and both outcomes of the
+    tag check (a matching and a mismatching signature)."""
+    from eth_hash.auto import keccak
+    calls = []
+    for payload in _BYTE_PAYLOADS.values():
+        calls.append(('echo(bytes)', _bytes_args(payload)))
+        calls.append(('first(bytes)', _bytes_args(payload)))
+        calls.append(('digestSlice(bytes)', _bytes_args(payload)))
+    for size, start in ((0, 0), (5, 0), (5, 2), (5, 5), (5, 6), (40, 33), (70, (1 << 256) - 1)):
+        calls.append(('echoCalldata(bytes,uint256)', [64, start] + _bytes_words(_BYTE_PAYLOADS[size])))
+    for ctx, m in ((b'', b''), (b'ctx', bytes(range(40))), (bytes(255), b'm'), (bytes(256), b'm')):
+        prefix = bytes(range(100, 132))
+        m_prime = bytes([0, len(ctx) % 256]) + ctx + m
+        tagged = bytes([1]) + keccak(prefix + m_prime)
+        calls.append(('check(bytes,bytes,bytes)', _bytes_args(ctx, m, prefix + tagged)))
+        calls.append(('check(bytes,bytes,bytes)', _bytes_args(ctx, m, prefix + bytes(33))))
+    calls.append(('check(bytes,bytes,bytes)', _bytes_args(b'', b'', bytes(64))))
+    for left, right, pick in ((5, 33, 0), (5, 33, 1), (5, 33, 4), (40, 1, 3), (5, 0, 12), (0, 5, 2)):
+        words = _bytes_words(_BYTE_PAYLOADS[left])
+        calls.append(('conditionalSlice(bytes,bytes,uint256)',
+                      [96, 96 + 32 * len(words), pick] + words + _bytes_words(_BYTE_PAYLOADS[right])))
     return calls
 
 
@@ -359,6 +404,16 @@ def main():
         'namedReturnEarly(bytes,uint256)',
         'sliceArgumentDigest(bytes,uint256,uint256)',
         'bytesStructDigest(bytes)',
+        'parameterReassign(bytes)',
+        'localReassign(bytes,uint256)',
+        'namedResultAlias(bytes,uint256)',
+        'structMembers(bytes,uint256)',
+        'echo(bytes)',
+        'echoCalldata(bytes,uint256)',
+        'check(bytes,bytes,bytes)',
+        'first(bytes)',
+        'digestSlice(bytes)',
+        'conditionalSlice(bytes,bytes,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -1001,6 +1056,10 @@ def main():
         byte_buffer_prefix = _byte_buffer_calls() + [('read()', [])]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(byte_buffer_prefix[:remaining_budget])
+    if 'echoCalldata(bytes,uint256)' in source['methodIdentifiers']:
+        stateless_prefix = _stateless_byte_calls() + [('read()', [])]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(stateless_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1369,8 +1428,13 @@ def main():
                 [0xdead0000, 0xbeef0000, 1, 0, 5, 2],
             ])
         elif name in ('namedReturnCopy(bytes)', 'namedReturnEarly(bytes,uint256)',
-                      'sliceArgumentDigest(bytes,uint256,uint256)', 'bytesStructDigest(bytes)'):
+                      'sliceArgumentDigest(bytes,uint256,uint256)', 'bytesStructDigest(bytes)',
+                      'parameterReassign(bytes)', 'localReassign(bytes,uint256)',
+                      'namedResultAlias(bytes,uint256)', 'structMembers(bytes,uint256)'):
             call_args = rng.choice([c for c in _byte_buffer_calls() if c[0] == name])[1]
+        elif name in ('echo(bytes)', 'echoCalldata(bytes,uint256)', 'check(bytes,bytes,bytes)',
+                      'first(bytes)', 'digestSlice(bytes)', 'conditionalSlice(bytes,bytes,uint256)'):
+            call_args = rng.choice([c for c in _stateless_byte_calls() if c[0] == name])[1]
         elif name == 'parseHexByte(bytes1,bytes)':
             call_args = rng.choice([
                 [0x61 << 248, 64, 32, 0x66 << 248],

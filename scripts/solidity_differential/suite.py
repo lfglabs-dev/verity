@@ -76,8 +76,11 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--fixture', 'yul-numeric', '--transactions', str(max(64, transactions)),
         '--seed', str(seed), '--output', str(output / 'storage-yul-numeric')]))
     checks.append(('storage-bytes-named-return-slice-struct', ['-m', 'solidity_differential.check_storage',
-        '--fixture', 'bytes-named-return-slice-struct', '--transactions', str(max(64, transactions)),
+        '--fixture', 'bytes-named-return-slice-struct', '--transactions', str(max(96, transactions)),
         '--seed', str(seed), '--output', str(output / 'storage-bytes-named-return-slice-struct')]))
+    checks.append(('storage-bytes-named-return-stateless', ['-m', 'solidity_differential.check_storage',
+        '--fixture', 'bytes-named-return-stateless', '--transactions', str(max(96, transactions)),
+        '--seed', str(seed), '--output', str(output / 'storage-bytes-named-return-stateless')]))
     for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'signed-modulo', 'unchecked-blocks', 'tuple-destructuring'):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),

@@ -17,6 +17,10 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "BytesNamedR
   function namedReturnEarly(bytes,uint256)
   function sliceArgumentDigest(bytes,uint256,uint256)
   function bytesStructDigest(bytes)
+  function parameterReassign(bytes)
+  function localReassign(bytes,uint256)
+  function namedResultAlias(bytes,uint256)
+  function structMembers(bytes,uint256)
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
