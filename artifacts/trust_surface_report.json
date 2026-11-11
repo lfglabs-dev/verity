@@ -173,8 +173,8 @@
   },
   "mechanisms": {
     "@[implemented_by": 6,
-    "native_decide": 484,
-    "partial def": 370
+    "native_decide": 486,
+    "partial def": 371
   },
   "notes": "native_decide trusts Lean.ofReduceBool or Lean 4.31 generated per-proof native_decide axioms + Lean.trustCompiler. Prose registry: docs/AXIOMS.md, docs/TRUST_ASSUMPTIONS.md (enforced by scripts/check_trust_surface_registry.py).",
   "schema_version": 1

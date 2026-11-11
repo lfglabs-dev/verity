@@ -39,7 +39,9 @@ verity_contract StaticCallConstructorHost include StaticCallConstructorMixin whe
       [5, 6, 7, 8]
     pure ()
 
-example : Contract Unit := StaticCallConstructorMixin.constructor
-example : Contract Unit := StaticCallConstructorHost.constructor
+-- The precompile's answer comes from the adversary in the executable, so a
+-- constructor making only a static ECM call takes the call context too.
+example : Contract Unit := StaticCallConstructorMixin.constructor .stub
+example : Contract Unit := StaticCallConstructorHost.constructor .stub
 
 end Contracts.Smoke

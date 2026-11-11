@@ -138,8 +138,14 @@ def internalCallYulArgCountForParam : ParamType → Nat
 def internalCallYulArgCount (params : List Param) : Nat :=
   params.foldl (fun acc param => acc + internalCallYulArgCountForParam param.ty) 0
 
-def internalReturnYulCountForType : ParamType → Nat
+/-- Yul values an internal function returns for one declared return: two for a memory
+array (data offset, length), one per ABI word for a static tuple or fixed array (the same
+slots `freshInternalRetNames` allocates), one otherwise. -/
+def internalReturnYulCountForType (ty : ParamType) : Nat :=
+  match ty with
   | ParamType.array _ => 2
+  | ParamType.tuple _ | ParamType.fixedArray _ _ =>
+      if isDynamicParamType ty then 1 else paramHeadSize ty / 32
   | _ => 1
 
 def internalReturnYulCount (returns : List ParamType) : Nat :=

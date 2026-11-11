@@ -291,13 +291,16 @@ def hashSliceModelUsesKeccak : Bool :=
 
 example : hashSliceModelUsesKeccak = true := by native_decide
 
-def hashSliceExecutableUsesRuntimeStub : Bool :=
+/-- The executable `keccak256` hashes the memory slice: 64 bytes of untouched (zero)
+memory hash to keccak256(0^64), as on the EVM. -/
+def hashSliceExecutableHashesMemory : Bool :=
   match MacroKeccak.hashSlice 11 64 Verity.defaultState with
   | .success digest state =>
-      digest == 75 && state.sender == Verity.defaultState.sender
+      digest.val == 0xad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5 &&
+        state.sender == Verity.defaultState.sender
   | .revert _ _ => false
 
-example : hashSliceExecutableUsesRuntimeStub = true := by native_decide
+example : hashSliceExecutableHashesMemory = true := by native_decide
 
 end MacroKeccakSmoke
 
@@ -575,11 +578,11 @@ def snapshotSupplyModelUsesTotalSupplyModule : Bool :=
 
 example : snapshotSupplyModelUsesTotalSupplyModule = true := by native_decide
 
-def snapshotBalanceExecutableNeedsNoAdversary : Bool :=
+def snapshotBalanceExecutableReadsAdversary : Bool :=
   let token := Verity.wordToAddress 7
   let owner := Verity.wordToAddress 13
   match Contracts.balanceOf token owner .stub Verity.defaultState,
-      MacroERC20.snapshotBalance token owner Verity.defaultState with
+      MacroERC20.snapshotBalance .stub token owner Verity.defaultState with
   | .success expected _, .success balance state =>
       balance == expected &&
       state.storage 0 == expected &&
@@ -587,14 +590,14 @@ def snapshotBalanceExecutableNeedsNoAdversary : Bool :=
   | .revert _ _, _ => false
   | _, .revert _ _ => false
 
-example : snapshotBalanceExecutableNeedsNoAdversary = true := by native_decide
+example : snapshotBalanceExecutableReadsAdversary = true := by native_decide
 
-def snapshotAllowanceExecutableNeedsNoAdversary : Bool :=
+def snapshotAllowanceExecutableReadsAdversary : Bool :=
   let token := Verity.wordToAddress 7
   let owner := Verity.wordToAddress 13
   let spender := Verity.wordToAddress 17
   match Contracts.allowance token owner spender .stub Verity.defaultState,
-      MacroERC20.snapshotAllowance token owner spender Verity.defaultState with
+      MacroERC20.snapshotAllowance .stub token owner spender Verity.defaultState with
   | .success expected _, .success current state =>
       current == expected &&
       state.storage 1 == expected &&
@@ -602,19 +605,19 @@ def snapshotAllowanceExecutableNeedsNoAdversary : Bool :=
   | .revert _ _, _ => false
   | _, .revert _ _ => false
 
-example : snapshotAllowanceExecutableNeedsNoAdversary = true := by native_decide
+example : snapshotAllowanceExecutableReadsAdversary = true := by native_decide
 
-def snapshotSupplyExecutableNeedsNoAdversary : Bool :=
+def snapshotSupplyExecutableReadsAdversary : Bool :=
   let token := Verity.wordToAddress 7
   match Contracts.totalSupply token .stub Verity.defaultState,
-      MacroERC20.snapshotSupply token Verity.defaultState with
+      MacroERC20.snapshotSupply .stub token Verity.defaultState with
   | .success expected _, .success supply state =>
       supply == expected &&
       state.storage 2 == expected
   | .revert _ _, _ => false
   | _, .revert _ _ => false
 
-example : snapshotSupplyExecutableNeedsNoAdversary = true := by native_decide
+example : snapshotSupplyExecutableReadsAdversary = true := by native_decide
 
 end MacroERC20Smoke
 

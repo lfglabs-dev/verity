@@ -183,7 +183,7 @@ example : oracleReadUsesSummary = true := by
   decide
 
 example :
-    let result := (OracleSummarySmoke.snapshotPrice (23 : Address)).run defaultState
+    let result := (OracleSummarySmoke.snapshotPrice .stub (23 : Address)).run defaultState
     result.getState.calls.map (·.kind) = [.staticcall] ∧
       result.getState.calls.map (·.target) = [23] := by
   decide
@@ -371,7 +371,8 @@ verity_contract ReturnCallArrayParamRejected where
     return result
 
 -- Static composite (tuple) typed-interface parameters are supported since the
--- #1962 typed-interface ABI param guard widened the static fragment.
+-- #1962 typed-interface ABI param guard widened the static fragment. A tuple passed
+-- whole is ABI-encoded inline as its component words.
 verity_contract ReturnCallTupleParamSmoke where
   storage
 
@@ -380,7 +381,7 @@ verity_contract ReturnCallTupleParamSmoke where
       function submit(Tuple [Uint256, Address]) returns (Uint256)
     end
 
-  function bad (pool : IPool, item : Tuple [Uint256, Address]) : Uint256 := do
+  function reentrancy_trusted bad (pool : IPool, item : Tuple [Uint256, Address]) : Uint256 := do
     let result ← pool.submit item
     return result
 
@@ -401,7 +402,7 @@ verity_contract ReturnCallNestedStructParamSmoke where
       function submit(Outer) returns (Uint256)
     end
 
-  function bad (pool : IPool, item : Outer) : Uint256 := do
+  function reentrancy_trusted bad (pool : IPool, item : Outer) : Uint256 := do
     let result ← pool.submit item
     return result
 

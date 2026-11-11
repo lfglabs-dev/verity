@@ -840,6 +840,11 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.Create2AddressSmoke
+            Contracts.Smoke.MemoryHashSmoke
+            Contracts.Smoke.WholeCompositeValueSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
+            Contracts.Smoke.NamedStructReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke
@@ -887,6 +892,11 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.Create2AddressSmoke
+            Contracts.Smoke.MemoryHashSmoke
+            Contracts.Smoke.WholeCompositeValueSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
+            Contracts.Smoke.NamedStructReturnSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke

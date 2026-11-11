@@ -33,3 +33,7 @@ import Contracts.Smoke.HopContextAndMutableTuples
 import Contracts.Smoke.LinkedRuntimeTarget
 import Contracts.Smoke.Erc20BalanceHop
 import Contracts.Smoke.ConstructorExecutable
+import Contracts.Smoke.MemoryHashSmoke
+import Contracts.Smoke.Create2AddressSmoke
+import Contracts.Smoke.InterfaceCompositeReturnSmoke
+import Contracts.Smoke.WholeCompositeValueSmoke
