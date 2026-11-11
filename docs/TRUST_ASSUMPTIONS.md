@@ -953,8 +953,12 @@ global invariant `I : ContractState → Prop`.
       `verity_contract`) is the source of this list on the macro path.
       Registry-mode `linked_contracts` hops use the bound callee's `*_registry`
       executable (and thread the current `ExecutableCallContext`) when that
-      definition takes the context, including view/static callees whose public
-      bodies do not open a reentrancy window. Public hopCall bodies keep the
+      definition takes the context. Public hopCall bodies forward the caller's
+      context to a bound callee whose public definition takes it: every
+      executable (entry point, internal helper or constructor) whose body
+      consults the adversary, directly or through a helper, takes the context,
+      view/static calls and ECMs included. Callees that never consult the
+      adversary (a linked hop runs the callee's generated body) keep the
       ctx-free public definition. Generated `*_entrypoint` predicates require
       Lean arguments to match compiled-dispatch ABI words of
       `CallbackContext.calldata` (`abiEncodeDispatchArgs` into

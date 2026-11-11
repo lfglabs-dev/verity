@@ -3001,7 +3001,7 @@ private def threadHelperApp?
       -- `registryOnlyHelpers` is the set that must be called as `_registry`
       -- / `_registry_unguarded`. Public bodies pass `#[]`; registry bodies pass
       -- every adversarial helper, including window-opening ones, so a nested
-      -- `hop` cannot drop into the stub-only public helper.
+      -- `hop` stays on the registry path (live calldata, `_registry` callees).
       -- Same-contract `selfCall` is a public CALL: compiled dispatch still
       -- runs the nonReentrant tload prologue, so hops keep the guarded
       -- `*_registry` / public path rather than `*_unguarded`.
@@ -3085,7 +3085,7 @@ private partial def exprIsExecutableCallContext (ty : Expr) : Bool :=
   | .app f _ => exprIsExecutableCallContext f
   | _ => false
 
-/-- Generated functions that open a reentrancy window take `ExecutableCallContext`
+/-- Generated functions that consult the adversary take `ExecutableCallContext`
     as the first explicit binder (`mkContractFnTypeWithAdversary`). Skip implicit
     binders so universe/instance prefixes cannot hide that head. -/
 private partial def forallHeadIsExecutableCallContext (ty : Expr) : Bool :=
@@ -3099,8 +3099,8 @@ private partial def forallHeadIsExecutableCallContext (ty : Expr) : Bool :=
 
 /-- True when the already-elaborated callee `def` takes the executable call
     context. Bound hops must forward the caller's context in that case; callees
-    that do not open a reentrancy window keep the ctx-free `hopCall` body. -/
-private def constantTakesExecutableCallContext (n : Name) : CommandElabM Bool := do
+    that do not consult the adversary keep the ctx-free `hopCall` body. -/
+def constantTakesExecutableCallContext (n : Name) : CommandElabM Bool := do
   match ← resolveCalleeConstant? n with
   | some info => pure (forallHeadIsExecutableCallContext info.type)
   | none => pure false
@@ -3225,11 +3225,10 @@ private def boundCalleeBodyTerm (binding : LinkedContractDecl) (extName : String
   let fnName := if useRegistry then registryIdent.getId else publicName
   let fnIdent := mkIdent fnName
   let mut app : Term ← `(term| $fnIdent)
-  -- Thread the caller's ExecutableCallContext into a bound callee that opens a
-  -- reentrancy window, and in registry mode also into `*_registry` executables
-  -- of view/static callees (those take the context even when the public def
-  -- does not). Ctx-free public callees stay unchanged so existing hopCall
-  -- definitional theorems keep holding.
+  -- Thread the caller's ExecutableCallContext into a bound callee whose
+  -- definition takes it (it consults the adversary), and in registry mode into
+  -- every `*_registry` executable. Ctx-free public callees stay unchanged so
+  -- existing hopCall definitional theorems keep holding.
   if useRegistry || (← constantTakesExecutableCallContext fnName) then
     app ← `(term| $app $adv)
   for arg in args do
@@ -3269,7 +3268,7 @@ private def hopBoundCallTerm?
     - G15: a `deferred` binding (ABI external call answered by the context);
     - G26: a named binding whose resolved callee constant takes the context
       (`constantTakesExecutableCallContext`, e.g. a callee function that itself
-      reaches a `deferred` link or opens a reentrancy window). The bound hop
+      reaches a `deferred` link or otherwise consults the adversary). The bound hop
       forwards the caller's context into the callee body; a context-free caller
       would forward the fixed stub. Storage-field getters (G23) and ctx-free
       callee functions do not count.
@@ -7200,6 +7199,50 @@ def prefixMixinModifierExecutableBody
 def mkModifierDefCommandPublic (modDecl : ModifierDecl) : CommandElabM Cmd := do
   `(command| def $(modDecl.ident) : _root_.Verity.Contract Unit := $(modDecl.body))
 
+/-- The helpers whose public executable takes the `ExecutableCallContext`: the
+    `seed` (reentrancy-window and linked-context helpers), closed under "the
+    executable body, once calls to helpers in the set are threaded, consults the
+    adversary". A view call, a static ECM or a token read inside a helper therefore
+    reaches the caller's adversary instead of the stub; a linked hop, which runs the
+    callee's generated body, does not consult it and adds no parameter. -/
+private def executableAdversarialHelpers
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
+    (seed : Array FunctionDecl)
+    (linkedContracts : Array LinkedContractDecl := #[]) :
+    CommandElabM (Array FunctionDecl) := do
+  let probe : Name := `__verity_adversary_probe
+  let mut result := seed
+  for _ in [:functions.size + 1] do
+    let mut grew := false
+    for helper in functions do
+      if result.any (fun c => functionSignatureKey c == functionSignatureKey helper) then
+        continue
+      let body ← rewriteForEachExecutableBody fields externalDecls helper.params helper.body
+      let threaded ← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+        externalDecls functions result #[] helper.params #[] (⟨mkIdent probe⟩ : Term) body.raw
+        (linkedContracts := linkedContracts)
+      if syntaxMentionsIdent threaded (toString probe) then
+        result := result.push helper
+        grew := true
+    if !grew then break
+  pure result
+
+/-- Whether an executable body consults the adversary once calls to `helpers` are
+    threaded (see `executableAdversarialHelpers`). -/
+private def executableBodyConsultsAdversary
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions helpers : Array FunctionDecl)
+    (params : Array ParamDecl) (body : Syntax)
+    (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM Bool := do
+  let probe : Name := `__verity_adversary_probe
+  let threaded ← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+    externalDecls functions helpers #[] params #[] (⟨mkIdent probe⟩ : Term) body
+    (linkedContracts := linkedContracts)
+  pure (syntaxMentionsIdent threaded (toString probe))
+
 private def constructorOpensReentrancyWindow
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
@@ -7236,7 +7279,8 @@ private def constructorAdversarialHelpers
         adversarial := adversarial.push helper
         grew := true
     if !grew then break
-  pure adversarial
+  executableAdversarialHelpers fields constDecls immutableDecls externalDecls functions
+    adversarial linkedContracts
 
 def mkConstructorDefCommandPublic
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
@@ -7250,22 +7294,23 @@ def mkConstructorDefCommandPublic
     immutableDecls externalDecls functions linkedContracts
   let callsAdversarial ←
     syntaxCallsAnyHelper functions adversarialHelpers ctor.params #[] ctor.body.raw
-  let opensReentrancyWindow := directlyOpensReentrancyWindow ||
-    callsAdversarial
   let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
+  let consultsAdversary ← executableBodyConsultsAdversary fields constDecls immutableDecls
+    externalDecls functions adversarialHelpers ctor.params executableBody.raw linkedContracts
+  let takesCallContext := directlyOpensReentrancyWindow || callsAdversarial || consultsAdversary
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
-  let advTerm : Term ← if opensReentrancyWindow then
+  let advTerm : Term ← if takesCallContext then
       pure ⟨advIdent.raw⟩
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
   let executableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
     externalDecls functions adversarialHelpers #[] ctor.params #[] advTerm executableBody.raw
     (linkedContracts := linkedContracts)⟩
-  let fnType ← if opensReentrancyWindow then
+  let fnType ← if takesCallContext then
       mkContractFnTypeWithAdversary ctor.params .unit
     else
       mkContractFnType ctor.params .unit
-  let fnValue ← if opensReentrancyWindow then
+  let fnValue ← if takesCallContext then
       mkContractFnValueWithAdversary advIdent ctor.params executableBody
     else
       mkContractFnValue ctor.params executableBody
@@ -7284,8 +7329,10 @@ def mkHostConstructorDefCommandPublic
     immutableDecls externalDecls functions linkedContracts
   let ownCallsAdversarial ←
     syntaxCallsAnyHelper functions ownAdversarialHelpers ctor.params #[] ctor.body.raw
-  let ownExternal := ownDirectExternal ||
-    ownCallsAdversarial
+  let ownExecutableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
+  let ownConsultsAdversary ← executableBodyConsultsAdversary fields constDecls immutableDecls
+    externalDecls functions ownAdversarialHelpers ctor.params ownExecutableBody.raw linkedContracts
+  let ownExternal := ownDirectExternal || ownCallsAdversarial || ownConsultsAdversary
   let mut mixinExternal : Array Name := #[]
   for mixinName in resolvedIncludes do
     if let some mixin ← lookupContractSyntax mixinName then
@@ -7295,7 +7342,12 @@ def mkHostConstructorDefCommandPublic
         let helpers ← constructorAdversarialHelpers mixin.fields mixin.errorDecls mixin.constDecls
           mixin.immutableDecls mixin.externalDecls mixin.functions mixin.linkedContracts
         let callsAdversarial ← syntaxCallsAnyHelper mixin.functions helpers mixinCtor.params #[] mixinCtor.body.raw
-        if direct || callsAdversarial then
+        let mixinBody ← rewriteForEachExecutableBody mixin.fields mixin.externalDecls
+          mixinCtor.params mixinCtor.body
+        let consults ← executableBodyConsultsAdversary mixin.fields mixin.constDecls
+          mixin.immutableDecls mixin.externalDecls mixin.functions helpers mixinCtor.params
+          mixinBody.raw mixin.linkedContracts
+        if direct || callsAdversarial || consults then
           mixinExternal := mixinExternal.push mixinName
   let containsExternalCall := ownExternal || !mixinExternal.isEmpty
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
@@ -7445,12 +7497,12 @@ def mkFunctionCommandsPublic
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
   -- "Takes the ExecutableCallContext" on the public path = opens a reentrancy
-  -- window (model plane) OR issues a typed call on a `deferred` binding (G15,
-  -- executable plane only); both are propagated through the helper fixed point
-  -- below. Executable registry transitions (`*_registry`) additionally use the
-  -- explicit adversary for every external-call-dependent result, including
-  -- static calls whose returndata can influence a later storage write; that
-  -- wider set is `adversarialHelpers`.
+  -- window (model plane), issues a typed call on a `deferred` binding (G15,
+  -- executable plane only), or otherwise consults the adversary (a view call, a
+  -- token read or a static ECM, `executableAdversarialHelpers`); all are propagated
+  -- through the helper fixed points below. Executable registry transitions
+  -- (`*_registry`) route every external-call-dependent helper (`adversarialHelpers`,
+  -- plus calldata readers) to its `_registry` variant.
   let directlyOpensReentrancyWindow ←
     pure ((← translatedBodyOpensReentrancyWindow stmtTerms) ||
       (← bodyNeedsLinkedCallContext externalDecls fn.params linkedContracts fnExecutableBody.raw))
@@ -7521,21 +7573,28 @@ def mkFunctionCommandsPublic
     if !registryOnlyHelpers.any (fun candidate =>
           functionSignatureKey candidate == functionSignatureKey helper) then
       registryOnlyHelpers := registryOnlyHelpers.push helper
-  let callsWindow ← syntaxCallsAnyHelper functions windowHelpers modelFn.params #[] modelFn.body.raw
-  let opensReentrancyWindow := directlyOpensReentrancyWindow || callsWindow
+  -- The public executable takes the context iff it consults the adversary: it opens a
+  -- reentrancy window, needs the linked-call context, makes a call the adversary
+  -- answers (view calls and static ECMs included), or calls a helper that does.
+  let contextHelpers ← executableAdversarialHelpers fields constDecls immutableDecls
+    externalDecls functions windowHelpers linkedContracts
+  let callsWindow ← syntaxCallsAnyHelper functions contextHelpers modelFn.params #[] modelFn.body.raw
+  let consultsAdversary ← executableBodyConsultsAdversary fields constDecls immutableDecls
+    externalDecls functions contextHelpers fn.params fnExecutableBody.raw linkedContracts
+  let takesCallContext := directlyOpensReentrancyWindow || callsWindow || consultsAdversary
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
-  let advTerm : Term ← if opensReentrancyWindow then
+  let advTerm : Term ← if takesCallContext then
       pure ⟨advIdent.raw⟩
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
-  let fnType ← if opensReentrancyWindow then
+  let fnType ← if takesCallContext then
       mkContractFnTypeWithAdversary fn.params fn.returnTy
     else
       mkContractFnType fn.params fn.returnTy
   let publicExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls functions windowHelpers #[] fn.params #[] advTerm fnExecutableBody.raw
+    externalDecls functions contextHelpers #[] fn.params #[] advTerm fnExecutableBody.raw
     (linkedContracts := linkedContracts)⟩
   -- Registry executables must route every adversarial helper, including
   -- window-opening helpers, to `_registry` / `_registry_unguarded`. Restricting
@@ -7550,7 +7609,7 @@ def mkFunctionCommandsPublic
   let mut extraExecutableCmds : Array Cmd := #[]
   if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
     let unguardedId ← mkSuffixedIdent fn.ident "_unguarded"
-    let unguardedValue ← if opensReentrancyWindow then
+    let unguardedValue ← if takesCallContext then
         mkContractFnValueWithAdversary advIdent fn.params publicExecutableBody
       else
         mkContractFnValue fn.params publicExecutableBody
@@ -7563,7 +7622,7 @@ def mkFunctionCommandsPublic
           | throwErrorAt lockIdent s!"unknown nonreentrant lock field '{lockName}'"
         `(_root_.Verity.Core.NonReentrantGuard.guarded $(natTerm lockField.slotNum) $publicExecutableBody)
     | none => pure publicExecutableBody
-  let fnValue ← if opensReentrancyWindow then
+  let fnValue ← if takesCallContext then
       mkContractFnValueWithAdversary advIdent fn.params publicExecutableBody
     else
       mkContractFnValue fn.params publicExecutableBody
