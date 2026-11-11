@@ -31,6 +31,70 @@ contract SequenceFixture {
         }
         return shifted;
     }
+    function advance(uint256[3] memory a) internal pure returns (uint256) {
+        a[1] = (a[1] + 1) % 3;
+        return a[1] + 40;
+    }
+    function reseat(uint256[3] memory a, uint256 v) internal pure returns (uint256) {
+        a[0] = v;
+        uint256[3] memory blank;
+        a = blank;
+        a[0] = 99;
+        return a[0];
+    }
+    function scaled(uint256[3] memory a) internal pure returns (uint256[3] memory out) {
+        out[0] = advance(a);
+        out[1] = a[1];
+        out[2] = a[0] ^ out[0];
+        return out;
+    }
+    function sumScaled(uint256[3] memory a) internal pure returns (uint256) {
+        uint256[3] memory s = scaled(a);
+        return s[0] + s[1] + s[2];
+    }
+    function rebind(uint256 x) internal pure returns (uint256 acc) {
+        uint256[3] memory idx;
+        idx[1] = x % 3;
+        idx[idx[1]] = advance(idx);
+        uint256[3] memory same = idx;
+        same[2] += 5;
+        acc = idx[2] + idx[0] * 3 + idx[1] * 7;
+        uint256[3] memory other;
+        other[0] = x & 0xffff;
+        same = other;
+        same[1] = 9;
+        acc += other[1] + idx[1];
+        uint256 r = reseat(other, (x >> 16) & 0xffff);
+        acc += r + other[0];
+        delete other[0];
+        acc += other[0] + same[0];
+        delete same;
+        same[2] = 1;
+        acc += other[2] + same[2] * 11;
+        for (uint256 j = 0; j < 3; j++) {
+            uint256[2] memory fresh;
+            acc += fresh[0] + fresh[1];
+            fresh[j % 2] = j + 1;
+            acc += fresh[0] * 13;
+        }
+        uint256[3] memory sc = scaled(idx);
+        acc += sumScaled(other);
+        acc += sc[0] + sc[2] + idx[1];
+        bool[2] memory flags;
+        flags[x % 2] = true;
+        if (flags[1]) {
+            acc += 17;
+        }
+        address[2] memory who;
+        who[0] = address(uint160(x));
+        acc += (uint256(uint160(who[0])) & 0xff) + uint256(uint160(who[1]));
+        int256[2] memory signedVals;
+        signedVals[0] = int256(x % 100) - 50;
+        signedVals[1] = signedVals[0] * 3;
+        if (signedVals[1] < 0) {
+            acc += 19;
+        }
+    }
     function change(uint256 x) external returns (uint256) {
         uint256[4] memory st = spread(x);
         bump(st);
@@ -45,6 +109,7 @@ contract SequenceFixture {
         if (x % 7 == 6) {
             value += st[x % 6];
         }
+        value ^= rebind(x);
         last = picked[(x >> 40) % 4];
         return value;
     }
