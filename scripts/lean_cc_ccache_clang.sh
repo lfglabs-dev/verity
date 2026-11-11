@@ -17,9 +17,9 @@ lean_clang="${lean_prefix}/bin/clang"
 
 if $is_compile; then
   if command -v ccache >/dev/null 2>&1; then
-    exec ccache "$lean_clang" -B "$lean_prefix/bin" -fuse-ld=lld "$@"
+    exec ccache "$lean_clang" -isystem "$lean_prefix/include/clang" -B "$lean_prefix/bin" "$@"
   else
-    exec "$lean_clang" -B "$lean_prefix/bin" -fuse-ld=lld "$@"
+    exec "$lean_clang" -isystem "$lean_prefix/include/clang" -B "$lean_prefix/bin" "$@"
   fi
 else
   # Use the compiler shipped with Lean: its libc++ ABI matches the distributed
