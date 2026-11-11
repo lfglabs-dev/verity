@@ -76,15 +76,20 @@ private def mkFunctionStateForall (fnDecl : FunctionDecl) (body : Term) : Comman
 
 /-- Auto-generated execution-level frame theorem for `view` functions.
     Validation guarantees that view bodies do not write contract state; this
-    theorem exposes that guarantee as a reusable preservation fact. -/
+    theorem exposes that guarantee as a reusable preservation fact. Not generated
+    for a view that takes the call context (it consults the adversary): its
+    post-state depends on the adversary's answers, which the generated `simp`
+    proof cannot case-split. -/
 def mkViewFrameTheoremCommand (fnDecl : FunctionDecl) (functions : Array FunctionDecl)
-    : CommandElabM Cmd := do
+    : CommandElabM (Option Cmd) := do
   let viewFrameName ← mkSuffixedIdent fnDecl.ident "_view_frame"
+  if ← constantTakesExecutableCallContext fnDecl.ident.getId then
+    return none
   let fnApp ← mkFunctionApplication fnDecl
   let functionIdents := functions.map (fun fn => fn.ident)
   let prop ← mkFunctionStateForall fnDecl
     (← `(Verity.Specs.viewPreservesState s (($fnApp).run s).snd))
-  `(command|
+  some <$> `(command|
     /-- Auto-generated execution frame: this `view` function preserves state. -/
     theorem $viewFrameName : $prop := by
       intros
@@ -307,9 +312,11 @@ def mkFrameDefCommand
             Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage])
 
   -- Mixin modifiers / include hosts bind a Lean guard that the generated
-  -- `simp` proof cannot case-split. Keep the frame *definition* and skip
+  -- `simp` proof cannot case-split, and an executable taking the call context
+  -- depends on the adversary's answers. Keep the frame *definition* and skip
   -- the automatic `_frame_holds` theorem in those cases.
   if !generateExecutionFrame || !fnDecl.modifiers.isEmpty ||
+      (← constantTakesExecutableCallContext fnDecl.ident.getId) ||
       fnDecl.requiresRole.isSome || fnDecl.nonReentrantLock.isSome ||
       fnDecl.initGuard?.isSome then
     pure #[frameCmd, frameRflCmd]

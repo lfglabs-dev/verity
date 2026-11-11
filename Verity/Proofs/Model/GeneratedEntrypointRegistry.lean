@@ -64,12 +64,11 @@ theorem guardedPing_reentry_blocked (adv : AdversaryModel) (value : Uint256)
 
 end GeneratedRegistry
 
-/-! Regression for registry window-helper routing: `readBal` is adversarial
-(view/staticcall ECM) but does not open a reentrancy window, while `hop`
-opens a window and then calls `readBal`. `entry_registry` must call
-`hop_registry` (which calls `readBal_registry`) rather than public `hop`
-(which uses stub-only `readBal` and under-approximates a callee-controlled
-view ECM). -/
+/-! Regression for helper adversary routing: `readBal` is adversarial
+(view/staticcall) but does not open a reentrancy window, while `hop` opens a
+window and then calls `readBal`. Both executables must let the nested view call
+observe the caller's adversary: public `hop` passes it to `readBal`, and
+`entry_registry` calls `hop_registry` (which calls `readBal_registry`). -/
 verity_contract RegistryWindowHelperRouting where
   storage
     last : Uint256 := slot 0
@@ -98,8 +97,8 @@ verity_contract RegistryWindowHelperRouting where
 namespace RegistryWindowHelperRouting
 
 /-- Distinctive view-call adversary: staticcall sites return 42 instead of the
-deterministic stub word. Public `hop` ignores this because it calls stub-only
-`readBal`; `hop_registry` / `entry_registry` must observe 42. -/
+deterministic stub word. `hop`, `hop_registry` and `entry_registry` must all
+observe 42. -/
 def distinctiveViewAdv : AdversaryModel where
   stateTransition := fun _ state => state
   result := fun site world =>
@@ -110,13 +109,13 @@ def distinctiveViewAdv : AdversaryModel where
 def distinctiveCtx : Contracts.ExecutableCallContext :=
   Contracts.ExecutableCallContext.ofAdversary distinctiveViewAdv
 
-/-- Public `hop` still uses stub-only `readBal` (no adversary). -/
-def hopPublicSeesStub : Bool :=
+/-- Public `hop` passes its adversary to the view helper `readBal`. -/
+def hopPublicSeesAdversary : Bool :=
   match (hop distinctiveCtx 0 0).run Verity.defaultState with
-  | .success value _ => !(value == 42)
+  | .success value _ => value == 42
   | _ => false
 
-example : hopPublicSeesStub = true := by decide
+example : hopPublicSeesAdversary = true := by decide
 
 /-- `hop_registry` routes the nested view helper through `readBal_registry`. -/
 def hopRegistrySeesAdversary : Bool :=
@@ -135,6 +134,51 @@ def entryRegistrySeesAdversary : Bool :=
 example : entryRegistrySeesAdversary = true := by decide
 
 end RegistryWindowHelperRouting
+
+/-! Regression: an entry point whose only external call is a view call inside an
+internal helper (no reentrancy window anywhere). Its public executable takes the
+call context and passes the adversary to the helper, so the stored balance is the
+adversary's answer, not the stub word. -/
+verity_contract PublicViewHelperAdversary where
+  storage
+    last : Uint256 := slot 0
+  interfaces
+    interface IToken where
+      function balanceOf(Address) view returns (Uint256)
+    end
+
+  function internal view readBal (token : IToken, who : Address) : Uint256 := do
+    let observed ← token.balanceOf who
+    return observed
+
+  function record (token : IToken, who : Address) : Uint256 := do
+    let observed ← readBal token who
+    setStorage last observed
+    return observed
+
+namespace PublicViewHelperAdversary
+
+/-- The public executable of `record` takes the call context. -/
+example : Contracts.ExecutableCallContext → Address → Address → Contract Uint256 := record
+
+/-- Staticcall sites return 42 instead of the stub word. -/
+def distinctiveViewAdv : AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site world =>
+    if site.kind = .staticcall then .success [42]
+    else AdversaryModel.stub.result site world
+  gasUsed := fun _ _ => 0
+
+/-- Public `record` stores the adversary's answer to the helper's view call. -/
+def recordPublicSeesAdversary : Bool :=
+  match (record (Contracts.ExecutableCallContext.ofAdversary distinctiveViewAdv) 0 0).run
+      Verity.defaultState with
+  | .success value post => value == 42 && post.storage 0 == 42
+  | _ => false
+
+example : recordPublicSeesAdversary = true := by decide
+
+end PublicViewHelperAdversary
 
 /-! Regression: parenthesized overloaded helper + nested `externalCall`.
 Second-pass `threadHelperApp?` must resolve the overload from the original
@@ -184,9 +228,9 @@ example : entryLetRegistrySeesAdversary = true := by decide
 end RegistryOverloadedNestedExternal
 
 /-! Regression: `linked_contracts` hop to a view/static-only bound callee.
-Public `helper.get` uses `.stub`; `entry_registry` must hop through
-`BoundViewCallee.get_registry` so a distinctive staticcall adversary is
-observed (Codex P1 on #2406). -/
+Public `entry` hops to `BoundViewCallee.get` with its own adversary, and
+`entry_registry` hops through `BoundViewCallee.get_registry`; both observe a
+distinctive staticcall adversary (Codex P1 on #2406). -/
 verity_contract BoundViewCallee where
   storage
     unused : Uint256 := slot 0
@@ -227,13 +271,13 @@ def distinctiveViewAdv : AdversaryModel where
 def distinctiveCtx : Contracts.ExecutableCallContext :=
   Contracts.ExecutableCallContext.ofAdversary distinctiveViewAdv
 
-/-- Public `entry` is ctx-free and hops to stub-backed `BoundViewCallee.get`. -/
-def entryPublicSeesStub : Bool :=
-  match (entry 0 0 0).run Verity.defaultState with
-  | .success value _ => !(value == 42)
+/-- Public `entry` passes its adversary to the bound view callee `BoundViewCallee.get`. -/
+def entryPublicSeesAdversary : Bool :=
+  match (entry distinctiveCtx 0 0 0).run Verity.defaultState with
+  | .success value _ => value == 42
   | _ => false
 
-example : entryPublicSeesStub = true := by decide
+example : entryPublicSeesAdversary = true := by decide
 
 /-- `entry_registry` hops through `BoundViewCallee.get_registry`. -/
 def entryRegistrySeesAdversary : Bool :=
