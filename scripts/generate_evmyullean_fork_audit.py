@@ -47,9 +47,9 @@ DEFAULT_OUTPUT = ROOT / "artifacts" / "evmyullean_fork_audit.json"
 # commit in lake-manifest.json disagrees with ``pinned_commit`` here.
 FORK_AUDIT = {
     "schema_version": 1,
-    "fork_url": "https://github.com/mab-xyz/EVMYulLean",
+    "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "d742f034a265b450dfe6ab3b70b0e106c835369f",
+    "pinned_commit": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
     "fork_ahead_by": 25,
     "fork_behind_by": 0,
@@ -380,8 +380,8 @@ FORK_AUDIT = {
             "trust_impact": "None: no Lean source changes.",
         },
         {
-            "sha": "d742f034a265b450dfe6ab3b70b0e106c835369f",
-            "title": "fix(yul): halt on out-of-bounds RETURNDATACOPY (EIP-211)",
+            "sha": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
+            "title": "fix(yul): halt on out-of-bounds RETURNDATACOPY (EIP-211) (#12)",
             "file": "EvmYul/Semantics.lean, EvmYul/Yul/Exception.lean, EvmYul/Yul/Interpreter.lean, EvmYul/Yul/YulSemanticsTests/Main.lean",
             "category": "semantic-change",
             "semantic_change": True,
