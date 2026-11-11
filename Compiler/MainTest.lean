@@ -143,6 +143,68 @@ unsafe def runFlagAndUnitTests : IO Unit := do
   expectTrue "linker keeps second function boundary intact" ((parsed.getD 1 {name := "", arity := 0, body := []}).name == "PoseidonT4_hash")
   let firstBody := String.intercalate "\n" ((parsed.getD 0 {name := "", arity := 0, body := []}).body)
   expectTrue "first function body does not swallow next function" (!contains firstBody "function PoseidonT4_hash")
+  -- ECM `resultVars` must be bound by the Yul the module emits (else dangling identifiers).
+  expectTrue "ECM binding all declared result variables is accepted"
+    (Compiler.CompilationModel.firstEcmUnboundResultVar
+      Contracts.Smoke.GenericECMTripleResultSmoke.spec == none)
+  let unboundMod : Compiler.ECM.ExternalCallModule :=
+    { Contracts.Smoke.genericECMTripleResultModule with
+      compile := fun _ _ => pure [.let_ "first" (.lit 1)] }
+  let unboundSpec : Compiler.CompilationModel.CompilationModel := {
+    name := "EcmUnboundResultVar"
+    fields := []
+    «constructor» := none
+    functions := [
+      { name := "run", params := [], returnType := none,
+        body := [Compiler.CompilationModel.Stmt.ecm unboundMod [],
+          Compiler.CompilationModel.Stmt.stop] }
+    ] }
+  expectTrue "ECM leaving a declared result variable unbound is detected"
+    (Compiler.CompilationModel.firstEcmUnboundResultVar unboundSpec ==
+      some ("genericTripleResult", "second"))
+  match Compiler.CompilationModel.compile unboundSpec [0x12345678] with
+  | .ok _ => throw (IO.userError "✗ ECM with unbound result variable compiled")
+  | .error err =>
+      expectTrue "ECM with unbound result variable is a compile error"
+        (contains err "does not bind it with a top-level `let`")
+
+  let oneLineLib :=
+    "function libA() -> r { r := 1 }\n" ++
+    "function libB() { libC() }\n" ++
+    "function libC() { sstore(0, 2) }\n"
+  let oneLineParsed := Compiler.Linker.parseLibrary oneLineLib
+  expectTrue "linker parses consecutive one-line functions separately"
+    (oneLineParsed.map (·.name) == ["libA", "libB", "libC"])
+  let linkObj : Compiler.Yul.YulObject := {
+    name := "LinkSmoke"
+    deployCode := [.let_ "x" (.call "libA" [])]
+    runtimeCode := [.exprStmt (.call "libB" [])] }
+  match Compiler.Linker.renderWithLibraries linkObj oneLineParsed with
+  | .error e => throw (IO.userError s!"✗ linker renders creation-code library calls: {e}")
+  | .ok rendered =>
+      let creation := (rendered.splitOn "object \"runtime\"").headD ""
+      let runtime := (rendered.splitOn "object \"runtime\"").getD 1 ""
+      expectTrue "linker injects library functions called from creation code"
+        (contains creation "function libA()")
+      expectTrue "linker leaves unreferenced library functions out of creation code"
+        (!contains creation "function libB()" && !contains creation "function libC()")
+      expectTrue "linker injects every library function into runtime code"
+        (contains runtime "function libA()" && contains runtime "function libB()" &&
+          contains runtime "function libC()")
+
+  -- Spilled locals live at fixed slots from `defaultSpillBase`; a spilling code section must
+  -- start its free memory above them (else a runtime-sized copy overwrites spilled locals).
+  let spillProbe : List Compiler.Yul.YulStmt :=
+    [.exprStmt (.call "mstore" [.lit 64, .lit 128]),
+     .block [.exprStmt (.call "mstore" [.lit 4128, .lit 7]),
+       .let_ "x" (.call "mload" [.lit 4096])]]
+  expectTrue "spill high-water mark is one past the highest spill slot"
+    (Compiler.Yul.TempReuse.spillHighWaterStmts spillProbe == 4160)
+  expectTrue "no spill slot means no high-water mark"
+    (Compiler.Yul.TempReuse.spillHighWaterStmts [.exprStmt (.call "mstore" [.lit 64, .lit 128])] == 0)
+  expectTrue "the free-pointer initialisation is raised above the spill slots"
+    (Compiler.Yul.TempReuse.raiseFreePointerInit 4160 spillProbe ==
+      [.exprStmt (.call "mstore" [.lit 64, .lit 4160])] ++ spillProbe.drop 1)
 
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do

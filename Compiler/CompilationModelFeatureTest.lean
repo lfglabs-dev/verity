@@ -2849,6 +2849,86 @@ private def yulKeywordLocalBinderSpec : CompilationModel := {
   ]
 }
 
+private def yulVerbatimParamSpec : CompilationModel := {
+  name := "YulVerbatimParam"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "verbatim_1i_1o", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.setStorage "value" (Expr.param "verbatim_1i_1o"), Stmt.stop]
+    }
+  ]
+}
+
+private def yulHexLocalBinderSpec : CompilationModel := {
+  name := "YulHexLocalBinder"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.letVar "hex" (Expr.param "next"), Stmt.setStorage "value" (Expr.localVar "hex"), Stmt.stop]
+    }
+  ]
+}
+
+private def yulClzLocalBinderSpec : CompilationModel := {
+  name := "YulClzLocalBinder"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.letVar "clz" (Expr.param "next"), Stmt.setStorage "value" (Expr.localVar "clz"), Stmt.stop]
+    }
+  ]
+}
+
+private def yulObjectBuiltinParamSpec : CompilationModel := {
+  name := "YulObjectBuiltinParam"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "datasize", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.setStorage "value" (Expr.param "datasize"), Stmt.stop]
+    }
+  ]
+}
+
+private def yulConstructorParamSpec : CompilationModel := {
+  name := "YulConstructorParam"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := some {
+    params := [{ name := "memoryguard", ty := ParamType.uint256 }]
+    body := [Stmt.setStorage "value" (Expr.constructorArg 0), Stmt.stop]
+  }
+  functions := []
+}
+
+private def yulConstructorAssignTargetSpec : CompilationModel := {
+  name := "YulConstructorAssignTarget"
+  fields := []
+  «constructor» := some {
+    params := []
+    body := [
+      Stmt.unsafeYul {
+        label := "ctor_assign_builtin"
+        stmts := [Compiler.Yul.YulStmt.assign "gas" (Compiler.Yul.YulExpr.lit 1)]
+        obligations := [{ name := "ctor_assign_builtin_obligation", obligation := "test", proofStatus := .assumed }]
+        scopeEffects := { bindNames := [], assignNames := ["gas"] }
+      },
+      Stmt.stop
+    ]
+  }
+  functions := []
+}
+
 private def duplicateInternalNameSpec : CompilationModel := {
   name := "DuplicateInternalName"
   fields := []
@@ -5715,6 +5795,30 @@ set_option maxRecDepth 4096 in
     yulKeywordLocalBinderSpec
     "local binder 'default' is a Yul keyword or builtin name"
   expectCompileErrorContains
+    "Yul verbatim_* builtins are rejected in function parameters"
+    yulVerbatimParamSpec
+    "function parameter 'verbatim_1i_1o' is a Yul keyword or builtin name"
+  expectCompileErrorContains
+    "Yul hex literal keyword is rejected in local binders"
+    yulHexLocalBinderSpec
+    "local binder 'hex' is a Yul keyword or builtin name"
+  expectCompileErrorContains
+    "Yul Osaka clz builtin is rejected in local binders"
+    yulClzLocalBinderSpec
+    "local binder 'clz' is a Yul keyword or builtin name"
+  expectCompileErrorContains
+    "Yul object builtins are rejected in function parameters"
+    yulObjectBuiltinParamSpec
+    "function parameter 'datasize' is a Yul keyword or builtin name"
+  expectCompileErrorContains
+    "Yul builtins are rejected in constructor parameters"
+    yulConstructorParamSpec
+    "constructor parameter 'memoryguard' is a Yul keyword or builtin name"
+  expectCompileErrorContains
+    "Yul builtins are rejected in constructor assignment targets"
+    yulConstructorAssignTargetSpec
+    "assignment target 'gas' is a Yul keyword or builtin name"
+  expectCompileErrorContains
     "same-name internal helpers are rejected before Yul lowering"
     duplicateInternalNameSpec
     "duplicate internal function name 'helper'"
@@ -6394,7 +6498,11 @@ set_option maxRecDepth 4096 in
       "calldatacopy(add(__digest_abi_array_ptr, 64), items_data_offset, __digest_abi_array_data_bytes)")
   expectTrue "abiEncodeStaticArray hashes the ABI-encoded dynamic array byte length"
     (contains abiEncodeStaticArrayYul
-      "let digest := keccak256(__digest_abi_array_ptr, __digest_abi_array_total_bytes)")
+      "digest := keccak256(__digest_abi_array_ptr, __digest_abi_array_total_bytes)")
+  -- The result is declared before the block that scopes the temporaries, so it stays
+  -- visible to the statements after the ECM.
+  expectTrue "abiEncodeStaticArray declares its result outside the temporaries' block"
+    (contains abiEncodeStaticArrayYul "let digest := 0")
   expectCompileErrorContains
     "abiEncodeStaticArray ECM rejects invalid argument counts"
     abiEncodeStaticArrayBadAritySpec

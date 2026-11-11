@@ -28,7 +28,7 @@ variable or function parameter declared with any of these names, so a source
 identifier that lowers to a Yul variable must avoid them. -/
 def yulReservedIdentifiers : List String :=
   ["let", "if", "switch", "case", "default", "for", "break", "continue", "leave",
-   "function", "true", "false",
+   "function", "true", "false", "hex", "clz",
    "call", "staticcall", "delegatecall", "callcode",
    "datasize", "dataoffset", "datacopy", "loadimmutable", "setimmutable",
    "linkersymbol", "memoryguard"] ++ interopBuiltinCallNames

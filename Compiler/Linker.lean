@@ -57,6 +57,7 @@ private structure ScanState where
   inBlockComment : Bool := false
   inString : Option Char := none
   escaped : Bool := false
+  sawOpenBrace : Bool := false
   deriving Repr
 
 -- Count braces in a line while ignoring comment and string contexts.
@@ -96,7 +97,7 @@ private def countBracesWithState (state : ScanState) (line : String) : Int × Sc
               | '\'', _ =>
                   go fuel cs delta { st with inString := some '\'', escaped := false }
               | '{', _ =>
-                  go fuel cs (delta + 1) st
+                  go fuel cs (delta + 1) { st with sawOpenBrace := true }
               | '}', _ =>
                   go fuel cs (delta - 1) st
               | _, _ =>
@@ -118,13 +119,18 @@ private def extractFunction (lines : List String) : Option (String × List Strin
                 let (delta, state') := countBracesWithState state line
                 let newDepth := depth + delta
                 let acc' := line :: acc
-                if newDepth <= 0 then
+                if state'.sawOpenBrace && newDepth <= 0 then
                   (acc'.reverse, rest')
                 else
                   collectBody rest' acc' newDepth state'
           let (initialDelta, initialState) := countBracesWithState {} firstLine
-          let (bodyLines, remaining) := collectBody rest [firstLine] initialDelta initialState
-          some (name, bodyLines, remaining)
+          if initialState.sawOpenBrace && initialDelta <= 0 then
+            -- One-line definition (`function f() -> r { r := 1 }`): the body is
+            -- already closed outside comments/strings, so the next line starts a new definition.
+            some (name, [firstLine], rest)
+          else
+            let (bodyLines, remaining) := collectBody rest [firstLine] initialDelta initialState
+            some (name, bodyLines, remaining)
 
 -- Extract all function definitions from library lines
 -- Uses fuel bounded by line count to guarantee termination
@@ -183,8 +189,45 @@ cover linked library code - this is a trust assumption documented in
 -- Indentation level for library functions in runtime code (3 levels × 4 spaces = 12 spaces)
 private def libraryIndent : String := "            "
 
+-- Indentation level for library functions in creation code (2 levels × 4 spaces = 8 spaces)
+private def creationLibraryIndent : String := "        "
+
+private def isYulIdentChar (c : Char) : Bool :=
+  c.isAlphanum || c == '_' || c == '$'
+
+-- Check if `text` invokes `name(...)` as a standalone identifier token (not a suffix like `foo_libA(`).
+private def textCallsFunction (text : String) (name : String) : Bool :=
+  match text.splitOn (name ++ "(") with
+  | [] | [_] => false
+  | first :: rest =>
+      let rec check (prev : String) : List String → Bool
+        | [] => false
+        | next :: more =>
+            let prevLast := prev.toList.reverse.head?
+            let boundaryOk := match prevLast with
+              | some c => !isYulIdentChar c
+              | none => true
+            if boundaryOk then true else check next more
+      check first rest
+
+-- Library functions that `text` calls, closed under calls between library functions.
+private def referencedLibraries (libraries : List LibraryFunction) (text : String) :
+    List LibraryFunction :=
+  let calls (body : String) (fn : LibraryFunction) : Bool :=
+    textCallsFunction body fn.name
+  let rec grow : Nat → List LibraryFunction → List LibraryFunction
+    | 0, selected => selected
+    | fuel + 1, selected =>
+        let selectedText := String.intercalate "\n" (selected.flatMap (·.body))
+        let next := libraries.filter fun fn =>
+          calls text fn || calls selectedText fn
+        if next.length == selected.length then selected else grow fuel next
+  grow (libraries.length + 1) []
+
 -- Inject library function text directly into rendered Yul output
--- This preserves the exact library code without parsing/re-emitting
+-- This preserves the exact library code without parsing/re-emitting.
+-- Every library function goes into the runtime code; the ones the creation code
+-- calls (directly or through other library functions) also go into the creation code.
 -- Returns an error if the runtime code injection site is not found.
 def renderWithLibraries (obj : YulObject) (libraries : List LibraryFunction) : Except String String :=
   -- Render the main object
@@ -218,7 +261,21 @@ def renderWithLibraries (obj : YulObject) (libraries : List LibraryFunction) : E
     if !inserted then
       .error s!"Failed to find runtime code injection site in {obj.name}. Library functions could not be linked."
     else
-      .ok (String.intercalate "\n" resultLines)
+      -- The creation code carries its own copies of internal functions, which may call
+      -- library functions too: inject the ones it references after its own `code {`.
+      let creationSection := (mainYul.splitOn "object \"runtime\"").headD ""
+      let creationLibraries := referencedLibraries libraries creationSection
+      let creationLines := creationLibraries.flatMap fun fn =>
+        fn.body.map fun bodyLine =>
+          if bodyLine.trim.isEmpty then bodyLine else creationLibraryIndent ++ bodyLine
+      let rec insertCreation : List String → List String → List String
+        | [], acc => acc.reverse
+        | line :: rest, acc =>
+            if line.trim.startsWith "code {" then
+              acc.reverse ++ [line] ++ creationLines ++ rest
+            else
+              insertCreation rest (line :: acc)
+      .ok (String.intercalate "\n" (insertCreation resultLines []))
 
 /-!
 ## Validation

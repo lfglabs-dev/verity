@@ -872,12 +872,10 @@ def fullMulDivHelper : YulStmt :=
 /-- Round-up variant of `fullMulDiv`: `fullMulDivUp(a, b, c)` returns
     `ceil((a * b) / c)`. Computed as `fullMulDiv(a, b, c) + (remainder > 0)`
     where `remainder = mulmod(a, b, c)`. Reverts on division by zero
-    and on quotient overflow.
-
-    Note: when the floor quotient equals `2^256 - 1` and the remainder is
-    non-zero, the rounded-up result overflows `uint256` and the add wraps
-    to zero. OpenZeppelin's contemporary `Math.mulDiv` accepts that wrap;
-    the caller can guard against it explicitly when needed. (verity#1761) -/
+    and on quotient overflow, including the rounded-up case: when the floor
+    quotient is `2^256 - 1` and the remainder is non-zero, the ceiling is
+    `2^256` and the helper reverts instead of wrapping to zero, as required
+    by `evalMulDiv512Up`. (verity#1761) -/
 def fullMulDivUpHelper : YulStmt :=
   YulStmt.funcDef fullMulDivUpHelperName ["a", "b", "denominator"] ["result"] [
     YulStmt.assign "result" (YulExpr.call fullMulDivHelperName [
@@ -890,7 +888,10 @@ def fullMulDivUpHelper : YulStmt :=
         ]
       ]
     ]) [
-      YulStmt.assign "result" (YulExpr.call "add" [YulExpr.ident "result", YulExpr.lit 1])
+      YulStmt.assign "result" (YulExpr.call "add" [YulExpr.ident "result", YulExpr.lit 1]),
+      YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "result"]) [
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      ]
     ]
   ]
 

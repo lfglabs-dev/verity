@@ -851,7 +851,9 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.SpillFreeMemorySmoke
             Contracts.Smoke.ArithmeticPanicSmoke
+            Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke
             Contracts.StringArrayEventSmoke
@@ -898,7 +900,9 @@ jobs:
             Contracts.Smoke.EnumFeatureTest
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
+            Contracts.Smoke.SpillFreeMemorySmoke
             Contracts.Smoke.ArithmeticPanicSmoke
+            Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke
             Contracts.StringArrayEventSmoke

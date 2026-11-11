@@ -373,6 +373,26 @@ mutual
         validateParamTypeWidths context rest
 end
 
+/-- Names an ECM's Yul binds with a top-level `let`, i.e. visible to the statements after it. -/
+private def ecmTopLevelLetNames (stmts : List YulStmt) : List String :=
+  stmts.flatMap fun
+    | .let_ name _ => [name]
+    | .letMany names _ => names
+    | _ => []
+
+/-- The first ECM (module name, result variable) whose declared `resultVars` entry is not
+bound by a top-level `let` in the Yul the module emits. The caller binds nothing for
+`ecmBind`, so an unbound result variable is a dangling Yul identifier. The module is
+compiled on placeholder arguments; a module that rejects them is left to `compile`. -/
+def firstEcmUnboundResultVar (spec : CompilationModel) : Option (String × String) :=
+  (collectUsedEcmModules spec).findSome? fun mod =>
+    let args := (List.range mod.numArgs).map fun i => YulExpr.ident s!"__ecm_check_arg{i}"
+    match mod.compileCanonical {} args with
+    | .error _ => none
+    | .ok stmts =>
+        let bound := ecmTopLevelLetNames stmts
+        (mod.resultVars.find? (fun v => !bound.contains v)).map fun v => (mod.name, v)
+
 private def validateCompileInputsBeforeFieldWriteConflict
     (spec : CompilationModel) : Except String Unit := do
   validateIdentifierShapes spec
@@ -403,6 +423,11 @@ private def validateCompileInputsBeforeFieldWriteConflict
   match (collectUsedExternalAssumptions spec).find? (fun ext => ext.linkMode == .external) with
   | some ext =>
       throw s!"Compilation error: {spec.name} uses raw linked-helper lowering for external ABI dependency '{ext.name}'. `linked_as := external` dependencies must lower through an ABI-call ECM such as Compiler.Modules.Calls.withReturn so returndata and revert data are preserved."
+  | none =>
+      pure ()
+  match firstEcmUnboundResultVar spec with
+  | some (modName, var) =>
+      throw s!"Compilation error: ECM '{modName}' declares result variable '{var}' but its compiled Yul does not bind it with a top-level `let`"
   | none =>
       pure ()
   match firstInvalidSlotAliasRange spec.slotAliasRanges with

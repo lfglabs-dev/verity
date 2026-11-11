@@ -745,7 +745,7 @@ private def validateConstructorYulIdentifiers (ctor : ConstructorSpec) : Except 
   for name in collectStmtListAssignedNames ctor.body do
     ensureContractIdentifier "assignment target" name
     if !isInternalImmutableStorageName name then
-      ensureNonReservedYulIdentifier "assignment target" name
+      ensureYulVariableIdentifier "assignment target" name
 
 def validateConstructorIdentifiers (ctor : ConstructorSpec) : Except String Unit :=
   validateConstructorYulIdentifiers ctor
