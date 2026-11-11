@@ -964,6 +964,108 @@ def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-modulo variant: {variant}')
 
 
+def stateful_fixed_memory_array_source(fixture: str, variant: str) -> str:
+    """Compare T[N] memory reference semantics with renamed and unrolled forms."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'st', 't', 'i', 'k', 'x', 'words', 'shifted', 'picked', 'narrow', 'probe',
+                 'bump', 'rotate', 'spread', 'pick'}
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'unrolled':
+        # Unrolled loops, a loop-based rotation, and expanded compound
+        # assignments write the same words through the same shared pointers.
+        replacements = {
+            '        for (uint256 i = 0; i < 4; i++) {\n'
+            '            st[i] = st[i] ^ (i + 1);\n'
+            '        }':
+            '        st[0] = st[0] ^ 1;\n'
+            '        st[1] = st[1] ^ 2;\n'
+            '        st[2] ^= 3;\n'
+            '        st[3] ^= 4;',
+            '        st[0] = st[1];\n'
+            '        st[1] = st[2];\n'
+            '        st[2] = st[3];':
+            '        for (uint256 i = 0; i < 3; i++) {\n'
+            '            st[i] = st[i + 1];\n'
+            '        }',
+            'picked[x % 4] += 7;': 'picked[x % 4] = picked[x % 4] + 7;',
+            'narrow[2] ^= 0x5a;': 'narrow[2] = narrow[2] ^ 0x5a;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing fixed memory array fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown fixed-memory-arrays variant: {variant}')
+
+
+def stateful_inline_array_literal_source(fixture: str, variant: str) -> str:
+    """Compare inline array literals with zeroed arrays filled element by element."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'t', 'k', 'x', 'table', 'acc', 'mixed', 'small', 'probe', 'field'}
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'element-writes':
+        # A literal bound to a local is the same memory array as a zeroed
+        # local written element by element in the same order.
+        replacements = {
+            'uint256[4] memory table = [uint256(0x0000000100000002), 0x0000000300000004, 0x0000000500000006, 0x0000000700000008];':
+            'uint256[4] memory table;\n        table[0] = 0x0000000100000002;\n        table[1] = 0x0000000300000004;\n'
+            '        table[2] = 0x0000000500000006;\n        table[3] = 0x0000000700000008;',
+            'uint256[3] memory mixed = [x & 0xffff, x >> 240, uint256(7)];':
+            'uint256[3] memory mixed;\n        mixed[0] = x & 0xffff;\n        mixed[1] = x >> 240;\n        mixed[2] = 7;',
+            'uint8[3] memory small = [1, 2, 3];':
+            'uint8[3] memory small;\n        small[0] = 1;\n        small[1] = 2;\n        small[2] = 3;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing inline array literal fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown inline-array-literals variant: {variant}')
+
+
+def stateful_dynamic_memory_array_source(fixture: str, variant: str) -> str:
+    """Compare T[] / T[][] memory reference semantics with renamed and explicit forms."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'a', 'b', 'c', 'd', 'i', 'j', 'n', 's', 'v', 'x', 'out', 'head', 'total', 'row',
+                 'probe', 'add', 'scaled', 'split', 'bumpAll', 'vecSum', 'window', 'w', 'k', 'win', 'weight'}
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'explicit':
+        # A named result becomes an unnamed return of a local, compound updates
+        # are expanded, and the conditional alias gets an explicit else branch.
+        replacements = {
+            '    function add(uint256[] memory a, uint256[] memory b) internal pure returns (uint256[] memory c) {\n'
+            '        c = new uint256[](a.length);\n':
+            '    function add(uint256[] memory a, uint256[] memory b) internal pure returns (uint256[] memory) {\n'
+            '        uint256[] memory c = new uint256[](a.length);\n',
+            '            c[i] = addmod(a[i], b[i], Q);\n        }\n    }':
+            '            c[i] = addmod(a[i], b[i], Q);\n        }\n        return c;\n    }',
+            'a[i] += 1;': 'a[i] = a[i] + 1;',
+            '        if (x % 2 == 1) {\n            d = c;\n        }':
+            '        if (x % 2 == 1) {\n            d = c;\n        } else {\n            delete d;\n        }',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing dynamic memory array fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown dynamic-memory-arrays variant: {variant}')
+
+
 def stateful_default_local_source(fixture: str, variant: str) -> str:
     """Compare implicit scalar defaults to explicit defaults and renamed locals."""
     if variant == 'baseline':

@@ -158,6 +158,18 @@ def _encode_verify_envelope_call(
     )
 
 
+FIXED_ARRAY_ARGUMENTS = [
+    [1, 2, 3, 4, 5, 6],
+    [10, 20, 30, 40, 3, 9],
+    [(1 << 256) - 1, 0, 0, 0, 2, 0],
+    [(1 << 256) - 1, 5, 6, 7, 1, 2],
+    [1, 2, 3, 4, 1 << 64, 0],
+    [1, 2, 3, 4, 0, (1 << 64) + 1],
+    [1, 2, 3, 4, 5],
+    [7, 7, 7, 7, (1 << 64) - 1, (1 << 64) - 1],
+]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
@@ -328,6 +340,7 @@ def main():
         'checkCallPermission(address,address,bytes)',
         'configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)',
         'parseHexByte(bytes1,bytes)',
+        'rotateFixed(uint256[4],uint64[2])',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -966,6 +979,13 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(access_manager_prefix[:remaining_budget])
+    if 'rotateFixed(uint256[4],uint64[2])' in source['methodIdentifiers']:
+        # Static T[N] memory ABI heads: canonical, aliasing (caps[0] % 4 == 3),
+        # checked overflow, dirty uint64 elements, and a truncated head.
+        fixed_prefix = [('rotateFixed(uint256[4],uint64[2])', words) for words in FIXED_ARRAY_ARGUMENTS]
+        fixed_prefix.append(('read()', []))
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(fixed_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1333,6 +1353,8 @@ def main():
                 [0xdead0001, 0xbeef0001, 2, 10, 15, 1],
                 [0xdead0000, 0xbeef0000, 1, 0, 5, 2],
             ])
+        elif name == 'rotateFixed(uint256[4],uint64[2])':
+            call_args = rng.choice(FIXED_ARRAY_ARGUMENTS)
         elif name == 'parseHexByte(bytes1,bytes)':
             call_args = rng.choice([
                 [0x61 << 248, 64, 32, 0x66 << 248],

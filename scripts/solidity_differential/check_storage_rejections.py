@@ -131,7 +131,8 @@ def main():
         ('default-signed', '', 'int256 zero; return zero;', 'int256', None),
         ('default-narrow-signed', '', 'int128 zero; return x;', 'uint256', 'unsupported default local type int128'),
         ('default-bytes', '', 'bytes memory zero; return x;', 'uint256', 'uninitialized reference locals'),
-        ('default-array', '', 'uint256[] memory zero; return x;', 'uint256', 'uninitialized reference locals'),
+        # Admitted since T[] memory zero values (#2622): the array at 0x60.
+        ('default-array', '', 'uint256[] memory zero; return x;', 'uint256', None),
         ('modulo-unsigned', '', 'return x % 7;', 'uint256', None),
         ('modulo-narrow', '', 'return uint8(x) % uint8(7);', 'uint256', None),
         ('modulo-signed', '', 'return uint256(int256(x) % int256(7));', 'uint256', None),
@@ -143,7 +144,8 @@ def main():
         ('inline-array-guarded-element', '', 'return [uint256(1), 100 / x][x];', 'uint256', 'inline array elements must be exact natural constants'),
         ('inline-array-bool', '', 'return [true, false][x];', 'bool', 'inline constant arrays require unsigned scalar elements'),
         ('inline-array-signed', '', 'return uint256([int256(-1), int256(2)][x]);', 'uint256', 'inline constant arrays require unsigned scalar elements'),
-        ('inline-array-escape', '', 'uint256[2] memory a = [uint256(1), 2]; return a[x];', 'uint256', 'inline arrays are outside this slice'),
+        # Admitted since inline array literals are memory arrays (#2626).
+        ('inline-array-escape', '', 'uint256[2] memory a = [uint256(1), 2]; return a[x];', 'uint256', None),
         ('if-else', '', 'if (x > 1) { return 1; } else { return 2; }', 'uint256', None),
         ('if-early-return', 'uint256 value;', 'if (x == 0) return 0; value = x; return value;', 'uint256', None),
         ('if-helper-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; require(y == 0, "one"); return 0; }', 'return h(x);', 'uint256', None),
@@ -231,7 +233,8 @@ def main():
         ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', None),
         ('parameter-delete', '', 'delete x; return x;', 'uint256', 'only materialized scalar locals are writable'),
         ('helper-parameter-delete', 'function h(uint256 y) internal pure returns (uint256) { delete y; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only declaration-bound scalar locals are writable'),
-        ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', 'uninitialized reference locals'),
+        # Admitted since fixed-size memory arrays (#2625): a zeroed local array.
+        ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', None),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
     ]
     for name, fields, body, returns, expected in cases:
@@ -887,11 +890,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported dynamic memory array local type int128[]'),
-        ('new-array-reassigned-local-rejected',
+        # Admitted since reassignable T[] memory locals (#2622).
+        ('new-array-reassigned-local-positive',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256[] memory a = new uint256[](1);\n    a = new uint256[](2);\n    return a[0] + x;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'VariableDeclaration: [solidity-import:unsupported] reassigned memory array locals are outside this slice'),
+         None),
         ('scalar-array-write-calldata-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function h(uint256[] calldata a) internal pure returns (uint256) {\n    a[0] = 1;\n    return a[0];\n  }\n  function checked(uint256 x) external view returns (uint256) {\n    return x;\n  }\n}\n",
          None,
