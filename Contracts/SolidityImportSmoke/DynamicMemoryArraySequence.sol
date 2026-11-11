@@ -52,6 +52,57 @@ contract SequenceFixture {
             }
         }
     }
+    function same(uint256[] memory a) internal pure returns (uint256[] memory) {
+        return a;
+    }
+    function clear(uint256[] memory a) internal pure {
+        delete a;
+    }
+    function rebind(uint256[] memory a, uint256[] memory b) internal pure returns (uint256) {
+        a[0] += 2;
+        a = b;
+        a[0] += 5;
+        a = new uint256[](3);
+        a[1] = 4;
+        return a.length + a[1];
+    }
+    function owners(uint256 x) internal pure returns (uint256 r) {
+        uint256[] memory e;
+        e = new uint256[](x % 3 + 1);
+        uint256[] memory f = same(e);
+        uint256[] memory q = new uint256[](2);
+        r = rebind(e, q);
+        f[0] += 1;
+        clear(e);
+        r += e.length * 10 + e[0] * 20;
+        e = new uint256[](x % 4 + 2);
+        r += f.length * 100 + f[0] * 1000 + e.length * 10000 + q[0] * 100000;
+    }
+    function narrow(uint256 x) internal pure returns (uint256 r) {
+        uint8[] memory small = new uint8[](2);
+        small[0] = uint8(x);
+        small[1] = uint8(x >> 8);
+        if (x % 5 == 4) {
+            small[1] += uint8(x % 64);
+        }
+        bool[] memory flags = new bool[](3);
+        flags[x % 3] = true;
+        r = uint256(small[0]) + uint256(small[1]) * 256 + (flags[1] ? 1 << 20 : 0) + (flags[2] ? 1 << 21 : 0);
+        if (x % 13 == 12) {
+            small[small.length] += 1;
+        }
+    }
+    function rows(uint256 x) internal pure returns (uint256 r) {
+        uint256[][] memory m = new uint256[][](3);
+        m[1] = new uint256[](2);
+        m[0] = m[1];
+        m[0][1] = x % 1000;
+        r = m[1][1] + m[2].length * 7;
+        delete m[1];
+        r += m[1].length * 11 + m[0][1] * 3;
+        delete m;
+        r += m.length * 13;
+    }
     function change(uint256 x) external returns (uint256) {
         uint256 n = x % 5;
         uint256[] memory a = new uint256[](n);
@@ -88,6 +139,7 @@ contract SequenceFixture {
         if (x % 11 == 10) {
             v[2][0] = 1;
         }
+        value += owners(x) + narrow(x) * 7 + rows(x) * 11;
         last = n == 0 ? 0 : b[0];
         return value;
     }

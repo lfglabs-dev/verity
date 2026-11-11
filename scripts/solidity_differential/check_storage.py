@@ -14,7 +14,9 @@ from .programs import stateful_empty_revert_source, stateful_access_manager_targ
 from .stateful import validate_observation
 
 
-DYNAMIC_MEMORY_ARRAY_PREFIX = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 13, 21, 0x01020304050607,
+# 25 hits the out-of-range small[small.length] += 1 (x % 13 == 12, Panic(0x32));
+# 65334 overflows the uint8 small[1] += x % 64 (Panic(0x11)).
+DYNAMIC_MEMORY_ARRAY_PREFIX = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 13, 21, 25, 65334, 0x01020304050607,
                                (0xffff << 16) | 4, (1 << 256) - 1]
 INLINE_ARRAY_LITERAL_PREFIX = [0, 1, 2, 3, 4, 7, 8, 16, 17, 0xffff, 0x10000,
                                (0xabcd << 240) | 5, (1 << 256) - 1]

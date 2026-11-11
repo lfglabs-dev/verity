@@ -159,6 +159,20 @@ MUTANTS.update({
 })
 
 
+# Review follow-up (#2622): helper parameter ownership and the element `op=` bound.
+MUTANTS.update({
+    'import-dynamic-memory-array-param-snapshot': (
+        '            boundDesc := { boundDesc with memoryPointer := ptr, lengthBinding := len, reassignable := false }',
+        '            boundDesc := boundDesc'),
+    'import-dynamic-memory-array-param-owner': (
+        '          let (ownPre, owned) ← ownDynArray pname descriptor (.localVar descriptor.memoryPointer)',
+        '          let (ownPre, owned) ← ownDynArray pname descriptor (.literal 96)'),
+    'import-dynamic-memory-array-compound-bound': (
+        '            return (rhsVal.pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))\n              [] [.panicCode (.literal 0x32)]) ++ combined.pre',
+        '            return (rhsVal.pre ++ key.pre).push (.ite (.le key.expr (.localVar arr.lengthBinding))\n              [] [.panicCode (.literal 0x32)]) ++ combined.pre'),
+})
+
+
 MUTANTS.update({'import-local-write-value': ('return value.pre.push (.assignVar binding value.expr)', 'return value.pre.push (.assignVar binding (.literal 0))')})
 
 MUTANTS.update({'import-default-local-zero': ('return #[.letVar binding (.literal 0)]', 'return #[.letVar binding (.literal 1)]')})
