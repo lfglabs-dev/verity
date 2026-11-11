@@ -80,7 +80,7 @@ env:
 jobs:
   closed-pr-cleanup:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: write
@@ -162,7 +162,7 @@ jobs:
 
   changes:
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       code: ${{ steps.effective.outputs.code }}
@@ -276,7 +276,7 @@ jobs:
   checks:
     needs: changes
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
       run:
@@ -320,7 +320,7 @@ jobs:
         run: make check
 
   timeout-watchdog:
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: checks
     if: needs.checks.result == 'success' && !(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build))
@@ -1899,7 +1899,7 @@ jobs:
           echo "::notice::Reproduce locally: FOUNDRY_PROFILE=difftest DIFFTEST_RANDOM_SEED=${{ matrix.seed }} forge test -vv"
 
   failure-hints:
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     needs: [checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')
     permissions:
@@ -1967,7 +1967,7 @@ jobs:
   ci-gate:
     # Single required status check: every needed job succeeded or was skipped
     # by design (change filters, tiering). A failed or cancelled job fails it.
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [changes, checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')

@@ -30,7 +30,7 @@ GitHub Actions for lfglabs-dev/verity
 The workflows route by capability, not by hostname:
 
 ```yaml
-runs-on: [self-hosted, linux, verity, fastlane]
+runs-on: ubuntu-latest
 runs-on: lean-16vcpu-ubuntu-2604
 runs-on: lean-32vcpu-ubuntu-2604
 runs-on: [self-hosted, linux, x64, verity, build, build-medium]
@@ -42,7 +42,10 @@ them only for temporary debugging or deliberate host pinning.
 
 ## Mindset
 
-- Keep fast jobs and long proof/build jobs on separate runner labels.
+- Keep fast control-plane/Python jobs (`closed-pr-cleanup`, `changes`, `checks`,
+  `timeout-watchdog`, `failure-hints`, `ci-gate`) on GitHub-hosted ephemeral
+  `ubuntu-latest` runners so they run with unlimited concurrency and never
+  serialize behind a single self-hosted `fastlane` host.
 - Route heavy proof, compiler-binary, profiling, and `turbo-lean` jobs onto
   ephemeral `lean.ci` runners (`lean-16vcpu-ubuntu-2604` and
   `lean-32vcpu-ubuntu-2604` with `LEAN_NUM_THREADS=16`) so concurrent PRs
