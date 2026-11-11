@@ -38,6 +38,27 @@ class ForkAuditValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "unsupported category"):
                 audit._validate_audit()
 
+    def test_validate_audit_rejects_semantic_change_without_conformance_fix(self) -> None:
+        fork_audit = deepcopy(audit.FORK_AUDIT)
+        fork_audit["commits"][0]["semantic_change"] = True
+        with patch.object(audit, "FORK_AUDIT", fork_audit):
+            with self.assertRaisesRegex(RuntimeError, "must be non-semantic"):
+                audit._validate_audit()
+
+    def test_validate_audit_rejects_conformance_fix_without_tests(self) -> None:
+        fork_audit = deepcopy(audit.FORK_AUDIT)
+        fix = next(c for c in fork_audit["commits"] if c.get("conformance_fix"))
+        fix["conformance_fix"]["tests"] = []
+        with patch.object(audit, "FORK_AUDIT", fork_audit):
+            with self.assertRaisesRegex(RuntimeError, "must be non-semantic"):
+                audit._validate_audit()
+
+    def test_validate_audit_accepts_conformance_fix_with_eip_and_tests(self) -> None:
+        fork_audit = deepcopy(audit.FORK_AUDIT)
+        self.assertTrue(any(c.get("semantic_change") for c in fork_audit["commits"]))
+        with patch.object(audit, "FORK_AUDIT", fork_audit):
+            audit._validate_audit()
+
     def test_validate_audit_requires_pinned_commit_to_match_audited_tip(self) -> None:
         fork_audit = deepcopy(audit.FORK_AUDIT)
         fork_audit["pinned_commit"] = fork_audit["commits"][0]["sha"]
