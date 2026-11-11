@@ -1,0 +1,1189 @@
+diff --git a/Compiler/Proofs/EndToEnd.lean b/Compiler/Proofs/EndToEnd.lean
+index 97e4b9bf0..79d454c76 100644
+--- a/Compiler/Proofs/EndToEnd.lean
++++ b/Compiler/Proofs/EndToEnd.lean
+@@ -1,4 +1,5 @@
+ import Compiler.Proofs.EndToEnd.SimpleStorage
++import Compiler.Proofs.EndToEnd.ObsBridge
+ 
+ /-!
+ End-to-end proof facade.
+diff --git a/Compiler/Proofs/IRGeneration/DenoteFunctionAgreement.lean b/Compiler/Proofs/IRGeneration/DenoteFunctionAgreement.lean
+index 5ac8fc87f..859b5e510 100644
+--- a/Compiler/Proofs/IRGeneration/DenoteFunctionAgreement.lean
++++ b/Compiler/Proofs/IRGeneration/DenoteFunctionAgreement.lean
+@@ -132,10 +132,11 @@ theorem findDynamicArrayElementAtSlot_scanElements_eq (targetSlot : Nat) :
+   | _, [], _ => rfl
+   | baseSlot, value :: rest, idx => by
+       simp only [Denote.findDynamicArrayElementAtSlot.scanElements,
+-        SourceSemantics.findDynamicArrayElementAtSlot.scanElements]
+-      rw [sourceOracle_mappingSlot, Compiler.Proofs.abstractMappingSlot_eq_solidity]
++        SourceSemantics.findDynamicArrayElementAtSlot.scanElements,
++        Denote.arrayElementSlot, SourceSemantics.arrayElementSlot,
++        Denote.arrayBaseSlot, SourceSemantics.arrayBaseSlot,
++        sourceOracle_keccakMemorySlice, Denote.wordNormalize, SourceSemantics.wordNormalize]
+       rw [findDynamicArrayElementAtSlot_scanElements_eq targetSlot baseSlot rest (idx + 1)]
+-      rfl
+ 
+ theorem findDynamicArrayElementAtSlot_go_eq
+     (world : Verity.ContractState) (targetSlot : Nat) :
+diff --git a/Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean b/Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean
+index ac51df672..6b0e0ff04 100644
+--- a/Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean
++++ b/Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean
+@@ -386,7 +386,7 @@ def findDynamicArrayElementAtSlotCopy
+   let rec scanElements (baseSlot : Nat) : List Verity.Core.Uint256 → Nat → Option Nat
+     | [], _ => none
+     | value :: rest, idx =>
+-        if Compiler.Proofs.solidityMappingSlot baseSlot idx = SourceSemantics.wordNormalize targetSlot then
++        if SourceSemantics.arrayElementSlot baseSlot idx = SourceSemantics.wordNormalize targetSlot then
+           some value.val
+         else
+           scanElements baseSlot rest (idx + 1)
+diff --git a/Compiler/Proofs/IRGeneration/SourceSemantics.lean b/Compiler/Proofs/IRGeneration/SourceSemantics.lean
+index d71d59fed..184551da3 100644
+--- a/Compiler/Proofs/IRGeneration/SourceSemantics.lean
++++ b/Compiler/Proofs/IRGeneration/SourceSemantics.lean
+@@ -327,12 +327,22 @@ def findResolvedFieldAtStorageSlot (fields : List Field) (isTransient : Bool)
+ def findResolvedFieldAtSlot (fields : List Field) (slot : Nat) : Option Field :=
+   findResolvedFieldAtStorageSlot fields false slot
+ 
++/-- Solidity dynamic-array base slot `keccak256(bytes32(baseSlot))`, evaluated
++through `keccakMemorySlice` over a single 32-byte word at offset `0`. -/
++def arrayBaseSlot (baseSlot : Nat) : Nat :=
++  keccakMemorySlice
++    (fun off => if off = 0 then Verity.Core.Uint256.ofNat baseSlot else 0) 0 32
++
++/-- Solidity dynamic-array element slot `(keccak256(bytes32(baseSlot)) + idx) % 2^256`. -/
++def arrayElementSlot (baseSlot idx : Nat) : Nat :=
++  wordNormalize (arrayBaseSlot baseSlot + idx)
++
+ def findDynamicArrayElementAtSlot
+     (fields : List Field) (world : Verity.ContractState) (targetSlot : Nat) : Option Nat :=
+   let rec scanElements (baseSlot : Nat) : List Verity.Core.Uint256 → Nat → Option Nat
+     | [], _ => none
+     | value :: rest, idx =>
+-        if Compiler.Proofs.solidityMappingSlot baseSlot idx = wordNormalize targetSlot then
++        if arrayElementSlot baseSlot idx = wordNormalize targetSlot then
+           some value.val
+         else
+           scanElements baseSlot rest (idx + 1)
+diff --git a/Compiler/Proofs/Storage/MappingCoherentAllKeys.lean b/Compiler/Proofs/Storage/MappingCoherentAllKeys.lean
+index bcceb5e09..78ba8e222 100644
+--- a/Compiler/Proofs/Storage/MappingCoherentAllKeys.lean
++++ b/Compiler/Proofs/Storage/MappingCoherentAllKeys.lean
+@@ -763,34 +763,25 @@ theorem readMap2_eq_encodeStorageAt_of_coherent
+   rw [encodeStorageAt_of_unresolved hresolved hdyn]
+   exact congrArg Core.Uint256.val (mappingCoherentAllKeys_map2 hcoh hkind k1 k2)
+ 
+-/-! ### Known divergence: dynamic-array element slots — `unsupported`
+-
+-The source semantics and the Yul/EVM layout derive dynamic-array element
+-addresses differently, and this slice does **not** reconcile them.
+-
+-* Source model —
+-  `Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`,
+-  `findDynamicArrayElementAtSlot`: element `i` of the array rooted at slot
+-  `s` sits at `solidityMappingSlot s i`, i.e. `keccak256(abi.encode(i, s))`,
+-  a **64-byte mapping preimage**.
+-* Yul / EVM model —
+-  `Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`,
+-  `storageArrayBasePointer` / `storageArrayElementPointer`: element `i` sits
+-  at `keccak256(bytes32(s)) + i`, a **32-byte preimage plus an arithmetic
+-  offset**. This is the real Solidity layout.
+-
+-Missing feature, precisely: *the source semantics has no array-element slot
+-derivation of the form `keccak256(bytes32(slot)) + index`* — it reuses the
+-mapping derivation instead. Closing the gap means changing
+-`findDynamicArrayElementAtSlot` (and everything that computes against it),
+-not adding a Yul-side shim; nothing here asserts the two derivations equal.
+-
+-Containment: `storageKeySlot` returns `none` at a persistent root whose
+-resolved field is a `dynamicArray`, so `MappingCoherentAllKeys` claims
+-nothing about dynamic-array roots (`encodeStorageAt` reads a list length
+-there, not a word). Element words are ordinary persistent slots and the
+-invariant is the identity on them; the divergence is about *which* slot the
+-source model believes an element occupies. -/
++/-! ### Dynamic-array root vs. element slot coherence
++
++Dynamic-array element slots are aligned across `Denote`, `SourceSemantics`,
++`ObsAlgebra`, and `StructArrayStorage`:
++
++* `Denote.arrayBaseSlot` / `SourceSemantics.arrayBaseSlot` and
++  `SourceSemantics.findDynamicArrayElementAtSlot` (`SourceSemantics.lean`)
++  place element `i` of the array rooted at slot `s` at
++  `(keccak256(bytes32(s)) + i) % 2^256`.
++* `StructArrayStorage.lean` (`sourceArrayBaseSlot_eq_solidityArrayBaseSlot`,
++  `sourceArrayElementSlot_eq_solidityArrayElemSlot`,
++  `slotPointer_sourceArrayElementSlot_eq_storageArrayElementPointer`) proves
++  this coincides with `ObsAlgebra.solidityArrayElemSlot s i 1` and
++  `storageArrayElementPointer s i`.
++
++Containment at the array root: `storageKeySlot` returns `none` at a persistent
++root whose resolved field is a `dynamicArray`, so `MappingCoherentAllKeys`
++claims nothing about dynamic-array roots (`encodeStorageAt` reads the list
++length there, whereas element words occupy ordinary persistent slots). -/
+ 
+ theorem storageKeySlot_slot_dynamicArray {fields : List Field} {n : Nat} {f : Field}
+     (hf : findResolvedFieldAtSlot fields n = some f)
+diff --git a/Compiler/Proofs/Storage/StructArrayStorage.lean b/Compiler/Proofs/Storage/StructArrayStorage.lean
+index 415d02aea..544f3f540 100644
+--- a/Compiler/Proofs/Storage/StructArrayStorage.lean
++++ b/Compiler/Proofs/Storage/StructArrayStorage.lean
+@@ -1,5 +1,6 @@
+ import Compiler.Proofs.Storage.SolidityStorage
+ import Compiler.Proofs.StorageBounds
++import Verity.Specs.ObsAlgebra
+ 
+ /-!
+ # Canonical storage preservation for struct members and dynamic storage arrays
+@@ -679,6 +680,168 @@ theorem storageArrayBasePointer_preimage (slot : Nat) :
+       storageArrayBasePointer slot = KeccakEngine.keccak256 preimage :=
+   ⟨(EvmYul.UInt256.ofNat slot).toByteArray, rfl, rfl⟩
+ 
++/-! ### Source-to-Solidity Dynamic-Array Slot Equivalence -/
++
++private theorem listToByteArray_loop_data (bs : List UInt8) (acc : ByteArray) :
++    (List.toByteArray.loop bs acc).data = acc.data ++ bs.toArray := by
++  induction bs generalizing acc with
++  | nil => simp [List.toByteArray.loop]
++  | cons b bs ih =>
++      simp only [List.toByteArray.loop, ih, ByteArray.push]
++      ext i h1 h2
++      · simp [Array.size_push]
++        omega
++      · simp only [Array.push_eq_append, Array.append_assoc]
++
++private theorem listToByteArray_data (bs : List UInt8) :
++    bs.toByteArray.data = bs.toArray := by
++  simpa [List.toByteArray] using listToByteArray_loop_data bs ByteArray.empty
++
++private theorem uint256_toByteArray_data_toList (v : EvmYul.UInt256) :
++    v.toByteArray.data.toList = EvmYul.toBeBytesFixed v.toNat 32 := by
++  have h256 : v.toNat < 256 ^ 32 := by
++    simpa [show (256 : Nat) ^ 32 = EvmYul.UInt256.size by norm_num [EvmYul.UInt256.size]]
++      using v.val.isLt
++  have hlen : (EvmYul.toBytesBigEndian v.toNat).length ≤ 32 :=
++    EvmYul.length_toBytesBigEndian_le v.val.isLt
++  have hsub : ((OfNat.ofNat 32 : USize) -
++      (OfNat.ofNat (EvmYul.toBytesBigEndian v.toNat).length : USize)).toNat =
++      32 - (EvmYul.toBytesBigEndian v.toNat).length := by
++    rw [USize.toNat_sub, USize.toNat_ofNat, USize.toNat_ofNat]
++    rcases System.Platform.numBits_eq with hb | hb <;> rw [hb] <;> omega
++  unfold EvmYul.UInt256.toByteArray BE
++  simp only [Function.comp, ByteArray.data_append, ffi.ByteArray.zeroes, ByteArray.size,
++    listToByteArray_data, Array.size_toArray, Array.toList_append, Array.toList_replicate,
++    Array.toList_toArray, hsub]
++  exact (EvmYul.toBeBytesFixed_eq_zeroPad v.toNat 32 h256).symm
++
++private theorem irWordToBytesBE_eq_uint256_toByteArray (slot : Nat) :
++    irWordToBytesBE (slot % Compiler.Constants.evmModulus) =
++      (EvmYul.UInt256.ofNat slot).toByteArray := by
++  have hVal : (EvmYul.UInt256.ofNat slot).toNat = slot % Compiler.Constants.evmModulus := by
++    simp [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, EvmYul.UInt256.val,
++      Compiler.Constants.evmModulus]
++  apply ByteArray.ext
++  apply Array.toList_inj.mp
++  rw [uint256_toByteArray_data_toList, hVal]
++  apply List.ext_getElem
++  · simp [irWordToBytesBE]
++  · intro i h1 h2
++    rw [EvmYul.getElem_toBeBytesFixed _ _ _ h2]
++    simp [irWordToBytesBE]
++
++private theorem irMemorySliceBytesBE_singleSlot (slot : Nat) :
++    irMemorySliceBytesBE
++      (fun off => (if off = 0 then Verity.Core.Uint256.ofNat slot else 0).val) 0 32 =
++      (EvmYul.UInt256.ofNat slot).toByteArray := by
++  have hSlice : memorySliceWords
++      (fun off => (if off = 0 then Verity.Core.Uint256.ofNat slot else 0).val) 0 32 =
++      [slot % Compiler.Constants.evmModulus] := by
++    simp [memorySliceWords, byteWordCount, Verity.Core.Uint256.ofNat,
++      Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus]
++  unfold irMemorySliceBytesBE
++  rw [hSlice]
++  simp only [List.foldl_cons, List.foldl_nil, ByteArray.empty_append,
++    irWordToBytesBE_eq_uint256_toByteArray]
++  apply ByteArray.ext
++  have hSz : (EvmYul.UInt256.ofNat slot).toByteArray.data.size = 32 := by
++    rw [← Array.length_toList, uint256_toByteArray_data_toList, EvmYul.length_toBeBytesFixed]
++  simp [ByteArray.data_extract, hSz]
++
++private theorem fromBytes'_reverse_append_byte (xs : List UInt8) (b : UInt8) :
++    EvmYul.fromBytes' (xs ++ [b]).reverse = EvmYul.fromBytes' xs.reverse * 256 + b.toNat := by
++  simp [EvmYul.fromBytes']
++  omega
++
++private theorem listFoldlBe_eq_fromBytes'_reverse :
++    ∀ (bs : List UInt8),
++      bs.foldl (fun acc b => acc * 256 + b.toNat) 0 = EvmYul.fromBytes' bs.reverse := by
++  intro bs
++  induction bs using List.reverseRecOn with
++  | nil => simp [EvmYul.fromBytes']
++  | append_singleton xs b ih =>
++      rw [List.foldl_append, List.foldl_cons, List.foldl_nil, ih,
++        fromBytes'_reverse_append_byte]
++
++private theorem byteArrayToList_loop_append (ba : ByteArray) :
++    ∀ (i : Nat) (acc : List UInt8), i ≤ ba.size →
++      ByteArray.toList.loop ba i acc = acc.reverse ++ ByteArray.toList.loop ba i [] := by
++  intro i acc hi
++  induction i, acc using ByteArray.toList.loop.induct ba with
++  | case1 i acc hlt ih =>
++      conv_lhs => unfold ByteArray.toList.loop
++      conv_rhs => unfold ByteArray.toList.loop
++      simp only [hlt, ↓reduceIte]
++      rw [ih (Nat.le_of_lt_succ (by omega)), ih (acc := [ba[i]]) (Nat.le_of_lt_succ (by omega))]
++      simp [List.append_assoc]
++  | case2 i acc hge =>
++      conv_lhs => unfold ByteArray.toList.loop
++      conv_rhs => unfold ByteArray.toList.loop
++      simp [show ¬ i < ba.size from hge]
++
++private theorem byteArrayFoldl_loop_eq_listFoldl (ba : ByteArray) :
++    ∀ (i : Nat) (acc : Nat), i ≤ ba.size →
++      ByteArray.foldl.loop ba (fun a b => a * 256 + b.toNat) i ba.size acc =
++        (ByteArray.toList.loop ba i []).foldl (fun a b => a * 256 + b.toNat) acc := by
++  intro i acc hi
++  induction i, acc using ByteArray.foldl.loop.induct ba (fun a b => a * 256 + b.toNat) ba.size with
++  | case1 i acc hlt ih =>
++      unfold ByteArray.foldl.loop
++      conv_rhs => unfold ByteArray.toList.loop
++      have hlt' : i < ba.size := by simpa using hlt
++      simp only [hlt, hlt', ↓reduceIte, USize.toNat_ofNat_of_lt' hlt']
++      rw [byteArrayToList_loop_append ba (i + 1) [ba[i]] (by omega)]
++      simp only [List.reverse_singleton, List.singleton_append, List.foldl_cons]
++      exact ih (by omega)
++  | case2 i acc hge =>
++      unfold ByteArray.foldl.loop
++      conv_rhs => unfold ByteArray.toList.loop
++      have hge' : ¬ i < ba.size := fun hlt => hge (USize.ofNat_lt_of_lt hlt)
++      simp [hge, hge']
++
++private theorem byteArrayToNatBE_eq_fromByteArrayBigEndian (ba : ByteArray) :
++    KeccakEngine.byteArrayToNatBE ba = EvmYul.fromByteArrayBigEndian ba := by
++  unfold KeccakEngine.byteArrayToNatBE ByteArray.foldl ByteArray.foldlM
++  simp only [Id.run]
++  change ByteArray.foldl.loop ba (fun a b => a * 256 + b.toNat) 0 ba.size 0 = _
++  rw [byteArrayFoldl_loop_eq_listFoldl ba 0 0 (Nat.zero_le _)]
++  unfold EvmYul.fromByteArrayBigEndian EvmYul.fromBytesBigEndian ByteArray.toList
++  exact listFoldlBe_eq_fromBytes'_reverse (ByteArray.toList.loop ba 0 [])
++
++/-- Source-side `arrayBaseSlot` coincides with `storageArrayBasePointer`. -/
++theorem sourceArrayBaseSlot_eq_storageArrayBasePointer (baseSlot : Nat) :
++    SourceSemantics.arrayBaseSlot baseSlot =
++      EvmYul.fromByteArrayBigEndian (storageArrayBasePointer baseSlot) := by
++  unfold SourceSemantics.arrayBaseSlot SourceSemantics.keccakMemorySlice
++    abstractKeccakMemorySlice storageArrayBasePointer
++  rw [irMemorySliceBytesBE_singleSlot, byteArrayToNatBE_eq_fromByteArrayBigEndian]
++  apply Nat.mod_eq_of_lt
++  apply fromByteArrayBigEndian_lt_of_size
++  rw [KeccakEngine.keccak256_size]
++
++/-- Source-side `arrayBaseSlot` coincides with `ObsAlgebra.solidityArrayBaseSlot`. -/
++theorem sourceArrayBaseSlot_eq_solidityArrayBaseSlot (baseSlot : Nat) :
++    SourceSemantics.arrayBaseSlot baseSlot =
++      Verity.Specs.ObsAlgebra.solidityArrayBaseSlot baseSlot :=
++  sourceArrayBaseSlot_eq_storageArrayBasePointer baseSlot
++
++/-- Source-side `arrayElementSlot` coincides with `ObsAlgebra.solidityArrayElemSlot` (stride 1). -/
++theorem sourceArrayElementSlot_eq_solidityArrayElemSlot (baseSlot idx : Nat) :
++    SourceSemantics.arrayElementSlot baseSlot idx =
++      Verity.Specs.ObsAlgebra.solidityArrayElemSlot baseSlot idx 1 := by
++  unfold SourceSemantics.arrayElementSlot Verity.Specs.ObsAlgebra.solidityArrayElemSlot
++  rw [SourceSemantics.wordNormalize_eq_mod, sourceArrayBaseSlot_eq_solidityArrayBaseSlot,
++    Nat.mul_one]
++
++/-- `slotPointer` of `SourceSemantics.arrayElementSlot` equals `storageArrayElementPointer`. -/
++theorem slotPointer_sourceArrayElementSlot_eq_storageArrayElementPointer
++    (baseSlot idx : Nat) :
++    slotPointer (SourceSemantics.arrayElementSlot baseSlot idx) =
++      storageArrayElementPointer baseSlot idx := by
++  unfold slotPointer storageArrayElementPointer SourceSemantics.arrayElementSlot
++  rw [SourceSemantics.wordNormalize_eq_mod, sourceArrayBaseSlot_eq_storageArrayBasePointer,
++    evmYul_uint256_ofNat_mod]
++
+ /-- Synthetic dynamic-array field used to expose the real storage-array compiler
+     branches. -/
+ def arrayBridgeField (slot : Nat) : Field :=
+diff --git a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Foundation.lean b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Foundation.lean
+index d0781fbe1..6dd6a0887 100644
+--- a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Foundation.lean
++++ b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Foundation.lean
+@@ -5089,10 +5089,14 @@ theorem NativePrimCallPreservesWord_returndatacopy
+   | zero =>
+       simp [EvmYul.Yul.primCall] at hExec
+   | succ fuel' =>
+-      rw [primCall_returndatacopy_ok] at hExec
+-      cases hExec
+-      rw [state_getElem_setMachineState]
+-      exact hLookup
++      by_cases hIn : rstart.toNat + size.toNat ≤
++          state.toSharedState.toMachineState.returnData.size
++      · rw [primCall_returndatacopy_ok _ _ _ _ _ hIn] at hExec
++        cases hExec
++        rw [state_getElem_setMachineState]
++        exact hLookup
++      · rw [primCall_returndatacopy_out_of_bounds _ _ _ _ _ (by omega)] at hExec
++        cases hExec
+ 
+ theorem NativePrimCallPreservesWord_calldatacopy_values
+     (name : EvmYul.Identifier)
+diff --git a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Preservation.lean b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Preservation.lean
+index bf30174f3..92f0adba0 100644
+--- a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Preservation.lean
++++ b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Preservation.lean
+@@ -3640,11 +3640,15 @@ theorem NativeStmtPreservesWord_exprStmtCall_returndatacopy_of_evalArgs_preserve
+       | zero =>
+           simp [EvmYul.Yul.primCall] at hExec
+       | succ primFuel =>
+-          rw [primCall_returndatacopy_ok] at hExec
+-          cases hExec
+-          rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+-          rw [state_getElem_setMachineState]
+-          exact hArgLookup
++          by_cases hIn : rstart.toNat + size.toNat ≤
++              argState.toSharedState.toMachineState.returnData.size
++          · rw [primCall_returndatacopy_ok _ _ _ _ _ hIn] at hExec
++            cases hExec
++            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
++            rw [state_getElem_setMachineState]
++            exact hArgLookup
++          · rw [primCall_returndatacopy_out_of_bounds _ _ _ _ _ (by omega)] at hExec
++            cases hExec
+ 
+ theorem NativeStmtPreservesWord_exprStmtCall_returndatacopy_of_nativeEvalArgs_and_evalArgs_shape_preserves
+     (name : EvmYul.Identifier)
+diff --git a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean
+index 803a4e4d7..b1611e0d4 100644
+--- a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean
++++ b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean
+@@ -3305,6 +3305,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
+   | InvalidExpression => rfl
+   | YulEXTCODESIZENotImplemented => rfl
+   | Revert => rfl
++  | InvalidMemoryAccess => rfl
+ 
+ @[simp] theorem projectResult_hardError_success
+     (tx : YulTransaction)
+@@ -3326,6 +3327,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
+   | InvalidExpression => rfl
+   | YulEXTCODESIZENotImplemented => rfl
+   | Revert => rfl
++  | InvalidMemoryAccess => rfl
+ 
+ @[simp] theorem projectResult_hardError_returnValue
+     (tx : YulTransaction)
+@@ -3347,6 +3349,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
+   | InvalidExpression => rfl
+   | YulEXTCODESIZENotImplemented => rfl
+   | Revert => rfl
++  | InvalidMemoryAccess => rfl
+ 
+ @[simp] theorem projectResult_hardError_finalStorageSlot
+     (tx : YulTransaction)
+@@ -3370,6 +3373,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
+   | InvalidExpression => rfl
+   | YulEXTCODESIZENotImplemented => rfl
+   | Revert => rfl
++  | InvalidMemoryAccess => rfl
+ 
+ @[simp] theorem projectResult_hardError_finalMappings
+     (tx : YulTransaction)
+@@ -3392,6 +3396,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
+   | InvalidExpression => rfl
+   | YulEXTCODESIZENotImplemented => rfl
+   | Revert => rfl
++  | InvalidMemoryAccess => rfl
+ 
+ @[simp] theorem projectResult_hardError_events
+     (tx : YulTransaction)
+@@ -3414,6 +3419,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
+   | InvalidExpression => rfl
+   | YulEXTCODESIZENotImplemented => rfl
+   | Revert => rfl
++  | InvalidMemoryAccess => rfl
+ 
+ /-- Guarded selector-hit execution for a fully lowered native switch block,
+     with the projected selected-body error result exposed at the same switch
+diff --git a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativePrimOps.lean b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativePrimOps.lean
+index e86c08ae8..c359b1087 100644
+--- a/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativePrimOps.lean
++++ b/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativePrimOps.lean
+@@ -461,15 +461,45 @@ theorem step_calldatacopy_overarity_invalid
+       Except.error EvmYul.Yul.Exception.InvalidArguments := by
+   rfl
+ 
+-@[simp] theorem step_returndatacopy_ok
++/-- The Yul `RETURNDATACOPY` step halts exceptionally on out-of-bounds reads (EIP-211)
++and copies the return-data slice into memory when in bounds. -/
++theorem step_returndatacopy_eq
+     (state : EvmYul.Yul.State)
+     (mstart rstart size : EvmYul.UInt256) :
++    EvmYul.step (τ := .Yul) EvmYul.Operation.RETURNDATACOPY none state
++        [mstart, rstart, size] =
++      if rstart.toNat + size.toNat >
++          state.toSharedState.toMachineState.returnData.size then
++        .error EvmYul.Yul.Exception.InvalidMemoryAccess
++      else
++        .ok (state.setMachineState
++          (state.toSharedState.toMachineState.returndatacopy mstart rstart size),
++          none) := by
++  rfl
++
++/-- An in-bounds `RETURNDATACOPY` copies the return-data slice into memory. -/
++@[simp] theorem step_returndatacopy_ok
++    (state : EvmYul.Yul.State)
++    (mstart rstart size : EvmYul.UInt256)
++    (hInBounds : rstart.toNat + size.toNat ≤
++      state.toSharedState.toMachineState.returnData.size) :
+     EvmYul.step (τ := .Yul) EvmYul.Operation.RETURNDATACOPY none state
+         [mstart, rstart, size] =
+       .ok (state.setMachineState
+         (state.toSharedState.toMachineState.returndatacopy mstart rstart size),
+         none) := by
+-  rfl
++  rw [step_returndatacopy_eq, if_neg (by omega)]
++
++/-- EIP-211: an out-of-bounds `RETURNDATACOPY` step halts with `InvalidMemoryAccess`. -/
++theorem step_returndatacopy_out_of_bounds
++    (state : EvmYul.Yul.State)
++    (mstart rstart size : EvmYul.UInt256)
++    (hOutOfBounds : rstart.toNat + size.toNat >
++      state.toSharedState.toMachineState.returnData.size) :
++    EvmYul.step (τ := .Yul) EvmYul.Operation.RETURNDATACOPY none state
++        [mstart, rstart, size] =
++      .error EvmYul.Yul.Exception.InvalidMemoryAccess := by
++  rw [step_returndatacopy_eq, if_pos hOutOfBounds]
+ 
+ theorem step_returndatacopy_nil_invalid
+     (state : EvmYul.Yul.State) :
+@@ -2198,13 +2228,30 @@ theorem primCall_returndatasize_any_ok
+ @[simp] theorem primCall_returndatacopy_ok
+     (fuel : Nat)
+     (state : EvmYul.Yul.State)
+-    (mstart rstart size : EvmYul.UInt256) :
++    (mstart rstart size : EvmYul.UInt256)
++    (hInBounds : rstart.toNat + size.toNat ≤
++      state.toSharedState.toMachineState.returnData.size) :
+     EvmYul.Yul.primCall (fuel + 1) state
+         EvmYul.Operation.RETURNDATACOPY [mstart, rstart, size] =
+       .ok (state.setMachineState
+         (state.toSharedState.toMachineState.returndatacopy mstart rstart size),
+         []) := by
+-  cases fuel <;> simp [EvmYul.Yul.primCall]
++  cases fuel <;>
++    simp [EvmYul.Yul.primCall, step_returndatacopy_ok state mstart rstart size hInBounds]
++
++/-- EIP-211: an out-of-bounds `RETURNDATACOPY` primitive call halts exceptionally. -/
++theorem primCall_returndatacopy_out_of_bounds
++    (fuel : Nat)
++    (state : EvmYul.Yul.State)
++    (mstart rstart size : EvmYul.UInt256)
++    (hOutOfBounds : rstart.toNat + size.toNat >
++      state.toSharedState.toMachineState.returnData.size) :
++    EvmYul.Yul.primCall (fuel + 1) state
++        EvmYul.Operation.RETURNDATACOPY [mstart, rstart, size] =
++      .error EvmYul.Yul.Exception.InvalidMemoryAccess := by
++  cases fuel <;>
++    simp [EvmYul.Yul.primCall,
++      step_returndatacopy_out_of_bounds state mstart rstart size hOutOfBounds]
+ 
+ @[simp] theorem primCall_pop_ok
+     (fuel : Nat)
+diff --git a/PrintAxioms.lean b/PrintAxioms.lean
+index a73b2e264..a66893c21 100644
+--- a/PrintAxioms.lean
++++ b/PrintAxioms.lean
+@@ -1,7 +1,7 @@
+ -- Auto-generated by scripts/generate_print_axioms.py
+ -- Runs a fail-closed whole-population union check and an exact from-scratch
+ -- per-theorem axiom audit (no Lean.collectAxioms, no cycle sentinel cache)
+--- across all 493 verified modules (95 root imports).
++-- across all 494 verified modules (94 root imports).
+ -- Regenerate with: python3 scripts/generate_print_axioms.py
+ 
+ import AxiomAudit
+@@ -101,7 +101,6 @@ import Verity.Proofs.Model.GeneratedEntrypointRegistry
+ import Verity.Proofs.Stdlib.Int256
+ import Verity.Proofs.Stdlib.MappingAutomation
+ import Verity.Specs.AdversaryAndHelpers
+-import Verity.Specs.ObsAlgebra
+ 
+ open Jaune.AxiomAudit Lean Elab Command in
+ run_cmd do
+@@ -906,6 +905,16 @@ Compiler.Proofs.EndToEnd.selector_miss_routes_receive_on_empty_calldata
+ Compiler.Proofs.EndToEnd.selector_miss_routes_fallback_on_nonempty_calldata
+ Compiler.Proofs.EndToEnd.stricter_config_preserves_revert
+ 
++-- Compiler/Proofs/EndToEnd/ObsBridge.lean
++Compiler.Proofs.EndToEnd.denoteResultToObs_eq_sourceResultToObs
++Compiler.Proofs.EndToEnd.obsEquiv_denote_source
++Compiler.Proofs.EndToEnd.sourceResultToObs_eq_irResultToObs_of_matches
++Compiler.Proofs.EndToEnd.obsEquiv_source_ir_of_matches
++Compiler.Proofs.EndToEnd.nativeResultObsEquiv_ir_of_nativeResultsMatchOn
++Compiler.Proofs.EndToEnd.nativeResultObsEquiv_source_of_sourceResultMatchesNativeOn
++Compiler.Proofs.EndToEnd.nativeResultObsEquiv_denote_of_denoteResultMatchesNativeOn
++Compiler.Proofs.EndToEnd.compile_preserves_obsEquiv_native_evmYulLean
++
+ -- Compiler/Proofs/EndToEnd/SimpleStorage.lean
+ -- Compiler.Proofs.EndToEnd.simpleStorage_runtimeCode_eq_single_dispatcher  -- private
+ -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcher_eq_lowered_stmts  -- private
+@@ -5805,6 +5814,20 @@ Compiler.Proofs.Storage.packedStructMember_eq_sourceEval
+ Compiler.Proofs.Storage.setStructMember_exec_matches_canonical_target
+ Compiler.Proofs.Storage.setPackedStructMember_exec_matches_canonical_target
+ Compiler.Proofs.Storage.storageArrayBasePointer_preimage
++-- Compiler.Proofs.Storage.listToByteArray_loop_data  -- private
++-- Compiler.Proofs.Storage.listToByteArray_data  -- private
++-- Compiler.Proofs.Storage.uint256_toByteArray_data_toList  -- private
++-- Compiler.Proofs.Storage.irWordToBytesBE_eq_uint256_toByteArray  -- private
++-- Compiler.Proofs.Storage.irMemorySliceBytesBE_singleSlot  -- private
++-- Compiler.Proofs.Storage.fromBytes'_reverse_append_byte  -- private
++-- Compiler.Proofs.Storage.listFoldlBe_eq_fromBytes'_reverse  -- private
++-- Compiler.Proofs.Storage.byteArrayToList_loop_append  -- private
++-- Compiler.Proofs.Storage.byteArrayFoldl_loop_eq_listFoldl  -- private
++-- Compiler.Proofs.Storage.byteArrayToNatBE_eq_fromByteArrayBigEndian  -- private
++Compiler.Proofs.Storage.sourceArrayBaseSlot_eq_storageArrayBasePointer
++Compiler.Proofs.Storage.sourceArrayBaseSlot_eq_solidityArrayBaseSlot
++Compiler.Proofs.Storage.sourceArrayElementSlot_eq_solidityArrayElemSlot
++Compiler.Proofs.Storage.slotPointer_sourceArrayElementSlot_eq_storageArrayElementPointer
+ Compiler.Proofs.Storage.sourceStorageArrayDropLast_length
+ Compiler.Proofs.Storage.compiledStorageArrayLength_eq
+ Compiler.Proofs.Storage.storageArrayLength_eq_storageArrayLength
+@@ -7641,7 +7664,9 @@ Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_nil_invalid
+ Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_singleton_invalid
+ Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_pair_invalid
+ Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_overarity_invalid
++Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_eq
+ Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_ok
++Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_out_of_bounds
+ Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_nil_invalid
+ Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_singleton_invalid
+ Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_pair_invalid
+@@ -7840,6 +7865,7 @@ Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatasize_ok
+ Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatasize_any_ok
+ Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatacopy_ok
+ Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatacopy_ok
++Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatacopy_out_of_bounds
+ Compiler.Proofs.YulGeneration.Backends.Native.primCall_pop_ok
+ Compiler.Proofs.YulGeneration.Backends.Native.primCall_stop_ok
+ Compiler.Proofs.YulGeneration.Backends.Native.primCall_return_ok
+@@ -12071,4 +12097,4 @@ run_cmd do
+     for line in lines do
+       liftIO <| IO.println line
+ 
+--- Total: 11238 theorems/lemmas (8739 public, 2499 private, 0 sorry'd)
++-- Total: 11263 theorems/lemmas (8754 public, 2509 private, 0 sorry'd)
+diff --git a/Verity/Core/Model/Denote.lean b/Verity/Core/Model/Denote.lean
+index c514f68b6..9aec8414e 100644
+--- a/Verity/Core/Model/Denote.lean
++++ b/Verity/Core/Model/Denote.lean
+@@ -401,12 +401,22 @@ def findResolvedFieldAtStorageSlot (fields : List Field) (isTransient : Bool)
+ def findResolvedFieldAtSlot (fields : List Field) (slot : Nat) : Option Field :=
+   findResolvedFieldAtStorageSlot fields false slot
+ 
++/-- Solidity dynamic-array base slot `keccak256(bytes32(baseSlot))`, routed
++through `oracle.keccakMemorySlice` over a single 32-byte word at offset `0`. -/
++def arrayBaseSlot (oracle : DenoteOracle) (baseSlot : Nat) : Nat :=
++  oracle.keccakMemorySlice
++    (fun off => if off = 0 then Verity.Core.Uint256.ofNat baseSlot else 0) 0 32
++
++/-- Solidity dynamic-array element slot `(keccak256(bytes32(baseSlot)) + idx) % 2^256`. -/
++def arrayElementSlot (oracle : DenoteOracle) (baseSlot idx : Nat) : Nat :=
++  wordNormalize (arrayBaseSlot oracle baseSlot + idx)
++
+ def findDynamicArrayElementAtSlot (oracle : DenoteOracle)
+     (fields : List Field) (world : Verity.ContractState) (targetSlot : Nat) : Option Nat :=
+   let rec scanElements (baseSlot : Nat) : List Verity.Core.Uint256 → Nat → Option Nat
+     | [], _ => none
+     | value :: rest, idx =>
+-        if oracle.mappingSlot baseSlot idx = wordNormalize targetSlot then
++        if arrayElementSlot oracle baseSlot idx = wordNormalize targetSlot then
+           some value.val
+         else
+           scanElements baseSlot rest (idx + 1)
+@@ -2393,18 +2403,18 @@ private def smokeTx : DenoteTransaction :=
+ example :
+     (denoteFunction dummyOracle (smokeSpec [.return (.literal 42)])
+       (smokeFn [.return (.literal 42)]) smokeTx Verity.defaultState).returnValue =
+-      some 42 := by native_decide
++      some 42 := by decide
+ 
+ example :
+     (denoteFunction dummyOracle
+       (smokeSpec [.letVar "x" (.literal 7), .return (.add (.localVar "x") (.literal 5))])
+       (smokeFn [.letVar "x" (.literal 7), .return (.add (.localVar "x") (.literal 5))])
+-      smokeTx Verity.defaultState).returnValue = some 12 := by native_decide
++      smokeTx Verity.defaultState).returnValue = some 12 := by decide
+ 
+ example :
+     (denoteFunction dummyOracle (smokeSpec [.require (.literal 0) "always fails"])
+       (smokeFn [.require (.literal 0) "always fails"]) smokeTx
+-      Verity.defaultState).success = false := by native_decide
++      Verity.defaultState).success = false := by decide
+ 
+ example :
+     let world := { Verity.defaultState with
+@@ -2415,7 +2425,7 @@ example :
+     evalExpr dummyOracle [] state (.memoryArrayLength "xs") = some 2 ∧
+       evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 0)) = some 41 ∧
+       evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 2)) = none := by
+-  native_decide
++  decide
+ 
+ example :
+     let body :=
+@@ -2425,6 +2435,6 @@ example :
+       , Stmt.return (.memoryArrayElement "xs" (.literal 0)) ]
+     (denoteFunction dummyOracle (smokeSpec body) (smokeFn body)
+       smokeTx Verity.defaultState).returnValue = some 77 := by
+-  native_decide
++  decide
+ 
+ end Compiler.CompilationModel.Denote
+diff --git a/artifacts/evmyullean_fork_audit.json b/artifacts/evmyullean_fork_audit.json
+index 04591c990..002acb36b 100644
+--- a/artifacts/evmyullean_fork_audit.json
++++ b/artifacts/evmyullean_fork_audit.json
+@@ -4,7 +4,7 @@
+     "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
+     "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
+     "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
+-    "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
++    "5. Reject a `semantic-change` commit unless it carries an explicit `conformance_fix` record citing the governing EIP and regression tests; any other semantic change requires explicit Issue #1722 scope expansion.",
+     "6. Commit this artifact alongside Verity's lake-manifest.json pin bump."
+   ],
+   "commits": [
+@@ -234,16 +234,54 @@
+       "file": "EvmYul/UInt256.lean, EvmYul/EVM/Gas.lean, EvmYul/EVM/JumpdestTotal.lean, EvmYul/EVM/PragueOsakaSpecs.lean, EvmYul/EVM/Proof/{Interpreter,Observation}.lean, EvmYul/Specs/*, EvmYul/MetaSpecs/*, EvmYul/Yul/{GasInterpreter,MessageCallCombinator,Interpreter}.lean",
+       "rationale": "Consolidate EVMYulLean 2.0 Waves E1-E4 (BitVec 256, total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs), F4b/F4c/Osaka proof layers, and Yul primCall EIP-214/frame restoration fixes.",
+       "semantic_change": false,
+-      "sha": "a132798069be50e8b03f88d6a96f2618c128ae7f",
++      "sha": "b615ceca315c63059461f7a7a3085be33d829928",
+       "title": "feat(evmyullean-2.0): consolidate Waves E1-E4, F4b/F4c/Osaka proofs, and Yul primCall fixes",
+       "trust_impact": "Zero sorryAx, zero native_decide, 460/460 tight specs verified by turbo-lean audit-spec."
++    },
++    {
++      "category": "lemma-addition",
++      "diff_summary": "3 files changed, 145 insertions(+), 98 deletions(-).",
++      "file": "EvmYul/Yul/GasInterpreter.lean, EvmYul/Yul/Interpreter.lean, EvmYul/Yul/MessageCallCombinator.lean",
++      "rationale": "Deduplicate Yul primCall message-call return handling via finishChildCallOutcome and wire consumeYulGas in primCallWithGas without changing fuel-based primCall semantics.",
++      "semantic_change": false,
++      "sha": "a132798069be50e8b03f88d6a96f2618c128ae7f",
++      "title": "feat(yul): deduplicate primCall message-call return via finishChildCallOutcome and wire consumeYulGas (primCallWithGas)",
++      "trust_impact": "Behavior-preserving refactor of message-call return path plus additive gas-aware interpreter entrypoint."
++    },
++    {
++      "category": "toolchain",
++      "diff_summary": "1 file changed, 13 insertions(+).",
++      "file": ".github/workflows/lean_action_ci.yml",
++      "rationale": "CI-only: install Python precompile dependencies and run yulSemanticsTests in the Lean Action workflow.",
++      "semantic_change": false,
++      "sha": "f78945ce2cf2d522ec037ad1440cd153c3086064",
++      "title": "ci: install Python precompile dependencies before lean-action (#11)",
++      "trust_impact": "Zero. CI workflow only; no Lean source changes."
++    },
++    {
++      "category": "semantic-change",
++      "conformance_fix": {
++        "eip": "EIP-211",
++        "tests": [
++          "yulSemanticsTests test\u2086",
++          "yulSemanticsTests test\u2087"
++        ],
++        "upstream_pr": "https://github.com/lfglabs-dev/EVMYulLean/pull/12"
++      },
++      "diff_summary": "4 files changed, 27 insertions(+), 2 deletions(-).",
++      "file": "EvmYul/Semantics.lean, EvmYul/Yul/Exception.lean, EvmYul/Yul/Interpreter.lean, EvmYul/Yul/YulSemanticsTests/Main.lean",
++      "rationale": "The Yul RETURNDATACOPY step previously zero-padded reads past the return-data buffer, whereas the EVM (EIP-211) and EvmYul's EVM semantics halt exceptionally. Raising InvalidMemoryAccess aligns Yul execution with EIP-211.",
++      "semantic_change": true,
++      "sha": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++      "title": "fix(yul): halt on out-of-bounds RETURNDATACOPY (EIP-211) (#12)",
++      "trust_impact": "Closes a soundness gap in Layer-3 Yul execution by rejecting out-of-bounds RETURNDATACOPY reads that real EVMs abort."
+     }
+   ],
+-  "divergence_summary": "The fork has 23 audited commits beyond the recorded upstream base, covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM proof-facing step/block/memory/interpreter/observation layers (#5, #6, #7, #8, #9, #10), and EVMYulLean 2.0 Waves E1-E4 (BitVec 256, total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall EIP-214/frame fixes).",
+-  "fork_ahead_by": 23,
++  "divergence_summary": "The fork has 26 audited commits beyond the recorded upstream base, covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM proof-facing step/block/memory/interpreter/observation layers (#5, #6, #7, #8, #9, #10), EVMYulLean 2.0 Waves E1-E4 (BitVec 256, total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall EIP-214/frame fixes), CI dependency setup (#11), and one EVM-conformance fix (#12): the Yul RETURNDATACOPY step halts on an out-of-bounds read (EIP-211).",
++  "fork_ahead_by": 26,
+   "fork_behind_by": 0,
+   "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
+-  "pinned_commit": "a132798069be50e8b03f88d6a96f2618c128ae7f",
++  "pinned_commit": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
+   "reproduction": {
+     "script": "scripts/generate_evmyullean_fork_audit.py",
+     "steps": [
+@@ -256,7 +294,7 @@
+     ]
+   },
+   "schema_version": 1,
+-  "trust_boundary": "Verity's effective trust boundary for Yul/EVM semantics is (upstream NethermindEth/EVMYulLean at commit 047f63070309f436b66c61e276ab3b6d1169265a) plus the 18 visibility/toolchain/merge fork commits enumerated above. None of these fork commits touches EVM/Yul execution semantics, so upstream Ethereum conformance test coverage applies transitively.",
++  "trust_boundary": "Verity's effective trust boundary for Yul/EVM semantics is (upstream NethermindEth/EVMYulLean at commit 047f63070309f436b66c61e276ab3b6d1169265a) plus the 26 audited fork commits enumerated above. The only execution-semantic change is an explicit EIP-211 conformance fix (RETURNDATACOPY out-of-bounds halt), aligning Yul execution with EVM semantics.",
+   "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
+   "upstream_url": "https://github.com/NethermindEth/EVMYulLean"
+ }
+diff --git a/docs/TRUST_ASSUMPTIONS.md b/docs/TRUST_ASSUMPTIONS.md
+index 60caa2406..b63bbc9eb 100644
+--- a/docs/TRUST_ASSUMPTIONS.md
++++ b/docs/TRUST_ASSUMPTIONS.md
+@@ -716,25 +716,21 @@ flat `encodeStorageAt` read at the derived slot
+ variants), reusing the same non-occupation hypotheses `FieldEncode`
+ already takes.
+ 
+-**Known divergence — dynamic-array element slots (`unsupported`).**
+-The source model and the Yul model derive dynamic-array element
+-addresses differently and are **not** reconciled here.
+-`Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`
+-(`findDynamicArrayElementAtSlot`) places element `i` of the array
+-rooted at slot `s` at `solidityMappingSlot s i` =
+-`keccak256(abi.encode(i, s))`, a 64-byte mapping preimage.
+-`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`
+-(`storageArrayBasePointer` / `storageArrayElementPointer`) uses the
+-real Solidity layout `keccak256(bytes32(s)) + i`, a 32-byte preimage
+-plus an arithmetic offset. Missing feature, precisely: *the source
+-semantics has no array-element slot derivation of the form
+-`keccak256(bytes32(slot)) + index`* — it reuses the mapping
+-derivation. No shim asserts the two equal. Containment:
+-`storageKeySlot` returns `none` at a persistent root whose resolved
+-field is a `dynamicArray`
++**Dynamic-array element slots (`supported`) & root containment.**
++`Denote.findDynamicArrayElementAtSlot` and
++`SourceSemantics.findDynamicArrayElementAtSlot` place element `i` of
++the array rooted at slot `s` at `SourceSemantics.arrayElementSlot s i`
++(`(keccak256(bytes32(s)) + i) % 2^256`), proved equal to
++`ObsAlgebra.solidityArrayElemSlot s i 1` and
++`storageArrayElementPointer s i` in
++`Compiler/Proofs/Storage/StructArrayStorage.lean`
++(`sourceArrayElementSlot_eq_solidityArrayElemSlot`,
++`slotPointer_sourceArrayElementSlot_eq_storageArrayElementPointer`).
++Containment at roots: `storageKeySlot` returns `none` at a persistent
++root whose resolved field is a `dynamicArray`
+ (`storageKeySlot_slot_dynamicArray`), so `MappingCoherentAllKeys`
+-claims nothing about dynamic-array roots; `encodeStorageAt` reads a
+-list length there, not a word.
++claims nothing about dynamic-array roots (`encodeStorageAt` reads a
++list length there, not a word).
+ `storageArray` and `knownAddresses` are still separate fields;
+ word-channel / array-channel independence is proved in
+ `Compiler.Proofs.Storage.SeparateChannels`.
+diff --git a/docs/VERIFICATION_STATUS.md b/docs/VERIFICATION_STATUS.md
+index e82352dd0..e1c1a81fe 100644
+--- a/docs/VERIFICATION_STATUS.md
++++ b/docs/VERIFICATION_STATUS.md
+@@ -253,20 +253,18 @@ Status legend:
+ | Event ABI parity for indexed dynamic/tuple payloads | supported | supported | supported | supported | supported |
+ | Storage layout controls (packing + explicit slots) | partial | partial | partial | partial | partial |
+ | ABI JSON artifact generation | partial | partial | n/a | partial | partial |
+-| Dynamic-array element slot derivation (`keccak256(bytes32(slot)) + index`) | unsupported | supported | unsupported | partial | unsupported |
+-
+-The dynamic-array row records a *model* divergence, not a codegen gap. The
+-source semantics
+-(`Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`,
+-`findDynamicArrayElementAtSlot`) places element `i` of the array rooted at
+-slot `s` at `solidityMappingSlot s i` = `keccak256(abi.encode(i, s))` — the
+-64-byte *mapping* preimage — while the Yul layout
+-(`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`,
+-`storageArrayBasePointer` / `storageArrayElementPointer`) uses the real
+-Solidity `keccak256(bytes32(s)) + i`. The missing feature is an
+-array-element slot derivation of that second form in the source semantics.
+-Nothing asserts the two equal; the global storage-coherence collapse
+-returns `none` at dynamic-array roots instead
++| Dynamic-array element slot derivation (`keccak256(bytes32(slot)) + index`) | supported | supported | supported | supported | supported |
++
++The dynamic-array element slot derivation is aligned across `Denote`,
++`SourceSemantics`, `ObsAlgebra`, and `StructArrayStorage`:
++`SourceSemantics.findDynamicArrayElementAtSlot` and `Denote.findDynamicArrayElementAtSlot`
++place element `i` of the array rooted at slot `s` at `SourceSemantics.arrayElementSlot s i`
++(`(keccak256(bytes32(s)) + i) % 2^256`), and
++`Compiler.Proofs.Storage.sourceArrayElementSlot_eq_solidityArrayElemSlot` plus
++`Compiler.Proofs.Storage.slotPointer_sourceArrayElementSlot_eq_storageArrayElementPointer`
++prove exact equality with `ObsAlgebra.solidityArrayElemSlot s i 1` and
++`storageArrayElementPointer s i`. At dynamic-array roots (which store list
++length rather than a scalar word), `storageKeySlot` continues to return `none`
+ (`Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_slot_dynamicArray`).
+ 
+ Diagnostics policy for unsupported constructs:
+diff --git a/lake-manifest.json b/lake-manifest.json
+index 95b3f60f8..7ecf90ba5 100644
+--- a/lake-manifest.json
++++ b/lake-manifest.json
+@@ -2,18 +2,18 @@
+  "version": "1.2.0",
+  "packagesDir": ".lake/packages",
+  "packages": [
+-  {
+-   "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
+-   "type": "git",
+-   "subDir": null,
+-   "scope": "",
+-   "rev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "name": "evmyul",
+-   "manifestFile": "lake-manifest.json",
+-   "inputRev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "inherited": false,
+-   "configFile": "lakefile.lean"
+-  },
++   {
++    "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
++    "type": "git",
++    "subDir": null,
++    "scope": "",
++    "rev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "name": "evmyul",
++    "manifestFile": "lake-manifest.json",
++    "inputRev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "inherited": false,
++    "configFile": "lakefile.lean"
++   },
+   {
+    "url": "https://github.com/leanprover-community/mathlib4.git",
+    "type": "git",
+diff --git a/lakefile.lean b/lakefile.lean
+index dc195ad7f..b052da060 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -5,7 +5,7 @@ package «verity» where
+   version := v!"1.0.0"
+ 
+ require evmyul from git
+-  "https://github.com/lfglabs-dev/EVMYulLean.git"@"a132798069be50e8b03f88d6a96f2618c128ae7f"
++  "https://github.com/lfglabs-dev/EVMYulLean.git"@"eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0"
+ 
+ @[default_target]
+ lean_lib «Verity» where
+diff --git a/packages/verity-compiler/lake-manifest.json b/packages/verity-compiler/lake-manifest.json
+index cba7d453f..acc488bc8 100644
+--- a/packages/verity-compiler/lake-manifest.json
++++ b/packages/verity-compiler/lake-manifest.json
+@@ -11,18 +11,18 @@
+    "dir": "../verity-edsl",
+    "configFile": "lakefile.lean"
+   },
+-  {
+-   "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
+-   "type": "git",
+-   "subDir": null,
+-   "scope": "",
+-   "rev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "name": "evmyul",
+-   "manifestFile": "lake-manifest.json",
+-   "inputRev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "inherited": true,
+-   "configFile": "lakefile.lean"
+-  },
++   {
++    "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
++    "type": "git",
++    "subDir": null,
++    "scope": "",
++    "rev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "name": "evmyul",
++    "manifestFile": "lake-manifest.json",
++    "inputRev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "inherited": true,
++    "configFile": "lakefile.lean"
++   },
+   {
+    "url": "https://github.com/leanprover-community/mathlib4.git",
+    "type": "git",
+diff --git a/packages/verity-compiler/lakefile.lean b/packages/verity-compiler/lakefile.lean
+index e9b3f5d31..94c09aec0 100644
+--- a/packages/verity-compiler/lakefile.lean
++++ b/packages/verity-compiler/lakefile.lean
+@@ -15,7 +15,8 @@ lean_lib «Compiler» where
+     .andSubmodules `Verity.Macro,
+     .one `Verity.Proofs.LoopSimulation,
+     .one `Verity.Proofs.Stdlib.Automation,
+-    .one `Verity.Proofs.Stdlib.MappingAutomation
++    .one `Verity.Proofs.Stdlib.MappingAutomation,
++    .one `Verity.Specs.ObsAlgebra
+   ]
+ 
+ lean_exe «verity-compiler» where
+diff --git a/packages/verity-edsl/lake-manifest.json b/packages/verity-edsl/lake-manifest.json
+index 6b2d8c4bb..e60018c22 100644
+--- a/packages/verity-edsl/lake-manifest.json
++++ b/packages/verity-edsl/lake-manifest.json
+@@ -2,18 +2,18 @@
+  "version": "1.2.0",
+  "packagesDir": ".lake/packages",
+  "packages": [
+-  {
+-   "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
+-   "type": "git",
+-   "subDir": null,
+-   "scope": "",
+-   "rev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "name": "evmyul",
+-   "manifestFile": "lake-manifest.json",
+-   "inputRev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "inherited": false,
+-   "configFile": "lakefile.lean"
+-  },
++   {
++    "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
++    "type": "git",
++    "subDir": null,
++    "scope": "",
++    "rev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "name": "evmyul",
++    "manifestFile": "lake-manifest.json",
++    "inputRev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "inherited": false,
++    "configFile": "lakefile.lean"
++   },
+   {
+    "url": "https://github.com/leanprover-community/mathlib4.git",
+    "type": "git",
+diff --git a/packages/verity-edsl/lakefile.lean b/packages/verity-edsl/lakefile.lean
+index 9c804840e..b7509b928 100644
+--- a/packages/verity-edsl/lakefile.lean
++++ b/packages/verity-edsl/lakefile.lean
+@@ -5,7 +5,7 @@ package «verity-edsl» where
+   version := v!"1.0.0"
+ 
+ require evmyul from git
+-  "https://github.com/lfglabs-dev/EVMYulLean.git"@"a132798069be50e8b03f88d6a96f2618c128ae7f"
++  "https://github.com/lfglabs-dev/EVMYulLean.git"@"eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0"
+ 
+ lean_lib «Verity» where
+   srcDir := "../.."
+diff --git a/packages/verity-examples/lake-manifest.json b/packages/verity-examples/lake-manifest.json
+index ec2709130..3f05345c9 100644
+--- a/packages/verity-examples/lake-manifest.json
++++ b/packages/verity-examples/lake-manifest.json
+@@ -20,18 +20,18 @@
+    "dir": "../verity-edsl",
+    "configFile": "lakefile.lean"
+   },
+-  {
+-   "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
+-   "type": "git",
+-   "subDir": null,
+-   "scope": "",
+-   "rev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "name": "evmyul",
+-   "manifestFile": "lake-manifest.json",
+-   "inputRev": "a132798069be50e8b03f88d6a96f2618c128ae7f",
+-   "inherited": true,
+-   "configFile": "lakefile.lean"
+-  },
++   {
++    "url": "https://github.com/lfglabs-dev/EVMYulLean.git",
++    "type": "git",
++    "subDir": null,
++    "scope": "",
++    "rev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "name": "evmyul",
++    "manifestFile": "lake-manifest.json",
++    "inputRev": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++    "inherited": true,
++    "configFile": "lakefile.lean"
++   },
+   {
+    "url": "https://github.com/leanprover-community/mathlib4.git",
+    "type": "git",
+diff --git a/scripts/VerityUnionAxioms.lean b/scripts/VerityUnionAxioms.lean
+index 15ca9f376..62b11d4ff 100644
+--- a/scripts/VerityUnionAxioms.lean
++++ b/scripts/VerityUnionAxioms.lean
+@@ -1,6 +1,6 @@
+ -- Auto-generated by scripts/generate_print_axioms.py
+--- Whole-library from-scratch axiom union over all 493 verified modules
+--- (95 root imports, 0 non-verified local modules).
++-- Whole-library from-scratch axiom union over all 494 verified modules
++-- (94 root imports, 0 non-verified local modules).
+ -- Regenerate with: python3 scripts/generate_print_axioms.py
+ 
+ import AxiomAudit
+@@ -98,7 +98,6 @@ import Verity.Proofs.Model.GeneratedEntrypointRegistry
+ import Verity.Proofs.Stdlib.Int256
+ import Verity.Proofs.Stdlib.MappingAutomation
+ import Verity.Specs.AdversaryAndHelpers
+-import Verity.Specs.ObsAlgebra
+ 
+ open Jaune.AxiomAudit Lean Elab Command in
+ run_cmd do
+diff --git a/scripts/check_package_glob_surfaces.py b/scripts/check_package_glob_surfaces.py
+index 755452565..f8863309e 100644
+--- a/scripts/check_package_glob_surfaces.py
++++ b/scripts/check_package_glob_surfaces.py
+@@ -20,6 +20,7 @@ BRIDGE_GLOBS = {
+     ("one", "Verity.Proofs.LoopSimulation"),
+     ("one", "Verity.Proofs.Stdlib.Automation"),
+     ("one", "Verity.Proofs.Stdlib.MappingAutomation"),
++    ("one", "Verity.Specs.ObsAlgebra"),
+ }
+ 
+ PACKAGE_SURFACES = (
+diff --git a/scripts/generate_evmyullean_fork_audit.py b/scripts/generate_evmyullean_fork_audit.py
+index 88ea6cc9b..0b19a7e92 100644
+--- a/scripts/generate_evmyullean_fork_audit.py
++++ b/scripts/generate_evmyullean_fork_audit.py
+@@ -49,17 +49,19 @@ FORK_AUDIT = {
+     "schema_version": 1,
+     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
+     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
+-    "pinned_commit": "a132798069be50e8b03f88d6a96f2618c128ae7f",
++    "pinned_commit": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
+     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
+-    "fork_ahead_by": 23,
++    "fork_ahead_by": 26,
+     "fork_behind_by": 0,
+     "divergence_summary": (
+-        "The fork has 23 audited commits beyond the recorded upstream base, "
++        "The fork has 26 audited commits beyond the recorded upstream base, "
+         "covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM "
+         "proof-facing step/block/memory/interpreter/observation layers (#5, "
+-        "#6, #7, #8, #9, #10), and EVMYulLean 2.0 Waves E1-E4 (BitVec 256, "
++        "#6, #7, #8, #9, #10), EVMYulLean 2.0 Waves E1-E4 (BitVec 256, "
+         "total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall "
+-        "EIP-214/frame fixes)."
++        "EIP-214/frame fixes), CI dependency setup (#11), and one "
++        "EVM-conformance fix (#12): the Yul RETURNDATACOPY step halts on an "
++        "out-of-bounds read (EIP-211)."
+     ),
+     "commits": [
+         {
+@@ -359,7 +361,7 @@ FORK_AUDIT = {
+             "trust_impact": "Additive proof modules and byte-encoding lemmas; zero sorry, zero new axioms.",
+         },
+         {
+-            "sha": "a132798069be50e8b03f88d6a96f2618c128ae7f",
++            "sha": "b615ceca315c63059461f7a7a3085be33d829928",
+             "title": "feat(evmyullean-2.0): consolidate Waves E1-E4, F4b/F4c/Osaka proofs, and Yul primCall fixes",
+             "file": "EvmYul/UInt256.lean, EvmYul/EVM/Gas.lean, EvmYul/EVM/JumpdestTotal.lean, EvmYul/EVM/PragueOsakaSpecs.lean, EvmYul/EVM/Proof/{Interpreter,Observation}.lean, EvmYul/Specs/*, EvmYul/MetaSpecs/*, EvmYul/Yul/{GasInterpreter,MessageCallCombinator,Interpreter}.lean",
+             "category": "lemma-addition",
+@@ -368,13 +370,48 @@ FORK_AUDIT = {
+             "diff_summary": "31 files changed, 4500 insertions(+), 342 deletions(-).",
+             "trust_impact": "Zero sorryAx, zero native_decide, 460/460 tight specs verified by turbo-lean audit-spec.",
+         },
++        {
++            "sha": "a132798069be50e8b03f88d6a96f2618c128ae7f",
++            "title": "feat(yul): deduplicate primCall message-call return via finishChildCallOutcome and wire consumeYulGas (primCallWithGas)",
++            "file": "EvmYul/Yul/GasInterpreter.lean, EvmYul/Yul/Interpreter.lean, EvmYul/Yul/MessageCallCombinator.lean",
++            "category": "lemma-addition",
++            "semantic_change": False,
++            "rationale": "Deduplicate Yul primCall message-call return handling via finishChildCallOutcome and wire consumeYulGas in primCallWithGas without changing fuel-based primCall semantics.",
++            "diff_summary": "3 files changed, 145 insertions(+), 98 deletions(-).",
++            "trust_impact": "Behavior-preserving refactor of message-call return path plus additive gas-aware interpreter entrypoint.",
++        },
++        {
++            "sha": "f78945ce2cf2d522ec037ad1440cd153c3086064",
++            "title": "ci: install Python precompile dependencies before lean-action (#11)",
++            "file": ".github/workflows/lean_action_ci.yml",
++            "category": "toolchain",
++            "semantic_change": False,
++            "rationale": "CI-only: install Python precompile dependencies and run yulSemanticsTests in the Lean Action workflow.",
++            "diff_summary": "1 file changed, 13 insertions(+).",
++            "trust_impact": "Zero. CI workflow only; no Lean source changes.",
++        },
++        {
++            "sha": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
++            "title": "fix(yul): halt on out-of-bounds RETURNDATACOPY (EIP-211) (#12)",
++            "file": "EvmYul/Semantics.lean, EvmYul/Yul/Exception.lean, EvmYul/Yul/Interpreter.lean, EvmYul/Yul/YulSemanticsTests/Main.lean",
++            "category": "semantic-change",
++            "semantic_change": True,
++            "conformance_fix": {
++                "eip": "EIP-211",
++                "tests": ["yulSemanticsTests test₆", "yulSemanticsTests test₇"],
++                "upstream_pr": "https://github.com/lfglabs-dev/EVMYulLean/pull/12",
++            },
++            "rationale": "The Yul RETURNDATACOPY step previously zero-padded reads past the return-data buffer, whereas the EVM (EIP-211) and EvmYul's EVM semantics halt exceptionally. Raising InvalidMemoryAccess aligns Yul execution with EIP-211.",
++            "diff_summary": "4 files changed, 27 insertions(+), 2 deletions(-).",
++            "trust_impact": "Closes a soundness gap in Layer-3 Yul execution by rejecting out-of-bounds RETURNDATACOPY reads that real EVMs abort.",
++        },
+     ],
+     "audit_methodology": [
+         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
+         "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
+         "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
+         "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
+-        "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
++        "5. Reject a `semantic-change` commit unless it carries an explicit `conformance_fix` record citing the governing EIP and regression tests; any other semantic change requires explicit Issue #1722 scope expansion.",
+         "6. Commit this artifact alongside Verity's lake-manifest.json pin bump.",
+     ],
+     "reproduction": {
+@@ -391,10 +428,10 @@ FORK_AUDIT = {
+     "trust_boundary": (
+         "Verity's effective trust boundary for Yul/EVM semantics is "
+         "(upstream NethermindEth/EVMYulLean at commit "
+-        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 18 "
+-        "visibility/toolchain/merge fork commits enumerated above. None of these "
+-        "fork commits touches EVM/Yul execution semantics, so upstream "
+-        "Ethereum conformance test coverage applies transitively."
++        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 26 "
++        "audited fork commits enumerated above. The only execution-semantic "
++        "change is an explicit EIP-211 conformance fix (RETURNDATACOPY "
++        "out-of-bounds halt), aligning Yul execution with EVM semantics."
+     ),
+ }
+ 
+@@ -418,6 +455,22 @@ def _read_evmyul_package(manifest_path: Path) -> dict[str, object]:
+     raise RuntimeError(f"evmyul package not found in {manifest_path.relative_to(ROOT)}")
+ 
+ 
++def _is_conformance_fix(commit: dict[str, object]) -> bool:
++    """Return True when a semantic-change commit documents an EIP conformance fix."""
++    fix = commit.get("conformance_fix")
++    if commit.get("category") != "semantic-change" or not isinstance(fix, dict):
++        return False
++    eip = fix.get("eip")
++    tests = fix.get("tests")
++    return (
++        isinstance(eip, str)
++        and re.fullmatch(r"EIP-\d+", eip) is not None
++        and isinstance(tests, list)
++        and len(tests) > 0
++        and all(isinstance(t, str) and bool(t.strip()) for t in tests)
++    )
++
++
+ def _validate_audit() -> None:
+     """Validate internal invariants of the audit record."""
+     if FORK_AUDIT["fork_ahead_by"] != len(FORK_AUDIT["commits"]):
+@@ -436,9 +489,12 @@ def _validate_audit() -> None:
+                 f"commit {commit['sha'][:10]} has unsupported category "
+                 f"{commit.get('category')!r}"
+             )
+-        if commit.get("semantic_change") is not False:
++        if commit.get("semantic_change") is not False and not (
++            commit.get("semantic_change") is True and _is_conformance_fix(commit)
++        ):
+             raise RuntimeError(
+-                f"commit {commit['sha'][:10]} must be non-semantic; "
++                f"commit {commit['sha'][:10]} must be non-semantic unless "
++                f"accompanied by a valid conformance_fix record; other "
+                 f"semantic changes require Issue #1722 scope expansion"
+             )
+         if not re.match(r"^[0-9a-f]{40}$", commit["sha"]):
+diff --git a/scripts/test_generate_evmyullean_fork_audit.py b/scripts/test_generate_evmyullean_fork_audit.py
+index a1dc5e66d..cb6e6974a 100644
+--- a/scripts/test_generate_evmyullean_fork_audit.py
++++ b/scripts/test_generate_evmyullean_fork_audit.py
+@@ -81,6 +81,25 @@ class ForkAuditValidationTests(unittest.TestCase):
+                 with self.assertRaisesRegex(RuntimeError, "inputRev"):
+                     audit._cross_check_manifest_pin()
+ 
++    def test_validate_audit_rejects_semantic_change_without_conformance_fix(self) -> None:
++        fork_audit = deepcopy(audit.FORK_AUDIT)
++        fork_audit["commits"][0]["category"] = "semantic-change"
++        fork_audit["commits"][0]["semantic_change"] = True
++        fork_audit["commits"][0].pop("conformance_fix", None)
++        with patch.object(audit, "FORK_AUDIT", fork_audit):
++            with self.assertRaisesRegex(RuntimeError, "conformance_fix"):
++                audit._validate_audit()
++
++    def test_validate_audit_rejects_conformance_fix_without_tests(self) -> None:
++        fork_audit = deepcopy(audit.FORK_AUDIT)
++        fork_audit["commits"][-1]["conformance_fix"] = {"eip": "EIP-211", "tests": []}
++        with patch.object(audit, "FORK_AUDIT", fork_audit):
++            with self.assertRaisesRegex(RuntimeError, "conformance_fix"):
++                audit._validate_audit()
++
++    def test_validate_audit_accepts_current_audit(self) -> None:
++        audit._validate_audit()
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

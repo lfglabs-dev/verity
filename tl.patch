@@ -1,0 +1,1984 @@
+diff --git a/action.yml b/action.yml
+index 13f7105..7609310 100644
+--- a/action.yml
++++ b/action.yml
+@@ -141,12 +141,15 @@ runs:
+           } | LC_ALL=C sort -zu | { IFS= read -r -d '' first && { printf '%s\0' "$first"; cat; } | xargs -0 $SHA256_CMD || true; } | $SHA256_CMD | awk '{print $1}'
+         )
+         ACTION_HEAD_SHA=$(git -C "$GITHUB_ACTION_PATH" rev-parse HEAD 2>/dev/null || true)
++        if [ -z "$ACTION_HEAD_SHA" ]; then
++          ACTION_HEAD_SHA=$(printf '%s' "${TURBO_LEAN_COMMIT:-$GITHUB_ACTION_PATH}" | grep -Eo '[0-9a-fA-F]{40}' | tail -n 1 | tr 'A-F' 'a-f' || true)
++        fi
+         PREBUILT_BIN=$(command -v turbo-lean 2>/dev/null || true)
+         PREBUILT_COMMIT=""
+         if [ -n "$PREBUILT_BIN" ] && [ -x "$PREBUILT_BIN" ]; then
+           PREBUILT_COMMIT=$(cat "$(dirname "$PREBUILT_BIN")/../.commit" 2>/dev/null || true)
+         fi
+-        if [ -n "$ACTION_HEAD_SHA" ] && [ "$PREBUILT_COMMIT" = "$ACTION_HEAD_SHA" ] && [ -z "$(git -C "$GITHUB_ACTION_PATH" status --porcelain 2>/dev/null || true)" ]; then
++        if [ -n "$ACTION_HEAD_SHA" ] && [ "$PREBUILT_COMMIT" = "$ACTION_HEAD_SHA" ] && { [ ! -e "$GITHUB_ACTION_PATH/.git" ] || [ -z "$(git -C "$GITHUB_ACTION_PATH" status --porcelain 2>/dev/null || true)" ]; }; then
+           cp "$PREBUILT_BIN" "$BIN_DIR/turbo-lean"
+           echo "$ACTION_SRC_HASH" > "$BIN_DIR/.src_hash"
+         elif [ -x "$GITHUB_ACTION_PATH/target/release/turbo-lean" ]; then
+diff --git a/crates/turbo-lean/src/lake_build.rs b/crates/turbo-lean/src/lake_build.rs
+index 4d9c7c2..165c4e7 100644
+--- a/crates/turbo-lean/src/lake_build.rs
++++ b/crates/turbo-lean/src/lake_build.rs
+@@ -6294,6 +6294,8 @@ pub(crate) fn recheck_dependents_if_nonlocal_with_options(
+                         let mut fresh_cache =
+                             crate::module_builder::LakeClosureCache::for_project(&cfg);
+                         fresh_cache.allow_stale_manifest_hydration = true;
++                        fresh_cache.post_lake_refresh =
++                            !verified_sources_manifest_path(&dir).is_file();
+                         let mut all_ok = true;
+                         for m in &closure_mods {
+                             let spec_opt = crate::module_builder::resolve_module_in_package(
+@@ -6403,7 +6405,7 @@ pub(crate) fn recheck_dependents_if_nonlocal_with_options(
+                             &clean_mods,
+                         )?;
+                     }
+-                } else if !closure_files.is_empty() {
++                } else if !closure_files.is_empty() && (!ordered_targets.is_empty() || file == dir) {
+                     ensure_modules_and_imports_replayed(
+                         store,
+                         &dir,
+@@ -7543,17 +7545,31 @@ pub(crate) fn lake_recheck_dependents_with_store_and_options(
+                 &closure.cfg.root_pkg,
+                 &allowed,
+             );
+-            let touches_assurance = closure
+-                .edited_dag_modules
+-                .iter()
+-                .any(|m| assurance.mod_names.contains(m));
++            let touches_assurance = mods.iter().any(|m| assurance.mod_names.contains(m))
++                || closure
++                    .edited_dag_modules
++                    .iter()
++                    .any(|m| assurance.mod_names.contains(m));
++            let can_use_native_rebuild = !allow_sorry
++                && !touches_assurance
++                && store_opt.is_some()
++                && closure.deleted_modules.is_empty()
++                && !lake_inputs_changed_since_manifest(canon_dir)
++                && closure
++                    .dag
++                    .as_ref()
++                    .is_some_and(|dag| mods.iter().all(|m| dag.nodes.contains_key(m)))
++                && (retain_standalone_oleans
++                    || mods.iter().all(|m| {
++                        crate::module_builder::exe_targets_for_module(&closure.cfg, m).is_empty()
++                    }));
+             let cutoff_attempted = if !allow_sorry && !touches_assurance {
+                 if let (Some(sr), Some(dag)) = (store_root, closure.dag.as_ref()) {
+                     let stage1_targets =
+                         lake_refresh_targets(canon_dir, &closure.edited_dag_modules);
+                     let stage1_only_modules = !closure.edited_dag_modules.is_empty()
+                         && closure.deleted_modules.is_empty()
+-                        && stage1_targets == closure.edited_dag_modules;
++                        && (can_use_native_rebuild || stage1_targets == closure.edited_dag_modules);
+                     if stage1_only_modules {
+                         capture_pre_rebuild_module_baselines(
+                             sr,
+@@ -7663,7 +7679,22 @@ pub(crate) fn lake_recheck_dependents_with_store_and_options(
+                 effective_standalone = stage2_standalone;
+                 (rechecked_mods.len(), rechecked_files, rechecked_mods)
+             } else {
+-                lake_build_modules(canon_dir, &lake_refresh_targets(canon_dir, &mods), rev)?;
++                if can_use_native_rebuild {
++                    let s = store_opt.expect("store_opt verified by can_use_native_rebuild");
++                    let mut mut_store = TurboStore::open(Some(&s.root))?;
++                    crate::module_builder::build_project_modules_native(
++                        &mut mut_store,
++                        canon_dir,
++                        &mods,
++                        "trusted",
++                        0,
++                        false,
++                        true,
++                        None,
++                    )?;
++                } else {
++                    lake_build_modules(canon_dir, &lake_refresh_targets(canon_dir, &mods), rev)?;
++                }
+                 if !allow_sorry {
+                     if let (Some(s), Some(dag)) = (store_opt, closure.dag.as_ref()) {
+                         let _ = stamp_manifest_after_lake_cutoff_rebuild(
+diff --git a/crates/turbo-lean/src/module_builder.rs b/crates/turbo-lean/src/module_builder.rs
+index eef590e..196d0fc 100644
+--- a/crates/turbo-lean/src/module_builder.rs
++++ b/crates/turbo-lean/src/module_builder.rs
+@@ -1487,7 +1487,16 @@ pub(crate) fn parse_toolchain_major_minor(toolchain: &str) -> Option<(u32, u32)>
+ }
+ 
+ /// Lean/Lake `< 4.33` nests `deps` + `libs` inside `[format!("{}:deps", mod_name), [...]]`
+-/// in `.trace` `"inputs"`, whereas `>= 4.33` emits `deps` and `libs` as separate top-level entries.
++fn trace_matches_src_raw(tv: &serde_json::Value, src_raw: &str) -> bool {
++    if tv.get("inputs").is_none() {
++        return true;
++    }
++    let exp = format!("{:016x}", lake_hash_text(src_raw));
++    trace_recorded_src_hash(tv) == Some(exp.as_str())
++        || ["/inputs/3/1", "/inputs/4/1"]
++            .iter()
++            .any(|p| tv.pointer(p).and_then(|v| v.as_str()) == Some(exp.as_str()))
++}
+ pub(crate) fn lake_trace_uses_nested_mod_deps(toolchain: &str) -> bool {
+     matches!(parse_toolchain_major_minor(toolchain), Some((4, minor)) if minor < 33)
+ }
+@@ -7650,6 +7659,26 @@ pub(crate) fn resolve_importable_module_in_package(
+     resolve_module_in_package_mode(pkg, is_root_pkg, mod_name, false)
+ }
+ 
++pub(crate) fn resolve_importable_in_project(
++    cfg: &ProjectConfig,
++    mod_name: &str,
++) -> Option<DiscoveredModuleSpec> {
++    resolve_importable_module_in_package(&cfg.root_pkg, true, mod_name).or_else(|| {
++        cfg.dep_pkgs
++            .iter()
++            .find_map(|dp| resolve_importable_module_in_package(dp, false, mod_name))
++    })
++}
++
++fn check_spec_weakening(cfg: &ProjectConfig, spec: &DiscoveredModuleSpec, src: &str) -> Result<()> {
++    let r = if !spec.is_root_pkg && is_git_pinned_manifest_package(cfg, spec) {
++        splitter::reject_git_pinned_dep_checking_weakening(src)
++    } else {
++        splitter::reject_checking_weakening(src)
++    };
++    r.with_context(|| format!("Module {} ({})", spec.module_name, spec.src_path.display()))
++}
++
+ fn resolve_module_in_package_mode(
+     pkg: &PackageConfig,
+     is_root_pkg: bool,
+@@ -9414,7 +9443,7 @@ fn compute_expected_lake_module_dep_hash(
+ }
+ 
+ #[allow(clippy::type_complexity)]
+-static CLEAN_GIT_PIN_MEMO: OnceLock<Mutex<HashMap<(PathBuf, String), (u64, bool)>>> =
++static CLEAN_GIT_PIN_MEMO: OnceLock<Mutex<HashMap<(PathBuf, String), (u64, (bool, bool))>>> =
+     OnceLock::new();
+ static TRUSTED_SNAPSHOT_GIT_PIN_DIRS: OnceLock<Mutex<HashSet<(PathBuf, String)>>> = OnceLock::new();
+ 
+@@ -9567,27 +9596,28 @@ pub(crate) fn package_gitlink_touches_lean(rel: &Path, pkg: &PackageConfig) -> b
+     false
+ }
+ 
+-pub(crate) fn is_clean_pinned_git_checkout(
++pub(crate) fn clean_pinned_git_checkout_status(
+     pkg_root: &Path,
+     expected_rev: &str,
+     pkg_opt: Option<&PackageConfig>,
+-) -> bool {
++) -> (bool, bool) {
+     let expected = expected_rev.trim();
+     if expected.is_empty()
+         || expected.starts_with('-')
+         || !matches!(expected.len(), 40 | 64)
+         || !expected.bytes().all(|b| b.is_ascii_hexdigit())
+     {
+-        return false;
++        return (false, false);
+     }
+     let Ok(canon) = pkg_root.canonicalize() else {
+-        return false;
++        return (false, false);
+     };
+     if !canon.join(".git").exists() {
+-        return TRUSTED_SNAPSHOT_GIT_PIN_DIRS
++        let ok = TRUSTED_SNAPSHOT_GIT_PIN_DIRS
+             .get()
+             .and_then(|s| s.lock().ok())
+             .is_some_and(|g| g.contains(&(canon, expected.to_ascii_lowercase())));
++        return (ok, ok);
+     }
+     let cfg_tag = pkg_opt.map(|p| p.config_digest.clone()).unwrap_or_default();
+     let window = current_memo_window();
+@@ -9597,13 +9627,13 @@ pub(crate) fn is_clean_pinned_git_checkout(
+     );
+     let memo = CLEAN_GIT_PIN_MEMO.get_or_init(|| Mutex::new(HashMap::new()));
+     if let Ok(guard) = memo.lock() {
+-        if let Some(&(cached_win, ok)) = guard.get(&key) {
++        if let Some(&(cached_win, res)) = guard.get(&key) {
+             if cached_win == window {
+-                return ok;
++                return res;
+             }
+         }
+     }
+-    let computed = (|| -> Option<bool> {
++    let computed = (|| -> Option<(bool, bool)> {
+         let mut allowed_gitlinks: Vec<PathBuf> = Vec::new();
+         if crate::trusted_tools::reject_gitlinks_filtered(
+             &canon,
+@@ -9619,34 +9649,53 @@ pub(crate) fn is_clean_pinned_git_checkout(
+         )
+         .is_err()
+         {
+-            return Some(false);
++            return Some((false, false));
+         }
+         allowed_gitlinks.sort();
+         allowed_gitlinks.dedup();
+-        let mut rev_cmd = crate::trusted_tools::git(&canon).ok()?;
+-        let rev_out = rev_cmd
+-            .args([
+-                "--no-optional-locks",
+-                "-C",
+-                &canon.to_string_lossy(),
+-                "rev-parse",
+-                "HEAD",
+-            ])
++        let canon_s = canon.to_string_lossy();
++        let rev_out = crate::trusted_tools::git(&canon)
++            .ok()?
++            .args(["--no-optional-locks", "-C", &canon_s, "rev-parse", "HEAD"])
+             .output()
+             .ok()?;
+-        if !rev_out.status.success() {
+-            return Some(false);
++        if !rev_out.status.success()
++            || !String::from_utf8_lossy(&rev_out.stdout)
++                .trim()
++                .eq_ignore_ascii_case(expected)
++        {
++            return Some((false, false));
++        }
++        let mut ls_args = vec![
++            "--no-optional-locks".to_string(),
++            "-C".to_string(),
++            canon_s.to_string(),
++            "ls-files".to_string(),
++            "-z".to_string(),
++            "--".to_string(),
++            ".lake".to_string(),
++        ];
++        if let Some(pkg) = pkg_opt {
++            let bd = pkg.build_dir.strip_prefix(&pkg.pkg_root).unwrap_or(&pkg.build_dir);
++            if !bd.as_os_str().is_empty() && !bd.starts_with(".lake") {
++                ls_args.push(bd.to_string_lossy().to_string());
++            }
+         }
+-        let head_rev = String::from_utf8_lossy(&rev_out.stdout);
+-        if !head_rev.trim().eq_ignore_ascii_case(expected) {
+-            return Some(false);
++        let ls_out = crate::trusted_tools::git(&canon)
++            .ok()?
++            .args(&ls_args)
++            .output()
++            .ok()?;
++        if !ls_out.status.success() {
++            return Some((false, false));
+         }
+-        let mut st_cmd = crate::trusted_tools::git(&canon).ok()?;
+-        let st_out = st_cmd
++        let build_untracked_only = ls_out.stdout.is_empty();
++        let st_out = crate::trusted_tools::git(&canon)
++            .ok()?
+             .args([
+                 "--no-optional-locks",
+                 "-C",
+-                &canon.to_string_lossy(),
++                &canon_s,
+                 "status",
+                 "--porcelain",
+                 "-z",
+@@ -9656,28 +9705,33 @@ pub(crate) fn is_clean_pinned_git_checkout(
+             .output()
+             .ok()?;
+         if !st_out.status.success() {
+-            return Some(false);
++            return Some((false, false));
+         }
+-        let entries = st_out.stdout.split(|&b| b == 0).filter(|s| !s.is_empty());
+-        for rec in entries {
++        for rec in st_out.stdout.split(|&b| b == 0).filter(|s| !s.is_empty()) {
+             if rec.len() < 4 {
+-                return Some(false);
++                return Some((false, false));
+             }
+             let xy = &rec[..2];
+             let Ok(rel_str) = std::str::from_utf8(&rec[3..]) else {
+-                return Some(false);
++                return Some((false, false));
+             };
+             let rel = Path::new(rel_str);
+             if xy.contains(&b'R') || xy.contains(&b'C') {
+-                return Some(false);
++                return Some((false, false));
+             }
+-            if !allowed_gitlinks.iter().any(|gl| gl == rel) {
+-                return Some(false);
++            let untracked_lake = xy == b"??"
++                && build_untracked_only
++                && rel.starts_with(".lake")
++                && rel
++                    .components()
++                    .all(|c| matches!(c, std::path::Component::Normal(_)));
++            if !untracked_lake && !allowed_gitlinks.iter().any(|gl| gl == rel) {
++                return Some((false, false));
+             }
+         }
+-        Some(true)
++        Some((true, build_untracked_only))
+     })()
+-    .unwrap_or(false);
++    .unwrap_or((false, false));
+     if let Ok(mut guard) = memo.lock() {
+         if current_memo_window() == window {
+             guard.insert(key, (window, computed));
+@@ -9686,6 +9740,14 @@ pub(crate) fn is_clean_pinned_git_checkout(
+     computed
+ }
+ 
++pub(crate) fn is_clean_pinned_git_checkout(
++    pkg_root: &Path,
++    expected_rev: &str,
++    pkg_opt: Option<&PackageConfig>,
++) -> bool {
++    clean_pinned_git_checkout_status(pkg_root, expected_rev, pkg_opt).0
++}
++
+ fn spec_in_clean_git_pinned_manifest_package(
+     cfg: &ProjectConfig,
+     spec: &DiscoveredModuleSpec,
+@@ -9851,6 +9913,7 @@ fn root_module_includes_all_covered_by_lake_inputs(
+ fn source_has_disallowed_elab_host_effects_for_module(
+     cfg: &ProjectConfig,
+     is_root_pkg: bool,
++    git_pinned_untracked_build: bool,
+     is_git_pinned: bool,
+     module_name: &str,
+     src_path: &Path,
+@@ -9860,6 +9923,8 @@ fn source_has_disallowed_elab_host_effects_for_module(
+         crate::splitter::source_may_read_host_state(src_raw)
+             || crate::splitter::source_has_disallowed_root_runtime_replacement_attribute(src_raw)
+             || !root_module_includes_all_covered_by_lake_inputs(cfg, module_name, src_path, src_raw)
++    } else if git_pinned_untracked_build {
++        false
+     } else if is_git_pinned {
+         crate::splitter::source_may_read_host_state(src_raw)
+     } else {
+@@ -9872,10 +9937,18 @@ pub(crate) fn spec_source_has_disallowed_elab_host_effects(
+     spec: &DiscoveredModuleSpec,
+     src_raw: &str,
+ ) -> bool {
++    let (is_pin, untracked_build) = clean_git_pinned_pkg_status(
++        cfg,
++        spec.is_root_pkg,
++        &spec.pkg_name,
++        &spec.pkg_base_name,
++        &spec.pkg_root,
++    );
+     source_has_disallowed_elab_host_effects_for_module(
+         cfg,
+         spec.is_root_pkg,
+-        !spec.is_root_pkg && is_git_pinned_manifest_package(cfg, spec),
++        untracked_build,
++        is_pin,
+         &spec.module_name,
+         &spec.src_path,
+         src_raw,
+@@ -11332,33 +11405,9 @@ pub(crate) fn verify_module_lake_sidecars(
+     src_raw: &str,
+     is_module: bool,
+     needs_c: bool,
+-) -> Result<()> {
+-    verify_module_lake_sidecars_inner_opts(
+-        olean_path, ir_dir_opt, rel_slash, src_raw, is_module, needs_c, false, true,
+-    )
+-}
+-
+-#[allow(clippy::too_many_arguments)]
+-fn verify_module_lake_sidecars_inner_opts(
+-    olean_path: &Path,
+-    ir_dir_opt: Option<&Path>,
+-    rel_slash: &str,
+-    src_raw: &str,
+-    is_module: bool,
+-    needs_c: bool,
+-    require_inputs: bool,
+-    check_src_hash: bool,
+ ) -> Result<()> {
+     verify_module_lake_sidecars_inner_opts_ext(
+-        olean_path,
+-        ir_dir_opt,
+-        rel_slash,
+-        src_raw,
+-        is_module,
+-        needs_c,
+-        require_inputs,
+-        check_src_hash,
+-        false,
++        olean_path, ir_dir_opt, rel_slash, src_raw, is_module, needs_c, false, true, false,
+     )
+ }
+ 
+@@ -11387,23 +11436,11 @@ pub(crate) fn verify_module_lake_sidecars_inner_opts_ext(
+             olean_path.with_extension("trace").display()
+         );
+     }
+-    if check_src_hash && tv.get("inputs").is_some() {
+-        let expected_src_h = format!("{:016x}", lake_hash_text(src_raw));
+-        let src_matched = trace_recorded_src_hash(&tv) == Some(expected_src_h.as_str())
+-            || tv
+-                .pointer("/inputs/3/1")
+-                .and_then(|v| v.as_str())
+-                .is_some_and(|s| s == expected_src_h)
+-            || tv
+-                .pointer("/inputs/4/1")
+-                .and_then(|v| v.as_str())
+-                .is_some_and(|s| s == expected_src_h);
+-        if !src_matched {
+-            anyhow::bail!(
+-                "Lake module trace `{}` recorded source hash does not match source",
+-                olean_path.with_extension("trace").display()
+-            );
+-        }
++    if check_src_hash && !trace_matches_src_raw(&tv, src_raw) {
++        anyhow::bail!(
++            "Lake module trace `{}` recorded source hash does not match source",
++            olean_path.with_extension("trace").display()
++        );
+     }
+     Ok(())
+ }
+@@ -11728,7 +11765,7 @@ pub(crate) fn seed_verified_fresh_modules_into_disposable_snapshot(
+         }
+         if dst_p.symlink_metadata().is_err() {
+             let target = src_p.canonicalize().unwrap_or_else(|_| src_p.to_path_buf());
+-            fs::copy(&target, dst_p)?;
++            crate::zygote::copy_file_reflink(&target, dst_p)?;
+         }
+         Ok(())
+     };
+@@ -12037,37 +12074,82 @@ pub(crate) fn compile_overlay_modules_direct(
+         seeded_node.ilean_path = overlay_lib_dir.join(format!("{rel_slash}.ilean"));
+         overlay_dag.nodes.insert(mod_name.clone(), seeded_node);
+     }
+-    let (base_lp, ld_lp) = build_lean_search_path(cfg, true);
+-    let overlay_lp = format!("{}:{}", overlay_lib_dir.display(), base_lp);
+     for mod_name in dirty_mods {
+-        let orig_node = overlay_dag
++        let mut node = overlay_dag
+             .nodes
+             .get(mod_name)
+             .ok_or_else(|| anyhow::anyhow!("Overlay module `{}` missing from DAG", mod_name))?
+             .clone();
+         let rel_slash = module_name_to_rel_slash(mod_name);
+-        let mut node = orig_node;
+         node.pkg_root = overlay_root.to_path_buf();
+-        node.olean_path = overlay_lib_dir.join(format!("{}.olean", rel_slash));
+-        node.ilean_path = overlay_lib_dir.join(format!("{}.ilean", rel_slash));
+-        node.c_path = overlay_ir_dir.join(format!("{}.c", rel_slash));
+-        let staged = compile_single_module_staged(
+-            cfg,
+-            &overlay_dag,
+-            &node,
+-            &overlay_lp,
+-            &ld_lp,
+-            false,
+-            None,
+-            true,
+-            1,
+-        )?;
+-        let _ = publish_staged_module_compile_output(&node, staged)?;
++        node.olean_path = overlay_lib_dir.join(format!("{rel_slash}.olean"));
++        node.ilean_path = overlay_lib_dir.join(format!("{rel_slash}.ilean"));
++        node.c_path = overlay_ir_dir.join(format!("{rel_slash}.c"));
+         overlay_dag.nodes.insert(mod_name.clone(), node);
+     }
++    let (base_lp, ld_lp) = build_lean_search_path(cfg, true);
++    let overlay_lp = format!("{}:{base_lp}", overlay_lib_dir.display());
++    compile_dirty_waves_direct(cfg, &overlay_dag, &dirty_set, &overlay_lp, &ld_lp)?;
+     Ok(overlay_lib_dir)
+ }
+ 
++fn compile_dirty_waves_direct(
++    cfg: &ProjectConfig,
++    dag: &ModuleDag,
++    dirty_set: &HashSet<&str>,
++    lean_lp: &str,
++    ld_lp: &str,
++) -> Result<()> {
++    let host_cores = std::thread::available_parallelism()
++        .map(|n| n.get())
++        .unwrap_or(4);
++    for wave in &dag.waves {
++        let wmods: Vec<&String> = wave
++            .iter()
++            .filter(|m| dirty_set.contains(m.as_str()))
++            .collect();
++        if wmods.is_empty() {
++            continue;
++        }
++        let workers = host_cores.clamp(1, 8).min(wmods.len());
++        let idx = std::sync::atomic::AtomicUsize::new(0);
++        let first_err: Mutex<Option<anyhow::Error>> = Mutex::new(None);
++        std::thread::scope(|s| {
++            for _ in 0..workers {
++                s.spawn(|| loop {
++                    if first_err.lock().is_ok_and(|g| g.is_some()) {
++                        break;
++                    }
++                    let i = idx.fetch_add(1, Ordering::Relaxed);
++                    let Some(m) = wmods.get(i) else {
++                        break;
++                    };
++                    let res = dag
++                        .nodes
++                        .get(*m)
++                        .ok_or_else(|| anyhow::anyhow!("Module `{}` missing from DAG", m))
++                        .and_then(|node| {
++                            let staged = compile_single_module_staged(
++                                cfg, dag, node, lean_lp, ld_lp, false, None, true, workers,
++                            )?;
++                            publish_staged_module_compile_output(node, staged).map(|_| ())
++                        });
++                    if let Err(e) = res {
++                        if let Ok(mut g) = first_err.lock() {
++                            g.get_or_insert(e);
++                        }
++                        break;
++                    }
++                });
++            }
++        });
++        if let Some(e) = first_err.into_inner().ok().flatten() {
++            return Err(e);
++        }
++    }
++    Ok(())
++}
++
+ pub(crate) fn compile_disposable_snapshot_dirty_modules_direct(
+     cfg: &ProjectConfig,
+     dag: &ModuleDag,
+@@ -12087,10 +12169,6 @@ pub(crate) fn compile_disposable_snapshot_dirty_modules_direct(
+     fs::create_dir_all(&root_ir_dir)?;
+     let (lean_lp, ld_lp) = build_lean_search_path(cfg, false);
+     for mod_name in dirty_mods {
+-        let node = dag
+-            .nodes
+-            .get(mod_name)
+-            .ok_or_else(|| anyhow::anyhow!("Snapshot module `{}` missing from DAG", mod_name))?;
+         let rel_slash = module_name_to_rel_slash(mod_name);
+         for suffix in [
+             ".olean",
+@@ -12107,22 +12185,30 @@ pub(crate) fn compile_disposable_snapshot_dirty_modules_direct(
+             ".ir.sig.hash",
+             ".trace",
+         ] {
+-            let p = root_lib_lean.join(format!("{rel_slash}{suffix}"));
+-            if p.symlink_metadata().is_ok() {
+-                let _ = fs::remove_file(&p);
+-            }
++            let _ = fs::remove_file(root_lib_lean.join(format!("{rel_slash}{suffix}")));
+         }
+         for suffix in [".c", ".c.hash"] {
+-            let p = root_ir_dir.join(format!("{rel_slash}{suffix}"));
+-            if p.symlink_metadata().is_ok() {
+-                let _ = fs::remove_file(&p);
+-            }
++            let _ = fs::remove_file(root_ir_dir.join(format!("{rel_slash}{suffix}")));
+         }
+-        let staged =
+-            compile_single_module_staged(cfg, dag, node, &lean_lp, &ld_lp, false, None, true, 1)?;
+-        let _ = publish_staged_module_compile_output(node, staged)?;
+     }
+-    Ok(())
++    let dirty_set: HashSet<&str> = dirty_mods.iter().map(String::as_str).collect();
++    compile_dirty_waves_direct(cfg, dag, &dirty_set, &lean_lp, &ld_lp)
++}
++
++pub(crate) fn clean_git_pinned_pkg_status(
++    cfg: &ProjectConfig,
++    is_root_pkg: bool,
++    pkg_name: &str,
++    pkg_base_name: &str,
++    pkg_root: &Path,
++) -> (bool, bool) {
++    if is_root_pkg {
++        return (false, false);
++    }
++    manifest_pinned_git_rev_for_pkg(cfg, pkg_name, pkg_base_name, pkg_root).map_or(
++        (false, false),
++        |rev| clean_pinned_git_checkout_status(pkg_root, rev, package_by_root(cfg, pkg_root)),
++    )
+ }
+ 
+ fn is_clean_git_pinned_pkg(
+@@ -12132,10 +12218,7 @@ fn is_clean_git_pinned_pkg(
+     pkg_base_name: &str,
+     pkg_root: &Path,
+ ) -> bool {
+-    !is_root_pkg
+-        && manifest_pinned_git_rev_for_pkg(cfg, pkg_name, pkg_base_name, pkg_root).is_some_and(
+-            |rev| is_clean_pinned_git_checkout(pkg_root, rev, package_by_root(cfg, pkg_root)),
+-        )
++    clean_git_pinned_pkg_status(cfg, is_root_pkg, pkg_name, pkg_base_name, pkg_root).0
+ }
+ 
+ fn is_git_pinned_manifest_package(cfg: &ProjectConfig, spec: &DiscoveredModuleSpec) -> bool {
+@@ -12423,15 +12506,7 @@ fn collect_fresh_dep_pkg_closure(
+             let Ok(src) = fs::read_to_string(&cur.src_path) else {
+                 return Ok(None);
+             };
+-            if !cur.is_root_pkg && is_git_pinned_manifest_package(cfg, &cur) {
+-                splitter::reject_git_pinned_dep_checking_weakening(&src).with_context(|| {
+-                    format!("Module {} ({})", cur.module_name, cur.src_path.display())
+-                })?;
+-            } else {
+-                splitter::reject_checking_weakening(&src).with_context(|| {
+-                    format!("Module {} ({})", cur.module_name, cur.src_path.display())
+-                })?;
+-            }
++            check_spec_weakening(cfg, &cur, &src)?;
+             if spec_source_has_disallowed_elab_host_effects(cfg, &cur, &src) {
+                 return Ok(None);
+             }
+@@ -13218,19 +13293,7 @@ fn collect_prebuilt_dep_pkg_closure_for_statement(
+                     let Ok(src) = fs::read_to_string(&cur.src_path) else {
+                         return Ok(None);
+                     };
+-                    if is_git_pinned {
+-                        splitter::reject_git_pinned_dep_checking_weakening(&src)
+-                            .with_context(|| {
+-                                format!("Module {} ({})", cur.module_name, cur.src_path.display())
+-                            })
+-                            .map_err(|e| format!("{e:#}"))?;
+-                    } else {
+-                        splitter::reject_checking_weakening(&src)
+-                            .with_context(|| {
+-                                format!("Module {} ({})", cur.module_name, cur.src_path.display())
+-                            })
+-                            .map_err(|e| format!("{e:#}"))?;
+-                    }
++                    check_spec_weakening(cfg, &cur, &src).map_err(|e| format!("{e:#}"))?;
+                     if spec_source_has_disallowed_elab_host_effects(cfg, &cur, &src) {
+                         return Ok(None);
+                     }
+@@ -13252,21 +13315,8 @@ fn collect_prebuilt_dep_pkg_closure_for_statement(
+                     ) else {
+                         return Ok(None);
+                     };
+-                    if tv.get("inputs").is_some() {
+-                        let expected_src_h = format!("{:016x}", lake_hash_text(&src));
+-                        let src_matched = trace_recorded_src_hash(&tv)
+-                            == Some(expected_src_h.as_str())
+-                            || tv
+-                                .pointer("/inputs/3/1")
+-                                .and_then(|v| v.as_str())
+-                                .is_some_and(|s| s == expected_src_h)
+-                            || tv
+-                                .pointer("/inputs/4/1")
+-                                .and_then(|v| v.as_str())
+-                                .is_some_and(|s| s == expected_src_h);
+-                        if !src_matched {
+-                            return Ok(None);
+-                        }
++                    if !trace_matches_src_raw(&tv, &src) {
++                        return Ok(None);
+                     }
+                     let mut lc_visiting = HashSet::new();
+                     if lake_closure_export_info(
+@@ -14433,15 +14483,7 @@ fn build_module_dag_inner(
+                     spec.src_path.display()
+                 )
+             })?;
+-            if !spec.is_root_pkg && is_git_pinned_manifest_package(cfg, &spec) {
+-                splitter::reject_git_pinned_dep_checking_weakening(&src).with_context(|| {
+-                    format!("Module {} ({})", spec.module_name, spec.src_path.display())
+-                })?;
+-            } else {
+-                splitter::reject_checking_weakening(&src).with_context(|| {
+-                    format!("Module {} ({})", spec.module_name, spec.src_path.display())
+-                })?;
+-            }
++            check_spec_weakening(cfg, &spec, &src)?;
+             let src_blake3 = blake3::hash(src.as_bytes()).to_hex().to_string();
+             let header = parse_header_info(&src);
+             if let Some(ref herr) = header.header_error {
+@@ -18542,21 +18584,10 @@ fn compute_lake_export_info_opts(
+                     .find(|(m, _)| m == mod_name)
+             })
+         {
+-            let src_opt = resolve_importable_module_in_package(&cfg.root_pkg, true, mod_name)
+-                .or_else(|| {
+-                    cfg.dep_pkgs
+-                        .iter()
+-                        .find_map(|dp| resolve_importable_module_in_package(dp, false, mod_name))
+-                })
+-                .map(|sp| sp.src_path);
++            let src_opt = resolve_importable_in_project(cfg, mod_name).map(|sp| sp.src_path);
+             Some((src_opt, ext_p.clone(), false))
+         } else {
+-            resolve_importable_module_in_package(&cfg.root_pkg, true, mod_name)
+-                .or_else(|| {
+-                    cfg.dep_pkgs
+-                        .iter()
+-                        .find_map(|dp| resolve_importable_module_in_package(dp, false, mod_name))
+-                })
++            resolve_importable_in_project(cfg, mod_name)
+                 .map(|sp| {
+                     let rel_slash = module_name_to_rel_slash(mod_name);
+                     let olean_p = sp.build_lib_lean_dir.join(format!("{}.olean", rel_slash));
+@@ -18601,24 +18632,12 @@ fn compute_lake_export_info_opts(
+         compute_module_arts_traces(&olean_path, is_mod, true)?;
+     if !(allow_stale_src_in_dag && is_in_dag) {
+         if let Some((_, ref src_raw, _)) = dep_src_info {
+-            if tv.get("inputs").is_some() {
+-                let expected_src_h = format!("{:016x}", lake_hash_text(src_raw));
+-                let src_matched = trace_recorded_src_hash(&tv) == Some(expected_src_h.as_str())
+-                    || tv
+-                        .pointer("/inputs/3/1")
+-                        .and_then(|v| v.as_str())
+-                        .is_some_and(|s| s == expected_src_h)
+-                    || tv
+-                        .pointer("/inputs/4/1")
+-                        .and_then(|v| v.as_str())
+-                        .is_some_and(|s| s == expected_src_h);
+-                if !src_matched {
+-                    anyhow::bail!(
+-                        "Dependency trace `{}` recorded source hash does not match `{}`",
+-                        olean_path.with_extension("trace").display(),
+-                        mod_name
+-                    );
+-                }
++            if !trace_matches_src_raw(&tv, src_raw) {
++                anyhow::bail!(
++                    "Dependency trace `{}` recorded source hash does not match `{}`",
++                    olean_path.with_extension("trace").display(),
++                    mod_name
++                );
+             }
+         }
+     }
+@@ -18639,11 +18658,7 @@ fn compute_lake_export_info_opts(
+                         .iter()
+                         .any(|(m, _)| m == &sub_imp.module)
+                 })
+-                || resolve_importable_module_in_package(&cfg.root_pkg, true, &sub_imp.module)
+-                    .is_some()
+-                || cfg.dep_pkgs.iter().any(|dp| {
+-                    resolve_importable_module_in_package(dp, false, &sub_imp.module).is_some()
+-                })
++                || resolve_importable_in_project(cfg, &sub_imp.module).is_some()
+                 || matches!(
+                     resolve_import_site(cfg, &sub_imp.module),
+                     ImportSite::Module(_) | ImportSite::Prebuilt(_)
+@@ -18981,10 +18996,7 @@ fn write_lake_module_hashes_and_trace_with_memo(
+                     .nodes
+                     .values()
+                     .any(|n| n.external_olean_deps.iter().any(|(m, _)| m == &imp.module))
+-                || resolve_importable_module_in_package(&cfg.root_pkg, true, &imp.module).is_some()
+-                || cfg.dep_pkgs.iter().any(|dp| {
+-                    resolve_importable_module_in_package(dp, false, &imp.module).is_some()
+-                })
++                || resolve_importable_in_project(cfg, &imp.module).is_some()
+                 || matches!(
+                     resolve_import_site(cfg, &imp.module),
+                     ImportSite::Module(_) | ImportSite::Prebuilt(_)
+@@ -19652,30 +19664,19 @@ fn build_setup_json(
+         if let Some(dn) = dag.nodes.get(m) {
+             return Some((dn.olean_path.clone(), dn.is_module, dn.import_specs.clone()));
+         }
++        let pkg_spec = resolve_importable_in_project(cfg, m);
+         let olean_p = node
+             .external_olean_deps
+             .iter()
+             .find(|(em, _)| em == m)
+             .map(|(_, p)| p.clone())
+             .or_else(|| {
+-                resolve_importable_module_in_package(&cfg.root_pkg, true, m)
+-                    .or_else(|| {
+-                        cfg.dep_pkgs
+-                            .iter()
+-                            .find_map(|dp| resolve_importable_module_in_package(dp, false, m))
+-                    })
+-                    .map(|sp| {
+-                        sp.build_lib_lean_dir
+-                            .join(format!("{}.olean", module_name_to_rel_slash(m)))
+-                    })
++                pkg_spec.as_ref().map(|sp| {
++                    sp.build_lib_lean_dir
++                        .join(format!("{}.olean", module_name_to_rel_slash(m)))
++                })
+             })?;
+-        let src_opt = resolve_importable_module_in_package(&cfg.root_pkg, true, m)
+-            .or_else(|| {
+-                cfg.dep_pkgs
+-                    .iter()
+-                    .find_map(|dp| resolve_importable_module_in_package(dp, false, m))
+-            })
+-            .map(|sp| sp.src_path);
++        let src_opt = pkg_spec.map(|sp| sp.src_path);
+         let (is_mod, specs) = match src_opt {
+             Some(sp) if sp.is_file() => {
+                 let raw = fs::read_to_string(&sp).unwrap_or_default();
+@@ -22292,10 +22293,18 @@ fn node_source_has_disallowed_elab_host_effects(
+     node: &ModuleNode,
+     src_raw: &str,
+ ) -> bool {
++    let (is_pin, untracked_build) = clean_git_pinned_pkg_status(
++        cfg,
++        node.is_root_pkg,
++        &node.pkg_name,
++        &node.pkg_base_name,
++        &node.pkg_root,
++    );
+     source_has_disallowed_elab_host_effects_for_module(
+         cfg,
+         node.is_root_pkg,
+-        !node.is_root_pkg && node_is_git_pinned_manifest_package(cfg, node),
++        untracked_build,
++        is_pin,
+         &node.module_name,
+         &node.src_path,
+         src_raw,
+@@ -22306,32 +22315,17 @@ fn compute_tainted_elab_host_effect_modules(
+     cfg: &ProjectConfig,
+     dag: &ModuleDag,
+ ) -> HashSet<String> {
+-    let mut ext_tainted_memo: HashMap<PathBuf, bool> = HashMap::new();
+-    let mut tainted: HashSet<String> = HashSet::new();
+-    for mod_name in &dag.topological_order {
+-        let Some(node) = dag.nodes.get(mod_name) else {
+-            continue;
+-        };
+-        let self_tainted = fs::read_to_string(&node.src_path)
+-            .map(|s| node_source_has_disallowed_elab_host_effects(cfg, node, &s))
+-            .unwrap_or(true);
+-        let dag_dep_tainted = node.direct_dag_deps.iter().any(|d| tainted.contains(d));
+-        let ext_dep_tainted = node.external_olean_deps.iter().any(|(_, olean_path)| {
+-            *ext_tainted_memo
+-                .entry(olean_path.clone())
+-                .or_insert_with(|| {
+-                    resolve_source_spec_for_prebuilt_olean(cfg, olean_path).is_some_and(|spec| {
+-                        fs::read_to_string(&spec.src_path)
+-                            .map(|s| spec_source_has_disallowed_elab_host_effects(cfg, &spec, &s))
+-                            .unwrap_or(true)
+-                    })
+-                })
+-        });
+-        if self_tainted || dag_dep_tainted || ext_dep_tainted {
+-            tainted.insert(mod_name.clone());
+-        }
+-    }
+-    tainted
++    dag.topological_order
++        .iter()
++        .filter(|mod_name| {
++            dag.nodes.get(*mod_name).is_some_and(|node| {
++                fs::read_to_string(&node.src_path)
++                    .map(|s| node_source_has_disallowed_elab_host_effects(cfg, node, &s))
++                    .unwrap_or(true)
++            })
++        })
++        .cloned()
++        .collect()
+ }
+ 
+ pub(crate) fn record_verified_dep_source(
+@@ -22894,11 +22888,7 @@ fn probe_warm_on_disk_module_candidate(
+                 .external_olean_deps
+                 .iter()
+                 .any(|(m, _)| m == &imp.module)
+-            || resolve_importable_module_in_package(&cfg.root_pkg, true, &imp.module).is_some()
+-            || cfg
+-                .dep_pkgs
+-                .iter()
+-                .any(|dp| resolve_importable_module_in_package(dp, false, &imp.module).is_some())
++            || resolve_importable_in_project(cfg, &imp.module).is_some()
+             || matches!(
+                 resolve_import_site(cfg, &imp.module),
+                 ImportSite::Module(_) | ImportSite::Prebuilt(_)
+@@ -23310,15 +23300,9 @@ fn resolve_dep_module_visibility_spec(
+     if let Some(dn) = dag.nodes.get(mod_name) {
+         return (dn.is_module, Some(dn.import_specs.clone()));
+     }
+-    let src_opt = resolve_importable_module_in_package(&cfg.root_pkg, true, mod_name)
+-        .or_else(|| {
+-            cfg.dep_pkgs
+-                .iter()
+-                .find_map(|dp| resolve_importable_module_in_package(dp, false, mod_name))
+-        })
+-        .map(|sp| sp.src_path);
+-    if let Some(sp) = src_opt.filter(|p| p.is_file()) {
+-        if let Ok(raw) = fs::read_to_string(&sp) {
++    let pkg_spec = resolve_importable_in_project(cfg, mod_name);
++    if let Some(sp) = pkg_spec.as_ref().map(|sp| &sp.src_path).filter(|p| p.is_file()) {
++        if let Ok(raw) = fs::read_to_string(sp) {
+             let hdr = parse_header_info(&raw);
+             return (hdr.is_module, Some(hdr.import_specs));
+         }
+@@ -23329,16 +23313,10 @@ fn resolve_dep_module_visibility_spec(
+         .find(|(em, _)| em == mod_name)
+         .map(|(_, p)| p.clone())
+         .or_else(|| {
+-            resolve_importable_module_in_package(&cfg.root_pkg, true, mod_name)
+-                .or_else(|| {
+-                    cfg.dep_pkgs
+-                        .iter()
+-                        .find_map(|dp| resolve_importable_module_in_package(dp, false, mod_name))
+-                })
+-                .map(|sp| {
+-                    sp.build_lib_lean_dir
+-                        .join(format!("{}.olean", module_name_to_rel_slash(mod_name)))
+-                })
++            pkg_spec.map(|sp| {
++                sp.build_lib_lean_dir
++                    .join(format!("{}.olean", module_name_to_rel_slash(mod_name)))
++            })
+         });
+     if let Some((specs, is_mod)) = olean_opt
+         .as_ref()
+diff --git a/crates/turbo-lean/src/pr_verify.rs b/crates/turbo-lean/src/pr_verify.rs
+index 653f2ca..f8ba917 100644
+--- a/crates/turbo-lean/src/pr_verify.rs
++++ b/crates/turbo-lean/src/pr_verify.rs
+@@ -6057,13 +6057,32 @@ fn trusted_dep_snapshot_rel_path(
+     None
+ }
+ 
+-fn package_has_lean_elab_host_effects(pkg: &crate::module_builder::PackageConfig) -> bool {
++fn norm_clean_subpath(p: &Path) -> PathBuf {
++    let mut out = PathBuf::new();
++    for c in p.components() {
++        match c {
++            std::path::Component::CurDir => {}
++            std::path::Component::ParentDir => {
++                out.pop();
++            }
++            other => out.push(other),
++        }
++    }
++    out
++}
++
++fn scan_dep_lean_files<F>(pkg: &crate::module_builder::PackageConfig, mut bad: F) -> bool
++where
++    F: FnMut(&Path, &str) -> bool,
++{
+     let Ok(dep_root) = pkg.pkg_root.canonicalize() else {
+         return true;
+     };
+-    let build_abs = dep_root.join(&pkg.build_dir);
+-    let pkgs_abs = dep_root.join(&pkg.packages_dir);
+-    let lake_abs = dep_root.join(".lake");
++    let (build_abs, pkgs_abs, lake_abs) = (
++        dep_root.join(&pkg.build_dir),
++        dep_root.join(&pkg.packages_dir),
++        dep_root.join(".lake"),
++    );
+     let mut stack = vec![dep_root];
+     while let Some(dir) = stack.pop() {
+         let Ok(rd) = fs::read_dir(&dir) else {
+@@ -6090,7 +6109,7 @@ fn package_has_lean_elab_host_effects(pkg: &crate::module_builder::PackageConfig
+                 let Ok(src) = fs::read_to_string(&p) else {
+                     return true;
+                 };
+-                if splitter::source_may_execute_elab_host_effects(&src, false) {
++                if bad(&p, &src) {
+                     return true;
+                 }
+             }
+@@ -6099,34 +6118,32 @@ fn package_has_lean_elab_host_effects(pkg: &crate::module_builder::PackageConfig
+     false
+ }
+ 
+-fn package_may_read_host_state(pkg: &crate::module_builder::PackageConfig) -> bool {
++fn package_has_lean_elab_host_effects(pkg: &crate::module_builder::PackageConfig) -> bool {
++    scan_dep_lean_files(pkg, |_, src| {
++        splitter::source_may_execute_elab_host_effects(src, false)
++    })
++}
++
++fn package_may_read_host_state(
++    pkg: &crate::module_builder::PackageConfig,
++    untracked_build: bool,
++) -> bool {
+     let Ok(dep_root) = pkg.pkg_root.canonicalize() else {
+         return true;
+     };
+     let build_abs = dep_root.join(&pkg.build_dir);
+-    let pkgs_abs = dep_root.join(&pkg.packages_dir);
+-    let lake_abs = dep_root.join(".lake");
+     let build_lean_abs = build_abs.join(&pkg.lean_lib_dir);
++    let build_ir_abs = build_abs.join(&pkg.ir_dir);
+     let has_any_built_olean = build_lean_abs.is_dir();
+-    let norm_sub = |p: &Path| -> PathBuf {
+-        let mut out = PathBuf::new();
+-        for c in p.components() {
+-            match c {
+-                std::path::Component::CurDir => {}
+-                std::path::Component::ParentDir => {
+-                    out.pop();
+-                }
+-                other => out.push(other),
+-            }
+-        }
+-        out
+-    };
+-    let pkg_src_base = norm_sub(&dep_root.join(&pkg.src_dir));
++    if untracked_build && !has_any_built_olean {
++        return false;
++    }
++    let pkg_src_base = norm_clean_subpath(&dep_root.join(&pkg.src_dir));
+     let mut lib_roots: Vec<PathBuf> = pkg
+         .libs
+         .iter()
+         .map(|l| match &l.src_dir {
+-            Some(sd) => norm_sub(&pkg_src_base.join(sd)),
++            Some(sd) => norm_clean_subpath(&pkg_src_base.join(sd)),
+             None => pkg_src_base.clone(),
+         })
+         .collect();
+@@ -6135,50 +6152,44 @@ fn package_may_read_host_state(pkg: &crate::module_builder::PackageConfig) -> bo
+     }
+     lib_roots.sort();
+     lib_roots.dedup();
+-    let mut stack = vec![dep_root.clone()];
+-    while let Some(dir) = stack.pop() {
+-        let Ok(rd) = fs::read_dir(&dir) else {
++    let lakefile = dep_root.join("lakefile.lean");
++    scan_dep_lean_files(pkg, |p, src| {
++        if p == lakefile {
++            return false;
++        }
++        let rel_opt = lib_roots.iter().find_map(|lr| {
++            let rel = p.strip_prefix(lr).ok()?;
++            build_lean_abs
++                .join(rel.with_extension("olean"))
++                .is_file()
++                .then_some(rel)
++        });
++        if has_any_built_olean && rel_opt.is_none() {
++            return false;
++        }
++        if !splitter::source_may_read_host_state(src) {
++            return false;
++        }
++        let Some(rel) = rel_opt.filter(|_| untracked_build) else {
+             return true;
+         };
+-        for ent in rd {
+-            let Ok(ent) = ent else {
+-                return true;
+-            };
+-            let p = ent.path();
+-            let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+-            if name == ".git" || p == build_abs || p == pkgs_abs || p == lake_abs {
+-                continue;
+-            }
+-            let Ok(st) = fs::symlink_metadata(&p) else {
+-                return true;
+-            };
+-            if st.file_type().is_symlink() {
+-                continue;
+-            }
+-            if st.is_dir() {
+-                stack.push(p);
+-            } else if st.is_file() && name.ends_with(".lean") {
+-                if p == dep_root.join("lakefile.lean") {
+-                    continue;
+-                }
+-                let built_olean_exists = lib_roots.iter().any(|lr| {
+-                    p.strip_prefix(lr).ok().is_some_and(|rel| {
+-                        build_lean_abs.join(rel.with_extension("olean")).is_file()
+-                    })
+-                });
+-                if has_any_built_olean && !built_olean_exists {
+-                    continue;
+-                }
+-                let Ok(src) = fs::read_to_string(&p) else {
+-                    return true;
+-                };
+-                if splitter::source_may_read_host_state(&src) {
+-                    return true;
+-                }
+-            }
+-        }
+-    }
+-    false
++        let olean_path = build_lean_abs.join(rel.with_extension("olean"));
++        let rel_slash = rel.with_extension("").to_string_lossy().replace('\\', "/");
++        let hdr = crate::module_builder::parse_header_info(src);
++        hdr.header_error.is_some()
++            || crate::module_builder::verify_module_lake_sidecars_inner_opts_ext(
++                &olean_path,
++                Some(&build_ir_abs),
++                &rel_slash,
++                src,
++                hdr.is_module,
++                pkg.precompile_modules,
++                false,
++                true,
++                !pkg.precompile_modules,
++            )
++            .is_err()
++    })
+ }
+ 
+ fn pinned_git_manifest_dep_rev<'a>(
+@@ -6207,8 +6218,15 @@ fn dep_package_has_disallowed_elab_host_effects(
+     cfg: &crate::module_builder::ProjectConfig,
+     dep: &crate::module_builder::PackageConfig,
+ ) -> bool {
+-    if is_pinned_git_manifest_dep(cfg, dep) {
+-        package_may_read_host_state(dep)
++    let (is_pin, untracked_build) = crate::module_builder::clean_git_pinned_pkg_status(
++        cfg,
++        false,
++        &dep.name,
++        &dep.base_name,
++        &dep.pkg_root,
++    );
++    if is_pin {
++        package_may_read_host_state(dep, untracked_build)
+     } else {
+         package_has_lean_elab_host_effects(dep)
+     }
+@@ -6841,6 +6859,84 @@ fn standalone_artifacts_present_on_disk(olean_path: &Path, is_module: bool) -> b
+         .all(|(_, p)| fs::symlink_metadata(&p).map_or(true, |m| !m.file_type().is_symlink()))
+ }
+ 
++fn remove_olean_artifacts(output: &Path) {
++    for (_, cand) in crate::module_builder::olean_artifact_paths(output) {
++        if fs::symlink_metadata(&cand).is_ok() {
++            let _ = fs::remove_file(&cand);
++        }
++    }
++}
++
++fn try_restore_or_acquire_standalone_olean(
++    st: &mut TurboStore,
++    key: &str,
++    toolchain: &str,
++    lib_dir: &Path,
++    rel_source: &Path,
++    output: &Path,
++    is_module: bool,
++) -> (bool, Option<crate::db::SingleflightLease>) {
++    match st.acquire_singleflight(key, toolchain, "standalone_stmt_olean", "trusted") {
++        Ok(crate::db::SingleflightOutcome::CacheHit { outputs, .. }) => {
++            if let Some(mapped) =
++                validate_standalone_artifact_outputs(&outputs, lib_dir, rel_source, is_module)
++            {
++                for (_, cand) in crate::module_builder::olean_artifact_paths(output) {
++                    if !mapped.values().any(|p| p == &cand) && fs::symlink_metadata(&cand).is_ok() {
++                        let _ = fs::remove_file(&cand);
++                    }
++                }
++                if outputs.iter().all(|e| {
++                    mapped
++                        .get(&e.rel_path)
++                        .is_some_and(|d| st.restore_blob_to_path(&e.blob_hash, d).is_ok())
++                }) && standalone_artifacts_present_on_disk(output, is_module)
++                {
++                    return (true, None);
++                }
++                remove_olean_artifacts(output);
++            }
++            (false, None)
++        }
++        Ok(crate::db::SingleflightOutcome::Leader(lease)) => (false, Some(lease)),
++        Err(_) => (false, None),
++    }
++}
++
++fn finish_standalone_olean_lease(
++    st: &mut TurboStore,
++    lease: crate::db::SingleflightLease,
++    lib_dir: &Path,
++    output: &Path,
++    dur_ms: Option<i64>,
++) {
++    let Some(dur_ms) = dur_ms else {
++        st.remove_singleflight_done(&lease.action_key);
++        return;
++    };
++    let mut items = Vec::new();
++    for (kind, abs) in crate::module_builder::olean_artifact_paths(output) {
++        if is_regular_nonempty_standalone_artifact(&abs) {
++            let (Ok(bytes), Ok(rel)) = (fs::read(&abs), abs.strip_prefix(lib_dir)) else {
++                st.remove_singleflight_done(&lease.action_key);
++                return;
++            };
++            let sz = bytes.len() as u64;
++            items.push((String::new(), bytes, kind.to_string(), rel.to_string_lossy().replace('\\', "/"), sz));
++        }
++    }
++    let ok = !items.is_empty()
++        && crate::db::acquire_cas_publication_guard(&st.root)
++            .and_then(|_g| {
++                let entries = st.batch_store_immutable_blobs(&items, "trusted", 0)?;
++                st.publish_action(&lease, &entries, dur_ms, 0, 0, "trusted")
++            })
++            .is_ok();
++    if !ok {
++        st.remove_singleflight_done(&lease.action_key);
++    }
++}
++
+ fn compile_standalone_statement_modules(
+     project: &Path,
+     pkg: &crate::module_builder::PackageConfig,
+@@ -6849,123 +6945,45 @@ fn compile_standalone_statement_modules(
+     is_untrusted: bool,
+     mut store: Option<&mut TurboStore>,
+ ) -> Result<()> {
+-    // Lake cannot address sources excluded by its globs (e.g. `TurboLean.lean`
+-    // with a `TurboLean.+` glob). Compile these with absolute stock Lean,
+-    // even when an older artifact exists, in import order.
+-    let trusted_cfg = if !is_untrusted && store.is_some() {
+-        crate::module_builder::resolve_project_config_with_trust(project, false).ok()
+-    } else {
+-        None
+-    };
+-    let host_cores = std::thread::available_parallelism()
+-        .map(|n| n.get())
+-        .unwrap_or(4);
++    let trusted_cfg = (!is_untrusted && store.is_some())
++        .then(|| crate::module_builder::resolve_project_config_with_trust(project, false).ok())
++        .flatten();
++    let host_cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+     let raw_lean_threads = std::env::var("LEAN_NUM_THREADS").ok();
+     while !standalone.is_empty() {
+         let mut ready = Vec::new();
+         for (name, (source, _)) in &standalone {
+             let header = crate::module_builder::parse_header_info(&fs::read_to_string(source)?);
+-            anyhow::ensure!(
+-                header.header_error.is_none(),
+-                "Invalid statement module header: {name}"
+-            );
+-            if !header
+-                .imports
+-                .iter()
+-                .any(|dep| standalone.contains_key(dep))
+-            {
++            anyhow::ensure!(header.header_error.is_none(), "Invalid statement module header: {name}");
++            if !header.imports.iter().any(|dep| standalone.contains_key(dep)) {
+                 ready.push(name.clone());
+             }
+         }
+-        anyhow::ensure!(
+-            !ready.is_empty(),
+-            "Import cycle in standalone statement modules"
+-        );
+-        let mut to_compile: Vec<(
+-            String,
+-            PathBuf,
+-            PathBuf,
+-            PathBuf,
+-            bool,
+-            Option<crate::db::SingleflightLease>,
+-        )> = Vec::new();
++        anyhow::ensure!(!ready.is_empty(), "Import cycle in standalone statement modules");
++        let mut to_compile = Vec::new();
+         for name in ready {
+             let (source, root) = standalone.remove(&name).unwrap();
+             let rel_source = source.strip_prefix(&root)?;
+             let output = lib_dir.join(rel_source).with_extension("olean");
+-            fs::create_dir_all(
+-                output
+-                    .parent()
+-                    .context("Missing statement output directory")?,
+-            )?;
++            fs::create_dir_all(output.parent().context("Missing statement output directory")?)?;
+             let src_text = fs::read_to_string(&source)?;
+             let header = crate::module_builder::parse_header_info(&src_text);
+             let cache_key = trusted_cfg.as_ref().and_then(|cfg| {
+-                standalone_statement_olean_action_key(
+-                    cfg,
+-                    pkg,
+-                    &name,
+-                    rel_source,
+-                    &src_text,
+-                    &header.imports,
+-                    None,
+-                )
++                standalone_statement_olean_action_key(cfg, pkg, &name, rel_source, &src_text, &header.imports, None)
+             });
+             let mut pending_lease = None;
+             if let (Some(ref key), Some(ref cfg), Some(st)) =
+                 (&cache_key, &trusted_cfg, store.as_deref_mut())
+             {
+-                if let Ok(outcome) =
+-                    st.acquire_singleflight(key, &cfg.toolchain, "standalone_stmt_olean", "trusted")
+-                {
+-                    match outcome {
+-                        crate::db::SingleflightOutcome::CacheHit { outputs, .. } => {
+-                            if let Some(mapped) = validate_standalone_artifact_outputs(
+-                                &outputs,
+-                                lib_dir,
+-                                rel_source,
+-                                header.is_module,
+-                            ) {
+-                                for (_, cand) in
+-                                    crate::module_builder::olean_artifact_paths(&output)
+-                                {
+-                                    if !mapped.values().any(|p| p == &cand)
+-                                        && fs::symlink_metadata(&cand).is_ok()
+-                                    {
+-                                        let _ = fs::remove_file(&cand);
+-                                    }
+-                                }
+-                                let restored_all = outputs.iter().all(|entry| {
+-                                    mapped.get(&entry.rel_path).is_some_and(|dest| {
+-                                        st.restore_blob_to_path(&entry.blob_hash, dest).is_ok()
+-                                    })
+-                                }) && standalone_artifacts_present_on_disk(
+-                                    &output,
+-                                    header.is_module,
+-                                );
+-                                if restored_all {
+-                                    continue;
+-                                }
+-                                for (_, cand) in
+-                                    crate::module_builder::olean_artifact_paths(&output)
+-                                {
+-                                    if fs::symlink_metadata(&cand).is_ok() {
+-                                        let _ = fs::remove_file(&cand);
+-                                    }
+-                                }
+-                            }
+-                        }
+-                        crate::db::SingleflightOutcome::Leader(lease) => {
+-                            pending_lease = Some(lease);
+-                        }
+-                    }
+-                }
+-            }
+-            for (_, cand) in crate::module_builder::olean_artifact_paths(&output) {
+-                if fs::symlink_metadata(&cand).is_ok() {
+-                    let _ = fs::remove_file(&cand);
++                let (hit, lease) = try_restore_or_acquire_standalone_olean(
++                    st, key, &cfg.toolchain, lib_dir, rel_source, &output, header.is_module,
++                );
++                if hit {
++                    continue;
+                 }
++                pending_lease = lease;
+             }
++            remove_olean_artifacts(&output);
+             to_compile.push((name, source, root, output, header.is_module, pending_lease));
+         }
+         if to_compile.is_empty() {
+@@ -6973,42 +6991,22 @@ fn compile_standalone_statement_modules(
+         }
+         let wave_workers = host_cores.clamp(1, 8).min(to_compile.len());
+         let per_worker_threads = crate::module_builder::per_worker_lean_num_threads(
+-            raw_lean_threads.as_deref(),
+-            host_cores,
+-            wave_workers,
++            raw_lean_threads.as_deref(), host_cores, wave_workers,
+         );
+-        let compile_one = |name: &str,
+-                           source: &Path,
+-                           root: &Path,
+-                           output: &Path,
+-                           is_mod: bool|
+-         -> Result<i64> {
++        let compile_one = |name: &str, source: &Path, root: &Path, output: &Path, is_mod: bool| -> Result<i64> {
+             let t0 = std::time::Instant::now();
+             let mut command = statement_lean_command(project, is_untrusted)?;
+             if !is_untrusted {
+                 command.env("LEAN_NUM_THREADS", per_worker_threads.to_string());
+             }
+             command.args(&pkg.weak_lean_args).args(&pkg.more_lean_args);
+-            for (key, value) in &pkg.lean_options {
+-                command.arg(format!(
+-                    "-D{}={}",
+-                    key.to_lean_string(),
+-                    value.raw_cli_value()
+-                ));
++            for (k, v) in &pkg.lean_options {
++                command.arg(format!("-D{}={}", k.to_lean_string(), v.raw_cli_value()));
+             }
+-            command
+-                .arg(source)
+-                .arg("-R")
+-                .arg(root)
+-                .arg("-o")
+-                .arg(output);
++            command.arg(source).arg("-R").arg(root).arg("-o").arg(output);
+             let out = crate::module_builder::run_command_with_timeout(
+-                &mut command,
+-                std::time::Duration::from_secs(1800),
+-                is_untrusted,
++                &mut command, std::time::Duration::from_secs(1800), is_untrusted,
+             )?;
+-            let artifacts_valid =
+-                out.status.success() && standalone_artifacts_present_on_disk(output, is_mod);
+             anyhow::ensure!(
+                 out.status.success(),
+                 "Stock Lean statement module {name} failed:\n{}\n{}",
+@@ -7016,118 +7014,51 @@ fn compile_standalone_statement_modules(
+                 String::from_utf8_lossy(&out.stderr)
+             );
+             anyhow::ensure!(
+-                artifacts_valid,
++                standalone_artifacts_present_on_disk(output, is_mod),
+                 "Stock Lean statement module {name} produced incomplete artifact set (is_module={is_mod})"
+             );
+             Ok(t0.elapsed().as_millis() as i64)
+         };
+-        let mut outcomes: Vec<Option<Result<i64>>> =
+-            (0..to_compile.len()).map(|_| None).collect();
+-        if wave_workers <= 1 {
+-            for (idx, (name, source, root, output, is_mod, _)) in to_compile.iter().enumerate() {
+-                let res = compile_one(name, source, root, output, *is_mod);
+-                let failed = res.is_err();
+-                outcomes[idx] = Some(res);
+-                if failed {
+-                    break;
+-                }
+-            }
+-        } else {
+-            let next_idx = std::sync::atomic::AtomicUsize::new(0);
+-            let aborted = std::sync::atomic::AtomicBool::new(false);
+-            let slots: Vec<std::sync::Mutex<Option<Result<i64>>>> = (0..to_compile.len())
+-                .map(|_| std::sync::Mutex::new(None))
+-                .collect();
+-            std::thread::scope(|s| {
+-                for _ in 0..wave_workers {
+-                    s.spawn(|| loop {
+-                        if aborted.load(std::sync::atomic::Ordering::Relaxed) {
+-                            break;
+-                        }
+-                        let idx = next_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+-                        if idx >= to_compile.len() {
+-                            break;
+-                        }
+-                        let (ref name, ref source, ref root, ref output, is_mod, _) =
+-                            to_compile[idx];
+-                        let res = compile_one(name, source, root, output, is_mod);
+-                        if res.is_err() {
+-                            aborted.store(true, std::sync::atomic::Ordering::Relaxed);
+-                        }
+-                        if let Ok(mut g) = slots[idx].lock() {
+-                            *g = Some(res);
+-                        }
+-                    });
+-                }
+-            });
+-            for (idx, slot) in slots.into_iter().enumerate() {
+-                outcomes[idx] = slot.into_inner().unwrap_or(None);
++        let next_idx = std::sync::atomic::AtomicUsize::new(0);
++        let aborted = std::sync::atomic::AtomicBool::new(false);
++        let slots: Vec<std::sync::Mutex<Option<Result<i64>>>> =
++            (0..to_compile.len()).map(|_| std::sync::Mutex::new(None)).collect();
++        std::thread::scope(|s| {
++            for _ in 0..wave_workers {
++                s.spawn(|| loop {
++                    if aborted.load(std::sync::atomic::Ordering::Relaxed) {
++                        break;
++                    }
++                    let idx = next_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
++                    if idx >= to_compile.len() {
++                        break;
++                    }
++                    let (ref name, ref source, ref root, ref output, is_mod, _) = to_compile[idx];
++                    let res = compile_one(name, source, root, output, is_mod);
++                    if res.is_err() {
++                        aborted.store(true, std::sync::atomic::Ordering::Relaxed);
++                    }
++                    if let Ok(mut g) = slots[idx].lock() {
++                        *g = Some(res);
++                    }
++                });
+             }
+-        }
++        });
+         let mut first_err: Option<anyhow::Error> = None;
+-        for ((_, _, _, output, _, mut pending_lease), res_opt) in
+-            to_compile.into_iter().zip(outcomes)
+-        {
+-            match res_opt {
+-                Some(Ok(dur_ms)) => {
+-                    if let (Some(lease), Some(st)) = (pending_lease.take(), store.as_deref_mut()) {
+-                        let mut blob_items = Vec::new();
+-                        let mut read_ok = true;
+-                        for (kind, abs_path) in
+-                            crate::module_builder::olean_artifact_paths(&output)
+-                        {
+-                            if is_regular_nonempty_standalone_artifact(&abs_path) {
+-                                match (fs::read(&abs_path), abs_path.strip_prefix(lib_dir)) {
+-                                    (Ok(bytes), Ok(rel_p)) => {
+-                                        let sz = bytes.len() as u64;
+-                                        let rel_str = rel_p.to_string_lossy().replace('\\', "/");
+-                                        blob_items.push((
+-                                            String::new(),
+-                                            bytes,
+-                                            kind.to_string(),
+-                                            rel_str,
+-                                            sz,
+-                                        ));
+-                                    }
+-                                    _ => {
+-                                        read_ok = false;
+-                                        break;
+-                                    }
+-                                }
+-                            }
+-                        }
+-                        if read_ok && !blob_items.is_empty() {
+-                            let pub_res: Result<()> = (|| {
+-                                let _pub_guard =
+-                                    crate::db::acquire_cas_publication_guard(&st.root)?;
+-                                let entries =
+-                                    st.batch_store_immutable_blobs(&blob_items, "trusted", 0)?;
+-                                st.publish_action(&lease, &entries, dur_ms, 0, 0, "trusted")?;
+-                                Ok(())
+-                            })();
+-                            if pub_res.is_err() {
+-                                st.remove_singleflight_done(&lease.action_key);
+-                            }
+-                        } else {
+-                            st.remove_singleflight_done(&lease.action_key);
+-                        }
+-                    }
+-                }
++        for ((_, _, _, output, _, pending_lease), slot) in to_compile.into_iter().zip(slots) {
++            let res_opt = slot.into_inner().unwrap_or(None);
++            let dur_opt = match res_opt {
++                Some(Ok(d)) => Some(d),
+                 Some(Err(e)) => {
+-                    if let (Some(lease), Some(st)) = (pending_lease.take(), store.as_deref_mut()) {
+-                        st.remove_singleflight_done(&lease.action_key);
+-                        drop(lease);
+-                    }
+                     if first_err.is_none() {
+                         first_err = Some(e);
+                     }
++                    None
+                 }
+-                None => {
+-                    if let (Some(lease), Some(st)) = (pending_lease.take(), store.as_deref_mut()) {
+-                        st.remove_singleflight_done(&lease.action_key);
+-                        drop(lease);
+-                    }
+-                }
++                None => None,
++            };
++            if let (Some(lease), Some(st)) = (pending_lease, store.as_deref_mut()) {
++                finish_standalone_olean_lease(st, lease, lib_dir, &output, dur_opt);
+             }
+         }
+         if let Some(e) = first_err {
+@@ -8551,29 +8482,16 @@ fn base_statement_cache_action_key(
+         let build_abs = dep_root.join(&dp.build_dir);
+         let pkgs_abs = dep_root.join(&dp.packages_dir);
+         let lake_abs = dep_root.join(".lake");
+-        let norm_dep_sub = |p: &Path| -> PathBuf {
+-            let mut out = PathBuf::new();
+-            for c in p.components() {
+-                match c {
+-                    std::path::Component::CurDir => {}
+-                    std::path::Component::ParentDir => {
+-                        out.pop();
+-                    }
+-                    other => out.push(other),
+-                }
+-            }
+-            out
+-        };
+-        let pkg_src_abs = norm_dep_sub(&dep_root.join(&dp.src_dir));
++        let pkg_src_abs = norm_clean_subpath(&dep_root.join(&dp.src_dir));
+         let mut src_roots: Vec<PathBuf> = vec![pkg_src_abs.clone()];
+         for lib in &dp.libs {
+             if let Some(ref s) = lib.src_dir {
+-                src_roots.push(norm_dep_sub(&pkg_src_abs.join(s)));
++                src_roots.push(norm_clean_subpath(&pkg_src_abs.join(s)));
+             }
+         }
+         for exe in &dp.exes {
+             if let Some(ref s) = exe.src_dir {
+-                src_roots.push(norm_dep_sub(&pkg_src_abs.join(s)));
++                src_roots.push(norm_clean_subpath(&pkg_src_abs.join(s)));
+             }
+         }
+         src_roots.sort();
+@@ -8874,18 +8792,11 @@ fn kernel_statement_changes_with_trust(
+                         crate::module_builder::find_dirty_modules_in_otherwise_fresh_dag(
+                             &proj_cfg,
+                             &dag,
+-                            16,
++                            512,
+                             &empty_proof_only,
+                         )
+                     {
+-                        if dirty_mods.is_empty()
+-                            || crate::module_builder::compile_disposable_snapshot_dirty_modules_direct(
+-                                &proj_cfg,
+-                                &dag,
+-                                &dirty_mods,
+-                            )
+-                            .is_ok()
+-                        {
++                        if dirty_mods.is_empty() {
+                             snapshot_incremental_ok = true;
+                         }
+                     }
+@@ -8909,19 +8820,48 @@ fn kernel_statement_changes_with_trust(
+                         .unwrap_or(false)));
+         let mut native_ok = already_fresh
+             || owned_targets.is_empty()
+-            || (is_disposable_snapshot
+-                && crate::module_builder::build_project_modules_native_with_options(
+-                    &mut temp_store,
+-                    proj,
++            || crate::module_builder::build_project_modules_native_with_options(
++                &mut temp_store,
++                proj,
++                &owned_targets,
++                "trusted",
++                0,
++                false,
++                true,
++                None,
++                false,
++            )
++            .is_ok();
++        if !native_ok && is_disposable_snapshot && !owned_targets.is_empty() {
++            if let Ok(proj_cfg) =
++                crate::module_builder::resolve_project_config_with_trust(proj, false)
++            {
++                if let Ok(dag) = crate::module_builder::build_module_dag_for_trusted_statement(
++                    &proj_cfg,
+                     &owned_targets,
+-                    "trusted",
+-                    0,
+-                    false,
+-                    true,
+-                    None,
+-                    false,
+-                )
+-                .is_ok());
++                ) {
++                    let empty_proof_only = std::collections::HashSet::new();
++                    if let Some(dirty_mods) =
++                        crate::module_builder::find_dirty_modules_in_otherwise_fresh_dag(
++                            &proj_cfg,
++                            &dag,
++                            512,
++                            &empty_proof_only,
++                        )
++                    {
++                        if crate::module_builder::compile_disposable_snapshot_dirty_modules_direct(
++                            &proj_cfg,
++                            &dag,
++                            &dirty_mods,
++                        )
++                        .is_ok()
++                        {
++                            native_ok = true;
++                        }
++                    }
++                }
++            }
++        }
+         if native_ok && !standalone.is_empty() {
+             native_ok = compile_standalone_statement_modules(
+                 proj,
+@@ -9192,12 +9132,44 @@ fn kernel_statement_changes_with_trust(
+                     }
+                 }
+             }
+-            let dirty_mods = crate::module_builder::find_dirty_modules_in_otherwise_fresh_dag(
++            let mut dirty_mods = crate::module_builder::find_dirty_modules_in_otherwise_fresh_dag(
+                 cfg,
+                 &dag,
+-                16,
++                512,
+                 &proof_only_base_trace_src_hashes,
+             )?;
++            if !dirty_mods.is_empty()
++                && proof_only_project_rel_files.is_empty()
++                && !crate::lake_build::worktree_auto_link_disabled(&head_project)
++            {
++                if let Ok(mut temp_store) = TurboStore::open(Some(&store.root)) {
++                    let dirty_targets: Vec<String> = dirty_mods
++                        .iter()
++                        .map(|m| format!("+{m}:olean"))
++                        .collect();
++                    if crate::module_builder::build_project_modules_native_with_options(
++                        &mut temp_store,
++                        &head_project,
++                        &dirty_targets,
++                        "trusted",
++                        0,
++                        false,
++                        true,
++                        None,
++                        false,
++                    )
++                    .is_ok()
++                    {
++                        dirty_mods =
++                            crate::module_builder::find_dirty_modules_in_otherwise_fresh_dag(
++                                cfg,
++                                &dag,
++                                512,
++                                &proof_only_base_trace_src_hashes,
++                            )?;
++                    }
++                }
++            }
+             let scratch_base = crate::check::verified_private_temp_scratch_base().ok()?;
+             let ov_guard =
+                 crate::check::PrivateScratchDir::create(&scratch_base, "turbo_head_stmt_ov")
+@@ -9212,6 +9184,7 @@ fn kernel_statement_changes_with_trust(
+             let mut rebuilt_hint: std::collections::HashSet<String> =
+                 dirty_mods.iter().cloned().collect();
+             if !standalone.is_empty() {
++                let mut temp_store = TurboStore::open(Some(&store.root)).ok();
+                 let base_lib_dir = head_project.join(&pkg.build_dir).join(&pkg.lean_lib_dir);
+                 let (base_lp, _) = crate::module_builder::build_lean_search_path(cfg, true);
+                 let ov_lp = format!("{}:{base_lp}", ov_lib.display());
+@@ -9240,50 +9213,58 @@ fn kernel_statement_changes_with_trust(
+                     if ready.is_empty() {
+                         return None;
+                     }
+-                    let mut wave_compiles: Vec<(PathBuf, PathBuf, PathBuf, bool)> = Vec::new();
++                    let mut wave_compiles: Vec<(
++                        PathBuf,
++                        PathBuf,
++                        PathBuf,
++                        bool,
++                        Option<crate::db::SingleflightLease>,
++                    )> = Vec::new();
+                     for name in ready {
+                         let (source, root, src_str, imps, is_mod) = pending.remove(&name)?;
+                         let rel = source.strip_prefix(&root).ok()?;
+                         let existing_olean = base_lib_dir.join(rel).with_extension("olean");
+                         let touches_rebuilt =
+                             imps.iter().any(|m| rebuilt_hint.contains(m.as_str()));
++                        let cache_key = standalone_statement_olean_action_key(
++                            cfg,
++                            &pkg,
++                            &name,
++                            rel,
++                            &src_str,
++                            &imps,
++                            Some(&ov_lib),
++                        );
+                         let fresh_unchanged = !touches_rebuilt
+                             && standalone_artifacts_present_on_disk(&existing_olean, is_mod)
+-                            && standalone_statement_olean_action_key(
+-                                cfg,
+-                                &pkg,
+-                                &name,
+-                                rel,
+-                                &src_str,
+-                                &imps,
+-                                Some(&ov_lib),
+-                            )
+-                            .and_then(|key| store.get_cached_action(&key, "trusted").ok().flatten())
+-                            .is_some_and(|outs| {
+-                                let Some(mapped) = validate_standalone_artifact_outputs(
+-                                    &outs,
+-                                    &base_lib_dir,
+-                                    rel,
+-                                    is_mod,
+-                                ) else {
+-                                    return false;
+-                                };
+-                                crate::module_builder::olean_artifact_paths(&existing_olean)
+-                                    .into_iter()
+-                                    .all(|(_, cand)| {
+-                                        mapped.values().any(|p| p == &cand)
+-                                            || fs::symlink_metadata(&cand).is_err()
+-                                    })
+-                                    && outs.iter().all(|entry| {
+-                                        mapped
+-                                            .get(&entry.rel_path)
+-                                            .and_then(|p| fs::read(p).ok())
+-                                            .is_some_and(|b| {
+-                                                blake3::hash(&b).to_hex().as_str()
+-                                                    == entry.blob_hash
+-                                            })
+-                                    })
+-                            });
++                            && cache_key
++                                .as_deref()
++                                .and_then(|key| store.get_cached_action(key, "trusted").ok().flatten())
++                                .is_some_and(|outs| {
++                                    let Some(mapped) = validate_standalone_artifact_outputs(
++                                        &outs,
++                                        &base_lib_dir,
++                                        rel,
++                                        is_mod,
++                                    ) else {
++                                        return false;
++                                    };
++                                    crate::module_builder::olean_artifact_paths(&existing_olean)
++                                        .into_iter()
++                                        .all(|(_, cand)| {
++                                            mapped.values().any(|p| p == &cand)
++                                                || fs::symlink_metadata(&cand).is_err()
++                                        })
++                                        && outs.iter().all(|entry| {
++                                            mapped
++                                                .get(&entry.rel_path)
++                                                .and_then(|p| fs::read(p).ok())
++                                                .is_some_and(|b| {
++                                                    blake3::hash(&b).to_hex().as_str()
++                                                        == entry.blob_hash
++                                                })
++                                        })
++                                });
+                         if fresh_unchanged {
+                             let dst_olean = ov_lib.join(rel).with_extension("olean");
+                             for (_, src_art) in
+@@ -9310,17 +9291,28 @@ fn kernel_statement_changes_with_trust(
+                             if let Some(parent) = output.parent() {
+                                 fs::create_dir_all(parent).ok()?;
+                             }
+-                            wave_compiles.push((source, root, output, is_mod));
++                            let mut pending_lease = None;
++                            let mut restored_from_cas = false;
++                            if let (Some(ref key), Some(ref mut st)) =
++                                (&cache_key, temp_store.as_mut())
++                            {
++                                let (hit, lease) = try_restore_or_acquire_standalone_olean(
++                                    st, key, &cfg.toolchain, &ov_lib, rel, &output, is_mod,
++                                );
++                                restored_from_cas = hit;
++                                pending_lease = lease;
++                            }
++                            if !restored_from_cas {
++                                remove_olean_artifacts(&output);
++                                wave_compiles.push((source, root, output, is_mod, pending_lease));
++                            }
+                         }
+                     }
+                     if !wave_compiles.is_empty() {
+                         let wave_workers = host_cores.clamp(1, 8).min(wave_compiles.len());
+-                        let per_worker_threads =
+-                            crate::module_builder::per_worker_lean_num_threads(
+-                                raw_lean_threads.as_deref(),
+-                                host_cores,
+-                                wave_workers,
+-                            );
++                        let per_worker_threads = crate::module_builder::per_worker_lean_num_threads(
++                            raw_lean_threads.as_deref(), host_cores, wave_workers,
++                        );
+                         let compile_ok = std::sync::atomic::AtomicBool::new(true);
+                         let next_idx = std::sync::atomic::AtomicUsize::new(0);
+                         std::thread::scope(|s| {
+@@ -9329,54 +9321,43 @@ fn kernel_statement_changes_with_trust(
+                                     if !compile_ok.load(std::sync::atomic::Ordering::Relaxed) {
+                                         break;
+                                     }
+-                                    let idx =
+-                                        next_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
++                                    let idx = next_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                     if idx >= wave_compiles.len() {
+                                         break;
+                                     }
+-                                    let (ref source, ref root, ref output, is_mod) =
+-                                        wave_compiles[idx];
+-                                    let ok = (|| -> Option<bool> {
+-                                        let mut cmd =
+-                                            statement_lean_command(&head_project, false).ok()?;
+-                                        cmd.env("LEAN_PATH", &ov_lp);
+-                                        cmd.env(
+-                                            "LEAN_NUM_THREADS",
+-                                            per_worker_threads.to_string(),
+-                                        );
+-                                        cmd.args(&pkg.weak_lean_args).args(&pkg.more_lean_args);
+-                                        for (k, v) in &pkg.lean_options {
+-                                            cmd.arg(format!(
+-                                                "-D{}={}",
+-                                                k.to_lean_string(),
+-                                                v.raw_cli_value()
+-                                            ));
+-                                        }
+-                                        cmd.arg(source).arg("-R").arg(root).arg("-o").arg(output);
+-                                        let out =
+-                                            crate::module_builder::run_command_with_timeout(
+-                                                &mut cmd,
+-                                                std::time::Duration::from_secs(300),
+-                                                false,
++                                    let (ref source, ref root, ref output, is_mod, _) = wave_compiles[idx];
++                                    let ok = statement_lean_command(&head_project, false)
++                                        .ok()
++                                        .and_then(|mut cmd| {
++                                            cmd.env("LEAN_PATH", &ov_lp)
++                                                .env("LEAN_NUM_THREADS", per_worker_threads.to_string())
++                                                .args(&pkg.weak_lean_args)
++                                                .args(&pkg.more_lean_args);
++                                            for (k, v) in &pkg.lean_options {
++                                                cmd.arg(format!("-D{}={}", k.to_lean_string(), v.raw_cli_value()));
++                                            }
++                                            cmd.arg(source).arg("-R").arg(root).arg("-o").arg(output);
++                                            let out = crate::module_builder::run_command_with_timeout(
++                                                &mut cmd, std::time::Duration::from_secs(300), false,
+                                             )
+                                             .ok()?;
+-                                        Some(
+-                                            out.status.success()
+-                                                && standalone_artifacts_present_on_disk(
+-                                                    output, is_mod,
+-                                                ),
+-                                        )
+-                                    })()
+-                                    .unwrap_or(false);
++                                            Some(out.status.success() && standalone_artifacts_present_on_disk(output, is_mod))
++                                        })
++                                        .unwrap_or(false);
+                                     if !ok {
+-                                        compile_ok
+-                                            .store(false, std::sync::atomic::Ordering::Relaxed);
++                                        compile_ok.store(false, std::sync::atomic::Ordering::Relaxed);
+                                         break;
+                                     }
+                                 });
+                             }
+                         });
+-                        if !compile_ok.load(std::sync::atomic::Ordering::Relaxed) {
++                        let ok = compile_ok.load(std::sync::atomic::Ordering::Relaxed);
++                        for (_, _, output, _, pending_lease) in wave_compiles {
++                            if let (Some(lease), Some(ref mut st)) = (pending_lease, temp_store.as_mut()) {
++                                finish_standalone_olean_lease(st, lease, &ov_lib, &output, ok.then_some(0));
++                            }
++                        }
++                        if !ok {
+                             return None;
+                         }
+                     }
+@@ -9795,18 +9776,7 @@ pub fn run_pr_verify_command(
+                 || hdr.imports.iter().any(|m| {
+                     let rel_slash = crate::module_builder::module_name_to_rel_slash(m);
+                     let in_pkg_or_project =
+-                        crate::module_builder::resolve_importable_module_in_package(
+-                            &cfg.root_pkg,
+-                            true,
+-                            m,
+-                        )
+-                        .is_some()
+-                            || cfg.dep_pkgs.iter().any(|dp| {
+-                                crate::module_builder::resolve_importable_module_in_package(
+-                                    dp, false, m,
+-                                )
+-                                .is_some()
+-                            })
++                        crate::module_builder::resolve_importable_in_project(&cfg, m).is_some()
+                             || crate::lake_build::resolve_project_lean_source(
+                                 &canon_dir, &rel_slash,
+                             )
+@@ -19637,7 +19607,12 @@ end ParityNs
+                 canon_proj.join(".lake/packages/evmyul/.lake/build/lib/lean/EvmYul/SHA256.olean");
+             fs::create_dir_all(sticky_evmyul_olean.parent().unwrap())?;
+             fs::write(&sticky_evmyul_olean, b"sticky-marker")?;
++            crate::module_builder::reset_lake_inputs_tag_memo();
+             let sticky_cfg = crate::module_builder::resolve_project_config(&canon_proj)?;
++            assert!(
++                is_pinned_git_manifest_dep(&sticky_cfg, &sticky_cfg.dep_pkgs[0]),
++                "untracked .lake/build inside clean git-pinned dep must remain a clean pinned checkout"
++            );
+             assert!(
+                 !dep_package_has_disallowed_elab_host_effects(&sticky_cfg, &sticky_cfg.dep_pkgs[0]),
+                 "prebuilt evmyul .oleans with runtime-only IO definitions must remain reusable"
