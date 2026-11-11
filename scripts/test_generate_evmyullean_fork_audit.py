@@ -81,6 +81,25 @@ class ForkAuditValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "inputRev"):
                     audit._cross_check_manifest_pin()
 
+    def test_validate_audit_rejects_semantic_change_without_conformance_fix(self) -> None:
+        fork_audit = deepcopy(audit.FORK_AUDIT)
+        fork_audit["commits"][0]["category"] = "semantic-change"
+        fork_audit["commits"][0]["semantic_change"] = True
+        fork_audit["commits"][0].pop("conformance_fix", None)
+        with patch.object(audit, "FORK_AUDIT", fork_audit):
+            with self.assertRaisesRegex(RuntimeError, "conformance_fix"):
+                audit._validate_audit()
+
+    def test_validate_audit_rejects_conformance_fix_without_tests(self) -> None:
+        fork_audit = deepcopy(audit.FORK_AUDIT)
+        fork_audit["commits"][-1]["conformance_fix"] = {"eip": "EIP-211", "tests": []}
+        with patch.object(audit, "FORK_AUDIT", fork_audit):
+            with self.assertRaisesRegex(RuntimeError, "conformance_fix"):
+                audit._validate_audit()
+
+    def test_validate_audit_accepts_current_audit(self) -> None:
+        audit._validate_audit()
+
 
 if __name__ == "__main__":
     unittest.main()

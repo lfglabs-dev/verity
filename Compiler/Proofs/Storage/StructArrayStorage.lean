@@ -1,5 +1,6 @@
 import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.StorageBounds
+import Verity.Specs.ObsAlgebra
 
 /-!
 # Canonical storage preservation for struct members and dynamic storage arrays
@@ -678,6 +679,168 @@ theorem storageArrayBasePointer_preimage (slot : Nat) :
       preimage = (EvmYul.UInt256.ofNat slot).toByteArray ∧
       storageArrayBasePointer slot = KeccakEngine.keccak256 preimage :=
   ⟨(EvmYul.UInt256.ofNat slot).toByteArray, rfl, rfl⟩
+
+/-! ### Source-to-Solidity Dynamic-Array Slot Equivalence -/
+
+private theorem listToByteArray_loop_data (bs : List UInt8) (acc : ByteArray) :
+    (List.toByteArray.loop bs acc).data = acc.data ++ bs.toArray := by
+  induction bs generalizing acc with
+  | nil => simp [List.toByteArray.loop]
+  | cons b bs ih =>
+      simp only [List.toByteArray.loop, ih, ByteArray.push]
+      ext i h1 h2
+      · simp [Array.size_push]
+        omega
+      · simp only [Array.push_eq_append, Array.append_assoc]
+
+private theorem listToByteArray_data (bs : List UInt8) :
+    bs.toByteArray.data = bs.toArray := by
+  simpa [List.toByteArray] using listToByteArray_loop_data bs ByteArray.empty
+
+private theorem uint256_toByteArray_data_toList (v : EvmYul.UInt256) :
+    v.toByteArray.data.toList = EvmYul.toBeBytesFixed v.toNat 32 := by
+  have h256 : v.toNat < 256 ^ 32 := by
+    simpa [show (256 : Nat) ^ 32 = EvmYul.UInt256.size by norm_num [EvmYul.UInt256.size]]
+      using v.val.isLt
+  have hlen : (EvmYul.toBytesBigEndian v.toNat).length ≤ 32 :=
+    EvmYul.length_toBytesBigEndian_le v.val.isLt
+  have hsub : ((OfNat.ofNat 32 : USize) -
+      (OfNat.ofNat (EvmYul.toBytesBigEndian v.toNat).length : USize)).toNat =
+      32 - (EvmYul.toBytesBigEndian v.toNat).length := by
+    rw [USize.toNat_sub, USize.toNat_ofNat, USize.toNat_ofNat]
+    rcases System.Platform.numBits_eq with hb | hb <;> rw [hb] <;> omega
+  unfold EvmYul.UInt256.toByteArray BE
+  simp only [Function.comp, ByteArray.data_append, ffi.ByteArray.zeroes, ByteArray.size,
+    listToByteArray_data, Array.size_toArray, Array.toList_append, Array.toList_replicate,
+    Array.toList_toArray, hsub]
+  exact (EvmYul.toBeBytesFixed_eq_zeroPad v.toNat 32 h256).symm
+
+private theorem irWordToBytesBE_eq_uint256_toByteArray (slot : Nat) :
+    irWordToBytesBE (slot % Compiler.Constants.evmModulus) =
+      (EvmYul.UInt256.ofNat slot).toByteArray := by
+  have hVal : (EvmYul.UInt256.ofNat slot).toNat = slot % Compiler.Constants.evmModulus := by
+    simp [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, EvmYul.UInt256.val,
+      Compiler.Constants.evmModulus]
+  apply ByteArray.ext
+  apply Array.toList_inj.mp
+  rw [uint256_toByteArray_data_toList, hVal]
+  apply List.ext_getElem
+  · simp [irWordToBytesBE]
+  · intro i h1 h2
+    rw [EvmYul.getElem_toBeBytesFixed _ _ _ h2]
+    simp [irWordToBytesBE]
+
+private theorem irMemorySliceBytesBE_singleSlot (slot : Nat) :
+    irMemorySliceBytesBE
+      (fun off => (if off = 0 then Verity.Core.Uint256.ofNat slot else 0).val) 0 32 =
+      (EvmYul.UInt256.ofNat slot).toByteArray := by
+  have hSlice : memorySliceWords
+      (fun off => (if off = 0 then Verity.Core.Uint256.ofNat slot else 0).val) 0 32 =
+      [slot % Compiler.Constants.evmModulus] := by
+    simp [memorySliceWords, byteWordCount, Verity.Core.Uint256.ofNat,
+      Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus]
+  unfold irMemorySliceBytesBE
+  rw [hSlice]
+  simp only [List.foldl_cons, List.foldl_nil, ByteArray.empty_append,
+    irWordToBytesBE_eq_uint256_toByteArray]
+  apply ByteArray.ext
+  have hSz : (EvmYul.UInt256.ofNat slot).toByteArray.data.size = 32 := by
+    rw [← Array.length_toList, uint256_toByteArray_data_toList, EvmYul.length_toBeBytesFixed]
+  simp [ByteArray.data_extract, hSz]
+
+private theorem fromBytes'_reverse_append_byte (xs : List UInt8) (b : UInt8) :
+    EvmYul.fromBytes' (xs ++ [b]).reverse = EvmYul.fromBytes' xs.reverse * 256 + b.toNat := by
+  simp [EvmYul.fromBytes']
+  omega
+
+private theorem listFoldlBe_eq_fromBytes'_reverse :
+    ∀ (bs : List UInt8),
+      bs.foldl (fun acc b => acc * 256 + b.toNat) 0 = EvmYul.fromBytes' bs.reverse := by
+  intro bs
+  induction bs using List.reverseRecOn with
+  | nil => simp [EvmYul.fromBytes']
+  | append_singleton xs b ih =>
+      rw [List.foldl_append, List.foldl_cons, List.foldl_nil, ih,
+        fromBytes'_reverse_append_byte]
+
+private theorem byteArrayToList_loop_append (ba : ByteArray) :
+    ∀ (i : Nat) (acc : List UInt8), i ≤ ba.size →
+      ByteArray.toList.loop ba i acc = acc.reverse ++ ByteArray.toList.loop ba i [] := by
+  intro i acc hi
+  induction i, acc using ByteArray.toList.loop.induct ba with
+  | case1 i acc hlt ih =>
+      conv_lhs => unfold ByteArray.toList.loop
+      conv_rhs => unfold ByteArray.toList.loop
+      simp only [hlt, ↓reduceIte]
+      rw [ih (Nat.le_of_lt_succ (by omega)), ih (acc := [ba[i]]) (Nat.le_of_lt_succ (by omega))]
+      simp [List.append_assoc]
+  | case2 i acc hge =>
+      conv_lhs => unfold ByteArray.toList.loop
+      conv_rhs => unfold ByteArray.toList.loop
+      simp [show ¬ i < ba.size from hge]
+
+private theorem byteArrayFoldl_loop_eq_listFoldl (ba : ByteArray) :
+    ∀ (i : Nat) (acc : Nat), i ≤ ba.size →
+      ByteArray.foldl.loop ba (fun a b => a * 256 + b.toNat) i ba.size acc =
+        (ByteArray.toList.loop ba i []).foldl (fun a b => a * 256 + b.toNat) acc := by
+  intro i acc hi
+  induction i, acc using ByteArray.foldl.loop.induct ba (fun a b => a * 256 + b.toNat) ba.size with
+  | case1 i acc hlt ih =>
+      unfold ByteArray.foldl.loop
+      conv_rhs => unfold ByteArray.toList.loop
+      have hlt' : i < ba.size := by simpa using hlt
+      simp only [hlt, hlt', ↓reduceIte, USize.toNat_ofNat_of_lt' hlt']
+      rw [byteArrayToList_loop_append ba (i + 1) [ba[i]] (by omega)]
+      simp only [List.reverse_singleton, List.singleton_append, List.foldl_cons]
+      exact ih (by omega)
+  | case2 i acc hge =>
+      unfold ByteArray.foldl.loop
+      conv_rhs => unfold ByteArray.toList.loop
+      have hge' : ¬ i < ba.size := fun hlt => hge (USize.ofNat_lt_of_lt hlt)
+      simp [hge, hge']
+
+private theorem byteArrayToNatBE_eq_fromByteArrayBigEndian (ba : ByteArray) :
+    KeccakEngine.byteArrayToNatBE ba = EvmYul.fromByteArrayBigEndian ba := by
+  unfold KeccakEngine.byteArrayToNatBE ByteArray.foldl ByteArray.foldlM
+  simp only [Id.run]
+  change ByteArray.foldl.loop ba (fun a b => a * 256 + b.toNat) 0 ba.size 0 = _
+  rw [byteArrayFoldl_loop_eq_listFoldl ba 0 0 (Nat.zero_le _)]
+  unfold EvmYul.fromByteArrayBigEndian EvmYul.fromBytesBigEndian ByteArray.toList
+  exact listFoldlBe_eq_fromBytes'_reverse (ByteArray.toList.loop ba 0 [])
+
+/-- Source-side `arrayBaseSlot` coincides with `storageArrayBasePointer`. -/
+theorem sourceArrayBaseSlot_eq_storageArrayBasePointer (baseSlot : Nat) :
+    SourceSemantics.arrayBaseSlot baseSlot =
+      EvmYul.fromByteArrayBigEndian (storageArrayBasePointer baseSlot) := by
+  unfold SourceSemantics.arrayBaseSlot SourceSemantics.keccakMemorySlice
+    abstractKeccakMemorySlice storageArrayBasePointer
+  rw [irMemorySliceBytesBE_singleSlot, byteArrayToNatBE_eq_fromByteArrayBigEndian]
+  apply Nat.mod_eq_of_lt
+  apply fromByteArrayBigEndian_lt_of_size
+  rw [KeccakEngine.keccak256_size]
+
+/-- Source-side `arrayBaseSlot` coincides with `ObsAlgebra.solidityArrayBaseSlot`. -/
+theorem sourceArrayBaseSlot_eq_solidityArrayBaseSlot (baseSlot : Nat) :
+    SourceSemantics.arrayBaseSlot baseSlot =
+      Verity.Specs.ObsAlgebra.solidityArrayBaseSlot baseSlot :=
+  sourceArrayBaseSlot_eq_storageArrayBasePointer baseSlot
+
+/-- Source-side `arrayElementSlot` coincides with `ObsAlgebra.solidityArrayElemSlot` (stride 1). -/
+theorem sourceArrayElementSlot_eq_solidityArrayElemSlot (baseSlot idx : Nat) :
+    SourceSemantics.arrayElementSlot baseSlot idx =
+      Verity.Specs.ObsAlgebra.solidityArrayElemSlot baseSlot idx 1 := by
+  unfold SourceSemantics.arrayElementSlot Verity.Specs.ObsAlgebra.solidityArrayElemSlot
+  rw [SourceSemantics.wordNormalize_eq_mod, sourceArrayBaseSlot_eq_solidityArrayBaseSlot,
+    Nat.mul_one]
+
+/-- `slotPointer` of `SourceSemantics.arrayElementSlot` equals `storageArrayElementPointer`. -/
+theorem slotPointer_sourceArrayElementSlot_eq_storageArrayElementPointer
+    (baseSlot idx : Nat) :
+    slotPointer (SourceSemantics.arrayElementSlot baseSlot idx) =
+      storageArrayElementPointer baseSlot idx := by
+  unfold slotPointer storageArrayElementPointer SourceSemantics.arrayElementSlot
+  rw [SourceSemantics.wordNormalize_eq_mod, sourceArrayBaseSlot_eq_storageArrayBasePointer,
+    evmYul_uint256_ofNat_mod]
 
 /-- Synthetic dynamic-array field used to expose the real storage-array compiler
     branches. -/

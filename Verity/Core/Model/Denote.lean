@@ -401,12 +401,22 @@ def findResolvedFieldAtStorageSlot (fields : List Field) (isTransient : Bool)
 def findResolvedFieldAtSlot (fields : List Field) (slot : Nat) : Option Field :=
   findResolvedFieldAtStorageSlot fields false slot
 
+/-- Solidity dynamic-array base slot `keccak256(bytes32(baseSlot))`, routed
+through `oracle.keccakMemorySlice` over a single 32-byte word at offset `0`. -/
+def arrayBaseSlot (oracle : DenoteOracle) (baseSlot : Nat) : Nat :=
+  oracle.keccakMemorySlice
+    (fun off => if off = 0 then Verity.Core.Uint256.ofNat baseSlot else 0) 0 32
+
+/-- Solidity dynamic-array element slot `(keccak256(bytes32(baseSlot)) + idx) % 2^256`. -/
+def arrayElementSlot (oracle : DenoteOracle) (baseSlot idx : Nat) : Nat :=
+  wordNormalize (arrayBaseSlot oracle baseSlot + idx)
+
 def findDynamicArrayElementAtSlot (oracle : DenoteOracle)
     (fields : List Field) (world : Verity.ContractState) (targetSlot : Nat) : Option Nat :=
   let rec scanElements (baseSlot : Nat) : List Verity.Core.Uint256 → Nat → Option Nat
     | [], _ => none
     | value :: rest, idx =>
-        if oracle.mappingSlot baseSlot idx = wordNormalize targetSlot then
+        if arrayElementSlot oracle baseSlot idx = wordNormalize targetSlot then
           some value.val
         else
           scanElements baseSlot rest (idx + 1)
@@ -2393,18 +2403,18 @@ private def smokeTx : DenoteTransaction :=
 example :
     (denoteFunction dummyOracle (smokeSpec [.return (.literal 42)])
       (smokeFn [.return (.literal 42)]) smokeTx Verity.defaultState).returnValue =
-      some 42 := by native_decide
+      some 42 := by decide
 
 example :
     (denoteFunction dummyOracle
       (smokeSpec [.letVar "x" (.literal 7), .return (.add (.localVar "x") (.literal 5))])
       (smokeFn [.letVar "x" (.literal 7), .return (.add (.localVar "x") (.literal 5))])
-      smokeTx Verity.defaultState).returnValue = some 12 := by native_decide
+      smokeTx Verity.defaultState).returnValue = some 12 := by decide
 
 example :
     (denoteFunction dummyOracle (smokeSpec [.require (.literal 0) "always fails"])
       (smokeFn [.require (.literal 0) "always fails"]) smokeTx
-      Verity.defaultState).success = false := by native_decide
+      Verity.defaultState).success = false := by decide
 
 example :
     let world := { Verity.defaultState with
@@ -2415,7 +2425,7 @@ example :
     evalExpr dummyOracle [] state (.memoryArrayLength "xs") = some 2 ∧
       evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 0)) = some 41 ∧
       evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 2)) = none := by
-  native_decide
+  decide
 
 example :
     let body :=
@@ -2425,6 +2435,6 @@ example :
       , Stmt.return (.memoryArrayElement "xs" (.literal 0)) ]
     (denoteFunction dummyOracle (smokeSpec body) (smokeFn body)
       smokeTx Verity.defaultState).returnValue = some 77 := by
-  native_decide
+  decide
 
 end Compiler.CompilationModel.Denote

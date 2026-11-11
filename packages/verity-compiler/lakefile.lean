@@ -15,7 +15,8 @@ lean_lib «Compiler» where
     .andSubmodules `Verity.Macro,
     .one `Verity.Proofs.LoopSimulation,
     .one `Verity.Proofs.Stdlib.Automation,
-    .one `Verity.Proofs.Stdlib.MappingAutomation
+    .one `Verity.Proofs.Stdlib.MappingAutomation,
+    .one `Verity.Specs.ObsAlgebra
   ]
 
 lean_exe «verity-compiler» where

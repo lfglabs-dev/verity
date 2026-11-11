@@ -3640,11 +3640,15 @@ theorem NativeStmtPreservesWord_exprStmtCall_returndatacopy_of_evalArgs_preserve
       | zero =>
           simp [EvmYul.Yul.primCall] at hExec
       | succ primFuel =>
-          rw [primCall_returndatacopy_ok] at hExec
-          cases hExec
-          rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
-          rw [state_getElem_setMachineState]
-          exact hArgLookup
+          by_cases hIn : rstart.toNat + size.toNat ≤
+              argState.toSharedState.toMachineState.returnData.size
+          · rw [primCall_returndatacopy_ok _ _ _ _ _ hIn] at hExec
+            cases hExec
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setMachineState]
+            exact hArgLookup
+          · rw [primCall_returndatacopy_out_of_bounds _ _ _ _ _ (by omega)] at hExec
+            cases hExec
 
 theorem NativeStmtPreservesWord_exprStmtCall_returndatacopy_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)

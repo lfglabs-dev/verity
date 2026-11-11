@@ -1,4 +1,5 @@
 import Compiler.Proofs.EndToEnd.SimpleStorage
+import Compiler.Proofs.EndToEnd.ObsBridge
 
 /-!
 End-to-end proof facade.

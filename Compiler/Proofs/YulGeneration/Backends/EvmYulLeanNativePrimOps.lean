@@ -461,15 +461,45 @@ theorem step_calldatacopy_overarity_invalid
       Except.error EvmYul.Yul.Exception.InvalidArguments := by
   rfl
 
-@[simp] theorem step_returndatacopy_ok
+/-- The Yul `RETURNDATACOPY` step halts exceptionally on out-of-bounds reads (EIP-211)
+and copies the return-data slice into memory when in bounds. -/
+theorem step_returndatacopy_eq
     (state : EvmYul.Yul.State)
     (mstart rstart size : EvmYul.UInt256) :
+    EvmYul.step (τ := .Yul) EvmYul.Operation.RETURNDATACOPY none state
+        [mstart, rstart, size] =
+      if rstart.toNat + size.toNat >
+          state.toSharedState.toMachineState.returnData.size then
+        .error EvmYul.Yul.Exception.InvalidMemoryAccess
+      else
+        .ok (state.setMachineState
+          (state.toSharedState.toMachineState.returndatacopy mstart rstart size),
+          none) := by
+  rfl
+
+/-- An in-bounds `RETURNDATACOPY` copies the return-data slice into memory. -/
+@[simp] theorem step_returndatacopy_ok
+    (state : EvmYul.Yul.State)
+    (mstart rstart size : EvmYul.UInt256)
+    (hInBounds : rstart.toNat + size.toNat ≤
+      state.toSharedState.toMachineState.returnData.size) :
     EvmYul.step (τ := .Yul) EvmYul.Operation.RETURNDATACOPY none state
         [mstart, rstart, size] =
       .ok (state.setMachineState
         (state.toSharedState.toMachineState.returndatacopy mstart rstart size),
         none) := by
-  rfl
+  rw [step_returndatacopy_eq, if_neg (by omega)]
+
+/-- EIP-211: an out-of-bounds `RETURNDATACOPY` step halts with `InvalidMemoryAccess`. -/
+theorem step_returndatacopy_out_of_bounds
+    (state : EvmYul.Yul.State)
+    (mstart rstart size : EvmYul.UInt256)
+    (hOutOfBounds : rstart.toNat + size.toNat >
+      state.toSharedState.toMachineState.returnData.size) :
+    EvmYul.step (τ := .Yul) EvmYul.Operation.RETURNDATACOPY none state
+        [mstart, rstart, size] =
+      .error EvmYul.Yul.Exception.InvalidMemoryAccess := by
+  rw [step_returndatacopy_eq, if_pos hOutOfBounds]
 
 theorem step_returndatacopy_nil_invalid
     (state : EvmYul.Yul.State) :
@@ -2198,13 +2228,30 @@ theorem primCall_returndatasize_any_ok
 @[simp] theorem primCall_returndatacopy_ok
     (fuel : Nat)
     (state : EvmYul.Yul.State)
-    (mstart rstart size : EvmYul.UInt256) :
+    (mstart rstart size : EvmYul.UInt256)
+    (hInBounds : rstart.toNat + size.toNat ≤
+      state.toSharedState.toMachineState.returnData.size) :
     EvmYul.Yul.primCall (fuel + 1) state
         EvmYul.Operation.RETURNDATACOPY [mstart, rstart, size] =
       .ok (state.setMachineState
         (state.toSharedState.toMachineState.returndatacopy mstart rstart size),
         []) := by
-  cases fuel <;> simp [EvmYul.Yul.primCall]
+  cases fuel <;>
+    simp [EvmYul.Yul.primCall, step_returndatacopy_ok state mstart rstart size hInBounds]
+
+/-- EIP-211: an out-of-bounds `RETURNDATACOPY` primitive call halts exceptionally. -/
+theorem primCall_returndatacopy_out_of_bounds
+    (fuel : Nat)
+    (state : EvmYul.Yul.State)
+    (mstart rstart size : EvmYul.UInt256)
+    (hOutOfBounds : rstart.toNat + size.toNat >
+      state.toSharedState.toMachineState.returnData.size) :
+    EvmYul.Yul.primCall (fuel + 1) state
+        EvmYul.Operation.RETURNDATACOPY [mstart, rstart, size] =
+      .error EvmYul.Yul.Exception.InvalidMemoryAccess := by
+  cases fuel <;>
+    simp [EvmYul.Yul.primCall,
+      step_returndatacopy_out_of_bounds state mstart rstart size hOutOfBounds]
 
 @[simp] theorem primCall_pop_ok
     (fuel : Nat)

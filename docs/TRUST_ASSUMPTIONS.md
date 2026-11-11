@@ -716,25 +716,21 @@ flat `encodeStorageAt` read at the derived slot
 variants), reusing the same non-occupation hypotheses `FieldEncode`
 already takes.
 
-**Known divergence — dynamic-array element slots (`unsupported`).**
-The source model and the Yul model derive dynamic-array element
-addresses differently and are **not** reconciled here.
-`Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`
-(`findDynamicArrayElementAtSlot`) places element `i` of the array
-rooted at slot `s` at `solidityMappingSlot s i` =
-`keccak256(abi.encode(i, s))`, a 64-byte mapping preimage.
-`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`
-(`storageArrayBasePointer` / `storageArrayElementPointer`) uses the
-real Solidity layout `keccak256(bytes32(s)) + i`, a 32-byte preimage
-plus an arithmetic offset. Missing feature, precisely: *the source
-semantics has no array-element slot derivation of the form
-`keccak256(bytes32(slot)) + index`* — it reuses the mapping
-derivation. No shim asserts the two equal. Containment:
-`storageKeySlot` returns `none` at a persistent root whose resolved
-field is a `dynamicArray`
+**Dynamic-array element slots (`supported`) & root containment.**
+`Denote.findDynamicArrayElementAtSlot` and
+`SourceSemantics.findDynamicArrayElementAtSlot` place element `i` of
+the array rooted at slot `s` at `SourceSemantics.arrayElementSlot s i`
+(`(keccak256(bytes32(s)) + i) % 2^256`), proved equal to
+`ObsAlgebra.solidityArrayElemSlot s i 1` and
+`storageArrayElementPointer s i` in
+`Compiler/Proofs/Storage/StructArrayStorage.lean`
+(`sourceArrayElementSlot_eq_solidityArrayElemSlot`,
+`slotPointer_sourceArrayElementSlot_eq_storageArrayElementPointer`).
+Containment at roots: `storageKeySlot` returns `none` at a persistent
+root whose resolved field is a `dynamicArray`
 (`storageKeySlot_slot_dynamicArray`), so `MappingCoherentAllKeys`
-claims nothing about dynamic-array roots; `encodeStorageAt` reads a
-list length there, not a word.
+claims nothing about dynamic-array roots (`encodeStorageAt` reads a
+list length there, not a word).
 `storageArray` and `knownAddresses` are still separate fields;
 word-channel / array-channel independence is proved in
 `Compiler.Proofs.Storage.SeparateChannels`.

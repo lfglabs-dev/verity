@@ -132,10 +132,11 @@ theorem findDynamicArrayElementAtSlot_scanElements_eq (targetSlot : Nat) :
   | _, [], _ => rfl
   | baseSlot, value :: rest, idx => by
       simp only [Denote.findDynamicArrayElementAtSlot.scanElements,
-        SourceSemantics.findDynamicArrayElementAtSlot.scanElements]
-      rw [sourceOracle_mappingSlot, Compiler.Proofs.abstractMappingSlot_eq_solidity]
+        SourceSemantics.findDynamicArrayElementAtSlot.scanElements,
+        Denote.arrayElementSlot, SourceSemantics.arrayElementSlot,
+        Denote.arrayBaseSlot, SourceSemantics.arrayBaseSlot,
+        sourceOracle_keccakMemorySlice, Denote.wordNormalize, SourceSemantics.wordNormalize]
       rw [findDynamicArrayElementAtSlot_scanElements_eq targetSlot baseSlot rest (idx + 1)]
-      rfl
 
 theorem findDynamicArrayElementAtSlot_go_eq
     (world : Verity.ContractState) (targetSlot : Nat) :
