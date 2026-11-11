@@ -24,7 +24,8 @@ def main():
         ('uninitialized-signed', '{ int256 x; } return 7;', None, None),
         ('uninitialized-int128', '{ int128 x; } return 7;', 'int128 x', 'unsupported default local type int128'),
         ('uninitialized-memory', '{ bytes memory x; } return 7;', 'bytes memory x', 'uninitialized reference locals'),
-        ('uninitialized-array', '{ uint256[] memory x; } return 7;', 'uint256[] memory x', 'uninitialized reference locals'),
+        # Admitted since T[] memory zero values (#2622).
+        ('uninitialized-array', '{ uint256[] memory x; } return 7;', None, None),
     ]
     results = []
     for name, body, token, diagnostic in cases:
