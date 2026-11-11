@@ -140,6 +140,87 @@ private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
       o.foldl (fun found _ child => found || statefulCallIn child env) own
   | _ => false
 
+/-- `T[N] memory`, `T[] memory`, `bytes`/`string memory` and memory structs are
+    passed to internal functions by reference (`typeIdentifier` `…_memory_ptr`). -/
+private def memoryReferenceNode (j : Json) : Bool :=
+  ((field? j "typeDescriptions").bind (optStr · "typeIdentifier")).any (·.endsWith "_memory_ptr")
+
+/-- Some subexpression of `j` is a by-reference memory value, so evaluating `j`
+    can read memory that an internal callee receiving that reference may write. -/
+private partial def memoryReferenceIn (j : Json) : Bool :=
+  match j with
+  | .arr xs => xs.any memoryReferenceIn
+  | .obj o => memoryReferenceNode j || o.foldl (fun found _ child => found || memoryReferenceIn child) false
+  | _ => false
+
+/-- Yul `j` may write memory: a memory-writing builtin (`mstore`, the `*copy`
+    family, calls returning into memory). A missing Yul AST counts as writing. -/
+private partial def yulMemoryWriteIn (j : Json) : Bool :=
+  match j with
+  | .null => true
+  | .arr xs => xs.any yulMemoryWriteIn
+  | .obj o =>
+      let own := optStr j "nodeType" == some "YulFunctionCall" &&
+        (((field? j "functionName").bind (optStr · "name")).any fun name =>
+          ["mstore", "mstore8", "mcopy", "calldatacopy", "codecopy", "extcodecopy",
+            "returndatacopy", "call", "callcode", "delegatecall", "staticcall"].contains name)
+      own || o.foldl (fun found _ child => found || (child matches .obj _ | .arr _) && yulMemoryWriteIn child) false
+  | _ => false
+
+/-- `j` may write memory visible outside the call it occurs in: an internal call
+    with a by-reference memory argument or receiver whose callee (transitively)
+    assigns, deletes or increments through a memory reference, writes memory
+    in inline assembly (`yulMemoryWriteIn`), or has modifiers. `pure`/`view` callees count: `statefulCallIn`
+    does not see these writes. Unresolved callees and function pointers count
+    as writing; `seen` cuts recursion. -/
+private partial def memoryWriteIn (j : Json) (env : Env) (seen : List Nat := []) : Bool :=
+  match j with
+  | .arr xs => xs.any (memoryWriteIn · env seen)
+  | .obj o =>
+      let kind := optStr j "nodeType"
+      let op := optStr j "operator" |>.getD ""
+      let own :=
+        if kind == some "InlineAssembly" then yulMemoryWriteIn ((field? j "AST").getD Json.null)
+        else if kind == some "Assignment" then
+          ((field? j "leftHandSide").map memoryReferenceIn).getD true
+        else if kind == some "UnaryOperation" && ["++", "--", "delete"].contains op then
+          ((field? j "subExpression").map memoryReferenceIn).getD true
+        else if kind == some "FunctionCall" && optStr j "kind" == some "functionCall" then
+          let callee := (field? j "expression").getD Json.null
+          let internal := ((field? callee "typeDescriptions").bind (optStr · "typeIdentifier")).any
+            (·.startsWith "t_function_internal_")
+          let args := match field? j "arguments" with
+            | some (.arr xs) => xs
+            | _ => #[]
+          let receiver := optStr callee "nodeType" == some "MemberAccess" &&
+            ((field? callee "expression").map memoryReferenceNode).getD false
+          if !internal || !(receiver || args.any memoryReferenceNode) then false
+          else match (field? callee "referencedDeclaration").bind (·.getNat?.toOption) with
+            | none => true
+            | some id =>
+              if env.fnPtrs.contains id then true
+              else
+                let targetId := resolveInContracts env env.linearizedBases.toList id |>.getD id
+                if seen.contains targetId then false
+                else match env.funs.find? targetId with
+                  | none => true
+                  | some fn =>
+                    let hasModifiers := match field? fn "modifiers" with
+                      | some (.arr ms) => !ms.isEmpty
+                      | _ => false
+                    hasModifiers ||
+                      memoryWriteIn ((field? fn "body").getD Json.null) env (targetId :: seen)
+        else false
+      own || o.foldl (fun found _ child => found || memoryWriteIn child env seen) false
+  | _ => false
+
+/-- Evaluation order between sibling expressions `a` and `b` is observable
+    through memory: one may write memory (`memoryWriteIn`) that the other reads.
+    solc's order differs between pipelines for binary operands and the importer
+    fixes one order, so such siblings fail closed. -/
+private def memoryWriteOrderHazard (a b : Json) (env : Env) : Bool :=
+  (memoryWriteIn a env && memoryReferenceIn b) || (memoryWriteIn b env && memoryReferenceIn a)
+
 private def buildField (types item : Json) : M FieldInfo := do
   let name ← mStr (← mField item "label")
   if name == rawStorageFieldName || name.startsWith "_verity_struct_" then
@@ -3605,6 +3686,11 @@ private partial def lowerBinary (j : Json) : M Val := do
     if statefulCallIn leftNode env ||
         statefulCallIn rightNode env then
       failAt j "stateful helper operands require explicit evaluation-order support"
+    -- solc evaluates binary operands right-to-left on the legacy pipeline and
+    -- left-to-right under via-IR; a helper writing memory the other operand
+    -- reads makes that observable.
+    if memoryWriteOrderHazard leftNode rightNode env then
+      failAt j "memory-writing helper operands require explicit evaluation-order support"
   let mut left ← lowerExpr leftNode
   let mut right ← lowerExpr rightNode
   unless op == "&&" || op == "||" do
@@ -8094,6 +8180,8 @@ private partial def inlineFixedArrayFn (fnId : Nat) (args : Array CallArg) (at_ 
   let (allocPre, result) ← allocateZeroedFixedMemArray rname rty
   modify fun e =>
     { e with yulNames := (if rname == "" then yul else yul.erase rname),
+             yulMemoryArrays := (if rname == "" then e.yulMemoryArrays else e.yulMemoryArrays.erase rname),
+             yulMemoryStructs := (if rname == "" then e.yulMemoryStructs else e.yulMemoryStructs.erase rname),
              helperResult := none, helperReturnId := none, multiHelperResults := none,
              flatStructHelperResult := none, fixedArrayHelperResult := some result, helperPost := #[],
              fixedMemArrays := if rname == "" then e.fixedMemArrays else e.fixedMemArrays.insert rid result }
@@ -8364,7 +8452,8 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
                yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
   modify fun e =>
     { e with helperResult := none, helperReturnId := none, multiHelperResults := none,
-             flatStructHelperResult := some (retSid, retStructName, memberBindings, rname != "") }
+             flatStructHelperResult := some (retSid, retStructName, memberBindings, rname != ""),
+             fixedArrayHelperResult := none }
   noteFn fn
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with helperPost := modPost }
@@ -8380,7 +8469,7 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (retSid, retStructName, pre ++ modStmts ++ bodyStmts, memberExprs)
 
 private partial def unwrapSignFlipStmts (j : Json) (unchecked : Bool) : M (Array Json × Bool) := do
@@ -8489,7 +8578,7 @@ private partial def trySignFlipSelfCall? (fnId : Nat) (args : Array CallArg) (at
   let mut pre := boundPre
   modify fun e =>
     { e with yulNames := yul, helperResult := none, helperReturnId := some retId,
-             multiHelperResults := none, flatStructHelperResult := none }
+             multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none }
   let some boundParamExpr := (← get).values.find? pid
     | failAt at_ "unbound sign-flip parameter"
   pre := pre.push (.ite (.slt boundParamExpr (.literal 0)) [.revertEmpty] [])
@@ -8513,7 +8602,7 @@ private partial def trySignFlipSelfCall? (fnId : Nat) (args : Array CallArg) (at
   let finalResult : Val := { pre := pre ++ result.pre, expr := result.expr }
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return some finalResult
 
 private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M Val := do
@@ -8559,7 +8648,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
     let resVal ← lowerPositionKeyShim e0 e1 e2 e3
     modify fun e =>
       { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
     return { pre := pre ++ resVal.pre, expr := resVal.expr }
   let stmts ← mArr (← mField body "statements")
   -- Retain the existing direct-result lowering for a single terminal
@@ -8580,7 +8669,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   else pure false
   let terminalAssembly := isSingleYulAssign && mods.isEmpty &&
       (resultType == "uint256" || resultType == "uint" || resultType == "bytes32")
-  modify fun e => { e with helperResult := none, helperReturnId := some retId, multiHelperResults := none, flatStructHelperResult := none }
+  modify fun e => { e with helperResult := none, helperReturnId := some retId, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none }
   if retName != "" && !terminalAssembly then
     let declaration := rets[0]!
     let id ← mNat (← mField declaration "id")
@@ -8613,7 +8702,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
            expr := .localVar retCapture }
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure finalResult
 
 private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Array Stmt) := do
@@ -8641,7 +8730,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
   unless rets.isEmpty do failAt fn "expected void helper"
   let (pre, yul) ← bindHelperParams params args body at_ savedYul
-  modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none }
+  modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none }
   noteFn fn
   if (← get).stateVars.size > 1 && optStr fn "name" == some "transfer" && args.size == 3 &&
       (← get).funContract.find? fnId == some "CurrencyLibrary" then
@@ -8654,7 +8743,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
     let shimStmts ← lowerCurrencyTransferShim cExpr toExpr amtExpr
     modify fun e =>
       { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
     return pre ++ shimStmts
   if (← get).stateVars.size > 1 && optStr fn "name" == some "flipTick" && args.size == 3 &&
       (← get).funContract.find? fnId == some "TickBitmap" then
@@ -8667,14 +8756,14 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
     let shimStmts ← lowerTickBitmapFlipShim mapSlotExpr tickExpr tsExpr
     modify fun e =>
       { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
     return pre ++ shimStmts
   if (← get).stateVars.size > 1 &&
       (optStr fn "name" == some "revertWith" || optStr fn "name" == some "bubbleUpAndRevertWith") &&
       (← get).funContract.find? fnId == some "CustomRevert" then
     modify fun e =>
       { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
     return pre.push .revertEmpty
   let (modStmts, modPost) ← lowerModifiers mods
   let condModExpr? : Option Expr := match modPost.toList with
@@ -8689,7 +8778,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
     | none => rawBodyStmts
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts)
 
 private partial def lowerMsgDataExpr (j : Json) : M (Array Stmt) := do
@@ -8817,7 +8906,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
                    writableLocals := e.writableLocals.insert rid binding,
                    scalarTy := e.scalarTy.insert rid scalar,
                    yulNames := e.yulNames.insert rname expr }
-  modify fun e => { e with helperResult := none, helperReturnId := none, multiHelperResults := some results, flatStructHelperResult := none }
+  modify fun e => { e with helperResult := none, helperReturnId := none, multiHelperResults := some results, flatStructHelperResult := none, fixedArrayHelperResult := none }
   noteFn fn
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with helperPost := modPost }
@@ -8832,7 +8921,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts, retExprs)
 
 private partial def lowerMultiBranch (j : Json) (expectedTypes : Option (Array (Option String))) :
@@ -9140,7 +9229,7 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
       modify fun e => { e with values := e.values.insert pid bound.expr }
       if pname != "" then
         yul := yul.insert pname bound.expr
-  modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[] }
+  modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none, helperPost := #[] }
   noteFn modDecl
   let preBodyStmts ← lowerVoidHelperFrom preStmts.toList (pure #[])
   let postBodyStmts ← lowerVoidHelperFrom postStmts.toList (pure #[])
@@ -9148,7 +9237,7 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned,
-             helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ preBodyStmts, postBodyStmts)
 
 private partial def lowerModifiers (mods : Array Json) : M (Array Stmt × Array Stmt) := do
@@ -11692,6 +11781,11 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let value ← atom (← convert mInfo.ty (← mType right) (← lowerExpr right) right)
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo value.expr false
           return value.pre ++ pre ++ writeStmts
+        -- solc evaluates the right-hand side before the target's keys; these
+        -- paths capture the keys first, which a memory-writing helper can observe.
+        if !deleting then
+          if memoryWriteOrderHazard target (← mField expression "rightHandSide") (← get) then
+            failAt target "memory-writing helper right-hand side with a memory-reading member key is unsupported"
         if let .bytesSlot (fieldName, slotExpr) isString := path then
           unless ← isStorageStructBytesMember target do
             failAt target s!"unsupported StorageSlot bytes/string member {member}"
@@ -11882,6 +11976,11 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       markField name
       markStructFixedArray name arrInfo.member
       return result
+    -- solc evaluates the right-hand side before the target's keys; these
+    -- paths capture the keys first, which a memory-writing helper can observe.
+    if !deleting then
+      if memoryWriteOrderHazard target (← mField expression "rightHandSide") (← get) then
+        failAt target "memory-writing helper right-hand side with a memory-reading index or key is unsupported"
     if let .structDynamicElement pre path dynInfo index := reference then
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
@@ -12174,6 +12273,10 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
           let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo combined.expr false
           return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
+        -- solc evaluates the right-hand side before the target's keys; this path
+        -- captures the keys first, which a memory-writing helper can observe.
+        if memoryWriteOrderHazard target right (← get) then
+          failAt target "memory-writing helper right-hand side with a memory-reading member key is unsupported"
         if !pre.all isStorageKeyCaptureStmt ||
             (!pre.isEmpty && (assignmentIn right || statefulCallIn right (← get))) then
           failAt target "member write key prelude is unsupported"
@@ -12253,6 +12356,10 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
       let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
       let writeStmts ← writeStructMappingElement #[] path mapInfo key combined.expr false target
       return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
+    -- solc evaluates the right-hand side before the target's keys; this path
+    -- captures the keys first, which a memory-writing helper can observe.
+    if memoryWriteOrderHazard target right (← get) then
+      failAt target "memory-writing helper right-hand side with a memory-reading index or key is unsupported"
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     let (name, count, read, write) ← match path with

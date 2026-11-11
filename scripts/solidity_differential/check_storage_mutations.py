@@ -130,6 +130,18 @@ MUTANTS.update({
     'import-fixed-memory-array-return': (
         'pure ((valPre.push (.assignVar result.pointer (.localVar value.pointer))) ++ (← get).helperPost)',
         'pure (valPre ++ (← get).helperPost)'),
+    # Fresh arrays are zeroed, not left holding the allocator's previous words.
+    'import-fixed-memory-array-zero': (
+        '[.mstore (fixedMemElementAddr arr (.localVar index)) (.literal 0)]',
+        '[.mstore (fixedMemElementAddr arr (.localVar index)) (.literal 1)]'),
+    # Allocation bumps the free pointer, so two live arrays never overlap.
+    'import-fixed-memory-array-free-pointer': (
+        '  .mstore (.literal 64) (.localVar next)]',
+        '  .mstore (.literal 64) (.localVar ptr)]'),
+    # `x[x[1]] = f(x)` evaluates `f(x)` before the index.
+    'import-fixed-memory-array-write-order': (
+        'return (value.pre ++ key.pre ++ fixedMemBoundsGuard arr key.expr).push',
+        'return (key.pre ++ value.pre ++ fixedMemBoundsGuard arr key.expr).push'),
 })
 
 

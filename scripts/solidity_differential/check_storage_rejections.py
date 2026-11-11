@@ -6,6 +6,16 @@ import subprocess
 import tempfile
 
 
+# Pure helpers that write (`bump`, `bumpDynamic`) or only read (`peek`) memory
+# through a by-reference array parameter.
+MEMORY_WRITE_HELPERS = (
+    'mapping(uint256 => uint256) m; uint256[] arr; '
+    'function bump(uint256[2] memory a) internal pure returns (uint256) { a[0] += 1; return a[0]; } '
+    'function peek(uint256[2] memory a) internal pure returns (uint256) { return a[0] + 1; } '
+    'function bumpDynamic(uint256[] memory a) internal pure returns (uint256) { a[0] = a[0] + 1; return a[0]; } '
+    'function g(uint256 p, uint256 q) internal pure returns (uint256) { return p + q; }')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--only', default=None)
@@ -234,6 +244,41 @@ def main():
         ('helper-parameter-delete', 'function h(uint256 y) internal pure returns (uint256) { delete y; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only declaration-bound scalar locals are writable'),
         # Admitted since fixed-size memory arrays (#2625): a zeroed local array.
         ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', None),
+        # A pure helper writing through a by-reference memory argument is
+        # visible to sibling reads: solc evaluates an assignment's right-hand
+        # side before its keys (both pipelines) and binary operands
+        # right-to-left (legacy) or left-to-right (via-IR).
+        ('memory-write-mapping-key-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; m[y[0]] = bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-mapping-compound-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; m[y[0]] += bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-mapping-key-call-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; m[bump(y)] = y[0]; return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-storage-array-index-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; arr[y[1]] = bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-struct-member-key-order', MEMORY_WRITE_HELPERS + ' struct P { uint256 a; } mapping(uint256 => P) ps;', 'uint256[2] memory y; ps[y[0]].a = bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading member key is unsupported'),
+        ('memory-write-binary-operand-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; return y[0] + bump(y);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-comparison-operand-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; return y[0] == bump(y) ? 1 : 2;', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-nested-helper-order', MEMORY_WRITE_HELPERS + ' function outer(uint256[2] memory a) internal pure returns (uint256) { return bump(a); }', 'uint256[2] memory y; return y[0] + outer(y);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        # Same root cause through `T[] memory` and memory-struct helper parameters.
+        ('memory-write-dynamic-array-operand-order', MEMORY_WRITE_HELPERS, 'uint256[] memory y = new uint256[](2); y[0] = x; return y[0] + bumpDynamic(y);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-struct-operand-order', MEMORY_WRITE_HELPERS + ' struct Q { uint256 a; uint256 b; } function bumpStruct(Q memory q) internal pure returns (uint256) { q.a += 1; return q.a; }', 'Q memory q; q.a = x; return q.a + bumpStruct(q);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-struct-mapping-key-order', MEMORY_WRITE_HELPERS + ' struct Q { uint256 a; uint256 b; } function bumpStruct(Q memory q) internal pure returns (uint256) { q.a += 1; return q.a; }', 'Q memory q; q.a = x; m[q.a] = bumpStruct(q); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        # The guard fires only when a sibling can observe the write.
+        ('memory-write-order-positive', MEMORY_WRITE_HELPERS,
+         'uint256[2] memory y; y[0] = x; m[x] = bump(y); m[y[1]] = peek(y); m[y[0]] += x; arr[x % 2] = bump(y); uint256 s = x + bump(y); s += y[0] + peek(y); return s + g(y[0], bump(y));', 'uint256', None),
+        # A named T[N] memory result shadows a caller's `T[] memory` of the same name
+        # in Yul: the read is not resolved against the caller's array (formerly
+        # it was, returning the caller's element).
+        ('fixed-memory-result-yul-shadow', 'function mk() internal pure returns (uint256[2] memory out) { uint256 v; assembly { v := mload(add(add(out, 0x20), mul(0, 0x20))) } out[0] = v; }',
+         'uint256[] memory out = new uint256[](3); out[0] = x; uint256[2] memory r = mk(); return r[0] + out.length;', 'uint256', 'unsupported Yul builtin mload'),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
     ]
     for name, fields, body, returns, expected in cases:
@@ -307,6 +352,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Fixture.sol:3:86: BinaryOperation: [solidity-import:unsupported] stateful helper operands require explicit evaluation-order support'),
+        # Legacy solc evaluates `y[0]` after `bump(y)` (22); via-IR before it (21).
+        ('legacy-memory-write-binary-operand-order-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function bump(uint256[2] memory a) internal pure returns (uint256) { a[0] += 1; return a[0]; }\n  function checked(uint256 x) external pure returns (uint256) { uint256[2] memory y; y[0] = x; return y[0] + bump(y); }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:4:103: BinaryOperation: [solidity-import:unsupported] memory-writing helper operands require explicit evaluation-order support'),
         ('inheritance-interface-unimplemented-rejected',
          "pragma solidity 0.8.34;\ninterface IBase { function checked(uint256 x) external view returns (uint256); }\nabstract contract C is IBase { }\n",
          None,
