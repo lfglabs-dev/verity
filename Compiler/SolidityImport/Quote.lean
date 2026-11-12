@@ -256,6 +256,8 @@ partial def quoteParamType : ParamType → m Term
       `(Compiler.CompilationModel.ParamType.array $(← quoteParamType elem))
   | .tuple types => do
       `(Compiler.CompilationModel.ParamType.tuple $(← list (← types.mapM quoteParamType)))
+  | .fixedArray elem n => do
+      `(Compiler.CompilationModel.ParamType.fixedArray $(← quoteParamType elem) $(quote n))
   | t => throwError "internal: the importer cannot quote {repr t}"
 
 /-- Quote a function built by the importer. Only the fields it sets are

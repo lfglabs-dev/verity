@@ -88,6 +88,17 @@ structure RawStructInfo where
   subStructs : Array RawStructSubStructInfo := #[]
   wordCount : Nat := 0
 
+/-- A fixed-size memory array `T[N] memory` with a scalar element `T`: a binding
+holding a pointer to `N` consecutive words, without a length word. Every
+binding of the same array value holds the same pointer, so writes through one
+binding are visible through all others (Solidity's memory reference semantics). -/
+structure FixedMemArray where
+  pointer : String
+  length : Nat
+  elementType : String
+  modelElementType : ParamType
+  abiKind : SolidityAbi.ScalarKind
+
 structure FlatStructLocal where
   structId : Nat
   structName : String
@@ -112,6 +123,7 @@ inductive Ref where
   | abiElement (id memberIndex : Nat) (pointer : Expr) (inMemory : Bool) (pre : Array Stmt)
   | calldataBytes (id : Nat) (pre : Array Stmt)
   | scalarArray (id : Nat) (pre : Array Stmt)
+  | fixedMemArray (id : Nat) (pre : Array Stmt)
   | state (name : String) (pre : Array Stmt)
 
 structure AbiElementLocal where
@@ -166,6 +178,7 @@ inductive CallArg where
   | memory (descriptor : MemParam) (pre : Array Stmt)
   | abiElement (bound : AbiElementLocal) (pre : Array Stmt)
   | scalarArray (descriptor : ScalarArrayParam) (pre : Array Stmt)
+  | fixedMemArray (array : FixedMemArray) (pre : Array Stmt)
   | byteBuffer (buffer : EncodedBytes)
   | stringBuffer (buffer : EncodedBytes)
   | calldataBytes (descriptor : CalldataBytesParam) (pre : Array Stmt)
