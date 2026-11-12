@@ -136,6 +136,8 @@ structure Env where
   abiElements : RBMap Nat AbiElementLocal compare := RBMap.empty
   calldataBytes : RBMap Nat CalldataBytesParam compare := RBMap.empty
   scalarArrays : RBMap Nat ScalarArrayParam compare := RBMap.empty
+  /-- `T[N] memory` parameters and locals, keyed by declaration id. -/
+  fixedMemArrays : RBMap Nat FixedMemArray compare := RBMap.empty
   byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   stringBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   nonLiteralByteLocals : Array Nat := #[]
@@ -154,6 +156,8 @@ structure Env where
   helperStructSid : Nat := 0
   multiHelperResults : Option (Array (String × String × Bool)) := none
   flatStructHelperResult : Option (Nat × String × Array (String × String × String) × Bool) := none
+  /-- Result variable of the `T[N] memory` helper being inlined. -/
+  fixedArrayHelperResult : Option FixedMemArray := none
   helperPost : Array Stmt := #[]
   rootIsVoid : Bool := false
   rootReturns : Array Expr := #[]
@@ -865,6 +869,20 @@ def scalarArrayElement? (ty : String) : Option (String × ParamType × SolidityA
       else none
     let kind ← kind?
     some (elemStr, pty, kind)
+
+/-- `T[N]` / `T[N] memory` with a positive literal length `N` and a scalar
+element `T` accepted by `scalarArrayElement?` (except `bytes4`, whose ABI
+validation differs): the element string, model type, ABI kind and length. -/
+def fixedMemArrayType? (ty : String) :
+    Option (String × ParamType × SolidityAbi.ScalarKind × Nat) := do
+  let ty := if ty.endsWith " memory" then (ty.dropEnd 7).toString else ty
+  unless ty.endsWith "]" do none
+  let [elemStr, suffix] := ty.splitOn "[" | none
+  let length ← (suffix.dropEnd 1).toString.toNat?
+  unless length > 0 do none
+  let (elem, pty, kind) ← scalarArrayElement? (elemStr ++ "[]")
+  if elem == "bytes4" then none
+  some (elem, pty, kind, length)
 
 def resolveEnumMembers (j : Json) (ty : String) : M (Array String) := do
   let env ← get

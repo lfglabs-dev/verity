@@ -228,6 +228,16 @@ def _stateless_byte_calls():
         calls.append(('conditionalSlice(bytes,bytes,uint256)',
                       [96, 96 + 32 * len(words), pick] + words + _bytes_words(_BYTE_PAYLOADS[right])))
     return calls
+FIXED_ARRAY_ARGUMENTS = [
+    [1, 2, 3, 4, 5, 6],
+    [10, 20, 30, 40, 3, 9],
+    [(1 << 256) - 1, 0, 0, 0, 2, 0],
+    [(1 << 256) - 1, 5, 6, 7, 1, 2],
+    [1, 2, 3, 4, 1 << 64, 0],
+    [1, 2, 3, 4, 0, (1 << 64) + 1],
+    [1, 2, 3, 4, 5],
+    [7, 7, 7, 7, (1 << 64) - 1, (1 << 64) - 1],
+]
 
 
 def main():
@@ -414,6 +424,7 @@ def main():
         'first(bytes)',
         'digestSlice(bytes)',
         'conditionalSlice(bytes,bytes,uint256)',
+        'rotateFixed(uint256[4],uint64[2])',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -1060,6 +1071,13 @@ def main():
         stateless_prefix = _stateless_byte_calls() + [('read()', [])]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(stateless_prefix[:remaining_budget])
+    if 'rotateFixed(uint256[4],uint64[2])' in source['methodIdentifiers']:
+        # Static T[N] memory ABI heads: canonical, aliasing (caps[0] % 4 == 3),
+        # checked overflow, dirty uint64 elements, and a truncated head.
+        fixed_prefix = [('rotateFixed(uint256[4],uint64[2])', words) for words in FIXED_ARRAY_ARGUMENTS]
+        fixed_prefix.append(('read()', []))
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(fixed_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1435,6 +1453,8 @@ def main():
         elif name in ('echo(bytes)', 'echoCalldata(bytes,uint256)', 'check(bytes,bytes,bytes)',
                       'first(bytes)', 'digestSlice(bytes)', 'conditionalSlice(bytes,bytes,uint256)'):
             call_args = rng.choice([c for c in _stateless_byte_calls() if c[0] == name])[1]
+        elif name == 'rotateFixed(uint256[4],uint64[2])':
+            call_args = rng.choice(FIXED_ARRAY_ARGUMENTS)
         elif name == 'parseHexByte(bytes1,bytes)':
             call_args = rng.choice([
                 [0x61 << 248, 64, 32, 0x66 << 248],
