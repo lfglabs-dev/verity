@@ -59,5 +59,12 @@ applies `Compiler.Yul.TempReuse.reuseAndSpillTempsObject` (`Compiler/Yul/TempReu
   at `0x1000` (`4096`) via `mstore(slot, rhs)` / `mload(slot)`
   (`spillLetStep_eval_eq`), whenever the block does not touch linear memory at
   or above `0x1000`.
+- **Free memory above the spill slots**: the per-block check above is static, while
+  runtime-sized allocations (a `bytes` argument copied by an ECM, an ABI encoding) start
+  at the free-memory pointer. So when a code section spills, its free-pointer
+  initialisation `mstore(64, 128)` is raised to one past its highest spill slot
+  (`spillHighWaterStmts`, `raiseFreePointerInit`), and allocated memory never aliases a
+  spilled local (`test/SpillFreeMemorySmoke.t.sol`). Sections that do not spill are
+  unchanged.
 - **CLI control**: Pass `--max-stack-locals <n>` (default: `12`) to adjust the
   per-block `let`-binding threshold before temporary reuse and spilling kick in.

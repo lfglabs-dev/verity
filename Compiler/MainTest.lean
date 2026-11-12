@@ -143,6 +143,19 @@ unsafe def runFlagAndUnitTests : IO Unit := do
   expectTrue "linker keeps second function boundary intact" ((parsed.getD 1 {name := "", arity := 0, body := []}).name == "PoseidonT4_hash")
   let firstBody := String.intercalate "\n" ((parsed.getD 0 {name := "", arity := 0, body := []}).body)
   expectTrue "first function body does not swallow next function" (!contains firstBody "function PoseidonT4_hash")
+  -- Spilled locals live at fixed slots from `defaultSpillBase`; a spilling code section must
+  -- start its free memory above them (else a runtime-sized copy overwrites spilled locals).
+  let spillProbe : List Compiler.Yul.YulStmt :=
+    [.exprStmt (.call "mstore" [.lit 64, .lit 128]),
+     .block [.exprStmt (.call "mstore" [.lit 4128, .lit 7]),
+       .let_ "x" (.call "mload" [.lit 4096])]]
+  expectTrue "spill high-water mark is one past the highest spill slot"
+    (Compiler.Yul.TempReuse.spillHighWaterStmts spillProbe == 4160)
+  expectTrue "no spill slot means no high-water mark"
+    (Compiler.Yul.TempReuse.spillHighWaterStmts [.exprStmt (.call "mstore" [.lit 64, .lit 128])] == 0)
+  expectTrue "the free-pointer initialisation is raised above the spill slots"
+    (Compiler.Yul.TempReuse.raiseFreePointerInit 4160 spillProbe ==
+      [.exprStmt (.call "mstore" [.lit 64, .lit 4160])] ++ spillProbe.drop 1)
 
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do
