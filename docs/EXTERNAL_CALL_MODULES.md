@@ -43,7 +43,7 @@ that becomes part of the generated artifact. Verity records this on every
 | Mode | Syntax | Use case | Artifact meaning |
 |------|--------|----------|------------------|
 | External ABI boundary | `linked_as := external` | Permit2, routers, verifier contracts, oracles | The dependency remains a real call boundary; adapters must preserve ABI return decoding and returndata bubbling. |
-| Object-linked Yul | `linked_as := internal_yul` or `linked_as := object_linked` | Poseidon-style deterministic helpers and imported Yul libraries | Matching helper functions are injected into the runtime artifact from `--link` libraries. |
+| Object-linked Yul | `linked_as := internal_yul` or `linked_as := object_linked` | Poseidon-style deterministic helpers and imported Yul libraries | Matching helper functions are injected into the runtime artifact from `--link` libraries, and into the creation code when it calls them. |
 | Inline helper | `linked_as := inline` | Small pure helper bodies that a frontend/backend may inline | The helper remains visible as a foreign surface while the implementation is expected to be included at compile time. |
 | Compiler runtime | `linked_as := compiler_runtime` | ABI/runtime helpers owned by the Verity compiler | The helper is part of the compiler-owned runtime surface, not a protocol deployment boundary. |
 
