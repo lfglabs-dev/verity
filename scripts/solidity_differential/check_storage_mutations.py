@@ -153,6 +153,46 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-inline-array-literal-order': (
+        '    let slot := fixedMemElementAddr arr (.literal index)',
+        '    let slot := fixedMemElementAddr arr (.literal (arr.length - 1 - index))'),
+    'import-inline-array-literal-allocation': (
+        '  let mut pre := fixedMemAllocate arr.pointer next arr.length',
+        '  let mut pre := fixedMemAllocate arr.pointer next (arr.length - 1)'),
+})
+
+
+MUTANTS.update({
+    'import-dynamic-memory-array-result': (
+        '            pure (valPre ++ #[.assignVar result.memoryPointer (.localVar value.memoryPointer),',
+        '            pure (valPre ++ #[.assignVar result.memoryPointer (.literal 96),'),
+    'import-dynamic-memory-array-reassign': (
+        '        return valPre ++ #[.assignVar arr.memoryPointer (.localVar value.memoryPointer),\n          .assignVar arr.lengthBinding (.localVar value.lengthBinding)]',
+        '        return valPre ++ #[.assignVar arr.memoryPointer (.localVar value.memoryPointer),\n          .assignVar arr.lengthBinding (.literal 0)]'),
+    'import-dynamic-memory-array-multi': (
+        'pure ({ pre := arrPre.push (.letVar snap (.localVar arr.memoryPointer)), expr := .localVar snap } : Val)',
+        'pure ({ pre := arrPre, expr := .literal 96 } : Val)'),
+    'import-dynamic-memory-array-nested-zero': (
+        '(.mul (.localVar index) (.literal 32))) (.literal 96)]],',
+        '(.mul (.localVar index) (.literal 32))) (.literal 64)]],'),
+})
+
+
+# Review follow-up (#2622): helper parameter ownership and the element `op=` bound.
+MUTANTS.update({
+    'import-dynamic-memory-array-param-snapshot': (
+        '            boundDesc := { boundDesc with memoryPointer := ptr, lengthBinding := len, reassignable := false }',
+        '            boundDesc := boundDesc'),
+    'import-dynamic-memory-array-param-owner': (
+        '          let (ownPre, owned) ← ownDynArray pname descriptor (.localVar descriptor.memoryPointer)',
+        '          let (ownPre, owned) ← ownDynArray pname descriptor (.literal 96)'),
+    'import-dynamic-memory-array-compound-bound': (
+        '            return (rhsVal.pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))\n              [] [.panicCode (.literal 0x32)]) ++ combined.pre',
+        '            return (rhsVal.pre ++ key.pre).push (.ite (.le key.expr (.localVar arr.lengthBinding))\n              [] [.panicCode (.literal 0x32)]) ++ combined.pre'),
+})
+
+
 MUTANTS.update({'import-local-write-value': ('return value.pre.push (.assignVar binding value.expr)', 'return value.pre.push (.assignVar binding (.literal 0))')})
 
 MUTANTS.update({'import-default-local-zero': ('return #[.letVar binding (.literal 0)]', 'return #[.letVar binding (.literal 1)]')})
@@ -569,6 +609,10 @@ def run(directory, output, name):
         fixture = "ModuloSequence"
     if name.startswith("import-fixed-memory-array-"):
         fixture = "FixedMemoryArraySequence"
+    if name.startswith("import-inline-array-literal-"):
+        fixture = "InlineArrayLiteralSequence"
+    if name.startswith("import-dynamic-memory-array-"):
+        fixture = "DynamicMemoryArraySequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
     if name.startswith("import-bytes-named-slice-"):
@@ -661,6 +705,14 @@ def run(directory, output, name):
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]
+    if fixture == 'DynamicMemoryArraySequence':
+        from solidity_differential.check_storage import DYNAMIC_MEMORY_ARRAY_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, DYNAMIC_MEMORY_ARRAY_PREFIX)])
+    if fixture == 'InlineArrayLiteralSequence':
+        from solidity_differential.check_storage import INLINE_ARRAY_LITERAL_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, INLINE_ARRAY_LITERAL_PREFIX)])
     if fixture == 'FixedMemoryArraySequence':
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'

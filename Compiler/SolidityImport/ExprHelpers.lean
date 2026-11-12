@@ -138,6 +138,8 @@ structure Env where
   scalarArrays : RBMap Nat ScalarArrayParam compare := RBMap.empty
   /-- `T[N] memory` parameters and locals, keyed by declaration id. -/
   fixedMemArrays : RBMap Nat FixedMemArray compare := RBMap.empty
+  /-- `T[][] memory` parameters and locals, keyed by declaration id. -/
+  nestedMemArrays : RBMap Nat NestedMemArray compare := RBMap.empty
   byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   stringBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   nonLiteralByteLocals : Array Nat := #[]
@@ -158,6 +160,9 @@ structure Env where
   flatStructHelperResult : Option (Nat × String × Array (String × String × String) × Bool) := none
   /-- Result variable of the `T[N] memory` helper being inlined. -/
   fixedArrayHelperResult : Option FixedMemArray := none
+  /-- Result variable of the `T[] memory` helper being inlined by the general
+  (control-flow) array helper path. -/
+  dynArrayHelperResult : Option ScalarArrayParam := none
   helperPost : Array Stmt := #[]
   rootIsVoid : Bool := false
   rootReturns : Array Expr := #[]
@@ -883,6 +888,14 @@ def fixedMemArrayType? (ty : String) :
   let (elem, pty, kind) ← scalarArrayElement? (elemStr ++ "[]")
   if elem == "bytes4" then none
   some (elem, pty, kind, length)
+
+/-- `T[][]` / `T[] memory[] memory` with a scalar inner element `T` accepted by
+`scalarArrayElement?`. -/
+def nestedMemArrayType? (ty : String) : Option (String × ParamType × SolidityAbi.ScalarKind) := do
+  -- solc spells the memory type `T[] memory[] memory`.
+  let ty := ty.replace " memory" ""
+  unless ty.endsWith "[][]" do none
+  scalarArrayElement? (ty.dropEnd 2).toString
 
 def resolveEnumMembers (j : Json) (ty : String) : M (Array String) := do
   let env ← get
