@@ -80,7 +80,7 @@ env:
 jobs:
   closed-pr-cleanup:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: write
@@ -162,7 +162,7 @@ jobs:
 
   changes:
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       code: ${{ steps.effective.outputs.code }}
@@ -276,7 +276,7 @@ jobs:
   checks:
     needs: changes
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
       run:
@@ -320,7 +320,7 @@ jobs:
         run: make check
 
   timeout-watchdog:
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: checks
     if: needs.checks.result == 'success' && !(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build))
@@ -345,7 +345,7 @@ jobs:
             --branch ${{ github.event.pull_request.base.ref || github.ref_name }}
 
   build:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: lean-16vcpu-ubuntu-2604
     # Proof build + audit prebuilds + smoke imports (~30-45 min). The importer
     # mutation campaigns (~180 isolated snapshots, each recompiling
     # Compiler.SolidityImport.Import) moved to the sharded `import-mutations` job:
@@ -622,9 +622,9 @@ jobs:
         run: rm -rf .lake/import-mutations
 
   build-compiler-binaries:
-    # Ephemeral 16-vCPU Blacksmith runner (64 GiB RAM) builds compiler targets
+    # Ephemeral 16-vCPU lean.ci runner (64 GiB RAM) builds compiler targets
     # without serializing behind a single self-hosted build-heavy host.
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: lean-16vcpu-ubuntu-2604
     timeout-minutes: 360
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.compiler == 'true'
@@ -659,27 +659,38 @@ jobs:
 
       - name: Ensure compiler acceleration toolchain
         run: |
-          if \
-            command -v clang >/dev/null && \
-            command -v clang++ >/dev/null && \
-            command -v ld.lld >/dev/null && \
-            command -v ccache >/dev/null && \
-            printf 'int main() { return 0; }\n' | clang++ -x c++ - -fuse-ld=lld -stdlib=libc++ -lc++abi -o /tmp/verity-clang-smoke >/dev/null 2>&1 && \
-            printf 'int main() { return 0; }\n' | clang -x c - -fuse-ld=lld -luv -o /tmp/verity-libuv-smoke >/dev/null 2>&1
-          then
-            clang --version
-            ld.lld --version
-            ccache --version
-            exit 0
+          lean_prefix="$(lean --print-prefix)"
+          lean_clang="${lean_prefix}/bin/clang"
+          lean_lld="${lean_prefix}/bin/ld.lld"
+          if [ -x "$lean_clang" ] && [ -x "$lean_lld" ]; then
+            echo "${lean_prefix}/bin" >> "$GITHUB_PATH"
+            export PATH="${lean_prefix}/bin:$PATH"
           fi
-          sudo apt-get update
-          sudo apt-get install -y clang lld ccache libc++-dev libc++abi-dev libgmp-dev libuv1-dev
-
-          printf 'int main() { return 0; }\n' | clang++ -x c++ - -fuse-ld=lld -stdlib=libc++ -lc++abi -o /tmp/verity-clang-smoke
-          printf 'int main() { return 0; }\n' | clang -x c - -fuse-ld=lld -luv -o /tmp/verity-libuv-smoke
-
-          clang --version
-          ld.lld --version
+          if ! command -v ccache >/dev/null 2>&1; then
+            if grep -qsE '^Components:.*\buniverse\b' /etc/apt/sources.list.d/*.sources 2>/dev/null || grep -qsE '^deb .*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+              sudo apt-get update && sudo apt-get install -y ccache || true
+            elif [ -f /etc/apt/sources.list ] && grep -q '^deb ' /etc/apt/sources.list; then
+              sudo sed -i -E 's/^(deb [^#]*\bmain)\b(.*)$/\1 universe\2/' /etc/apt/sources.list
+              sudo apt-get update && sudo apt-get install -y ccache || true
+            fi
+          fi
+          if ! command -v ccache >/dev/null 2>&1; then
+            ccache_ver="4.10.2"
+            ccache_dir="${RUNNER_TEMP}/ccache-bin"
+            mkdir -p "$ccache_dir"
+            curl -sSfL "https://github.com/ccache/ccache/releases/download/v${ccache_ver}/ccache-${ccache_ver}-linux-x86_64.tar.xz" \
+              | tar -xJ --strip-components=1 -C "$ccache_dir" "ccache-${ccache_ver}-linux-x86_64/ccache"
+            chmod +x "$ccache_dir/ccache"
+            echo "$ccache_dir" >> "$GITHUB_PATH"
+            export PATH="$ccache_dir:$PATH"
+          fi
+          if [ ! -x "$lean_clang" ] || [ ! -x "$lean_lld" ]; then
+            sudo apt-get update
+            sudo apt-get install -y clang lld libc++-dev libc++abi-dev libgmp-dev libuv1-dev
+          fi
+          printf 'int main() { return 0; }\n' | "$lean_clang" -B "${lean_prefix}/bin" -fuse-ld=lld -L "${lean_prefix}/lib" -x c - -luv -o /tmp/verity-libuv-smoke
+          "$lean_clang" --version
+          "$lean_lld" --version
           ccache --version
 
       - name: Prepare ccache directory
@@ -1266,7 +1277,7 @@ jobs:
       # Parity-pack identity report upload removed (see above).
 
   compiler-regressions:
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: lean-32vcpu-ubuntu-2604
     timeout-minutes: 200
     needs: [changes, checks, build, build-compiler-binaries]
     # ~2 runner-hours: main pushes, nightly, dispatch, or PRs labelled ci:full.
@@ -1434,7 +1445,7 @@ jobs:
         run: stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest
 
   lean-profile:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: lean-16vcpu-ubuntu-2604
     timeout-minutes: 45
     needs: [changes, build]
     # Profiling is diagnostic telemetry. Keep it behind the proof build and
@@ -1888,7 +1899,7 @@ jobs:
           echo "::notice::Reproduce locally: FOUNDRY_PROFILE=difftest DIFFTEST_RANDOM_SEED=${{ matrix.seed }} forge test -vv"
 
   failure-hints:
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     needs: [checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')
     permissions:
@@ -1956,7 +1967,7 @@ jobs:
   ci-gate:
     # Single required status check: every needed job succeeded or was skipped
     # by design (change filters, tiering). A failed or cancelled job fails it.
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [changes, checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')

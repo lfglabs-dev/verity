@@ -56,7 +56,7 @@ env:
 jobs:
   turbo-lean-verify:
     name: Turbo-Lean Two-Level CAS & Theorem Shard Check
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: lean-16vcpu-ubuntu-2604
     timeout-minutes: 60
     env:
       LEAN_NUM_THREADS: 16
