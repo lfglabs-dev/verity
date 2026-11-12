@@ -346,7 +346,9 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
         for job in (
             "build",
+            "build-audits",
             "build-compiler-binaries",
+            "compiler-audits",
             "compiler-regressions",
             "lean-profile",
         ):
@@ -355,6 +357,19 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             body = match.group("body")
             self.assertIn("LEAN_NUM_THREADS: 16", body, job)
             self.assertIn("runs-on: lean-", body, job)
+        for job in (
+            "import-mutations",
+            "foundry-gas-calibration",
+            "foundry",
+            "foundry-patched",
+            "foundry-multi-seed",
+        ):
+            match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
+            self.assertIsNotNone(match, job)
+            body = match.group("body")
+            self.assertIn("runs-on: lean-16vcpu-ubuntu-2604", body, job)
+            self.assertNotIn("max-parallel:", body, job)
+        self.assertNotIn("build-medium", text)
 
     def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

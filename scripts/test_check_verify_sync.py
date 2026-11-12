@@ -155,6 +155,7 @@ class VerifySyncTests(unittest.TestCase):
         expected_job_runs_on: dict[str, str] | None = None,
         expected_job_timeouts: dict[str, int] | None = None,
         expected_job_strategy_fail_fast: dict[str, bool] | None = None,
+        expected_job_strategy_max_parallel: dict[str, int | None] | None = None,
         expected_job_outputs: dict[str, dict[str, str]] | None = None,
         expected_job_permissions: dict[str, dict[str, str]] | None = None,
         expected_workflow_permissions: dict[str, str] | None = None,
@@ -174,6 +175,7 @@ class VerifySyncTests(unittest.TestCase):
                         "expected_job_runs_on": expected_job_runs_on or {},
                         "expected_job_timeouts": expected_job_timeouts or {},
                         "expected_job_strategy_fail_fast": expected_job_strategy_fail_fast or {},
+                        "expected_job_strategy_max_parallel": expected_job_strategy_max_parallel or {},
                         "expected_job_outputs": expected_job_outputs or {},
                         "expected_job_permissions": expected_job_permissions or {},
                         "expected_workflow_permissions": expected_workflow_permissions or {},
@@ -854,6 +856,37 @@ class VerifySyncTests(unittest.TestCase):
         )
         self.assertEqual(rc, 0, err)
         self.assertIn("[PASS] job-contracts", out)
+
+    def test_job_contracts_check_fails_when_strategy_max_parallel_drifts(self) -> None:
+        workflow = textwrap.dedent(
+            """
+            name: verify
+            jobs:
+              foundry:
+                runs-on: lean-16vcpu-ubuntu-2604
+                timeout-minutes: 45
+                strategy:
+                  fail-fast: false
+                  max-parallel: 2
+                  matrix:
+                    shard_index: [0, 1]
+                steps: []
+            """
+        )
+        rc, _, err = self._run_job_contracts_check(
+            workflow,
+            expected_job_needs={"foundry": []},
+            expected_job_if_conditions={"foundry": None},
+            expected_job_runs_on={"foundry": "lean-16vcpu-ubuntu-2604"},
+            expected_job_timeouts={"foundry": 45},
+            expected_job_strategy_fail_fast={"foundry": False},
+            expected_job_strategy_max_parallel={"foundry": None},
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn(
+            "foundry strategy.max-parallel does not match spec: workflow='2', spec=None",
+            err,
+        )
 
     def test_job_contracts_check_fails_when_multiline_needs_contains_empty_item(self) -> None:
         workflow = textwrap.dedent(
