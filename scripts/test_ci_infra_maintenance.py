@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_SCRIPT = ROOT / "scripts" / "install_self_hosted_runner.sh"
 MAINTENANCE_SCRIPT = ROOT / "scripts" / "ci_host_maintenance.sh"
+SETUP_FOUNDRY_ACTION = ROOT / ".github" / "actions" / "setup-foundry" / "action.yml"
 VERIFY_WORKFLOW = ROOT / ".github" / "workflows" / "verify.yml"
 DGX_SMOKE_WORKFLOW = ROOT / ".github" / "workflows" / "dgx-smoke.yml"
 
@@ -394,6 +395,87 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertTrue(target.is_symlink())
             self.assertIn("runner-temp", str(target.resolve()))
+
+    def _extract_setup_foundry_step_run(self, step_id: str) -> str:
+        text = SETUP_FOUNDRY_ACTION.read_text(encoding="utf-8")
+        match = re.search(
+            rf"^\s*-\s+name:.*?\n\s+id:\s+{re.escape(step_id)}\n\s+shell:\s+bash\n\s+run:\s+\|\n(?P<run>(?:        .*\n)+)",
+            text,
+            re.M,
+        )
+        self.assertIsNotNone(match, step_id)
+        return "\n".join(line[8:] for line in match.group("run").splitlines())
+
+    def _write_fake_foundry_tool(self, bin_dir: Path, name: str, *, works: bool = True) -> None:
+        tool = bin_dir / name
+        body = "#!/usr/bin/env bash\n" + (
+            f'echo "{name} 1.5.0"\n' if works else "exit 1\n"
+        )
+        tool.write_text(body, encoding="utf-8")
+        tool.chmod(0o755)
+
+    def test_setup_foundry_reinstalls_when_cached_or_preinstalled_tools_fail_validation(self) -> None:
+        text = SETUP_FOUNDRY_ACTION.read_text(encoding="utf-8")
+        self.assertIn(
+            "        path: |\n"
+            "          ~/.foundry/bin\n"
+            "          ~/.foundry/versions\n"
+            "        key: foundry-v1.5.0-linux-amd64-v2",
+            text,
+        )
+        self.assertIn(
+            "- name: Install Foundry\n      if: steps.validate-foundry.outputs.valid != 'true'",
+            text,
+        )
+        self.assertIn(
+            "- name: Install Foundry fallback (retry on transient download errors)\n"
+            "      if: steps.validate-foundry.outputs.valid != 'true' && steps.install_foundry_primary.outcome != 'success'",
+            text,
+        )
+        self.assertNotIn("steps.cache-foundry.outputs.cache-hit != 'true'", text)
+
+        preinstalled_script = self._extract_setup_foundry_step_run("preinstalled-foundry")
+        validate_script = self._extract_setup_foundry_step_run("validate-foundry")
+
+        for step_id, script, key in (
+            ("preinstalled-foundry", preinstalled_script, "installed"),
+            ("validate-foundry", validate_script, "valid"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp) / "home"
+                bin_dir = home / ".foundry" / "bin"
+                bin_dir.mkdir(parents=True)
+                output = Path(tmp) / "github_output"
+
+                def run_step() -> str:
+                    output.write_text("", encoding="utf-8")
+                    subprocess.run(
+                        ["bash", "-euo", "pipefail", "-c", script],
+                        check=True,
+                        env=dict(os.environ, HOME=str(home), GITHUB_OUTPUT=str(output)),
+                        capture_output=True,
+                        text=True,
+                    )
+                    return output.read_text(encoding="utf-8").strip()
+
+                self.assertEqual(run_step(), f"{key}=false", step_id)
+
+                for name in ("forge", "anvil"):
+                    self._write_fake_foundry_tool(bin_dir, name)
+                self.assertEqual(run_step(), f"{key}=false", step_id)
+
+                (bin_dir / "cast").symlink_to(home / ".foundry" / "versions" / "missing" / "cast")
+                self.assertEqual(run_step(), f"{key}=false", step_id)
+                (bin_dir / "cast").unlink()
+
+                self._write_fake_foundry_tool(bin_dir, "cast", works=False)
+                self.assertEqual(run_step(), f"{key}=false", step_id)
+
+                self._write_fake_foundry_tool(bin_dir, "cast", works=True)
+                self.assertEqual(run_step(), f"{key}=true", step_id)
+
+                self._write_fake_foundry_tool(bin_dir, "forge", works=False)
+                self.assertEqual(run_step(), f"{key}=false", step_id)
 
 
 if __name__ == "__main__":
