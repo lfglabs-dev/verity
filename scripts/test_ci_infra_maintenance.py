@@ -47,19 +47,17 @@ class CiInfraMaintenanceTests(unittest.TestCase):
 
     def test_verify_fastlane_jobs_are_arch_neutral(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
-        # Fastlane jobs are script-only. Pinning an arch or a single host made
-        # the DGX arbiter's lowest-priority runner the only eligible executor,
-        # wedging every workflow behind changes/checks during P0 campaigns;
-        # redundant runners (e.g. the cgroup-capped x64 one on agent-core)
-        # must also qualify.
+        # Control-plane and Python-only jobs run on ephemeral GitHub-hosted
+        # ubuntu-latest runners so they never serialize behind a single
+        # self-hosted fastlane runner or expire in queue.
         self.assertNotIn(
             "runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]", text
         )
-        for job in ("changes", "checks", "timeout-watchdog", "failure-hints", "ci-gate"):
+        for job in ("closed-pr-cleanup", "changes", "checks", "timeout-watchdog", "failure-hints", "ci-gate"):
             match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
             self.assertIsNotNone(match, job)
             self.assertIn(
-                "runs-on: [self-hosted, linux, verity, fastlane]",
+                "runs-on: ubuntu-latest",
                 match.group("body"),
                 job,
             )
@@ -356,7 +354,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             self.assertIsNotNone(match, job)
             body = match.group("body")
             self.assertIn("LEAN_NUM_THREADS: 16", body, job)
-            self.assertIn("runs-on: blacksmith-", body, job)
+            self.assertIn("runs-on: lean-", body, job)
 
     def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
