@@ -216,12 +216,15 @@ post-state; a revert there is **not** caught. Failed-call returndata is
 not bound into the handler (same compilation-model gap as `tryCatch`
 payload names); read `ContractState.returndata` if needed.
 
-**Compilation model.** `selfCall f` / `selfCall f(args)` lower to `Expr.call`
-targeting `contractAddress` (CALL-with-status to this, empty calldata). The
-`try` form is `let successBit := call(...); ite (successBit == 0) failure success`.
-Selector/ABI encoding of `f` and of its arguments is a documented gap; the
-status-bearing CALL plus conditional matches `docs/REVERT_STATE_MODEL.md`
-bubbling (failure does not revert the outer frame).
+**Compilation model.** `selfCall f` / `selfCall f(args)` ABI-encode `f`'s
+selector and arguments at the free memory pointer, then lower to `Expr.call`
+targeting `contractAddress` with all available gas (a `2^256 - 1` request,
+capped by EIP-150). The target must be an external function whose parameters
+are single-word static types; anything else is a compile-time error. The `try`
+form is `let successBit := call(...); ite (successBit == 0) failure success`.
+The status-bearing CALL plus conditional matches `docs/REVERT_STATE_MODEL.md`
+bubbling (failure does not revert the outer frame). Refinement of the CALL
+against the EDSL hop (`Contract.selfCall`) remains a manual obligation.
 
 **Alternative considered.** Replacing `tryCatch` in place would break
 `LowLevelTryCatchSmoke`. Keeping the stub as an alias is simpler.

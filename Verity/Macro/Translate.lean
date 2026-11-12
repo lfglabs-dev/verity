@@ -1750,27 +1750,54 @@ private partial def translateDoElem
       | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
           let trySuccessName :=
             freshSyntheticLocalName "verity_try_success" params locals mutableLocals
-          let attemptExpr ←
+          -- `this.f(args)`: ABI-encode `f`'s selector and single-word static arguments
+          -- at the free memory pointer (scratch, not reserved) and CALL this contract
+          -- with all available gas (a `2^256 - 1` request is capped by EIP-150).
+          let selfCallEncoding (fn : Ident) (args : Array Term) :
+              CommandElabM (Array Term × Term) := do
+            let some target := functions.find? (fun f => f.name == toString fn.getId)
+              | throwErrorAt fn s!"selfCall '{fn.getId}' does not name a function of this contract"
+            if target.isInternal then
+              throwErrorAt fn s!"selfCall '{fn.getId}' targets an internal function; `this.f()` needs an external function"
+            for param in target.params do
+              unless isSingleWordStaticValueType param.ty do
+                throwErrorAt fn s!"selfCall '{fn.getId}' parameter '{param.name}' has type {valueTypeToSolidityString param.ty}; only single-word static parameters are ABI-encoded on the compilation path"
+            let selector := Compiler.keccak256_first_4_bytes
+              (interfaceFunctionSignature target.name (target.params.map (·.ty)))
+            let ptrName := freshSyntheticLocalName "verity_self_call_ptr" params locals mutableLocals
+            let ptr : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm ptrName))
+            let mut stmts : Array Term := #[
+              (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm ptrName)
+                    (Compiler.CompilationModel.Expr.mload (Compiler.CompilationModel.Expr.literal 64)))),
+              (← `(Compiler.CompilationModel.Stmt.mstore $ptr
+                    (Compiler.CompilationModel.Expr.shl (Compiler.CompilationModel.Expr.literal 224)
+                      (Compiler.CompilationModel.Expr.literal $(natTerm selector)))))]
+            for i in [0:args.size] do
+              let argExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals args[i]!
+              stmts := stmts.push (← `(Compiler.CompilationModel.Stmt.mstore
+                (Compiler.CompilationModel.Expr.add $ptr (Compiler.CompilationModel.Expr.literal $(natTerm (4 + 32 * i))))
+                $argExpr))
+            let callExpr ← `(Compiler.CompilationModel.Expr.call
+                (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ 256 - 1)))
+                Compiler.CompilationModel.Expr.contractAddress
+                (Compiler.CompilationModel.Expr.literal 0)
+                $ptr
+                (Compiler.CompilationModel.Expr.literal $(natTerm (4 + 32 * args.size)))
+                (Compiler.CompilationModel.Expr.literal 0)
+                (Compiler.CompilationModel.Expr.literal 0))
+            pure (stmts, callExpr)
+          let (encodeStmts, attemptExpr) ←
             match stripParens attempt with
-            | `(term| selfCall $_fn:ident) | `(term| selfCall $_fn:ident($[$_args:term],*)) =>
-                -- CALL-with-status to this (empty calldata). Selector/argument
-                -- encoding of the named function is a documented compilation-model gap.
-                `(Compiler.CompilationModel.Expr.call
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    Compiler.CompilationModel.Expr.contractAddress
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0)
-                    (Compiler.CompilationModel.Expr.literal 0))
+            | `(term| selfCall $fn:ident) => selfCallEncoding fn #[]
+            | `(term| selfCall $fn:ident($[$args:term],*)) => selfCallEncoding fn args
             | _ =>
-                translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt
+                pure (#[], ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt)
           let succSeq ← expectDoBlock succ
           let failSeq ← expectDoBlock fail
           let succStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals succSeq
           let failStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals failSeq
           pure
-            (#[
+            (encodeStmts ++ #[
               (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm trySuccessName) $attemptExpr)),
               (← `(Compiler.CompilationModel.Stmt.ite
                     (Compiler.CompilationModel.Expr.eq

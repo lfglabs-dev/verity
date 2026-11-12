@@ -853,6 +853,8 @@ jobs:
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke
+            Contracts.Smoke.TryCatchSmoke
+            Contracts.Smoke.TryCatchArgSmoke
             Contracts.StringArrayErrorSmoke
             Contracts.StringArrayEventSmoke
             Contracts.StringEqSmoke
@@ -900,6 +902,8 @@ jobs:
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.SelfBalanceSmoke
+            Contracts.Smoke.TryCatchSmoke
+            Contracts.Smoke.TryCatchArgSmoke
             Contracts.StringArrayErrorSmoke
             Contracts.StringArrayEventSmoke
             Contracts.StringEqSmoke
