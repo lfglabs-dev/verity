@@ -171,15 +171,15 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                           'checks': 'ubuntu-latest',
                           'timeout-watchdog': 'ubuntu-latest',
                           'build': 'lean-16vcpu-ubuntu-2604',
-                          'build-audits': '[self-hosted, linux, x64, verity, build]',
+                          'build-audits': 'lean-16vcpu-ubuntu-2604',
                           'build-compiler-binaries': 'lean-16vcpu-ubuntu-2604',
-                          'compiler-audits': '[self-hosted, linux, x64, verity, build]',
+                          'compiler-audits': 'lean-16vcpu-ubuntu-2604',
                           'compiler-regressions': 'lean-32vcpu-ubuntu-2604',
                           'lean-profile': 'lean-16vcpu-ubuntu-2604',
-                          'foundry-gas-calibration': '[self-hosted, linux, x64, verity, build]',
-                          'foundry': '[self-hosted, linux, x64, verity, build]',
-                          'foundry-patched': '[self-hosted, linux, x64, verity, build]',
-                          'foundry-multi-seed': '[self-hosted, linux, x64, verity, build]',
+                          'foundry-gas-calibration': 'lean-16vcpu-ubuntu-2604',
+                          'foundry': 'lean-16vcpu-ubuntu-2604',
+                          'foundry-patched': 'lean-16vcpu-ubuntu-2604',
+                          'foundry-multi-seed': 'lean-16vcpu-ubuntu-2604',
                           'failure-hints': 'ubuntu-latest'},
  'expected_job_timeouts': {'closed-pr-cleanup': 5,
                            'changes': 5,
@@ -196,6 +196,9 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                            'foundry-patched': 60,
                            'foundry-multi-seed': 75},
  'expected_job_strategy_fail_fast': {'foundry': False, 'foundry-multi-seed': False},
+ 'expected_job_strategy_max_parallel': {'import-mutations': None,
+                                        'foundry': None,
+                                        'foundry-multi-seed': None},
  'expected_job_outputs': {'changes': {'code': '${{ steps.effective.outputs.code }}',
                                       'build': '${{ steps.effective.outputs.build }}',
                                       'compiler': '${{ steps.effective.outputs.compiler }}'}},
@@ -950,7 +953,7 @@ SPEC['expected_job_if_conditions']['import-mutations'] = (
     "needs.changes.outputs.build == 'true' && (github.event_name == 'schedule' || "
     "github.event_name == 'workflow_dispatch' || "
     "contains(github.event.pull_request.labels.*.name, 'ci:mutations'))")
-SPEC['expected_job_runs_on']['import-mutations'] = '[self-hosted, linux, x64, verity, build]'
+SPEC['expected_job_runs_on']['import-mutations'] = 'lean-16vcpu-ubuntu-2604'
 SPEC['expected_job_timeouts']['import-mutations'] = 210
 SPEC['expected_job_strategy_fail_fast']['import-mutations'] = False
 SPEC['expected_build_commands'].remove('solidity_import_mutations.py')
