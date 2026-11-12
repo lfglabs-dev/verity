@@ -968,13 +968,13 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
         actual_runs_on = _extract_top_level_job_value(job_body, "runs-on")
         expected_job_runs_on = expected_runs_on.get(job)
         if job in heavy_runner_jobs and expected_job_runs_on is not None:
-            if not expected_job_runs_on.startswith("blacksmith-"):
+            if not expected_job_runs_on.startswith("lean-"):
                 if not expected_job_runs_on.endswith("]"):
                     errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
                 else:
                     expected_job_runs_on = expected_job_runs_on[:-1] + ", build-heavy]"
         if job in medium_runner_jobs and expected_job_runs_on is not None:
-            if not expected_job_runs_on.startswith("blacksmith-"):
+            if not expected_job_runs_on.startswith("lean-"):
                 if not expected_job_runs_on.endswith("]"):
                     errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
                 else:
