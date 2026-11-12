@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate docs workflow trigger paths."""
+"""Validate docs workflow trigger paths and CI runner documentation sync."""
 
 from __future__ import annotations
 
@@ -9,8 +9,11 @@ import sys
 from pathlib import Path
 
 from property_utils import ROOT
+from workflow_jobs import strip_yaml_inline_comment, unquote_yaml_scalar
 
 DOCS_WORKFLOW = ROOT / ".github" / "workflows" / "docs.yml"
+WORKFLOWS_DIR = ROOT / ".github" / "workflows"
+CI_RUNNERS_DOC = ROOT / "docs" / "CI_RUNNERS.md"
 EXPECTED_PATHS = [
     ".github/workflows/docs.yml",
     "docs-site/**",
@@ -70,7 +73,56 @@ def _compare_lists(name_a: str, a: list[str], name_b: str, b: list[str]) -> list
     return errors
 
 
-def check_docs_workflow_sync(workflow_path: Path = DOCS_WORKFLOW) -> int:
+def _extract_runs_on_targets(text: str) -> list[str]:
+    targets: list[str] = []
+    for match in re.finditer(r"^\s*runs-on:\s*(?P<value>.+?)\s*$", text, re.MULTILINE):
+        raw = strip_yaml_inline_comment(match.group("value"))
+        if not raw:
+            continue
+        value = unquote_yaml_scalar(raw)
+        if value.startswith("${{"):
+            continue
+        if value not in targets:
+            targets.append(value)
+    return targets
+
+
+def _extract_workflow_runs_on_targets(workflows_dir: Path) -> list[str]:
+    targets: list[str] = []
+    for workflow_file in sorted(workflows_dir.glob("*.yml")):
+        for target in _extract_runs_on_targets(workflow_file.read_text(encoding="utf-8")):
+            if target not in targets:
+                targets.append(target)
+    return targets
+
+
+def check_ci_runners_doc_sync(
+    runners_doc_path: Path | None = None,
+    workflows_dir: Path | None = None,
+) -> list[str]:
+    doc_path = runners_doc_path if runners_doc_path is not None else CI_RUNNERS_DOC
+    wf_dir = workflows_dir if workflows_dir is not None else WORKFLOWS_DIR
+    if not doc_path.exists():
+        return []
+    doc_targets = _extract_runs_on_targets(doc_path.read_text(encoding="utf-8"))
+    if not doc_targets:
+        return [f"No runs-on targets documented in {doc_path}"]
+    workflow_targets = _extract_workflow_runs_on_targets(wf_dir)
+    if not workflow_targets:
+        return []
+    return _compare_lists(
+        "docs/CI_RUNNERS.md runs-on targets",
+        sorted(doc_targets),
+        "workflow runs-on targets",
+        sorted(workflow_targets),
+    )
+
+
+def check_docs_workflow_sync(
+    workflow_path: Path = DOCS_WORKFLOW,
+    runners_doc_path: Path | None = None,
+    workflows_dir: Path | None = None,
+) -> int:
     text = workflow_path.read_text(encoding="utf-8")
     push_paths = _extract_push_paths(text, workflow_path)
     pr_paths = _extract_pr_paths(text, workflow_path)
@@ -79,6 +131,16 @@ def check_docs_workflow_sync(workflow_path: Path = DOCS_WORKFLOW) -> int:
     errors.extend(_compare_lists("on.push.paths", push_paths, "expected paths", EXPECTED_PATHS))
     errors.extend(_compare_lists("on.pull_request.paths", pr_paths, "expected paths", EXPECTED_PATHS))
     errors.extend(_compare_lists("on.push.paths", push_paths, "on.pull_request.paths", pr_paths))
+    if runners_doc_path is not None or workflows_dir is not None or workflow_path == DOCS_WORKFLOW:
+        default_doc = (
+            runners_doc_path
+            if runners_doc_path is not None
+            else (CI_RUNNERS_DOC if CI_RUNNERS_DOC.exists() else ROOT / "docs" / "CI_RUNNERS.md")
+        )
+        default_wf_dir = (
+            workflows_dir if workflows_dir is not None else workflow_path.parent
+        )
+        errors.extend(check_ci_runners_doc_sync(default_doc, default_wf_dir))
 
     if errors:
         print("docs workflow sync failed:", file=sys.stderr)

@@ -501,7 +501,7 @@ def _extract_job_needs(job_body: str) -> list[str]:
     return [raw]
 
 
-def _extract_job_strategy_fail_fast(job_body: str) -> str | None:
+def _extract_job_strategy_scalar(job_body: str, key: str) -> str | None:
     block_lines = _extract_top_level_job_block_lines(job_body, "strategy")
     if not block_lines:
         return None
@@ -522,15 +522,23 @@ def _extract_job_strategy_fail_fast(job_body: str) -> str | None:
         child_indent = len(line) - len(line.lstrip(" "))
         if child_indent != min_child_indent:
             continue
-        m = re.match(r"^\s*fail-fast:\s*(?P<value>.+?)\s*$", line)
+        m = re.match(rf"^\s*{re.escape(key)}:\s*(?P<value>.+?)\s*$", line)
         if not m:
             continue
         raw_value = strip_yaml_inline_comment(m.group("value"))
         if not raw_value:
-            raise ValueError(f"Empty strategy.fail-fast value in {VERIFY_YML}")
+            raise ValueError(f"Empty strategy.{key} value in {VERIFY_YML}")
         return unquote_yaml_scalar(raw_value)
 
     return None
+
+
+def _extract_job_strategy_fail_fast(job_body: str) -> str | None:
+    return _extract_job_strategy_scalar(job_body, "fail-fast")
+
+
+def _extract_job_strategy_max_parallel(job_body: str) -> str | None:
+    return _extract_job_strategy_scalar(job_body, "max-parallel")
 
 
 def _compare_mappings(
@@ -896,6 +904,9 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
         )
     expected_timeouts: dict[str, int] = spec.get("expected_job_timeouts", {})
     expected_fail_fast: dict[str, bool] = spec.get("expected_job_strategy_fail_fast", {})
+    expected_max_parallel: dict[str, int | None] = spec.get(
+        "expected_job_strategy_max_parallel", {}
+    )
     expected_outputs: dict[str, dict[str, str]] = spec.get("expected_job_outputs", {})
     expected_job_permissions: dict[str, dict[str, str]] = spec.get(
         "expected_job_permissions", {}
@@ -1000,6 +1011,18 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
                 errors.append(
                     f"{job} strategy.fail-fast does not match spec: "
                     f"workflow={actual_fail_fast!r}, spec={expected_fail_fast_scalar!r}"
+                )
+
+        if job in expected_max_parallel:
+            expected_max_parallel_value = expected_max_parallel[job]
+            actual_max_parallel = _extract_job_strategy_max_parallel(job_body)
+            expected_max_parallel_scalar = (
+                None if expected_max_parallel_value is None else str(expected_max_parallel_value)
+            )
+            if actual_max_parallel != expected_max_parallel_scalar:
+                errors.append(
+                    f"{job} strategy.max-parallel does not match spec: "
+                    f"workflow={actual_max_parallel!r}, spec={expected_max_parallel_scalar!r}"
                 )
 
         outputs = _extract_literal_top_level_mapping(job_body, "outputs")
