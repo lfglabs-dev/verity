@@ -135,6 +135,8 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.ConstantArraySequenceModel,
     .one `Contracts.SolidityImportSmoke.ModuloSequenceModel,
     .one `Contracts.SolidityImportSmoke.SignedModuloSequenceModel,
+    .one `Contracts.SolidityImportSmoke.BytesNamedReturnSliceStructSequenceModel,
+    .one `Contracts.SolidityImportSmoke.BytesNamedReturnStatelessSequenceModel,
     .one `Contracts.SolidityImportSmoke.FixedMemoryArraySequenceModel,
     .one `Contracts.SolidityImportSmoke.InlineArrayLiteralSequenceModel,
     .one `Contracts.SolidityImportSmoke.DynamicMemoryArraySequenceModel,
