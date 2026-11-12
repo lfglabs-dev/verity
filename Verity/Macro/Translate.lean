@@ -182,7 +182,7 @@ private partial def validateDoElemExprTypes
   match tupleCase? with
   | some typedLocals => pure typedLocals
   | none =>
-      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params (typedLocalNames locals) #[] elem then
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "discard" params (typedLocalNames locals) #[] elem then
         validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
           errorDecls eventDecls functions params locals desugared
       else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
@@ -1398,7 +1398,7 @@ private partial def translateDoElem
   match tupleCase? with
   | some result => pure result
   | none =>
-      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params localNames mutableLocals elem then
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "discard" params localNames mutableLocals elem then
         translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
       else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
         translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared

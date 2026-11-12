@@ -41,13 +41,12 @@ verity_contract TypedInterfaceCallSmoke where
     let bal ← t.balanceOf owner
     return bal
 
-  function transferToken (token : IERC20, recipient : Address, amount : Uint256) : Bool := do
+  function reentrancy_trusted transferToken (token : IERC20, recipient : Address, amount : Uint256) : Bool := do
     let ok ← token.transfer recipient amount
     return ok
 
-  function transferTokenDiscard (token : IERC20, recipient : Address, amount : Uint256) : Unit := do
+  function reentrancy_trusted transferTokenDiscard (token : IERC20, recipient : Address, amount : Uint256) : Unit := do
     let _ ← token.transfer recipient amount
-    return ()
 
 example :
     (TypedInterfaceCallSmoke.spec.externals).any (fun ext =>
@@ -448,7 +447,7 @@ example :
           | Compiler.CompilationModel.Stmt.ecm mod args =>
                 mod.name == "externalCallWithReturn" &&
                 mod.numArgs == 3 &&
-                mod.resultVars == ["__discard"] &&
+                mod.resultVars == ["discard"] &&
                 mod.readsState &&
                 mod.writesState &&
                 args.length == 3
