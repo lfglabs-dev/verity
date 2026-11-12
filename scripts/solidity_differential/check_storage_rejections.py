@@ -141,7 +141,20 @@ def main():
         ('default-signed', '', 'int256 zero; return zero;', 'int256', None),
         ('default-narrow-signed', '', 'int128 zero; return x;', 'uint256', 'unsupported default local type int128'),
         ('default-bytes', '', 'bytes memory zero; return x;', 'uint256', 'uninitialized reference locals'),
-        ('default-array', '', 'uint256[] memory zero; return x;', 'uint256', 'uninitialized reference locals'),
+        # Admitted since T[] memory zero values (#2622): the array at 0x60.
+        ('default-array', '', 'uint256[] memory zero; return x;', 'uint256', None),
+        # Review follow-up (#2622). solc re-reads `a.length` on every loop test,
+        # so a bound whose array the body rebinds is rejected.
+        ('dynamic-array-for-length-reassigned', '', 'uint256[] memory a = new uint256[](x % 5); uint256[] memory b = new uint256[](1); uint256 s; for (uint256 i = 0; i < a.length; i++) { s += 1; a = b; } return s;', 'uint256', 'a for loop bound must be a literal, a parameter or an unassigned local'),
+        ('dynamic-array-for-length-deleted', '', 'uint256[] memory a = new uint256[](x % 5); uint256 s; for (uint256 i = 0; i < a.length; i++) { s += 1; delete a; } return s;', 'uint256', 'a for loop bound must be a literal, a parameter or an unassigned local'),
+        ('nested-array-for-length-reassigned', '', 'uint256[][] memory v = new uint256[][](x % 5); uint256 s; for (uint256 i = 0; i < v.length; i++) { s += 1; v = new uint256[][](2); } return s;', 'uint256', 'a for loop bound must be a literal, a parameter or an unassigned local'),
+        ('dynamic-array-for-length-reassigned-outside', '', 'uint256[] memory a; a = new uint256[](x % 5); uint256 s; for (uint256 i = 0; i < a.length; i++) { a[i] = i; s += a[i]; } return s;', 'uint256', None),
+        ('dynamic-array-for-length-helper-rebinds-param', 'function reset(uint256[] memory p) internal pure { delete p; }', 'uint256[] memory a; a = new uint256[](x % 5); uint256 s; for (uint256 i = 0; i < a.length; i++) { reset(a); s += 1; } return s;', 'uint256', None),
+        ('nested-array-helper-result', 'function h(uint256 n) internal pure returns (uint256[][] memory) { return new uint256[][](n); }', 'uint256[][] memory v = h(x % 4); return v.length;', 'uint256', 'nested memory array helper results are outside this slice'),
+        ('nested-array-multi-result', 'function h(uint256 n) internal pure returns (uint256[][] memory v, uint256 k) { v = new uint256[][](n); k = n; }', '(uint256[][] memory v, uint256 k) = h(x % 4); return k + v.length;', 'uint256', 'unsupported multi-return helper result type uint256[][]'),
+        ('nested-array-depth-three', '', 'uint256[][][] memory w = new uint256[][][](1); return w.length + x;', 'uint256', 'unsupported dynamic memory array local type uint256[][][]'),
+        # A helper's array result no longer resolves a same-named caller array in Yul.
+        ('dynamic-array-named-result-yul-shadow', 'function mk(uint256 n) internal pure returns (uint256[] memory out, bytes32 h) { out = new uint256[](n); out[0] = 1; assembly { h := keccak256(add(out, 0x20), mul(mload(out), 0x20)) } }', 'uint256[] memory out = new uint256[](2); out[1] = x; (uint256[] memory r, bytes32 h) = mk(x % 4 + 1); return uint256(h) ^ r.length;', 'uint256', 'unbound Yul identifier out'),
         ('modulo-unsigned', '', 'return x % 7;', 'uint256', None),
         ('modulo-narrow', '', 'return uint8(x) % uint8(7);', 'uint256', None),
         ('modulo-signed', '', 'return uint256(int256(x) % int256(7));', 'uint256', None),
@@ -780,6 +793,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] string locals and memory parameters are limited to hash, packed encoding, and bytes(s).length operands'),
+        # Review follow-up (#2622): a calldata array is not a memory array value.
+        ('calldata-to-memory-array-assignment-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256[] calldata c) external pure returns (uint256) {\n    uint256[] memory m;\n    m = c;\n    return m.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'calldata-to-memory array assignment is outside this slice'),
         ('scalar-array-signed-element-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(int128[] calldata a) external pure returns (uint256) {\n    return a.length;\n  }\n}\n",
          None,
@@ -940,11 +959,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported dynamic memory array local type int128[]'),
-        ('new-array-reassigned-local-rejected',
+        # Admitted since reassignable T[] memory locals (#2622).
+        ('new-array-reassigned-local-positive',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256[] memory a = new uint256[](1);\n    a = new uint256[](2);\n    return a[0] + x;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'VariableDeclaration: [solidity-import:unsupported] reassigned memory array locals are outside this slice'),
+         None),
         ('scalar-array-write-calldata-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function h(uint256[] calldata a) internal pure returns (uint256) {\n    a[0] = 1;\n    return a[0];\n  }\n  function checked(uint256 x) external view returns (uint256) {\n    return x;\n  }\n}\n",
          None,
@@ -1511,6 +1531,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'
             else 'checked(string,bytes,uint256)' if name == 'bytes-and-string-storage-positive'
             else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
+            else 'checked(«uint256[]»)' if name == 'calldata-to-memory-array-assignment-rejected'
             else 'checked(ItemBundle,Uid,uint256)' if name == 'udvt-param-assign-struct-hash-positive'
             else 'checked(bytes4,uint256)' if name == 'struct-mapping-and-bytes4-interface-positive'
             else 'VERSION()\n  function paused()\n  function «end»()\n  function isWhitelister(bool,address)\n  function nonces(bool,address,address)\n  function limits(address,uint256)\n  function checked(uint256)' if name == 'foundry-toml-remapping-and-escaped-keyword-positive'

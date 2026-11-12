@@ -2844,6 +2844,8 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.snapshot elements)
       else if env.fixedMemArrays.contains n then
         pure (.fixedMemArray n #[])
+      else if env.nestedMemArrays.contains n then
+        pure (.nestedMemArray n #[])
       else if env.mems.contains n then
         pure (.mem n #[])
       else if let some elem := env.abiElements.find? n then
@@ -3164,6 +3166,29 @@ private partial def lowerRef (j : Json) : M Ref := do
             let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
             pure (.abiElement id memberIndex
               (.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))) true pre)
+      | .nestedMemArray id pre =>
+          if (statefulCallIn indexExpression (← get) || !pre.isEmpty) && !key.pre.isEmpty then
+            failAt j "stateful or assignment nested array index is unsupported"
+          let ty ← mType indexExpression
+          unless ty.startsWith "uint" || ty.startsWith "int_const" do
+            failAt j "nested memory array index must be unsigned"
+          let some arr := (← get).nestedMemArrays.find? id | failAt j "unknown nested memory array"
+          -- `v[i]` is the inner array's pointer, read after the outer bounds
+          -- check; the inner array is an ordinary `T[] memory` value bound
+          -- under a synthetic id (above every AST id).
+          let inner ← fresh
+          let innerLen ← fresh
+          let sid := 2 ^ 62 + (← get).next
+          discard fresh
+          let pre := pre ++ key.pre ++ #[
+            .ite (.lt key.expr (.localVar arr.lengthBinding)) [] [.panicCode (.literal 0x32)],
+            .letVar inner (.mload (.add (.add (.localVar arr.pointer) (.literal 32)) (.mul key.expr (.literal 32)))),
+            .letVar innerLen (.mload (.localVar inner))]
+          let desc : ScalarArrayParam :=
+            { param := "", elementType := arr.elementType, modelElementType := arr.modelElementType,
+              abiKind := arr.abiKind, inMemory := true, lengthBinding := innerLen, memoryPointer := inner }
+          modify fun e => { e with scalarArrays := e.scalarArrays.insert sid desc }
+          return .scalarArray sid pre
       | .fixedMemArray id pre =>
           if (statefulCallIn indexExpression (← get) || !pre.isEmpty) && !key.pre.isEmpty then
             failAt j "stateful or assignment array index is unsupported"
@@ -3501,6 +3526,10 @@ private partial def lowerRef (j : Json) : M Ref := do
             unless member == "length" do failAt j s!"unsupported array member {member}"
             let some arr := (← get).fixedMemArrays.find? id | failAt j "unknown fixed-size memory array"
             pure (.expr { pre, expr := .literal arr.length })
+        | .nestedMemArray id pre =>
+            unless member == "length" do failAt j s!"unsupported array member {member}"
+            let some arr := (← get).nestedMemArrays.find? id | failAt j "unknown nested memory array"
+            pure (.expr { pre, expr := .localVar arr.lengthBinding })
         | .structDynamicArray pre path dynInfo =>
             unless member == "length" do failAt j s!"unsupported array member {member}"
             if let .rawSlot _ baseSlot := path then
@@ -6337,6 +6366,9 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
     else if (fixedMemArrayType? argTy).isSome then
       let (arrPre, arr) ← lowerFixedMemArrayValue arg
       vals := vals.push (.fixedMemArray arr arrPre)
+    else if (nestedMemArrayType? argTy).isSome && argTy.endsWith " memory" then
+      let (arrPre, arr) ← lowerNestedMemArrayValue arg
+      vals := vals.push (.nestedMemArray arr arrPre)
     else if let some (elemStr, _, _) := scalarArrayElement? argTy then
       if ← isAbiDecodeCall arg then
         let (decodePre, decoded) ← lowerAbiDecodeItems arg
@@ -6433,6 +6465,9 @@ private partial def atomizeCallArgs (vals : Array CallArg) : M (Array Stmt × Ar
     | .fixedMemArray arr apre =>
         pre := pre ++ apre
         out := out.push (.fixedMemArray arr #[])
+    | .nestedMemArray arr apre =>
+        pre := pre ++ apre
+        out := out.push (.nestedMemArray arr #[])
     | .byteBuffer buf =>
         let ptrBinding ← fresh
         let sizeBinding ← fresh
@@ -7231,14 +7266,44 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             { e with scalarArrays := e.scalarArrays.insert pid memDesc,
                      yulMemoryArrays := if pname == "" then e.yulMemoryArrays else e.yulMemoryArrays.insert pname arrayPtr,
                      encodingMemory := true }
+        else if location == "memory" && descriptor.inMemory && (bodyAssignedIds body).contains pid then
+          -- Reassigning (`p = q`) or deleting (`delete p`) the parameter
+          -- rebinds only the callee's variable.
+          let (ownPre, owned) ← ownDynArray pname descriptor (.localVar descriptor.memoryPointer)
+          pre := pre ++ effects ++ ownPre
+          modify fun e =>
+            { e with scalarArrays := e.scalarArrays.insert pid owned,
+                     yulMemoryArrays := if pname == "" then e.yulMemoryArrays else e.yulMemoryArrays.erase pname,
+                     yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.erase pname }
         else if (location == "calldata" && !descriptor.inMemory) || (location == "memory" && descriptor.inMemory) then
           pre := pre ++ effects
-          let boundDesc := { descriptor with param := pname }
+          let mut boundDesc := { descriptor with param := pname }
+          if descriptor.inMemory && descriptor.reassignable then
+            -- The caller's variable owns mutable bindings; the parameter (and
+            -- any array the helper returns through it) holds the pointer and
+            -- length at the call, so a later caller rebinding is not seen.
+            let ptr ← freshFor (if pname == "" then "array" else pname)
+            let len ← fresh
+            pre := pre ++ #[.letVar ptr (.localVar descriptor.memoryPointer),
+              .letVar len (.localVar descriptor.lengthBinding)]
+            boundDesc := { boundDesc with memoryPointer := ptr, lengthBinding := len, reassignable := false }
           modify fun e =>
             { e with scalarArrays := e.scalarArrays.insert pid boundDesc,
-                     yulMemoryArrays := if location == "memory" && descriptor.inMemory && pname != "" then e.yulMemoryArrays.insert pname descriptor.memoryPointer else e.yulMemoryArrays }
+                     yulMemoryArrays := if location == "memory" && descriptor.inMemory && pname != "" then e.yulMemoryArrays.insert pname boundDesc.memoryPointer else e.yulMemoryArrays }
         else
           failAt p "scalar array argument location conversion is unsupported"
+        if pname != "" then
+          yul := yul.erase pname
+    | .nestedMemArray arr effects =>
+        let some (elem, _, _) := nestedMemArrayType? pty
+          | failAt p "nested memory array argument requires a T[][] memory parameter"
+        unless (optStr p "storageLocation" |>.getD "default") == "memory" && elem == arr.elementType do
+          failAt p "nested memory array argument type or location differs"
+        -- Shared memory, parameter-local pointer and length bindings.
+        let ptr ← freshFor (if pname == "" then "array" else pname)
+        let len ← fresh
+        pre := pre ++ effects ++ #[.letVar ptr (.localVar arr.pointer), .letVar len (.localVar arr.lengthBinding)]
+        modify fun e => { e with nestedMemArrays := e.nestedMemArrays.insert pid { arr with pointer := ptr, lengthBinding := len } }
         if pname != "" then
           yul := yul.erase pname
     | .fixedMemArray arr effects =>
@@ -7917,7 +7982,8 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return { pre := boundPre ++ resBuf.pre, pointer := resBuf.pointer, size := resBuf.size }
 
-private partial def lowerArrayReinterpretAssembly? (declStmt asmStmt : Json) (rest : List Json) : M (Option Unit) := do
+private partial def lowerArrayReinterpretAssembly? (declStmt asmStmt : Json) (rest : List Json) :
+    M (Option (Array Stmt)) := do
   unless (← mKind declStmt) == "VariableDeclarationStatement" &&
          (← mKind asmStmt) == "InlineAssembly" do
     return none
@@ -7950,26 +8016,35 @@ private partial def lowerArrayReinterpretAssembly? (declStmt asmStmt : Json) (re
   let srcName ← mStr (← mField valNode "name")
   let some (_, srcDesc) := (← get).scalarArrays.toList.find? (fun (_, a) => a.param == srcName && a.inMemory)
     | return none
-  let resDesc : ScalarArrayParam :=
+  let mut resDesc : ScalarArrayParam :=
     { srcDesc with
       param := resName
       elementType := elemStr
       modelElementType := elemPty
       abiKind := abiKind }
+  let mut snapPre : Array Stmt := #[]
+  if srcDesc.reassignable then
+    -- `res := src` copies the pointer word: a later rebinding of `src` is
+    -- not seen through `res`.
+    let ptr ← freshFor resName
+    let len ← fresh
+    snapPre := #[.letVar ptr (.localVar srcDesc.memoryPointer), .letVar len (.localVar srcDesc.lengthBinding)]
+    resDesc := { resDesc with memoryPointer := ptr, lengthBinding := len, reassignable := false }
   modify fun e =>
     { e with scalarArrays := e.scalarArrays.insert resId resDesc,
              yulMemoryArrays := e.yulMemoryArrays.insert resName resDesc.memoryPointer,
              yulMemoryStructs := e.yulMemoryStructs.erase resName,
              yulNames := e.yulNames.erase resName }
-  return some ()
+  return some snapPre
 
 private partial def lowerArrayHelperStmts (expectedElemTy : String) (stmts : List Json) :
     M (Array Stmt × ScalarArrayParam) := do
   match stmts with
   | [] => failAt Json.null "array helper did not end with a return statement"
   | declStmt :: asmStmt :: rest =>
-      if (← lowerArrayReinterpretAssembly? declStmt asmStmt rest).isSome then
-        lowerArrayHelperStmts expectedElemTy rest
+      if let some snapPre ← lowerArrayReinterpretAssembly? declStmt asmStmt rest then
+        let (tailPre, desc) ← lowerArrayHelperStmts expectedElemTy rest
+        return (snapPre ++ tailPre, desc)
       else
         match ← mKind declStmt with
         | "VariableDeclarationStatement" =>
@@ -8025,6 +8100,188 @@ private partial def lowerArrayHelperStmts (expectedElemTy : String) (stmts : Lis
           return res
       | _ => failAt s "array helper must end with a return statement"
 
+/-- A reassignable `T[] memory` variable bound to `pointer`: fresh mutable
+pointer and length bindings, the length read from the array header. -/
+private partial def ownDynArray (hint : String) (template : ScalarArrayParam) (pointer : Expr) :
+    M (Array Stmt × ScalarArrayParam) := do
+  let ptr ← if hint == "" then fresh else freshFor hint
+  let len ← fresh
+  let desc : ScalarArrayParam :=
+    { template with param := hint, inMemory := true, offsetBinding := "", headerBinding := "",
+                    dataBinding := "", memoryPointer := ptr, lengthBinding := len,
+                    nextFreeBinding := "", namePrefix := "", reassignable := true }
+  pure (#[.letVar ptr pointer, .letVar len (.mload (.localVar ptr))], desc)
+
+/-- `new T[](len)`: solc's `allocate_and_zero_memory_array` for a dynamic
+scalar memory array (length word, zeroed elements, `Panic(0x41)` guards). -/
+private partial def allocateNewScalarArray (name : String) (init : Json)
+    (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind) :
+    M (Array Stmt × ScalarArrayParam) := do
+  let args ← mArr (← mField init "arguments")
+  unless args.size == 1 do
+    failAt init "new array allocation requires a single length argument"
+  let lenArg := args[0]!
+  let lenTy ← mType lenArg
+  unless (lenTy.startsWith "uint" && (bitsOf lenTy).isSome) ||
+      (lenTy.startsWith "int_const" && !lenTy.startsWith "int_const -") do
+    failAt lenArg s!"dynamic memory array length must be unsigned, found {lenTy}"
+  let lenVal ← atom (← lowerExpr lenArg)
+  let lenBinding ← if name == "" then fresh else freshFor (name ++ "_len")
+  let arrayPtr ← if name == "" then fresh else freshFor name
+  let nextFree ← fresh
+  let zeroIdx ← fresh
+  let allocStmts : Array Stmt := lenVal.pre ++ #[
+      .letVar lenBinding lenVal.expr,
+    .ite (.le (.localVar lenBinding) (.literal (2^64 - 1))) [] [.panicCode (.literal 0x41)],
+    .letVar arrayPtr (.mload (.literal 64)),
+    .letVar nextFree (.add (.localVar arrayPtr) (.mul (.literal 32) (.add (.localVar lenBinding) (.literal 1)))),
+    .ite (.le (.localVar nextFree) (.literal (2^64 - 1))) [] [.panicCode (.literal 0x41)],
+    .ite (.ge (.localVar nextFree) (.localVar arrayPtr)) [] [.panicCode (.literal 0x41)],
+    .mstore (.localVar arrayPtr) (.localVar lenBinding),
+    .mstore (.literal 64) (.localVar nextFree),
+    .forEach zeroIdx (.localVar lenBinding) [
+      .mstore (.add (.add (.localVar arrayPtr) (.literal 32)) (.mul (.localVar zeroIdx) (.literal 32))) (.literal 0)
+    ]
+  ]
+  let desc : ScalarArrayParam :=
+    { param := name
+      elementType := elemStr
+      modelElementType := elemPty
+      abiKind := abiKind
+      inMemory := true
+      offsetBinding := ""
+      headerBinding := ""
+      lengthBinding := lenBinding
+      dataBinding := ""
+      memoryPointer := arrayPtr
+      nextFreeBinding := nextFree
+      namePrefix := zeroIdx }
+  modify fun e => { e with encodingMemory := true }
+  pure (allocStmts, desc)
+
+/-- A `T[][] memory` value: a nested array binding (an alias, no copy) or
+`new T[][](k)`, whose `k` element pointers start at the zero-length array at
+`0x60` (solc's `zero_complex_memory_array`). Fresh mutable bindings hold the
+pointer and its length. -/
+private partial def lowerNestedMemArrayValue (j : Json) : M (Array Stmt × NestedMemArray) := do
+  let j ← stripParens j
+  let some (elem, elemPty, abiKind) := nestedMemArrayType? (← mType j)
+    | failAt j s!"expected a nested memory array value, found {← mType j}"
+  let ptr ← fresh
+  let len ← fresh
+  let result : NestedMemArray :=
+    { pointer := ptr, lengthBinding := len, elementType := elem, modelElementType := elemPty, abiKind }
+  match ← mKind j with
+  | "Identifier" =>
+      let id ← refInt j
+      let env ← get
+      let some arr := (if id ≥ 0 then env.nestedMemArrays.find? id.toNat else none)
+        | failAt j "nested memory array value must be a memory array binding"
+      unless arr.elementType == elem do failAt j "nested memory array element type differs"
+      pure (#[.letVar ptr (.localVar arr.pointer), .letVar len (.localVar arr.lengthBinding)], result)
+  | "FunctionCall" =>
+      unless optStr j "kind" == some "functionCall" &&
+          (← mKind (← mField j "expression")) == "NewExpression" do
+        failAt j "nested memory array helper results are outside this slice"
+      let args ← mArr (← mField j "arguments")
+      unless args.size == 1 do failAt j "new array allocation requires a single length argument"
+      let lenArg := args[0]!
+      let lenTy ← mType lenArg
+      unless (lenTy.startsWith "uint" && (bitsOf lenTy).isSome) ||
+          (lenTy.startsWith "int_const" && !lenTy.startsWith "int_const -") do
+        failAt lenArg s!"nested memory array length must be unsigned, found {lenTy}"
+      let lenVal ← atom (← lowerExpr lenArg)
+      let next ← fresh
+      let index ← fresh
+      modify fun e => { e with encodingMemory := true }
+      pure (lenVal.pre ++ #[
+        .letVar len lenVal.expr,
+        .ite (.le (.localVar len) (.literal (2^64 - 1))) [] [.panicCode (.literal 0x41)],
+        .letVar ptr (.mload (.literal 64)),
+        .letVar next (.add (.localVar ptr) (.mul (.literal 32) (.add (.localVar len) (.literal 1)))),
+        .ite (.le (.localVar next) (.literal (2^64 - 1))) [] [.panicCode (.literal 0x41)],
+        .ite (.ge (.localVar next) (.localVar ptr)) [] [.panicCode (.literal 0x41)],
+        .mstore (.localVar ptr) (.localVar len),
+        .mstore (.literal 64) (.localVar next),
+        .forEach index (.localVar len) [
+          .mstore (.add (.add (.localVar ptr) (.literal 32)) (.mul (.localVar index) (.literal 32))) (.literal 96)]],
+        result)
+  | _ => failAt j "unsupported nested memory array expression"
+
+/-- A `T[] memory` value (scalar `T`): a memory array binding (an alias, no
+copy), `new T[](len)`, or the result of an internal array helper (the
+callee's pointer, no copy). -/
+private partial def lowerDynArrayValue (j : Json) (elemStr : String) :
+    M (Array Stmt × ScalarArrayParam) := do
+  let j ← stripParens j
+  let some (elem, elemPty, abiKind) := scalarArrayElement? (← mType j)
+    | failAt j s!"expected a dynamic memory array value, found {← mType j}"
+  unless elem == elemStr do failAt j "dynamic memory array element type differs"
+  match ← mKind j with
+  | "Identifier" =>
+      let id ← refInt j
+      let env ← get
+      let some desc := (if id ≥ 0 then env.scalarArrays.find? id.toNat else none)
+        | failAt j "dynamic memory array value must be a memory array binding"
+      unless desc.inMemory do
+        failAt j "calldata-to-memory array assignment is outside this slice"
+      pure (#[], desc)
+  | "FunctionCall" =>
+      unless optStr j "kind" == some "functionCall" && !(← isAbiDecodeCall j) do
+        failAt j "unsupported dynamic memory array call"
+      if (← mKind (← mField j "expression")) == "NewExpression" then
+        allocateNewScalarArray "" j elem elemPty abiKind
+      else
+        let (fnId, vals) ← resolveCallTargetAndArgs j
+        inlineArrayFn fnId vals elem j
+  | "IndexAccess" =>
+      let .scalarArray id pre ← lowerRef j
+        | failAt j "unsupported dynamic memory array element"
+      let some desc := (← get).scalarArrays.find? id | failAt j "unknown dynamic memory array element"
+      pure (pre, desc)
+  | _ => failAt j "unsupported dynamic memory array expression"
+
+/-- Statements the straight-line array helper path (`lowerArrayHelperStmts`)
+handles; any other statement selects the general control-flow path. -/
+private partial def straightLineArrayHelperStmt (s : Json) : M Bool := do
+  match ← mKind s with
+  | "VariableDeclarationStatement" | "ExpressionStatement" | "Return" | "InlineAssembly" => pure true
+  | "Block" | "UncheckedBlock" => (← mArr (← mField s "statements")).allM straightLineArrayHelperStmt
+  | _ => pure false
+
+/-- General `T[] memory` helper inlining (loops, branches, early returns,
+named results). The result variable starts as solc's zero value (the
+zero-length array at `0x60`); a named result binds it, and `return e` /
+`r = e` store `e`'s pointer and length into it. The caller binds the
+returned pointer: the array is shared, never copied. -/
+private partial def inlineArrayFnGeneral (saved : Env) (fn : Json) (body : Json) (params : Array Json)
+    (args : Array CallArg) (r : Json) (retElemTy : String) (at_ : Json) :
+    M (Array Stmt × ScalarArrayParam) := do
+  let (boundPre, yul) ← bindHelperParams params args body at_ saved.yulNames
+  let some (_, elemPty, abiKind) := scalarArrayElement? (← mType r)
+    | failAt r "array helper return must be a supported scalar array"
+  let rname ← mStr (← mField r "name")
+  let rid ← mNat (← mField r "id")
+  let template : ScalarArrayParam :=
+    { param := rname, elementType := retElemTy, modelElementType := elemPty, abiKind,
+      inMemory := true, lengthBinding := "" }
+  let (initPre, result) ← ownDynArray rname template (.literal 96)
+  modify fun e =>
+    { e with yulNames := (if rname == "" then yul else yul.erase rname),
+             yulMemoryArrays := (if rname == "" then e.yulMemoryArrays else e.yulMemoryArrays.erase rname),
+             yulMemoryStructs := (if rname == "" then e.yulMemoryStructs else e.yulMemoryStructs.erase rname),
+             helperResult := none, helperReturnId := none, multiHelperResults := none,
+             flatStructHelperResult := none, fixedArrayHelperResult := none,
+             dynArrayHelperResult := some result, helperPost := #[],
+             scalarArrays := if rname == "" then e.scalarArrays else e.scalarArrays.insert rid result }
+  noteFn fn
+  let stmts ← mArr (← mField body "statements")
+  let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure #[])
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := saved.currentFile, unchecked := saved.unchecked,
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, dynArrayHelperResult := saved.dynArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+  pure (boundPre ++ initPre ++ bodyStmts, { result with param := "" })
+
 private partial def inlineArrayFn (fnId : Nat) (args : Array CallArg) (expectedElemTy : String) (at_ : Json) :
     M (Array Stmt × ScalarArrayParam) := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
@@ -8051,13 +8308,15 @@ private partial def inlineArrayFn (fnId : Nat) (args : Array CallArg) (expectedE
   unless rets.size == 1 do failAt fn "array helper must have one return parameter"
   let r := rets[0]!
   let rname ← mStr (← mField r "name")
-  unless rname == "" do failAt r "named array helper return is unsupported"
   let rloc := optStr r "storageLocation" |>.getD "default"
   let rty ← mType r
   let some (retElemTy, _, _) := scalarArrayElement? rty
     | failAt r "array helper return must be a supported scalar array"
   unless rloc == "memory" && retElemTy == expectedElemTy do
     failAt r "array helper return type or location mismatch"
+  let bodyStmtsJson ← mArr (← mField body "statements")
+  if rname != "" || !(← bodyStmtsJson.allM straightLineArrayHelperStmt) then
+    return ← inlineArrayFnGeneral saved fn body params args r retElemTy at_
   let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
   modify fun e => { e with yulNames := yul }
   noteFn fn
@@ -8891,6 +9150,32 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
                    yulNames := e.yulNames.erase rname,
                    yulMemoryArrays := e.yulMemoryArrays.erase rname,
                    yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
+    else if rloc == "memory" && (fixedMemArrayType? rty).isSome then
+      -- A `T[N] memory` result: a zeroed array whose pointer is the result word.
+      let some fixedTy := fixedMemArrayType? rty | failAt r "unsupported fixed-size array result"
+      let (allocPre, arr) ← allocateZeroedFixedMemArray rname fixedTy
+      pre := pre ++ allocPre
+      results := results.push (arr.pointer, rty, rname != "")
+      retExprs := retExprs.push (.localVar arr.pointer, rty)
+      if rname != "" then
+        modify fun e =>
+          { e with fixedMemArrays := e.fixedMemArrays.insert rid arr, yulNames := e.yulNames.erase rname,
+                   yulMemoryArrays := e.yulMemoryArrays.erase rname, yulMemoryStructs := e.yulMemoryStructs.erase rname }
+    else if rloc == "memory" && (scalarArrayElement? rty).isSome then
+      -- A `T[] memory` result starts as the zero-length array at `0x60`; its
+      -- pointer is the result word.
+      let some (elemStr, elemPty, abiKind) := scalarArrayElement? rty | failAt r "unsupported array result"
+      let template : ScalarArrayParam :=
+        { param := rname, elementType := elemStr, modelElementType := elemPty, abiKind,
+          inMemory := true, lengthBinding := "" }
+      let (ownPre, owned) ← ownDynArray rname template (.literal 96)
+      pre := pre ++ ownPre
+      results := results.push (owned.memoryPointer, rty, rname != "")
+      retExprs := retExprs.push (.localVar owned.memoryPointer, rty)
+      if rname != "" then
+        modify fun e =>
+          { e with scalarArrays := e.scalarArrays.insert rid owned, yulNames := e.yulNames.erase rname,
+                   yulMemoryArrays := e.yulMemoryArrays.erase rname, yulMemoryStructs := e.yulMemoryStructs.erase rname }
     else
       discard (validateEnumTypeIfNeeded r rty)
       let some scalar := localParamType rty
@@ -8906,7 +9191,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
                    writableLocals := e.writableLocals.insert rid binding,
                    scalarTy := e.scalarTy.insert rid scalar,
                    yulNames := e.yulNames.insert rname expr }
-  modify fun e => { e with helperResult := none, helperReturnId := none, multiHelperResults := some results, flatStructHelperResult := none, fixedArrayHelperResult := none }
+  modify fun e => { e with helperResult := none, helperReturnId := none, multiHelperResults := some results, flatStructHelperResult := none, fixedArrayHelperResult := none, dynArrayHelperResult := none }
   noteFn fn
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with helperPost := modPost }
@@ -8921,7 +9206,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, dynArrayHelperResult := saved.dynArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts, retExprs)
 
 private partial def lowerMultiBranch (j : Json) (expectedTypes : Option (Array (Option String))) :
@@ -9602,6 +9887,16 @@ private partial def stmtContainsInlineAssembly (s : Json) : M Bool := do
       pure (yes || no)
   | _ => pure false
 
+/-- The declaration a member/index access chain is rooted at (`box.values` is
+rooted at `box`), or `none` when the chain does not end in an identifier. -/
+private partial def accessRootDecl? (j : Json) : M (Option Int) := do
+  let j ← stripParens j
+  match ← mKind j with
+  | "Identifier" => pure (some (← refInt j))
+  | "MemberAccess" => accessRootDecl? (← mField j "expression")
+  | "IndexAccess" => accessRootDecl? (← mField j "baseExpression")
+  | _ => pure none
+
 /-- Shared exact loop checks; the caller supplies its own return semantics. -/
 private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
   -- Only `for (uint256 i = 0; i < n; i++)` with an invariant `n` and a
@@ -9723,7 +10018,12 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
           pure (!writes.contains (← refInt boundNode).toNat)
         else if (← mKind boundNode) == "MemberAccess" &&
             optStr boundNode "memberName" == some "length" then
-          pure bound.pre.isEmpty
+          -- `forEach` reads the bound once, while solc re-reads `a.length`
+          -- each test: the array variable must not be rebound in the body
+          -- (`a = b`, `delete a`, Yul assignment).
+          match ← accessRootDecl? (← mField boundNode "expression") with
+          | some root => pure (bound.pre.isEmpty && (root < 0 || !writes.contains root.toNat))
+          | none => pure false
         else pure false
     | _ => pure false
   unless abiLength || (bound.pre.isEmpty && invariant) do
@@ -10830,7 +11130,16 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
                 unless resIdx < results.size do
                   failAt expression s!"multi-return helper return arity {cs.size} does not match {results.size}"
                 let (_, rty, _) := results[resIdx]!
-                let v ← atom (← convert rty cTy (← lowerExpr c) c)
+                let v ← if (fixedMemArrayType? rty).isSome then do
+                    let (arrPre, arr) ← lowerFixedMemArrayValue c
+                    let snap ← fresh
+                    pure ({ pre := arrPre.push (.letVar snap (.localVar arr.pointer)), expr := .localVar snap } : Val)
+                  else if (scalarArrayElement? rty).isSome then do
+                    let some (elemStr, _, _) := scalarArrayElement? rty | failAt c "unsupported array result"
+                    let (arrPre, arr) ← lowerDynArrayValue c elemStr
+                    let snap ← fresh
+                    pure ({ pre := arrPre.push (.letVar snap (.localVar arr.memoryPointer)), expr := .localVar snap } : Val)
+                  else atom (← convert rty cTy (← lowerExpr c) c)
                 pre := pre ++ v.pre
                 let finalExpr ← match v.expr with
                   | .localVar name => do
@@ -10892,6 +11201,13 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
           else
             let (valPre, value) ← lowerFixedMemArrayValue expression
             pure ((valPre.push (.assignVar result.pointer (.localVar value.pointer))) ++ (← get).helperPost)
+        else if let some result := (← get).dynArrayHelperResult then
+          if expression.isNull then
+            pure (← get).helperPost
+          else
+            let (valPre, value) ← lowerDynArrayValue expression result.elementType
+            pure (valPre ++ #[.assignVar result.memoryPointer (.localVar value.memoryPointer),
+              .assignVar result.lengthBinding (.localVar value.lengthBinding)] ++ (← get).helperPost)
         else
           unless expression.isNull do failAt s "void helper cannot return a value"
           pure (← get).helperPost
@@ -11678,6 +11994,22 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           return allocPre.push (.assignVar arr.pointer (.localVar zeroed.pointer))
         let (valPre, value) ← lowerFixedMemArrayValue (← mField expression "rightHandSide")
         return valPre.push (.assignVar arr.pointer (.localVar value.pointer))
+      if let some arr := (← get).nestedMemArrays.find? id.toNat then
+        if deleting then
+          return #[.assignVar arr.pointer (.literal 96), .assignVar arr.lengthBinding (.literal 0)]
+        let (valPre, value) ← lowerNestedMemArrayValue (← mField expression "rightHandSide")
+        return valPre ++ #[.assignVar arr.pointer (.localVar value.pointer),
+          .assignVar arr.lengthBinding (.localVar value.lengthBinding)]
+      if let some arr := (← get).scalarArrays.find? id.toNat then
+        unless arr.inMemory && arr.reassignable do
+          failAt target "reassigned memory array locals are outside this slice"
+        -- `x = y` rebinds the pointer (no copy); `delete x` rebinds the
+        -- zero-length array at `0x60`, solc's zero value.
+        if deleting then
+          return #[.assignVar arr.memoryPointer (.literal 96), .assignVar arr.lengthBinding (.literal 0)]
+        let (valPre, value) ← lowerDynArrayValue (← mField expression "rightHandSide") arr.elementType
+        return valPre ++ #[.assignVar arr.memoryPointer (.localVar value.memoryPointer),
+          .assignVar arr.lengthBinding (.localVar value.lengthBinding)]
   if (← mKind target) == "Identifier" then
     let id ← refInt target
     if id ≥ 0 then
@@ -11847,11 +12179,51 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
     let baseNode ← mField target "baseExpression"
+    let indexExpression ← mField target "indexExpression"
+    if (← mKind baseNode) == "IndexAccess" then
+      let outer ← mField baseNode "baseExpression"
+      let outerId ← if (← mKind outer) == "Identifier" then refInt outer else pure (-1)
+      if outerId ≥ 0 && (← get).nestedMemArrays.contains outerId.toNat then
+        -- `v[i][j] = x`: the right-hand side, then `v[i]` (outer bounds check
+        -- and pointer load), then `j` and the inner bounds check.
+        if statefulCallIn indexExpression (← get) || assignmentIn indexExpression then
+          failAt target "stateful or assignment array index is unsupported"
+        let indexTy ← mType indexExpression
+        unless indexTy.startsWith "uint" || indexTy.startsWith "int_const" do
+          failAt target "nested memory array index must be unsigned"
+        let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
+          let right ← mField expression "rightHandSide"
+          let elemTy := (← get).nestedMemArrays.find? outerId.toNat |>.map (·.elementType) |>.getD ""
+          atom (← convert elemTy (← mType right) (← lowerExpr right) right)
+        let .scalarArray innerId basePre ← lowerRef baseNode
+          | failAt target "unsupported nested memory array element"
+        let some inner := (← get).scalarArrays.find? innerId | failAt target "unknown nested array element"
+        let key ← atom (← lowerExpr indexExpression)
+        let stored := if inner.elementType == "bool" && !deleting then
+          Expr.logicalNot (.logicalNot value.expr) else value.expr
+        return (value.pre ++ basePre ++ key.pre).push (.ite (.lt key.expr (.localVar inner.lengthBinding))
+          [] [.panicCode (.literal 0x32)]) |>.push
+          (.mstore (.add (.add (.localVar inner.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))) stored)
     if (← mKind baseNode) == "Identifier" then
       let baseId ← refInt baseNode
       if baseId ≥ 0 then
+        if let some arr := (← get).nestedMemArrays.find? baseId.toNat then
+          -- `v[i] = a` stores `a`'s pointer (no copy); `delete v[i]` stores the
+          -- zero-length array at `0x60`.
+          if statefulCallIn indexExpression (← get) || assignmentIn indexExpression then
+            failAt target "stateful or assignment array index is unsupported"
+          let indexTy ← mType indexExpression
+          unless indexTy.startsWith "uint" || indexTy.startsWith "int_const" do
+            failAt target "nested memory array index must be unsigned"
+          let (valPre, stored) ← if deleting then pure (#[], Expr.literal 96) else do
+            let (vpre, v) ← lowerDynArrayValue (← mField expression "rightHandSide") arr.elementType
+            let snap ← fresh
+            pure (vpre.push (.letVar snap (.localVar v.memoryPointer)), Expr.localVar snap)
+          let key ← atom (← lowerExpr indexExpression)
+          return (valPre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))
+            [] [.panicCode (.literal 0x32)]) |>.push
+            (.mstore (.add (.add (.localVar arr.pointer) (.literal 32)) (.mul key.expr (.literal 32))) stored)
         if let some arr := (← get).fixedMemArrays.find? baseId.toNat then
-          let indexExpression ← mField target "indexExpression"
           if statefulCallIn indexExpression (← get) || assignmentIn indexExpression then
             failAt target "stateful or assignment array index is unsupported"
           let indexTy ← mType indexExpression
@@ -12241,6 +12613,24 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
           let combined ← combineCompound operator arr.elementType (.mload addr) rhsVal.expr expression
           return rhsVal.pre ++ key.pre ++ fixedMemBoundsGuard arr key.expr ++ combined.pre |>.push
             (.mstore addr combined.expr)
+        if let some arr := (← get).scalarArrays.find? baseId.toNat then
+          if arr.inMemory then
+            let indexExpression ← mField target "indexExpression"
+            if statefulCallIn indexExpression (← get) || assignmentIn indexExpression then
+              failAt target "stateful or assignment array index is unsupported"
+            let indexTy ← mType indexExpression
+            unless indexTy.startsWith "uint" || indexTy.startsWith "int_const" do
+              failAt target "dynamic memory array index must be unsigned"
+            unless isSupportedCompoundTy arr.elementType do
+              failAt target s!"unsupported dynamic memory array compound assignment type {arr.elementType}"
+            -- Right-hand side, then the index and its bounds check, then the
+            -- current element.
+            let rhsVal ← lowerRhs arr.elementType
+            let key ← atom (← lowerExpr indexExpression)
+            let addr := Expr.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))
+            let combined ← combineCompound operator arr.elementType (.mload addr) rhsVal.expr expression
+            return (rhsVal.pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))
+              [] [.panicCode (.literal 0x32)]) ++ combined.pre |>.push (.mstore addr combined.expr)
   if (← mKind target) == "MemberAccess" then
     let cMember ← mStr (← mField target "memberName")
     match ← lowerRef (← mField target "expression") with
@@ -13261,6 +13651,29 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                    yulMemoryArrays := e.yulMemoryArrays.erase name,
                    yulMemoryStructs := e.yulMemoryStructs.insert name id }
         continue
+      if loc == "memory" then
+        let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
+        if let some fixedTy := fixedMemArrayType? ty then
+          unless fixedMemArrayType? retTy == some fixedTy do
+            failAt d "fixed-size memory array tuple component type differs"
+          let arr ← freshFixedMemArray name fixedTy
+          out := out.push (.letVar arr.pointer retExpr)
+          modify fun e =>
+            { e with fixedMemArrays := e.fixedMemArrays.insert id arr, yulNames := e.yulNames.erase name,
+                     yulMemoryArrays := e.yulMemoryArrays.erase name, yulMemoryStructs := e.yulMemoryStructs.erase name }
+          continue
+        if let some (elemStr, elemPty, abiKind) := scalarArrayElement? ty then
+          unless (scalarArrayElement? retTy).map (·.1) == some elemStr do
+            failAt d "dynamic memory array tuple component type differs"
+          let template : ScalarArrayParam :=
+            { param := name, elementType := elemStr, modelElementType := elemPty, abiKind,
+              inMemory := true, lengthBinding := "" }
+          let (ownPre, owned) ← ownDynArray name template retExpr
+          out := out ++ ownPre
+          modify fun e =>
+            { e with scalarArrays := e.scalarArrays.insert id owned, yulNames := e.yulNames.erase name,
+                     yulMemoryArrays := e.yulMemoryArrays.erase name, yulMemoryStructs := e.yulMemoryStructs.erase name }
+          continue
       unless loc == "default" do
         failAt d "tuple variable declaration only supports scalar locals"
       discard (validateEnumTypeIfNeeded d ty)
@@ -13317,6 +13730,29 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
           pure (valPre.push (.letVar binding (.localVar value.pointer)), { value with pointer := binding })
         modify fun e => { e with fixedMemArrays := e.fixedMemArrays.insert id arr, yulNames := e.yulNames.erase name }
         return pre
+  if loc == "memory" && (nestedMemArrayType? (← mType d)).isSome then
+    -- `T[][] memory v;` is the zero-length array at `0x60`.
+    let (pre, arr) ← if init.isNull then do
+        let some (elem, elemPty, abiKind) := nestedMemArrayType? (← mType d)
+          | failAt d "unsupported nested memory array local"
+        let ptr ← freshFor name
+        let len ← fresh
+        pure (#[Stmt.letVar ptr (.literal 96), .letVar len (.literal 0)],
+          ({ pointer := ptr, lengthBinding := len, elementType := elem,
+             modelElementType := elemPty, abiKind } : NestedMemArray))
+      else lowerNestedMemArrayValue init
+    modify fun e => { e with nestedMemArrays := e.nestedMemArrays.insert id arr, encodingMemory := true,
+                             yulNames := e.yulNames.erase name }
+    return pre
+  if init.isNull && loc == "memory" then
+    if let some (elemStr, elemPty, abiKind) := scalarArrayElement? (← mType d) then
+      -- `T[] memory x;` is solc's zero value: the zero-length array at `0x60`.
+      let template : ScalarArrayParam :=
+        { param := name, elementType := elemStr, modelElementType := elemPty, abiKind,
+          inMemory := true, lengthBinding := "" }
+      let (ownPre, owned) ← ownDynArray name template (.literal 96)
+      modify fun e => { e with scalarArrays := e.scalarArrays.insert id owned, yulNames := e.yulNames.erase name }
+      return ownPre
   if init.isNull then
     if loc == "memory" && (← mType d) == "bytes" && (← get).bodyAssigned.contains id then
       let pointer ← freshFor name
@@ -13460,7 +13896,13 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     let some (elemStr, elemPty, abiKind) := scalarArrayElement? (← mType d)
       | failAt d s!"unsupported dynamic memory array local type {← mType d}"
     if (← get).bodyAssigned.contains id then
-      failAt d "reassigned memory array locals are outside this slice"
+      -- A reassigned local owns mutable pointer/length bindings.
+      let (valPre, value) ← lowerDynArrayValue init elemStr
+      let (ownPre, owned) ← ownDynArray name value (.localVar value.memoryPointer)
+      modify fun e =>
+        { e with scalarArrays := e.scalarArrays.insert id owned, encodingMemory := true,
+                 yulNames := e.yulNames.erase name }
+      return valPre ++ ownPre
     if ← isAbiDecodeCall init then
       let (decodePre, decoded) ← lowerAbiDecodeItems init
       unless decoded.size == 1 do
@@ -13493,6 +13935,16 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                  yulNames := e.yulNames.erase name,
                  yulMemoryArrays := e.yulMemoryArrays.insert name desc.memoryPointer }
       return arrPre
+    if (← mKind init) == "IndexAccess" then
+      let baseNode ← mField init "baseExpression"
+      let outerId ← if (← mKind baseNode) == "Identifier" then refInt baseNode else pure (-1)
+      if outerId ≥ 0 && (← get).nestedMemArrays.contains outerId.toNat then
+        -- `T[] memory row = v[i];` binds the element pointer (no copy).
+        let (rowPre, row) ← lowerDynArrayValue init elemStr
+        modify fun e =>
+          { e with scalarArrays := e.scalarArrays.insert id { row with param := name },
+                   yulNames := e.yulNames.erase name }
+        return rowPre
     if (← mKind init) != "FunctionCall" then
       if let some (pre, fieldName, slotExpr, sElemTy, modelElemTy, sAbiKind, none) ← resolveStorageDynamicArrayTarget (← lowerRef init) init then
         unless sElemTy == elemStr do
@@ -13514,50 +13966,12 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     let initTy ← mType init
     unless initTy == (← mType d) || initTy == elemStr ++ "[] memory" do
       failAt init "dynamic memory array initializer type differs from declaration"
-    let args ← mArr (← mField init "arguments")
-    unless args.size == 1 do
-      failAt init "new array allocation requires a single length argument"
-    let lenArg := args[0]!
-    let lenTy ← mType lenArg
-    unless (lenTy.startsWith "uint" && (bitsOf lenTy).isSome) ||
-        (lenTy.startsWith "int_const" && !lenTy.startsWith "int_const -") do
-      failAt lenArg s!"dynamic memory array length must be unsigned, found {lenTy}"
-    let lenVal ← atom (← lowerExpr lenArg)
-    let lenBinding ← freshFor (name ++ "_len")
-    let arrayPtr ← freshFor name
-    let nextFree ← fresh
-    let zeroIdx ← fresh
-    let allocStmts : Array Stmt := lenVal.pre ++ #[
-      .letVar lenBinding lenVal.expr,
-      .ite (.le (.localVar lenBinding) (.literal (2^64 - 1))) [] [.panicCode (.literal 0x41)],
-      .letVar arrayPtr (.mload (.literal 64)),
-      .letVar nextFree (.add (.localVar arrayPtr) (.mul (.literal 32) (.add (.localVar lenBinding) (.literal 1)))),
-      .ite (.le (.localVar nextFree) (.literal (2^64 - 1))) [] [.panicCode (.literal 0x41)],
-      .ite (.ge (.localVar nextFree) (.localVar arrayPtr)) [] [.panicCode (.literal 0x41)],
-      .mstore (.localVar arrayPtr) (.localVar lenBinding),
-      .mstore (.literal 64) (.localVar nextFree),
-      .forEach zeroIdx (.localVar lenBinding) [
-        .mstore (.add (.add (.localVar arrayPtr) (.literal 32)) (.mul (.localVar zeroIdx) (.literal 32))) (.literal 0)
-      ]
-    ]
-    let desc : ScalarArrayParam :=
-      { param := name
-        elementType := elemStr
-        modelElementType := elemPty
-        abiKind := abiKind
-        inMemory := true
-        offsetBinding := ""
-        headerBinding := ""
-        lengthBinding := lenBinding
-        dataBinding := ""
-        memoryPointer := arrayPtr
-        nextFreeBinding := nextFree
-        namePrefix := zeroIdx }
+    let (allocStmts, desc) ← allocateNewScalarArray name init elemStr elemPty abiKind
     modify fun e =>
       { e with scalarArrays := e.scalarArrays.insert id desc,
                encodingMemory := true,
                yulNames := e.yulNames.erase name,
-               yulMemoryArrays := e.yulMemoryArrays.insert name arrayPtr }
+               yulMemoryArrays := e.yulMemoryArrays.insert name desc.memoryPointer }
     return allocStmts
   if loc == "memory" && (← mType d).contains '[' then
     if (← mKind init) == "TupleExpression" then
@@ -15556,7 +15970,7 @@ private def importSlice
       -- Each root is lowered on its own: bindings, generated names and projections
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                        snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, fixedArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
+                        snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                         projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[] }
       let ((body, srcParams), env2) ← (lowerRoot fn).run env
       env := env2

@@ -1033,6 +1033,39 @@ def stateful_inline_array_literal_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown inline-array-literals variant: {variant}')
 
 
+def stateful_dynamic_memory_array_source(fixture: str, variant: str) -> str:
+    """Compare T[] / T[][] memory reference semantics with renamed and explicit forms."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'a', 'b', 'c', 'd', 'i', 'j', 'n', 's', 'v', 'x', 'out', 'head', 'total', 'row',
+                 'probe', 'add', 'scaled', 'split', 'bumpAll', 'vecSum', 'window', 'w', 'k', 'win', 'weight'}
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'explicit':
+        # A named result becomes an unnamed return of a local, compound updates
+        # are expanded, and the conditional alias gets an explicit else branch.
+        replacements = {
+            '    function add(uint256[] memory a, uint256[] memory b) internal pure returns (uint256[] memory c) {\n'
+            '        c = new uint256[](a.length);\n':
+            '    function add(uint256[] memory a, uint256[] memory b) internal pure returns (uint256[] memory) {\n'
+            '        uint256[] memory c = new uint256[](a.length);\n',
+            '            c[i] = addmod(a[i], b[i], Q);\n        }\n    }':
+            '            c[i] = addmod(a[i], b[i], Q);\n        }\n        return c;\n    }',
+            'a[i] += 1;': 'a[i] = a[i] + 1;',
+            '        if (x % 2 == 1) {\n            d = c;\n        }':
+            '        if (x % 2 == 1) {\n            d = c;\n        } else {\n            delete d;\n        }',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing dynamic memory array fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown dynamic-memory-arrays variant: {variant}')
+
+
 def stateful_default_local_source(fixture: str, variant: str) -> str:
     """Compare implicit scalar defaults to explicit defaults and renamed locals."""
     if variant == 'baseline':
