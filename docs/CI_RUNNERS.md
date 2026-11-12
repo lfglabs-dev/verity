@@ -1,30 +1,34 @@
 # Verity CI Runner Architecture
 
-This repository uses the official GitHub Actions runner installed directly as
-`systemd` services on owned machines. Do not add ARC, GARM, Kubernetes, Docker
-runner wrappers, Nomad, or autoscaling until the operational pain clearly
-justifies that extra layer.
+This repository uses ephemeral `ubuntu-latest` and `lean.ci` runners for
+standard CI workflows, plus official GitHub Actions runners installed directly
+as `systemd` services on owned machines for specialized workloads (trusted GPU,
+explicit ARM64 validation, OCR review, and optional host-pinned debugging). Do
+not add ARC, GARM, Kubernetes, Docker runner wrappers, Nomad, or autoscaling
+until the operational pain clearly justifies that extra layer.
 
 ## Current Topology
 
 ```text
 GitHub Actions for lfglabs-dev/verity
   |
-  |-- build-88-99-4-254-1
-  |     host: 88.99.4.254
-  |     role: heavy Lean/build/proof jobs
-  |     labels: self-hosted, linux, x64, verity, build, build-heavy, hetzner, hz2
+  |-- GitHub-hosted ephemeral runners
+  |     role: fast control-plane/Python jobs, docs, issue intake, conformance
+  |     runs-on: ubuntu-latest
   |
-  |-- tmd-verity-fastlane-1
-  |     host: 95.216.244.60
-  |     role: standby x64 fastlane fallback
-  |     labels: self-hosted, linux, x64, verity, fastlane, hetzner, hz1
+  |-- lean.ci ephemeral runners
+  |     role: Lean proof builds, compiler binaries, audits, import mutations,
+  |           Foundry differential tests, profiling, turbo-lean cache checks
+  |     runs-on: lean-16vcpu-ubuntu-2604, lean-32vcpu-ubuntu-2604
   |
   |-- dgx-spark-gpu-1
-        host: spark-de79 over Tailscale
-        role: primary fastlane, trusted GPU jobs, explicit ARM64 Lean validation
-        labels: self-hosted, linux, ARM64, verity, fastlane, dgx, dgx-spark,
-                gpu, nvidia
+  |     host: spark-de79 over Tailscale
+  |     role: trusted GPU jobs, explicit ARM64 Lean validation
+  |     labels: self-hosted, linux, ARM64, verity, dgx, dgx-spark, gpu, nvidia
+  |
+  |-- paloma-ocr self-hosted runner
+        role: OpenCodeReview pilot workflow
+        labels: self-hosted, linux, x64, paloma-ocr
 ```
 
 The workflows route by capability, not by hostname:
@@ -33,46 +37,46 @@ The workflows route by capability, not by hostname:
 runs-on: ubuntu-latest
 runs-on: lean-16vcpu-ubuntu-2604
 runs-on: lean-32vcpu-ubuntu-2604
-runs-on: [self-hosted, linux, x64, verity, build, build-medium]
 runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
+runs-on: [self-hosted, linux, x64, paloma-ocr]
 ```
 
 Host labels such as `hz1`, `hz2`, and `ci-host-*` are inventory labels. Use
-them only for temporary debugging or deliberate host pinning.
+them only for temporary debugging or deliberate host pinning via
+`runner-benchmark.yml` or `runner-lean-validation.yml`.
 
 ## Mindset
 
 - Keep fast control-plane/Python jobs (`closed-pr-cleanup`, `changes`, `checks`,
   `timeout-watchdog`, `failure-hints`, `ci-gate`) on GitHub-hosted ephemeral
   `ubuntu-latest` runners so they run with unlimited concurrency and never
-  serialize behind a single self-hosted `fastlane` host.
-- Route heavy proof, compiler-binary, profiling, and `turbo-lean` jobs onto
-  ephemeral `lean.ci` runners (`lean-16vcpu-ubuntu-2604` and
-  `lean-32vcpu-ubuntu-2604` with `LEAN_NUM_THREADS=16`) so concurrent PRs
-  do not serialize behind a single self-hosted `build-heavy` host. Ephemeral
-  runners automatically fall back to GitHub Actions caches and `$RUNNER_TEMP`
-  when `/srv/verity-ci-cache` is absent.
-- Keep `build-medium` self-hosted runners (`ashur`, `nippur`, `old-agent`) for
-  bounded-memory audit and Foundry jobs (`build-audits`, `compiler-audits`,
-  `import-mutations`, and `foundry*`).
-- Prefer one full Verity build runner per 8-core host. Lean jobs commonly use
-  `LEAN_NUM_THREADS=8`; two such jobs on one 8-core host oversubscribe CPU,
-  memory bandwidth, and the Lake cache.
+  serialize behind a single self-hosted host.
+- Route Lean proof, compiler-binary, audit, mutation, Foundry, profiling, and
+  `turbo-lean` jobs onto ephemeral `lean.ci` runners (`lean-16vcpu-ubuntu-2604`
+  and `lean-32vcpu-ubuntu-2604` with `LEAN_NUM_THREADS=16` on Lean build/audit
+  jobs and `LEAN_NUM_THREADS=2` per worker on sharded `import-mutations`) so
+  concurrent PRs do not serialize behind fixed self-hosted build pools.
+  Ephemeral runners automatically fall back to GitHub Actions caches and
+  `$RUNNER_TEMP` when `/srv/verity-ci-cache` is absent.
+- Prefer one full Verity build runner per 8-core host when using self-hosted
+  machines for manual benchmarks or validation. Lean jobs commonly use
+  `LEAN_NUM_THREADS=8` on 8-core hosts; two such jobs on one 8-core host
+  oversubscribe CPU, memory bandwidth, and the Lake cache.
 - Add more build capacity by adding more machines first. Add more runner
   services on the same machine only after lowering per-job thread counts or
   proving the jobs are light enough.
-- Use precise repo-specific labels. A Verity workflow should require `verity`
-  so generic self-hosted jobs from other repositories cannot land here by
+- Use precise repo-specific labels on self-hosted runners so generic
+  self-hosted jobs from other repositories cannot land on owned hosts by
   accident.
-- Keep `/srv/verity-ci-cache` on a large disk and maintain it. Sticky Lake
-  caches make CI fast, but stale `lake-build`, `compiler-ccache`, artifacts,
-  Docker cache, and `/tmp/verity-main-test-*` directories must be pruned.
-- Do not run untrusted public fork PRs on these machines. Self-hosted runners
-  execute repository code on owned hosts.
-- The DGX is especially sensitive. It now runs the lightweight Verity
-  fastlane jobs, so keep that route limited to short Python/GitHub API checks
-  and do not add full build/proof, Foundry, or external x64 tooling work to
-  the DGX without a separate validation lane.
+- Keep `/srv/verity-ci-cache` on a large disk and maintain it on self-hosted
+  machines. Sticky Lake caches make local persistence fast, but stale
+  `lake-build`, `compiler-ccache`, artifacts, Docker cache, and
+  `/tmp/verity-main-test-*` directories must be pruned.
+- Do not run untrusted public fork PRs on self-hosted machines. Self-hosted
+  runners execute repository code on owned hosts.
+- The DGX is especially sensitive. Keep it isolated to trusted GPU jobs and
+  explicit ARM64 validation lanes (`dgx-smoke.yml`, `runner-benchmark.yml`,
+  `runner-lean-validation.yml`).
 
 ## Adding A CPU Server
 
@@ -80,7 +84,7 @@ them only for temporary debugging or deliberate host pinning.
 2. Register exactly one build runner first.
 3. Add host inventory labels.
 4. Confirm the runner appears online and idle in GitHub.
-5. Trigger `Verify proofs` with `workflow_dispatch`.
+5. Trigger `runner-benchmark.yml` or `runner-lean-validation.yml` with `workflow_dispatch`.
 
 Use the repo script as root:
 
@@ -90,7 +94,7 @@ RUNNER_TOKEN=<registration-token> \
 RUNNER_PROFILE=build \
 RUNNER_COUNT=1 \
 RUNNER_NAME_PREFIX=<short-hostname>-verity-build \
-RUNNER_LABELS_1=verity,build,build-heavy,hetzner,<host-label>,cpu-8,mem-64g \
+RUNNER_LABELS_1=verity,build,hetzner,<host-label>,cpu-8,mem-64g \
 scripts/install_self_hosted_runner.sh
 ```
 
@@ -111,7 +115,7 @@ RUNNER_PROFILE=dgx-gpu \
 RUNNER_ARCH=arm64 \
 RUNNER_COUNT=1 \
 RUNNER_NAME_PREFIX=dgx-spark-gpu \
-RUNNER_LABELS_1=verity,fastlane,dgx,dgx-spark,gpu,nvidia,home,arm64-gb10 \
+RUNNER_LABELS_1=verity,dgx,dgx-spark,gpu,nvidia,home,arm64-gb10 \
 scripts/install_self_hosted_runner.sh
 ```
 
@@ -119,12 +123,6 @@ GPU and ARM64 Lean validation jobs should route explicitly:
 
 ```yaml
 runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
-```
-
-Fastlane jobs intentionally route to the DGX:
-
-```yaml
-runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
 ```
 
 Do not let ordinary Verity `build` jobs use the DGX labels. Do not add the
@@ -169,8 +167,8 @@ portable generated-Yul checks instead.
 
 ## Maintenance Expectations
 
-Each CI host should have the daily Verity maintenance timer installed. It
-should:
+Each self-hosted CI host should have the daily Verity maintenance timer
+installed. It should:
 
 - run `scripts/ci_local_persistence.sh cleanup`;
 - prune stale Lake and compiler ccache buckets;
@@ -180,11 +178,10 @@ should:
 
 The target health state is:
 
-- all registered runners online;
+- all registered self-hosted runners online;
 - no stale offline runner registrations;
-- `95.216.244.60` stays online as an x64 fastlane fallback and has enough free
-  disk for temporary host-pinned debugging;
-- `88.99.4.254` has enough free disk for sticky build caches;
+- self-hosted cache hosts have enough free disk for sticky build caches and
+  temporary host-pinned debugging;
 - no more than one active full `LEAN_NUM_THREADS=8` build job per 8-core host.
 
 Runner services should also have the Verity systemd stop hardening drop-in
