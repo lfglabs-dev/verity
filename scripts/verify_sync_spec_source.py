@@ -166,21 +166,21 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                 'failure-hints': "always() && github.event_name == 'pull_request' "
                                                  "&& contains(join(needs.*.result, ','), "
                                                  "'failure')"},
- 'expected_job_runs_on': {'closed-pr-cleanup': '[self-hosted, linux, verity, fastlane]',
-                          'changes': '[self-hosted, linux, verity, fastlane]',
-                          'checks': '[self-hosted, linux, verity, fastlane]',
-                          'timeout-watchdog': '[self-hosted, linux, verity, fastlane]',
-                          'build': 'blacksmith-16vcpu-ubuntu-2404',
+ 'expected_job_runs_on': {'closed-pr-cleanup': 'ubuntu-latest',
+                          'changes': 'ubuntu-latest',
+                          'checks': 'ubuntu-latest',
+                          'timeout-watchdog': 'ubuntu-latest',
+                          'build': 'lean-16vcpu-ubuntu-2604',
                           'build-audits': '[self-hosted, linux, x64, verity, build]',
-                          'build-compiler-binaries': 'blacksmith-16vcpu-ubuntu-2404',
+                          'build-compiler-binaries': 'lean-16vcpu-ubuntu-2604',
                           'compiler-audits': '[self-hosted, linux, x64, verity, build]',
-                          'compiler-regressions': 'blacksmith-32vcpu-ubuntu-2404',
-                          'lean-profile': 'blacksmith-16vcpu-ubuntu-2404',
+                          'compiler-regressions': 'lean-32vcpu-ubuntu-2604',
+                          'lean-profile': 'lean-16vcpu-ubuntu-2604',
                           'foundry-gas-calibration': '[self-hosted, linux, x64, verity, build]',
                           'foundry': '[self-hosted, linux, x64, verity, build]',
                           'foundry-patched': '[self-hosted, linux, x64, verity, build]',
                           'foundry-multi-seed': '[self-hosted, linux, x64, verity, build]',
-                          'failure-hints': '[self-hosted, linux, verity, fastlane]'},
+                          'failure-hints': 'ubuntu-latest'},
  'expected_job_timeouts': {'closed-pr-cleanup': 5,
                            'changes': 5,
                            'checks': 45,
@@ -846,7 +846,7 @@ SPEC['expected_job_if_conditions'].update({
 })
 
 SPEC['expected_job_runs_on'].update({
-    'build-compiler-binaries': 'blacksmith-16vcpu-ubuntu-2404',
+    'build-compiler-binaries': 'lean-16vcpu-ubuntu-2604',
 })
 
 SPEC['expected_job_timeouts'].update({
@@ -984,6 +984,6 @@ SPEC['expected_jobs'].append('ci-gate')
 SPEC['expected_job_needs']['ci-gate'] = CI_GATE_NEEDS
 SPEC['expected_job_if_conditions']['ci-gate'] = (
     "always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')")
-SPEC['expected_job_runs_on']['ci-gate'] = '[self-hosted, linux, verity, fastlane]'
+SPEC['expected_job_runs_on']['ci-gate'] = 'ubuntu-latest'
 SPEC['expected_job_timeouts']['ci-gate'] = 5
 SPEC['expected_job_permissions']['ci-gate'] = {'contents': 'read'}
