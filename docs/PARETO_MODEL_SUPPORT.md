@@ -343,7 +343,7 @@ the symbolic `mapChain` channel replaces it.
    `tryCall (selfCall f) then (do ...) catch (do ...)`.
 5. Use `addPanic` / `subPanic` / `Int256` storage for signed price math.
 
-See `Contracts/Smoke/Arithmetic.lean` (`Int256CheckedSmoke`) for Feature 1,
+See `Contracts/Smoke/Int256CheckedSmoke.lean` for Feature 1,
 `Contracts/Smoke/ModeledCall.lean` and `Contracts/Smoke/LinkedRuntimeTarget.lean`
 (runtime-target dispatch, mutable deferred links) for Feature 2,
 `Contracts/Smoke/TryCatch.lean` for Feature 3, and
