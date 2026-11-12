@@ -143,6 +143,30 @@ unsafe def runFlagAndUnitTests : IO Unit := do
   expectTrue "linker keeps second function boundary intact" ((parsed.getD 1 {name := "", arity := 0, body := []}).name == "PoseidonT4_hash")
   let firstBody := String.intercalate "\n" ((parsed.getD 0 {name := "", arity := 0, body := []}).body)
   expectTrue "first function body does not swallow next function" (!contains firstBody "function PoseidonT4_hash")
+  -- ECM `resultVars` must be bound by the Yul the module emits (else dangling identifiers).
+  expectTrue "ECM binding all declared result variables is accepted"
+    (Compiler.CompilationModel.firstEcmUnboundResultVar
+      Contracts.Smoke.GenericECMTripleResultSmoke.spec == none)
+  let unboundMod : Compiler.ECM.ExternalCallModule :=
+    { Contracts.Smoke.genericECMTripleResultModule with
+      compile := fun _ _ => pure [.let_ "first" (.lit 1)] }
+  let unboundSpec : Compiler.CompilationModel.CompilationModel := {
+    name := "EcmUnboundResultVar"
+    fields := []
+    «constructor» := none
+    functions := [
+      { name := "run", params := [], returnType := none,
+        body := [Compiler.CompilationModel.Stmt.ecm unboundMod [],
+          Compiler.CompilationModel.Stmt.stop] }
+    ] }
+  expectTrue "ECM leaving a declared result variable unbound is detected"
+    (Compiler.CompilationModel.firstEcmUnboundResultVar unboundSpec ==
+      some ("genericTripleResult", "second"))
+  match Compiler.CompilationModel.compile unboundSpec [0x12345678] with
+  | .ok _ => throw (IO.userError "✗ ECM with unbound result variable compiled")
+  | .error err =>
+      expectTrue "ECM with unbound result variable is a compile error"
+        (contains err "does not bind it with a top-level `let`")
 
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do

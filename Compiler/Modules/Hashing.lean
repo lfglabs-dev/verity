@@ -242,7 +242,10 @@ def abiEncodeStaticArrayModule
     let length := YulExpr.ident lengthName
     let dataBytes := YulExpr.ident dataBytesName
     let totalBytes := YulExpr.ident totalBytesName
+    -- The result is declared outside the block so it stays in scope for the caller;
+    -- the block only scopes the temporaries.
     pure [
+      YulStmt.let_ resultVar (YulExpr.lit 0),
       YulStmt.block ([
         YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
         YulStmt.let_ lengthName arrayLengthExpr,
@@ -268,7 +271,7 @@ def abiEncodeStaticArrayModule
           YulExpr.lit freeMemoryPointer,
           YulExpr.call "add" [ptr, YulExpr.ident paddedTotalName]
         ]),
-        YulStmt.let_ resultVar (YulExpr.call "keccak256" [ptr, totalBytes])
+        YulStmt.assign resultVar (YulExpr.call "keccak256" [ptr, totalBytes])
       ])
     ]
 

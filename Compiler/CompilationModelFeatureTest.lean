@@ -6394,7 +6394,11 @@ set_option maxRecDepth 4096 in
       "calldatacopy(add(__digest_abi_array_ptr, 64), items_data_offset, __digest_abi_array_data_bytes)")
   expectTrue "abiEncodeStaticArray hashes the ABI-encoded dynamic array byte length"
     (contains abiEncodeStaticArrayYul
-      "let digest := keccak256(__digest_abi_array_ptr, __digest_abi_array_total_bytes)")
+      "digest := keccak256(__digest_abi_array_ptr, __digest_abi_array_total_bytes)")
+  -- The result is declared before the block that scopes the temporaries, so it stays
+  -- visible to the statements after the ECM.
+  expectTrue "abiEncodeStaticArray declares its result outside the temporaries' block"
+    (contains abiEncodeStaticArrayYul "let digest := 0")
   expectCompileErrorContains
     "abiEncodeStaticArray ECM rejects invalid argument counts"
     abiEncodeStaticArrayBadAritySpec
