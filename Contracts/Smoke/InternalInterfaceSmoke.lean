@@ -183,7 +183,7 @@ example : oracleReadUsesSummary = true := by
   decide
 
 example :
-    let result := (OracleSummarySmoke.snapshotPrice (23 : Address)).run defaultState
+    let result := (OracleSummarySmoke.snapshotPrice .stub (23 : Address)).run defaultState
     result.getState.calls.map (·.kind) = [.staticcall] ∧
       result.getState.calls.map (·.target) = [23] := by
   decide

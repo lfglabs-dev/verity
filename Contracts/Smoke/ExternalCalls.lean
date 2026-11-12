@@ -482,9 +482,10 @@ verity_contract GenericECMTripleResultSmoke where
     ecmBind [first, second, third] genericECMTripleResultModule []
     setStorage last third
 
-/-- A read-only ECM uses the deterministic stub without exposing an adversary parameter. -/
+/-- A read-only ECM's answer comes from the adversary, so the executable takes the
+call context; under the stub context the call is journaled once. -/
 example :
-    ((GenericECMTripleResultSmoke.storeThird).run defaultState).getState.calls.length = 1 := by
+    ((GenericECMTripleResultSmoke.storeThird .stub).run defaultState).getState.calls.length = 1 := by
   decide
 
 verity_contract GenericECMWriteSmoke where
@@ -494,7 +495,7 @@ verity_contract GenericECMWriteSmoke where
     ecmDo genericECMEffectDemoModule [lhs, rhs]
 
 example :
-    ((GenericECMWriteSmoke.runEffect 1 2).run defaultState).getState.calls.length = 1 := by
+    ((GenericECMWriteSmoke.runEffect .stub 1 2).run defaultState).getState.calls.length = 1 := by
   native_decide
 
 def directDynamicEcmResultModule (resultVar : String) : Compiler.ECM.ExternalCallModule where
@@ -531,17 +532,17 @@ verity_contract DirectDynamicECMArgSmoke where
 /-- Executable ECM calls use the same synthetic `data_offset, length` key as
 the model for direct bytes, string, and dynamic-array parameters. -/
 example :
-    ((DirectDynamicECMArgSmoke.fromCall (ByteArray.mk #[1, 2, 3])).run defaultState).getState.calls.head?.map
+    ((DirectDynamicECMArgSmoke.fromCall .stub (ByteArray.mk #[1, 2, 3])).run defaultState).getState.calls.head?.map
         (fun call => call.calldata) = some [0, 3] := by
   decide
 
 example :
-    ((DirectDynamicECMArgSmoke.fromDo "verity").run
+    ((DirectDynamicECMArgSmoke.fromDo .stub "verity").run
       defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 6] := by
   decide
 
 example :
-    ((DirectDynamicECMArgSmoke.fromBind #[4, 5]).run
+    ((DirectDynamicECMArgSmoke.fromBind .stub #[4, 5]).run
       defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 2] := by
   decide
 
