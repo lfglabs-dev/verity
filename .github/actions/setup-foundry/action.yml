@@ -133,7 +133,11 @@ runs:
       id: preinstalled-foundry
       shell: bash
       run: |
-        if [ -x "$HOME/.foundry/bin/forge" ] && [ -x "$HOME/.foundry/bin/anvil" ]; then
+        foundry_bin="$HOME/.foundry/bin"
+        if [ -x "$foundry_bin/forge" ] && [ -x "$foundry_bin/cast" ] && [ -x "$foundry_bin/anvil" ] && \
+           "$foundry_bin/forge" --version >/dev/null 2>&1 && \
+           "$foundry_bin/cast" --version >/dev/null 2>&1 && \
+           "$foundry_bin/anvil" --version >/dev/null 2>&1; then
           echo "installed=true" >> "$GITHUB_OUTPUT"
         else
           echo "installed=false" >> "$GITHUB_OUTPUT"
@@ -144,11 +148,27 @@ runs:
       if: steps.preinstalled-foundry.outputs.installed != 'true'
       uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
-        path: ~/.foundry/bin
-        key: foundry-v1.5.0-linux-amd64
+        path: |
+          ~/.foundry/bin
+          ~/.foundry/versions
+        key: foundry-v1.5.0-linux-amd64-v2
+
+    - name: Validate Foundry binaries
+      id: validate-foundry
+      shell: bash
+      run: |
+        foundry_bin="$HOME/.foundry/bin"
+        if [ -x "$foundry_bin/forge" ] && [ -x "$foundry_bin/cast" ] && [ -x "$foundry_bin/anvil" ] && \
+           "$foundry_bin/forge" --version >/dev/null 2>&1 && \
+           "$foundry_bin/cast" --version >/dev/null 2>&1 && \
+           "$foundry_bin/anvil" --version >/dev/null 2>&1; then
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "valid=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Install Foundry
-      if: steps.preinstalled-foundry.outputs.installed != 'true' && steps.cache-foundry.outputs.cache-hit != 'true'
+      if: steps.validate-foundry.outputs.valid != 'true'
       id: install_foundry_primary
       continue-on-error: true
       uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
@@ -156,7 +176,7 @@ runs:
         version: v1.5.0
 
     - name: Install Foundry fallback (retry on transient download errors)
-      if: steps.preinstalled-foundry.outputs.installed != 'true' && steps.cache-foundry.outputs.cache-hit != 'true' && steps.install_foundry_primary.outcome != 'success'
+      if: steps.validate-foundry.outputs.valid != 'true' && steps.install_foundry_primary.outcome != 'success'
       shell: bash
       run: |
         set -euo pipefail
