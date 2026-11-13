@@ -56,6 +56,9 @@ structure StructMappingInfo where
   valueWidth : Nat
   booleanValue : Bool := false
   valueStructId : Option Nat := none
+  /-- For `mapping(K1 => mapping(K2 => V))`, the key type of the inner mapping: indexing the
+  member once yields the inner mapping, whose slot is that of a member at offset 0. -/
+  innerKeyType : Option MappingKeyType := none
 
 structure StructDynamicArrayInfo where
   member : String
@@ -87,6 +90,9 @@ structure RawStructInfo where
   dynamicArrays : Array StructDynamicArrayInfo := #[]
   subStructs : Array RawStructSubStructInfo := #[]
   wordCount : Nat := 0
+  /-- Members whose storage type is outside this slice. Each keeps the slot solc assigns it,
+  so later members are placed correctly, and any access to it is rejected. -/
+  opaqueMemberNames : Array String := #[]
 
 /-- A fixed-size memory array `T[N] memory` with a scalar element `T`: a binding
 holding a pointer to `N` consecutive words, without a length word. Every

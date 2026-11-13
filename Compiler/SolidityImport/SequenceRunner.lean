@@ -36,6 +36,12 @@ private def eventWord (ty : ParamType) (value : Nat) : Except String Nat := do
   | .uintN bits =>
       unless 0 < bits && bits ≤ 256 && bits % 8 == 0 do throw "invalid event integer width"
       pure (value % 2^bits)
+  | .int256 => pure (value % 2^256)
+  | .intN bits =>
+      unless 0 < bits && bits < 256 && bits % 8 == 0 do throw "invalid event integer width"
+      -- `signextend`: the low `bits` bits, their sign copied into the upper bits.
+      let low := value % 2^bits
+      pure (if low < 2^(bits - 1) then low else low + (2^256 - 2^bits))
   | .bytesN 4 => pure ((value % 2^256) &&& ((2^32 - 1) * 2^224))
   | .bytesN 1 => pure ((value % 2^256) &&& ((2^8 - 1) * 2^248))
   | .address => pure (value % 2^160)
@@ -145,6 +151,21 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
       | throw "account nonce exceeds 64 bits"
     let current := world.accountWorld (Address.ofNat account)
     world := world.writeAccount (Address.ofNat account) { current with nonce := bounded }
+  -- The deployment's immutables, by name: the same values for every transaction.
+  let immutableRows ← match input.getObjVal? "immutables" with
+    | .error _ => pure []
+    | .ok rows => (← rows.getArr?).toList.mapM fun row => do
+        match (← row.getArr?).toList with
+        | [name, value] => return (← name.getStr?, ← word value)
+        | _ => throw "expected immutable name/value pair"
+  unless (immutableRows.map Prod.fst).eraseDups.length == immutableRows.length do
+    throw "duplicate immutable value"
+  -- Every declared immutable needs its deployment value; values for other names cannot
+  -- affect execution and are ignored, so one deployment serves every model of a source.
+  for imm in model.immutables do
+    unless immutableRows.any (·.1 == imm.name) do throw s!"missing value for immutable {imm.name}"
+  let immutables : String → Uint256 := fun name =>
+    Uint256.ofNat ((immutableRows.find? (·.1 == name)).map Prod.snd |>.getD 0)
   let externalFns := model.functions.filter fun fn =>
     !fn.isInternal && !isInteropEntrypointName fn.name
   let dispatch := externalFns.map fun fn =>
@@ -187,12 +208,13 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
         functionSelector := selector, args }
     let initial := beginTransaction (withTransactionContext world tx)
     let publicResult := denoteFunction oracle model fn tx initial (byteCalls := byteCalls)
+      (immutables := immutables)
     let result : TracedFrameResult ←
       match bindExternalParams selector fn.bindingParams args with
       | none => pure ⟨⟨false, [], initial⟩, []⟩
       | some bindings =>
           executeTracedBody oracle (effectiveFields model) initial
-            bindings fn.body model.events model.errors selector byteCalls
+            bindings fn.body model.events model.errors selector byteCalls immutables
     unless result.frame.success == publicResult.success do
       throw "traced execution status differs from public Denote"
     if publicResult.success then

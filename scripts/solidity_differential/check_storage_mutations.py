@@ -67,6 +67,70 @@ MUTANTS.update({
                                     '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
 })
 
+# An address immutable assigned from a constructor argument read as the contract's own
+# address: the rule this slice replaces.
+MUTANTS.update({'import-immutable-self-address': (
+    'let value := if selfAddress then Expr.contractAddress else Expr.immutable name',
+    'let value := Expr.contractAddress')})
+# Namespaced storage struct members: a member outside the slice keeps the slot solc
+# assigns it, and a two-key mapping member's inner mapping is at keccak256(key . slot).
+MUTANTS.update({
+    'import-namespaced-opaque-slot': (
+        '      currWord := currWord + 1\n      opaqueMemberNames := opaqueMemberNames.push mName',
+        '      opaqueMemberNames := opaqueMemberNames.push mName'),
+    'import-namespaced-inner-mapping-order': (
+        'Stmt.mstore (.literal 0) key.expr,\n'
+        '              Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
+        'Stmt.mstore (.literal 32) key.expr,\n'
+        '              Stmt.mstore (.literal 0) (rawStructMemberSlot baseSlot mapInfo.wordOffset),'),
+    'import-namespaced-inner-mapping-member': (
+        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
+        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1)),')})
+# A `while` loop whose only progress divides its unsigned local by a constant >= 2 runs as
+# `bits` guarded iterations.
+MUTANTS.update({
+    'import-dividing-while-bound': (
+        'return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]',
+        'return some #[.forEach loopVar (.literal (bits / 4)) [.ite condVal.expr bodyOut.toList []]]'),
+    'import-dividing-while-guard': (
+        'return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]',
+        'return some #[.forEach loopVar (.literal bits) bodyOut.toList]')})
+# Named call arguments in declaration order lower as positional; any other order rejects.
+MUTANTS.update({
+    'import-named-arguments-binding': (
+        'if namedArgumentsInDeclaredOrder params written then j.setObjVal! "names" (.arr #[])',
+        'if namedArgumentsInDeclaredOrder params written then (match field? j "arguments" with\n'
+        '              | some (.arr #[a, b]) => (j.setObjVal! "names" (.arr #[])).setObjVal! "arguments" (.arr #[b, a])\n'
+        '              | _ => j.setObjVal! "names" (.arr #[]))'),
+    'import-named-arguments-order-guard': (
+        'if namedArgumentsInDeclaredOrder params written then',
+        'if written.size ≤ params.size then')})
+# A storage array push panics with 0x41 once the length reaches 2^64, as solc's does, for
+# value and struct elements; and not one element earlier or later.
+MUTANTS.update({
+    'import-push-length-guard-value': (
+        '    pushLengthGuard lenVal.expr,\n    .letVar newLen (.add lenVal.expr (.literal 1)),\n'
+        '    writeLenStmt,\n    .mstore (.literal 0) slotExpr,\n'
+        '    .letVar baseDataSlot (.keccak256 (.literal 0) (.literal 32))\n  ] ++ writeStmts',
+        '    .letVar newLen (.add lenVal.expr (.literal 1)),\n'
+        '    writeLenStmt,\n    .mstore (.literal 0) slotExpr,\n'
+        '    .letVar baseDataSlot (.keccak256 (.literal 0) (.literal 32))\n  ] ++ writeStmts'),
+    'import-push-length-guard-struct': (
+        '  let mut stmts : Array Stmt := #[\n    pushLengthGuard lenVal.expr,\n',
+        '  let mut stmts : Array Stmt := #[\n'),
+    'import-push-length-bound': (
+        '.ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]',
+        '.ite (.lt oldLen (.literal (2 ^ 64 + 1))) [] [.panicCode (.literal 0x41)]')})
+# Signed event parameters keep their declared type in the event signature, and the
+# observed ABI word is sign-extended.
+MUTANTS.update({
+    'import-signed-event-type': (
+        "    let some modelType := paramType ty | failAt parameter s!\"unsupported event parameter type {ty}\"\n",
+        "    let some modelType := (paramType ty).map (fun t => match t with\n"
+        "      | .int256 | .intN _ => .uint256 | other => other) | failAt parameter s!\"unsupported event parameter type {ty}\"\n"),
+    'observe-event-signed-narrow': (
+        '      pure (if low < 2^(bits - 1) then low else low + (2^256 - 2^bits))',
+        '      pure low')})
 MUTANTS.update({'import-numeric-separators': ('let raw := raw.replace "_" ""', 'let raw := raw.replace "_" "0"'),
  'import-numeric-leading-dot': ('if whole.isEmpty then some 0 else whole.toNat?', 'if whole.isEmpty then some 1 else whole.toNat?'),
  'import-numeric-decimal-scale': ('let scale := 10 ^ fraction.length',
@@ -615,6 +679,18 @@ def run(directory, output, name):
         fixture = "DynamicMemoryArraySequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
+    if name.startswith("import-immutable-"):
+        fixture = "ImmutableAddressSequence"
+    if name.startswith("import-namespaced-"):
+        fixture = "NamespacedStructMembersSequence"
+    if name.startswith("import-dividing-while-"):
+        fixture = "DividingWhileSequence"
+    if name.startswith("import-named-arguments-"):
+        fixture = "NamedArgumentsSequence"
+    if name.startswith("import-push-length-"):
+        fixture = "PushLengthBoundSequence"
+    if name in ("import-signed-event-type", "observe-event-signed-narrow"):
+        fixture = "SignedEventSequence"
     if name.startswith("import-bytes-named-slice-"):
         fixture = "BytesNamedReturnSliceStructSequence"
     if name.startswith("import-constant-array-"):
@@ -627,7 +703,7 @@ def run(directory, output, name):
         fixture = "ShortCircuitSequence"
     if name.startswith('import-if-'):
         fixture = 'IfElseSequence'
-    if name.startswith(('import-event-', 'observe-event-')):
+    if name.startswith(('import-event-', 'observe-event-')) and name != 'observe-event-signed-narrow':
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
@@ -638,6 +714,42 @@ def run(directory, output, name):
             '--output', str(output)]
     if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence', 'DynamicBytesAndStringReturnSequence', 'BytesAndStringStorageSequence', 'YulBlockMulmodTstoreSequence', 'MerkleAndNoncesSequence', 'MultiProofMappingKeysVerifiersSequence', 'UdvtParamAssignStructHashSequence', 'StructMappingAndBytes4InterfaceSequence', 'ERC2981HoldersArraysMsgHashSequence', 'StorageStructParamsDequeShortStringsSequence', 'StorageSlotShortStringsTimeSequence', 'EnumerableSetMapSequence', 'CheckpointsAndStructArraysSequence', 'WadExpAndThreeKeyMappingSequence', 'StructHashAndDomainSeparatorSequence', 'AbiDecodeAndVerifierSequence', 'VotesCheckpointsArraysBitMapsSequence', 'PublicGettersAndBuiltinsSequence', 'EcrecoverAuthorizerArraysMapSequence', 'StructParamsAndBalancesSequence', 'PackedStructMappingAndTernaryTupleSequence', 'TimelockAndBytes4CastSequence', 'StringBytesMappingsUriStorageStringsSequence', 'StringsHexArraysBitmapsSequence', 'EcdsaMerkleCheckpointsStorageSlotSequence', 'Create2ClonesMsgDataDequeSequence', 'GovernorSliceProposerDelaySequence', 'AccessManagerTargetRoleSequence'}:
         argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence', 'DynamicBytesAndStringReturnSequence', 'BytesAndStringStorageSequence', 'YulBlockMulmodTstoreSequence', 'MerkleAndNoncesSequence', 'MultiProofMappingKeysVerifiersSequence', 'UdvtParamAssignStructHashSequence', 'StructMappingAndBytes4InterfaceSequence', 'ERC2981HoldersArraysMsgHashSequence', 'StorageStructParamsDequeShortStringsSequence', 'StorageSlotShortStringsTimeSequence', 'EnumerableSetMapSequence', 'CheckpointsAndStructArraysSequence', 'WadExpAndThreeKeyMappingSequence', 'StructHashAndDomainSeparatorSequence', 'AbiDecodeAndVerifierSequence', 'VotesCheckpointsArraysBitMapsSequence', 'PublicGettersAndBuiltinsSequence', 'EcrecoverAuthorizerArraysMapSequence', 'StructParamsAndBalancesSequence', 'PackedStructMappingAndTernaryTupleSequence', 'TimelockAndBytes4CastSequence', 'StringBytesMappingsUriStorageStringsSequence', 'StringsHexArraysBitmapsSequence', 'EcdsaMerkleCheckpointsStorageSlotSequence', 'Create2ClonesMsgDataDequeSequence', 'GovernorSliceProposerDelaySequence', 'AccessManagerTargetRoleSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture == 'ImmutableAddressSequence':
+        # Long enough to reach calls from the guard and the payee, which tell the
+        # constructor-argument immutables apart from the contract's own address.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--senders', '3', '--immutable-sender', 'GUARD=1', '--immutable-sender', 'PAYEE=2',
+                     '--change-prefix', '0', '1', '2', '15', '16'])
+    if fixture == 'SignedEventSequence':
+        # Values below and above 500 give negative and positive signed arguments.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 499, 500, 501, 999, 1000, 1499, (1 << 256) - 1])])
+    if fixture == 'PushLengthBoundSequence':
+        # Raise the three lengths to 2^64 - 2, then two pushes succeed and the next ones
+        # panic, for values (x % 4 == 1), struct pairs (2) and empty structs (3). A witness
+        # keeps the raise and both successful pushes, so proving it deletion-minimal from 24
+        # transactions takes more than the default 30 shrink attempts.
+        argv[argv.index('--transactions') + 1] = '24'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 5, 9, 13, 2, 6, 10, 0, 3, 7, 11, 4, 1])])
+    if fixture == 'NamedArgumentsSequence':
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 7, 12, (1 << 128) - 1, 1 << 128])])
+    if fixture == 'DividingWhileSequence':
+        # Zero, short, revert-on-remainder, 73-iteration and full-width inputs.
+        argv[argv.index('--transactions') + 1] = '20'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 1000, 1001, 4095, 4096, 40950, 2 ** 24 - 1,
+                     4095 * 10 ** 73, 10 ** 76, 123456789 * 10 ** 60, (1 << 256) - 1])])
+    if fixture == 'NamespacedStructMembersSequence':
+        # The two-key prefix (approvals, reads, spends) needs several senders and room.
+        argv[argv.index('--transactions') + 1] = '40'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--senders', '3', '--change-prefix', '0', '1', '2', '15', '16'])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -1268,6 +1380,14 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-named-arguments-order-guard':
+        diagnostic = 'named call arguments are outside this slice'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ function diff(uint256 a, uint256 b) internal pure returns (uint256) { return a - b; }
+ function checked(uint256 x) external pure returns (uint256) { return diff({b: 1, a: x}); }
+}
+''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':
         diagnostic = 'event direct parameter type differs from its declaration'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1319,6 +1439,7 @@ def mutation_source(directory, name):
                                   else 'Compiler/SolidityImport/Quote.lean' if name == 'import-modulo-quote'
                                   else 'Compiler/SolidityImport/AbiLowering.lean' if name == 'import-empty-array-bytes-calldata-tail-bound'
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
+                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
                                   else 'Compiler/SolidityImport/Import.lean')
 
 def preflight_mutation_anchors(directory, selected=None):
@@ -1388,7 +1509,8 @@ def mutation_campaign(output, selected=None):
                                   'import-ecdsa-merkle-checkpoints-storage-slot-unaligned-byte-mload-guard',
                                   'import-create2-clones-msgdata-deque-nonempty-pop-loop-body-guard',
                                   'import-governor-slice-proposer-delay-unaligned-tail-offset-guard',
-                                  'import-access-manager-target-role-narrow-bytes-event-guard'}
+                                  'import-access-manager-target-role-narrow-bytes-event-guard',
+                                  'import-named-arguments-order-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)

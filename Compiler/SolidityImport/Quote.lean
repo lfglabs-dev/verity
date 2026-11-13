@@ -78,6 +78,9 @@ partial def quoteExpr : Expr → m Term
   | .le a b => do `(Compiler.CompilationModel.Expr.le $(← quoteExpr a) $(← quoteExpr b))
   | .ge a b => do `(Compiler.CompilationModel.Expr.ge $(← quoteExpr a) $(← quoteExpr b))
   | .logicalNot a => do `(Compiler.CompilationModel.Expr.logicalNot $(← quoteExpr a))
+  | .immutable name => `(Compiler.CompilationModel.Expr.immutable $(quote name))
+  | .returndataSize => `(Compiler.CompilationModel.Expr.returndataSize)
+  | .constructorArg index => `(Compiler.CompilationModel.Expr.constructorArg $(quote index))
   | e => throwError "internal: the importer cannot quote {repr e}"
 
 private def quotePanic : Verity.Core.PanicCode → m Term
@@ -171,6 +174,11 @@ partial def quoteStmt : Stmt → m Term
           unless module == Compiler.ECM.SolidityReturnMemory.module do
             throwError "internal: closed ECM metadata differs from its descriptor"
           `(Compiler.CompilationModel.Stmt.ecm Compiler.ECM.SolidityReturnMemory.module $quotedArgs)
+      | some (.yulMemoryCall isStatic resultVar) =>
+          unless module == Compiler.ECM.YulMemoryCall.module isStatic resultVar do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.YulMemoryCall.module $(quote isStatic) $(quote resultVar)) $quotedArgs)
       | none => throwError "internal: the importer cannot quote an opaque ECM"
   | .mstore offset value => do
       `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))
@@ -206,6 +214,8 @@ partial def quoteStmt : Stmt → m Term
       `(Compiler.CompilationModel.Stmt.returnValues $(← list (← vs.mapM quoteExpr)))
   | .returnBytes name =>
       `(Compiler.CompilationModel.Stmt.returnBytes $(quote name))
+  | .setImmutable name value => do
+      `(Compiler.CompilationModel.Stmt.setImmutable $(quote name) $(← quoteExpr value))
   | _ => throwError "internal: the importer cannot quote this statement"
 
 private def quoteKey : MappingKeyType → m Term
@@ -293,7 +303,20 @@ def quoteModel (model : CompilationModel) : m Term := do
   let errors ← model.errors.mapM fun error => do
     `(({ name := $(quote error.name), params := $(← list (← error.params.mapM quoteParamType)) } :
        Compiler.CompilationModel.ErrorDef))
-  `(({ name := $(quote model.name), constructor := none,
+  let immutables ← model.immutables.mapM fun imm => do
+    `(({ name := $(quote imm.name), ty := $(← quoteParamType imm.ty), init := $(← quoteExpr imm.init) } :
+       Compiler.CompilationModel.ImmutableSpec))
+  -- The importer only synthesizes a constructor that installs unknown immutables.
+  let ctor ← match model.constructor with
+    | none => `(none)
+    | some c => do
+        unless c.localObligations.isEmpty && !c.isPayable do
+          throwError "internal: the importer cannot quote this constructor"
+        let params ← c.params.mapM fun p => do
+          `(({ name := $(quote p.name), ty := $(← quoteParamType p.ty) } : Compiler.CompilationModel.Param))
+        `(some ({ params := $(← list params), body := $(← list (← c.body.mapM quoteStmt)) } :
+            Compiler.CompilationModel.ConstructorSpec))
+  `(({ name := $(quote model.name), constructor := $ctor, immutables := $(← list immutables),
        errors := $(← list errors), events := $(← list events),
        fields := $(← list (← model.fields.mapM quoteField)),
        functions := $(← list (← model.functions.mapM quoteFunction)) } :
