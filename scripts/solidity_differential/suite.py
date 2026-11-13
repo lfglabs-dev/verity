@@ -155,6 +155,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('extcodecopy-struct-decode-rejections', ['-m',
         'solidity_differential.check_extcodecopy_struct_decode_rejections',
         '--output', str(output / 'extcodecopy-struct-decode-rejections')]))
+    checks.append(('yul-memory-call-rejections', ['-m',
+        'solidity_differential.check_yul_memory_call_rejections',
+        '--output', str(output / 'yul-memory-call-rejections')]))
     # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min
     # checks start at t=0 on a 6-wide pool instead of straggling past the step cap.
     heavy_first = (
