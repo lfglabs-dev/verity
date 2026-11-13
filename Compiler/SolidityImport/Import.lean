@@ -1255,6 +1255,36 @@ private def yulReservedMemoryEnd : Nat := 0x80
 /-- The zero slot at `0x60`, which Solidity relies on being zero. -/
 private def yulZeroSlot : Nat := 0x60
 
+/-- An operand whose value no hoisted external call can change: a literal, a plain local, or a
+constant of the transaction. Memory, storage, returndata and balance reads are not, and neither
+is any compound expression (fail closed). -/
+private def yulCallIndependent : Expr → Bool
+  | .localVar _ => true
+  | .selfBalance => false
+  | e => isOrderIndependentSibling e
+
+/-- Hoisted statements that touch the outside world: anything but local bindings. -/
+private def yulPreHasEffect (pre : Array Stmt) : Bool :=
+  pre.any fun
+    | .letVar _ _ => false
+    | .assignVar _ _ => false
+    | _ => true
+
+/-- Yul evaluates the operands of one builtin right to left, but the model runs every operand's
+hoisted statements left to right before the enclosing expression. That is only the same order
+when no hoisted effect (an external call) can interact with a sibling: operands to the right of
+an effect must be call-independent without hoisting of their own, and operands to the left of an
+effect must not hoist anything, because their statements would run before it instead of after. -/
+private def checkYulOperandOrder (at_ : Json) (vals : Array Val) : M Unit := do
+  let mut earlier : Array Val := #[]
+  for right in vals do
+    for left in earlier do
+      if yulPreHasEffect right.pre && !left.pre.isEmpty then
+        failAt at_ "Yul operands left of an external call must not need hoisting; assign the call to a variable first"
+      if yulPreHasEffect left.pre && (!right.pre.isEmpty || !yulCallIndependent right.expr) then
+        failAt at_ "Yul external call is evaluated after an operand that could observe it; assign the call to a variable first"
+    earlier := earlier.push right
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1361,10 +1391,13 @@ private partial def lowerYul (j : Json) : M Val := do
           return structHash
       let mut pre : Array Stmt := #[]
       let mut xs : Array Expr := #[]
+      let mut vals : Array Val := #[]
       for arg in args do
         let v ← lowerYul arg
         pre := pre ++ v.pre
         xs := xs.push v.expr
+        vals := vals.push v
+      checkYulOperandOrder j vals
       match fname, xs with
       | "add", #[a, b] => pure { pre, expr := .add a b }
       | "sub", #[a, b] => pure { pre, expr := .sub a b }
@@ -2018,17 +2051,20 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           unless args.size == 2 do failAt expr "tstore requires two arguments"
           let slotVal ← lowerYul args[0]!
           let valVal ← lowerYul args[1]!
+          checkYulOperandOrder expr #[slotVal, valVal]
           out := out ++ slotVal.pre ++ valVal.pre |>.push (.tstore slotVal.expr valVal.expr)
         else if fname == "sstore" then
           unless args.size == 2 do failAt expr "sstore requires two arguments"
           let slotVal ← lowerYul args[0]!
           let valVal ← lowerYul args[1]!
+          checkYulOperandOrder expr #[slotVal, valVal]
           modify fun e => { e with usedRawStorage := true }
           out := out ++ slotVal.pre ++ valVal.pre |>.push (.setStorageArrayElement rawStorageFieldName slotVal.expr valVal.expr)
         else if fname == "mstore" then
           unless args.size == 2 do failAt expr "mstore requires two arguments"
           let offVal ← lowerYul args[0]!
           let valVal ← lowerYul args[1]!
+          checkYulOperandOrder expr #[offVal, valVal]
           let .literal off := offVal.expr
             | failAt expr "Yul mstore requires a fixed address below 0x80"
           unless offVal.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd do
@@ -2045,6 +2081,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           unless args.size == 2 do failAt expr "mstore8 expects 2 arguments"
           let addrVal ← atom (← lowerYul args[0]!)
           let valVal ← atom (← lowerYul args[1]!)
+          checkYulOperandOrder expr #[addrVal, valVal]
           let wordAddr := AbiEncoding.byteWordOffset addrVal.expr
           let shift := Expr.mul (.literal 8) (.sub (.literal 31) (AbiEncoding.byteLane addrVal.expr))
           let byteMask := Expr.shl shift (.literal 0xff)
@@ -2055,6 +2092,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           unless args.size == 2 do failAt expr "revert requires two arguments"
           let offVal ← lowerYul args[0]!
           let szVal ← lowerYul args[1]!
+          checkYulOperandOrder expr #[offVal, szVal]
           out := out ++ offVal.pre ++ szVal.pre |>.push .revertEmpty
         else
           failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
