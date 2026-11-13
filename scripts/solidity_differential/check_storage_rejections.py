@@ -6,6 +6,16 @@ import subprocess
 import tempfile
 
 
+# Pure helpers that write (`bump`, `bumpDynamic`) or only read (`peek`) memory
+# through a by-reference array parameter.
+MEMORY_WRITE_HELPERS = (
+    'mapping(uint256 => uint256) m; uint256[] arr; '
+    'function bump(uint256[2] memory a) internal pure returns (uint256) { a[0] += 1; return a[0]; } '
+    'function peek(uint256[2] memory a) internal pure returns (uint256) { return a[0] + 1; } '
+    'function bumpDynamic(uint256[] memory a) internal pure returns (uint256) { a[0] = a[0] + 1; return a[0]; } '
+    'function g(uint256 p, uint256 q) internal pure returns (uint256) { return p + q; }')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--only', default=None)
@@ -131,7 +141,20 @@ def main():
         ('default-signed', '', 'int256 zero; return zero;', 'int256', None),
         ('default-narrow-signed', '', 'int128 zero; return x;', 'uint256', 'unsupported default local type int128'),
         ('default-bytes', '', 'bytes memory zero; return x;', 'uint256', 'uninitialized reference locals'),
-        ('default-array', '', 'uint256[] memory zero; return x;', 'uint256', 'uninitialized reference locals'),
+        # Admitted since T[] memory zero values (#2622): the array at 0x60.
+        ('default-array', '', 'uint256[] memory zero; return x;', 'uint256', None),
+        # Review follow-up (#2622). solc re-reads `a.length` on every loop test,
+        # so a bound whose array the body rebinds is rejected.
+        ('dynamic-array-for-length-reassigned', '', 'uint256[] memory a = new uint256[](x % 5); uint256[] memory b = new uint256[](1); uint256 s; for (uint256 i = 0; i < a.length; i++) { s += 1; a = b; } return s;', 'uint256', 'a for loop bound must be a literal, a parameter or an unassigned local'),
+        ('dynamic-array-for-length-deleted', '', 'uint256[] memory a = new uint256[](x % 5); uint256 s; for (uint256 i = 0; i < a.length; i++) { s += 1; delete a; } return s;', 'uint256', 'a for loop bound must be a literal, a parameter or an unassigned local'),
+        ('nested-array-for-length-reassigned', '', 'uint256[][] memory v = new uint256[][](x % 5); uint256 s; for (uint256 i = 0; i < v.length; i++) { s += 1; v = new uint256[][](2); } return s;', 'uint256', 'a for loop bound must be a literal, a parameter or an unassigned local'),
+        ('dynamic-array-for-length-reassigned-outside', '', 'uint256[] memory a; a = new uint256[](x % 5); uint256 s; for (uint256 i = 0; i < a.length; i++) { a[i] = i; s += a[i]; } return s;', 'uint256', None),
+        ('dynamic-array-for-length-helper-rebinds-param', 'function reset(uint256[] memory p) internal pure { delete p; }', 'uint256[] memory a; a = new uint256[](x % 5); uint256 s; for (uint256 i = 0; i < a.length; i++) { reset(a); s += 1; } return s;', 'uint256', None),
+        ('nested-array-helper-result', 'function h(uint256 n) internal pure returns (uint256[][] memory) { return new uint256[][](n); }', 'uint256[][] memory v = h(x % 4); return v.length;', 'uint256', 'nested memory array helper results are outside this slice'),
+        ('nested-array-multi-result', 'function h(uint256 n) internal pure returns (uint256[][] memory v, uint256 k) { v = new uint256[][](n); k = n; }', '(uint256[][] memory v, uint256 k) = h(x % 4); return k + v.length;', 'uint256', 'unsupported multi-return helper result type uint256[][]'),
+        ('nested-array-depth-three', '', 'uint256[][][] memory w = new uint256[][][](1); return w.length + x;', 'uint256', 'unsupported dynamic memory array local type uint256[][][]'),
+        # A helper's array result no longer resolves a same-named caller array in Yul.
+        ('dynamic-array-named-result-yul-shadow', 'function mk(uint256 n) internal pure returns (uint256[] memory out, bytes32 h) { out = new uint256[](n); out[0] = 1; assembly { h := keccak256(add(out, 0x20), mul(mload(out), 0x20)) } }', 'uint256[] memory out = new uint256[](2); out[1] = x; (uint256[] memory r, bytes32 h) = mk(x % 4 + 1); return uint256(h) ^ r.length;', 'uint256', 'unbound Yul identifier out'),
         ('modulo-unsigned', '', 'return x % 7;', 'uint256', None),
         ('modulo-narrow', '', 'return uint8(x) % uint8(7);', 'uint256', None),
         ('modulo-signed', '', 'return uint256(int256(x) % int256(7));', 'uint256', None),
@@ -143,7 +166,8 @@ def main():
         ('inline-array-guarded-element', '', 'return [uint256(1), 100 / x][x];', 'uint256', 'inline array elements must be exact natural constants'),
         ('inline-array-bool', '', 'return [true, false][x];', 'bool', 'inline constant arrays require unsigned scalar elements'),
         ('inline-array-signed', '', 'return uint256([int256(-1), int256(2)][x]);', 'uint256', 'inline constant arrays require unsigned scalar elements'),
-        ('inline-array-escape', '', 'uint256[2] memory a = [uint256(1), 2]; return a[x];', 'uint256', 'inline arrays are outside this slice'),
+        # Admitted since inline array literals are memory arrays (#2626).
+        ('inline-array-escape', '', 'uint256[2] memory a = [uint256(1), 2]; return a[x];', 'uint256', None),
         ('if-else', '', 'if (x > 1) { return 1; } else { return 2; }', 'uint256', None),
         ('if-early-return', 'uint256 value;', 'if (x == 0) return 0; value = x; return value;', 'uint256', None),
         ('if-helper-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; require(y == 0, "one"); return 0; }', 'return h(x);', 'uint256', None),
@@ -231,7 +255,43 @@ def main():
         ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', None),
         ('parameter-delete', '', 'delete x; return x;', 'uint256', 'only materialized scalar locals are writable'),
         ('helper-parameter-delete', 'function h(uint256 y) internal pure returns (uint256) { delete y; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only declaration-bound scalar locals are writable'),
-        ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', 'uninitialized reference locals'),
+        # Admitted since fixed-size memory arrays (#2625): a zeroed local array.
+        ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', None),
+        # A pure helper writing through a by-reference memory argument is
+        # visible to sibling reads: solc evaluates an assignment's right-hand
+        # side before its keys (both pipelines) and binary operands
+        # right-to-left (legacy) or left-to-right (via-IR).
+        ('memory-write-mapping-key-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; m[y[0]] = bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-mapping-compound-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; m[y[0]] += bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-mapping-key-call-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; m[bump(y)] = y[0]; return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-storage-array-index-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; arr[y[1]] = bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        ('memory-write-struct-member-key-order', MEMORY_WRITE_HELPERS + ' struct P { uint256 a; } mapping(uint256 => P) ps;', 'uint256[2] memory y; ps[y[0]].a = bump(y); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading member key is unsupported'),
+        ('memory-write-binary-operand-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; return y[0] + bump(y);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-comparison-operand-order', MEMORY_WRITE_HELPERS, 'uint256[2] memory y; y[0] = x; return y[0] == bump(y) ? 1 : 2;', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-nested-helper-order', MEMORY_WRITE_HELPERS + ' function outer(uint256[2] memory a) internal pure returns (uint256) { return bump(a); }', 'uint256[2] memory y; return y[0] + outer(y);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        # Same root cause through `T[] memory` and memory-struct helper parameters.
+        ('memory-write-dynamic-array-operand-order', MEMORY_WRITE_HELPERS, 'uint256[] memory y = new uint256[](2); y[0] = x; return y[0] + bumpDynamic(y);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-struct-operand-order', MEMORY_WRITE_HELPERS + ' struct Q { uint256 a; uint256 b; } function bumpStruct(Q memory q) internal pure returns (uint256) { q.a += 1; return q.a; }', 'Q memory q; q.a = x; return q.a + bumpStruct(q);', 'uint256',
+         'memory-writing helper operands require explicit evaluation-order support'),
+        ('memory-write-struct-mapping-key-order', MEMORY_WRITE_HELPERS + ' struct Q { uint256 a; uint256 b; } function bumpStruct(Q memory q) internal pure returns (uint256) { q.a += 1; return q.a; }', 'Q memory q; q.a = x; m[q.a] = bumpStruct(q); return x;', 'uint256',
+         'memory-writing helper right-hand side with a memory-reading index or key is unsupported'),
+        # The guard fires only when a sibling can observe the write.
+        ('memory-write-order-positive', MEMORY_WRITE_HELPERS,
+         'uint256[2] memory y; y[0] = x; m[x] = bump(y); m[y[1]] = peek(y); m[y[0]] += x; arr[x % 2] = bump(y); uint256 s = x + bump(y); s += y[0] + peek(y); return s + g(y[0], bump(y));', 'uint256', None),
+        # A named T[N] memory result shadows a caller's `T[] memory` of the same name
+        # in Yul: the read is not resolved against the caller's array (formerly
+        # it was, returning the caller's element).
+        ('fixed-memory-result-yul-shadow', 'function mk() internal pure returns (uint256[2] memory out) { uint256 v; assembly { v := mload(add(add(out, 0x20), mul(0, 0x20))) } out[0] = v; }',
+         'uint256[] memory out = new uint256[](3); out[0] = x; uint256[2] memory r = mk(); return r[0] + out.length;', 'uint256', 'unsupported Yul builtin mload'),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
     ]
     for name, fields, body, returns, expected in cases:
@@ -305,6 +365,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Fixture.sol:3:86: BinaryOperation: [solidity-import:unsupported] stateful helper operands require explicit evaluation-order support'),
+        # Legacy solc evaluates `y[0]` after `bump(y)` (22); via-IR before it (21).
+        ('legacy-memory-write-binary-operand-order-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function bump(uint256[2] memory a) internal pure returns (uint256) { a[0] += 1; return a[0]; }\n  function checked(uint256 x) external pure returns (uint256) { uint256[2] memory y; y[0] = x; return y[0] + bump(y); }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:4:103: BinaryOperation: [solidity-import:unsupported] memory-writing helper operands require explicit evaluation-order support'),
         ('inheritance-interface-unimplemented-rejected',
          "pragma solidity 0.8.34;\ninterface IBase { function checked(uint256 x) external view returns (uint256); }\nabstract contract C is IBase { }\n",
          None,
@@ -727,6 +793,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] string locals and memory parameters are limited to hash, packed encoding, and bytes(s).length operands'),
+        # Review follow-up (#2622): a calldata array is not a memory array value.
+        ('calldata-to-memory-array-assignment-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256[] calldata c) external pure returns (uint256) {\n    uint256[] memory m;\n    m = c;\n    return m.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'calldata-to-memory array assignment is outside this slice'),
         ('scalar-array-signed-element-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(int128[] calldata a) external pure returns (uint256) {\n    return a.length;\n  }\n}\n",
          None,
@@ -887,11 +959,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported dynamic memory array local type int128[]'),
-        ('new-array-reassigned-local-rejected',
+        # Admitted since reassignable T[] memory locals (#2622).
+        ('new-array-reassigned-local-positive',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256[] memory a = new uint256[](1);\n    a = new uint256[](2);\n    return a[0] + x;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'VariableDeclaration: [solidity-import:unsupported] reassigned memory array locals are outside this slice'),
+         None),
         ('scalar-array-write-calldata-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function h(uint256[] calldata a) internal pure returns (uint256) {\n    a[0] = 1;\n    return a[0];\n  }\n  function checked(uint256 x) external view returns (uint256) {\n    return x;\n  }\n}\n",
          None,
@@ -1427,6 +1500,44 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported parameter type bytes2'),
+        # A stateless contract: named `bytes memory` root/helper results, a
+        # calldata slice as a helper argument, and a bytes-member memory struct.
+        ('named-bytes-return-slice-struct-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct P { bytes head; bytes tail; }\n  function tag(bytes memory input) internal pure returns (bytes memory out) {\n    out = abi.encodePacked(uint8(1), keccak256(input));\n  }\n  function digest(bytes calldata part) internal pure returns (bytes32) {\n    return keccak256(part);\n  }\n  function split(bytes calldata data) internal pure returns (P memory) {\n    return P({head: data[0:4], tail: data[4:data.length]});\n  }\n  function checked(bytes calldata data) external pure returns (bytes memory out) {\n    bytes32 d = digest(data[1:3]);\n    P memory p = split(data);\n    out = tag(abi.encodePacked(d, p.tail));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('bytes-struct-shared-memory-member-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct P { bytes head; bytes tail; }\n  function checked(bytes calldata data) external pure returns (bytes32) {\n    bytes memory buf = data;\n    P memory p = P({head: buf, tail: data});\n    return keccak256(p.head);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] a bytes struct member must be a calldata value, a calldata slice, or a builtin encoding; an existing memory buffer would be shared'),
+        ('bytes-struct-root-return-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct P { bytes head; bytes tail; }\n  function checked(bytes calldata data) external pure returns (P memory) {\n    return P({head: data[0:4], tail: data[4:data.length]});\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] ABI returns of memory structs with bytes members are unsupported'),
+        # solc's legacy pipeline evaluates named struct constructor arguments in
+        # declaration order (via-IR: in written order), so a reverting slice
+        # written before a panicking member diverges unless the orders agree.
+        ('bytes-struct-named-constructor-order-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 n; bytes head; }\n  function checked(bytes calldata data) external pure returns (uint256) {\n    S memory s = S({head: data[0:4], n: data.length - 4});\n    return s.n + s.head.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] named arguments of a struct with bytes members must follow the declaration order'),
+        ('bytes-struct-named-constructor-declaration-order-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 n; bytes head; }\n  function checked(bytes calldata data) external pure returns (uint256) {\n    S memory s = S({n: data.length - 4, head: data[0:4]});\n    return s.n + s.head.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        # Element writes to a named `bytes memory` result fail closed, also
+        # after it aliases a parameter. The call is bound to a local first so
+        # the sibling-read evaluation-order guard does not pre-empt this check.
+        ('bytes-named-result-element-write-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function rebound(bytes memory part) internal pure returns (bytes memory out) {\n    out = part;\n    out[0] = 0xff;\n  }\n  function checked(bytes calldata data) external pure returns (bytes32) {\n    bytes memory source = data;\n    bytes32 h = keccak256(rebound(source));\n    return h ^ keccak256(source);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] encoded byte locals are limited to hash and packed encoding operands'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if next(ordinal) % parts != part:
@@ -1443,7 +1554,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             (directory / 'sub').mkdir()
             (directory / 'sub' / 'Dep.sol').write_text('pragma solidity 0.8.34;\nlibrary DepLib { string internal constant REASON = "bad"; }\n')
         fn_sig = (
-            'checked(bytes)' if name.startswith('bytes-param-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected'}
+            'checked(bytes)' if name.startswith('bytes-param-') or name.startswith('bytes-struct-') or name.startswith('bytes-named-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected', 'named-bytes-return-slice-struct-positive', 'bytes-struct-shared-memory-member-rejected', 'bytes-struct-root-return-rejected'}
             else 'checked(bytes2)' if name == 'access-manager-target-role-bytes2-root-param-rejected'
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
@@ -1458,6 +1569,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'
             else 'checked(string,bytes,uint256)' if name == 'bytes-and-string-storage-positive'
             else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
+            else 'checked(«uint256[]»)' if name == 'calldata-to-memory-array-assignment-rejected'
             else 'checked(ItemBundle,Uid,uint256)' if name == 'udvt-param-assign-struct-hash-positive'
             else 'checked(bytes4,uint256)' if name == 'struct-mapping-and-bytes4-interface-positive'
             else 'VERSION()\n  function paused()\n  function «end»()\n  function isWhitelister(bool,address)\n  function nonces(bool,address,address)\n  function limits(address,uint256)\n  function checked(uint256)' if name == 'foundry-toml-remapping-and-escaped-keyword-positive'

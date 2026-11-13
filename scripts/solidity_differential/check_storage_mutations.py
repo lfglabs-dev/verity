@@ -174,6 +174,86 @@ MUTANTS.update({
     'import-signed-modulo-value': ('Stmt.assignVar dest (.smod a.expr b.expr)', 'Stmt.assignVar dest (.mod a.expr b.expr)'),
     'import-signed-modulo-zero': ('let check := iteStmt (.eq b.expr (.literal 0)) divPanic ok', 'let check := iteStmt (.eq b.expr (.literal 1)) divPanic ok'),
     'import-signed-modulo-dispatch': ('        signedModulo left right', '        checkedModulo left right'),
+    'import-bytes-named-slice-default': ('let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 0)]', 'let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 1)]'),
+    'import-bytes-named-slice-end': ('    AbiLowering.guard (.le (.localVar endVar) baseLen),', '    AbiLowering.guard (.lt (.localVar endVar) baseLen),'),
+    'import-bytes-named-slice-start': ('    | _ => Expr.add baseOff (.localVar startVar)', '    | _ => Expr.add baseOff (.add (.localVar startVar) (.literal 1))'),
+    'import-bytes-named-slice-member-order': ('pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * mIdx))) word)', 'pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * (members.size - 1 - mIdx)))) word)'),
+    'import-bytes-named-slice-return-size': ('pure (buf.pre ++ #[.assignVar ptrBinding buf.pointer, .assignVar sizeBinding buf.size],', 'pure (buf.pre ++ #[.assignVar ptrBinding buf.pointer],'),
+    'import-bytes-named-slice-param-size': ('pointer := .localVar pointer, size := .localVar size } : EncodedBytes)', 'pointer := .localVar pointer, size := .localVar descriptor.lengthBinding } : EncodedBytes)'),
+    'import-bytes-named-slice-param-copy': ('(.calldataload (.add (.localVar descriptor.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]', '(.calldataload (.add (.add (.localVar descriptor.dataBinding) (.literal 1)) (.mul (.localVar copyIdx) (.literal 32))))]'),
+    'import-bytes-named-slice-reassign-size': ('let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]', 'let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer]'),
+})
+
+
+MUTANTS.update({
+    # Copy-vs-reference: the helper parameter gets a private copy, so its
+    # writes are no longer visible to the caller.
+    'import-fixed-memory-array-reference': (
+        'pre := pre ++ effects |>.push (.letVar binding (.localVar arr.pointer))',
+        'pre := pre ++ effects ++ fixedMemAllocate binding (binding ++ "_copy_end") arr.length ++ '
+        '((List.range arr.length).map fun i => Stmt.mstore (.add (.localVar binding) (.literal (32 * i))) '
+        '(.mload (.add (.localVar arr.pointer) (.literal (32 * i))))).toArray'),
+    'import-fixed-memory-array-offset': (
+        '  | _ => .add (.localVar arr.pointer) (.mul index (.literal 32))',
+        '  | _ => .add (.localVar arr.pointer) (.mul (.add index (.literal 1)) (.literal 32))'),
+    'import-fixed-memory-array-bound': (
+        '  | _ => #[.ite (.lt index (.literal arr.length)) [] [.panicCode (.literal 0x32)]]',
+        '  | _ => #[.ite (.lt index (.literal (arr.length + 2))) [] [.panicCode (.literal 0x32)]]'),
+    'import-fixed-memory-array-return': (
+        'pure ((valPre.push (.assignVar result.pointer (.localVar value.pointer))) ++ (← get).helperPost)',
+        'pure (valPre ++ (← get).helperPost)'),
+    # Fresh arrays are zeroed, not left holding the allocator's previous words.
+    'import-fixed-memory-array-zero': (
+        '[.mstore (fixedMemElementAddr arr (.localVar index)) (.literal 0)]',
+        '[.mstore (fixedMemElementAddr arr (.localVar index)) (.literal 1)]'),
+    # Allocation bumps the free pointer, so two live arrays never overlap.
+    'import-fixed-memory-array-free-pointer': (
+        '  .mstore (.literal 64) (.localVar next)]',
+        '  .mstore (.literal 64) (.localVar ptr)]'),
+    # `x[x[1]] = f(x)` evaluates `f(x)` before the index.
+    'import-fixed-memory-array-write-order': (
+        'return (value.pre ++ key.pre ++ fixedMemBoundsGuard arr key.expr).push',
+        'return (key.pre ++ value.pre ++ fixedMemBoundsGuard arr key.expr).push'),
+})
+
+
+MUTANTS.update({
+    'import-inline-array-literal-order': (
+        '    let slot := fixedMemElementAddr arr (.literal index)',
+        '    let slot := fixedMemElementAddr arr (.literal (arr.length - 1 - index))'),
+    'import-inline-array-literal-allocation': (
+        '  let mut pre := fixedMemAllocate arr.pointer next arr.length',
+        '  let mut pre := fixedMemAllocate arr.pointer next (arr.length - 1)'),
+})
+
+
+MUTANTS.update({
+    'import-dynamic-memory-array-result': (
+        '            pure (valPre ++ #[.assignVar result.memoryPointer (.localVar value.memoryPointer),',
+        '            pure (valPre ++ #[.assignVar result.memoryPointer (.literal 96),'),
+    'import-dynamic-memory-array-reassign': (
+        '        return valPre ++ #[.assignVar arr.memoryPointer (.localVar value.memoryPointer),\n          .assignVar arr.lengthBinding (.localVar value.lengthBinding)]',
+        '        return valPre ++ #[.assignVar arr.memoryPointer (.localVar value.memoryPointer),\n          .assignVar arr.lengthBinding (.literal 0)]'),
+    'import-dynamic-memory-array-multi': (
+        'pure ({ pre := arrPre.push (.letVar snap (.localVar arr.memoryPointer)), expr := .localVar snap } : Val)',
+        'pure ({ pre := arrPre, expr := .literal 96 } : Val)'),
+    'import-dynamic-memory-array-nested-zero': (
+        '(.mul (.localVar index) (.literal 32))) (.literal 96)]],',
+        '(.mul (.localVar index) (.literal 32))) (.literal 64)]],'),
+})
+
+
+# Review follow-up (#2622): helper parameter ownership and the element `op=` bound.
+MUTANTS.update({
+    'import-dynamic-memory-array-param-snapshot': (
+        '            boundDesc := { boundDesc with memoryPointer := ptr, lengthBinding := len, reassignable := false }',
+        '            boundDesc := boundDesc'),
+    'import-dynamic-memory-array-param-owner': (
+        '          let (ownPre, owned) ← ownDynArray pname descriptor (.localVar descriptor.memoryPointer)',
+        '          let (ownPre, owned) ← ownDynArray pname descriptor (.literal 96)'),
+    'import-dynamic-memory-array-compound-bound': (
+        '            return (rhsVal.pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))\n              [] [.panicCode (.literal 0x32)]) ++ combined.pre',
+        '            return (rhsVal.pre ++ key.pre).push (.ite (.le key.expr (.localVar arr.lengthBinding))\n              [] [.panicCode (.literal 0x32)]) ++ combined.pre'),
 })
 
 
@@ -591,6 +671,12 @@ def run(directory, output, name):
         fixture = "DefaultLocalSequence"
     if name.startswith("import-modulo-"):
         fixture = "ModuloSequence"
+    if name.startswith("import-fixed-memory-array-"):
+        fixture = "FixedMemoryArraySequence"
+    if name.startswith("import-inline-array-literal-"):
+        fixture = "InlineArrayLiteralSequence"
+    if name.startswith("import-dynamic-memory-array-"):
+        fixture = "DynamicMemoryArraySequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
     if name.startswith("import-immutable-"):
@@ -605,6 +691,8 @@ def run(directory, output, name):
         fixture = "PushLengthBoundSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
         fixture = "SignedEventSequence"
+    if name.startswith("import-bytes-named-slice-"):
+        fixture = "BytesNamedReturnSliceStructSequence"
     if name.startswith("import-constant-array-"):
         fixture = "ConstantArraySequence"
     if name.startswith("import-numeric-"):
@@ -720,9 +808,27 @@ def run(directory, output, name):
         tx_idx = argv.index('--transactions')
         argv[tx_idx + 1] = '48'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 15, 31, 86399, 86400, 86401, 604799, 604800, 691199])])
+    if fixture == 'BytesNamedReturnSliceStructSequence':
+        # The byte-buffer calls follow this prefix (`check_stateful`), so the
+        # budget covers every slice bound and struct payload.
+        tx_idx = argv.index('--transactions')
+        argv[tx_idx + 1] = '96'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 255, 256, 257, (1 << 256) - 1])])
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]
+    if fixture == 'DynamicMemoryArraySequence':
+        from solidity_differential.check_storage import DYNAMIC_MEMORY_ARRAY_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, DYNAMIC_MEMORY_ARRAY_PREFIX)])
+    if fixture == 'InlineArrayLiteralSequence':
+        from solidity_differential.check_storage import INLINE_ARRAY_LITERAL_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, INLINE_ARRAY_LITERAL_PREFIX)])
+    if fixture == 'FixedMemoryArraySequence':
+        from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, FIXED_MEMORY_ARRAY_PREFIX)])
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     # Compiles the model against the (possibly mutated) importer, then replays up
