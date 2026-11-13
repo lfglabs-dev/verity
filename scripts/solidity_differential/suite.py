@@ -208,6 +208,11 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'extcodehash')]))
     checks.append(('extcodehash-rejections', ['-m', 'solidity_differential.check_extcodehash_rejections',
         '--output', str(output / 'extcodehash-rejections')]))
+    checks.append(('selector-responder', ['-m', 'solidity_differential.check_selector_responder',
+        '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
+        '--output', str(output / 'selector-responder')]))
+    checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
+        '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call-rejections', ['-m',
         'solidity_differential.check_yul_memory_call_rejections',
         '--output', str(output / 'yul-memory-call-rejections')]))
