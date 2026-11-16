@@ -27,6 +27,10 @@ EXCLUDED_CONTRACTS = {
     # covered by Lean macro invariant and round-trip tests instead.
     "DynamicStructArraySmoke",
     "ArrayElementDynamicMemberLengthSmoke",
+    # Same limitation for a struct parameter with a Bytes member (the stub would
+    # pass its fields flat, not as a tuple); test/StructBytesMemberCopySmoke.t.sol
+    # checks the compiled code against Solidity instead.
+    "StructBytesMemberCopySmoke",
     "ArrayElementDynamicMemberElementSmoke",
     "UnlinkPoolShapeCheckSmoke",
     "FixedArrayStructSmoke",
