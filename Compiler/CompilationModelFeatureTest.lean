@@ -6069,6 +6069,29 @@ set_option maxRecDepth 4096 in
   expectTrue "fallback internalCall resolves through the threaded internal-functions table"
     ((contains fallbackInternalYul "internal_value") &&
       (contains fallbackInternalYul "internal_internal_value()"))
+  -- A special entrypoint making an external call takes a reentrancy disposition
+  -- from source syntax (`fallback reentrancy_trusted`, `fallback nonreentrant(lock)`).
+  let trustedFallbackSpec := Contracts.Smoke.FallbackReentrancyTrustedSmoke.spec
+  let _ ← expectCompile "fallback reentrancy_trusted with delegatecall compiles"
+    trustedFallbackSpec
+  expectCompileErrorContains
+    "fallback with delegatecall and no reentrancy disposition is rejected"
+    { trustedFallbackSpec with
+      functions := trustedFallbackSpec.functions.map fun (fn : FunctionSpec) =>
+        if fn.name == "fallback" then { fn with reentrancyTrusted := false } else fn }
+    "function 'fallback' makes an external call but declares no reentrancy disposition"
+  let lockedSpec := Contracts.Smoke.FallbackNonReentrantSmoke.spec
+  let lockedFallbackYul ← expectCompileToYul "fallback nonreentrant(lock) compiles"
+    { lockedSpec with functions := lockedSpec.functions.filter (fun (fn : FunctionSpec) => fn.name != "receive") }
+  expectTrue "fallback nonreentrant(lock) acquires and releases the transient lock"
+    ((contains lockedFallbackYul "if tload(0) {") &&
+      (contains lockedFallbackYul "tstore(0, 1)") &&
+      (contains lockedFallbackYul "tstore(0, 0)"))
+  let lockedYul ← expectCompileToYul "fallback and receive nonreentrant(lock) compile"
+    lockedSpec
+  expectTrue "receive nonreentrant(lock) carries as many lock acquisitions as the fallback"
+    (countOccurrences lockedYul "tstore(0, 1)" ==
+      2 * countOccurrences lockedFallbackYul "tstore(0, 1)")
   let entryInternalDynYul ← expectCompileToYul
     "external entry with internal dynamic/composite arg call expands short-form arg"
     entryInternalDynamicArgSpec

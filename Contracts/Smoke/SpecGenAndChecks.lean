@@ -65,6 +65,7 @@ end SpecGenSmoke
 #check_contract SignedBuiltinSmoke
 #check_contract StatelessSmoke
 #check_contract SpecialEntrypointSmoke
+#check_contract FallbackReentrancyTrustedSmoke
 #check_contract TupleSmoke
 #check_contract NamedStructParamSmoke
 #check_contract NestedStructStorageSmoke

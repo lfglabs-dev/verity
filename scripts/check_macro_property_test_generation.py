@@ -47,6 +47,9 @@ EXCLUDED_CONTRACTS = {
     # The generated no-revert stub cannot currently fund the contract before
     # exercising `callWithValue`; Lean/Yul/trust-report tests cover this ECM.
     "CallWithValueSmoke",
+    # The fallback calls a re-entering target; test/FallbackNonReentrantSmoke.t.sol
+    # deploys that target and checks the reentrant call reverts.
+    "FallbackNonReentrantSmoke",
     # The generator does not fund the deployed contract before calling value
     # forwarding ECM smoke entrypoints. Lean macro/model tests cover this
     # low-level surface; a generated no-revert Foundry stub would be invalid.

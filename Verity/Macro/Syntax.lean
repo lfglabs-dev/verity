@@ -40,6 +40,7 @@ declare_syntax_cat verityAdtVariant
 declare_syntax_cat verityAdtDecl
 declare_syntax_cat verityNamespaceSpec
 declare_syntax_cat veritySpecialEntrypoint
+declare_syntax_cat verityReentrancyDisposition
 declare_syntax_cat verityModifier
 declare_syntax_cat verityModifierUse
 declare_syntax_cat verityDispatch
@@ -210,8 +211,12 @@ syntax "constructor " "(" sepBy(verityParam, ",") ")" " payable" (ppSpace ident 
 -- `constructor Ownable() Other() := do ...`
 syntax "constructor " (ppSpace ident "(" sepBy(term, ",") ")")+ (ppSpace verityLocalObligations)? " := " term : verityConstructor
 syntax "constructor " "payable" (ppSpace ident "(" sepBy(term, ",") ")")+ (ppSpace verityLocalObligations)? " := " term : verityConstructor
-syntax "receive" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
-syntax "fallback" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
+-- Reentrancy disposition of a special entrypoint, as on `function`: an entrypoint
+-- making an external call (e.g. a proxy fallback's `delegatecall`) must declare one.
+syntax "reentrancy_trusted" : verityReentrancyDisposition
+syntax "nonreentrant(" ident ")" : verityReentrancyDisposition
+syntax "receive" (ppSpace verityReentrancyDisposition)? (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
+syntax "fallback" (ppSpace verityReentrancyDisposition)? (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax ident " := " ident : verityRoleDecl
