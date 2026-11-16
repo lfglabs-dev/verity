@@ -217,6 +217,8 @@ syntax "reentrancy_trusted" : verityReentrancyDisposition
 syntax "nonreentrant(" ident ")" : verityReentrancyDisposition
 syntax "receive" (ppSpace verityReentrancyDisposition)? (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "fallback" (ppSpace verityReentrancyDisposition)? (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
+-- Solidity `fallback() external payable`: the fallback accepts ether (`receive` always does).
+syntax "fallback" " payable" (ppSpace verityReentrancyDisposition)? (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax ident " := " ident : verityRoleDecl
