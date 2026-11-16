@@ -43,3 +43,6 @@ artifacts/verification_status.json
 # Yul generated for Foundry (CI's "Generate Yul" steps, or compiled on demand by test/yul/YulTestBase.sol)
 /compiler/yul*/
 /compiler/bin/
+
+# Yul mutant written by test/StructBytesMemberCopySmoke.t.sol
+artifacts/struct-bytes-member-mutant/
