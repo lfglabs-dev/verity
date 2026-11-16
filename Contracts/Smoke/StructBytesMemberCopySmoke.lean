@@ -15,9 +15,10 @@ verity_contract StructBytesMemberCopySmoke where
     data : Bytes,
     tag : Uint256
 
-  function copyData (c : Call) : Uint256 := do
-    unsafe "copy a struct bytes member to memory" do
-      copyBytes c.data 128
+  function copyData (c : Call)
+    local_obligations [scratch_copy := assumed "copies the member to memory at 0x80 and reads the first word back"]
+    : Uint256 := do
+    copyBytes c.data 128
     let w := mload 128
     return w
 
@@ -26,11 +27,10 @@ verity_contract StructBytesMemberCopySmoke where
 
 example :
     StructBytesMemberCopySmoke.copyData_modelBody =
-      [ Compiler.CompilationModel.Stmt.unsafeBlock "copy a struct bytes member to memory"
-          [ Compiler.CompilationModel.Stmt.calldatacopy
-              (Compiler.CompilationModel.Expr.literal 128)
-              (Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset "c" 1)
-              (Compiler.CompilationModel.Expr.paramDynamicMemberLength "c" 1) ]
+      [ Compiler.CompilationModel.Stmt.calldatacopy
+          (Compiler.CompilationModel.Expr.literal 128)
+          (Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset "c" 1)
+          (Compiler.CompilationModel.Expr.paramDynamicMemberLength "c" 1)
       , Compiler.CompilationModel.Stmt.letVar "w"
           (Compiler.CompilationModel.Expr.mload (Compiler.CompilationModel.Expr.literal 128))
       , Compiler.CompilationModel.Stmt.return (Compiler.CompilationModel.Expr.localVar "w")
