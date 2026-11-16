@@ -494,35 +494,45 @@ def hiddenEntrypointIdent (name : String) : Ident :=
 def modifierInternalName (name : String) : String :=
   s!"__modifier_{name}"
 
+/-- `reentrancy_trusted` / `nonreentrant(<lock>)` on a special entrypoint, as the
+    `(reentrancyTrusted, nonReentrantLock)` pair of `FunctionDecl`. -/
+def parseReentrancyDisposition :
+    Option (TSyntax `verityReentrancyDisposition) → CommandElabM (Bool × Option Ident)
+  | none => pure (false, none)
+  | some disp =>
+      match disp with
+      | `(verityReentrancyDisposition| reentrancy_trusted) => pure (true, none)
+      | `(verityReentrancyDisposition| nonreentrant($field:ident)) => pure (false, some field)
+      | _ => throwErrorAt disp "invalid reentrancy disposition"
+
+/-- `receive`/`fallback [reentrancy_trusted | nonreentrant(lock)] [local_obligations …] := body`. -/
+def specialEntrypointDecl (name : String) (isPayable : Bool)
+    (disposition? : Option (TSyntax `verityReentrancyDisposition))
+    (localObligations? : Option (TSyntax `verityLocalObligations))
+    (body : Term) : CommandElabM FunctionDecl := do
+  let (reentrancyTrusted, nonReentrantLock) ← parseReentrancyDisposition disposition?
+  let parsedLocalObligations ←
+    match localObligations? with
+    | some obligations => parseLocalObligations obligations
+    | none => pure #[]
+  pure {
+    ident := hiddenEntrypointIdent name
+    name := name
+    params := #[]
+    returnTy := .unit
+    isPayable := isPayable
+    nonReentrantLock := nonReentrantLock
+    reentrancyTrusted := reentrancyTrusted
+    localObligations := parsedLocalObligations
+    body := body
+  }
+
 def parseSpecialEntrypoint (stx : Syntax) : CommandElabM FunctionDecl := do
   match stx with
-  | `(veritySpecialEntrypoint| receive $[$localObligations?:verityLocalObligations]? := $body:term) => do
-      let parsedLocalObligations ←
-        match localObligations? with
-        | some obligations => parseLocalObligations obligations
-        | none => pure #[]
-      pure {
-        ident := hiddenEntrypointIdent "receive"
-        name := "receive"
-        params := #[]
-        returnTy := .unit
-        isPayable := true
-        localObligations := parsedLocalObligations
-        body := body
-      }
-  | `(veritySpecialEntrypoint| fallback $[$localObligations?:verityLocalObligations]? := $body:term) => do
-      let parsedLocalObligations ←
-        match localObligations? with
-        | some obligations => parseLocalObligations obligations
-        | none => pure #[]
-      pure {
-        ident := hiddenEntrypointIdent "fallback"
-        name := "fallback"
-        params := #[]
-        returnTy := .unit
-        localObligations := parsedLocalObligations
-        body := body
-      }
+  | `(veritySpecialEntrypoint| receive $[$disposition?:verityReentrancyDisposition]? $[$localObligations?:verityLocalObligations]? := $body:term) =>
+      specialEntrypointDecl "receive" true disposition? localObligations? body
+  | `(veritySpecialEntrypoint| fallback $[$disposition?:verityReentrancyDisposition]? $[$localObligations?:verityLocalObligations]? := $body:term) =>
+      specialEntrypointDecl "fallback" false disposition? localObligations? body
   | _ => throwErrorAt stx "invalid special entrypoint declaration"
 
 def parseModifier (stx : Syntax) : CommandElabM ModifierDecl := do

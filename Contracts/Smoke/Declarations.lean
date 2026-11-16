@@ -56,6 +56,23 @@ verity_contract SpecialEntrypointSmoke where
     let current ← getStorage fallbackCount
     return current
 
+-- A fallback forwarding through a low-level call (proxy shape) must declare a
+-- reentrancy disposition, exactly like a `function` making an external call.
+verity_contract FallbackReentrancyTrustedSmoke where
+  storage
+    implementation : Address := slot 0
+
+  fallback reentrancy_trusted
+      local_obligations [delegatecall_refinement := assumed "Delegatecall forwarding must be shown to refine the selected proxy semantics."] := do
+    let target ← getStorageAddr implementation
+    let _ok := delegatecall 50000 (addressToWord target) 0 0 0 0
+    pure ()
+
+example :
+    (FallbackReentrancyTrustedSmoke.spec.functions.find? (·.name == "fallback")).map
+        (fun fn => (fn.reentrancyTrusted, fn.nonReentrantLock)) = some (true, none) := by
+  rfl
+
 verity_contract ConstantSmoke where
   storage
 

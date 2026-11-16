@@ -53,6 +53,11 @@ reporting:
 - Source-level `internal` functions compile as internal helper specs, are omitted
   from selector dispatch and ABI output, and must not be used for `receive` or
   `fallback` entrypoints.
+- `receive` and `fallback` take the reentrancy disposition of a function after
+  their keyword (`fallback reentrancy_trusted := …`,
+  `fallback nonreentrant(lock) := …`); one making an external call (e.g. a
+  proxy `delegatecall`) must declare one, and `nonreentrant(lock)` emits the
+  transient-storage guard around the entrypoint body.
 - Source-level `interfaces` are syntax over the existing external-call module
   path. Interface-typed parameters erase to `Address`; typed dot calls lower to
   `Calls.withReturnModule` and stay visible in trust reports as ECM calls.

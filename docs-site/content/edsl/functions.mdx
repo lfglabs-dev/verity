@@ -74,7 +74,24 @@ tags (`cei_safe` / `allow_post_interaction_writes`) **no longer satisfy** the
 gate: they only describe single-function ordering and cannot see cross-function
 reentrancy. A lock-only `nonreentrant` function cannot be called as an internal
 helper (the guard materializes only at the external dispatch boundary) unless it
-also carries `reentrancy_trusted`. This is an unconditional compilation gate —
+also carries `reentrancy_trusted`.
+
+The special entrypoints obey the same gate and take a disposition right after
+their keyword, e.g. a proxy fallback forwarding through `delegatecall`:
+
+```verity
+fallback reentrancy_trusted := do
+  let target ← getStorageAddr implementation
+  let _ok := delegatecall 50000 (addressToWord target) 0 0 0 0
+  pure ()
+
+receive nonreentrant(lock) := do
+  ...
+```
+
+The full form is `fallback|receive [reentrancy_trusted | nonreentrant(<lock>)]
+[local_obligations […]] := body`; a `nonreentrant(<lock>)` fallback or receive
+gets the same transient-storage guard as a function. This is an unconditional compilation gate —
 there is no `--deny-*` flag to toggle it. See [Trust Model](/trust-model) for the
 disposition's place in the trust boundary. If you want to *allow* reentry and
 prove it harmless instead of blocking it, see the rely-guarantee framework in
