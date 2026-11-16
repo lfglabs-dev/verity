@@ -50,6 +50,8 @@ EXCLUDED_CONTRACTS = {
     # The fallback calls a re-entering target; test/FallbackNonReentrantSmoke.t.sol
     # deploys that target and checks the reentrant call reverts.
     "FallbackNonReentrantSmoke",
+    # Registry counterexample for an unlocked fallback write (Lean proof only).
+    "FallbackUnlockedWriteSmoke",
     # The generator does not fund the deployed contract before calling value
     # forwarding ECM smoke entrypoints. Lean macro/model tests cover this
     # low-level surface; a generated no-revert Foundry stub would be invalid.
