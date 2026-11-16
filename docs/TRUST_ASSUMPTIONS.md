@@ -762,7 +762,8 @@ On the executable EDSL path (`Contracts/Common.lean`), `mload`, `calldatacopy` a
 `keccak256Live`); the macro lowers the source forms to them. `keccak256Live` hashes the
 word-addressed memory slice with the in-tree Keccak (`Compiler.Keccak.MemorySlice.keccak`),
 proved equal by `rfl` to the proof IR's `abstractKeccakMemorySlice`. `copyBytes data dest`
-/ `bytesLength data` copy and measure a `Bytes` parameter. `ecmCall
+/ `bytesLength data` copy and measure a `Bytes` parameter, or a `Bytes` member of a struct
+parameter (`copyBytes s.field dest`, read through the checked dynamic-member helpers). `ecmCall
 Create2SSTORE2.deployModule` returns the EIP-1014 address
 (`Verity.Core.Model.Create2.create2Address` of `this`, the salt and the initcode hash);
 the deployment's effects (deployed code, its constructor) are not modelled, and a failed

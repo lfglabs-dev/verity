@@ -40,6 +40,7 @@ import Contracts.Smoke.MemoryHashSmoke
 import Contracts.Smoke.ExternalCallFramesSmoke
 import Contracts.Smoke.EventCompositeLiteralSmoke
 import Contracts.Smoke.RevertReturndataSmoke
+import Contracts.Smoke.StructBytesMemberCopySmoke
 import Contracts.Smoke.Create2AddressSmoke
 import Contracts.Smoke.SpillFreeMemorySmoke
 import Contracts.Smoke.SpillReturnArraySmoke

@@ -556,9 +556,10 @@ private partial def validateEffectStmtExprTypes
       requireWordLikeType value "memory-store value"
         (← inferPureExprType fields constDecls immutableDecls externalDecls params locals value)
   | `(term| copyBytes $data:term $destOffset:term) => do
-      match directParamNameWithType? params data with
-      | some (_, .bytes) => pure ()
-      | _ => throwErrorAt data "copyBytes expects a Bytes parameter"
+      match directParamNameWithType? params data, paramDynamicMemberProjection? params data with
+      | some (_, .bytes), _ => pure ()
+      | _, some (_, .bytes, _) => pure ()
+      | _, _ => throwErrorAt data "copyBytes expects a Bytes parameter or a Bytes member of a struct parameter"
       requireWordLikeType destOffset "copyBytes destination offset"
         (← inferPureExprType fields constDecls immutableDecls externalDecls params locals destOffset)
   | `(term| calldatacopy $destOffset:term $sourceOffset:term $size:term)
@@ -1142,13 +1143,21 @@ private def translateEffectStmt
           $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals offset)
           $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
   | `(term| copyBytes $data:term $destOffset:term) =>
-      match directParamNameWithType? params data with
-      | some (name, .bytes) =>
+      match directParamNameWithType? params data, paramDynamicMemberProjection? params data with
+      | some (name, .bytes), _ =>
           `(Compiler.CompilationModel.Stmt.calldatacopy
               $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals destOffset)
               (Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset"))
               (Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
-      | _ => throwErrorAt data "copyBytes expects a Bytes parameter"
+      -- `copyBytes s.field dest` for a `Bytes` member of a dynamically encoded struct
+      -- parameter: the member's data offset and length are read through the checked
+      -- head-word helpers, as `arrayLength s.field` does.
+      | _, some (name, .bytes, wordOffset) =>
+          `(Compiler.CompilationModel.Stmt.calldatacopy
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals destOffset)
+              (Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset $(strTerm name) $(natTerm wordOffset))
+              (Compiler.CompilationModel.Expr.paramDynamicMemberLength $(strTerm name) $(natTerm wordOffset)))
+      | _, _ => throwErrorAt data "copyBytes expects a Bytes parameter or a Bytes member of a struct parameter"
   | `(term| calldatacopy $destOffset:term $sourceOffset:term $size:term) =>
       `(Compiler.CompilationModel.Stmt.calldatacopy
           $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals destOffset)
