@@ -72,6 +72,24 @@ example :
     (FallbackReentrancyTrustedSmoke.spec.functions.find? (·.name == "fallback")).map
         (fun fn => (fn.reentrancyTrusted, fn.nonReentrantLock)) = some (true, none) := by
   rfl
+-- `fallback payable`: Solidity's `fallback() external payable`.
+verity_contract PayableFallbackSmoke where
+  storage
+    fallbackValue : Uint256 := slot 0
+
+  fallback payable := do
+    let paid ← msgValue
+    setStorage fallbackValue paid
+
+  function getFallbackValue () : Uint256 := do
+    let current ← getStorage fallbackValue
+    return current
+
+example : (PayableFallbackSmoke.spec.functions.find? (·.name == "fallback")).map (·.isPayable)
+    = some true := by rfl
+
+example : (SpecialEntrypointSmoke.spec.functions.find? (·.name == "fallback")).map (·.isPayable)
+    = some false := by rfl
 
 verity_contract ConstantSmoke where
   storage

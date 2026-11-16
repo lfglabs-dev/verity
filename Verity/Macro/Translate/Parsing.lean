@@ -505,7 +505,7 @@ def parseReentrancyDisposition :
       | `(verityReentrancyDisposition| nonreentrant($field:ident)) => pure (false, some field)
       | _ => throwErrorAt disp "invalid reentrancy disposition"
 
-/-- `receive`/`fallback [reentrancy_trusted | nonreentrant(lock)] [local_obligations …] := body`. -/
+/-- `receive`/`fallback [payable] [reentrancy_trusted | nonreentrant(lock)] [local_obligations …] := body`. -/
 def specialEntrypointDecl (name : String) (isPayable : Bool)
     (disposition? : Option (TSyntax `verityReentrancyDisposition))
     (localObligations? : Option (TSyntax `verityLocalObligations))
@@ -533,6 +533,8 @@ def parseSpecialEntrypoint (stx : Syntax) : CommandElabM FunctionDecl := do
       specialEntrypointDecl "receive" true disposition? localObligations? body
   | `(veritySpecialEntrypoint| fallback $[$disposition?:verityReentrancyDisposition]? $[$localObligations?:verityLocalObligations]? := $body:term) =>
       specialEntrypointDecl "fallback" false disposition? localObligations? body
+  | `(veritySpecialEntrypoint| fallback payable $[$disposition?:verityReentrancyDisposition]? $[$localObligations?:verityLocalObligations]? := $body:term) =>
+      specialEntrypointDecl "fallback" true disposition? localObligations? body
   | _ => throwErrorAt stx "invalid special entrypoint declaration"
 
 def parseModifier (stx : Syntax) : CommandElabM ModifierDecl := do

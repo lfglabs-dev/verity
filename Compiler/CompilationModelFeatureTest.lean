@@ -2762,6 +2762,12 @@ private def expectCompileToYul (label : String) (spec : CompilationModel) : IO S
   | .ok yul => pure yul
   | .error err => throw (IO.userError s!"✗ {label} compile failed:\n{err}")
 
+/-- The statement right after each `/* fallback() */` marker of a rendered Yul object. -/
+private def fallbackFirstStatements (yul : String) : List String :=
+  let lines := (yul.splitOn "\n").map (fun l => l.trimAscii.toString)
+  (List.range lines.length).filterMap fun i =>
+    if lines[i]! == "/* fallback() */" then lines[i + 1]? else none
+
 private def selectorSmokeSpec : CompilationModel := {
   name := "SelectorSmoke"
   fields := [{ name := "value", ty := FieldType.uint256 }]
@@ -5810,6 +5816,16 @@ set_option maxRecDepth 4096 in
     "reserved compiler prefix is rejected in ECM result binders"
     reservedEcmResultVarSpec
     "local binder '__ecm_result' uses reserved compiler prefix '__'"
+  let payableFallbackYul ← expectCompileToYul "macro payable fallback"
+    Contracts.Smoke.PayableFallbackSmoke.spec
+  expectTrue "macro `fallback payable` compiles without the callvalue guard"
+    (let firsts := fallbackFirstStatements payableFallbackYul
+     !firsts.isEmpty && firsts.all (· != "if callvalue() {"))
+  let nonpayableFallbackYul ← expectCompileToYul "macro nonpayable fallback"
+    Contracts.Smoke.SpecialEntrypointSmoke.spec
+  expectTrue "macro `fallback` keeps the callvalue guard"
+    (let firsts := fallbackFirstStatements nonpayableFallbackYul
+     !firsts.isEmpty && firsts.all (· == "if callvalue() {"))
   expectTrue
     "macro payable constructor preserves constructor isPayable flag"
     MacroPayableConstructorSmoke.specMarksConstructorPayable
