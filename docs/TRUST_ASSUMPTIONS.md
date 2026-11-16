@@ -989,7 +989,12 @@ global invariant `I : ContractState → Prop`.
       Lean arguments to match compiled-dispatch ABI words of
       `CallbackContext.calldata` (`abiEncodeDispatchArgs` into
       `dispatchCalldataMatches`); `receive` is registered only for empty
-      calldata. Registry-mode executables observe that same calldata through
+      calldata, `fallback` for any calldata. Both are registered like every
+      external function, and with `nonreentrant(<lock>)` their `*_registry`
+      executable is `guarded <lock slot> …`, so they discharge `LockedInv`
+      by `guarded_callback_preserves_locked`; an unlocked fallback writing
+      the protected slot makes `RegistryPreserves` false
+      (`Contracts/Smoke/FallbackNonReentrantSmoke.lean`). Registry-mode executables observe that same calldata through
       `calldatasizeLive`/`calldataloadLive`, including the selected
       entrypoint selector at `calldataload 0` (`CallbackContext.selector` /
       `ContractState.selector`). `dispatchCalldataMatches` accepts
