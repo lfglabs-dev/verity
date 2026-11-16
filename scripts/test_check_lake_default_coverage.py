@@ -88,5 +88,41 @@ class LakeDefaultCoverageTests(unittest.TestCase):
             self.assertEqual(check.main(["--root", str(root)]), 1)
 
 
+class RunExecutableTests(unittest.TestCase):
+    LAKEFILE = """
+        @[default_target]
+        lean_lib «Verity» where
+          globs := #[.one `Verity, .one `Verity.Commented]
+
+        @[default_target]
+        lean_lib «Contracts» where
+          globs := #[.submodules `Contracts.Smoke, .one `Contracts.Orphan]
+
+        {attr}lean_exe «tool» where
+          root := `Verity
+
+        lean_exe «unused» where
+          root := `Verity
+        """
+
+    def _check(self, attr: str, makefile: str) -> tuple[list[str], int]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _tree(root, self.LAKEFILE.format(attr=attr),
+                  {**FILES, "Makefile": makefile})
+            return check.non_default_run_executables(root), check.main(["--root", str(root)])
+
+    def test_directly_run_executable_must_be_default(self) -> None:
+        self.assertEqual(self._check("", "run:\n\t./.lake/build/bin/tool\n"), (["tool"], 1))
+
+    def test_default_executable_is_silent(self) -> None:
+        self.assertEqual(
+            self._check("@[default_target]\n        ", "run:\n\t./.lake/build/bin/tool\n"), ([], 0))
+
+    def test_executable_not_run_directly_may_stay_non_default(self) -> None:
+        # `unused` is never run from .lake/build/bin, and `lake exe tool` rebuilds on use.
+        self.assertEqual(self._check("", "run:\n\tlake exe tool\n"), ([], 0))
+
+
 if __name__ == "__main__":
     unittest.main()

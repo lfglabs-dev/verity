@@ -7,9 +7,14 @@ by one. A module outside that closure is never elaborated by `lake build`: its
 proofs, `#guard_msgs` tests and `decide` examples go unchecked, and tools that
 load its stale `.olean` see old code.
 
+Likewise, every `lean_exe` that the Makefile, scripts or CI workflows run directly
+from `.lake/build/bin/` must be a `@[default_target]`: otherwise a bare `lake build`
+rebuilds the `.olean`s but not the binary, and the stale binary, loading the new
+environment, misbehaves (a segfault after a `ContractState` field was added).
+
 Usage: python3 scripts/check_lake_default_coverage.py [--root DIR]
-Silent and exit 0 when every module is covered; otherwise lists the uncovered
-modules and exits 1.
+Silent and exit 0 when every module and directly-run executable is covered;
+otherwise lists what is not and exits 1.
 """
 from __future__ import annotations
 
@@ -27,6 +32,10 @@ _LIB_RE = re.compile(
 _GLOB_RE = re.compile(r"\.(?P<kind>one|submodules|andSubmodules)\s+`(?P<mod>[\w.]+)")
 _ROOTS_RE = re.compile(r"roots\s*:=\s*#\[(?P<items>.*?)\]", re.S)
 _SRCDIR_RE = re.compile(r'srcDir\s*:=\s*"(?P<dir>[^"]+)"')
+_EXE_RE = re.compile(r"(?P<attr>@\[default_target\]\s*)?lean_exe\s+«(?P<name>[^»]+)»")
+_BIN_RE = re.compile(r"\.lake/build/bin/(?P<name>[A-Za-z0-9_-]+)")
+# Where binaries are run from: the Makefile, scripts and CI workflows.
+INVOKER_GLOBS = ("Makefile", "scripts/**/*", ".github/**/*.yml", "test/**/*.sh")
 _IMPORT_RE = re.compile(r"^import\s+(?P<mods>[^\n]+)", re.M)
 
 
@@ -98,18 +107,42 @@ def uncovered_modules(root: Path) -> list[str]:
     return sorted(wanted - seen)
 
 
+def non_default_run_executables(root: Path) -> list[str]:
+    """`lean_exe`s run directly from `.lake/build/bin/` that a bare `lake build` does not build."""
+    text = _strip_comments((root / "lakefile.lean").read_text(encoding="utf-8"))
+    exes = {m.group("name"): bool(m.group("attr")) for m in _EXE_RE.finditer(text)}
+    run: set[str] = set()
+    for pattern in INVOKER_GLOBS:
+        for path in root.glob(pattern):
+            if path.is_file() and path.suffix not in (".pyc",):
+                try:
+                    body = path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    continue
+                run.update(m.group("name") for m in _BIN_RE.finditer(body))
+    return sorted(name for name in run if name in exes and not exes[name])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
     args = parser.parse_args(argv)
+    status = 0
     missing = uncovered_modules(args.root)
     if missing:
         print(f"{len(missing)} Lean module(s) are not built by `lake build` "
               "(add them to a @[default_target] library in lakefile.lean):", file=sys.stderr)
         for mod in missing:
             print(f"  {mod}", file=sys.stderr)
-        return 1
-    return 0
+        status = 1
+    stale = non_default_run_executables(args.root)
+    if stale:
+        print(f"{len(stale)} executable(s) run from .lake/build/bin/ are not rebuilt by "
+              "`lake build` (mark them @[default_target] in lakefile.lean):", file=sys.stderr)
+        for name in stale:
+            print(f"  {name}", file=sys.stderr)
+        status = 1
+    return status
 
 
 if __name__ == "__main__":

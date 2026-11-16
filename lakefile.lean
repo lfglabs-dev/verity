@@ -120,23 +120,32 @@ lean_lib «VerityUnionAxioms» where
 lean_lib «PrintAxioms» where
   globs := #[.one `PrintAxioms]
 
+-- Executables that scripts, the Makefile and CI run directly from `.lake/build/bin/` are
+-- default targets, so a bare `lake build` relinks them. A stale binary run against
+-- rebuilt `.olean`s (e.g. after a `ContractState` field was added) loads an environment
+-- whose layout no longer matches its compiled code and segfaults
+-- (`scripts/check_lake_default_coverage.py` enforces this).
+@[default_target]
 lean_exe «verity-compiler» where
   root := `Compiler.Main
   -- interpreter eval of ecm/interface specs forces init/std decls (e.g. `UInt64.ofNatLT`). (#1951)
   supportInterpreter := true
 
+@[default_target]
 lean_exe «difftest-interpreter» where
   root := `Contracts.Interpreter
 
 lean_exe «random-gen» where
   root := `Compiler.RandomGen
 
+@[default_target]
 lean_exe «gas-report» where
   root := `Compiler.Gas.Report
   -- Static gas reporting evaluates compiled terms that may depend on init/std
   -- interpreter support through typed-interface ECMs.
   supportInterpreter := true
 
+@[default_target]
 lean_exe «compiler-main-test» where
   root := `Compiler.MainTestRunner
   -- Mirrors `verity-compiler`: CLI regression tests evaluate typed-interface ECMs
