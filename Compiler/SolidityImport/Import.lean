@@ -15712,14 +15712,27 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
       return false
   | _ => return false
 
-/-! ### Immutables without an inline initializer
+/-! ### Immutables
 
-Such an immutable is fixed when the contract is deployed. If the chain's constructors assign
-it exactly once, as a top-level statement, to `address(this)`, it is the executing contract's
-address for code that runs at its own address, and reads lower to `Expr.contractAddress`. Any
-other such immutable is a fixed value the source does not determine: reads lower to
-`Expr.immutable name`, and the model declares it with a synthesized constructor that takes it
-as an argument, so deployment and proofs supply it explicitly. -/
+An immutable is fixed when the contract is deployed: its inline initializer runs, then the
+chain's constructors may write it (solc 0.8.21+ accepts conditional and repeated writes).
+Each immutable of a value type gets one `ImmutableBinding`:
+
+- `read`: the source determines the value and reads lower to it. An address immutable the
+  constructors assign exactly once, as a top-level statement, to `address(this)` is the
+  executing contract's address for code that runs at its own address
+  (`Expr.contractAddress`). One never written and without an initializer is `0`. One never
+  written whose initializer is a total expression of literals is that expression.
+- `installed`: never written, with an initializer that also reads the deployment
+  environment (`msg.sender`, `block.chainid`, …). Reads lower to `Expr.immutable name`, and
+  the synthesized constructor evaluates the initializer at deployment.
+- `argument`: any constructor write, whatever its shape. The value is one the source does
+  not determine: reads lower to `Expr.immutable name`, and the synthesized constructor takes
+  it as an argument of the immutable's type, so deployment and proofs supply it explicitly.
+
+No binding picks a value the deployment might not have. Any other immutable (an enum or
+function type, or an initializer `immutableInitializer?` rejects) stays unbound, and its
+reads keep their located rejection. -/
 
 /-- Whether `j` refers to the declaration `svId` anywhere. -/
 private partial def mentionsDeclaration (svId : Nat) : Json → Bool
@@ -15802,28 +15815,100 @@ private def chainConstructors : M (Array Json) := do
         out := out.push n
   return out
 
-/-- Address immutables of the chain without an inline initializer, in declaration order,
-with whether each keeps the `address(this)` binding. -/
-private def chainAddressImmutables : M (Array (Nat × String × Bool)) := do
+/-- How a deployment fixes an immutable of the chain (see the section comment). -/
+private inductive ImmutableBinding where
+  /-- Reads lower to this expression: the source determines the value. -/
+  | read (value : Expr)
+  /-- Reads lower to `Expr.immutable NAME`; the synthesized constructor evaluates this
+  inline initializer at deployment, as solc does. -/
+  | installed (init : Expr)
+  /-- Reads lower to `Expr.immutable NAME`; the synthesized constructor takes the value
+  as an argument, because a constructor writes it. -/
+  | argument
+
+/-- Whether `e` can run in the synthesized constructor with the value solc's inline
+initializer has there: literals, the deployment's environment (`msg.sender`, `tx.origin`,
+`address(this)`, `block.chainid`, `block.number`, `block.timestamp`) and pure word
+operations. `some true` when it reads the environment, `none` when it reads anything else
+(storage, memory, immutables, calls, parameters, locals). -/
+private partial def deploymentInitializerEnv? : Expr → Option Bool
+  | .literal _ => some false
+  | .caller | .contractAddress | .txOrigin | .chainid | .blockTimestamp | .blockNumber =>
+      some true
+  | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
+  | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b | .byte a b
+  | .signextend a b | .eq a b | .lt a b | .gt a b | .le a b | .ge a b | .slt a b
+  | .sgt a b => do
+      let x ← deploymentInitializerEnv? a
+      let y ← deploymentInitializerEnv? b
+      pure (x || y)
+  | .bitNot a | .logicalNot a => deploymentInitializerEnv? a
+  | _ => none
+
+/-- The inline initializer of immutable `decl`, lowered and converted to its declared type
+like a constant's, if it is a total expression `deploymentInitializerEnv?` admits, with
+whether it reads the environment. Lowering leaves no trace in the state. -/
+private def immutableInitializer? (decl : Json) (init : Json) : M (Option (Expr × Bool)) := do
+  let saved ← get
+  let pending ← match saved.unsupportedSink with
+    | some sink => sink.pending.get
+    | none => pure none
+  let result ← try
+      let raw ← lowerExpr init
+      let v ← convert (← mType decl) (← mType init) raw init
+      pure (if v.pre.isEmpty then (deploymentInitializerEnv? v.expr).map (v.expr, ·) else none)
+    catch e =>
+      if e.isInterrupt || e.isRuntime then throw e
+      pure none
+  set saved
+  if let some sink := saved.unsupportedSink then sink.pending.set pending
+  return result
+
+/-- The immutables of the chain whose type is a supported value type, in declaration order,
+with their model type and binding; each is also bound for reads (`values`, `scalarTy`).
+An immutable with an inline initializer `immutableInitializer?` rejects and no constructor
+write stays unbound, so its reads keep their located rejection; enum and function-typed
+immutables too. -/
+private def bindChainImmutables : M (Array (Nat × String × ParamType × ImmutableBinding)) := do
   let env ← get
   let ctors ← chainConstructors
-  let mut out := #[]
+  let mut candidates := #[]
   for (svId, svDecl) in env.stateVars.toList do
     let scope := (field? svDecl "scope").bind (·.getNat?.toOption)
     if optStr svDecl "mutability" == some "immutable" &&
-        ((field? svDecl "value").filter (!·.isNull)).isNone &&
-        (scope.map env.linearizedBases.contains).getD false &&
-        (← mType svDecl) == "address" then
-      out := out.push (svId, ← mStr (← mField svDecl "name"), assignedSelfAddressOnce ctors svId)
-  return out.qsort (fun a b => a.1 < b.1)
+        (scope.map env.linearizedBases.contains).getD false then
+      candidates := candidates.push (svId, svDecl)
+  let mut out := #[]
+  for (svId, svDecl) in candidates.qsort (fun a b => a.1 < b.1) do
+    let ty ← mType svDecl
+    let some pty := localParamType ty | continue
+    if ty.startsWith "enum " then continue
+    let name ← mStr (← mField svDecl "name")
+    let init? := (field? svDecl "value").filter (!·.isNull)
+    let written := ctors.any fun c => !(stateVarWrites svId c).isEmpty
+    let binding? ← if written then
+        pure (some (if ty == "address" && assignedSelfAddressOnce ctors svId
+          then ImmutableBinding.read .contractAddress else .argument))
+      else match init? with
+        -- Never written: the zero value.
+        | none => pure (some (.read (.literal 0)))
+        | some init => do
+            match ← immutableInitializer? svDecl init with
+            | some (value, true) => pure (some (.installed value))
+            | some (value, false) => pure (some (.read value))
+            | none => pure none
+    let some binding := binding? | continue
+    let value := match binding with
+      | .read value => value
+      | _ => Expr.immutable name
+    modify fun e =>
+      { e with values := e.values.insert svId value, scalarTy := e.scalarTy.insert svId pty }
+    out := out.push (svId, name, pty, binding)
+  return out
 
 private def bindRoot (fn : Json) : M (Array SrcParam) := do
   noteFn fn
-  for (svId, name, selfAddress) in ← chainAddressImmutables do
-    let value := if selfAddress then Expr.contractAddress else Expr.immutable name
-    modify fun e =>
-      { e with values := e.values.insert svId value,
-               scalarTy := e.scalarTy.insert svId .address }
+  discard bindChainImmutables
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   let mut out : Array SrcParam := #[]
   -- ABI head word of the current parameter (static tuples and `T[N]` span
@@ -16425,7 +16510,13 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
   let isConstant := (field? varDecl "constant").bind (fun v => v.getBool?.toOption) == some true
   let mutability := optStr varDecl "mutability" |>.getD "mutable"
   if mutability == "immutable" then
-    failAt varDecl s!"immutable state variable {name} is outside this slice"
+    let bound ← bindChainImmutables
+    let some (_, _, pty, _) := bound.find? (·.1 == rootId)
+      | failAt varDecl s!"immutable state variable {name} is outside this slice"
+    let some value := (← get).values.find? rootId
+      | failAt varDecl s!"immutable state variable {name} is outside this slice"
+    modify fun e => { e with publicVarGetterReturns := #[pty] }
+    return (#[.returnValues [value]], #[])
   if isConstant || mutability == "constant" then
     let declared ← mType varDecl
     let initializer ← mField varDecl "value"
@@ -17786,15 +17877,27 @@ private def importSlice
       sortedFields.push { name := rawStorageFieldName, ty := .uint256, slot := some (maxSlot + 1000) }
     else
       sortedFields
-  -- Unknown immutables become constructor arguments of the model, in declaration order.
-  let unknownImmutables := ((← (chainAddressImmutables.run' env)).filter (!·.2.2)).map (·.2.1)
-  let immutables : List ImmutableSpec := unknownImmutables.toList.zipIdx.map fun (name, i) =>
-    { name, ty := .address, init := .constructorArg i }
-  let ctor : Option ConstructorSpec := if immutables.isEmpty then none else
-    some { params := immutables.map fun imm => { name := imm.name, ty := .address },
-           body := immutables.map fun imm => Stmt.setImmutable imm.name imm.init }
+  -- Immutables the source does not fix at the read are installed by a synthesized
+  -- constructor, in declaration order: from their initializer, or from an argument.
+  let freshChain : M _ := do
+    modify fun (e : Env) => { e with values := RBMap.empty, scalarTy := RBMap.empty }
+    bindChainImmutables
+  let chain ← freshChain.run' env
+  let mut immutables : Array ImmutableSpec := #[]
+  let mut ctorParams : Array Param := #[]
+  for (_, name, ty, binding) in chain do
+    match binding with
+    | .read _ => pure ()
+    | .installed init => immutables := immutables.push { name, ty, init }
+    | .argument =>
+        immutables := immutables.push { name, ty, init := .constructorArg ctorParams.size }
+        ctorParams := ctorParams.push { name, ty }
+  let immutableSpecs := immutables.toList
+  let ctor : Option ConstructorSpec := if immutableSpecs.isEmpty then none else
+    some { params := ctorParams.toList,
+           body := immutableSpecs.map fun imm => Stmt.setImmutable imm.name imm.init }
   let model : CompilationModel :=
-    { name := contract, constructor := ctor, immutables, fields := sortedFields.toList,
+    { name := contract, constructor := ctor, immutables := immutableSpecs, fields := sortedFields.toList,
       errors := env.usedErrors, events := env.usedEvents.map Prod.snd, functions := specs.toList }
   let mut excluded : Array FnRec := #[]
   for (id, decl) in env.funs do
