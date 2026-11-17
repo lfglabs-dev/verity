@@ -9,6 +9,7 @@ open Verity.EVM.Uint256
 -- reverts with empty data on a head word that is not a valid encoding of the narrow
 -- types (`address`, `bool`, `bytesN`, `uintN`, `intN`), as solc's ABI coder v2 does,
 -- and binds full-width words unchanged (`test/ScalarAbiValidationSmoke.t.sol`).
+-- Members of a static tuple parameter are only cleaned (`accountOfPair`).
 verity_contract ScalarAbiValidationSmoke where
   storage
 
@@ -49,5 +50,12 @@ verity_contract ScalarAbiValidationSmoke where
   function firstOfMixed (full : Uint256, _narrow : Uint8, _account : Address, _flag : Bool) :
       Uint256 := do
     return full
+
+  -- A static tuple member is cleaned (masked) but not validated: unlike solc, which
+  -- reverts when it reads a dirty member of a calldata struct, this returns the
+  -- masked word (pinned by `test/ScalarAbiValidationSmoke.t.sol`).
+  function accountOfPair (pair : Tuple [Uint256, Address]) : Address := do
+    let account := pair_1
+    return account
 
 end Contracts.Smoke
