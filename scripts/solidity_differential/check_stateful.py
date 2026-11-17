@@ -258,6 +258,12 @@ def main():
                              'constructor argument, and give the model immutable NAME that value; '
                              'list them in constructor-argument order, which must also be the '
                              "model's immutable declaration order")
+    parser.add_argument('--immutable', action='append', default=[], metavar='NAME=SPEC',
+                        help='like --immutable-sender, for immutables of any type: SPEC '
+                             'sender:INDEX or word:N appends the next constructor argument '
+                             '(after any --immutable-sender ones) and gives the model that '
+                             'value; deployer or chainid only gives the model the deployment '
+                             "sender or chain id, the value an inline initializer installs")
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
@@ -415,6 +421,10 @@ def main():
         'checkCallPermission(address,address,bytes)',
         'configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)',
         'parseHexByte(bytes1,bytes)',
+        'scalarWords()',
+        'scaledEnd()',
+        'isCurrentChain()',
+        'deployer()',
         'namedReturnCopy(bytes)',
         'namedReturnEarly(bytes,uint256)',
         'sliceArgumentDigest(bytes,uint256,uint256)',
@@ -472,6 +482,25 @@ def main():
                 raise HarnessError(f'invalid --immutable-sender {spec!r}')
             immutables.append((name, int(senders[int(index)], 16)))
         constructor_words = ''.join(format(value, '064x') for _, value in immutables)
+        for spec in args.immutable:
+            name, _, value = spec.partition('=')
+            kind, _, operand = value.partition(':')
+            if kind == 'sender' and operand.isdigit() and int(operand) < len(senders):
+                word = int(senders[int(operand)], 16)
+            elif kind == 'word' and operand.isdigit() and int(operand) < 2 ** 256:
+                word = int(operand)
+            elif value == 'deployer' and name:
+                immutables.append((name, int(sender, 16)))
+                continue
+            elif value == 'chainid' and name:
+                immutables.append((name, int(node.rpc('eth_chainId'), 16)))
+                continue
+            else:
+                raise HarnessError(f'invalid --immutable {spec!r}')
+            if not name:
+                raise HarnessError(f'invalid --immutable {spec!r}')
+            immutables.append((name, word))
+            constructor_words += format(word, '064x')
         source_code += constructor_words
         compiled_code += constructor_words
         deployed = node.transact({'from': sender, 'data': source_code, 'gas': hex(10000000)})
@@ -509,6 +538,12 @@ def main():
         immutable_prefix = [('isGuard()', []), ('notDelegated()', []), ('payeeCredit()', []),
                             ('read()', [])]
         calls.extend(immutable_prefix[:max(0, args.transactions - len(calls))])
+    if 'scalarWords()' in source['methodIdentifiers']:
+        # Reads of scalar immutables: constructor arguments, installed initializers, a literal
+        # initializer and an unwritten one, through a tuple, arithmetic and public getters.
+        scalar_prefix = [('scalarWords()', []), ('scaledEnd()', []), ('isCurrentChain()', []),
+                         ('asset()', []), ('deployer()', []), ('read()', [])]
+        calls.extend(scalar_prefix[:max(0, args.transactions - len(calls))])
     if 'inspectBytes(bytes,uint256)' in source['methodIdentifiers']:
         bytes_prefix = [
             ('getRewardTokens()', []),

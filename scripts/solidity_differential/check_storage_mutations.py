@@ -70,8 +70,21 @@ MUTANTS.update({
 # An address immutable assigned from a constructor argument read as the contract's own
 # address: the rule this slice replaces.
 MUTANTS.update({'import-immutable-self-address': (
-    'let value := if selfAddress then Expr.contractAddress else Expr.immutable name',
-    'let value := Expr.contractAddress')})
+    '      | _ => Expr.immutable name\n',
+    '      | _ => Expr.contractAddress\n')})
+# Scalar immutables: an installed inline initializer must be evaluated at deployment, a
+# constructor argument must be the immutable's own value, and a literal initializer read.
+MUTANTS.update({
+    'import-immutable-scalar-installed-zero': (
+        '    | .installed init => immutables := immutables.push { name, ty, init }',
+        '    | .installed _ => immutables := immutables.push { name, ty, init := .literal 0 }'),
+    'import-immutable-scalar-argument-shift': (
+        'immutables := immutables.push { name, ty, init := .constructorArg ctorParams.size }',
+        'immutables := immutables.push { name, ty, init := .constructorArg 0 }'),
+    'import-immutable-scalar-initializer-zero': (
+        '            | some (value, false) => pure (some (.read value))',
+        '            | some (_, false) => pure (some (.read (.literal 0)))'),
+})
 # Namespaced storage struct members: a member outside the slice keeps the slot solc
 # assigns it, and a two-key mapping member's inner mapping is at keccak256(key . slot).
 MUTANTS.update({
@@ -683,6 +696,8 @@ def run(directory, output, name):
         fixture = "BytesNamedReturnSliceStructSequence"
     if name.startswith("import-immutable-"):
         fixture = "ImmutableAddressSequence"
+    if name.startswith("import-immutable-scalar-"):
+        fixture = "ImmutableScalarSequence"
     if name.startswith("import-namespaced-"):
         fixture = "NamespacedStructMembersSequence"
     if name.startswith("import-dividing-while-"):
@@ -721,6 +736,17 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--senders', '3', '--immutable-sender', 'GUARD=1', '--immutable-sender', 'PAYEE=2',
                      '--change-prefix', '0', '1', '2', '15', '16'])
+    if fixture == 'ImmutableScalarSequence':
+        # Constructor arguments in the model's immutable order (DECIMALS <= 18, so the
+        # conditional write keeps it), then the two values inline initializers install.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--senders', '2', '--immutable', f'START=word:{10**9}',
+                     '--immutable', 'DURATION=word:31536000', '--immutable', 'DECIMALS=word:6',
+                     '--immutable', 'ENABLED=word:1', '--immutable', f'SALT=word:{0xabc << 200}',
+                     '--immutable', 'asset=sender:1', '--immutable', f'OFFSET=word:{2**256 - 7}',
+                     '--immutable', 'deployer=deployer', '--immutable', 'CHAIN=chainid',
+                     '--change-prefix', '0', '1', '15', '16', str((1 << 256) - 1)])
     if fixture == 'SignedEventSequence':
         # Values below and above 500 give negative and positive signed arguments.
         argv[argv.index('--transactions') + 1] = '16'

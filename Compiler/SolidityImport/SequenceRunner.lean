@@ -163,7 +163,20 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
   -- Every declared immutable needs its deployment value; values for other names cannot
   -- affect execution and are ignored, so one deployment serves every model of a source.
   for imm in model.immutables do
-    unless immutableRows.any (·.1 == imm.name) do throw s!"missing value for immutable {imm.name}"
+    let some (_, value) := immutableRows.find? (·.1 == imm.name)
+      | throw s!"missing value for immutable {imm.name}"
+    -- The compiled constructor cleans its argument to the immutable's type, so a value
+    -- outside the type is not a deployment of either route.
+    let fits : Bool := match imm.ty with
+      | .bool => value < 2
+      | .address => value < 2 ^ 160
+      | .uint8 => value < 2 ^ 8
+      | .uint16 => value < 2 ^ 16
+      | .uintN bits => value < 2 ^ bits
+      | .intN bits => value < 2 ^ (bits - 1) || 2 ^ 256 - 2 ^ (bits - 1) ≤ value
+      | .bytesN bytes => value % 2 ^ (8 * (32 - bytes)) == 0
+      | _ => true
+    unless fits do throw s!"value for immutable {imm.name} is outside its type"
   let immutables : String → Uint256 := fun name =>
     Uint256.ofNat ((immutableRows.find? (·.1 == name)).map Prod.snd |>.getD 0)
   let externalFns := model.functions.filter fun fn =>
