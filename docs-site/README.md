@@ -34,11 +34,11 @@ npm start
 ```
 
 `npm run build` first runs `scripts/generate-derived.sh` (prebuild), which needs
-`python3` and the full repository checkout: it renders `public/verification-status.txt`
-(git-ignored) from `docs/VERIFICATION_STATUS.md` with the current counts, and fills
-the quick-facts block of `public/llms.txt` in place (restore it with
-`git checkout public/llms.txt` before committing; the committed block stays empty).
-Without `python3` it logs one line and the build continues.
+`python3` and the full repository checkout. It renders two git-ignored files with the
+current counts: `public/verification-status.txt` from `docs/VERIFICATION_STATUS.md`,
+and `public/llms.txt` from `llms.template.txt` (quick-facts block filled). `npm run dev`
+runs it too (`predev`). Without `python3` it logs one line, copies the template
+unfilled, and the build continues.
 
 ## Structure
 
@@ -52,7 +52,8 @@ docs-site/
 │   ├── examples.mdx                 # Example contracts
 │   ├── core.mdx                     # Core architecture
 │   └── _meta.js                     # Navigation config
-├── public/llms.txt                  # AI agent index
+├── llms.template.txt                # AI agent index source (served as /llms.txt)
+├── public/llms.txt                  # Generated at prebuild, not committed
 ├── public/skill.md                  # Operational workflow for agents
 ├── public/verification-status.txt  # Generated at prebuild, not committed
 ├── proxy.ts                         # Middleware for AI agent detection

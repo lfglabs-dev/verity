@@ -5,17 +5,19 @@
 # conflict on them; the docs build computes them from the checkout instead:
 # - public/verification-status.txt: docs/VERIFICATION_STATUS.md with its
 #   generated count sections filled, served at /verification-status.txt.
-# - public/llms.txt: its GENERATED QUICK FACTS block, filled in place. The
-#   committed block is empty; do not commit a filled one (make check fails).
+# - public/llms.txt (served at /llms.txt): llms.template.txt with its
+#   GENERATED QUICK FACTS block filled.
 #
-# Without python3 the build continues and these outputs stay empty or absent.
+# Without python3 the build continues: public/llms.txt is the template with an
+# empty quick-facts block, and public/verification-status.txt is absent.
 # Runs with docs-site/ as the working directory.
 set -euo pipefail
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "generate-derived: python3 not found; skipping generated counts"
+  cp llms.template.txt public/llms.txt
   exit 0
 fi
 
 python3 ../scripts/sync_verification_status_doc.py --write public/verification-status.txt
-python3 ../scripts/update_doc_numbers.py --write
+python3 ../scripts/update_doc_numbers.py --write --output public/llms.txt

@@ -710,7 +710,7 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
         "DOCS_SITE_EXAMPLES": "docs-site/content/examples.mdx",
         "DOCS_SITE_FIRST_CONTRACT": "docs-site/content/first-contract.mdx",
         "DOCS_SITE_VERIFICATION": "docs-site/content/verification.mdx",
-        "LLMS": "docs-site/public/llms.txt",
+        "LLMS": "docs-site/llms.template.txt",
     },
     required={
         "AXIOMS": [

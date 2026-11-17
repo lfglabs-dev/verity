@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fill the generated quick-facts block of docs-site/public/llms.txt.
+"""Render docs-site/public/llms.txt from docs-site/llms.template.txt.
 
-The committed llms.txt keeps the `<!-- BEGIN/END GENERATED QUICK FACTS -->`
+The committed template keeps the `<!-- BEGIN/END GENERATED QUICK FACTS -->`
 markers with an empty body, so no committed file holds repository counts. The
-docs build fills the block in its checkout (`docs-site/scripts/generate-derived.sh`,
-run as `prebuild`) from `verification_metrics.current_metrics()`.
+docs build (`docs-site/scripts/generate-derived.sh`, run as `prebuild`) writes
+the git-ignored `public/llms.txt` with the block filled from
+`verification_metrics.current_metrics()`.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from typing import Any
 from property_utils import ROOT
 from verification_metrics import current_metrics
 
+LLMS_TEMPLATE = ROOT / "docs-site" / "llms.template.txt"
 LLMS_TXT = ROOT / "docs-site" / "public" / "llms.txt"
 BEGIN = "<!-- BEGIN GENERATED QUICK FACTS -->"
 END = "<!-- END GENERATED QUICK FACTS -->"
@@ -54,16 +56,11 @@ def quick_facts_body(text: str) -> str | None:
     return None if match is None else match.group(1)
 
 
-def update_llms_txt(data: dict[str, Any], llms: Path = LLMS_TXT) -> bool:
-    """Fill the quick-facts block of *llms* in place; return whether it changed."""
-    text = llms.read_text(encoding="utf-8")
-    if quick_facts_body(text) is None:
-        raise ValueError(f"{llms}: missing GENERATED QUICK FACTS markers")
-    new_text = QUICK_FACTS_RE.sub(lambda _m: render_quick_facts(data), text, count=1)
-    if new_text == text:
-        return False
-    llms.write_text(new_text, encoding="utf-8")
-    return True
+def render_llms_txt(template: str, data: dict[str, Any], source: Path | str = LLMS_TEMPLATE) -> str:
+    """Return *template* with its quick-facts block filled from *data*."""
+    if quick_facts_body(template) is None:
+        raise ValueError(f"{source}: missing GENERATED QUICK FACTS markers")
+    return QUICK_FACTS_RE.sub(lambda _m: render_quick_facts(data), template, count=1)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -71,12 +68,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--write",
         action="store_true",
-        help="Fill the block (the default action; accepted for explicit build scripts).",
+        help="Write the output (the default action; accepted for explicit build scripts).",
     )
-    parser.add_argument("--llms", type=Path, default=LLMS_TXT, help="llms.txt path to fill.")
+    parser.add_argument("--template", type=Path, default=LLMS_TEMPLATE, help="Committed template.")
+    parser.add_argument("--output", type=Path, default=LLMS_TXT, help="Rendered llms.txt (git-ignored).")
     args = parser.parse_args(argv)
-    if update_llms_txt(current_metrics(), args.llms):
-        print(f"Filled quick facts in {args.llms}")
+    rendered = render_llms_txt(args.template.read_text(encoding="utf-8"), current_metrics(), args.template)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(rendered, encoding="utf-8")
 
 
 if __name__ == "__main__":
