@@ -16046,15 +16046,37 @@ private partial def collectSources
     | .ok next => acc ← collectSources root next remaps acc
   pure acc
 
+/-- Why the pinned solc binary at `path` cannot be used, if it cannot: it is not
+installed (Lake never downloads it), it cannot be hashed, or its SHA-256 is not
+one of the release's pinned digests. Each message names the path and the setup
+command, so a worktree whose `.lake` lacks `solidity-import/` is not reported
+as a corrupted compiler. -/
+def solcBinaryProblem? (binaryName path : String) (installed : Bool) (hashExitCode : UInt32)
+    (sha256 : String) (pinned : Array String) : Option String :=
+  let setup := s!"run `python3 scripts/setup_solc_import.py --all` from the Verity root"
+  if !installed then
+    some s!"solc binary {binaryName} is not installed at {path}; {setup} (Lake never downloads the compiler)"
+  else if hashExitCode != 0 then
+    some s!"cannot compute the SHA-256 of {path} (exit code {hashExitCode}); {setup}"
+  else if !pinned.contains sha256 then
+    some s!"compiler checksum mismatch: {path} has SHA-256 {sha256}, not a pinned digest of {binaryName}; {setup} to reinstall it"
+  else
+    none
+
 private def verifyCompiler (release : SolcRelease) (compiler : System.FilePath) : MetaM String := do
-  let output ←
-    if System.Platform.isOSX then
+  let installed ← compiler.pathExists
+  let output : IO.Process.Output ←
+    if !installed then
+      pure { exitCode := 1, stdout := "", stderr := "" }
+    else if System.Platform.isOSX then
       IO.Process.output { cmd := "/usr/bin/shasum", args := #["-a", "256", compiler.toString] }
     else
       IO.Process.output { cmd := "/usr/bin/sha256sum", args := #[compiler.toString] }
-  unless output.exitCode == 0 && release.sha256s.contains (output.stdout.take 64).toString do
-    throwError "compiler checksum mismatch"
-  return (output.stdout.take 64).toString
+  let sha256 := (output.stdout.take 64).toString
+  if let some problem := solcBinaryProblem? release.binaryName compiler.toString installed
+      output.exitCode sha256 release.sha256s then
+    throwError problem
+  return sha256
 
 /-- Verity itself stores the importer next to its lakefile. A downstream package
 stores that checkout at `.lake/packages/verity`. The digest must hash those
