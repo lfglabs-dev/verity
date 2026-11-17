@@ -490,6 +490,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
 # not a detected semantic mutation. These regressions compare EVM bytes.
 DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    "import-msg-sender", "import-address-this",
+                   "import-fixed-bytes-literal-align", "import-fixed-bytes-widen",
                    "import-narrow-for-panic", "import-narrow-for-cap",
                    "import-narrow-for-literal-bound", "import-narrow-for-typed-bound",
                    "import-block-number", "import-block-chainid",
