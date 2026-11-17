@@ -81,6 +81,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('storage-bytes-named-return-stateless', ['-m', 'solidity_differential.check_storage',
         '--fixture', 'bytes-named-return-stateless', '--transactions', str(max(96, transactions)),
         '--seed', str(seed), '--output', str(output / 'storage-bytes-named-return-stateless')]))
+    checks.append(('storage-named-string-return', ['-m', 'solidity_differential.check_storage',
+        '--fixture', 'named-string-return', '--transactions', str(max(64, transactions)),
+        '--seed', str(seed), '--output', str(output / 'storage-named-string-return')]))
     for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'signed-modulo', 'fixed-memory-arrays', 'inline-array-literals', 'helper-name-independence', 'dynamic-memory-arrays', 'unchecked-blocks', 'tuple-destructuring'):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),

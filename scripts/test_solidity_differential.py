@@ -264,8 +264,8 @@ class SolidityDifferentialTests(unittest.TestCase):
                 "scalar-array-abi",
             ],
         )
-        self.assertEqual(len(captured), 68)
-        self.assertEqual(len(set(captured)), 68)
+        self.assertEqual(len(captured), 69)
+        self.assertEqual(len(set(captured)), 69)
 
 if __name__ == "__main__":
     unittest.main()

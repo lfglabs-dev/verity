@@ -1083,6 +1083,53 @@ def stateful_bytes_named_return_stateless_source(fixture: str, variant: str) -> 
     raise ValueError(f'unknown bytes-named-return-stateless variant: {variant}')
 
 
+def stateful_named_string_return_source(fixture: str, variant: str) -> str:
+    """Compare named `string memory` root results (#2737) with renamed
+    identifiers and with unnamed results returned explicitly."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'x', 'name', 'label', 'current'}
+        token = r'//[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda match: match.group(0) + 'Renamed'
+                      if match.group(0) in names else match.group(0), fixture)
+    if variant == 'unnamed-returns':
+        replacements = {
+            """returns (string memory name) {
+        if (x % 5 == 0) return name;
+        if (x % 5 == 1) {
+            name = "SequenceFixture";
+        } else if (x % 5 == 2) {
+            name = label;
+        } else if (x % 5 == 3) {
+            return "early";
+        } else {
+            name = string(abi.encodePacked("v", bytes32(x)));
+            label = name;
+        }
+    }""": """returns (string memory) {
+        if (x % 5 == 0) return "";
+        if (x % 5 == 1) return "SequenceFixture";
+        if (x % 5 == 2) return label;
+        if (x % 5 == 3) return "early";
+        label = string(abi.encodePacked("v", bytes32(x)));
+        return label;
+    }""",
+            """returns (string memory current) {
+        current = label;
+    }""": """returns (string memory) {
+        return label;
+    }""",
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing named-string-return anchor: {before.splitlines()[0]}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown named-string-return variant: {variant}')
+
+
 def stateful_fixed_memory_array_source(fixture: str, variant: str) -> str:
     """Compare T[N] memory reference semantics with renamed and unrolled forms."""
     if variant == 'baseline':
