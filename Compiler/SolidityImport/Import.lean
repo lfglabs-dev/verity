@@ -12331,11 +12331,17 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           -- A writable `bytes memory` local (a named result, or a local whose
           -- binding is not a literal) is rebound to the right-hand buffer, as
           -- solc's memory pointer assignment does; a calldata source is copied.
+          -- A named `string memory` root result shares this binding: a string
+          -- literal, a storage string or a `string calldata` value is copied
+          -- into memory, a `string memory` value is aliased.
           if (← get).nonLiteralByteLocals.contains id.toNat then
             if let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) then
               let rTy ← mType right
+              let isStringTarget := (← mType target) == "string memory"
               if rTy == "bytes memory" || rTy == "bytes calldata" || rTy == "bytes" ||
-                  rTy == "bytes calldata slice" then
+                  rTy == "bytes calldata slice" ||
+                  (isStringTarget && (rTy == "string memory" || rTy == "string calldata" ||
+                    rTy == "string storage ref" || rTy.startsWith "literal_string ")) then
                 let rhsBuf ← lowerEncodedBytes right
                 let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
                 return rhsBuf.pre ++ rebind
@@ -14597,7 +14603,10 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
   | "bytes" =>
       return some .bytes
   | "string" =>
-      unless rname == "" do return none
+      -- A named `string memory` result is bound like a named `bytes` result
+      -- (same length-prefixed memory layout and ABI encoding); a named
+      -- `string calldata` result has no buffer to bind.
+      unless rname == "" || loc == "memory" do return none
       return some .string
   | _ => return none
 
@@ -15658,7 +15667,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
                  yulNames := e.yulNames.erase rname,
                  yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
     rootFlatStructState? := some (retSid, retStructName, memberBindings, rname != "")
-  else if dynamicBytesRet? == some .bytes && returns.size == 1 then
+  else if dynamicBytesRet?.isSome && returns.size == 1 then
     let r := returns[0]!
     let rname ← mStr (← mField r "name")
     if rname != "" then
@@ -15727,9 +15736,9 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
         out := out ++ #[.returnValues (Array.replicate memberSpecs.size (.literal 0)).toList]
       else
         failAt fn "an explicit root return is required"
-    else if dynamicBytesRet? == some .bytes && returns.size == 1 && (← mStr (← mField returns[0]! "name")) != "" then
+    else if dynamicBytesRet?.isSome && returns.size == 1 && (← mStr (← mField returns[0]! "name")) != "" then
       let rid ← mNat (← mField returns[0]! "id")
-      let some buf := (← get).byteBuffers.find? rid | failAt fn "missing named bytes return buffer"
+      let some buf := (← get).byteBuffers.find? rid | failAt fn "missing named bytes or string return buffer"
       let stem ← fresh
       let memStem := s!"_verity_memret_{stem}"
       let dataBinding := s!"_verity_memret_{stem}_data_offset"
