@@ -14,6 +14,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "YulMemoryCa
   function push(address,address,uint256)
   function pull(address,address,address,uint256)
   function query(address,address,address,bytes4)
+  function emptyRanges(address,uint256,uint256)
   function codeSize(address)
   function read()
 def model : CompilationModel := imported.model

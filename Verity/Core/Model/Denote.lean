@@ -1681,8 +1681,9 @@ def executeByteExtCodeSize (oracle : DenoteOracle) (fields : List Field)
   let size := DenoteExternalCode.extCodeSize state.world (Verity.Core.Address.ofNat target)
   return .continue { state with bindings := bindValue state.bindings resultVar size }
 
-/-- Byte ranges a Yul memory call may name. Wider ranges exhaust any gas allowance in
-memory expansion, so the call is an exceptional halt with empty return data. -/
+/-- Byte ranges a Yul memory call may name. A nonempty range ending past it exhausts any gas
+allowance in memory expansion, so the call is an exceptional halt with empty return data. An
+empty range expands no memory on the EVM, whatever its offset. -/
 def yulMemoryCallRangeLimit : Nat := 2 ^ 32
 
 /-- Inline-assembly `call` / `staticcall` over physical memory. The calldata is the
@@ -1701,8 +1702,8 @@ def executeByteYulMemoryCall (oracle : DenoteOracle) (fields : List Field)
   let some [target, inOffset, inSize, outOffset, outSize] :=
       evalExprList oracle fields state args
     | throw "Yul memory call argument evaluation unsupported"
-  if yulMemoryCallRangeLimit < inOffset + inSize ||
-      yulMemoryCallRangeLimit < outOffset + outSize then
+  if (inSize != 0 && yulMemoryCallRangeLimit < inOffset + inSize) ||
+      (outSize != 0 && yulMemoryCallRangeLimit < outOffset + outSize) then
     return (.revertWithData [], [])
   let request : ByteExternalCall.Request :=
     { kind := if isStatic then .staticcall else .call,
