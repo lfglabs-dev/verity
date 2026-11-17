@@ -30,8 +30,8 @@ def main():
         ('multi-dynamic-struct', 'struct S { uint256[] a; }', 'S memory s', 'keccak256(abi.encode(s, uint256(0)))',
          None, None),
         ('dynamic-bytes', '', 'bytes calldata value', 'keccak256(value)', None, None),
-        ('msg-data-bytes', '', '', 'keccak256(msg.data)',
-         'msg.data', 'hash input must be a supported ABI encoding'),
+        # `msg.data` is a byte buffer since 6bd725157 (lowerEncodedBytes, the whole calldata).
+        ('msg-data-bytes', '', '', 'keccak256(msg.data)', None, None),
     ]
     results = []
     for name, declarations, params, expression, token, diagnostic in cases:
