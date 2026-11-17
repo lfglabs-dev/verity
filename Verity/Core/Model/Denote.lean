@@ -348,10 +348,18 @@ def errorScalarType : ParamType → Option String
   | .bytes32 => some "bytes32"
   | _ => none
 
-/-- Reject noncanonical narrow ABI words instead of truncating error arguments. -/
+/-- Custom-error parameter signatures: the scalar fragment plus `bytes1`..`bytes31`.
+Kept separate from `errorScalarType`, which also gates event parameters. -/
+def customErrorScalarType : ParamType → Option String
+  | .bytesN n => if 0 < n && n < 32 then some s!"bytes{n}" else none
+  | ty => errorScalarType ty
+
+/-- Reject noncanonical narrow ABI words instead of truncating error arguments.
+A `bytesN` value is left-aligned: its low `32 - n` bytes must be zero. -/
 def errorScalarValueValid (ty : ParamType) (value : Nat) : Bool :=
   match ty with
   | .uint256 | .bytes32 => value < 2^256
+  | .bytesN n => 0 < n && n < 32 && value < 2^256 && value % 2^(8 * (32 - n)) == 0
   | .uint8 => value < 2^8
   | .uint16 => value < 2^16
   | .uintN bits => 0 < bits && bits ≤ 256 && bits % 8 == 0 && value < 2^bits
@@ -372,7 +380,7 @@ def customErrorBytes (oracle : DenoteOracle) (errors : List ErrorDef)
   let [definition] := errors.filter (·.name == name) | none
   if definition.params.length != values.length then none else do
     if !(definition.params.zip values).all (fun pair => errorScalarValueValid pair.1 pair.2) then none else do
-      let types ← definition.params.mapM errorScalarType
+      let types ← definition.params.mapM customErrorScalarType
       let signature := name ++ "(" ++ String.intercalate "," types ++ ")"
       let bytes := signature.toUTF8.data.toList
       let hash := oracle.keccakMemorySlice (signatureMemory bytes) 0 bytes.length

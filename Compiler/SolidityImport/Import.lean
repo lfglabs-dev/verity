@@ -13997,8 +13997,9 @@ private partial def lowerErrorArgumentsForDecl (callee declaration : Json) (argu
     let parameter := parameters[index]!
     let ty ← mType parameter
     discard (validateEnumTypeIfNeeded parameter ty)
-    let some modelType := paramType ty | failAt parameter s!"unsupported custom-error parameter type {ty}"
-    unless (Denote.errorScalarType modelType).isSome do
+    let some modelType := localParamType ty
+      | failAt parameter s!"unsupported custom-error parameter type {ty}"
+    unless (Denote.customErrorScalarType modelType).isSome do
       failAt parameter s!"unsupported custom-error parameter type {ty}"
     let argument := arguments[index]!
     -- Restrict this slice to total scalar operands or pure compile-time constants.
