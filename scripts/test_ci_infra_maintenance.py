@@ -342,7 +342,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
                                            VERITY_CI_ARTIFACT_ROOT=str(tmp / "store")))
             self.assertEqual(r.returncode, 2)
 
-    def test_ephemeral_heavy_build_jobs_use_sixteen_lean_threads(self) -> None:
+    def test_ephemeral_heavy_build_jobs_use_all_vm_cores(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
         for job in (
             "build",
@@ -353,7 +353,8 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
             self.assertIsNotNone(match, job)
             body = match.group("body")
-            self.assertIn("LEAN_NUM_THREADS: 16", body, job)
+            # lean.ci sizes and grows these VMs; Lean must use the cores it gets.
+            self.assertNotIn("LEAN_NUM_THREADS:", body, job)
             self.assertIn("runs-on: lean-", body, job)
 
     def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:

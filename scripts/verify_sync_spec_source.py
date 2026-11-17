@@ -170,12 +170,12 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                           'changes': 'ubuntu-latest',
                           'checks': 'ubuntu-latest',
                           'timeout-watchdog': 'ubuntu-latest',
-                          'build': 'lean-16vcpu-ubuntu-2604',
+                          'build': 'lean-8vcpu-ubuntu-2604',
                           'build-audits': '[self-hosted, linux, x64, verity, build]',
-                          'build-compiler-binaries': 'lean-16vcpu-ubuntu-2604',
+                          'build-compiler-binaries': 'lean-8vcpu-ubuntu-2604',
                           'compiler-audits': '[self-hosted, linux, x64, verity, build]',
-                          'compiler-regressions': 'lean-32vcpu-ubuntu-2604',
-                          'lean-profile': 'lean-16vcpu-ubuntu-2604',
+                          'compiler-regressions': 'lean-8vcpu-ubuntu-2604',
+                          'lean-profile': 'lean-8vcpu-ubuntu-2604',
                           'foundry-gas-calibration': '[self-hosted, linux, x64, verity, build]',
                           'foundry': '[self-hosted, linux, x64, verity, build]',
                           'foundry-patched': '[self-hosted, linux, x64, verity, build]',
@@ -845,7 +845,7 @@ SPEC['expected_job_if_conditions'].update({
 })
 
 SPEC['expected_job_runs_on'].update({
-    'build-compiler-binaries': 'lean-16vcpu-ubuntu-2604',
+    'build-compiler-binaries': 'lean-8vcpu-ubuntu-2604',
 })
 
 SPEC['expected_job_timeouts'].update({
