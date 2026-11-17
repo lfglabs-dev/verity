@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Verity documentation website - Minimal Lean EDSL for smart contracts",
   "scripts": {
-    "predev": "bash scripts/generate-derived.sh",
+    "predev": "bash scripts/generate-derived.sh --fast",
     "dev": "next dev --webpack -p 3003",
     "postinstall": "node scripts/patch-nextra-zod.mjs",
     "prebuild": "bash scripts/generate-derived.sh",
