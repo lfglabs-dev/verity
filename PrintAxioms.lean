@@ -12085,4 +12085,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11249 theorems/lemmas (8749 public, 2500 private, 0 sorry'd)
+-- Total: 11252 theorems/lemmas (8752 public, 2500 private, 0 sorry'd)
