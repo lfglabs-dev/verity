@@ -22,6 +22,8 @@ contract Create2AddressSmokeTest is Test, YulTestBase {
     }
 
     function testFuzzDeploysAtCreate2Address(uint256 salt, uint8 runtimeByte) public {
+        // EIP-3541: deployed code starting with 0xEF is rejected, so CREATE2 returns 0.
+        vm.assume(runtimeByte != 0xEF);
         // initcode returning a 1-byte runtime: PUSH1 b PUSH1 0 MSTORE8 PUSH1 1 PUSH1 0 RETURN
         bytes memory initcode = abi.encodePacked(hex"60", runtimeByte, hex"60005360016000f3");
         address got = _deploy(initcode, salt);
