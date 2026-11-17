@@ -80,6 +80,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-numeric-literals",
     "storage-short-circuit",
     "storage-signed-modulo",
+    "storage-struct-string-member-param",
     "storage-tuple-destructuring",
     "storage-unchecked-blocks",
     "storage-void",

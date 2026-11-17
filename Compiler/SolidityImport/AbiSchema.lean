@@ -19,7 +19,9 @@ structure ScalarField where
 
 inductive Member where
   | scalar (field : ScalarField)
-  | bytesField (name : String)
+  /-- A `bytes` or `string` member: both share the dynamic byte-array ABI
+  encoding; `isString` only selects the ABI type name (`string` vs `bytes`). -/
+  | bytesField (name : String) (isString : Bool := false)
   | scalarArray (field : ScalarField)
   | structArray (name : String) (fields : List ScalarField)
   | nestedStruct (name : String) (structId : Nat) (structName : String) (members : List (String × String)) (schema : List Member)
@@ -27,7 +29,7 @@ inductive Member where
 
 def isDynamicMember : Member → Bool
   | .scalar _ => false
-  | .bytesField _ | .scalarArray _ | .structArray _ _ | .nestedStruct _ _ _ _ _ => true
+  | .bytesField _ _ | .scalarArray _ | .structArray _ _ | .nestedStruct _ _ _ _ _ => true
 
 private def fail (node : Json) (message : String) : Except Failure α :=
   .error ⟨node, message⟩
@@ -81,8 +83,9 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
       let ty ← field member "typeName"
       let tyKind ← stringField ty "nodeType"
       if tyKind == "ElementaryTypeName" then
-        if (← stringField ty "name") == "bytes" then
-          return .bytesField mname
+        let elementary ← stringField ty "name"
+        if elementary == "bytes" || elementary == "string" then
+          return .bytesField mname (elementary == "string")
         else
           return .scalar (← scalarField member)
       if tyKind == "UserDefinedTypeName" then
@@ -128,7 +131,7 @@ def scalarType : SolidityAbi.ScalarKind → ParamType
 mutual
   def memberType : Member → ParamType
     | .scalar field => scalarType field.kind
-    | .bytesField _ => .bytes
+    | .bytesField _ isString => if isString then .string else .bytes
     | .scalarArray field => .array (scalarType field.kind)
     | .structArray _ fields => .array (.tuple (fields.map fun f => scalarType f.kind))
     | .nestedStruct _ _ _ _ subSchema => .tuple (memberTypeList subSchema)
