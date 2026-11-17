@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Synchronise sorry-count references with the verification artifact.
+"""Synchronise sorry-count references with the current verification metrics.
 
 Patches:
   - docs/VERIFICATION_STATUS.md  (sorry count in prose)
   - scripts/check_lean_hygiene.py (expected_sorry baseline)
 
-Run after generate_verification_status.py to keep everything in sync.
+The metrics are computed in memory (`verification_metrics.current_metrics`).
 """
 
 from __future__ import annotations
@@ -15,9 +15,8 @@ import sys
 from pathlib import Path
 
 from property_utils import ROOT
-from verification_metrics import load_metrics_from_artifact
+from verification_metrics import current_metrics
 
-ARTIFACT = ROOT / "artifacts" / "verification_status.json"
 STATUS_DOC = ROOT / "docs" / "VERIFICATION_STATUS.md"
 HYGIENE_SCRIPT = ROOT / "scripts" / "check_lean_hygiene.py"
 
@@ -44,7 +43,7 @@ def _patch_file(path: Path, pattern: re.Pattern[str], replacement: str, label: s
 
 
 def main() -> None:
-    metrics = load_metrics_from_artifact(ARTIFACT)
+    metrics = current_metrics()
     sorry_count = metrics["proofs"]["sorry"]
 
     _patch_file(STATUS_DOC, SORRY_DOC_RE, rf"{sorry_count}\2", f"sorry count ({sorry_count})")

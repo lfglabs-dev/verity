@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import json
 import sys
 import tempfile
 import textwrap
@@ -21,18 +20,15 @@ class VerificationStatusDocTests(unittest.TestCase):
     def _run_check(self, *, artifact_payload: dict, status_body: str) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            artifact = root / "artifacts" / "verification_status.json"
             status = root / "docs" / "VERIFICATION_STATUS.md"
-            artifact.parent.mkdir(parents=True, exist_ok=True)
             status.parent.mkdir(parents=True, exist_ok=True)
-            artifact.write_text(json.dumps(artifact_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             status.write_text(status_body, encoding="utf-8")
 
-            old_artifact = check_verification_status_doc.ARTIFACT
+            old_metrics = check_verification_status_doc.current_metrics
             old_status = check_verification_status_doc.STATUS_DOC
             old_collect_covered = check_verification_status_doc.collect_covered
             old_load_exclusions = check_verification_status_doc.load_exclusions
-            check_verification_status_doc.ARTIFACT = artifact
+            check_verification_status_doc.current_metrics = lambda: artifact_payload
             check_verification_status_doc.STATUS_DOC = status
             check_verification_status_doc.collect_covered = lambda: {
                 "Counter": {"a"},
@@ -51,7 +47,7 @@ class VerificationStatusDocTests(unittest.TestCase):
                     except SystemExit as exc:
                         return int(exc.code), stderr.getvalue()
             finally:
-                check_verification_status_doc.ARTIFACT = old_artifact
+                check_verification_status_doc.current_metrics = old_metrics
                 check_verification_status_doc.STATUS_DOC = old_status
                 check_verification_status_doc.collect_covered = old_collect_covered
                 check_verification_status_doc.load_exclusions = old_load_exclusions

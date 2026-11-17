@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Shared verification metrics helpers for generated status artifacts."""
+"""Repository verification metrics (theorem, test, line and proof counts).
+
+The counts are computed from source files on demand by `current_metrics()`;
+no committed file stores them. `artifacts/verification_status.json` is an
+optional, git-ignored cache written by `generate_verification_status.py`.
+"""
 
 from __future__ import annotations
 
@@ -187,7 +192,7 @@ def collect_metrics() -> dict[str, Any]:
     }
 
 
-def _expect_exact_keys(path: Path, section: str, payload: dict[str, Any], expected: set[str]) -> None:
+def _expect_exact_keys(path: Path | str, section: str, payload: dict[str, Any], expected: set[str]) -> None:
     unknown = sorted(set(payload.keys()) - expected)
     if unknown:
         raise ValueError(f"{path}: {section}: unknown keys: {', '.join(unknown)}")
@@ -196,30 +201,51 @@ def _expect_exact_keys(path: Path, section: str, payload: dict[str, Any], expect
         raise ValueError(f"{path}: {section}: missing required keys: {', '.join(missing)}")
 
 
-def _expect_int(path: Path, field_path: str, value: Any) -> int:
+def _expect_int(path: Path | str, field_path: str, value: Any) -> int:
     if type(value) is not int:
         raise ValueError(f"{path}: {field_path} must be an integer, got {type(value).__name__}")
     return value
 
 
-def _expect_non_negative_int(path: Path, field_path: str, value: Any) -> int:
+def _expect_non_negative_int(path: Path | str, field_path: str, value: Any) -> int:
     parsed = _expect_int(path, field_path, value)
     if parsed < 0:
         raise ValueError(f"{path}: {field_path} must be >= 0")
     return parsed
 
 
-def _expect_str(path: Path, field_path: str, value: Any) -> str:
+def _expect_str(path: Path | str, field_path: str, value: Any) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{path}: {field_path} must be a string, got {type(value).__name__}")
     return value
 
 
+def render_metrics_json(metrics: dict[str, Any]) -> str:
+    """Return the deterministic JSON encoding of *metrics*."""
+    return json.dumps(metrics, indent=2, sort_keys=True) + "\n"
+
+
+def current_metrics(*, cache: Path | None = None) -> dict[str, Any]:
+    """Compute and validate the metrics from source files.
+
+    When *cache* is given, also write the JSON encoding there.
+    """
+    metrics = validate_metrics(collect_metrics(), "current_metrics()")
+    if cache is not None:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(render_metrics_json(metrics), encoding="utf-8")
+    return metrics
+
+
 def load_metrics_from_artifact(path: Path) -> dict[str, Any]:
-    """Load and strictly validate verification status artifact JSON."""
+    """Load and strictly validate a metrics JSON file written by `current_metrics`."""
     if not path.exists():
         raise FileNotFoundError(f"{path}: verification status artifact not found")
-    data = json.loads(path.read_text(encoding="utf-8"))
+    return validate_metrics(json.loads(path.read_text(encoding="utf-8")), path)
+
+
+def validate_metrics(data: Any, path: Path | str) -> dict[str, Any]:
+    """Strictly validate the metrics schema; *path* labels error messages."""
     if not isinstance(data, dict):
         raise ValueError(f"{path}: artifact payload must be a JSON object")
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate docs/VERIFICATION_STATUS.md against the verification artifact."""
+"""Validate docs/VERIFICATION_STATUS.md against the current verification metrics."""
 
 from __future__ import annotations
 
@@ -8,9 +8,8 @@ import sys
 from pathlib import Path
 
 from property_utils import ROOT, collect_covered, load_exclusions
-from verification_metrics import load_metrics_from_artifact
+from verification_metrics import current_metrics
 
-ARTIFACT = ROOT / "artifacts" / "verification_status.json"
 STATUS_DOC = ROOT / "docs" / "VERIFICATION_STATUS.md"
 
 LAYER1_ROW_RE = re.compile(r"^\| ([A-Za-z0-9]+) \| (\d+) \| [^|]+ \| `[^`]+` \|$", re.MULTILINE)
@@ -50,7 +49,7 @@ def _parse_exclusions(cell: str) -> int:
 
 
 def main() -> None:
-    artifact = load_metrics_from_artifact(ARTIFACT)
+    artifact = current_metrics()
     text = STATUS_DOC.read_text(encoding="utf-8")
 
     expected_layer1 = dict(artifact["theorems"]["per_contract"])

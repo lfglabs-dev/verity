@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""Update hardcoded numbers in documentation files from verification_status.json.
+"""Update hardcoded numbers in documentation files from the current verification metrics.
 
 Replaces the quick-facts block in docs-site/public/llms.txt.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-ARTIFACT = ROOT / "artifacts" / "verification_status.json"
-
-
-def load_artifact() -> dict:
-    with open(ARTIFACT) as f:
-        return json.load(f)
+from property_utils import ROOT
+from verification_metrics import current_metrics
 
 
 def update_llms_txt(data: dict) -> bool:
@@ -67,11 +60,7 @@ def update_llms_txt(data: dict) -> bool:
 
 
 def main() -> None:
-    if not ARTIFACT.exists():
-        print(f"Missing artifact: {ARTIFACT}", file=sys.stderr)
-        raise SystemExit(1)
-
-    data = load_artifact()
+    data = current_metrics()
 
     check_mode = "--check" in sys.argv
 

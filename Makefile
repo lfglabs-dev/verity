@@ -136,7 +136,6 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/check_benchmark_cases.py
 	python3 scripts/check_storage_lens_freeze.py
 	python3 scripts/check_feature_ownership.py
-	python3 scripts/generate_verification_status.py --check
 	python3 scripts/generate_layer2_boundary_catalog.py --check
 	python3 scripts/check_verification_status_doc.py
 	python3 scripts/docsync.py --check --only layer2_boundary
@@ -176,7 +175,7 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 
 checks: check ## Compatibility alias for the CI-equivalent checks job
 
-refresh-status: ## Regenerate verification artifact
+refresh-status: ## Regenerate committed derived artifacts
 	scripts/refresh_verification_artifacts.sh
 
 regen-storage-layout-report: ## Regenerate the storage layout audit artifacts (needs Lean)
