@@ -5,6 +5,8 @@
 # conflict on them; the docs build computes them from the checkout instead:
 # - public/verification-status.txt: docs/VERIFICATION_STATUS.md with its
 #   generated count sections filled, served at /verification-status.txt.
+# - public/llms.txt: its GENERATED QUICK FACTS block, filled in place. The
+#   committed block is empty; do not commit a filled one (make check fails).
 #
 # Without python3 the build continues and these outputs stay empty or absent.
 # Runs with docs-site/ as the working directory.
@@ -16,3 +18,4 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 python3 ../scripts/sync_verification_status_doc.py --write public/verification-status.txt
+python3 ../scripts/update_doc_numbers.py --write

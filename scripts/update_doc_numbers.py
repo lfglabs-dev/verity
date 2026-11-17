@@ -1,103 +1,87 @@
 #!/usr/bin/env python3
-"""Update hardcoded numbers in documentation files from the current verification metrics.
+"""Fill the generated quick-facts block of docs-site/public/llms.txt.
 
-Replaces the quick-facts block in docs-site/public/llms.txt.
+The committed llms.txt keeps the `<!-- BEGIN/END GENERATED QUICK FACTS -->`
+markers with an empty body, so no committed file holds repository counts. The
+docs build fills the block in its checkout (`docs-site/scripts/generate-derived.sh`,
+run as `prebuild`) from `verification_metrics.current_metrics()`.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
+from pathlib import Path
+from typing import Any
 
 from property_utils import ROOT
 from verification_metrics import current_metrics
 
+LLMS_TXT = ROOT / "docs-site" / "public" / "llms.txt"
+BEGIN = "<!-- BEGIN GENERATED QUICK FACTS -->"
+END = "<!-- END GENERATED QUICK FACTS -->"
+QUICK_FACTS_RE = re.compile(rf"{re.escape(BEGIN)}\n?(.*?){re.escape(END)}", re.DOTALL)
 
-def update_llms_txt(data: dict) -> bool:
-    llms = ROOT / "docs-site" / "public" / "llms.txt"
-    if not llms.exists():
-        return False
 
-    text = llms.read_text(encoding="utf-8")
-
+def render_quick_facts(data: dict[str, Any]) -> str:
+    """Return the filled quick-facts block, markers included."""
     theorems = data["theorems"]
     proofs = data["proofs"]
     tests = data["tests"]
     codebase = data["codebase"]
-    toolchain = data["toolchain"]
-
-    lean_version = toolchain["lean"].split(":")[-1].lstrip("v")
+    lean_version = data["toolchain"]["lean"].split(":")[-1].lstrip("v")
     contract_count = len(theorems["per_contract"])
-
-    block = (
-        "<!-- BEGIN GENERATED QUICK FACTS -->\n"
+    return (
+        f"{BEGIN}\n"
         f"- **Language**: Lean {lean_version}\n"
         f"- **Core Size**: {codebase['core_lines']} lines\n"
         f"- **Verified Contracts**: {contract_count} ({', '.join(theorems['per_contract'].keys())})\n"
         f"- **Theorems**: {theorems['total']} across {theorems['categories']} categories, "
         f"{theorems['proven']} fully proven\n"
-        f"- **Axioms**: {proofs['axioms']} documented Lean axioms (see docs/AXIOMS.md)\n"
+        f"- **Axioms**: {proofs['axioms']} custom Lean axioms (see docs/AXIOMS.md)\n"
         f"- **Tests**: {tests['foundry_functions']} Foundry tests, "
         f"{tests['property_functions']} property tests\n"
         f"- **Build**: `lake build` verifies all proofs\n"
         f"- **Repository**: https://github.com/lfglabs-dev/verity\n"
-        "<!-- END GENERATED QUICK FACTS -->"
+        f"{END}"
     )
 
-    pattern = re.compile(
-        r"<!-- BEGIN GENERATED QUICK FACTS -->.*?<!-- END GENERATED QUICK FACTS -->",
-        re.DOTALL,
-    )
-    if not pattern.search(text):
-        print("WARNING: llms.txt missing GENERATED QUICK FACTS markers", file=sys.stderr)
+
+def quick_facts_body(text: str) -> str | None:
+    """Return the body between the quick-facts markers, or None without markers."""
+    match = QUICK_FACTS_RE.search(text)
+    return None if match is None else match.group(1)
+
+
+def update_llms_txt(data: dict[str, Any], llms: Path = LLMS_TXT) -> bool:
+    """Fill the quick-facts block of *llms* in place; return whether it changed."""
+    text = llms.read_text(encoding="utf-8")
+    if quick_facts_body(text) is None:
+        raise ValueError(f"{llms}: missing GENERATED QUICK FACTS markers")
+    new_text = QUICK_FACTS_RE.sub(lambda _m: render_quick_facts(data), text, count=1)
+    if new_text == text:
         return False
-
-    new_text = pattern.sub(block, text)
-    if new_text != text:
-        llms.write_text(new_text, encoding="utf-8")
-        return True
-    return False
+    llms.write_text(new_text, encoding="utf-8")
+    return True
 
 
-def main() -> None:
-    data = current_metrics()
-
-    check_mode = "--check" in sys.argv
-
-    if check_mode:
-        errors: list[str] = []
-
-        # Check llms.txt
-        llms = ROOT / "docs-site" / "public" / "llms.txt"
-        if llms.exists():
-            text = llms.read_text(encoding="utf-8")
-            pattern = re.compile(
-                r"<!-- BEGIN GENERATED QUICK FACTS -->.*?<!-- END GENERATED QUICK FACTS -->",
-                re.DOTALL,
-            )
-            match = pattern.search(text)
-            if not match:
-                errors.append("llms.txt: missing GENERATED QUICK FACTS markers")
-            else:
-                block = match.group(0)
-                total = data["theorems"]["total"]
-                if f"**Theorems**: {total} " not in block:
-                    errors.append(f"llms.txt: theorem count mismatch (expected {total})")
-
-        if errors:
-            for e in errors:
-                print(e, file=sys.stderr)
-            raise SystemExit(1)
-        print("update_doc_numbers: all generated blocks are in sync")
-    else:
-        changed = []
-        if update_llms_txt(data):
-            changed.append("llms.txt")
-        if changed:
-            print(f"Updated: {', '.join(changed)}")
-        else:
-            print("No changes needed")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Fill the block (the default action; accepted for explicit build scripts).",
+    )
+    parser.add_argument("--llms", type=Path, default=LLMS_TXT, help="llms.txt path to fill.")
+    args = parser.parse_args(argv)
+    if update_llms_txt(current_metrics(), args.llms):
+        print(f"Filled quick facts in {args.llms}")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        raise SystemExit(1) from exc
