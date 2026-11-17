@@ -14,7 +14,8 @@ interface IAuthorityQuery {
 /// the scratch space (overwriting the free-memory pointer and, for four words, the zero slot,
 /// both restored), with a bubbled revert and an empty-returndata code check; and a `staticcall`
 /// whose calldata is an `abi.encodeCall` buffer and whose two return words land in the scratch
-/// space. State is written before each call, so every call is a trailing interaction.
+/// space; and a `call` whose zero-length ranges start at arbitrary offsets. State is written
+/// before each call, so every call is a trailing interaction.
 contract YulMemoryCallFixture {
     uint256 private pushes;
     uint256 private pulls;
@@ -80,6 +81,15 @@ contract YulMemoryCallFixture {
                 delay := mload(0x20)
                 delay := mul(delay, iszero(shr(32, delay)))
             }
+        }
+    }
+
+    /// Zero-length calldata and output ranges expand no memory on the EVM, so their offsets may
+    /// be any word, including ones far past any memory a transaction could pay for.
+    function emptyRanges(address token, uint256 inOffset, uint256 outOffset) external returns (bool ok) {
+        pushes += 1;
+        assembly ("memory-safe") {
+            ok := call(gas(), token, 0, inOffset, 0, outOffset, 0)
         }
     }
 

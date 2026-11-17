@@ -2054,12 +2054,19 @@ Trust boundary changes:
 - As on the EVM, the first `min(outSize, returndatasize)` bytes of the returned or
   revert data are copied to `outOffset` whether or not the call succeeds, the return
   data buffer is replaced, and the transport binds `0`/`1` and never reverts by itself.
-  Calldata or output ranges beyond `2^32` bytes are an exceptional halt with empty
-  return data, standing for the memory-expansion cost no allowance covers.
+  A nonempty calldata or output range ending beyond `2^32` bytes is an exceptional halt
+  with empty return data, standing for the memory-expansion cost no allowance covers. An
+  empty range expands no memory, so its offset is unconstrained, as on the EVM.
 - Gas is not tracked: the transport forwards `gas()` in compiled code and the
   instrument's `ByteCallEnvironment.gas` in Denote.
 - Writes below `0x80` act on the same physical memory the rest of the frame uses; the
   importer's free-pointer prologue makes `mload(0x40)` start at `0x80` on every route.
+- Reads below `0x80` see only what the block itself wrote: a fixed-address `mload` must
+  read a scratch word an `mstore` at exactly that address in the same block wrote, or the
+  zero slot. solc's code generator leaves mapping-slot hashes and other data in the
+  scratch space, and the importer's allocations are not solc's, so the free-memory pointer
+  is read only into a variable that restores it or places a bubbled revert, and a block
+  that overwrites it must restore it.
 - A non-static call opens a cross-function reentrancy window and is classified with the
   closed low-level calls (`isClosedLowLevelCall`); a `staticcall` with the closed static
   calls (`isClosedStaticCall`).

@@ -1353,10 +1353,18 @@ private partial def lowerYul (j : Json) : M Val := do
             return v
           if let some v ← yulByteBufferLoad? args[0]! lowerYul then
             return v
-          -- A word of the scratch space, the free-memory pointer or the zero slot.
-          let addr ← lowerYul args[0]!
+          -- A scratch word this block wrote, or the zero slot. Anything else below 0x80 holds
+          -- what solc's code generator left there (mapping hashes, the free-memory pointer),
+          -- which the model does not reproduce. `let p := mload(0x40)` is lowered by
+          -- `lowerYulStmtSlice` (`yulFreePointerSave?`).
+          let addr ← if (← mKind args[0]!) == "YulLiteral" then lowerYul args[0]!
+            else failAt j "unsupported Yul builtin mload"
           if let .literal off := addr.expr then
             if addr.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd then
+              let env ← get
+              unless (off == 0 && env.yulScratch0) || (off == 32 && env.yulScratch32) ||
+                  off == yulZeroSlot do
+                failAt j "Yul mload below 0x80 must read a scratch word this block wrote or the zero slot"
               return { pre := #[], expr := .mload (.literal off) }
         failAt j "unsupported Yul builtin mload"
       -- `add(buf, 0x20)` of a `bytes memory` local is the address of its payload.
@@ -2000,6 +2008,50 @@ private def lowerYulPrefixKeccakBlock? (j : Json) (stmts refs : Array Json) (ret
     ])
   return none
 
+/-- Occurrences of the Yul identifier `name` in `j`. -/
+private partial def yulIdentifierUses (name : String) : Json → Nat
+  | j@(.obj kvs) =>
+      (if optStr j "nodeType" == some "YulIdentifier" && optStr j "name" == some name then 1 else 0) +
+        kvs.foldl (fun acc _ v => acc + yulIdentifierUses name v) 0
+  | .arr items => items.foldl (fun acc v => acc + yulIdentifierUses name v) 0
+  | _ => 0
+
+/-- Uses of `name` that only restore the free-memory pointer (`mstore(0x40, name)`) or place a
+bubbled revert (`returndatacopy(name, ..)`, `revert(name, ..)`), whose payload is the return
+data wherever it is copied. -/
+private partial def yulFreePointerUses (name : String) : Json → Nat
+  | j@(.obj kvs) =>
+      let isName (e : Json) := optStr e "nodeType" == some "YulIdentifier" && optStr e "name" == some name
+      let isLit (e : Json) (n : Nat) := optStr e "nodeType" == some "YulLiteral" &&
+        ((optStr e "value").bind fun raw => Compiler.Hex.parseHexNat? raw <|> raw.toNat?) == some n
+      let here :=
+        if optStr j "nodeType" == some "YulFunctionCall" then
+          match (field? j "functionName").bind (optStr · "name"), field? j "arguments" with
+          | some "mstore", some (.arr #[a, b]) => if isLit a 0x40 && isName b then 1 else 0
+          | some "returndatacopy", some (.arr #[a, _, _]) => if isName a then 1 else 0
+          | some "revert", some (.arr #[a, _]) => if isName a then 1 else 0
+          | _, _ => 0
+        else 0
+      here + kvs.foldl (fun acc _ v => acc + yulFreePointerUses name v) 0
+  | .arr items => items.foldl (fun acc v => acc + yulFreePointerUses name v) 0
+  | _ => 0
+
+/-- `let name := mload(0x40)` in the block `j` whose every other use of `name` restores the
+free-memory pointer or places a bubbled revert. The model's free pointer may differ from
+solc's (its allocations are not solc's), so no other use is sound. -/
+private def yulFreePointerSave? (j stmt : Json) (name : String) : M Bool := do
+  let some value := (field? stmt "value").filter (!·.isNull) | return false
+  unless optStr value "nodeType" == some "YulFunctionCall" &&
+      (field? value "functionName").bind (optStr · "name") == some "mload" do return false
+  let .arr #[addr] := (field? value "arguments").getD .null | return false
+  unless optStr addr "nodeType" == some "YulLiteral" &&
+      ((optStr addr "value").bind fun raw => Compiler.Hex.parseHexNat? raw <|> raw.toNat?) == some 0x40 do return false
+  let ast := (field? j "AST").getD .null
+  -- The declaration names `name` once; every use must be an admitted one.
+  unless yulIdentifierUses name ast == yulFreePointerUses name ast do
+    failAt value "Yul reads of the free-memory pointer may only restore it or place a bubbled revert"
+  return true
+
 /-- `returndatacopy(p, 0, returndatasize())` followed by `revert(p, returndatasize())` with
 the same `p`: forwarding the complete return data as the revert payload. -/
 private def isYulReturndataBubble (copy rev : Json) : M Bool := do
@@ -2027,8 +2079,11 @@ private def isYulReturndataBubble (copy rev : Json) : M Bool := do
 private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retName : String) : M (Array Stmt) := do
   let mut yulLocals : RBMap String String compare := RBMap.empty
   let mut out : Array Stmt := #[]
-  -- The zero slot must hold zero again when the block ends if the block wrote it.
+  -- The zero slot must hold zero again when the block ends if the block wrote it, and the
+  -- free-memory pointer must hold the value the block saved.
   let mut zeroSlotDirty := false
+  let mut freePointerDirty := false
+  let mut freePointerSaves : Array String := #[]
   let mut skipNext := false
   for i in [:stmts.size] do
     let stmt := stmts[i]!
@@ -2052,10 +2107,14 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           failAt varNode s!"unsupported Yul variable name {vname}"
         if yulLocals.contains vname then
           failAt varNode s!"duplicate Yul variable declaration {vname}"
-        let v ← match (field? stmt "value").filter (!·.isNull) with
+        let savesFreePointer ← yulFreePointerSave? j stmt vname
+        let v ← if savesFreePointer then pure { pre := #[], expr := .mload (.literal 0x40) }
+          else match (field? stmt "value").filter (!·.isNull) with
           | some valNode => lowerYulValue valNode
           | none => pure { pre := #[], expr := .literal 0 }
         let binding ← freshFor vname
+        if savesFreePointer then
+          freePointerSaves := freePointerSaves.push binding
         let expr := Expr.localVar binding
         modify fun e => { e with yulNames := e.yulNames.insert vname expr }
         yulLocals := yulLocals.insert vname binding
@@ -2100,10 +2159,16 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
             | failAt expr "Yul mstore requires a fixed address below 0x80"
           unless offVal.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd do
             failAt expr "Yul mstore requires a fixed address below 0x80"
-          if off < 32 then
+          -- A scratch word counts as written only when an mstore covers all of it.
+          if off == 0 then
             modify fun e => { e with yulScratch0 := true }
-          if off < 64 && off + 32 > 32 then
+          if off == 32 then
             modify fun e => { e with yulScratch32 := true }
+          if off < 0x60 && off + 32 > 0x40 then
+            freePointerDirty := !(off == 0x40 && valVal.pre.isEmpty &&
+              (match valVal.expr with
+               | .localVar b => freePointerSaves.contains b
+               | _ => false))
           if off + 32 > yulZeroSlot then
             zeroSlotDirty := !(off == yulZeroSlot && valVal.pre.isEmpty &&
               (match valVal.expr with | .literal 0 => true | _ => false))
@@ -2141,6 +2206,8 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
     | kind => failAt stmt s!"unsupported Yul statement {kind}"
   if zeroSlotDirty then
     failAt j "inline assembly must restore the zero slot at 0x60 to zero before it ends"
+  if freePointerDirty then
+    failAt j "inline assembly must restore the free-memory pointer at 0x40 before it ends"
   pure out
 
 private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array Stmt) := do

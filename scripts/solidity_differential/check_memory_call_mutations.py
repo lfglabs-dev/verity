@@ -36,6 +36,10 @@ MUTANTS = {
     'denote-yul-call-copy-length': (DENOTE,
         'let copied := Nat.min outSize observed.returndata.length',
         'let copied := Nat.min outSize (observed.returndata.length - 1)', YUL),
+    # An empty range at an offset past the range limit expands no memory on the EVM.
+    'denote-yul-call-empty-range': (DENOTE,
+        'if (inSize != 0 && yulMemoryCallRangeLimit < inOffset + inSize) ||',
+        'if (yulMemoryCallRangeLimit < inOffset + inSize) ||', YUL),
     'ecm-yul-call-value': (ECM,
         'YulExpr.call "call" [gas, target, .lit 0, inOffset, inSize, outOffset, outSize]',
         'YulExpr.call "call" [gas, target, .lit 1, inOffset, inSize, outOffset, outSize]', YUL),
