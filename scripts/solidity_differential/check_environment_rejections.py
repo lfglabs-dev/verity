@@ -25,7 +25,8 @@ def main():
         ('signature', 'bytes4', 'msg.sig', 'view', 'unsupported message context member sig'),
         ('data', 'uint256', 'msg.data.length', 'view', None),
         ('gasprice', 'uint256', 'tx.gasprice', 'view', None),
-        ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', 'hash input must be a supported ABI encoding'),
+        # `msg.data` is a byte buffer since 6bd725157 (lowerEncodedBytes), so indexing it imports.
+        ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', None),
     ]
     for name, ty, expr, mutability, expected in cases:
         directory = output / name
