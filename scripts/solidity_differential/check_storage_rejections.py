@@ -16,6 +16,12 @@ MEMORY_WRITE_HELPERS = (
     'function g(uint256 p, uint256 q) internal pure returns (uint256) { return p + q; }')
 
 
+# Root ABI parameter controls: the `function` line of each case's import.
+ROOT_PARAM_SIGNATURES = {
+    'root-param-string-member-accepted': 'checked(S)',
+}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--only', default=None)
@@ -593,6 +599,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported empty-body root return type address[]'),
+        # Root ABI parameters (#2711): a `string` member of a calldata struct.
+        ('root-param-string-member-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint16 a; string s; }\n  function checked(S calldata x) external pure returns (uint256) { return bytes(x.s).length + x.a; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
         ('bytes-param-calldata-accepted',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes calldata b) external pure returns (uint256) { return b.length; }\n}\n",
          None,
@@ -1554,7 +1566,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             (directory / 'sub').mkdir()
             (directory / 'sub' / 'Dep.sol').write_text('pragma solidity 0.8.34;\nlibrary DepLib { string internal constant REASON = "bad"; }\n')
         fn_sig = (
-            'checked(bytes)' if name.startswith('bytes-param-') or name.startswith('bytes-struct-') or name.startswith('bytes-named-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected', 'named-bytes-return-slice-struct-positive', 'bytes-struct-shared-memory-member-rejected', 'bytes-struct-root-return-rejected'}
+            ROOT_PARAM_SIGNATURES[name] if name in ROOT_PARAM_SIGNATURES
+            else 'checked(bytes)' if name.startswith('bytes-param-') or name.startswith('bytes-struct-') or name.startswith('bytes-named-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected', 'named-bytes-return-slice-struct-positive', 'bytes-struct-shared-memory-member-rejected', 'bytes-struct-root-return-rejected'}
             else 'checked(bytes2)' if name == 'access-manager-target-role-bytes2-root-param-rejected'
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'

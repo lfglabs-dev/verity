@@ -18,7 +18,7 @@ importer's memory readers and ABI encoder apply unchanged.
 unsigned scalars or of flat scalar structs. -/
 def supportedMember : Member → Bool
   | .scalar _ | .scalarArray _ | .structArray _ _ => true
-  | .bytesField _ | .nestedStruct _ _ _ _ _ => false
+  | .bytesField _ _ | .nestedStruct _ _ _ _ _ => false
 
 /-- Every generated name and statement. Names must be reserved by the importer. -/
 structure Plan where
@@ -128,7 +128,7 @@ def materialize (base dataEnd : Expr) (stem : String) (schema : List Member) : P
         (arrayNames memberStem,
           array (.localVar head) dataEnd i memberStem .bool (some (fields.map (·.kind))) ++
             [.mstore destination (.localVar (memberStem ++ "_memory"))])
-    | .bytesField _ | .nestedStruct _ _ _ _ _ => ([], [])
+    | .bytesField _ _ | .nestedStruct _ _ _ _ _ => ([], [])
   { memoryPointer
     names := [offset, head, memoryPointer, next] ++ members.flatMap (·.1)
     body := prefixStmts ++ members.flatMap (·.2) }

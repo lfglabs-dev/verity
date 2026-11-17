@@ -3088,3 +3088,32 @@ def stateful_tuple_destructuring_source(original, variant):
             raise ValueError(f'missing tuple source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+# Root ABI parameter fixtures: identifiers renamed by each metamorphic variant.
+# Struct type names stay: the model's function list names them. Member names
+# never reach the ABI, so renaming them must not change any observation (the
+# importer resolves declarations by id, not by text).
+ROOT_PARAM_RENAMES = {
+    'struct-string-member-param': (
+        {'cfg', 't', 'x'},
+        {'ltv', 'isolated', 'label', 'name', 'weight', 'payload', 'stored'}),
+}
+
+
+def stateful_root_param_source(fixture: str, variant: str, kind: str) -> str:
+    """`renamed`: parameters and locals; `members-renamed`: struct members,
+    internal helpers and the state variable."""
+    import re
+    if variant == 'baseline':
+        return fixture
+    locals_, members = ROOT_PARAM_RENAMES[kind]
+    if variant == 'renamed':
+        names = locals_
+    elif variant == 'members-renamed':
+        names = members
+    else:
+        raise ValueError(f'unknown root parameter variant: {variant}')
+    token = r'//[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+    return re.sub(token, lambda match: match.group(0) + 'Renamed'
+                  if match.group(0) in names else match.group(0), fixture)

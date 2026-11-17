@@ -555,7 +555,9 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    'import-nested-dynamic-struct-calldata-scalar-read',
                    'import-nested-dynamic-struct-calldata-root-validation',
                    'import-nested-dynamic-struct-calldata-index-bounds',
-                   'import-dynamic-root-parameter-offset')
+                   'import-dynamic-root-parameter-offset',
+                   'import-root-param-string-member-pointer',
+                   'import-root-param-string-calldata-member')
 
 # Removing an order guard must change a located rejection to admission.
 GUARD_MUTANTS = ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard')

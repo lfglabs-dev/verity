@@ -7,6 +7,7 @@ import tempfile
 
 from .engine import command, write_json
 from .programs import (
+    ROOT_PARAM_RENAMES,
     stateful_abi_decode_and_verifier_source,
     stateful_access_manager_target_role_source,
     stateful_array_string_params_and_context_source,
@@ -57,6 +58,7 @@ from .programs import (
     stateful_packed_member_write_source,
     stateful_packed_struct_mapping_ternary_tuple_source,
     stateful_public_getters_and_builtins_source,
+    stateful_root_param_source,
     stateful_short_circuit_source,
     stateful_signed_modulo_source,
     stateful_solc_0810_source,
@@ -175,6 +177,7 @@ FIXTURE_CONTRACTS = {
     'struct-hash-and-domain-separator': 'StructHashAndDomainSeparatorSequence',
     'struct-mapping-and-bytes4-interface': 'StructMappingAndBytes4InterfaceSequence',
     'struct-params-and-balances': 'StructParamsAndBalancesSequence',
+    'struct-string-member-param': 'StructStringMemberParamSequence',
     'timelock-and-bytes4-cast': 'TimelockAndBytes4CastSequence',
     'tuple-destructuring': 'TupleSequence',
     'tuple-helper': 'TupleHelperSequence',
@@ -345,6 +348,8 @@ def main():
         variants = ('baseline', 'renamed', 'unnamed-returns')
     if args.fixture == 'if-else':
         variants = ('baseline', 'inverted', 'ternary')
+    if args.fixture in ROOT_PARAM_RENAMES:
+        variants = ('baseline', 'renamed', 'members-renamed')
     if args.fixture in ('imported-event', 'narrow-event'):
         variants = ('baseline', 'renamed', 'reordered' if args.fixture == 'narrow-event' else 'bindings')
     for variant in variants:
@@ -423,6 +428,7 @@ def main():
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
+                          else stateful_root_param_source(fixture, variant, args.fixture) if args.fixture in ROOT_PARAM_RENAMES
                           else stateful_constant_array_source(fixture, variant) if args.fixture == "constant-arrays"
                           else stateful_numeric_literal_source(fixture, variant) if args.fixture == "numeric-literals"
                           else stateful_if_else_source(fixture, variant) if args.fixture == "if-else"

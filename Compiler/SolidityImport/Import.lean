@@ -3428,7 +3428,7 @@ private partial def lowerRef (j : Json) : M Ref := do
                   return .abiArray id i pre
                 if let some (.scalarArray _) := schema[i]? then
                   return .abiArray id i pre
-                if let some (.bytesField _) := schema[i]? then
+                if let some (.bytesField _ _) := schema[i]? then
                   return .abiBytesField id i pre
                 if let some (.nestedStruct _ subSid subSname subMembers subSchema) := schema[i]? then
                   let subId := 1000000000 + (← get).next
@@ -3470,7 +3470,7 @@ private partial def lowerRef (j : Json) : M Ref := do
             unless member == "length" do failAt j s!"unsupported bytes member {member}"
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
             let some schema := mem.schema | failAt j "missing ABI schema"
-            let some (.bytesField _) := schema[memberIndex]?
+            let some (.bytesField _ _) := schema[memberIndex]?
               | failAt j "length requires a schema-checked ABI bytes field"
             if mem.calldataLocation then
               let header ← fresh
@@ -4507,7 +4507,7 @@ private partial def lowerEncodedMemBody (id : Nat) (tuple : Expr) (arg : Json) :
         let value ← atom (← readAbiMember id #[] field.name arg)
         pre := pre ++ value.pre
         pre := pre.push (.mstore destination value.expr)
-    | .bytesField _ =>
+    | .bytesField _ _ =>
         let length ← fresh
         let data ← fresh
         if mem.calldataLocation then
@@ -4591,7 +4591,7 @@ private partial def lowerEncodedMemBody (id : Nat) (tuple : Expr) (arg : Json) :
         let kinds : List SolidityAbi.ScalarKind := match member with
           | .scalarArray field => [field.kind]
           | .structArray _ fields => fields.map (fun (field : AbiSchema.ScalarField) => field.kind)
-          | .scalar _ | .bytesField _ | .nestedStruct _ _ _ _ _ => []
+          | .scalar _ | .bytesField _ _ | .nestedStruct _ _ _ _ _ => []
         let scalarArray := match member with
           | .scalarArray _ => true
           | _ => false
@@ -5497,7 +5497,7 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
         if let .abiBytesField rootId memberIndex refPre ← lowerRef inner then
           let some mem := (← get).mems.find? rootId | failAt inner "unknown ABI root"
           let some schema := mem.schema | failAt inner "missing ABI schema"
-          let some (.bytesField _) := schema[memberIndex]?
+          let some (.bytesField _ _) := schema[memberIndex]?
             | failAt inner "expected a schema-checked ABI bytes field"
           if mem.calldataLocation then
             let header ← fresh
@@ -5779,12 +5779,14 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     if let some (pre, name, slotExpr, _) ← resolveStorageBytesTarget? j then
       return ← lowerStorageBytesRead pre name slotExpr j
   if (← mKind j) == "MemberAccess" &&
-      ((← mType j) == "bytes" || (← mType j) == "bytes memory" || (← mType j) == "bytes calldata") then
+      ((← mType j) == "bytes" || (← mType j) == "bytes memory" || (← mType j) == "bytes calldata" ||
+       (← mType j) == "string" || (← mType j) == "string memory" || (← mType j) == "string calldata") then
+    -- A `string` struct member has the `bytes` member encoding (`bytes(s.label)`).
     if (← mType (← mField j "expression")).startsWith "struct " then
       if let .abiBytesField id memberIndex pre ← lowerRef j then
         let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
         let some schema := mem.schema | failAt j "missing ABI schema"
-        let some (.bytesField _) := schema[memberIndex]?
+        let some (.bytesField _ _) := schema[memberIndex]?
           | failAt j "expected a schema-checked ABI bytes field"
         if mem.calldataLocation then
           let header ← fresh
@@ -11343,8 +11345,8 @@ private partial def bytesStructSchema? (sid : Nat) :
   let structs := (← get).structs
   let some decl := structs.find? sid | return none
   let .ok schema := AbiSchema.root (fun id => structs.find? id) decl | return none
-  unless schema.any (fun | .bytesField _ => true | _ => false) do return none
-  unless schema.all (fun | .bytesField _ | .scalar _ => true | _ => false) do return none
+  unless schema.any (fun | .bytesField _ _ => true | _ => false) do return none
+  unless schema.all (fun | .bytesField _ _ | .scalar _ => true | _ => false) do return none
   let sName ← mStr (← mField decl "name")
   let sMembers ← mArr (← mField decl "members")
   let members ← sMembers.mapM fun mNode => do
@@ -11458,7 +11460,7 @@ private partial def lowerBytesStructPointer (j : Json) (sid : Nat) : M (Array St
         | failAt j s!"unknown struct constructor member {mName}"
       let mTy := members[mIdx]!.2
       match schema[mIdx]? with
-      | some (.bytesField _) =>
+      | some (.bytesField _ _) =>
           let (wPre, word) ← lowerBytesMemberWord arg
           let w ← atom { pre := wPre, expr := word }
           pre := pre ++ w.pre

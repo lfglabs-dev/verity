@@ -487,6 +487,21 @@ MUTANTS.update({
                                         '        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD (decls.size - 1 - i) (.literal 0, "")'),
 })
 
+# Root ABI parameters (#2711): byte buffers of `string` struct members, from
+# memory (payload pointer) and from calldata (member word).
+MUTANTS.update({
+    'import-root-param-string-member-pointer': ('pointer := .add (.localVar bytesPtr) (.literal 32),',
+                                                'pointer := .add (.localVar bytesPtr) (.literal 0),'),
+    'import-root-param-string-calldata-member': (
+        '            (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data\n          let pointer ← fresh',
+        '            (.localVar (mem.abiStem ++ "_calldata")) (memberIndex + 1) header length data\n          let pointer ← fresh'),
+})
+ROOT_PARAM_MUTANT_FIXTURES = {
+    'import-root-param-string-member-pointer': 'StructStringMemberParamSequence',
+    'import-root-param-string-calldata-member': 'StructStringMemberParamSequence',
+}
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-access-manager-target-role-"):
@@ -617,6 +632,8 @@ def run(directory, output, name):
         fixture = "SignedModuloSequence"
     if name.startswith("import-bytes-named-slice-"):
         fixture = "BytesNamedReturnSliceStructSequence"
+    if name in ROOT_PARAM_MUTANT_FIXTURES:
+        fixture = ROOT_PARAM_MUTANT_FIXTURES[name]
     if name.startswith("import-constant-array-"):
         fixture = "ConstantArraySequence"
     if name.startswith("import-numeric-"):
@@ -717,6 +734,10 @@ def run(directory, output, name):
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, FIXED_MEMORY_ARRAY_PREFIX)])
+    if name in ROOT_PARAM_MUTANT_FIXTURES:
+        # The deterministic root-parameter call list (`check_stateful.ROOT_PARAM_CALLS`)
+        # runs first; the budget covers all of it.
+        argv[argv.index('--transactions') + 1] = '160'
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     # Compiles the model against the (possibly mutated) importer, then replays up
