@@ -11,6 +11,9 @@ make check
 # Regenerate the committed derived artifacts
 make refresh-status
 
+# Print current repository counts (tests, theorems, coverage); ARGS=--json for JSON
+make status
+
 # Run Python unit tests
 make test-python
 
@@ -46,4 +49,4 @@ sudo scripts/ci_host_maintenance.sh install-systemd
 - Generated verify workflow sync artifact: `scripts/verify_sync_spec.json`
 - Unified verify workflow validator: `scripts/check_verify_sync.py`
 - Docs workflow trigger contract: `scripts/check_docs_workflow_sync.py`
-- Verification metrics: `scripts/verification_metrics.py` (`current_metrics()`, computed on demand; `scripts/generate_verification_status.py` writes the git-ignored `artifacts/verification_status.json`)
+- Verification metrics: `scripts/verification_metrics.py` (`current_metrics()`, computed on demand; `make status` prints them; `scripts/generate_verification_status.py` writes the git-ignored `artifacts/verification_status.json`)
