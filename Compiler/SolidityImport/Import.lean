@@ -332,7 +332,8 @@ private def buildField (types item : Json) : M FieldInfo := do
       let rawInfo ← try resolveRawStructInfo sid Json.null catch _ =>
         throwError "unsupported storage encoding {encoding} for {name}"
       unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty &&
-          rawInfo.subStructs.isEmpty && !rawInfo.scalars.isEmpty && rawInfo.wordCount > 0 do
+          rawInfo.subStructs.isEmpty && rawInfo.opaqueMemberNames.isEmpty &&
+          !rawInfo.scalars.isEmpty && rawInfo.wordCount > 0 do
         throwError "unsupported storage encoding {encoding} for {name}"
       unless (← mNat (← mField base "numberOfBytes")) == rawInfo.wordCount * 32 do
         throwError "unsupported storage encoding {encoding} for {name}"
@@ -12392,6 +12393,9 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
         failAt target "cannot delete struct with dynamic-array members"
       unless rawInfo.subStructs.isEmpty do
         failAt target "cannot delete struct with nested struct members"
+      -- A `string`/`bytes` member's contents live outside the struct's words.
+      unless rawInfo.opaqueMemberNames.isEmpty do
+        failAt target "cannot delete struct with members outside this slice"
       unless rawInfo.wordCount > 0 && !rawInfo.scalars.isEmpty do
         failAt target "cannot delete empty struct layout"
       modify fun e => { e with usedRawStorage := true }
@@ -16403,7 +16407,8 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
     let k0 := paramExprs.getD 0 (.literal 0)
     if let some elemSid := info.dynamicArrayStructId then
       let rawInfo ← resolveRawStructInfo elemSid varDecl
-      unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty do
+      unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty &&
+          rawInfo.opaqueMemberNames.isEmpty do
         failAt varDecl s!"public struct array getter for {name} with nested or non-scalar members is outside this slice"
       let (elemPre, elemPath) ← storageDynamicStructElementPath #[] name (.literal info.slot) elemSid k0 varDecl .revertEmpty
       let (pre, retExprs, retTypes) ← readPublicStructGetterMembers elemPath elemPre
@@ -16529,7 +16534,8 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       let some mapInfo := info.thirdKeyMapping | failAt varDecl "missing 3-key mapping info"
       if let some valSid := mapInfo.valueStructId then
         let rawInfo ← resolveRawStructInfo valSid varDecl
-        unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty do
+        unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty &&
+            rawInfo.opaqueMemberNames.isEmpty do
           failAt varDecl s!"public 3-key mapping struct getter for {name} with nested or non-scalar members is outside this slice"
         markField name
         markStructMapping name mapInfo.member
