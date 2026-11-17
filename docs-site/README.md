@@ -35,8 +35,10 @@ npm start
 
 `npm run build` first runs `scripts/generate-derived.sh` (prebuild), which needs
 `python3` and the full repository checkout: it renders `public/verification-status.txt`
-(git-ignored) from `docs/VERIFICATION_STATUS.md` with the current counts. Without
-`python3` it logs one line and the build continues.
+(git-ignored) from `docs/VERIFICATION_STATUS.md` with the current counts, and fills
+the quick-facts block of `public/llms.txt` in place (restore it with
+`git checkout public/llms.txt` before committing; the committed block stays empty).
+Without `python3` it logs one line and the build continues.
 
 ## Structure
 

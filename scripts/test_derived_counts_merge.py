@@ -21,7 +21,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 
 # Commands that write derived counts, run from the repository root. All must
-# write only git-ignored paths.
+# write only git-ignored paths. (The docs prebuild also fills the quick-facts
+# block of docs-site/public/llms.txt in place, in its build checkout; the
+# committed block stays empty, see test_update_doc_numbers.py.)
 DERIVED_COUNT_WRITERS: list[list[str]] = [
     ["scripts/generate_verification_status.py"],
     ["scripts/sync_verification_status_doc.py", "--write", "docs-site/public/verification-status.txt"],
