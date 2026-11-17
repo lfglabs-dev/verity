@@ -755,13 +755,6 @@ theorem genSingleParamLoad_scalar
   rcases scalar_cases hty with
     rfl | rfl | rfl | rfl | ⟨_, rfl⟩ | ⟨_, rfl⟩ | ⟨_, rfl⟩ | rfl | rfl | rfl <;> rfl
 
-private theorem decode_total_of_scalar {ty : ParamType}
-    (hty : SupportedExternalScalarParamType ty) (word : Nat) :
-    ∃ value, DynamicAbi.decodeSupportedParamWord ty word = some value := by
-  rcases scalar_cases hty with
-    rfl | rfl | rfl | rfl | ⟨_, rfl⟩ | ⟨_, rfl⟩ | ⟨_, rfl⟩ | rfl | rfl | rfl <;>
-    exact ⟨_, rfl⟩
-
 /-- `decodeSupportedParamWord` already normalises its argument mod 2^256, so the
 model's `calldataloadWord` (which is reduced) and the raw calldata word decode
 alike. -/
@@ -957,7 +950,7 @@ private theorem exec_scalarParamLoad_then
     ExecSingleParamLoad state rest headSize baseOffset param.name param.ty idx extraFuel
       here := by
   obtain ⟨word, value, hword, hdecode, hhere⟩ :=
-    DynamicAbi.bindExternalParam_scalar_eq_some_inv (decode_total_of_scalar hscalar) hbind
+    DynamicAbi.bindExternalParam_scalar_eq_some_inv (SourceSemantics.scalarHeadParamType_of_supported hscalar) hbind
   subst hhere
   rw [ExecSingleParamLoad, genSingleParamLoad_scalar _ _ _ _ _ _ _ hscalar]
   simpa [ParamLoading.applyBindingsToIRState] using

@@ -16874,9 +16874,11 @@ private def importSlice
           if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
           modelParamNames := modelParamNames.push p.name
           modelParams := modelParams.push { name := p.name, ty := pty }
-      -- ABI cleanup is not validation: Solidity rejects noncanonical scalar
-      -- words before executing the function. Inspect the original calldata word,
-      -- since the model parameter loader has already masked/normalized it.
+      -- Solidity rejects noncanonical scalar words before executing the
+      -- function. The generic loader (`genScalarLoad`) validates scalar head
+      -- words too; these guards inspect the original calldata word in the
+      -- source body, which also carries the importer's tighter bounds (enum
+      -- ordinals).
       let mut abiGuards : Array Stmt := if env.explicitAbi || env.encodingMemory || stmtListRequiresFreePointerInit body.toList then #[.mstore (.literal 64) (.literal 128)] else #[]
       let rootHeadWords := (modelParams.toList.foldl (fun n p => n + paramHeadSize p.ty) 0) / 32
       for p in srcParams do

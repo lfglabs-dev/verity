@@ -80,24 +80,24 @@ theorem decodeSupportedParamWord_canonical :
         Nat.lt_of_lt_of_le h (pow_le_evmModulus 8 (by decide))
       have hmask := and_mask_eq_mod v 8
       simp only [decodeSupportedParamWord, uint8Modulus, wordNormalize_eq_of_lt v hlt]
-      simpa [Nat.mod_eq_of_lt h] using hmask
+      exact validatedWord_of_eq (by simpa [Nat.mod_eq_of_lt h] using hmask)
   | .uint16, v, h => by
       have hlt : v < Compiler.Constants.evmModulus :=
         Nat.lt_of_lt_of_le h (pow_le_evmModulus 16 (by decide))
       have hmask := and_mask_eq_mod v 16
       simp only [decodeSupportedParamWord, wordNormalize_eq_of_lt v hlt]
-      simpa [Nat.mod_eq_of_lt h] using hmask
+      exact validatedWord_of_eq (by simpa [Nat.mod_eq_of_lt h] using hmask)
   | .uintN bits, v, h => by
       obtain ⟨hbits, hmod⟩ := h
-      simp [decodeSupportedParamWord, wordNormalize_eq_of_lt v hmod,
-        Nat.mod_eq_of_lt hbits]
+      simp only [decodeSupportedParamWord, wordNormalize_eq_of_lt v hmod]
+      exact validatedWord_of_eq (by rw [and_mask_eq_mod, Nat.mod_eq_of_lt hbits])
   | .address, v, h => by
       have hlt : v < Compiler.Constants.evmModulus :=
         Nat.lt_of_lt_of_le h (pow_le_evmModulus 160 (by decide))
       have hmask := and_mask_eq_mod v 160
       simp only [decodeSupportedParamWord, Compiler.Constants.addressMask,
         wordNormalize_eq_of_lt v hlt]
-      simpa [Nat.mod_eq_of_lt h] using hmask
+      exact validatedWord_of_eq (by simpa [Nat.mod_eq_of_lt h] using hmask)
   | .bool, v, h => by
       rcases h with h | h <;> subst h
       · simp [decodeSupportedParamWord, wordNormalize_eq_of_lt 0 (by decide)]
@@ -119,7 +119,8 @@ theorem decode_bytesN_output_canonical (bytes : Nat) (v w : Nat)
     (h : decodeSupportedParamWord (.bytesN bytes) v = some w) :
     CanonicalParamWord (.bytesN bytes) w := by
   have hw : w = wordNormalize v &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))) := by
-    simpa [decodeSupportedParamWord] using h.symm
+    simp only [decodeSupportedParamWord, validatedWord_eq_some_iff] at h
+    exact h.2.symm
   constructor
   · rw [hw, Nat.and_assoc, Nat.and_self]
   · calc w ≤ wordNormalize v := by rw [hw]; exact Nat.and_le_left

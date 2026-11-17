@@ -12,7 +12,11 @@ from .mutations import snapshot
 MUTANTS = {'import-abi-source-offset': ('(.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + '
                               'paramHeadSize p.ty) 0))',
                               '(.literal (4 + 32*((srcParams.findIdx? (·.name == p.name)).getD 0)))'),
- 'import-abi-drop': ('let body := abiGuards ++ body', 'let body := body'),
+ # Drops the root scalar guards only: dropping every `abiGuards` statement also
+ # removes the explicit-prelude bindings, a compile failure rather than a
+ # runtime divergence.
+ 'import-abi-drop': ('\n          if let some bound := limit then\n',
+                     '\n          if let some bound := (none : Option Nat) then\n'),
  'import-abi-offset': ('(.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize '
                        'p.ty) 0))',
                        '(.literal (36 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize '

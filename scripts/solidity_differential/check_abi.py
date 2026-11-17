@@ -24,7 +24,8 @@ def main():
         fixture.parent, output / 'source')['contracts'][fixture.name]['AbiCanonicality']['evm']
     names = ['byteValue(uint8)', 'addressValue(address)', 'boolValue(bool)',
              'shortValue(uint16)', 'halfValue(uint128)', 'wideValue(uint248)',
-             'fullValue(uint256)', 'unusedValue(uint8)', 'mixedValue(uint256,uint8,address,bool)', 'structValue((uint256,uint256),uint8)']
+             'fullValue(uint256)', 'unusedValue(uint8)', 'mixedValue(uint256,uint8,address,bool)',
+             'preludeValue(uint8,address,bool,bytes)', 'structValue((uint256,uint256),uint8)']
     selectors = {name.split('(')[0]: int(source['methodIdentifiers'][name], 16) for name in names}
     write_json(output / 'selectors.json', list(selectors.values()))
     identity = ImplementationIdentity(driver, extra_inputs=[fixture])
@@ -71,6 +72,15 @@ def main():
             values[index] = limit
             add('mixedValue', values, False, [])
 
+    # Explicit-prelude entry (a `bytes calldata` parameter): the importer's
+    # guards are the only scalar validation. Empty `bytes` tail at offset 0x80.
+    prelude = [127, 2**159 + 13, 1]
+    add('preludeValue', prelude + [128, 0], True, prelude)
+    for index, limit in enumerate((2**8, 2**160, 2)):
+        values = prelude.copy()
+        values[index] = limit
+        add('preludeValue', values + [128, 0], False, [])
+
     for values, valid in (([11, 7, 255], True), ([11, 2**200, 255], True), ([11, 7, 256], False)):
         add('structValue', values, valid, values)
 
@@ -97,7 +107,7 @@ def main():
                 raise HarnessError('public Denote ABI row count differs')
             rows = []
             for tx, row in zip(calls, observed):
-                if row['events'] or (row['success'] and len(row['words']) != ({'mixedValue': 4, 'structValue': 3}.get(tx['function'], 1))):
+                if row['events'] or (row['success'] and len(row['words']) != ({'mixedValue': 4, 'preludeValue': 3, 'structValue': 3}.get(tx['function'], 1))):
                     raise HarnessError('unexpected public Denote echo result')
                 rows.append({'id': tx['id'], 'status': 'ok' if row['success'] else 'revert',
                     'data': '0x' + bytes(row['data']).hex(),

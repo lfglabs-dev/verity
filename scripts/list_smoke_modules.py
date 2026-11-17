@@ -22,10 +22,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HELPERS = ("deployCompiledVerityModule", "_ensureVerityModuleYul")
 # Floor on the number of distinct modules found under test/: the 26 modules of the
-# hand-maintained lists this script replaced. Fewer means the scan regressed (a parser
+# hand-maintained lists this script replaced, plus each smoke module added since
+# (ScalarAbiValidationSmoke). Fewer means the scan regressed (a parser
 # change, a renamed helper) and would silently stop prebuilding modules, so it fails
 # instead. Raise it when smoke tests are added; never lower it to make CI pass.
-MIN_MODULES = 26
+MIN_MODULES = 27
 
 _CALL = re.compile(r"\b(?:" + "|".join(HELPERS) + r")\s*\(\s*\"([^\"\\]+)\"")
 # String literals are matched first so that `//` inside a string is kept.

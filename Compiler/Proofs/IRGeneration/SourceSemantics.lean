@@ -707,21 +707,24 @@ def writeAddressKeyedMapping2FieldSlots
   else
     writeAddressKeyedMapping2Slots world slots key1 key2 value
 
+/-- Strict ABI decoding of a scalar head word (see
+`DynamicAbi.decodeSupportedParamWord`): an invalid encoding of `ty` fails, so
+the call reverts. -/
 def decodeSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
   let word := wordNormalize word
   match ty with
   | .uint256 | .int256 | .bytes32 => some word
-  | .uint8 => some (word &&& (uint8Modulus - 1))
-  | .uint16 => some (word &&& (2^16 - 1))
-  | .uintN bits => some (word &&& (2 ^ bits - 1))
-  | .intN bits => some
+  | .uint8 => DynamicAbi.validatedWord (word &&& (uint8Modulus - 1)) word
+  | .uint16 => DynamicAbi.validatedWord (word &&& (2^16 - 1)) word
+  | .uintN bits => DynamicAbi.validatedWord (word &&& (2 ^ bits - 1)) word
+  | .intN bits => DynamicAbi.validatedWord
       (Verity.Core.Uint256.signextend
         (Verity.Core.Uint256.ofNat (bits / 8 - 1))
-        (Verity.Core.Uint256.ofNat word)).val
-  | .bytesN bytes => some
-      (word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))))
-  | .address => some (word &&& Compiler.Constants.addressMask)
-  | .bool => some (if word = 0 then 0 else 1)
+        (Verity.Core.Uint256.ofNat word)).val word
+  | .bytesN bytes => DynamicAbi.validatedWord
+      (word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))) word
+  | .address => DynamicAbi.validatedWord (word &&& Compiler.Constants.addressMask) word
+  | .bool => DynamicAbi.validatedWord (if word = 0 then 0 else 1) word
   | _ => none
 
 def bindValue (bindings : List (String × Nat)) (name : String) (value : Nat) :
@@ -2650,6 +2653,23 @@ theorem bindSupportedParams_some_length
     (hlen : ¬ params.length ≤ args.length) :
     bindExternalParams selector params args = none := by
   simp only [bindExternalParams, DynamicAbi.bindExternalParams, hlen, ↓reduceIte]
+
+/-- Supported scalar parameters bind through the single-word scalar decoder. -/
+theorem scalarHeadParamType_of_supported {ty : ParamType}
+    (hsupported : SupportedExternalScalarParamType ty) : DynamicAbi.ScalarHeadParamType ty := by
+  cases ty <;> simp_all [SupportedExternalScalarParamType, DynamicAbi.ScalarHeadParamType]
+
+/-- Under supported scalar parameters, the external binder rejects every
+argument list the scalar binder rejects: a missing word or a dirty encoding. -/
+theorem bindExternalParams_eq_none_of_bindSupportedParams_none
+    (selector : Nat) {params : List Param} {args : List Nat}
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
+    (hnone : bindSupportedParams params args = none) :
+    bindExternalParams selector params args = none := by
+  unfold bindExternalParams
+  exact DynamicAbi.bindExternalParams_eq_none_of_bindSupportedParams_none selector
+    (fun param hparam => scalarHeadParamType_of_supported (hsupported param hparam))
+    (by rw [← bindSupportedParams_eq_dynamicAbi]; exact hnone)
 
 theorem bindSupportedParams_take_param_length
     {params : List Param}

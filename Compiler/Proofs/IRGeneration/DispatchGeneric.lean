@@ -17,7 +17,9 @@ parameter binding.  This module states that skeleton once, generic over
   binding-failure behavior), and
 - the IR-side executor `runFn` together with an `hinterp` equation pinning the
   interpreter's dispatch shape (discharged by `rfl` for `interpretIR` and by a
-  short `simp` for `interpretIRWithInternals`).
+  short `simp` for `interpretIRWithInternals`) and its behavior when binding
+  fails on arguments that cover every parameter (a dirty scalar word: the
+  generated loads revert, see `ParamLoading.exec_genParamLoads_supported_revert`).
 
 All concrete dispatcher theorems derive from `interpretContractWith_correct_generic`.
 -/
@@ -42,34 +44,6 @@ def runtimeContractOfFunctions (name : String) (functions : List IRFunction) : I
     (name : String) (functions : List IRFunction) :
     (runtimeContractOfFunctions name functions).internalFunctions = [] := rfl
 
-private theorem decodeSupportedParamWord_some_of_supported
-    (ty : ParamType) (word : Nat) (hsupported : SupportedExternalScalarParamType ty) :
-    ∃ value, SourceSemantics.decodeSupportedParamWord ty word = some value := by
-  cases ty <;> simp [SupportedExternalScalarParamType, SourceSemantics.decodeSupportedParamWord] at hsupported ⊢
-
-theorem bindSupportedParams_some_of_supported
-    (params : List Param) (args : List Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
-    (hlen : params.length ≤ args.length) :
-    ∃ bindings, SourceSemantics.bindSupportedParams params args = some bindings := by
-  induction params generalizing args with
-  | nil =>
-      exact ⟨[], by simp [SourceSemantics.bindSupportedParams]⟩
-  | cons param rest ih =>
-      cases args with
-      | nil =>
-          cases hlen
-      | cons arg restArgs =>
-          have hparam : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
-          rcases decodeSupportedParamWord_some_of_supported param.ty arg hparam with ⟨value, hdecode⟩
-          have hrestSupported : ∀ next ∈ rest, SupportedExternalScalarParamType next.ty := by
-            intro next hnext
-            exact hsupported next (by simp [hnext])
-          have hrestLen : rest.length ≤ restArgs.length := Nat.le_of_succ_le_succ hlen
-          rcases ih restArgs hrestSupported hrestLen with ⟨bindings, hbindings⟩
-          refine ⟨(param.name, value) :: bindings, ?_⟩
-          simp [SourceSemantics.bindSupportedParams, hdecode, hbindings]
-
 /-- External binding is arity-faithful: it only succeeds when the ABI head has
 at least one word per declared parameter. -/
 theorem bindExternalParams_some_length
@@ -80,17 +54,6 @@ theorem bindExternalParams_some_length
   by_contra hlen
   rw [SourceSemantics.bindExternalParams_eq_none_of_not_length_le selector hlen] at hbind
   cases hbind
-
-/-- Under supported parameter types, binding only fails on arity. -/
-theorem not_length_le_of_bindSupportedParams_none
-    (params : List Param) (args : List Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
-    (hbindNone : SourceSemantics.bindSupportedParams params args = none) :
-    ¬ params.length ≤ args.length := by
-  intro hle
-  rcases bindSupportedParams_some_of_supported params args hsupported hle with ⟨b, hb⟩
-  rw [hb] at hbindNone
-  cases hbindNone
 
 end Dispatch
 
@@ -121,12 +84,9 @@ theorem interpretFunction_eq_reverted_of_bind_none
     SourceSemantics.interpretFunction model fn tx initialWorld =
       SourceSemantics.revertedResult model
         (SourceSemantics.withTransactionContext initialWorld tx) := by
-  have hlen := Dispatch.not_length_le_of_bindSupportedParams_none
-    fn.bindingParams tx.args hsupported hbindNone
-  have hext := SourceSemantics.bindExternalParams_eq_none_of_not_length_le
-    (selector := tx.functionSelector) (params := fn.bindingParams) (args := tx.args) hlen
   unfold SourceSemantics.interpretFunction
-  rw [hext]
+  rw [SourceSemantics.bindExternalParams_eq_none_of_bindSupportedParams_none _ hsupported
+    hbindNone]
 
 /-- `interpretFunction` reverts whenever external ABI binding fails.  Unlike
 `interpretFunction_eq_reverted_of_bind_none` this needs no supportedness
@@ -165,12 +125,9 @@ theorem interpretFunctionWithHelpers_eq_reverted_of_bind_none
     SourceSemantics.interpretFunctionWithHelpers model fuel fn tx initialWorld =
       SourceSemantics.revertedResult model
         (SourceSemantics.withTransactionContext initialWorld tx) := by
-  have hlen := Dispatch.not_length_le_of_bindSupportedParams_none
-    fn.bindingParams tx.args hsupported hbindNone
-  have hext := SourceSemantics.bindExternalParams_eq_none_of_not_length_le
-    (selector := tx.functionSelector) (params := fn.bindingParams) (args := tx.args) hlen
   unfold SourceSemantics.interpretFunctionWithHelpers
-  rw [hext]
+  rw [SourceSemantics.bindExternalParams_eq_none_of_bindSupportedParams_none _ hsupported
+    hbindNone]
 
 /-- `interpretContract` is the `interpretContractWith` instance at
 `interpretFunction`. -/
@@ -228,14 +185,18 @@ private theorem reverted_matches_revertedIRResult
     FunctionBody.encodeEvents_withTransactionContext]
 
 /-- Past the payable guard, the selected function's arity check agrees on both
-sides: arity suffices for binding (`hbindTotal`), and binding failure reverts. -/
+sides, and so does a binding failure on arguments that pass it (`hIRbindFail`:
+the IR executor reverts too). -/
 private theorem dispatch_selected_arity_matches
     (S : FunctionSpec → SourceSemantics.SourceContractResult)
     (runFn : IRFunction → IRResult) (model : CompilationModel) (tx : IRTransaction)
     (initialWorld : Verity.ContractState) (fn : FunctionSpec) (irFn : IRFunction)
     (hlenEq : irFn.params.length = fn.params.length)
-    (hbindTotal : fn.params.length ≤ tx.args.length → ∃ bindings,
-      SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = some bindings)
+    (hIRbindFail : fn.params.length ≤ tx.args.length →
+      SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none →
+      FunctionBody.sourceResultMatchesIRResult
+        (SourceSemantics.revertedResult model
+          (SourceSemantics.withTransactionContext initialWorld tx)) (runFn irFn))
     (hSbindFail :
       SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none →
       S fn = SourceSemantics.revertedResult model
@@ -249,8 +210,9 @@ private theorem dispatch_selected_arity_matches
   rw [hlenEq]
   by_cases hlen : fn.params.length ≤ tx.args.length
   · rw [if_pos hlen]
-    obtain ⟨bindings, hbindings⟩ := hbindTotal hlen
-    exact hfunction bindings hbindings
+    cases hbindings : SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args with
+    | some bindings => exact hfunction bindings hbindings
+    | none => rw [hSbindFail hbindings]; exact hIRbindFail hlen hbindings
   · rw [if_neg hlen,
       hSbindFail (SourceSemantics.bindExternalParams_eq_none_of_not_length_le _ hlen)]
     exact reverted_matches_revertedIRResult model tx initialWorld
@@ -354,6 +316,18 @@ private theorem dispatch_find_none_matches
 section Generic
 
 variable (P : FunctionSpec → Nat → IRFunction → Prop)
+
+/-- The IR executor reverts like the source whenever scalar binding rejects
+arguments that pass the arity check (a dirty scalar head word: the generated
+loads revert, `ParamLoading.exec_genParamLoads_supported_revert`). -/
+abbrev ScalarBindFailReverts (runFn : IRFunction → IRResult) (model : CompilationModel)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState) : Prop :=
+  ∀ fn sel irFn, fn ∈ selectorDispatchedFunctions model → P fn sel irFn →
+    fn.params.length ≤ tx.args.length →
+    SourceSemantics.bindSupportedParams fn.params tx.args = none →
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx)) (runFn irFn)
 
 /-- Selector alignment of `find?` under any selector-faithful predicate. -/
 theorem find_function_some_of_forall₂_generic
@@ -466,26 +440,23 @@ private theorem dispatch_hit_of_external
       (if irFn.params.length ≤ tx.args.length then runFn irFn
         else revertedIRResult model tx initialWorld) := fun fn sel irFn hfnMem hPfn =>
   dispatch_selected_arity_matches S runFn model tx initialWorld fn irFn
-    (by simp [(hmeta fn sel irFn hPfn).1]) (hbindTotal fn hfnMem) (hSbindFail fn hfnMem)
-    (hfunction fn sel irFn · hfnMem hPfn)
-
-private theorem bindExternalParams_some_of_supported
-    (selector : Nat) {params : List Param} {args : List Nat}
-    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
-    (hlen : params.length ≤ args.length) :
-    ∃ bindings, SourceSemantics.bindExternalParams selector params args = some bindings := by
-  rcases bindSupportedParams_some_of_supported params args hsupported hlen with
-    ⟨bindings, hbindings⟩
-  exact ⟨bindings, SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
-    selector hbindings⟩
+    (by simp [(hmeta fn sel irFn hPfn).1])
+    (fun hlen hnone => absurd hnone (by
+      obtain ⟨bindings, hbindings⟩ := hbindTotal fn hfnMem hlen
+      simp [hbindings]))
+    (hSbindFail fn hfnMem) (hfunction fn sel irFn · hfnMem hPfn)
 
 private theorem bindSupportedParams_some_of_bindExternalParams_some
     {selector : Nat} {params : List Param} {args : List Nat} {bindings : List (String × Nat)}
     (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hbindExt : SourceSemantics.bindExternalParams selector params args = some bindings) :
-    ∃ scalarBindings, SourceSemantics.bindSupportedParams params args = some scalarBindings :=
-  bindSupportedParams_some_of_supported params args hsupported
-    (Dispatch.bindExternalParams_some_length hbindExt)
+    ∃ scalarBindings, SourceSemantics.bindSupportedParams params args = some scalarBindings := by
+  cases hbind : SourceSemantics.bindSupportedParams params args with
+  | some scalarBindings => exact ⟨scalarBindings, rfl⟩
+  | none =>
+      rw [SourceSemantics.bindExternalParams_eq_none_of_bindSupportedParams_none selector
+        hsupported hbind] at hbindExt
+      cases hbindExt
 
 private theorem bindSupportedParams_none_of_bindExternalParams_none
     {selector : Nat} {params : List Param} {args : List Nat}
@@ -564,24 +535,27 @@ private theorem dispatch_hit_of_scalar
         (SourceSemantics.withTransactionContext initialWorld tx))
     (hparamsSupported : ∀ fn ∈ selectorDispatchedFunctions model,
       ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
+    (hIRbindFail : ScalarBindFailReverts P runFn model tx initialWorld)
     (hfunction : ∀ fn sel irFn bindings, fn ∈ selectorDispatchedFunctions model → P fn sel irFn →
       SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
       FunctionBody.sourceResultMatchesIRResult (S fn) (runFn irFn)) :
     ∀ fn sel irFn, fn ∈ selectorDispatchedFunctions model → P fn sel irFn →
     FunctionBody.sourceResultMatchesIRResult (S fn)
       (if irFn.params.length ≤ tx.args.length then runFn irFn
-        else revertedIRResult model tx initialWorld) :=
-  dispatch_hit_of_external P S runFn model tx initialWorld hmeta
-    (fun fn hfn h => hSbindFail fn hfn (bindSupportedParams_none_of_bindExternalParams_none h))
-    (fun fn hfn => bindExternalParams_some_of_supported _ (hparamsSupported fn hfn))
-    (fun fn sel irFn _ hfn hP hbind =>
+        else revertedIRResult model tx initialWorld) := fun fn sel irFn hfn hP =>
+  dispatch_selected_arity_matches S runFn model tx initialWorld fn irFn
+    (by simp [(hmeta fn sel irFn hP).1])
+    (fun hlen h => hIRbindFail fn sel irFn hfn hP hlen
+      (bindSupportedParams_none_of_bindExternalParams_none h))
+    (fun h => hSbindFail fn hfn (bindSupportedParams_none_of_bindExternalParams_none h))
+    (fun _ hbind =>
       (bindSupportedParams_some_of_bindExternalParams_some (hparamsSupported fn hfn) hbind).elim
         fun scalarBindings hscalar => hfunction fn sel irFn scalarBindings hfn hP hscalar)
 
-/-- The scalar dispatcher correctness skeleton, derived through the widened
-external one's selected-function bridge: for scalar parameters the external
-binder agrees with `bindSupportedParams`, so the syntactic supportedness
-predicate discharges `hbindTotal`. -/
+/-- The scalar dispatcher correctness skeleton.  For scalar parameters the
+external binder agrees with `bindSupportedParams`; a binding failure on
+arguments that pass the arity check (a dirty scalar word) reverts the source,
+and `hIRbindFail` states the IR executor reverts too. -/
 theorem interpretContractWith_correct_generic
     (S : FunctionSpec → SourceSemantics.SourceContractResult) (runFn : IRFunction → IRResult)
     (model : CompilationModel) (selectors : List Nat) (irFns : List IRFunction)
@@ -596,6 +570,7 @@ theorem interpretContractWith_correct_generic
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hparamsSupported : ∀ fn ∈ selectorDispatchedFunctions model,
       ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
+    (hIRbindFail : ScalarBindFailReverts P runFn model tx initialWorld)
     (hinterp : irResult =
       match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
       | some irFn =>
@@ -624,7 +599,8 @@ theorem interpretContractWith_correct_generic
       (interpretContractWith S model selectors tx initialWorld) irResult := by
   exact interpretContractWith_matches_of_lookup P S runFn model selectors irFns tx initialWorld
     irResult hmeta hcompiled (dispatch_hit_of_scalar P S runFn model tx initialWorld hmeta
-      hSbindFail hparamsSupported hfunction) (by rw [hinterp, ·]) (fun _ h => by rw [hinterp, h])
+      hSbindFail hparamsSupported hIRbindFail hfunction) (by rw [hinterp, ·])
+      (fun _ h => by rw [hinterp, h])
 
 /-- Source-parametric dispatcher correctness against `interpretIR`: the
 master skeleton with the executor fixed to `execIRFunction` (the `hinterp`
@@ -646,6 +622,8 @@ theorem interpretContractWith_correct_of_functions_generic
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
         ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
+    (hIRbindFail : ScalarBindFailReverts P (fun irFn => execIRFunction irFn tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld)) model tx initialWorld)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -662,7 +640,7 @@ theorem interpretContractWith_correct_of_functions_generic
     (fun irFn => execIRFunction irFn tx.args
       (FunctionBody.initialIRStateForTx model tx initialWorld))
     model selectors irFns tx initialWorld _
-    hmeta hSbindFail hcompiled hparamsSupported rfl hfunction
+    hmeta hSbindFail hcompiled hparamsSupported hIRbindFail rfl hfunction
 
 /-- Dispatcher correctness, generic over the per-entry compile predicate. -/
 theorem interpretContract_correct_of_functions_generic
@@ -678,6 +656,8 @@ theorem interpretContract_correct_of_functions_generic
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
         ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
+    (hIRbindFail : ScalarBindFailReverts P (fun irFn => execIRFunction irFn tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld)) model tx initialWorld)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -699,7 +679,7 @@ theorem interpretContract_correct_of_functions_generic
       model fn tx initialWorld
         (by simpa [FunctionSpec.bindingParams, habi fn hmem] using hparamsSupported fn hmem)
         (by simpa [FunctionSpec.bindingParams, habi fn hmem] using hbindNone))
-    hcompiled hparamsSupported hfunction
+    hcompiled hparamsSupported hIRbindFail hfunction
 
 /-- Widened source-parametric dispatcher correctness against `interpretIR`:
 the external skeleton with the executor fixed to `execIRFunction`. -/

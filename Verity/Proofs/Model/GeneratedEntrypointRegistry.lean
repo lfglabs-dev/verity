@@ -526,8 +526,9 @@ example :
            ToDispatchVal.toDispatchVal (3 : Uint256)])] = false :=
   rfl
 
-/-! P1: genScalarLoad-normalized noncanonical scalar words still match. -/
-example : dispatchCalldataMatchesKinds
+/-! P1: compiled dispatch reverts on noncanonical scalar words, so they do not
+match; the canonical word does. -/
+example : ¬ dispatchCalldataMatchesKinds
     { sender := 0, msgValue := 0,
       calldataSize := Verity.Core.Uint256.ofNat 36, calldata := [2] }
     [.bool]
@@ -535,11 +536,17 @@ example : dispatchCalldataMatchesKinds
 
 example : dispatchCalldataMatchesKinds
     { sender := 0, msgValue := 0,
+      calldataSize := Verity.Core.Uint256.ofNat 36, calldata := [1] }
+    [.bool]
+    (abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal true]) := by decide
+
+example : ¬ dispatchCalldataMatchesKinds
+    { sender := 0, msgValue := 0,
       calldataSize := Verity.Core.Uint256.ofNat 36, calldata := [256] }
     [.uint8]
     (abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal (0 : Verity.Core.UIntN 8)]) := by decide
 
-example : dispatchCalldataMatchesKinds
+example : ¬ dispatchCalldataMatchesKinds
     { sender := 0, msgValue := 0,
       calldataSize := Verity.Core.Uint256.ofNat 36,
       calldata := [Compiler.Constants.addressMask + 1 + 7] }

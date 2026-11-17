@@ -12,6 +12,12 @@ contract AbiCanonicality {
         external pure returns (uint256, uint8, address, bool) {
         return (full, narrow, account, flag);
     }
+    // A `bytes calldata` parameter selects the explicit ABI prelude: the
+    // importer's entry guards are then the only scalar validation.
+    function preludeValue(uint8 narrow, address account, bool flag, bytes calldata data)
+        external pure returns (uint8, address, bool) {
+        return (data.length == 0 ? narrow : narrow, account, flag);
+    }
     struct Pair { uint256 first; uint256 second; }
     function structValue(Pair calldata pair, uint8 narrow)
         external pure returns (uint256, uint256, uint8) {

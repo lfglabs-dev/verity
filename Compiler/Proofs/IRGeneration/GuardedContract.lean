@@ -64,9 +64,10 @@ theorem supported_params_of_supportedSpecGuarded
   have hfnModel : fn ∈ model.functions := List.mem_of_mem_filter hfn
   exact (hSupported.functions fn hfnModel).paramsSupported param hparam
 
-/-- The guarded choice reverts on binding failure (under supported params,
-binding only fails on arity, where both the plain and the guarded semantics
-revert — the lock overlay is invisible in the reverted result). -/
+/-- The guarded choice reverts on binding failure (under supported params the
+external binder fails too — on arity or on a dirty scalar word — so both the
+plain and the guarded semantics revert; the lock overlay is invisible in the
+reverted result). -/
 theorem guardedFunctionChoice_bindFail (model : CompilationModel)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (fn : FunctionSpec) {habi : fn.abiDecoding = .standard}
@@ -75,15 +76,8 @@ theorem guardedFunctionChoice_bindFail (model : CompilationModel)
     guardedFunctionChoice model tx initialWorld fn =
       SourceSemantics.revertedResult model
         (SourceSemantics.withTransactionContext initialWorld tx) := by
-  have hlen : ¬ fn.params.length ≤ tx.args.length := by
-    intro hle
-    rcases bindSupportedParams_some_of_supported fn.params tx.args hparams hle
-      with ⟨bindings, hb⟩
-    rw [hb] at hbindNone
-    cases hbindNone
-  have hext := SourceSemantics.bindExternalParams_eq_none_of_not_length_le
-    (selector := tx.functionSelector) (params := fn.params)
-    (args := tx.args) hlen
+  have hext := SourceSemantics.bindExternalParams_eq_none_of_bindSupportedParams_none
+    tx.functionSelector hparams hbindNone
   have hplain : ∀ world, SourceSemantics.interpretFunction model fn tx world =
       SourceSemantics.revertedResult model
         (SourceSemantics.withTransactionContext world tx) := by
@@ -157,6 +151,11 @@ theorem compile_preserves_semantics_guarded
     (fun fn hmem hbindNone => guardedFunctionChoice_bindFail
       (habi := (hSupported.functions fn (List.mem_of_mem_filter hmem)).standardAbi) model tx
       initialWorld fn (hparamsSupported fn hmem) hbindNone)
-    hcompiled hparamsSupported hfunction
+    hcompiled hparamsSupported
+    (fun fn sel irFn hfn hP hlen hnone => Dispatch.execIRFunction_bindFail_matches model tx
+      initialWorld fn irFn (compileGuardedFunctionSpec_ok_loads_prefix _ _ _ _ sel fn irFn
+        (hSupported.functions fn (List.mem_of_mem_filter hfn)).standardAbi hP)
+      (hparamsSupported fn hfn) hlen hnone)
+    hfunction
 
 end Compiler.Proofs.IRGeneration

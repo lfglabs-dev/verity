@@ -29,6 +29,87 @@ theorem runtimeContractOfFunctions_disjoint
   intro fn hmem
   exact hdisjointBodies fn hmem
 
+/-- A function compiled by `compileFunctionSpec` (standard ABI decoding) has the
+declared parameters and a body that starts with the generated parameter
+loads. -/
+theorem compileFunctionSpec_ok_loads_prefix
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (internalFunctions : List FunctionSpec) (sel : Nat) (fn : FunctionSpec) (irFn : IRFunction)
+    (habi : fn.abiDecoding = .standard)
+    (hcompile : compileFunctionSpec fields events errors [] sel fn
+      (internalFunctions := internalFunctions) = Except.ok irFn) :
+    irFn.params = fn.params.map Param.toIRParam ∧
+      ∃ rest, irFn.body = genParamLoads fn.params ++ rest := by
+  obtain ⟨returns, bodyStmts, -, -, -, rfl⟩ :=
+    FunctionShape.compileFunctionSpec_ok_components_with_internals fields events errors []
+      internalFunctions sel fn irFn hcompile
+  exact ⟨rfl, bodyStmts, by
+    simp [FunctionShape.compiledFunctionIR, FunctionSpec.bindingParams, habi]⟩
+
+/-- The IR rollback record for a transaction matches the reverted source
+result. -/
+theorem reverted_matches_initial_rollback
+    (model : CompilationModel) (tx : IRTransaction) (initialWorld : Verity.ContractState) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx))
+      { success := false, returnValue := none
+        finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+        finalMappings := Compiler.Proofs.storageAsMappings
+          (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+        events := (FunctionBody.initialIRStateForTx model tx initialWorld).events } := by
+  simp [FunctionBody.sourceResultMatchesIRResult,
+    SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
+    FunctionBody.encodeStorage_withTransactionContext,
+    FunctionBody.encodeEvents_withTransactionContext]
+
+/-- A function whose body starts with the generated loads reverts like the
+source when binding rejects arguments covering every parameter (a dirty scalar
+word). -/
+theorem execIRFunction_bindFail_matches
+    (model : CompilationModel) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (fn : FunctionSpec) (irFn : IRFunction)
+    (hshape : irFn.params = fn.params.map Param.toIRParam ∧
+      ∃ rest, irFn.body = genParamLoads fn.params ++ rest)
+    (hsupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
+    (hlen : fn.params.length ≤ tx.args.length)
+    (hnone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx))
+      (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  obtain ⟨hparams, rest, hbody⟩ := hshape
+  have h := Function.execIRFunction_revert_of_bind_none
+    (FunctionBody.initialIRStateForTx model tx initialWorld) irFn fn.params rest hparams hbody
+    hsupported hlen hnone
+  rw [show tx.args = (FunctionBody.initialIRStateForTx model tx initialWorld).calldata from rfl, h]
+  exact reverted_matches_initial_rollback model tx initialWorld
+
+/-- Helper-aware analogue of `execIRFunction_bindFail_matches`, for a runtime
+contract whose helper names are reserved (so the loads call no helper). -/
+theorem execIRFunctionWithInternals_bindFail_matches
+    (model : CompilationModel) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (runtimeContract : IRContract) (helperFuel : Nat)
+    (hreserved : InternalTableNamesReserved runtimeContract)
+    (fn : FunctionSpec) (irFn : IRFunction)
+    (hshape : irFn.params = fn.params.map Param.toIRParam ∧
+      ∃ rest, irFn.body = genParamLoads fn.params ++ rest)
+    (hsupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
+    (hlen : fn.params.length ≤ tx.args.length)
+    (hnone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx))
+      (execIRFunctionWithInternals runtimeContract helperFuel irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  obtain ⟨hparams, rest, hbody⟩ := hshape
+  have h := Function.execIRFunctionWithInternals_revert_of_bind_none runtimeContract helperFuel
+    (FunctionBody.initialIRStateForTx model tx initialWorld) irFn fn.params rest hparams hbody
+    hsupported hlen hnone
+    (Function.genParamLoads_callsDisjoint_of_reserved runtimeContract fn.params hsupported hreserved)
+  rw [show tx.args = (FunctionBody.initialIRStateForTx model tx initialWorld).calldata from rfl, h]
+  exact reverted_matches_initial_rollback model tx initialWorld
+
 theorem interpretContract_correct_of_compiled_functions
     (model : CompilationModel)
     {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
@@ -64,7 +145,11 @@ theorem interpretContract_correct_of_compiled_functions
       obtain ⟨hp, hs, hpay⟩ := Function.compileFunctionSpec_ok_metadata_with_internals
         model.fields model.events model.errors sel fn irFn [] hP
       exact ⟨hp, hs, hpay⟩)
-    hcompiled hparamsSupported hfunction
+    hcompiled hparamsSupported
+    (fun fn sel irFn hfn hP hlen hnone => execIRFunction_bindFail_matches model tx initialWorld
+      fn irFn (compileFunctionSpec_ok_loads_prefix _ _ _ [] sel fn irFn (habi fn hfn) hP)
+      (hparamsSupported fn hfn) hlen hnone)
+    hfunction
 
 /-- Under standard ABI decoding of supported scalar params, `interpretFunction`
 reverts whenever scalar binding fails. -/
@@ -88,6 +173,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
     (selectors : List Nat) (runtimeContract : IRContract) (irFuelSlack : Nat)
     (irFns : List IRFunction) (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (hfunctions : runtimeContract.functions = irFns)
+    (hreserved : InternalTableNamesReserved runtimeContract)
     (hcompiled : List.Forall₂ (fun entry irFn => compileFunctionSpec model.fields model.events
         model.errors [] entry.2 entry.1 = Except.ok irFn)
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
@@ -112,7 +198,11 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
     model selectors irFns tx initialWorld _
     (fun _ _ _ hP => Function.compileFunctionSpec_ok_metadata_with_internals _ _ _ _ _ _ _ hP)
     (interpretFunction_reverted_of_standard_bind_none tx initialWorld habi hparamsSupported)
-    hcompiled hparamsSupported ?_ hfunction
+    hcompiled hparamsSupported
+    (fun fn sel irFn hfn hP hlen hnone => execIRFunctionWithInternals_bindFail_matches model tx
+      initialWorld runtimeContract irFuelSlack hreserved fn irFn
+      (compileFunctionSpec_ok_loads_prefix _ _ _ [] sel fn irFn (habi fn hfn) hP)
+      (hparamsSupported fn hfn) hlen hnone) ?_ hfunction
   simp [interpretIRWithInternals, hfunctions, FunctionBody.initialIRStateForTx]
   congr
 
@@ -143,6 +233,7 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
     (selectors : List Nat) (helperFuel : Nat) (runtimeContract : IRContract)
     (irFuelSlack : Nat) (irFns : List IRFunction) (tx : IRTransaction)
     (initialWorld : Verity.ContractState) (hfunctions : runtimeContract.functions = irFns)
+    (hreserved : InternalTableNamesReserved runtimeContract)
     (hcompiled : List.Forall₂ (fun entry irFn =>
         compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1
           (internalFunctions := model.functions.filter (·.isInternal)) = Except.ok irFn)
@@ -172,7 +263,11 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
     (fun _ _ _ hP => Function.compileFunctionSpec_ok_metadata_with_internals _ _ _ _ _ _ _ hP)
     (interpretFunctionWithHelpers_reverted_of_standard_bind_none helperFuel tx initialWorld
       habi hparamsSupported)
-    hcompiled hparamsSupported ?_ hfunction
+    hcompiled hparamsSupported
+    (fun fn sel irFn hfn hP hlen hnone => execIRFunctionWithInternals_bindFail_matches model tx
+      initialWorld runtimeContract irFuelSlack hreserved fn irFn
+      (compileFunctionSpec_ok_loads_prefix _ _ _ _ sel fn irFn (habi fn hfn) hP)
+      (hparamsSupported fn hfn) hlen hnone) ?_ hfunction
   simp [interpretIRWithInternals, hfunctions, FunctionBody.initialIRStateForTx]
   congr
 
@@ -187,6 +282,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
     (hfunctions : runtimeContract.functions = irFns)
+    (hreserved : InternalTableNamesReserved runtimeContract)
     (hcompiled :
       List.Forall₂
         (fun entry irFn => compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1
@@ -211,7 +307,8 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
   exact interpretContractWithHelpersWithInternals_correct_of_compiled_functions
     (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
     model selectors hSupported.helperFuel runtimeContract irFuelSlack irFns tx initialWorld
-    hfunctions hcompiled (fun fn hfn => hSupported.selectorFunctionParamsSupported hfn) (by
+    hfunctions hreserved hcompiled (fun fn hfn => hSupported.selectorFunctionParamsSupported hfn)
+    (by
       intro fn sel irFn bindings hfn hcompile hbind
       simpa [supportedSourceFunctionSemanticsWithHelpers] using
         hfunction fn sel irFn bindings hfn hcompile hbind)
@@ -282,6 +379,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
     (hfunctions : runtimeContract.functions = irFns)
+    (hreserved : InternalTableNamesReserved runtimeContract)
     (hcompiled :
       List.Forall₂
         (fun entry irFn =>
@@ -306,7 +404,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   have hlegacy := interpretContractWithInternals_correct_of_compiled_functions
     (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
-    model selectors runtimeContract irFuelSlack irFns tx initialWorld hfunctions
+    model selectors runtimeContract irFuelSlack irFns tx initialWorld hfunctions hreserved
     hcompiled hparamsSupported (by
       intro fn sel irFn bindings hfn hcompileFn hbind
       simpa [supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched

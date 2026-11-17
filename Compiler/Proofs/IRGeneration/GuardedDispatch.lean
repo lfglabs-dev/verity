@@ -57,6 +57,10 @@ theorem interpretContract_correct_of_compiled_guarded_functions
       obtain ⟨hp, hs, hpay⟩ := compileGuardedFunctionSpec_ok_metadata
         model.fields model.events model.errors internalFunctions sel fn irFn hP
       exact ⟨hp, hs, hpay⟩)
-    hcompiled hparamsSupported hfunction
+    hcompiled hparamsSupported
+    (fun fn sel irFn hfn hP hlen hnone => execIRFunction_bindFail_matches model tx initialWorld
+      fn irFn (compileGuardedFunctionSpec_ok_loads_prefix _ _ _ _ sel fn irFn (habi fn hfn) hP)
+      (hparamsSupported fn hfn) hlen hnone)
+    hfunction
 
 end Compiler.Proofs.IRGeneration
