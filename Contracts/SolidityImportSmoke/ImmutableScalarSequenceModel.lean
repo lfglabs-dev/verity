@@ -13,10 +13,10 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "ImmutableSc
   function change(uint256)
   function fail()
   function read()
+  function asset()
   function scalarWords()
   function scaledEnd()
   function isCurrentChain()
-  function asset()
   function deployer()
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
