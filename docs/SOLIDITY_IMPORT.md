@@ -1207,9 +1207,14 @@ write the caller's storage"), and admit each step by its oracle, function and pr
 `all_entry_points_preserve_with_of_success` and
 `callee_sequence_append` are the counterparts of the rules above. `ReentrantCallees` lets
 callees call back into the contract, a bounded number of levels deep: a successful answer is
-then a nested callee-choosing sequence of the contract's own entry points from the call point,
-with the caller's frame restored; `reentrant_answer_preserves` carries an invariant of the
-contract's own storage through such an answer. Their steps also take ABI
+then a nested sequence of the contract's own entry points from the call point
+(`ReentrantEntryPointSequence`, with obligations `AllEntryPointsPreserveReentrant`), with the
+caller's frame restored; `reentrant_answer_preserves` carries an invariant of the contract's
+own storage through such an answer. Nested calls start from `beginReentrantFrame`, which keeps
+the transaction's transient storage (EIP-1153): a callback reads what its caller stored there
+and the caller reads what the callback left, so transient reentrancy locks and flags are
+modelled as on the EVM. `EntryPointInvariantChecks` pins this: a callback from a frame with a
+transient flag set writes where no fresh transaction can. Their steps also take ABI
 decoding into account: each step's bindings decode its own world's calldata (`DecodedCall`,
 through `Denote.bindExternalParams` as `denoteFunction` decodes), so a proof may use that a
 `uint104` parameter is below `2^104`, no step runs a body on arguments no transaction can
