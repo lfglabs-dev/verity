@@ -191,72 +191,33 @@ private def libraryIndent : String := "            "
 -- Indentation level for library functions in creation code (2 levels × 4 spaces = 8 spaces)
 private def creationLibraryIndent : String := "        "
 
--- Library functions that `text` calls, closed under calls between library functions.
-private def referencedLibraries (libraries : List LibraryFunction) (text : String) :
-    List LibraryFunction :=
-  let calls (body : String) (fn : LibraryFunction) : Bool :=
-    (body.splitOn (fn.name ++ "(")).length > 1
-  let rec grow : Nat → List LibraryFunction → List LibraryFunction
-    | 0, selected => selected
-    | fuel + 1, selected =>
-        let selectedText := String.intercalate "\n" (selected.flatMap (·.body))
-        let next := libraries.filter fun fn =>
-          calls text fn || calls selectedText fn
-        if next.length == selected.length then selected else grow fuel next
-  grow (libraries.length + 1) []
+/-- Yul identifier characters (`[a-zA-Z0-9_$.]`). -/
+private def isYulIdentChar (c : Char) : Bool :=
+  c.isAlphanum || c == '_' || c == '$' || c == '.'
 
--- Inject library function text directly into rendered Yul output
--- This preserves the exact library code without parsing/re-emitting.
--- Every library function goes into the runtime code; the ones the creation code
--- calls (directly or through other library functions) also go into the creation code.
--- Returns an error if the runtime code injection site is not found.
-def renderWithLibraries (obj : YulObject) (libraries : List LibraryFunction) : Except String String :=
-  -- Render the main object
-  let mainYul := Yul.render obj
+/-- Whether `text` calls `name`: the whole identifier `name` (not part of a longer
+    identifier such as `xname` or `namex`), then optional whitespace including line
+    breaks, then `(`. Text-level, so it also matches inside comments and strings
+    (an over-approximation that at worst injects an unused function). -/
+def callsFunctionName (text name : String) : Bool :=
+  let target := name.toList
+  let rec opensArgs : List Char → Bool
+    | [] => false
+    | c :: rest => if c.isWhitespace then opensArgs rest else c == '('
+  let rec scan (afterIdentChar : Bool) : List Char → Bool
+    | [] => false
+    | cs@(c :: rest) =>
+        if !afterIdentChar && target.isPrefixOf cs && opensArgs (cs.drop target.length) then
+          true
+        else
+          scan (isYulIdentChar c) rest
+  !target.isEmpty && scan false text.toList
 
-  -- If no libraries, return as-is
-  if libraries.isEmpty then
-    .ok mainYul
-  else
-    -- Extract the runtime code section and inject libraries
-    -- Find the runtime "code {" line and inject library functions after it
-    let lines := mainYul.splitOn "\n"
-    let rec insertLibraries (remaining : List String) (acc : List String) (inserted : Bool) (depth : Nat) : List String × Bool :=
-      match remaining with
-      | [] => (acc, inserted)
-      | line :: rest =>
-          -- Track depth: we want the second "code {" (inside object "runtime")
-          let isCodeLine := line.trim.startsWith "code {"
-          let newDepth := if isCodeLine then depth + 1 else depth
-          if !inserted && newDepth == 2 && isCodeLine then
-            -- Found the runtime code section, insert libraries after this line
-            let libraryLines := libraries.flatMap fun fn =>
-              -- Add proper indentation for runtime code functions
-              fn.body.map fun bodyLine =>
-                if bodyLine.trim.isEmpty then bodyLine
-                else libraryIndent ++ bodyLine
-            insertLibraries rest (acc ++ [line] ++ libraryLines) true newDepth
-          else
-            insertLibraries rest (acc ++ [line]) inserted newDepth
-    let (resultLines, inserted) := insertLibraries lines [] false 0
-    if !inserted then
-      .error s!"Failed to find runtime code injection site in {obj.name}. Library functions could not be linked."
-    else
-      -- The creation code carries its own copies of internal functions, which may call
-      -- library functions too: inject the ones it references after its own `code {`.
-      let creationSection := (mainYul.splitOn "object \"runtime\"").headD ""
-      let creationLibraries := referencedLibraries libraries creationSection
-      let creationLines := creationLibraries.flatMap fun fn =>
-        fn.body.map fun bodyLine =>
-          if bodyLine.trim.isEmpty then bodyLine else creationLibraryIndent ++ bodyLine
-      let rec insertCreation : List String → List String → List String
-        | [], acc => acc.reverse
-        | line :: rest, acc =>
-            if line.trim.startsWith "code {" then
-              acc.reverse ++ [line] ++ creationLines ++ rest
-            else
-              insertCreation rest (line :: acc)
-      .ok (String.intercalate "\n" (insertCreation resultLines []))
+example : callsFunctionName "r := f (1)" "f" = true := by decide
+example : callsFunctionName "r := f\n  (1)" "f" = true := by decide
+example : callsFunctionName "r := xf(1)" "f" = false := by decide
+example : callsFunctionName "r := fx(1)" "f" = false := by decide
+example : callsFunctionName "r := f" "f" = false := by decide
 
 /-!
 ## Validation
@@ -418,8 +379,7 @@ private def collectReferencedLibraryClosure
     (libraries : List LibraryFunction) (seed : List String) : List String :=
   let providedFunctions := collectLibraryFunctions libraries
   let referencesFunctionName := fun (body : List String) (name : String) =>
-    let text := String.intercalate "\n" body
-    (text.splitOn s!"{name}(").length > 1
+    callsFunctionName (String.intercalate "\n" body) name
   let callNamesInLibraryBody := fun (body : List String) =>
     providedFunctions.filter (fun name => referencesFunctionName body name)
   let rec expand (fuel : Nat) (reachable : List String) : List String :=
@@ -444,6 +404,63 @@ def selectDirectlyReferencedLibraries (obj : YulObject) (libraries : List Librar
   let referenced := collectExternalCallNames obj libraries
   let referencedClosure := collectReferencedLibraryClosure libraries referenced
   libraries.filter fun fn => referencedClosure.contains fn.name
+
+-- Inject library function text directly into rendered Yul output
+-- This preserves the exact library code without parsing/re-emitting.
+-- Every library function goes into the runtime code; the ones the creation code
+-- calls (directly or through other library functions) also go into the creation code.
+-- Returns an error if the runtime code injection site is not found.
+def renderWithLibraries (obj : YulObject) (libraries : List LibraryFunction) : Except String String :=
+  -- Render the main object
+  let mainYul := Yul.render obj
+
+  -- If no libraries, return as-is
+  if libraries.isEmpty then
+    .ok mainYul
+  else
+    -- Extract the runtime code section and inject libraries
+    -- Find the runtime "code {" line and inject library functions after it
+    let lines := mainYul.splitOn "\n"
+    let rec insertLibraries (remaining : List String) (acc : List String) (inserted : Bool) (depth : Nat) : List String × Bool :=
+      match remaining with
+      | [] => (acc, inserted)
+      | line :: rest =>
+          -- Track depth: we want the second "code {" (inside object "runtime")
+          let isCodeLine := line.trim.startsWith "code {"
+          let newDepth := if isCodeLine then depth + 1 else depth
+          if !inserted && newDepth == 2 && isCodeLine then
+            -- Found the runtime code section, insert libraries after this line
+            let libraryLines := libraries.flatMap fun fn =>
+              -- Add proper indentation for runtime code functions
+              fn.body.map fun bodyLine =>
+                if bodyLine.trim.isEmpty then bodyLine
+                else libraryIndent ++ bodyLine
+            insertLibraries rest (acc ++ [line] ++ libraryLines) true newDepth
+          else
+            insertLibraries rest (acc ++ [line]) inserted newDepth
+    let (resultLines, inserted) := insertLibraries lines [] false 0
+    if !inserted then
+      .error s!"Failed to find runtime code injection site in {obj.name}. Library functions could not be linked."
+    else
+      -- The creation code carries its own copies of internal functions, which may call
+      -- library functions too: inject the ones its statements call (read off the
+      -- `deployCode` AST), closed under library-to-library calls, after its own `code {`.
+      let providedFunctions := collectLibraryFunctions libraries
+      let creationSeed := (callsWithArityFromStmts obj.deployCode |>.map Prod.fst).eraseDups
+        |>.filter providedFunctions.contains
+      let creationClosure := collectReferencedLibraryClosure libraries creationSeed
+      let creationLibraries := libraries.filter fun fn => creationClosure.contains fn.name
+      let creationLines := creationLibraries.flatMap fun fn =>
+        fn.body.map fun bodyLine =>
+          if bodyLine.trim.isEmpty then bodyLine else creationLibraryIndent ++ bodyLine
+      let rec insertCreation : List String → List String → List String
+        | [], acc => acc.reverse
+        | line :: rest, acc =>
+            if line.trim.startsWith "code {" then
+              acc.reverse ++ [line] ++ creationLines ++ rest
+            else
+              insertCreation rest (line :: acc)
+      .ok (String.intercalate "\n" (insertCreation resultLines []))
 
 /-- Smoke test: referenced-library selection keeps transitive helper dependencies. -/
 example :

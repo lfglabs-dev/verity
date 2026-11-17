@@ -192,6 +192,43 @@ unsafe def runFlagAndUnitTests : IO Unit := do
         (contains runtime "function libA()" && contains runtime "function libB()" &&
           contains runtime "function libC()")
 
+  -- Call detection is per identifier: a space or a line break may sit between the
+  -- callee and `(`, and a longer identifier ending in a library name is not a call to it.
+  let spacedLib :=
+    "function libA() -> r {\n" ++
+    "    r := libC (1)\n" ++
+    "    r := add(r, libE\n" ++
+    "        (r))\n" ++
+    "}\n" ++
+    "function libC(x) -> y { y := x }\n" ++
+    "function libD() -> y { y := 4 }\n" ++
+    "function libE(x) -> y { y := x }\n" ++
+    "function xlibD() -> y { y := 5 }\n"
+  let spacedParsed := Compiler.Linker.parseLibrary spacedLib
+  let spacedObj : Compiler.Yul.YulObject := {
+    name := "LinkSpacing"
+    deployCode := [.let_ "a" (.call "libA" []), .let_ "b" (.call "xlibD" [])]
+    runtimeCode := [.exprStmt (.call "pop" [.call "xlibD" []])] }
+  match Compiler.Linker.renderWithLibraries spacedObj spacedParsed with
+  | .error e => throw (IO.userError s!"✗ linker renders spaced library calls: {e}")
+  | .ok rendered =>
+      let creation := (rendered.splitOn "object \"runtime\"").headD ""
+      expectTrue "linker injects a library function called as `name (`"
+        (contains creation "function libC(")
+      expectTrue "linker injects a library function whose `(` is on the next line"
+        (contains creation "function libE(")
+      expectTrue "linker does not treat `xname(` as a call to `name`"
+        (contains creation "function xlibD(" && !contains creation "function libD(")
+  let xRuntimeObj : Compiler.Yul.YulObject := { spacedObj with deployCode := [] }
+  expectTrue "referenced-library closure does not treat `xname(` as a call to `name`"
+    ((Compiler.Linker.selectDirectlyReferencedLibraries xRuntimeObj spacedParsed).map (·.name) ==
+      ["xlibD"])
+  let spacedRuntimeObj : Compiler.Yul.YulObject :=
+    { xRuntimeObj with runtimeCode := [.exprStmt (.call "pop" [.call "libA" []])] }
+  expectTrue "referenced-library closure follows spaced and line-split calls"
+    ((Compiler.Linker.selectDirectlyReferencedLibraries spacedRuntimeObj spacedParsed).map
+      (·.name) == ["libA", "libC", "libE"])
+
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do
   let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
