@@ -13425,8 +13425,8 @@ private partial def revertErrorStringBuffer (buffer : EncodedBytes) : M (Array S
 pointer and length are bound before any later evaluation. -/
 private partial def lowerRevertMessageBuffer (message : Json) : M EncodedBytes := do
   let ty ← mType message
-  unless ty == "string memory" || ty == "string calldata" || ty == "string storage pointer" ||
-      ty == "string storage ref" do
+  -- Storage string messages have no differential fixture in this slice.
+  unless ty == "string memory" || ty == "string calldata" do
     failAt message s!"unsupported revert message type {ty}"
   let buffer ← lowerEncodedBytes message
   let pointer ← atom { pre := #[], expr := buffer.pointer }

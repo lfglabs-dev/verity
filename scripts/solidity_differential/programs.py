@@ -305,7 +305,11 @@ def stateful_dynamic_revert_string_source(original, variant):
     if variant == 'baseline':
         return original
     if variant == 'renamed':
-        return original.replace('next', 'replacement').replace('saved', 'stored').replace('reason', 'why')
+        # Rename identifiers only: string literals are part of the observable payload.
+        names = {'next': 'replacement', 'saved': 'stored', 'reason': 'why',
+                 'toHexString': 'hexOf', 'buffer': 'digits'}
+        token = r'//[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: names.get(m.group(0), m.group(0)), original)
     if variant == 'expanded':
         replacements = {
             'revert(string(abi.encodePacked("one mod five: ", bytes32(next))));':
