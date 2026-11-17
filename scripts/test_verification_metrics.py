@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -126,7 +128,7 @@ class VerificationMetricsTests(unittest.TestCase):
     def test_load_metrics_from_artifact_rejects_boolean_numeric_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "verification_status.json"
-            payload = verification_metrics.collect_metrics()
+            payload = self._fixture_metrics()
             payload["proofs"]["axioms"] = True
             artifact.write_text(json.dumps(payload) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "proofs\\.axioms must be an integer, got bool"):
@@ -135,7 +137,7 @@ class VerificationMetricsTests(unittest.TestCase):
     def test_load_metrics_from_artifact_rejects_missing_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "verification_status.json"
-            payload = verification_metrics.collect_metrics()
+            payload = self._fixture_metrics()
             del payload["schema_version"]
             artifact.write_text(json.dumps(payload) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "root: missing required keys: schema_version"):
@@ -144,14 +146,15 @@ class VerificationMetricsTests(unittest.TestCase):
     def test_load_metrics_from_artifact_rejects_unknown_top_level_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "verification_status.json"
-            payload = verification_metrics.collect_metrics()
+            payload = self._fixture_metrics()
             payload["extra"] = 1
             artifact.write_text(json.dumps(payload) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "root: unknown keys: extra"):
                 verification_metrics.load_metrics_from_artifact(artifact)
 
-    def test_current_metrics_rejects_invalid_schema(self) -> None:
-        payload = {
+    @staticmethod
+    def _fixture_metrics(*, axioms: object = 0) -> dict:
+        return {
             "schema_version": 1,
             "theorems": {
                 "total": 1, "categories": 1, "per_contract": {"Counter": 1}, "covered": 1,
@@ -162,35 +165,31 @@ class VerificationMetricsTests(unittest.TestCase):
                 "foundry_functions": 1, "suites": 1, "property_functions": 1,
                 "differential_total": 1,
             },
-            "proofs": {"axioms": True, "sorry": 0},
+            "proofs": {"axioms": axioms, "sorry": 0},
             "codebase": {"core_lines": 1, "example_contracts": 1},
             "toolchain": {"lean": "lean", "solc": "0.8.33"},
         }
-        old_collect = verification_metrics.collect_metrics
-        try:
-            verification_metrics.collect_metrics = lambda: payload
-            with self.assertRaisesRegex(ValueError, "proofs\\.axioms must be an integer, got bool"):
-                verification_metrics.current_metrics()
-        finally:
-            verification_metrics.collect_metrics = old_collect
+
+    def _with_collected(self, payload: dict):
+        saved = verification_metrics.collect_metrics
+        verification_metrics.collect_metrics = lambda: payload
+        self.addCleanup(setattr, verification_metrics, "collect_metrics", saved)
+
+    def test_current_metrics_rejects_invalid_schema(self) -> None:
+        self._with_collected(self._fixture_metrics(axioms=True))
+        with self.assertRaisesRegex(ValueError, "proofs\\.axioms must be an integer, got bool"):
+            verification_metrics.current_metrics()
 
     def test_generate_verification_status_writes_loadable_output(self) -> None:
+        import generate_verification_status
+
+        payload = self._fixture_metrics()
+        self._with_collected(payload)
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "out" / "verification_status.json"
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT_DIR / "generate_verification_status.py"),
-                    "--output",
-                    str(output),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            loaded = verification_metrics.load_metrics_from_artifact(output)
-            self.assertGreater(loaded["tests"]["foundry_functions"], 0)
+            with contextlib.redirect_stdout(io.StringIO()):
+                generate_verification_status.main(["--output", str(output)])
+            self.assertEqual(verification_metrics.load_metrics_from_artifact(output), payload)
 
     def test_metrics_json_is_not_tracked(self) -> None:
         """The metrics JSON is a build output: git must neither track it nor show it as new."""
