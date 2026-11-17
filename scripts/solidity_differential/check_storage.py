@@ -20,6 +20,7 @@ from .programs import (
     stateful_checkpoints_and_struct_arrays_source,
     stateful_constant_array_source,
     stateful_create2_clones_msgdata_deque_source,
+    stateful_custom_error_fixed_bytes_source,
     stateful_default_local_source,
     stateful_discarded_helper_source,
     stateful_dynamic_array_root_return_source,
@@ -135,6 +136,7 @@ FIXTURE_CONTRACTS = {
     'checkpoints-and-struct-arrays': 'CheckpointsAndStructArraysSequence',
     'constant-arrays': 'ConstantArraySequence',
     'create2-clones-msgdata-deque': 'Create2ClonesMsgDataDequeSequence',
+    'custom-error-fixed-bytes': 'CustomErrorFixedBytesSequence',
     'default-locals': 'DefaultLocalSequence',
     'discarded-helper': 'DiscardedHelperSequence',
     'dynamic-array-root-returns': 'DynamicArrayRootReturnSequence',
@@ -242,6 +244,8 @@ def main():
     if args.fixture == 'event-nested-mapping-read':
         variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'dynamic-revert-string':
+        variants = ('baseline', 'renamed', 'expanded')
+    if args.fixture == 'custom-error-fixed-bytes':
         variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'short-circuit':
         variants = ('baseline', 'conditional', 'de-morgan')
@@ -392,6 +396,7 @@ def main():
                           else stateful_empty_revert_source(fixture, variant) if args.fixture == "empty-revert"
                           else stateful_event_nested_mapping_read_source(fixture, variant) if args.fixture == "event-nested-mapping-read"
                           else stateful_dynamic_revert_string_source(fixture, variant) if args.fixture == "dynamic-revert-string"
+                          else stateful_custom_error_fixed_bytes_source(fixture, variant) if args.fixture == "custom-error-fixed-bytes"
                           else stateful_access_manager_target_role_source(fixture, variant) if args.fixture == "access-manager-target-role"
                           else stateful_governor_slice_proposer_delay_source(fixture, variant) if args.fixture == "governor-slice-proposer-delay"
                           else stateful_unchecked_blocks_source(fixture, variant) if args.fixture == "unchecked-blocks"
@@ -473,6 +478,11 @@ def main():
         extra = ['--change-prefix', *map(str, list(range(9)) + [65535, 65536, (1 << 256) - 1])] if args.fixture == 'fixed-arrays' else []
         if args.fixture == 'empty-array-bytes-calldata':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]
+        if args.fixture == 'custom-error-fixed-bytes':
+            # Each `next % 4` arm with nonzero `bytesN` contents, and `next * 3` overflow.
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 0xdeadbeef * 2 ** 224 + 1,
+                                                   0x0123456789abcdef * 2 ** 192 + 0x7e,
+                                                   2 ** 200 + 3, 2 ** 256 - 1, 2 ** 256 - 4])]
         if args.fixture in ('inheritance', 'void-helper-guards', 'modifier-unchecked-compound', 'tuple-helper', 'int256-contract-types', 'fn-ptr-struct-delete-modifier', 'overload-const-error-cond-tuple-tload', 'struct-fixed-array-and-fixed-return', 'msg-data-and-enum', 'exp-and-bitwise-shifts', 'while-clz-and-struct-loc', 'yul-builtins-and-encode-selector', 'array-string-params-and-context', 'bytes-memory-and-abi-encode-call', 'dynamic-bytes-and-string-return', 'bytes-and-string-storage', 'yul-block-mulmod-tstore', 'merkle-and-nonces', 'multiproof-mapping-keys-verifiers', 'udvt-param-assign-struct-hash', 'struct-mapping-and-bytes4-interface', 'erc2981-holders-arrays-msghash', 'enumerable-set-map-storage-arrays', 'checkpoints-and-struct-arrays', 'wad-exp-and-three-key-mapping', 'struct-hash-and-domain-separator', 'abi-decode-and-verifier', 'votes-checkpoints-arrays-bitmaps', 'public-getters-and-builtins', 'ecrecover-authorizer-arrays-map', 'struct-params-and-balances', 'packed-struct-mapping-ternary-tuple', 'timelock-and-bytes4-cast', 'string-bytes-mappings-uri-storage-strings', 'strings-hex-arrays-bitmaps', 'ecdsa-merkle-checkpoints-storage-slot', 'create2-clones-msgdata-deque', 'governor-slice-proposer-delay', 'access-manager-target-role'):
 
             extra = ['--change-prefix', *map(str, list(range(9)) + [19, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]

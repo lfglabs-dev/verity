@@ -25,7 +25,30 @@ def runChecks : IO Unit := do
   unless customErrorBytes oracle errors "AReallyLongErrorNameThatCrossesAWordBoundary" [7] ==
       some ([0x0d, 0xf8, 0x7d, 0xad] ++ wordBytes 7) do
     throw (IO.userError "multi-word error signature differs")
+  -- `bytesN` parameters hash as `bytesN` and encode as left-aligned words.
+  let selectorWord := 0xdeadbeef * 2 ^ 224
+  unless customErrorBytes oracle [{ name := "LockedSelector", params := [.bytesN 4] }]
+      "LockedSelector" [selectorWord] == some ([0xc2, 0xf3, 0xb4, 0x73] ++ wordBytes selectorWord) do
+    throw (IO.userError "bytes4 custom error differs")
+  let tagWord := 0x7f * 2 ^ 248
+  let prefixWord := 0x0102030405060708090a0b0c * 2 ^ 160
+  unless customErrorBytes oracle
+      [{ name := "Tagged", params := [.bytesN 1, .uint256, .bytesN 12] }] "Tagged"
+      [tagWord, 5, prefixWord] ==
+      some ([0x0a, 0x99, 0xab, 0x28] ++ wordBytes tagWord ++ wordBytes 5 ++ wordBytes prefixWord) do
+    throw (IO.userError "bytes1/bytes12 custom error differs")
+  let oddWord := 0x0102030405060708 * 2 ^ 192
+  let nearlyWord := (2 ^ 248 - 1) * 2 ^ 8
+  unless customErrorBytes oracle [{ name := "Odd", params := [.bytesN 8, .bytesN 31] }] "Odd"
+      [oddWord, nearlyWord] ==
+      some ([0xc4, 0x41, 0xd6, 0xb3] ++ wordBytes oddWord ++ wordBytes nearlyWord) do
+    throw (IO.userError "bytes8/bytes31 custom error differs")
   for (name, declarations, values) in [
+      ("LockedSelector", [{ name := "LockedSelector", params := [.bytesN 4] }], [selectorWord + 1]),
+      ("Wide", [{ name := "Wide", params := [.bytesN 31] }], [2 ^ 256]),
+      ("Odd", [{ name := "Odd", params := [.bytesN 31] }], [1]),
+      ("Zero", [{ name := "Zero", params := [.bytesN 0] }], [0]),
+      ("Full", [{ name := "Full", params := [.bytesN 32] }], [0]),
       ("Missing", errors, []), ("Unauthorized", errors, [1]),
       ("BadValue", errors, [7, 9, 2]),
       ("Unauthorized", errors ++ [{ name := "Unauthorized", params := [] }], []),

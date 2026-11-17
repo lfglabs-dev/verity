@@ -329,6 +329,35 @@ def stateful_dynamic_revert_string_source(original, variant):
     raise ValueError('unknown dynamic-revert-string program variant')
 
 
+def stateful_custom_error_fixed_bytes_source(original, variant):
+    """Equivalent `bytesN` custom-error programs; error names (selectors) are kept."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('next', 'replacement'), ('saved', 'stored'), ('selector', 'sel'),
+                         ('tag', 'marker'), ('prefix', 'lead'), ('head', 'top'),
+                         ('tail', 'rest')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ('bytes4 selector = bytes4(bytes32(next));',
+             'bytes4 selector = bytes4(uint32(next >> 224));'),
+            ('bytes1 tag = bytes1(bytes32(next << 248));', 'bytes1 tag = bytes1(uint8(next));'),
+            ('if (next % 4 == 1) {', 'if (next & 3 == 1) {'),
+            ('revert LockedSelector(bytes4(0xdeadbeef));',
+             'bytes4 locked = bytes4(0xdeadbeef);\n        revert LockedSelector(locked);'),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError(f'nonunique custom-error fixed-bytes variant anchor: {old}')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown custom-error fixed-bytes program variant')
+
+
 def stateful_interface_static_call_source(original, variant):
     """Equivalent typed-interface staticcall programs over the same call sequence."""
     if variant == 'baseline':

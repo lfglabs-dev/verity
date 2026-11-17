@@ -707,6 +707,7 @@ prerequisite for CREATE2 key-derivation helpers, not an implementation of code d
 | --- | --- |
 | Zero-return internal, private, and internally-called public helpers | Lowered via continuation-passing (`lowerVoidHelperFrom`) so nested early `return;` inside `if`/`else` runs the post-conditional continuation only on fallthrough paths with restored lexical scope. |
 | `revert CustomError(...)` (`RevertStatement`) | Lowered through `lowerErrorArguments` to `Stmt.requireError (.literal 0) name values`. |
+| `bytes1`..`bytes31` custom-error parameters (`error LockedFunction(bytes4 selector)`) | Parameter types resolve through `localParamType` to `ParamType.bytesN n`. `Denote.customErrorScalarType` signs them `bytesN` in the selector, and `errorScalarValueValid` admits only left-aligned words (low `32 - n` bytes zero), matching the compiler's masked encoding. Argument restrictions are unchanged. Event parameters and `errorScalarType` are unaffected. Fixture: `CustomErrorFixedBytesSequence` (`check_storage --fixture custom-error-fixed-bytes`). |
 | Scalar `bool` storage variables and prefix `!` | Stored as 8-bit packed storage with `logicalNot (logicalNot ...)` normalization on read and write; prefix `!` on `bool` lowers to `Expr.logicalNot`. |
 | Named scalar root return parameters and empty-body scalar hooks | Root functions whose return parameters are all named scalars initialize each to zero and return them on bare `return;` or fallthrough; empty-body root or helper hooks return zero words. |
 
