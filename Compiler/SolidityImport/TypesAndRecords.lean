@@ -184,6 +184,12 @@ structure MemParam where
   headBinding : String := ""
   schema : Option (List AbiSchema.Member) := none
   abiStem : String := ""
+  /-- A root `S[]` parameter viewed as member `w` of the root argument tuple
+  (tuple pointer 4, ABI offsets relative to it): `some w`, its head word. The
+  schema is `w` unread placeholder words followed by the `structArray`
+  member, so the struct-member array lowerings (`.abiArray`) apply unchanged.
+  The identifier lowers to `.abiArray id w`, never to `.mem`. -/
+  rootArrayWord : Option Nat := none
 
 inductive FnPtr where
   | direct (fnId : Nat)

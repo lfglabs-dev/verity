@@ -522,18 +522,32 @@ MUTANTS.update({
 })
 
 
-# Root ABI parameters (#2711): byte buffers of `string` struct members, from
-# memory (payload pointer) and from calldata (member word).
+# Root ABI parameters (#2711, #2708, #2701): byte buffers of `string` struct
+# members, from memory (payload pointer) and from calldata (member word); the
+# root argument tuple pointer, the `bytes[]` element bound, the calldata tail
+# base, and the base of the eager memory copy of each element.
 MUTANTS.update({
     'import-root-param-string-member-pointer': ('pointer := .add (.localVar bytesPtr) (.literal 32),',
                                                 'pointer := .add (.localVar bytesPtr) (.literal 0),'),
     'import-root-param-string-calldata-member': (
         '            (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data\n          let pointer ← fresh',
         '            (.localVar (mem.abiStem ++ "_calldata")) (memberIndex + 1) header length data\n          let pointer ← fresh'),
+    'import-root-param-lowering-tuple': ('let tuple := Stmt.letVar calldataPointer (.literal 4)',
+                                         'let tuple := Stmt.letVar calldataPointer (.literal 36)'),
+    'import-root-param-lowering-bytes-copy': ('memoryBytesAt (.localVar data) slot element',
+                                              'memoryBytesAt (.localVar header) slot element'),
+    'import-root-param-bytes-element-bound': ('[] [.panicCode (.literal 0x32)]] ++ tail.toArray',
+                                              '[] []] ++ tail.toArray'),
+    'import-root-param-bytes-element-base': ('let tail := AbiLowering.calldataBytesTailAt (.localVar data)',
+                                             'let tail := AbiLowering.calldataBytesTailAt (.localVar header)'),
 })
 ROOT_PARAM_MUTANT_FIXTURES = {
     'import-root-param-string-member-pointer': 'StructStringMemberParamSequence',
     'import-root-param-string-calldata-member': 'StructStringMemberParamSequence',
+    'import-root-param-lowering-tuple': 'StructArrayParamSequence',
+    'import-root-param-lowering-bytes-copy': 'BytesArrayParamSequence',
+    'import-root-param-bytes-element-bound': 'BytesArrayParamSequence',
+    'import-root-param-bytes-element-base': 'BytesArrayParamSequence',
 }
 
 
@@ -1408,6 +1422,7 @@ def mutation_source(directory, name):
     return directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
                                   else 'Compiler/SolidityImport/Quote.lean' if name == 'import-modulo-quote'
                                   else 'Compiler/SolidityImport/AbiLowering.lean' if name == 'import-empty-array-bytes-calldata-tail-bound'
+                                  else 'Compiler/SolidityImport/AbiRootLowering.lean' if name.startswith('import-root-param-lowering-')
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                                   else 'Compiler/SolidityImport/Import.lean')
 

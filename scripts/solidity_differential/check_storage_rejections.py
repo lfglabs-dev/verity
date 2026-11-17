@@ -35,6 +35,10 @@ STORAGE_WORD_STRING_BUMP = (
 ROOT_PARAM_SIGNATURES = {
     'root-param-string-member-accepted': 'checked(S)',
     'root-param-string-member-staticcall-rejected': 'checked(S)',
+    'root-param-struct-array-accepted': 'checked(«S[]»)',
+    'root-param-bytes-array-accepted': 'checked(«bytes[]»)',
+    'root-param-string-array-rejected': 'checked(«string[]»)',
+    'root-param-struct-array-dynamic-member-rejected': 'checked(«S[]»)',
 }
 
 
@@ -667,6 +671,28 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] typed interface staticcall struct arguments with string members are outside this slice'),
+        # Root ABI parameters (#2708, #2701): `S[]` / `bytes[]` admitted;
+        # `string[]` and `S[]` with a dynamic member stay rejected.
+        ('root-param-struct-array-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { address a; uint256 v; }\n  function checked(S[] calldata xs) external pure returns (uint256) { return xs.length == 0 ? 0 : xs[0].v; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('root-param-bytes-array-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes[] calldata data) external pure returns (uint256) { return data.length == 0 ? 0 : data[0].length; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('root-param-string-array-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(string[] calldata xs) external pure returns (uint256) { return xs.length; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported parameter type string[]'),
+        ('root-param-struct-array-dynamic-member-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; bytes b; }\n  function checked(S[] calldata xs) external pure returns (uint256) { return xs.length; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'ElementaryTypeName: [solidity-import:unsupported] ABI schema: unsupported scalar bytes'),
         ('bytes-param-calldata-accepted',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes calldata b) external pure returns (uint256) { return b.length; }\n}\n",
          None,

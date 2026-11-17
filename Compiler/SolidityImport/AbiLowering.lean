@@ -124,9 +124,11 @@ def materializeStaticScalarArray (data length arrayPointer nextFree : Expr)
        (.mul (.localVar index) (.literal 32))) value])]
 
 /-- Source-compatible `T[] calldata` root parameter checks as executable model
-code, matching `solc`'s `abi_decode_tuple` and `abi_decode_t_array_*_calldata_ptr`. -/
+code, matching `solc`'s `abi_decode_tuple` and `abi_decode_t_array_*_calldata_ptr`.
+`elementWords` is the static element size in words: 1 for scalars, the field
+count for an array of flat static structs (`S[] calldata`). -/
 def scalarArrayCalldataHead (offsetBinding headerBinding lengthBinding dataBinding : String)
-    (rootHeadWords headOffset : Nat) : List Stmt :=
+    (rootHeadWords headOffset : Nat) (elementWords : Nat := 1) : List Stmt :=
   [ guard (.logicalNot (.slt (.sub .calldatasize (.literal 4)) (.literal (32*rootHeadWords))))
   , .letVar offsetBinding (.calldataload (.literal headOffset))
   , guard (.le (.localVar offsetBinding) (.literal (2^64-1)))
@@ -135,7 +137,8 @@ def scalarArrayCalldataHead (offsetBinding headerBinding lengthBinding dataBindi
   , .letVar lengthBinding (.calldataload (.localVar headerBinding))
   , guard (.le (.localVar lengthBinding) (.literal (2^64-1)))
   , .letVar dataBinding (.add (.localVar headerBinding) (.literal 32))
-  , guard (.le (.add (.localVar dataBinding) (.mul (.localVar lengthBinding) (.literal 32))) .calldatasize) ]
+  , guard (.le (.add (.localVar dataBinding)
+      (.mul (.localVar lengthBinding) (.literal (32*elementWords)))) .calldatasize) ]
 
 /-- Source-compatible `T[] memory` root parameter header checks and materialization,
 matching `solc`'s `abi_decode_t_array_*_memory_ptr`. -/
@@ -208,9 +211,10 @@ def materializeCalldataScalarArray (data length : Expr)
   , allocationGuard (.ge (.localVar nextFreeBinding) (.localVar arrayPointerBinding)) ] ++
   materializeStaticScalarArray data length (.localVar arrayPointerBinding) (.localVar nextFreeBinding) namePrefix kind rightPadMask
 
-/-- Eager memory materialization of a `bytes` field inside a dynamic struct,
-matching `solc`'s `abi_decode_t_bytes_memory_ptr` at a tuple member offset. -/
-def memoryBytesField (tuplePointer : Expr) (memberWord : Nat)
+/-- Eager memory materialization of the `bytes` whose offset (relative to
+`tuplePointer`) is the word at `slot`, matching `solc`'s
+`abi_decode_t_bytes_memory_ptr`: a struct member or a `bytes[]` element. -/
+def memoryBytesAt (tuplePointer slot : Expr)
     (bytesPointer headerBinding lengthBinding dataBinding nextFreeBinding copyIndexBinding : String) : List Stmt :=
   let freePointer := Expr.localVar bytesPointer
   let allocationGuard := fun condition =>
@@ -219,7 +223,7 @@ def memoryBytesField (tuplePointer : Expr) (memberWord : Nat)
     (.add (.add (.localVar lengthBinding) (.literal 32)) (.literal 31))
     (.bitNot (.literal 31))
   let wordCount := Expr.div (.add (.localVar lengthBinding) (.literal 31)) (.literal 32)
-  let relative := Expr.calldataload (.add tuplePointer (.literal (32*memberWord)))
+  let relative := Expr.calldataload slot
   [ guard (.le relative (.literal (2^64-1)))
   , .letVar headerBinding (.add tuplePointer relative)
   , guard (.slt (.add (.localVar headerBinding) (.literal 31)) .calldatasize)
@@ -238,11 +242,18 @@ def memoryBytesField (tuplePointer : Expr) (memberWord : Nat)
         (.calldataload (.add (.localVar dataBinding) (.mul (.localVar copyIndexBinding) (.literal 32))))]
   , .mstore (.add (.add freePointer (.literal 32)) (.localVar lengthBinding)) (.literal 0) ]
 
-/-- Lazy calldata `bytes` member header checks at a struct member word,
-matching `solc`'s `calldata_struct_member_access` and `abi_decode_t_bytes_calldata_ptr`. -/
-def calldataBytesFieldHead (tuplePointer : Expr) (memberWord : Nat)
+/-- `memoryBytesAt` for the `bytes` member at word `memberWord` of a dynamic struct. -/
+def memoryBytesField (tuplePointer : Expr) (memberWord : Nat)
+    (bytesPointer headerBinding lengthBinding dataBinding nextFreeBinding copyIndexBinding : String) : List Stmt :=
+  memoryBytesAt tuplePointer (.add tuplePointer (.literal (32*memberWord)))
+    bytesPointer headerBinding lengthBinding dataBinding nextFreeBinding copyIndexBinding
+
+/-- Lazy calldata `bytes` tail checks for the offset word at `slot`, relative
+to `tuplePointer`, matching `solc`'s `access_calldata_tail_t_bytes_calldata_ptr`:
+a struct member or a `bytes[] calldata` element (`tuplePointer` = array data). -/
+def calldataBytesTailAt (tuplePointer slot : Expr)
     (addressBinding lengthBinding dataBinding : String) : List Stmt :=
-  let relative := Expr.calldataload (.add tuplePointer (.literal (32*memberWord)))
+  let relative := Expr.calldataload slot
   let available := Expr.sub (.sub .calldatasize tuplePointer) (.literal 31)
   [ guard (.slt relative available)
   , .letVar addressBinding (.add tuplePointer relative)
@@ -251,6 +262,13 @@ def calldataBytesFieldHead (tuplePointer : Expr) (memberWord : Nat)
   , .letVar dataBinding (.add (.localVar addressBinding) (.literal 32))
   , guard (.logicalNot (.sgt (.localVar dataBinding)
       (.sub .calldatasize (.localVar lengthBinding)))) ]
+
+/-- Lazy calldata `bytes` member header checks at a struct member word,
+matching `solc`'s `calldata_struct_member_access` and `abi_decode_t_bytes_calldata_ptr`. -/
+def calldataBytesFieldHead (tuplePointer : Expr) (memberWord : Nat)
+    (addressBinding lengthBinding dataBinding : String) : List Stmt :=
+  calldataBytesTailAt tuplePointer (.add tuplePointer (.literal (32*memberWord)))
+    addressBinding lengthBinding dataBinding
 
 /-- Lazy calldata nested dynamic struct pointer check at a parent struct member word,
 matching `solc`'s `calldata_struct_member_access` for dynamic structs. -/

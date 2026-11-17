@@ -500,12 +500,15 @@ def freshFor (name : String) : M String := do
   modify fun e => { e with bound := binding :: e.bound }
   pure binding
 
-/-- Reserve every generated ABI name, not just the root prefix. -/
-def freshAbiStem (schema : List AbiSchema.Member) (inMemory : Bool) : M String := do
+/-- Reserve every generated ABI name, not just the root prefix. `rootArray`
+selects the names of `AbiRootLowering.rootArray` (a root `S[]` parameter). -/
+def freshAbiStem (schema : List AbiSchema.Member) (inMemory : Bool)
+    (rootArray : Bool := false) : M String := do
   let budget := (← get).sourceNames.length + (← get).bound.length + 1
   for _ in [:budget] do
     let stem ← fresh
-    let names := (AbiRootLowering.root stem 0 0 schema inMemory).names
+    let names := if rootArray then (AbiRootLowering.rootArray stem 0 schema inMemory).names
+      else (AbiRootLowering.root stem 0 0 schema inMemory).names
     let reserved := (← get).sourceNames ++ (← get).bound
     unless names.any reserved.contains do
       modify fun e => { e with bound := names ++ e.bound }

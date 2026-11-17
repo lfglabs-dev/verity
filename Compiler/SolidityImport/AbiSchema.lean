@@ -25,11 +25,14 @@ inductive Member where
   | scalarArray (field : ScalarField)
   | structArray (name : String) (fields : List ScalarField)
   | nestedStruct (name : String) (structId : Nat) (structName : String) (members : List (String × String)) (schema : List Member)
+  /-- A dynamic array of `bytes` (`bytes[]`); only produced for root parameters. -/
+  | bytesArray (name : String)
   deriving Repr
 
 def isDynamicMember : Member → Bool
   | .scalar _ => false
-  | .bytesField _ _ | .scalarArray _ | .structArray _ _ | .nestedStruct _ _ _ _ _ => true
+  | .bytesField _ _ | .scalarArray _ | .structArray _ _ | .nestedStruct _ _ _ _ _
+  | .bytesArray _ => true
 
 private def fail (node : Json) (message : String) : Except Failure α :=
   .error ⟨node, message⟩
@@ -69,6 +72,25 @@ def scalarKind (node : Json) : Except Failure SolidityAbi.ScalarKind := do
 
 def scalarField (node : Json) : Except Failure ScalarField := do
   return { name := ← stringField node "name", kind := ← scalarKind (← field node "typeName") }
+
+/-- The `structArray` member `name` for the dynamic array type node `ty` of a
+flat scalar struct (`S[]`): a struct-array member or a root `S[]` parameter.
+Resolves the declaration id, never the textual struct name. -/
+def structArrayMember (resolve : Nat → Option Json) (name : String) (ty : Json) :
+    Except Failure Member := do
+  unless (← stringField ty "nodeType") == "ArrayTypeName" do
+    fail ty "ABI schema: expected a dynamic array type"
+  -- solc omits `length` for dynamic arrays (some AST producers use null).
+  if let .ok length := ty.getObjVal? "length" then
+    unless length.isNull do fail ty "ABI schema: fixed arrays are unsupported"
+  let base ← field ty "baseType"
+  unless (← stringField base "nodeType") == "UserDefinedTypeName" do
+    fail base "ABI schema: expected a flat struct array element"
+  let ref ← field base "referencedDeclaration"
+  let id ← ref.getNat?.mapError fun _ => ⟨base, "ABI schema: invalid struct declaration id"⟩
+  let some decl := resolve id | fail base s!"ABI schema: unresolved struct declaration {id}"
+  let fields ← (← members decl).mapM scalarField
+  return .structArray name fields
 
 /-- Schema for Market- and Offer-shaped roots: unsigned scalars, dynamic bytes,
 nested dynamic structs, and dynamic arrays of unsigned scalars or flat scalar
@@ -114,13 +136,7 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
       let base ← field ty "baseType"
       if (← stringField base "nodeType") == "ElementaryTypeName" then
         return .scalarArray { name := mname, kind := ← scalarKind base }
-      unless (← stringField base "nodeType") == "UserDefinedTypeName" do
-        fail base "ABI schema: expected a flat struct array element"
-      let ref ← field base "referencedDeclaration"
-      let id ← ref.getNat?.mapError fun _ => ⟨base, "ABI schema: invalid struct declaration id"⟩
-      let some decl := resolve id | fail base s!"ABI schema: unresolved struct declaration {id}"
-      let fields ← (← members decl).mapM scalarField
-      return .structArray mname fields
+      structArrayMember resolve mname ty
 
 def scalarType : SolidityAbi.ScalarKind → ParamType
   | .uint width => if width.val == 31 then .uint256 else .uintN (8*(width.val+1))
@@ -135,6 +151,7 @@ mutual
     | .scalarArray field => .array (scalarType field.kind)
     | .structArray _ fields => .array (.tuple (fields.map fun f => scalarType f.kind))
     | .nestedStruct _ _ _ _ subSchema => .tuple (memberTypeList subSchema)
+    | .bytesArray _ => .array .bytes
   termination_by m => sizeOf m
 
   def memberTypeList : List Member → List ParamType
