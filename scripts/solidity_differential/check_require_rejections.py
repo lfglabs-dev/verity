@@ -17,7 +17,10 @@ def main():
         ('no-message', 'require(value > 7);', 'supported Solidity builtin signature'),
         ('custom-error', 'require(value > 7, Failure(value));', None),
         ('custom-error-expression', 'require(value > 7, Failure(value + 1));', 'literals or scalar bindings'),
-        ('custom-error-named', 'require(value > 7, Failure({value: value}));', 'named custom-error arguments'),
+        # Named arguments in declaration order lower as the positional call (c2b61a1a3).
+        ('custom-error-named', 'require(value > 7, Failure({value: value}));', None),
+        ('custom-error-named-reordered', 'require(value > 7, Failure({code: 1, value: value}));',
+         'named custom-error arguments'),
         ('custom-error-signed', 'require(value > 7, Failure(int256(value)));', 'unsupported custom-error parameter type int256'),
         ('custom-error-dynamic', 'require(value > 7, Failure(bytes("x")));', 'unsupported custom-error parameter type bytes'),
         ('dynamic-message', 'require(value > 7, reason);', None),
@@ -46,6 +49,8 @@ contract C {
             source = source.replace('  return value;\n', '')
         if name == 'custom-error-signed':
             source = source.replace('error Failure(uint256 value)', 'error Failure(int256 value)')
+        if name == 'custom-error-named-reordered':
+            source = source.replace('error Failure(uint256 value)', 'error Failure(uint256 value, uint256 code)')
         if name == 'custom-error-dynamic':
             source = source.replace('error Failure(uint256 value)', 'error Failure(bytes value)')
         (directory / 'Fixture.sol').write_text(source)
