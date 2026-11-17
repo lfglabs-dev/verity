@@ -46,6 +46,8 @@ RESPONDERS = [
     (1, False, 1),
 ]
 EMPTY = '0x' + '00' * 19 + '77'
+# Offsets of zero-length ranges: in memory, at the 2^32 range limit, past it, and the last word.
+EMPTY_RANGE_OFFSETS = [0, 0x80, 2**32, 2**32 + 1, 2**64, 2**256 - 1]
 SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True, 'runs': 466},
             'metadata': {'bytecodeHash': 'none'}}
 ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "YulMemoryCallSequence.sol"'
@@ -91,9 +93,13 @@ def transactions_for(count, seed, caller, responders):
             [token, SENDER, RECEIVER, 1 + index])
         add('query(address,address,address,bytes4)', ['address', 'address', 'address', 'bytes4'],
             [token, SENDER, RECEIVER, selector])
+        # Zero-length ranges at offsets no memory expansion could reach.
+        add('emptyRanges(address,uint256,uint256)', ['address', 'uint256', 'uint256'],
+            [token, EMPTY_RANGE_OFFSETS[index % len(EMPTY_RANGE_OFFSETS)],
+             EMPTY_RANGE_OFFSETS[(index + 1) % len(EMPTY_RANGE_OFFSETS)]])
     add('read()', [], [])
     while len(calls) < count:
-        choice = rng.randrange(5)
+        choice = rng.randrange(6)
         token = rng.choice(tokens)
         amount = rng.choice([0, 1, 7, rng.getrandbits(8), rng.getrandbits(256)])
         if choice == 0:
@@ -104,6 +110,9 @@ def transactions_for(count, seed, caller, responders):
         elif choice == 2:
             add('pull(address,address,address,uint256)', ['address', 'address', 'address', 'uint256'],
                 [token, rng.choice([RECEIVER, SENDER]), RECEIVER, amount])
+        elif choice == 4:
+            add('emptyRanges(address,uint256,uint256)', ['address', 'uint256', 'uint256'],
+                [token, rng.choice(EMPTY_RANGE_OFFSETS), rng.choice(EMPTY_RANGE_OFFSETS)])
         elif choice == 3:
             add('query(address,address,address,bytes4)', ['address', 'address', 'address', 'bytes4'],
                 [token, SENDER, rng.choice([RECEIVER, SENDER]), rng.getrandbits(32).to_bytes(4, 'big')])
@@ -195,7 +204,7 @@ def main():
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = (len(RESPONDERS) + 2) + 3 * (len(RESPONDERS) + 1) + 1
+    minimum = (len(RESPONDERS) + 2) + 4 * (len(RESPONDERS) + 1) + 1
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every account and call shape')
     output = (args.output.resolve() if args.output else
