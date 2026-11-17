@@ -41,6 +41,30 @@ CASES = [
      '    constructor(address other_) { SELF = other_; SELF = address(this); }\n'
      '    function f() external view returns (bool) { return address(this) == SELF; }\n}\n',
      ['f()'], ('model', ['SELF'], [])),
+    # Writes other than a plain assignment count too: solc >= 0.8.21 accepts each of these.
+    ('self-tuple-rewrite',
+     'contract C {\n    address private immutable SELF;\n    uint256 private y;\n'
+     '    constructor(address other_) { SELF = address(this); (SELF, y) = (other_, 1); }\n'
+     '    function f() external view returns (bool) { return address(this) == SELF; }\n}\n',
+     ['f()'], ('model', ['SELF'], [])),
+    ('self-delete',
+     'contract C {\n    address private immutable SELF;\n'
+     '    constructor() { SELF = address(this); delete SELF; }\n'
+     '    function f() external view returns (bool) { return address(this) == SELF; }\n}\n',
+     ['f()'], ('model', ['SELF'], [])),
+    # The assignment must run on every deployment: an early return or a modifier that skips
+    # the body leaves the immutable zero.
+    ('self-after-early-return',
+     'contract C {\n    address private immutable SELF;\n'
+     '    constructor(bool skip_) { if (skip_) return; SELF = address(this); }\n'
+     '    function f() external view returns (bool) { return address(this) == SELF; }\n}\n',
+     ['f()'], ('model', ['SELF'], [])),
+    ('self-under-skipping-modifier',
+     'contract C {\n    address private immutable SELF;\n'
+     '    modifier unless(bool skip_) { if (!skip_) { _; } }\n'
+     '    constructor(bool skip_) unless(skip_) { SELF = address(this); }\n'
+     '    function f() external view returns (bool) { return address(this) == SELF; }\n}\n',
+     ['f()'], ('model', ['SELF'], [])),
     ('self-through-local',
      'contract C {\n    address private immutable SELF;\n'
      '    constructor() { address me = address(this); SELF = me; }\n'
