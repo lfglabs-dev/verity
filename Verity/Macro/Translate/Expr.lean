@@ -1743,6 +1743,23 @@ def throwPureContextAccessorError (stx : Syntax) (name : String) : CommandElabM 
   throwErrorAt stx
     s!"context accessor '{name}' is monadic; use `let x ← {name}` before using it in a pure expression"
 
+/-- The receiver `x` of a dotted call head `x.m`, as an identifier.  When `x` is spelled
+plainly in the source, the identifier keeps the original source range of that prefix, so
+the generated code's use of `x` is a source-level reference (hover, go-to-definition, and
+the unused-variables linter see the binder as used). -/
+def dottedReceiverIdent (head : Syntax) (targetName : String) : Term :=
+  match head with
+  | .ident (.original leading pos trailing _) rawVal _ _ =>
+      if rawVal.toString.startsWith (targetName ++ ".") then
+        let stop := pos + targetName
+        let info := SourceInfo.original leading pos
+          { trailing with startPos := stop, stopPos := stop } stop
+        let raw := { rawVal with stopPos := rawVal.startPos + targetName }
+        ⟨Syntax.ident info raw (Name.mkSimple targetName) []⟩
+      else
+        mkIdent (Name.mkSimple targetName)
+  | _ => mkIdent (Name.mkSimple targetName)
+
 mutual
 partial def leanExprAppFnArgs (expr : Expr) : Expr × Array Expr :=
   let rec go (fn : Expr) (argsRev : Array Expr) : Expr × Array Expr :=
@@ -2750,7 +2767,7 @@ partial def resolveTypedInterfaceCallEarly?
     (match head.raw with
     | .ident _ _ raw _ =>
         match nameComponents raw with
-        | [targetName, method] => some (mkIdent (Name.mkSimple targetName), method)
+        | [targetName, method] => some (dottedReceiverIdent head.raw targetName, method)
         | _ => none
     | _ => none)
     | pure none
@@ -5870,7 +5887,7 @@ partial def typedDotCallSyntax? (stx : Term) : Option (Term × String × Array T
   | .ident _ _ raw _ =>
       match nameComponents raw with
       | [targetName, methodName] =>
-          let target : Term := mkIdent (Name.mkSimple targetName)
+          let target : Term := dottedReceiverIdent head.raw targetName
           some (target, methodName, argTerms)
       | _ => none
   | _ => none
