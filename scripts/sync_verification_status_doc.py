@@ -1,54 +1,165 @@
 #!/usr/bin/env python3
-"""Synchronise sorry-count references with the current verification metrics.
+"""Render docs/VERIFICATION_STATUS.md with its generated count sections filled.
 
-Patches:
-  - docs/VERIFICATION_STATUS.md  (sorry count in prose)
-  - scripts/check_lean_hygiene.py (expected_sorry baseline)
+The committed doc carries no repository counts: its `<!-- BEGIN GENERATED ... -->`
+sections hold only curated data (the Layer 1 contract/status/location table)
+or nothing. `--write OUT` renders a copy with the current per-contract property
+counts, totals and coverage figures filled in; the docs build publishes it
+(`docs-site/scripts/generate-derived.sh`). The counts come from
+`verification_metrics.current_metrics()`, computed in memory.
 
-The metrics are computed in memory (`verification_metrics.current_metrics`).
+Without `--write`, the script only keeps the committed sorry statement in sync.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
-from property_utils import ROOT
+from property_utils import ROOT, collect_covered, load_exclusions
 from verification_metrics import current_metrics
 
 STATUS_DOC = ROOT / "docs" / "VERIFICATION_STATUS.md"
-HYGIENE_SCRIPT = ROOT / "scripts" / "check_lean_hygiene.py"
 
 SORRY_DOC_RE = re.compile(
     r"^(\d+)( `sorry` remaining across `Compiler/\*\*/\*\.lean` and `Verity/\*\*/\*\.lean` proof modules\.)$",
     re.MULTILINE,
 )
 
-SORRY_HYGIENE_RE = re.compile(r"^(\s+expected_sorry = )\d+$", re.MULTILINE)
+LAYER1_SECTION = "LAYER 1 COUNTS"
+COVERAGE_SECTION = "PROPERTY COVERAGE"
+LAYER1_COMMITTED_ROW_RE = re.compile(r"^\| ([A-Za-z0-9]+) \| ([^|]+?) \| (`[^`]+`) \|$")
 
 
-def _patch_file(path: Path, pattern: re.Pattern[str], replacement: str, label: str) -> bool:
-    text = path.read_text(encoding="utf-8")
-    new_text, n = pattern.subn(replacement, text)
-    if n == 0:
-        print(f"warning: {label} pattern not found in {path}, skipping", file=sys.stderr)
-        return False
-    if new_text != text:
-        path.write_text(new_text, encoding="utf-8")
-        print(f"Updated {label} in {path}")
-        return True
-    print(f"{label} already up to date in {path}")
-    return False
+def section_re(name: str) -> re.Pattern[str]:
+    """Match a generated section: group 1 is its body."""
+    return re.compile(
+        rf"^<!-- BEGIN GENERATED {name} -->\n(.*?)^<!-- END GENERATED {name} -->$",
+        re.MULTILINE | re.DOTALL,
+    )
 
 
-def main() -> None:
-    metrics = current_metrics()
+def section_body(text: str, name: str) -> str:
+    match = section_re(name).search(text)
+    if match is None:
+        raise ValueError(f"{STATUS_DOC}: missing generated section {name!r}")
+    return match.group(1)
+
+
+def layer1_rows(text: str) -> list[tuple[str, str, str]]:
+    """Return the committed (contract, status, location) rows of the Layer 1 table."""
+    rows: list[tuple[str, str, str]] = []
+    for line in section_body(text, LAYER1_SECTION).splitlines():
+        if line.startswith("| Contract |") or line.startswith("|---"):
+            continue
+        match = LAYER1_COMMITTED_ROW_RE.match(line)
+        if match is None:
+            raise ValueError(f"{STATUS_DOC}: unexpected Layer 1 table row {line!r}")
+        rows.append((match.group(1), match.group(2).strip(), match.group(3)))
+    return rows
+
+
+def _render_layer1(text: str, metrics: dict[str, Any]) -> str:
+    theorems = metrics["theorems"]
+    per_contract = theorems["per_contract"]
+    lines = ["| Contract | Properties | Status | Location |", "|----------|------------|--------|----------|"]
+    for name, status, location in layer1_rows(text):
+        lines.append(f"| {name} | {per_contract.get(name, 0)} | {status} | {location} |")
+    lines.append(f"| **Total** | **{theorems['total']}** | **✅ 100%** | — |")
+    lines.append("")
+    lines.append(
+        f"> **Note**: Stdlib ({theorems['stdlib']} internal proof-automation properties) is excluded "
+        "from the contract-spec theorem table above but included in overall coverage statistics "
+        f"({theorems['total']} total properties)."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _render_coverage(
+    metrics: dict[str, Any],
+    covered: dict[str, set[str]],
+    exclusions: dict[str, set[str]],
+) -> str:
+    theorems = metrics["theorems"]
+    lines = ["| Contract | Coverage | Exclusions |", "|----------|----------|------------|"]
+    rows = dict(theorems["per_contract"])
+    rows.setdefault("Stdlib", theorems["stdlib"])
+    for name, total in rows.items():
+        covered_count = len(covered.get(name, set()))
+        excluded = len(exclusions.get(name, set()))
+        percent = round(covered_count * 100 / total) if total else 0
+        cell = f"{excluded} proof-only" if excluded else "0"
+        lines.append(f"| {name} | {percent}% ({covered_count}/{total}) | {cell} |")
+    lines += [
+        "",
+        f"**Status**: {theorems['coverage_percent']}% coverage ({theorems['covered']}/{theorems['total']}), "
+        f"{theorems['excluded']} remaining exclusions all proof-only",
+        "",
+        f"- **Total Properties**: {theorems['total']}",
+        f"- **Covered**: {theorems['covered']}",
+        f"- **Excluded**: {theorems['excluded']} (all proof-only)",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def render_status_doc(
+    text: str,
+    metrics: dict[str, Any],
+    covered: dict[str, set[str]],
+    exclusions: dict[str, set[str]],
+) -> str:
+    """Return *text* with every generated section filled from *metrics*."""
+    filled = {
+        LAYER1_SECTION: _render_layer1(text, metrics),
+        COVERAGE_SECTION: _render_coverage(metrics, covered, exclusions),
+    }
+    for name, body in filled.items():
+        section_body(text, name)  # raises when the section is missing
+        text = section_re(name).sub(lambda _m, b=body: b.rstrip("\n"), text, count=1)
+    header = (
+        "<!-- Generated by scripts/sync_verification_status_doc.py from "
+        "docs/VERIFICATION_STATUS.md; do not edit. -->\n"
+    )
+    return header + text
+
+
+def _sync_sorry(metrics: dict[str, Any]) -> None:
     sorry_count = metrics["proofs"]["sorry"]
+    text = STATUS_DOC.read_text(encoding="utf-8")
+    new_text, n = SORRY_DOC_RE.subn(rf"{sorry_count}\2", text)
+    if n == 0:
+        print(f"warning: sorry statement not found in {STATUS_DOC}, skipping", file=sys.stderr)
+    elif new_text != text:
+        STATUS_DOC.write_text(new_text, encoding="utf-8")
+        print(f"Updated sorry count ({sorry_count}) in {STATUS_DOC}")
 
-    _patch_file(STATUS_DOC, SORRY_DOC_RE, rf"{sorry_count}\2", f"sorry count ({sorry_count})")
-    _patch_file(HYGIENE_SCRIPT, SORRY_HYGIENE_RE, rf"\g<1>{sorry_count}", f"expected_sorry ({sorry_count})")
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--write",
+        type=Path,
+        metavar="OUT",
+        help="Write the rendered copy of docs/VERIFICATION_STATUS.md to OUT.",
+    )
+    args = parser.parse_args(argv)
+    metrics = current_metrics()
+    if args.write is None:
+        _sync_sorry(metrics)
+        return
+    rendered = render_status_doc(
+        STATUS_DOC.read_text(encoding="utf-8"), metrics, collect_covered(), load_exclusions()
+    )
+    args.write.parent.mkdir(parents=True, exist_ok=True)
+    args.write.write_text(rendered, encoding="utf-8")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        raise SystemExit(1) from exc
