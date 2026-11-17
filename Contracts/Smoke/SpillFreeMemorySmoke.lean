@@ -14,7 +14,7 @@ verity_contract SpillFreeMemorySmoke where
   storage
 
   function reentrancy_trusted forwardAndSum (target : Address, a : Uint256, b : Uint256,
-      c : Uint256, data : Bytes) : Uint256 := do
+      c : Uint256, _data : Bytes) : Uint256 := do
     let s1 := add a b
     let s2 := add s1 c
     let s3 := add s2 a
@@ -28,7 +28,7 @@ verity_contract SpillFreeMemorySmoke where
     let s11 := add s10 c
     let s12 := add s11 a
     let s13 := add s12 b
-    ecmDo (Compiler.Modules.Calls.callWithValueBytesModule "data") [addressToWord target, 0]
+    ecmDo (Compiler.Modules.Calls.callWithValueBytesModule "_data") [addressToWord target, 0]
     return add s13 (add s1 (add s5 s9))
 
 end Contracts.Smoke
