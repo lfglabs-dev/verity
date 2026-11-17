@@ -20,6 +20,10 @@ contract ScalarAbiValidationReference {
     function firstOfMixed(uint256 full, uint8, address, bool) external pure returns (uint256) {
         return full;
     }
+    struct Pair { uint256 first; address account; }
+    function accountOfPair(Pair calldata pair) external pure returns (address) {
+        return pair.account;
+    }
 }
 
 /// Scalar head words of the compiled Verity contract are validated as by solc's ABI
@@ -143,6 +147,21 @@ contract ScalarAbiValidationSmokeTest is Test, YulTestBase {
         if (shape % 6 == 4) return word << 224;
         if (shape % 6 == 5) return uint256(int256(int16(int256(word))));
         return word;
+    }
+
+    /// Known divergence, pinned so that a fix flips it: a dirty member of a static
+    /// tuple parameter is masked by Verity, while solc reverts when it reads it.
+    function testStaticTupleMemberIsMaskedNotValidated() public {
+        string memory sig = "accountOfPair((uint256,address))";
+        uint256 clean = (uint256(1) << 159) + 13;
+        _assertMatchesReference(sig, abi.encode(uint256(7), clean));
+        uint256 dirty = (uint256(1) << 160) | clean;
+        (bool okRef, bytes memory dataRef) = _call(solcReference, sig, abi.encode(uint256(7), dirty));
+        assertFalse(okRef, "solc accepted a dirty tuple member");
+        assertEq(dataRef.length, 0);
+        (bool ok, bytes memory data) = _call(smoke, sig, abi.encode(uint256(7), dirty));
+        assertTrue(ok, "Verity now validates tuple members: update this test and the docs");
+        assertEq(data, abi.encode(clean), "Verity no longer masks the tuple member");
     }
 
     function testFuzzMatchesSolcOnEveryScalarType(uint256 word, uint8 shape, uint8 which) public {

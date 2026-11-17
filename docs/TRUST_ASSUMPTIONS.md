@@ -1283,11 +1283,14 @@ cleanup equals the raw word. Full-width `uint256`/`int256`/`bytes32` words are
 bound as is. The source semantics (`decodeSupportedParamWord`) rejects the same
 words, so binding fails and the call reverts; the IR proofs cover both outcomes
 (`ParamLoading.exec_genParamLoads_supported_then` /
-`exec_genParamLoads_supported_revert`). Members of static tuple and fixed-array
-parameters (`genScalarCleanLoad`, `cleanSupportedParamWord`) are cleaned
-without validation, since solc validates a member of a calldata composite only
-when it is read; dynamic-array elements read through `arrayElement` helpers are
-neither cleaned nor validated.
+`exec_genParamLoads_supported_revert`).
+
+Remaining divergence: a dirty narrow member of a static tuple or fixed-array
+parameter. solc reverts when the member is read; Verity masks it
+(`genScalarCleanLoad`, `cleanSupportedParamWord`) and continues. Validating
+eagerly at entry would not match either, since solc never rejects an unread
+member of a calldata composite. `test/ScalarAbiValidationSmoke.t.sol` pins the
+current behaviour (`accountOfPair`).
 
 ### Imported scalar ABI entry guards
 

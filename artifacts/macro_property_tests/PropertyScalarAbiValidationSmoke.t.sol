@@ -116,4 +116,13 @@ contract PropertyScalarAbiValidationSmokeTest is YulTestBase {
         bytes32 actual = abi.decode(ret, (bytes32));
         assertEq(actual, bytes32(uint256(0xBEEF)), "echoBytes32 should preserve the expected value");
     }
+    // Property 12: TODO decode and assert `accountOfPair` result
+    function testTODO_AccountOfPair_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("accountOfPair((uint256,address))", abi.decode(abi.encode(uint256(1), alice), (uint256, address))));
+        require(ok, "accountOfPair reverted unexpectedly");
+        assertEq(ret.length, 32, "accountOfPair ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }
