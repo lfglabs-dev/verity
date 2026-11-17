@@ -844,8 +844,9 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] reassigned struct locals are outside this slice'),
+        # A literal initializer is supported (check_immutable_lowering); one reading storage is not.
         ('immutable-state-var-rejected',
-         "pragma solidity 0.8.34;\ncontract C {\n  uint256 internal immutable IMM = 7;\n  function checked(uint256 x) external view returns (uint256) {\n    return x + IMM;\n  }\n}\n",
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 internal seed = 7;\n  uint256 internal immutable IMM = seed;\n  function checked(uint256 x) external view returns (uint256) {\n    return x + IMM;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] immutable state variable IMM is outside this slice'),
