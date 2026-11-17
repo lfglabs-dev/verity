@@ -335,8 +335,13 @@ fetch_artifact() {
 
   if [ -n "$tarball" ]; then
     case "$tarball" in
-      *.zst) tar -I zstd -xf "$tarball" ;;
-      *) tar -xf "$tarball" ;;
+      # --keep-directory-symlink: `.lake/build` and `.lake/packages` may be symlinks into
+      # the persistent cache (`mount`); a plain extract replaces such a symlink with a real
+      # directory, so the job's build never reaches the cache and the next run starts cold.
+      # -P: GNU tar otherwise refuses to write through a symlink that leaves the extraction
+      # tree ("Invalid cross-device link"). The tarballs are CI's own, with relative paths.
+      *.zst) tar -P --keep-directory-symlink -I zstd -xf "$tarball" ;;
+      *) tar -P --keep-directory-symlink -xf "$tarball" ;;
     esac
     echo "Restored artifact '${name}' from local tarball"
   else
