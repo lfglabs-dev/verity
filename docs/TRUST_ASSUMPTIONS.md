@@ -2088,6 +2088,29 @@ Trust boundary changes:
   discovered from EVM CREATE2 traces), not a proof. `DenoteAgreement` excludes
   every closed byte transport.
 
+### Imported computed `Error(string)` revert messages
+
+`solidity_import` admits `revert(message)` and `require(condition, message)`
+whose message is a computed `string memory` expression (packed encodings,
+`string.concat`, string helpers, string locals and parameters). The message is
+evaluated into a byte buffer by the existing byte-buffer lowering; the
+`Error(string)` payload is assembled in fresh memory and reverted by a new closed
+byte transport, `SolidityRevertMemory.module` (`revert(offset, size)`), whose
+Denote arm is pinned by `execStmt_ecm_revertMemory_arm` and admitted by
+`closedTransportCovered`. Literal and literal-constant messages keep the
+existing `Stmt.require` path.
+
+Trust boundary changes:
+- Denote reverts with exactly the bytes `[offset, offset + size)` of physical
+  memory (`DenoteMemory.Memory.slice`). As for the memory `return` transport, the
+  importer appends an unreachable `Stmt.revertEmpty` after it so the compiler's
+  exhaustive return analysis (#738) sees the terminal branch.
+- The evaluation order (condition, then message, both unconditionally) mirrors
+  solc 0.8.34 via-IR, established by executing solc output; it is differential
+  evidence (`DynamicRevertStringSequence`, three equivalent variants), not a
+  proof. The transport keeps `proofStatus := .assumed`; `DenoteAgreement`
+  excludes every closed byte transport.
+
 ### ABI memory proof integration
 
 The ABI reserve, clearing and byte-insertion proofs use the canonical physical

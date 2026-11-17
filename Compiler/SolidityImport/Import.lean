@@ -13371,6 +13371,68 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
   let stmts := pre.push (.letVar oldVar (.storage name)) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (.setStorage name (.localVar newVar))
   return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
 
+/-- Whether a `revert`/`require` message is a string literal or a literal string
+constant, the static `Error(string)` form. -/
+private partial def isStaticStringMessage (message : Json) : M Bool := do
+  match ← mKind message with
+  | "Literal" => return true
+  | "Identifier" | "MemberAccess" =>
+      let some id := (field? message "referencedDeclaration").bind (·.getInt?.toOption)
+        | return false
+      return id ≥ 0 && (← get).numericConstants.contains id.toNat
+  | _ => return false
+
+/-- `revert(message)` for a computed `string memory` message already evaluated
+into `buffer`: `Error(string)` ABI bytes (selector `0x08c379a0`, offset word,
+length word, zero-padded bytes) in a fresh buffer, reverted by the closed
+memory revert transport. -/
+private partial def revertErrorStringBuffer (buffer : EncodedBytes) : M (Array Stmt) := do
+  let length ← fresh
+  let selectorPointer ← fresh
+  let selectorFinish ← fresh
+  let headPointer ← fresh
+  let headFinish ← fresh
+  let mut pre : Array Stmt := #[.letVar length buffer.size]
+  pre := pre ++ (AbiEncoding.staticWords selectorPointer selectorFinish
+    [.literal (0x08c379a0 * 2 ^ 224)]).toArray
+  pre := pre ++ (AbiEncoding.staticWords headPointer headFinish
+    [.literal 32, .localVar length]).toArray
+  let parts : List (Expr × Expr) := [(.localVar selectorPointer, .literal 4),
+    (.localVar headPointer, .literal 64), (buffer.pointer, .localVar length)]
+  let size ← fresh
+  pre := pre.push (.letVar size (.add (.literal 68)
+    (.mul (.div (.add (.localVar length) (.literal 31)) (.literal 32)) (.literal 32))))
+  let pointer ← fresh
+  let finish ← fresh
+  let clearIndex ← fresh
+  pre := pre ++ (AbiEncoding.packedBuffer pointer finish clearIndex (.localVar size)).toArray
+  let start ← fresh
+  pre := pre.push (.letVar start (.literal 0))
+  for (source, count) in parts do
+    let index ← fresh
+    let byteName ← fresh
+    let address ← fresh
+    pre := pre.push (AbiEncoding.copyBytes source (.localVar pointer) (.localVar start) count
+      index byteName address)
+    pre := pre.push (.assignVar start (.add (.localVar start) count))
+  modify fun e => { e with encodingMemory := true }
+  -- The unreachable `revertEmpty` states termination, which `Stmt.ecm`
+  -- metadata cannot, for the compiler's exhaustive return analysis.
+  return pre ++ #[.ecm Compiler.ECM.SolidityRevertMemory.module
+    [.localVar pointer, .localVar size], .revertEmpty]
+
+/-- Evaluate a computed `string memory` revert message into a byte buffer whose
+pointer and length are bound before any later evaluation. -/
+private partial def lowerRevertMessageBuffer (message : Json) : M EncodedBytes := do
+  let ty ← mType message
+  unless ty == "string memory" || ty == "string calldata" || ty == "string storage pointer" ||
+      ty == "string storage ref" do
+    failAt message s!"unsupported revert message type {ty}"
+  let buffer ← lowerEncodedBytes message
+  let pointer ← atom { pre := #[], expr := buffer.pointer }
+  let size ← atom { pre := #[], expr := buffer.size }
+  return { pre := buffer.pre ++ pointer.pre ++ size.pre, pointer := pointer.expr, size := size.expr }
+
 private partial def extractStringLiteralOrConstant (message : Json) (forRevert : Bool) : M String := do
   let label := if forRevert then "revert" else "require"
   let litNode ← match ← mKind message with
@@ -13501,6 +13563,13 @@ private partial def lowerRequireWith (statement : Json) (lowerCondition : Json �
     let condition ← atom (← lowerCondition args[0]!)
     let (pre, name, values) ← lowerErrorArguments message
     return condition.pre ++ pre |>.push (.requireError condition.expr name values)
+  unless ← isStaticStringMessage message do
+    -- solc evaluates the condition, then the message, both unconditionally;
+    -- only the `Error(string)` encoding is on the failing path.
+    let condition ← atom (← lowerCondition args[0]!)
+    let buffer ← lowerRevertMessageBuffer message
+    let revertStmts ← revertErrorStringBuffer buffer
+    return condition.pre ++ buffer.pre |>.push (.ite condition.expr [] revertStmts.toList)
   let value ← extractStringLiteralOrConstant message false
   let condition ← atom (← lowerCondition args[0]!)
   return condition.pre.push (.require condition.expr value)
@@ -13526,6 +13595,9 @@ private partial def lowerBuiltinRevert (statement : Json) : M (Array Stmt) := do
     unless args.isEmpty do failAt call "bare revert() takes no arguments"
     return #[.revertEmpty]
   unless args.size == 1 do failAt call "revert(string) requires one message argument"
+  unless ← isStaticStringMessage args[0]! do
+    let buffer ← lowerRevertMessageBuffer args[0]!
+    return buffer.pre ++ (← revertErrorStringBuffer buffer)
   let value ← extractStringLiteralOrConstant args[0]! true
   return #[.require (.literal 0) value]
 

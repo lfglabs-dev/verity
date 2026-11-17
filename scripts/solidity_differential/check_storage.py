@@ -25,6 +25,7 @@ from .programs import (
     stateful_dynamic_array_root_return_source,
     stateful_dynamic_bytes_and_string_return_source,
     stateful_dynamic_memory_array_source,
+    stateful_dynamic_revert_string_source,
     stateful_ecdsa_merkle_checkpoints_storage_slot_source,
     stateful_ecrecover_authorizer_arrays_map_source,
     stateful_empty_array_bytes_calldata_source,
@@ -137,6 +138,7 @@ FIXTURE_CONTRACTS = {
     'dynamic-array-root-returns-stateless': 'DynamicArrayRootReturnStatelessSequence',
     'dynamic-bytes-and-string-return': 'DynamicBytesAndStringReturnSequence',
     'dynamic-memory-arrays': 'DynamicMemoryArraySequence',
+    'dynamic-revert-string': 'DynamicRevertStringSequence',
     'ecdsa-merkle-checkpoints-storage-slot': 'EcdsaMerkleCheckpointsStorageSlotSequence',
     'ecrecover-authorizer-arrays-map': 'EcrecoverAuthorizerArraysMapSequence',
     'empty-array-bytes-calldata': 'EmptyArrayReturnBytesCalldataSequence',
@@ -232,6 +234,8 @@ def main():
     if args.fixture == 'empty-revert':
         variants = ('baseline', 'renamed', 'expression')
     if args.fixture == 'event-nested-mapping-read':
+        variants = ('baseline', 'renamed', 'expanded')
+    if args.fixture == 'dynamic-revert-string':
         variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'short-circuit':
         variants = ('baseline', 'conditional', 'de-morgan')
@@ -377,6 +381,7 @@ def main():
         source.write_text(stateful_imported_event_source(fixture, variant, args.fixture == "narrow-event") if args.fixture in ("imported-event", "narrow-event")
                           else stateful_empty_revert_source(fixture, variant) if args.fixture == "empty-revert"
                           else stateful_event_nested_mapping_read_source(fixture, variant) if args.fixture == "event-nested-mapping-read"
+                          else stateful_dynamic_revert_string_source(fixture, variant) if args.fixture == "dynamic-revert-string"
                           else stateful_access_manager_target_role_source(fixture, variant) if args.fixture == "access-manager-target-role"
                           else stateful_governor_slice_proposer_delay_source(fixture, variant) if args.fixture == "governor-slice-proposer-delay"
                           else stateful_unchecked_blocks_source(fixture, variant) if args.fixture == "unchecked-blocks"
@@ -515,6 +520,11 @@ def main():
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'unchecked-blocks':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 9, 10, 100, 101, 129, 130, 255, 256, 262, 263, (1 << 256) - 1])]
+        if args.fixture == 'dynamic-revert-string':
+            # Every `next % 5` arm, the always-evaluated hex message helper
+            # (its own revert for next > 65535 with a holding condition), and the
+            # `bounded` failure.
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 10, 999, 1000, 1005, 65535, 65536, 70000])]
         if args.fixture == 'tuple-destructuring':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 15, 31, 86399, 86400, 86401, 604799, 604800, 691199])]
 

@@ -59,6 +59,12 @@ def isClosedReturnMemory (mod : Compiler.ECM.ExternalCallModule) : Bool :=
 
 abbrev isClosedMemoryReturn := isClosedReturnMemory
 
+/-- The closed memory `revert` transport emitted by the importer. -/
+def isClosedRevertMemory (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some .revertMemory => mod == Compiler.ECM.SolidityRevertMemory.module
+  | _ => false
+
 /-- The closed typed-interface `staticcall` transport emitted by the importer. -/
 def isClosedStaticCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
@@ -103,7 +109,7 @@ def isClosedLog (mod : Compiler.ECM.ExternalCallModule) : Bool :=
 /-- Replace every closed transport except the low-level `CALL` by a call-free
 statement: a staticcall, `create2`, code length or code copy by its
 zero-initialised result binding, a log by an empty branch, a memory return by
-`stop`. -/
+`stop`, a memory revert by an empty revert. -/
 partial def eraseClosedTransports : Stmt → Stmt
   | .ecm mod args =>
       if isClosedStaticCall mod || isClosedCreate2 mod || isClosedExtCodeSize mod ||
@@ -111,6 +117,7 @@ partial def eraseClosedTransports : Stmt → Stmt
         .letVar (mod.resultVars.headD "") (.literal 0)
       else if isClosedLog mod then .ite (.literal 0) [] []
       else if isClosedReturnMemory mod then .stop
+      else if isClosedRevertMemory mod then .revertEmpty
       else .ecm mod args
   | .ite cond yes no => .ite cond (yes.map eraseClosedTransports) (no.map eraseClosedTransports)
   | .forEach name count body => .forEach name count (body.map eraseClosedTransports)

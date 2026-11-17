@@ -49,6 +49,21 @@ def runChecks : IO Unit := do
   | .revertWithData bytes =>
       unless bytes == expected do throw (IO.userError "revertError lost its argument bytes")
   | _ => throw (IO.userError "revertError did not preserve rich revert")
+  -- The closed memory revert transport reverts with exactly the bytes in
+  -- memory, including a length that is not a whole number of words.
+  let world := Verity.defaultState.copyPhysicalMemory (rawPhysicalByte unicodeExpected) 96 0
+    unicodeExpected.length
+  match execStmt oracle [] { state with world } (.ecm Compiler.ECM.SolidityRevertMemory.module
+      [.literal 96, .literal unicodeExpected.length]) with
+  | .revertWithData bytes =>
+      unless bytes == unicodeExpected do throw (IO.userError "memory revert lost its bytes")
+  | _ => throw (IO.userError "memory revert did not revert with data")
+  match execStmt oracle [] { state with world } (.ecm Compiler.ECM.SolidityRevertMemory.module
+      [.literal 99, .literal 5]) with
+  | .revertWithData bytes =>
+      unless bytes == (unicodeExpected.drop 3).take 5 do
+        throw (IO.userError "unaligned memory revert lost its bytes")
+  | _ => throw (IO.userError "unaligned memory revert did not revert with data")
   IO.println "Exact message/custom-error payload and fail-closed scalar checks passed"
 end SolidityImportSmoke.ErrorPayloads
 

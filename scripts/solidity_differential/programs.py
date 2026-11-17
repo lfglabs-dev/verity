@@ -299,6 +299,32 @@ def stateful_event_nested_mapping_read_source(original, variant):
     raise ValueError('unknown event nested mapping program variant')
 
 
+def stateful_dynamic_revert_string_source(original, variant):
+    """Equivalent computed `Error(string)` programs: renamed bindings, and the
+    messages spelled through `string memory` locals and `string.concat`."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        return original.replace('next', 'replacement').replace('saved', 'stored').replace('reason', 'why')
+    if variant == 'expanded':
+        replacements = {
+            'revert(string(abi.encodePacked("one mod five: ", bytes32(next))));':
+            'string memory oneMessage = string(abi.encodePacked("one mod five: ", bytes32(next)));\n'
+            '            revert(oneMessage);',
+            'string.concat("two mod five ", "rejected")': 'string(abi.encodePacked("two mod five rejected"))',
+            'revert(string(abi.encodePacked("fail ", saved)));':
+            'string memory failMessage = string(abi.encodePacked("fail ", saved));\n'
+            '        revert(failMessage);',
+        }
+        expanded = original
+        for old, new in replacements.items():
+            if expanded.count(old) != 1:
+                raise ValueError('nonunique dynamic-revert-string variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown dynamic-revert-string program variant')
+
+
 def stateful_interface_static_call_source(original, variant):
     """Equivalent typed-interface staticcall programs over the same call sequence."""
     if variant == 'baseline':
