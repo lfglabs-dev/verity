@@ -6,7 +6,7 @@
 .PHONY: help setup setup-elan setup-solc check-solc-published setup-foundry \
         verify verify-packages verify-targeted profile-lean test test-foundry test-python axiom-report \
         compile generate-yul check checks test-evmyullean-fork \
-        refresh-status all clean
+        refresh-status status all clean
 
 # Pinned versions (must match .github/workflows/verify.yml)
 ELAN_VERSION     := v4.1.2
@@ -176,6 +176,9 @@ checks: check ## Compatibility alias for the CI-equivalent checks job
 
 refresh-status: ## Regenerate committed derived artifacts
 	scripts/refresh_verification_artifacts.sh
+
+status: ## Print current repository counts (ARGS=--json for JSON)
+	python3 scripts/show_verification_status.py $(ARGS)
 
 regen-storage-layout-report: ## Regenerate the storage layout audit artifacts (needs Lean)
 	python3 scripts/generate_storage_layout_report.py

@@ -28,7 +28,7 @@ Enforced by CI; changing a rule means changing its script.
    (`scripts/check_axioms.py`).
 3. Regenerate `PrintAxioms.lean` (`scripts/generate_print_axioms.py`) when
    theorems change. Repository counts (tests, theorems, lines) are computed
-   on demand and never committed (`scripts/verification_metrics.py`).
+   on demand and never committed: `make status` prints them.
 4. Proofs stay under 30 lines; over 50 needs an allowlist entry with a reason
    (`scripts/check_proof_length.py`).
 5. No `native_decide` outside smoke tests, and no `#eval`/`#check`/`#print`
