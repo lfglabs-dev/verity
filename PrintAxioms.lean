@@ -8500,6 +8500,9 @@ Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_adversarial_e
 Compiler.CompilationModel.SolidityImport.Transactions.adversarial_sequence_append
 Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_callee_entry_points
 Compiler.CompilationModel.SolidityImport.Transactions.callee_sequence_append
+Compiler.CompilationModel.SolidityImport.Transactions.beginReentrantFrame_storageWords
+Compiler.CompilationModel.SolidityImport.Transactions.beginReentrantFrame_storageArray
+Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_reentrant_entry_points
 Compiler.CompilationModel.SolidityImport.Transactions.reentrant_answer_preserves
 
 -- Compiler/SolidityImport/AstIndex.lean
@@ -12079,4 +12082,4 @@ run_cmd do
     for line in lines do
       liftIO <| IO.println line
 
--- Total: 11246 theorems/lemmas (8746 public, 2500 private, 0 sorry'd)
+-- Total: 11249 theorems/lemmas (8749 public, 2500 private, 0 sorry'd)
