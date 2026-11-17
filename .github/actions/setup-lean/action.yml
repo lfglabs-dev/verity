@@ -69,6 +69,13 @@ runs:
         if [ -z "${BUILD_STICKY_DISK_KEY}" ]; then
           use_build_sticky=false
         fi
+        if [ "${use_sticky}" = "true" ] || [ "${use_build_sticky}" = "true" ]; then
+          if ! mkdir -p "${LOCAL_CACHE_ROOT}" 2>/dev/null || [ ! -w "${LOCAL_CACHE_ROOT}" ]; then
+            echo "::notice::Local sticky cache root '${LOCAL_CACHE_ROOT}' is unavailable; falling back to Actions cache on ephemeral runner"
+            use_sticky=false
+            use_build_sticky=false
+          fi
+        fi
         {
           echo "use_sticky_disks=${use_sticky}"
           echo "use_build_sticky_disk=${use_build_sticky}"

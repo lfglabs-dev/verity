@@ -495,9 +495,9 @@ verity_contract MacroERC20 where
     safeApprove token spender amount
 
   function snapshotBalance (token : Address, owner : Address) : Uint256 := do
-    let balance ← balanceOf token owner
-    setStorage lastBalance balance
-    return balance
+    let ownerBalance ← balanceOf token owner
+    setStorage lastBalance ownerBalance
+    return ownerBalance
 
   function snapshotAllowance (token : Address, owner : Address, spender : Address) : Uint256 := do
     let current ← allowance token owner spender
@@ -542,10 +542,10 @@ example : approveTokensModelUsesSafeApprove = true := by native_decide
 def snapshotBalanceModelUsesBalanceOfModule : Bool :=
   match MacroERC20.snapshotBalance_modelBody with
   | [Stmt.ecm mod [Expr.param "token", Expr.param "owner"],
-      Stmt.setStorage "lastBalance" (Expr.localVar "balance"),
-      Stmt.return (Expr.localVar "balance")] =>
+      Stmt.setStorage "lastBalance" (Expr.localVar "ownerBalance"),
+      Stmt.return (Expr.localVar "ownerBalance")] =>
       mod.name == "balanceOf" &&
-      mod.resultVars == ["balance"] &&
+      mod.resultVars == ["ownerBalance"] &&
       mod.axioms == ["erc20_balanceOf_interface"]
   | _ => false
 
@@ -905,9 +905,9 @@ verity_contract MacroTupleDestructuring where
     let (_, second) := helperPair seed
     setStorage secondSlot second
 
-  function storeHelperPairTailNameCollision («__tuple_discard_0» : Uint256, seed : Uint256) : Unit := do
+  function storeHelperPairTailNameCollision («tuple_discard_0» : Uint256, seed : Uint256) : Unit := do
     let (_, second) := helperPair seed
-    setStorage firstSlot «__tuple_discard_0»
+    setStorage firstSlot «tuple_discard_0»
     setStorage secondSlot second
 
 def storePairModelDestructuresTupleParam : Bool :=
@@ -988,7 +988,7 @@ example : storeHelperPairEqModelUsesInternalCallAssign = true := by native_decid
 
 def storeHelperPairTailModelUsesHiddenDiscardTarget : Bool :=
   match MacroTupleDestructuring.storeHelperPairTail_modelBody with
-  | [Stmt.internalCallAssign ["__tuple_discard_0", "second"] helperName [Expr.param "seed"],
+  | [Stmt.internalCallAssign ["tuple_discard_0", "second"] helperName [Expr.param "seed"],
       Stmt.setStorage "secondSlot" (Expr.localVar "second"),
       Stmt.stop] =>
       helperName == helperPairInternalModelName
@@ -998,8 +998,8 @@ example : storeHelperPairTailModelUsesHiddenDiscardTarget = true := by native_de
 
 def storeHelperPairTailNameCollisionModelUsesFreshDiscardTarget : Bool :=
   match MacroTupleDestructuring.storeHelperPairTailNameCollision_modelBody with
-  | [Stmt.internalCallAssign ["__tuple_discard_0_1", "second"] helperName [Expr.param "seed"],
-      Stmt.setStorage "firstSlot" (Expr.param "__tuple_discard_0"),
+  | [Stmt.internalCallAssign ["tuple_discard_0_1", "second"] helperName [Expr.param "seed"],
+      Stmt.setStorage "firstSlot" (Expr.param "tuple_discard_0"),
       Stmt.setStorage "secondSlot" (Expr.localVar "second"),
       Stmt.stop] =>
       helperName == helperPairInternalModelName
@@ -1054,6 +1054,36 @@ def storeHelperPairTailNameCollisionExecutablePreservesParam : Bool :=
   | .revert _ _ => false
 
 example : storeHelperPairTailNameCollisionExecutablePreservesParam = true := by native_decide
+
+-- Minimal contract whose only non-trivial feature is a tuple binding with a
+-- `_` element (pure and monadic); used to check that the synthetic discard
+-- binder is accepted by identifier validation end to end.
+verity_contract MacroTupleDiscardCompile where
+  storage
+
+  function helperPair (seed : Uint256) : Tuple [Uint256, Uint256] := do
+    return (seed, add seed 1)
+
+  function tailOfParam (pair : Tuple [Uint256, Uint256]) : Uint256 := do
+    let (_, second) := pair
+    return second
+
+  function tailOfHelper (seed : Uint256) : Uint256 := do
+    let (_, second) ← helperPair seed
+    return second
+
+-- Minimal contract exercising monadic discards (`let _ ← ...`), whose
+-- synthetic binder must also be accepted by identifier validation.
+verity_contract MacroBindDiscardCompile where
+  storage
+
+  function reentrancy_trusted dropThenRead ()
+    local_obligations [low_level_frame := assumed "Reading returndata size is an explicit refinement boundary."]
+    : Uint256 := do
+    let _ ← returnDataSize()
+    let _ ← (returnDataSize())
+    let observed ← returnDataSize()
+    return observed
 
 end MacroTupleDestructuringSmoke
 
@@ -2788,6 +2818,61 @@ private def reservedParamSpec : CompilationModel := {
       returnType := none
       body := [
         Stmt.setStorage "value" (Expr.param "__has_selector"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+/-- A parameter named after a Yul builtin (`gas`) lowers to `function f(gas)`,
+which Solidity's Yul parser rejects. -/
+private def yulBuiltinParamSpec : CompilationModel := {
+  name := "YulBuiltinParam"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "gas", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "value" (Expr.param "gas"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+/-- A local named after a Yul builtin (`balance`) lowers to `let balance := ...`,
+which Solidity's Yul parser rejects. -/
+private def yulBuiltinLocalBinderSpec : CompilationModel := {
+  name := "YulBuiltinLocalBinder"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.letVar "balance" (Expr.param "next"),
+        Stmt.setStorage "value" (Expr.localVar "balance"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+/-- A local named after a Yul keyword (`default`) is rejected the same way. -/
+private def yulKeywordLocalBinderSpec : CompilationModel := {
+  name := "YulKeywordLocalBinder"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.letVar "default" (Expr.param "next"),
+        Stmt.setStorage "value" (Expr.localVar "default"),
         Stmt.stop
       ]
     }
@@ -4887,10 +4972,10 @@ private def erc20BalanceOfSmokeSpec : CompilationModel := {
       returns := [ParamType.uint256]
       body := [
         Compiler.Modules.ERC20.balanceOf
-          "balance"
+          "ownerBalance"
           (Expr.param "token")
           (Expr.param "owner"),
-        Stmt.returnValues [Expr.localVar "balance"]
+        Stmt.returnValues [Expr.localVar "ownerBalance"]
       ]
     }
   ]
@@ -5648,6 +5733,18 @@ set_option maxRecDepth 4096 in
     reservedParamSpec
     "function parameter '__has_selector' uses reserved compiler prefix '__'"
   expectCompileErrorContains
+    "Yul builtin names are rejected in function parameters"
+    yulBuiltinParamSpec
+    "function parameter 'gas' is a Yul keyword or builtin name"
+  expectCompileErrorContains
+    "Yul builtin names are rejected in local binders"
+    yulBuiltinLocalBinderSpec
+    "local binder 'balance' is a Yul keyword or builtin name"
+  expectCompileErrorContains
+    "Yul keywords are rejected in local binders"
+    yulKeywordLocalBinderSpec
+    "local binder 'default' is a Yul keyword or builtin name"
+  expectCompileErrorContains
     "same-name internal helpers are rejected before Yul lowering"
     duplicateInternalNameSpec
     "duplicate internal function name 'helper'"
@@ -5850,6 +5947,12 @@ set_option maxRecDepth 4096 in
   discard <| expectCompile
     "matchAdt with terminating branches"
     matchAdtAllBranchesTerminateSpec
+  discard <| expectCompile
+    "tuple bindings with `_` elements compile (discard binders avoid the `__` prefix)"
+    MacroTupleDestructuringSmoke.MacroTupleDiscardCompile.spec
+  discard <| expectCompile
+    "`let _ ← returnDataSize()` compiles (discard binders avoid the `__` prefix)"
+    MacroTupleDestructuringSmoke.MacroBindDiscardCompile.spec
   expectCompileErrorContains
     "function with return value rejects stop-only termination"
     returnValueStopRejectedSpec
@@ -6327,7 +6430,11 @@ set_option maxRecDepth 4096 in
       "calldatacopy(add(__digest_abi_array_ptr, 64), items_data_offset, __digest_abi_array_data_bytes)")
   expectTrue "abiEncodeStaticArray hashes the ABI-encoded dynamic array byte length"
     (contains abiEncodeStaticArrayYul
-      "let digest := keccak256(__digest_abi_array_ptr, __digest_abi_array_total_bytes)")
+      "digest := keccak256(__digest_abi_array_ptr, __digest_abi_array_total_bytes)")
+  -- The result is declared before the block that scopes the temporaries, so it stays
+  -- visible to the statements after the ECM.
+  expectTrue "abiEncodeStaticArray declares its result outside the temporaries' block"
+    (contains abiEncodeStaticArrayYul "let digest := 0")
   expectCompileErrorContains
     "abiEncodeStaticArray ECM rejects invalid argument counts"
     abiEncodeStaticArrayBadAritySpec

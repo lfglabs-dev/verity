@@ -53,7 +53,31 @@ def CompilerProofStatus.toText : CompilerProofStatus → String
 def noCompilerProofReason : String :=
   "the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C"
 
-/-- Static status of one root. A root is listed only if it was importable.
+/-- One construct a root reaches that the importer could not lower. Recorded
+only under `Profile.collectUnsupported`; the construct is skipped and lowering
+continues, so later entries may be consequences of earlier skips. -/
+structure UnsupportedConstruct where
+  file : String
+  line : Nat
+  column : Nat
+  /-- solc AST `nodeType` of the rejected node. -/
+  kind : String
+  reason : String
+  /-- Enclosing functions at the failure, root first. -/
+  closure : List String
+  /-- Empty, or why this entry may be a consequence of an earlier skip: the
+  skipped bindings it reads, or a failure at the root boundary after a skip. -/
+  followOn : String := ""
+  deriving Repr, BEq
+
+def UnsupportedConstruct.toText (c : UnsupportedConstruct) : String :=
+  let tag := if c.followOn.isEmpty then "" else s!" [possibly consequential: {c.followOn}]"
+  s!"  {c.file}:{c.line}:{c.column} {c.kind}: {c.reason} (closure {String.intercalate " -> " c.closure}){tag}"
+
+/-- Static status of one root. Without `collectUnsupported` a root is listed
+only if it was importable. With it, a root whose lowering recorded a construct
+is listed with `unsupported` non-empty and `denoteCovered = false`; such a root
+proves nothing, and the import then emits no model and no theorems.
 `compilable` is not recorded here: it depends on the compiler, not the import,
 and `Differential` reports it next to these fields. -/
 structure FunctionStatus where
@@ -62,7 +86,18 @@ structure FunctionStatus where
   this fact, for all roots together, is the theorem `x.covered`. -/
   denoteCovered : Bool
   compilerProof : CompilerProofStatus
+  /-- Constructs recorded under `collectUnsupported`, in source order. -/
+  unsupported : List UnsupportedConstruct := []
   deriving Repr, BEq
+
+/-- The `status` line of one root, followed by its unsupported constructs. -/
+def FunctionStatus.toText (st : FunctionStatus) : String :=
+  if st.unsupported.isEmpty then
+    s!"status {st.function} importable denoteCovered {st.denoteCovered} compilerProof {st.compilerProof.toText}"
+  else
+    String.intercalate "\n" <|
+      s!"status {st.function} unsupported constructs {st.unsupported.length} denoteCovered false compilerProof {st.compilerProof.toText}" ::
+      st.unsupported.map UnsupportedConstruct.toText
 
 /-- Provenance and closure report. `sourceDigest` covers sources, solc settings,
 the compiler release identity, and the importer sources. -/
@@ -89,13 +124,17 @@ structure ImportReport where
   observesPanicPayload : Bool := false
   deriving Repr, BEq
 
+/-- Whether some root recorded an unsupported construct (`collectUnsupported`). -/
+def ImportReport.hasUnsupported (r : ImportReport) : Bool :=
+  r.functions.any (!·.unsupported.isEmpty)
+
 /-- Stable, reviewable inventory of the translated closure and explicit exclusions. -/
 def ImportReport.toText (r : ImportReport) : String := Id.run do
   let mut lines := [s!"importer {r.importerVersion}", s!"solc {r.solcLongVersion}",
     s!"solcSha256 {r.solcSha256}", s!"digest {r.sourceDigest}",
     s!"contract {r.contract}"] ++ r.roots.map (s!"root {·}") ++ [s!"settings {r.settingsJson}"]
   for st in r.functions do
-    lines := lines ++ [s!"status {st.function} importable denoteCovered {st.denoteCovered} compilerProof {st.compilerProof.toText}"]
+    lines := lines ++ [st.toText]
   for fn in r.includedFunctions do
     lines := lines ++ [s!"include {fn.contract}.{fn.name} decl {fn.declId} params {fn.paramTypes}"]
   for fn in r.excludedFunctions do

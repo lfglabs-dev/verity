@@ -44,6 +44,7 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyPair() -> (NarrowPair)
     external dirtyPair_try() -> (Bool, NarrowPair)
     external dirtyBytesArg(Bytes) -> (Uint256)
+    external dirtyBytesArg_try(Bytes) -> (Bool, Uint256)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtyAddress() -> (Address)
@@ -616,8 +617,8 @@ example : ExternalCallInBodySmoke.lowLevel_model.body =
   ExternalCallInBodySmoke.lowLevel_semantic_preservation
 
 example : (ExternalCallInBodySmoke.discardedReturnDataSize_modelBody).take 3 =
-    [ Compiler.CompilationModel.Stmt.letVar "__discard" .returndataSize
-    , Compiler.CompilationModel.Stmt.letVar (Compiler.CompilationModel.pickFreshName "__discard" ["__discard"]) .returndataSize
+    [ Compiler.CompilationModel.Stmt.letVar "discard" .returndataSize
+    , Compiler.CompilationModel.Stmt.letVar (Compiler.CompilationModel.pickFreshName "discard" ["discard"]) .returndataSize
     , Compiler.CompilationModel.Stmt.letVar "parenthesized" .returndataSize ] := rfl
 
 example : ExternalCallInBodySmoke.discardedReturnDataSize_model.body =

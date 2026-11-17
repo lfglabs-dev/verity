@@ -77,6 +77,29 @@ def sha256Hex (bytes : ByteArray) : String :=
   (Sha256Engine.sha256 bytes).data.foldl (init := "") fun acc byte =>
     acc.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))
 
+/-- Marker type of `Env.helperResult` while a named `bytes memory` helper
+result is bound; no Solidity scalar type has this spelling. -/
+def namedBytesResultMarker : String := "bytes memory#named"
+
+/-- Marker type of `Env.helperResult` while a helper returning a memory struct
+with `bytes` members is inlined; the binding holds the struct pointer. -/
+def bytesStructResultMarker : String := "struct memory#bytes"
+
+/-- Whether `helperResult` binds a memory pointer rather than a scalar word. -/
+def isPointerResultMarker (ty : String) : Bool :=
+  ty == namedBytesResultMarker || ty == bytesStructResultMarker
+
+/-- Survey-mode channel (`Profile.collectUnsupported`). It is made of `IO.Ref`s
+so that what it records survives the `StateT` rollback of a failed statement. -/
+structure UnsupportedSink where
+  /-- The last `failAt` site: its rendered message, the construct, and the
+  declarations its node reads. -/
+  pending : IO.Ref (Option (String × UnsupportedConstruct × Array Nat))
+  /-- Constructs recorded for the current root, in lowering order. -/
+  recorded : IO.Ref (Array UnsupportedConstruct)
+  /-- Declarations (id, name) bound by statements skipped in the current root. -/
+  skippedDecls : IO.Ref (Array (Nat × String))
+
 structure Env where
   sourceNames : List String
   nodeFile : RBMap Nat String compare
@@ -113,6 +136,10 @@ structure Env where
   abiElements : RBMap Nat AbiElementLocal compare := RBMap.empty
   calldataBytes : RBMap Nat CalldataBytesParam compare := RBMap.empty
   scalarArrays : RBMap Nat ScalarArrayParam compare := RBMap.empty
+  /-- `T[N] memory` parameters and locals, keyed by declaration id. -/
+  fixedMemArrays : RBMap Nat FixedMemArray compare := RBMap.empty
+  /-- `T[][] memory` parameters and locals, keyed by declaration id. -/
+  nestedMemArrays : RBMap Nat NestedMemArray compare := RBMap.empty
   byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   stringBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   nonLiteralByteLocals : Array Nat := #[]
@@ -122,8 +149,20 @@ structure Env where
   bodyAssigned : List Nat := []
   helperResult : Option (String × String) := none
   helperReturnId : Option Nat := none
+  /-- Size binding of a named `bytes memory` helper result. It is consulted
+      only while `helperResult` carries the `bytes memory` marker type, whose
+      binding is the buffer's data pointer. -/
+  helperBytesSize : String := ""
+  /-- Struct id of a memory-struct helper result with `bytes` members, consulted
+      only while `helperResult` carries `bytesStructResultMarker`. -/
+  helperStructSid : Nat := 0
   multiHelperResults : Option (Array (String × String × Bool)) := none
   flatStructHelperResult : Option (Nat × String × Array (String × String × String) × Bool) := none
+  /-- Result variable of the `T[N] memory` helper being inlined. -/
+  fixedArrayHelperResult : Option FixedMemArray := none
+  /-- Result variable of the `T[] memory` helper being inlined by the general
+  (control-flow) array helper path. -/
+  dynArrayHelperResult : Option ScalarArrayParam := none
   helperPost : Array Stmt := #[]
   rootIsVoid : Bool := false
   rootReturns : Array Expr := #[]
@@ -175,6 +214,9 @@ structure Env where
       initcode template literal (`DenoteCreate2.templateCost`). -/
   initcodeTemplates : Array Nat := #[]
   currentFile : String
+  /-- Set only under `Profile.collectUnsupported`; `none` keeps the
+  first-failure behavior. -/
+  unsupportedSink : Option UnsupportedSink := none
 
 def Env.init : Env where
   sourceNames := []
@@ -224,31 +266,119 @@ def mType (j : Json) : M String := do
       return String.intercalate "[" (u :: t)
   return raw
 
-def failAt (j : Json) (why : String) : M α := do
-  let env ← get
-  let frames := env.stack.reverse.map fun id =>
+/-- `Contract.function` frames of the current inlining stack, root first. -/
+def closureFrames (env : Env) : List String :=
+  env.stack.reverse.map fun id =>
     let owner := env.funContract.find? id |>.getD "<free>"
     let name := (((env.funs.find? id).orElse (fun _ => env.modifiers.find? id)).orElse (fun _ => env.stateVars.find? id)).bind (fun fn => optStr fn "name") |>.getD s!"decl#{id}"
     s!"{owner}.{name}"
-  let why := s!"[solidity-import:unsupported] {why}\nclosure: {String.intercalate " -> " frames}"
+
+/-- The source file of `j`, with its 1-based line, column and a source excerpt
+when its `src` range resolves in that file. -/
+def nodeSite (env : Env) (j : Json) : String × Option (Nat × Nat × String) :=
   let file :=
     match (field? j "id").bind (fun id => id.getNat?.toOption) with
     | some id => env.nodeFile.find? id |>.getD env.currentFile
     | none => env.currentFile
-  let some bytes := env.files.find? file | throwError "{file}: {why}"
-  let some src := (field? j "src").bind (fun s => s.getStr?.toOption)
-    | throwError "{file}: {why}"
-  let pieces := src.splitOn ":"
-  let some start := pieces[0]?.bind (·.toNat?) | throwError "{file}: {why}"
-  let some size := pieces[1]?.bind (·.toNat?) | throwError "{file}: {why}"
-  let before := bytes.data.extract 0 (min start bytes.size)
-  let (line, column) := before.foldl
-    (fun (p : Nat × Nat) b => if b == 10 then (p.1 + 1, 1) else (p.1, p.2 + 1)) (1, 1)
-  let excerptBytes : ByteArray :=
-    ⟨bytes.data.extract start (min (start + size) (min bytes.size (start + 120)))⟩
-  let excerpt := String.fromUTF8? excerptBytes |>.getD "<invalid UTF-8>"
+  let located : Option (ByteArray × Nat × Nat) := do
+    let bytes ← env.files.find? file
+    let src ← (field? j "src").bind (fun s => s.getStr?.toOption)
+    let pieces := src.splitOn ":"
+    let start ← pieces[0]?.bind (·.toNat?)
+    let size ← pieces[1]?.bind (·.toNat?)
+    pure (bytes, start, size)
+  match located with
+  | none => (file, none)
+  | some (bytes, start, size) =>
+    let before := bytes.data.extract 0 (min start bytes.size)
+    let (line, column) := before.foldl
+      (fun (p : Nat × Nat) b => if b == 10 then (p.1 + 1, 1) else (p.1, p.2 + 1)) (1, 1)
+    let excerptBytes : ByteArray :=
+      ⟨bytes.data.extract start (min (start + size) (min bytes.size (start + 120)))⟩
+    let excerpt := String.fromUTF8? excerptBytes |>.getD "<invalid UTF-8>"
+    (file, some (line, column, excerpt))
+
+/-- Every `referencedDeclaration` id below `j`. -/
+partial def referencedDecls (j : Json) : Array Nat :=
+  match j with
+  | .obj kvs => kvs.foldl (init := #[]) fun acc k v =>
+      let here := if k == "referencedDeclaration" then
+        match v.getNat? with
+        | .ok n => #[n]
+        | .error _ => #[]
+      else #[]
+      acc ++ here ++ referencedDecls v
+  | .arr xs => xs.foldl (fun acc x => acc ++ referencedDecls x) #[]
+  | _ => #[]
+
+/-- Every `VariableDeclaration` (id, name) below `j`. -/
+partial def declaredVariables (j : Json) : Array (Nat × String) :=
+  match j with
+  | .obj kvs =>
+      let here := if optStr j "nodeType" == some "VariableDeclaration" then
+        match (field? j "id").bind (fun id => id.getNat?.toOption) with
+        | some id => #[(id, optStr j "name" |>.getD "")]
+        | none => #[]
+      else #[]
+      kvs.foldl (fun acc _ v => acc ++ declaredVariables v) here
+  | .arr xs => xs.foldl (fun acc x => acc ++ declaredVariables x) #[]
+  | _ => #[]
+
+def failAt (j : Json) (why : String) : M α := do
+  let env ← get
+  let frames := closureFrames env
+  let reason := why
+  let why := s!"[solidity-import:unsupported] {why}\nclosure: {String.intercalate " -> " frames}"
+  let (file, site) := nodeSite env j
+  let some (line, column, excerpt) := site | throwError "{file}: {why}"
   let kind := (field? j "nodeType").bind (fun k => k.getStr?.toOption) |>.getD "node"
+  if let some sink := env.unsupportedSink then
+    sink.pending.set (some (s!"{file}:{line}:{column}: {kind}: {why}\n{excerpt}",
+      { file, line, column, kind, reason, closure := frames }, referencedDecls j))
   throwError "{file}:{line}:{column}: {kind}: {why}\n{excerpt}"
+
+/-- Record the failure `e` of the statement or root `at_` in `sink`. A `failAt`
+failure keeps its own site; any other error is located at `at_`. The entry is
+tagged as possibly consequential when it reads a declaration bound by a skipped
+statement, or when `boundary` (a root-level failure) follows recorded skips. -/
+def recordUnsupported (sink : UnsupportedSink) (at_ : Json) (e : Exception)
+    (boundary : Bool := false) : M Unit := do
+  let msg ← e.toMessageData.toString
+  let pending ← sink.pending.get
+  sink.pending.set none
+  let env ← get
+  let fallback : UnsupportedConstruct × Array Nat :=
+    let (file, site) := nodeSite env at_
+    let (line, column) := match site with
+      | some (line, column, _) => (line, column)
+      | none => (0, 0)
+    let kind := optStr at_ "nodeType" |>.getD "node"
+    ({ file, line, column, kind, reason := msg.replace "\n" " ", closure := closureFrames env }, #[])
+  let (construct, refs) := match pending with
+    | some (rendered, construct, refs) => if rendered == msg then (construct, refs) else fallback
+    | none => fallback
+  let refs := refs ++ referencedDecls at_
+  let skipped ← sink.skippedDecls.get
+  let used := (skipped.filter fun (id, _) => refs.contains id).map (·.2)
+  let earlier ← sink.recorded.get
+  let followOn :=
+    if !used.isEmpty then s!"reads {String.intercalate ", " used.toList.eraseDups} bound by a skipped statement"
+    else if boundary && !earlier.isEmpty then "root-level failure after an earlier skip"
+    else ""
+  sink.recorded.modify (·.push { construct with followOn })
+
+/-- A statement-level recovery point. Without `collectUnsupported` this is `k`.
+Under it, a failure of `k` is recorded, the `Env` is rolled back to its value
+before `s` (`StateT`'s `tryCatch` discards the failed branch's state), the
+declarations of `s` are remembered as skipped, and `fallback` is returned.
+Interrupts and runtime limits are never caught. -/
+def recoverAt (s : Json) (fallback : α) (k : M α) : M α := do
+  let some sink := (← get).unsupportedSink | k
+  try k catch e =>
+    if e.isInterrupt || e.isRuntime then throw e
+    recordUnsupported sink s e
+    sink.skippedDecls.modify (· ++ declaredVariables s)
+    pure fallback
 
 /-- Transitive closure of `fnId` under solc's `baseFunctions` relation,
     including `fnId` itself. Bounded by the number of indexed functions. -/
@@ -744,6 +874,28 @@ def scalarArrayElement? (ty : String) : Option (String × ParamType × SolidityA
       else none
     let kind ← kind?
     some (elemStr, pty, kind)
+
+/-- `T[N]` / `T[N] memory` with a positive literal length `N` and a scalar
+element `T` accepted by `scalarArrayElement?` (except `bytes4`, whose ABI
+validation differs): the element string, model type, ABI kind and length. -/
+def fixedMemArrayType? (ty : String) :
+    Option (String × ParamType × SolidityAbi.ScalarKind × Nat) := do
+  let ty := if ty.endsWith " memory" then (ty.dropEnd 7).toString else ty
+  unless ty.endsWith "]" do none
+  let [elemStr, suffix] := ty.splitOn "[" | none
+  let length ← (suffix.dropEnd 1).toString.toNat?
+  unless length > 0 do none
+  let (elem, pty, kind) ← scalarArrayElement? (elemStr ++ "[]")
+  if elem == "bytes4" then none
+  some (elem, pty, kind, length)
+
+/-- `T[][]` / `T[] memory[] memory` with a scalar inner element `T` accepted by
+`scalarArrayElement?`. -/
+def nestedMemArrayType? (ty : String) : Option (String × ParamType × SolidityAbi.ScalarKind) := do
+  -- solc spells the memory type `T[] memory[] memory`.
+  let ty := ty.replace " memory" ""
+  unless ty.endsWith "[][]" do none
+  scalarArrayElement? (ty.dropEnd 2).toString
 
 def resolveEnumMembers (j : Json) (ty : String) : M (Array String) := do
   let env ← get

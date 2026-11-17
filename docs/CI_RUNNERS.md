@@ -30,8 +30,10 @@ GitHub Actions for lfglabs-dev/verity
 The workflows route by capability, not by hostname:
 
 ```yaml
-runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
-runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
+runs-on: ubuntu-latest
+runs-on: lean-16vcpu-ubuntu-2604
+runs-on: lean-32vcpu-ubuntu-2604
+runs-on: [self-hosted, linux, x64, verity, build, build-medium]
 runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
 ```
 
@@ -40,11 +42,19 @@ them only for temporary debugging or deliberate host pinning.
 
 ## Mindset
 
-- Keep fast jobs and long proof/build jobs on separate runner labels.
-- Require `build-heavy` for proof, compiler, and Foundry jobs. The generic
-  `build` label alone does not distinguish high-memory hosts from lighter,
-  cgroup-capped build hosts and is not a sufficient resource bound for those
-  jobs.
+- Keep fast control-plane/Python jobs (`closed-pr-cleanup`, `changes`, `checks`,
+  `timeout-watchdog`, `failure-hints`, `ci-gate`) on GitHub-hosted ephemeral
+  `ubuntu-latest` runners so they run with unlimited concurrency and never
+  serialize behind a single self-hosted `fastlane` host.
+- Route heavy proof, compiler-binary, profiling, and `turbo-lean` jobs onto
+  ephemeral `lean.ci` runners (`lean-16vcpu-ubuntu-2604` and
+  `lean-32vcpu-ubuntu-2604` with `LEAN_NUM_THREADS=16`) so concurrent PRs
+  do not serialize behind a single self-hosted `build-heavy` host. Ephemeral
+  runners automatically fall back to GitHub Actions caches and `$RUNNER_TEMP`
+  when `/srv/verity-ci-cache` is absent.
+- Keep `build-medium` self-hosted runners (`ashur`, `nippur`, `old-agent`) for
+  bounded-memory audit and Foundry jobs (`build-audits`, `compiler-audits`,
+  `import-mutations`, and `foundry*`).
 - Prefer one full Verity build runner per 8-core host. Lean jobs commonly use
   `LEAN_NUM_THREADS=8`; two such jobs on one 8-core host oversubscribe CPU,
   memory bandwidth, and the Lake cache.

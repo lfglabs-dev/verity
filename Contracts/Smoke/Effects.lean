@@ -31,8 +31,8 @@ verity_contract ModifiesSmoke where
     let sender ← msgSender
     let current ← getStorage counter
     setStorage counter (add current 1)
-    let balance ← getMapping balances sender
-    setMapping balances sender (add balance amount)
+    let senderBalance ← getMapping balances sender
+    setMapping balances sender (add senderBalance amount)
 
   -- View function (no modifies needed)
   function view getCounter () : Uint256 := do
@@ -96,8 +96,8 @@ verity_contract EffectCompositionSmoke where
   -- No annotations at all
   function deposit (amount : Uint256) : Unit := do
     let sender ← msgSender
-    let balance ← getMapping balances sender
-    setMapping balances sender (add balance amount)
+    let senderBalance ← getMapping balances sender
+    setMapping balances sender (add senderBalance amount)
 
 -- #1728, Axis 2 Step 2a: smoke test for CEI enforcement
 verity_contract CEISmoke where

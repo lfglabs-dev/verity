@@ -2,6 +2,11 @@
 set -euo pipefail
 
 ARTIFACT_ROOT="${VERITY_CI_ARTIFACT_ROOT:-/srv/verity-ci-cache/artifacts}"
+if [ -z "${VERITY_CI_ARTIFACT_ROOT:-}" ]; then
+  if ! mkdir -p "$ARTIFACT_ROOT" 2>/dev/null || [ ! -w "$ARTIFACT_ROOT" ]; then
+    ARTIFACT_ROOT="${RUNNER_TEMP:-/tmp}/verity-ci-cache/artifacts"
+  fi
+fi
 
 # Cross-host artifact hub (installed by scripts/ci_artifact_hub.sh). Without it,
 # an artifact produced on another runner host can only come from GitHub, which
@@ -127,10 +132,14 @@ mount_persistent_dir() {
   fi
 
   local primary_dir fallback_dir=""
+  if ! mkdir -p "$root" 2>/dev/null || [ ! -w "$root" ]; then
+    echo "::notice::Persistent cache root '${root}' is unavailable; using ephemeral runner directory"
+    root="${RUNNER_TEMP:-/tmp}/verity-ci-cache/$(basename "$root")"
+    mkdir -p "$root"
+  fi
   primary_dir="${root}/$(sanitize_key "$key")"
   # Validate, lease (touch) and seed the entry under its exclusive lock, so
   # host maintenance can never delete it between its check and its rm.
-  mkdir -p "$root"
   lock_entry "$primary_dir" -x
   mkdir -p "$primary_dir"
 

@@ -904,10 +904,10 @@ private def erc20BalanceOfTrustSurfaceSpec : CompilationModel := {
       returns := [ParamType.uint256]
       body := [
         Compiler.Modules.ERC20.balanceOf
-          "balance"
+          "ownerBalance"
           (Expr.param "token")
           (Expr.param "owner"),
-        Stmt.returnValues [Expr.localVar "balance"]
+        Stmt.returnValues [Expr.localVar "ownerBalance"]
       ]
     }
   ]

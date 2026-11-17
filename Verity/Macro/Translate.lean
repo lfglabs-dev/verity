@@ -182,7 +182,7 @@ private partial def validateDoElemExprTypes
   match tupleCase? with
   | some typedLocals => pure typedLocals
   | none =>
-      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params (typedLocalNames locals) #[] elem then
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "discard" params (typedLocalNames locals) #[] elem then
         validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
           errorDecls eventDecls functions params locals desugared
       else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
@@ -1398,7 +1398,7 @@ private partial def translateDoElem
   match tupleCase? with
   | some result => pure result
   | none =>
-      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params localNames mutableLocals elem then
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "discard" params localNames mutableLocals elem then
         translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
       else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
         translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
@@ -1686,6 +1686,12 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
               locals,
               mutableLocals)
+      | `(doElem| return ()) | `(doElem| return) =>
+          -- Early exit from a `Unit` function: the same `Stmt.stop` that ends its body
+          -- (EVM `stop()` externally, `leave` in an internal helper), not an empty tuple.
+          if returnTy != .unit then
+            throwErrorAt elem "`return ()` is only allowed in a function returning Unit"
+          pure (#[(← `(Compiler.CompilationModel.Stmt.stop))], locals, mutableLocals)
       | `(doElem| return $value:term) =>
           match (← arrayElementTupleReturnStmts? fields constDecls immutableDecls params locals mutableLocals value
             (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
