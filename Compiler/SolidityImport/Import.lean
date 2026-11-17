@@ -9404,39 +9404,6 @@ private partial def lowerMultiCall (j : Json) (expectedTypes : Option (Array (Op
               elseB := elseB.push (.assignVar dest nExpr)
               outRets := outRets.push (.localVar dest, yTy)
             return (pre.push (.ite cond thenB.toList elseB.toList), outRets)
-  if (← mKind callee) == "MemberAccess" && (← get).stateVars.size > 1 then
-    let refId ← refInt callee
-    if refId ≥ 0 then
-      let env ← get
-      if let some fnDecl := env.funs.find? refId.toNat then
-        let cid := env.funContractId.find? refId.toNat |>.getD 0
-        let ckind := env.contractKinds.find? cid |>.getD ""
-        let rets ← mArr (← mField (← mField fnDecl "returnParameters") "parameters")
-        if ckind == "contract" && rets.size == 2 then
-          let r0Ty ← mType rets[0]!
-          let r1Ty ← mType rets[1]!
-          if r0Ty == "uint256" && r1Ty == "uint256" then
-            let some hex := optStr fnDecl "functionSelector"
-              | failAt j "external call is missing functionSelector"
-            let mut sel : Nat := 0
-            for c in hex.toList do
-              let some d := Compiler.Hex.hexCharToNat? c | failAt j s!"invalid selector hex {hex}"
-              sel := sel * 16 + d
-            let base ← mField callee "expression"
-            let target ← atom (← convert "address" (← mType base) (← lowerExpr base) base)
-            let args ← mArr (← mField j "arguments")
-            let mut pre := target.pre
-            let mut callWords : Array Expr := #[target.expr]
-            for arg in args do
-              let v ← atom (← lowerExpr arg)
-              pre := pre ++ v.pre
-              callWords := callWords.push v.expr
-            let r0 ← fresh
-            let r1 ← fresh
-            let m0 := Compiler.ECM.SolidityStaticCall.uint256Module r0 sel args.size
-            let m1 := Compiler.ECM.SolidityStaticCall.uint256Module r1 sel args.size
-            pre := (pre.push (.ecm m0 callWords.toList)).push (.ecm m1 callWords.toList)
-            return (pre, #[(.localVar r0, "uint256"), (.localVar r1, "uint256")])
   let (fnId, vals) ← resolveCallTargetAndArgs j
   inlineMultiFn fnId vals j
 
