@@ -93,8 +93,8 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
   | .ecm mod args => do
       match mod.byteTransport with
       | some (.create2 _) | some (.log _ _) | some (.extCodeSize _) | some (.extCodeCopy _)
-      | some .returnMemory =>
-          -- CREATE2, LOG, EXTCODESIZE, EXTCODECOPY and RETURN touch no persistent
+      | some .returnMemory | some .revertMemory =>
+          -- CREATE2, LOG, EXTCODESIZE, EXTCODECOPY, RETURN and REVERT touch no persistent
           -- slot of any account here: the created account's storage is empty and
           -- only its code is committed; code reads see only the account's code.
           return (← args.mapM (expressionAccesses oracle fields state)).flatten

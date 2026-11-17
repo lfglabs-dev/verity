@@ -185,6 +185,8 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
         exprListCovered args
   | some .returnMemory =>
       mod == Compiler.ECM.SolidityReturnMemory.module && args.length == 2 && exprListCovered args
+  | some .revertMemory =>
+      mod == Compiler.ECM.SolidityRevertMemory.module && args.length == 2 && exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -474,6 +476,16 @@ theorem execStmt_ecm_returnMemory_arm (oracle : DenoteOracle) (fields : List Fie
     execStmt oracle fields state (.ecm Compiler.ECM.SolidityReturnMemory.module args) =
       (match executeByteReturnMemory oracle fields state
           Compiler.ECM.SolidityReturnMemory.module args with
+       | .ok outcome => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed memory `revert` arm reverts with the buffer's bytes; an
+instrumentation error is a payload-free `.revert`. -/
+theorem execStmt_ecm_revertMemory_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (args : List Expr) :
+    execStmt oracle fields state (.ecm Compiler.ECM.SolidityRevertMemory.module args) =
+      (match executeByteRevertMemory oracle fields state
+          Compiler.ECM.SolidityRevertMemory.module args with
        | .ok outcome => outcome
        | .error _ => .revert) := rfl
 

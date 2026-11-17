@@ -1719,6 +1719,18 @@ def executeByteReturnMemory (oracle : DenoteOracle) (fields : List Field)
     (DenoteMemory.wordValue (state.world.byteMemory.readWord (offset + 32 * index))).val
   return .stop { state with observedReturnWords := some returned, observedStop := false }
 
+/-- The closed `revert(offset, size)` transport of an ABI-encoded memory buffer:
+the frame reverts with exactly the buffer's bytes, read from physical memory. -/
+def executeByteRevertMemory (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) :
+    Except String StmtOutcome := do
+  unless mod == Compiler.ECM.SolidityRevertMemory.module do
+    throw "closed memory revert metadata differs"
+  let some [offset, size] := evalExprList oracle fields state args
+    | throw "memory revert argument evaluation unsupported"
+  return .revertWithData ((state.world.byteMemory.slice offset size).map fun byte =>
+    UInt8.ofNat byte.val)
+
 /-! ## Statement denotation (mirrors event-less `SourceSemantics.execStmt`) -/
 
 def valuesAsEventArgs (values : List Nat) : List Verity.Core.Uint256 :=
@@ -2185,6 +2197,10 @@ mutual
             | .error _ => .revert
         | some .returnMemory =>
             match executeByteReturnMemory oracle fields state mod args with
+            | .ok outcome => outcome
+            | .error _ => .revert
+        | some .revertMemory =>
+            match executeByteRevertMemory oracle fields state mod args with
             | .ok outcome => outcome
             | .error _ => .revert
         | none =>

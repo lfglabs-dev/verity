@@ -15,6 +15,11 @@ MUTANTS = {
         'if false then'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),
+    'import-dynamic-revert-string-selector': ('[.literal (0x08c379a0 * 2 ^ 224)]',
+                                              '[.literal (0x08c379a1 * 2 ^ 224)]'),
+    'import-dynamic-revert-string-order': (
+        'return condition.pre ++ buffer.pre |>.push (.ite condition.expr [] revertStmts.toList)',
+        'return condition.pre.push (.ite condition.expr [] (buffer.pre ++ revertStmts).toList)'),
     'import-void-fallthrough': ('out := out.push .stop', 'out := out.push (.require (.literal 0) "mutated void return") |>.push .stop'),
     'denote-scalar-sibling-mask': ('let cleared := Verity.Core.Uint256.and current (Verity.Core.Uint256.not shiftedMaskNat)', 'let cleared := Verity.Core.Uint256.and current 0'),
     'import-scalar-read': ('pure { pre, expr := .storage name }', 'pure { pre, expr := .literal 0 }'),
@@ -564,6 +569,8 @@ def run(directory, output, name):
         fixture = 'EmptyRevertSequence'
     if name == 'import-event-scratch-competing-guard':
         fixture = 'EventNestedMappingReadSequence'
+    if name.startswith('import-dynamic-revert-string-'):
+        fixture = 'DynamicRevertStringSequence'
     if name.startswith("import-governor-slice-proposer-delay-"):
         fixture = "GovernorSliceProposerDelaySequence"
     if name.startswith("import-create2-clones-msgdata-deque-"):
