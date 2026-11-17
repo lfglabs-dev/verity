@@ -33,7 +33,8 @@ CASES = [
     ('call-with-hoisted-call', f'iszero(iszero({CALL}))', None),
     ('memory-sibling', f'and({CALL}, eq(mload(0x00), 1))', ('and(call(', 'observer')),
     ('returndata-sibling', f'and({CALL}, iszero(returndatasize()))', ('and(call(', 'observer')),
-    ('two-calls', f'and({CALL}, {CALL})', ('and(call(', 'observer')),
+    # The left call must be hoisted ahead of the right one, which Yul evaluates first.
+    ('two-calls', f'and({CALL}, {CALL})', ('and(call(', 'hoisted')),
     ('nested-memory-sibling', f'and(or({CALL}, 0), eq(mload(0x00), 1))', ('and(or(', 'observer')),
     ('hoisted-sibling', f'and(extcodesize(token), {CALL})', ('and(extcodesize(', 'hoisted')),
 ]
