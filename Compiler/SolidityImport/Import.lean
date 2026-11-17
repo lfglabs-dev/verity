@@ -2615,6 +2615,21 @@ private def narrowCounterMayWrap (counterBits : Nat) (bound : Val) (boundNode : 
   match (if boundTy.startsWith "uint" then bitsOf boundTy else none) with
   | some bits => pure (bits > counterBits)
   | none => pure true
+/-- The byte buffer of a `bytes` descriptor: its memory payload, or a word
+copy of its calldata payload into fresh memory. -/
+private def calldataBytesBuffer (cb : CalldataBytesParam) : M EncodedBytes := do
+  if cb.inMemory then
+    return { pre := #[], pointer := .add (.localVar cb.memoryPointer) (.literal 32), size := .localVar cb.lengthBinding }
+  let pointer ← fresh
+  let finish ← fresh
+  let copyIdx ← fresh
+  let wordCount := Expr.div (.add (.localVar cb.lengthBinding) (.literal 31)) (.literal 32)
+  modify fun e => { e with encodingMemory := true }
+  let alloc := AbiEncoding.reserve pointer finish (.mul (.literal 32) wordCount)
+  let copyStmt := Stmt.forEach copyIdx wordCount
+    [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
+      (.calldataload (.add (.localVar cb.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
+  return { pre := (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := .localVar cb.lengthBinding }
 
 set_option maxHeartbeats 1600000 in
 mutual
@@ -2903,8 +2918,10 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.fixedMemArray n #[])
       else if env.nestedMemArrays.contains n then
         pure (.nestedMemArray n #[])
-      else if env.mems.contains n then
-        pure (.mem n #[])
+      else if let some mem := env.mems.find? n then
+        match mem.rootArrayWord with
+        | some word => pure (.abiArray n word #[])
+        | none => pure (.mem n #[])
       else if let some elem := env.abiElements.find? n then
         pure (.abiElement elem.rootId elem.memberIndex elem.pointer elem.inMemory #[])
       else if env.flatStructs.contains n then
@@ -3205,6 +3222,43 @@ private partial def lowerRef (j : Json) : M Ref := do
               let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
               let value := Expr.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))
               return .expr { pre, expr := value }
+          if let some (.bytesArray _) := schema[memberIndex]? then
+            -- `data[i]` of a root `bytes[]`: bounds check, then the element's
+            -- `bytes` descriptor under a synthetic id (above every AST id), so
+            -- every `bytes` lowering (`.length`, hashing, slices, helper
+            -- arguments, `abi.decode`) applies to it unchanged.
+            let sid := 2 ^ 62 + (← get).next
+            discard fresh
+            let elemHeader ← fresh
+            let elemLength ← fresh
+            let elemData ← fresh
+            if mem.calldataLocation then
+              let header ← fresh
+              let length ← fresh
+              let data ← fresh
+              let checks := AbiLowering.staticArrayHead (.localVar (mem.abiStem ++ "_calldata"))
+                memberIndex 1 header length data
+              let tail := AbiLowering.calldataBytesTailAt (.localVar data)
+                (.add (.localVar data) (.mul key.expr (.literal 32))) elemHeader elemLength elemData
+              let pre := pre ++ checks.toArray ++ key.pre ++ #[.ite (.lt key.expr (.localVar length))
+                [] [.panicCode (.literal 0x32)]] ++ tail.toArray
+              let desc : CalldataBytesParam :=
+                { param := "", offsetBinding := "", headerBinding := elemHeader
+                  lengthBinding := elemLength, dataBinding := elemData }
+              modify fun e => { e with calldataBytes := e.calldataBytes.insert sid desc }
+              return .calldataBytes sid pre
+            else
+              let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
+                (.literal (32*memberIndex)))
+              let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
+              let pre := pre ++ #[
+                .letVar elemHeader (.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))),
+                .letVar elemLength (.mload (.localVar elemHeader))]
+              let desc : CalldataBytesParam :=
+                { param := "", offsetBinding := "", headerBinding := "", lengthBinding := elemLength
+                  dataBinding := "", inMemory := true, memoryPointer := elemHeader }
+              modify fun e => { e with calldataBytes := e.calldataBytes.insert sid desc }
+              return .calldataBytes sid pre
           let some (.structArray _ fields) := schema[memberIndex]?
             | failAt j "index requires a struct-array member"
           if mem.calldataLocation then
@@ -3545,7 +3599,7 @@ private partial def lowerRef (j : Json) : M Ref := do
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
             let some schema := mem.schema | failAt j "missing ABI schema"
             let elementWords ← match schema[memberIndex]? with
-              | some (.scalarArray _) => pure 1
+              | some (.scalarArray _) | some (.bytesArray _) => pure 1
               | some (.structArray _ fields) => pure fields.length
               | _ => failAt j "length requires a schema-checked ABI array"
             if mem.calldataLocation then
@@ -4644,11 +4698,12 @@ private partial def lowerEncodedMemBody (id : Nat) (tuple : Expr) (arg : Json) :
           (.literal (32 * subSchema.length))).toArray
         pre := pre.push (.mstore destination (.sub (.localVar subTuple) tuple))
         pre := pre ++ (← lowerEncodedMemBody subId (.localVar subTuple) arg)
+    | .bytesArray _ => failAt arg "bytes[] members are outside struct ABI encoding"
     | .scalarArray _ | .structArray _ _ =>
         let kinds : List SolidityAbi.ScalarKind := match member with
           | .scalarArray field => [field.kind]
           | .structArray _ fields => fields.map (fun (field : AbiSchema.ScalarField) => field.kind)
-          | .scalar _ | .bytesField _ _ | .nestedStruct _ _ _ _ _ => []
+          | .scalar _ | .bytesField _ _ | .nestedStruct _ _ _ _ _ | .bytesArray _ => []
         let scalarArray := match member with
           | .scalarArray _ => true
           | _ => false
@@ -5779,8 +5834,25 @@ private partial def lowerMsgDataBuffer : M EncodedBytes := do
         (.calldataload (.mul (.localVar copyIdx) (.literal 32)))]]
   return { pre := (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := .calldatasize }
 
+/-- `data[i]` of a root `bytes[]` parameter: its effects and element descriptor. -/
+private partial def rootBytesElement? (j : Json) : M (Option (Array Stmt × CalldataBytesParam)) := do
+  unless (← mKind j) == "IndexAccess" do return none
+  let base ← stripParens (← mField j "baseExpression")
+  unless (← mKind base) == "Identifier" do return none
+  let id ← refInt base
+  unless id ≥ 0 do return none
+  let some mem := (← get).mems.find? id.toNat | return none
+  let some word := mem.rootArrayWord | return none
+  let some (.bytesArray _) := mem.schema.bind (·[word]?) | return none
+  let .calldataBytes sid pre ← lowerRef j | return none
+  let some cb := (← get).calldataBytes.find? sid | return none
+  return some (pre, cb)
+
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
+  if let some (elemPre, cb) ← rootBytesElement? j then
+    let buffer ← calldataBytesBuffer cb
+    return { buffer with pre := elemPre ++ buffer.pre }
   if let some (slicePre, offsetExpr, lenExpr, fromCalldata, isMsgData) ← lowerCalldataSlice? j then
     let pointer ← fresh
     let finish ← fresh
@@ -5880,19 +5952,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       if let some buffer := (← get).stringBuffers.find? id.toNat then
         return buffer
       if let some cb := (← get).calldataBytes.find? id.toNat then
-        if cb.inMemory then
-          return { pre := #[], pointer := .add (.localVar cb.memoryPointer) (.literal 32), size := .localVar cb.lengthBinding }
-        else
-          let pointer ← fresh
-          let finish ← fresh
-          let copyIdx ← fresh
-          let wordCount := Expr.div (.add (.localVar cb.lengthBinding) (.literal 31)) (.literal 32)
-          modify fun e => { e with encodingMemory := true }
-          let alloc := AbiEncoding.reserve pointer finish (.mul (.literal 32) wordCount)
-          let copyStmt := Stmt.forEach copyIdx wordCount
-            [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
-              (.calldataload (.add (.localVar cb.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
-          return { pre := (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := .localVar cb.lengthBinding }
+        return ← calldataBytesBuffer cb
       if let some (name, slotExpr, _) := (← get).storageBytesVars.find? id.toNat then
         return ← lowerStorageBytesRead #[] name slotExpr j
     let some decl := (← get).stateVars.find? id.toNat
@@ -15012,6 +15072,9 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
                    scalarTy := e.scalarTy.insert svId .address }
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   let mut out : Array SrcParam := #[]
+  -- ABI head word of the current parameter (static tuples and `T[N]` span
+  -- several words); checked against the model parameters after lowering.
+  let mut headWord := 0
   for p in params do
     let rawName ← mStr (← mField p "name")
     if rawName.startsWith "_verity_memret_" then
@@ -15178,6 +15241,24 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
             abiStem := abiStem }
         { e with mems := e.mems.insert id bound,
                  yulMemoryStructs := if loc == "memory" && rawName != "" then e.yulMemoryStructs.insert rawName id else e.yulMemoryStructs }
+    else if (ty == "bytes[]" || ty.startsWith "struct " && ty.endsWith "[]") &&
+        (loc == "memory" || loc == "calldata") then
+      -- Root `bytes[]` or `S[]` of a flat scalar struct: member `headWord` of
+      -- the root argument tuple, lowered by the struct-member array readers.
+      let structs := (← get).structs
+      let member ← if ty == "bytes[]" then pure (.bytesArray name) else
+        match AbiSchema.structArrayMember (fun id => structs.find? id) name
+            (← mField p "typeName") with
+        | .ok member => pure member
+        | .error failure => failAt failure.node failure.message
+      let schema := AbiRootLowering.rootArraySchema headWord member
+      let abiStem ← freshAbiStem schema (loc == "memory") (rootArray := true)
+      modify fun e =>
+        let bound : MemParam :=
+          { structId := 0, param := name, structName := "", members := #[]
+            calldataLocation := loc == "calldata", schema := some schema, abiStem
+            rootArrayWord := some headWord }
+        { e with mems := e.mems.insert id bound }
     else if ty.startsWith "struct " && !ty.contains "[" && loc == "storage" &&
         (optStr fn "visibility" == some "internal" || optStr fn "visibility" == some "private") then
       let typeName ← mField p "typeName"
@@ -15201,6 +15282,10 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
         let bytes4Params := if ty == "bytes4" then e.bytes4Params.push id else e.bytes4Params
         let yulNames := if rawName == "" then e.yulNames else e.yulNames.insert rawName (.param name)
         { e with values, scalarTy, enumBounds, bytes4Params, yulNames }
+    headWord := headWord + match (← get).fixedMemArrays.find? id, (← get).mems.find? id with
+      | some arr, _ => arr.length
+      | none, some { staticTypes := some types, .. } => paramHeadSize (.tuple types) / 32
+      | _, _ => 1
   -- A `T[N] memory` root parameter has no Denote/compiler parameter loader,
   -- so its function decodes its whole ABI head explicitly.
   let explicitAbi := (← get).mems.toList.any (fun (_, mem) => mem.schema.isSome) || !(← get).calldataBytes.isEmpty || !(← get).scalarArrays.isEmpty || !(← get).fixedMemArrays.isEmpty
@@ -16558,7 +16643,10 @@ private def importSlice
             if modelParamNames.contains p.name then
               (failAt fn s!"parameter name collision: {p.name}").run' env
             modelParamNames := modelParamNames.push p.name
-            modelParams := modelParams.push { name := p.name, ty := AbiSchema.paramType schema }
+            let ty := match mem.rootArrayWord, schema.getLast? with
+              | some _, some member => AbiSchema.memberType member
+              | _, _ => AbiSchema.paramType schema
+            modelParams := modelParams.push { name := p.name, ty }
             continue
           if let some types := mem.staticTypes then
             if modelParamNames.contains p.name then
@@ -16598,7 +16686,12 @@ private def importSlice
             let some i := modelParamNames.findIdx? (· == p.name)
               | throwError "missing full struct parameter"
             let headWord := (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0 / 32
-            let plan := AbiRootLowering.root mem.abiStem rootHeadWords headWord schema (!mem.calldataLocation)
+            let plan ← match mem.rootArrayWord with
+              | some word =>
+                  unless word == headWord do
+                    throwError "root array parameter {p.name}: head word {word} differs from {headWord}"
+                  pure (AbiRootLowering.rootArray mem.abiStem rootHeadWords schema (!mem.calldataLocation))
+              | none => pure (AbiRootLowering.root mem.abiStem rootHeadWords headWord schema (!mem.calldataLocation))
             abiGuards := abiGuards ++ plan.body.toArray
           if let some types := mem.staticTypes then
             let some i := modelParamNames.findIdx? (· == p.name)

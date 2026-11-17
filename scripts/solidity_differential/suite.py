@@ -112,7 +112,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('storage-named-string-return', ['-m', 'solidity_differential.check_storage',
         '--fixture', 'named-string-return', '--transactions', str(max(64, transactions)),
         '--seed', str(seed), '--output', str(output / 'storage-named-string-return')]))
-    for fixture in ('struct-string-member-param',):
+    for fixture in ('struct-string-member-param', 'struct-array-param', 'bytes-array-param'):
         # Root ABI parameters: the full deterministic call list (well-formed
         # and malformed ABI inputs) runs before the random calls.
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',

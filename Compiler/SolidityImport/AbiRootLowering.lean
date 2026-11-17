@@ -83,6 +83,34 @@ def materializeFromCalldata (calldataPointer stem : String)
           materializeStaticStructArray (.localVar data) (.localVar length)
             (.localVar arrayPointer) (.localVar next) elementStem (fields.map (·.kind)) ++
           [.mstore destination (.localVar arrayPointer)]
+      | .bytesArray _ =>
+        -- `abi_decode_t_array$_t_bytes_memory_ptr_$dyn_memory_ptr`: the
+        -- pointer array, then each element's eager `bytes` copy.
+        let memberStem := stem ++ "_array" ++ toString i
+        let arrayPointer := memberStem ++ "_memory"
+        let header := memberStem ++ "_header"
+        let length := memberStem ++ "_length"
+        let data := memberStem ++ "_data"
+        let next := memberStem ++ "_next"
+        let index := memberStem ++ "_index"
+        let elementStem := memberStem ++ "_bytes"
+        let element := elementStem ++ "_memory"
+        let elementNames := [element, elementStem ++ "_header", elementStem ++ "_length",
+          elementStem ++ "_data", elementStem ++ "_next", elementStem ++ "_index"]
+        names := names ++ [arrayPointer, header, length, data, next, index] ++ elementNames
+        let slot := Expr.add (.localVar data) (.mul (.localVar index) (.literal 32))
+        body := body ++ [.letVar arrayPointer (.mload (.literal 64))] ++
+          memoryStaticArrayHead (.localVar calldataPointer) (.localVar arrayPointer) i 1
+            header length data next ++
+          [.mstore (.localVar arrayPointer) (.localVar length),
+           .mstore (.literal 64) (.localVar next),
+           .forEach index (.localVar length) (
+             memoryBytesAt (.localVar data) slot element (elementStem ++ "_header")
+               (elementStem ++ "_length") (elementStem ++ "_data") (elementStem ++ "_next")
+               (elementStem ++ "_index") ++
+             [.mstore (.add (.add (.localVar arrayPointer) (.literal 32))
+               (.mul (.localVar index) (.literal 32))) (.localVar element)]),
+           .mstore destination (.localVar arrayPointer)]
       | .nestedStruct _ _ _ _ subSchema =>
         let memberStem := stem ++ "_struct" ++ toString i
         let subCalldata := memberStem ++ "_calldata"
@@ -136,6 +164,46 @@ def root (stem : String) (rootHeadWords parameterHeadWord : Nat)
     names := names ++ mat.names
     body := body ++ mat.body
   }
+
+/-- Unread head word standing for a root parameter before a `rootArray` view. -/
+def rootArrayPlaceholder : Member := .scalar ⟨"", .uint ⟨31, by decide⟩⟩
+
+/-- `w` placeholders, then `member`: the root argument tuple seen as a struct
+whose word `w` is the root array parameter `member`. -/
+def rootArraySchema (word : Nat) (member : Member) : List Member :=
+  List.replicate word rootArrayPlaceholder ++ [member]
+
+/-- Entry decoder of a root `S[]` parameter viewed as the last member of
+`schema` (see `rootArraySchema`) in the root argument tuple, whose pointer is
+4 and against which ABI offsets are relative. solc decodes root arrays
+eagerly: calldata gets the full array-head checks of `abi_decode_t_array_*_calldata_ptr`
+at entry (element reads re-check lazily), memory the same eager copy as a
+struct-array member (`memoryStaticArrayHead` + `materializeStaticStructArray`). -/
+def rootArray (stem : String) (rootHeadWords : Nat) (schema : List Member)
+    (inMemory : Bool) : Plan :=
+  let calldataPointer := stem ++ "_calldata"
+  let tuple := Stmt.letVar calldataPointer (.literal 4)
+  if inMemory then
+    let mat := materializeFromCalldata calldataPointer stem schema
+    { calldataPointer
+      memoryPointer := mat.memoryPointer
+      names := calldataPointer :: mat.names
+      body := [guard (.logicalNot (.slt (.sub .calldatasize (.literal 4))
+          (.literal (32*rootHeadWords)))), tuple] ++ mat.body }
+  else
+    let word := schema.length - 1
+    let elementWords := match schema.getLast? with
+      | some (.structArray _ fields) => fields.length
+      | _ => 1
+    let offset := stem ++ "_offset"
+    let header := stem ++ "_header"
+    let length := stem ++ "_length"
+    let data := stem ++ "_data"
+    { calldataPointer
+      memoryPointer := stem ++ "_memory"
+      names := [calldataPointer, offset, header, length, data]
+      body := scalarArrayCalldataHead offset header length data rootHeadWords (4 + 32*word)
+          elementWords ++ [tuple] }
 
 /-- Scalar field reads preserve the eager-memory/lazy-calldata distinction.
 The importer must first resolve a scalar member, rather than treating an array

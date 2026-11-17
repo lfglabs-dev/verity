@@ -305,9 +305,125 @@ def _struct_string_member_calls():
     return calls
 
 
-# Root ABI parameter fixtures: every signature of each call list, keyed by the
-# call-list generator that drives it.
-ROOT_PARAM_CALLS = (_struct_string_member_calls,)
+def _struct_array_param_calls():
+    """Root `S[] calldata` / `S[] memory` parameters (#2708): empty and
+    non-empty arrays, in- and out-of-range indices (Panic(0x32)), arrays behind
+    scalar, `bytes` and `T[N]` head words, two arrays, dirty `address` /
+    `uint64` / `bool` / `uint8` fields, and malformed heads (offset past
+    calldata or beyond 64 bits, a length past the payload or beyond 64 bits,
+    a truncated head)."""
+    calls = []
+    item_sigs = ('processBatch((address,uint256)[])', 'sumCalldata((address,uint256)[])',
+                 'sumMemory((address,uint256)[])')
+    def items(n, dirty=False):
+        words = [n]
+        for k in range(n):
+            words += [(0x1111 * (k + 1)) | ((1 << 160) if dirty and k == n - 1 else 0), 10 ** k + k]
+        return words
+    for n in (0, 1, 2, 5):
+        for sig in item_sigs:
+            calls.append((sig, [32] + items(n)))
+        for i in (0, n - 1 if n else 0, n, (1 << 256) - 1):
+            calls.append(('targetAt((address,uint256)[],uint256)', [64, i] + items(n)))
+            calls.append(('targetAtMemory((address,uint256)[],uint256)', [64, i] + items(n)))
+    for sig in item_sigs:
+        calls.append((sig, [32] + items(3, dirty=True)))
+    calls.append(('targetAt((address,uint256)[],uint256)', [64, 2] + items(3, dirty=True)))
+    calls.append(('targetAt((address,uint256)[],uint256)', [64, 0] + items(3, dirty=True)))
+    calls.append(('targetAtMemory((address,uint256)[],uint256)', [64, 0] + items(3, dirty=True)))
+    malformed = (
+        [4096] + items(2),             # offset past calldata
+        [1 << 64] + items(2),          # offset beyond 64 bits
+        [32, 3] + items(2)[1:],        # length past the payload
+        [32, 1 << 64],                 # length beyond 64 bits
+        [32, (1 << 256) - 1],          # length wrapping the payload bound
+        [],                            # truncated head
+        [32] + items(2)[:-1],          # truncated last element
+        [0] + items(1),                # offset aliasing the head word itself
+    )
+    for words in malformed:
+        for sig in item_sigs:
+            calls.append((sig, words))
+    def packed(n, dirty=None):
+        words = [n]
+        for k in range(n):
+            amount, active, tag = 3 + k, k % 2, 7 * k
+            if dirty == k:
+                amount, active, tag = amount | (1 << 64), 2, 256
+            words += [amount, active, tag]
+        return words
+    payload = _bytes_words(_BYTE_PAYLOADS[5])
+    for n, dirty in ((0, None), (1, None), (4, None), (2, 1)):
+        arr = packed(n, dirty)
+        # head: a, b offset, c[0], c[1], items offset; tails: b, items
+        calls.append(('afterHead(uint256,bytes,uint256[2],(uint64,bool,uint8)[])',
+                      [5, 160, 11, 13, 160 + 32 * len(payload)] + payload + arr))
+        calls.append(('afterHeadMemory(uint256,(uint64,bool,uint8)[],uint256)', [5, 96, 9] + arr))
+    calls.append(('afterHead(uint256,bytes,uint256[2],(uint64,bool,uint8)[])',
+                  [5, 160, 11, 13, 1 << 64] + payload + packed(1)))
+    calls.append(('afterHeadMemory(uint256,(uint64,bool,uint8)[],uint256)', [5, 96]))
+    for xs, ys in ((0, 0), (1, 0), (2, 3), (5, 1)):
+        a, b = items(xs), items(ys)
+        calls.append(('pairSum((address,uint256)[],(address,uint256)[])', [64, 64 + 32 * len(a)] + a + b))
+    return calls
+
+
+def _bytes_array_param_calls():
+    """Root `bytes[] calldata` / `bytes[] memory` parameters (#2701): empty,
+    short and word-boundary elements, in- and out-of-range indices
+    (Panic(0x32)), an array behind scalar and `bytes` head words, and
+    malformed heads and element tails (offsets past calldata or beyond 64
+    bits, lengths past the payload or beyond 64 bits, truncated calldata)."""
+    def array(*sizes):
+        head, tail = [len(sizes)], []
+        for size in sizes:
+            head.append(32 * len(sizes) + 32 * len(tail))
+            tail.extend(_bytes_words(_BYTE_PAYLOADS[size]))
+        return head + tail
+    calls = []
+    shapes = ((), (0,), (5,), (31, 32, 33), (70, 0, 1, 4))
+    for sizes in shapes:
+        arr = array(*sizes)
+        calls.append(('multicall(bytes[])', [32] + arr))
+        calls.append(('digestAll(bytes[])', [32] + arr))
+        calls.append(('totalLengthMemory(bytes[])', [32] + arr))
+        for i in sorted({0, max(len(sizes) - 1, 0), len(sizes), (1 << 256) - 1}):
+            for sig in ('lengthAt(bytes[],uint256)', 'hashAt(bytes[],uint256)',
+                        'hashAtMemory(bytes[],uint256)', 'packedAt(bytes[],uint256)'):
+                calls.append((sig, [64, i] + arr))
+        payload = _bytes_words(_BYTE_PAYLOADS[3])
+        calls.append(('afterHead(uint256,bytes,bytes[])',
+                      [7, 96, 96 + 32 * len(payload)] + payload + arr))
+    good = array(5, 33)
+    malformed_heads = (
+        [4096] + good,                       # array offset past calldata
+        [1 << 64] + good,                    # array offset beyond 64 bits
+        [32, 3] + good[1:],                  # length past the head words
+        [32, 1 << 64],                       # length beyond 64 bits
+        [],                                  # truncated head
+    )
+    malformed_elements = (
+        [32, 2, 4096, 128] + good[3:],       # element offset past calldata
+        [32, 2, 64, 1 << 64] + good[3:],     # element offset beyond 64 bits
+        [32, 2, 64, 128, 200] + good[4:],    # element length past the payload
+        [32, 1, 32, 1 << 64],                # element length beyond 64 bits
+        [32] + good[:-1],                    # truncated last element
+    )
+    for words in malformed_heads + malformed_elements:
+        calls.append(('multicall(bytes[])', words))
+        calls.append(('digestAll(bytes[])', words))
+        calls.append(('totalLengthMemory(bytes[])', words))
+        calls.append(('lengthAt(bytes[],uint256)', [64, 0] + words[1:] if words else [64]))
+        calls.append(('hashAt(bytes[],uint256)', [64, 1] + words[1:] if words else [64]))
+    return calls
+
+
+# Root ABI parameter fixtures (#2711, #2708, #2701): every signature of each
+# call list, keyed by the call-list generator that drives it. The selectors are
+# passed to the model's `compile` in this order (first appearance in each call
+# list), and `compile` maps them positionally onto the Model.lean function list,
+# so each fixture's Model.lean lists its roots in that same order.
+ROOT_PARAM_CALLS = (_struct_string_member_calls, _struct_array_param_calls, _bytes_array_param_calls)
 ROOT_PARAM_SIGNATURES = {sig: gen for gen in ROOT_PARAM_CALLS for sig, _ in gen()}
 
 

@@ -3249,14 +3249,20 @@ def stateful_tuple_destructuring_source(original, variant):
     return original
 
 
-# Root ABI parameter fixtures: identifiers renamed by each metamorphic variant.
-# Struct type names stay: the model's function list names them. Member names
-# never reach the ABI, so renaming them must not change any observation (the
-# importer resolves declarations by id, not by text).
+# Root ABI parameter fixtures (#2711, #2708, #2701): identifiers renamed by
+# each metamorphic variant. Struct type names stay: the model's function list
+# names them. Member names never reach the ABI, so renaming them must not change
+# any observation (the importer resolves declarations by id, not by text).
 ROOT_PARAM_RENAMES = {
     'struct-string-member-param': (
         {'cfg', 't', 'o', 'x'},
         {'narrow', 'flag', 'label', 'name', 'weight', 'payload', 'stored', 'storedLabel', 'id', 'tag'}),
+    'struct-array-param': (
+        {'items', 'i', 'total', 'acc', 'xs', 'ys', 'a', 'b', 'c', 'z', 'x'},
+        {'target', 'value', 'amount', 'active', 'tag', 'stored'}),
+    'bytes-array-param': (
+        {'data', 'i', 'acc', 'total', 'part', 'a', 'b', 'x'},
+        {'digest', 'stored'}),
 }
 
 
