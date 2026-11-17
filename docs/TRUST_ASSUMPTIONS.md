@@ -45,11 +45,20 @@ also encodes declared static scalar custom errors with a unique declaration,
 matching arity and canonical arguments. Imported custom-error `require` calls
 accept only decimal numeric literals or scalar-binding arguments; general expressions are
 rejected until their evaluation order, including competing panics, is covered.
-Explicit `revert CustomError(...)` statements remain outside the importer. Error
+Explicit `revert CustomError(...)` statements use literal-zero custom-error guards. Error
 declarations travel with the execution state. The differential oracle computes
 signature Keccak over a temporary word-chunk memory buffer; this does not
 establish general Solidity memory or ABI-decoder correctness. The legacy
 agreement projection continues to erase rich revert bytes.
+
+Only a syntactic `requireError (literal 0)` receives terminal custom-error
+metadata. `Verity/Core/Model/DenoteErrorGuard.lean` establishes metadata
+consistency, exact existing Denote outcomes and no continuation, including
+argument-evaluation and error-encoding failures. Argument inspection, imported
+statements, compiler lowering and the final return-path check remain intact.
+These local lemmas add no axiom or cryptographic premise and do not establish
+whole-analysis soundness or source/compiler correspondence. Nonzero and unknown
+guards retain their existing potentially falling-through classification.
 
 The entry-point invariant infrastructure in
 `Compiler/SolidityImport/EntryPointInvariants.lean` composes actual

@@ -1440,6 +1440,9 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [key1, key2, value], scopeEffects := { storageWrites := [field] } }
   | .require cond _ =>
       { subexpressions := [cond], termination := .mayTerminate, controlFlow := .mayReverting }
+  | .requireError (.literal 0) _ args =>
+      { subexpressions := .literal 0 :: args
+        termination := .alwaysTerminates, controlFlow := .reverts }
   | .requireError cond _ args =>
       { subexpressions := cond :: args, termination := .mayTerminate, controlFlow := .mayReverting }
   | .revertError _ args =>
@@ -1605,8 +1608,10 @@ def checkRecBranches (check : Stmt → Except String Unit)
 
 mutual
 def controlFlow : Stmt → ControlFlowSummary
-  | .require _ _ | .requireError _ _ _ =>
+  | .require _ _ =>
       .mayReverting
+  | .requireError condition name args =>
+      (Stmt.requireError condition name args).directMetadata.controlFlow
   | .revertError _ _ | .panicCode _ | .panic _ | .revertEmpty | .revertReturndata =>
       .reverts
   | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>

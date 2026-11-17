@@ -48,6 +48,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
              'Contracts/SolidityImportSmoke/ErrorPayloads.lean'],
             log=output / 'error-payloads.log')
     command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/TerminalErrorGuard.lean'],
+            log=output / 'terminal-error-guard.log')
+    command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/StorageTraceChecks.lean'],
             log=output / 'storage-trace-checks.log')
     command(['lake', 'env', 'lean', '--run',
