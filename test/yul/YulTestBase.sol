@@ -29,28 +29,55 @@ abstract contract YulTestBase is Test {
         return "";
     }
 
+    /// Where contract Yul is read from: `DIFFTEST_YUL_DIR`, else `compiler/yul` (what CI
+    /// generates). Never the committed `artifacts/yul` snapshots: they are not regenerated with
+    /// the compiler, and a local run that fell back to them tested stale Yul and rewrote tracked
+    /// files mid-run (`scripts/check_foundry_yul_dirs.py` enforces this). A missing artifact is
+    /// compiled on demand (`_ensureDeployableYul`).
     function _yulDir() internal view returns (string memory) {
         string memory envDir = vm.envOr("DIFFTEST_YUL_DIR", string(""));
         if (bytes(envDir).length != 0) {
             return envDir;
         }
-        if (vm.exists("compiler/yul")) {
-            return "compiler/yul";
-        }
-        return "artifacts/yul";
+        return "compiler/yul";
     }
 
     function _smokeYulDir() internal view returns (string memory) {
         if (_usePatchedVerityCompiler()) {
-            if (vm.exists("compiler/yul-patched-smoke")) {
-                return "compiler/yul-patched-smoke";
-            }
-        } else {
-            if (vm.exists("compiler/yul-smoke")) {
-                return "compiler/yul-smoke";
-            }
+            return "compiler/yul-patched-smoke";
         }
-        return _yulDir();
+        return "compiler/yul-smoke";
+    }
+
+    /// Shell prologue of an on-demand compile into `out`: serialize concurrent compiles of the
+    /// same directory (suites run in parallel), skip the work if `artifact` appeared meanwhile,
+    /// and compile into a private temp dir under `out` whose files are moved into place one by
+    /// one. `mv` within a directory is atomic, so a parallel reader sees a whole file or none.
+    function _onDemandCompilePrologue(string memory outDir, string memory artifactPath)
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(
+            "set -e; out='",
+            outDir,
+            "'; artifact='",
+            artifactPath,
+            "'; mkdir -p \"$out\"; ",
+            "if command -v flock >/dev/null; then exec 9>\"$out/.compile.lock\"; flock 9; fi; ",
+            "if [ -f \"$artifact\" ]; then exit 0; fi; ",
+            "tmp=$(mktemp -d \"$out/.tmp.XXXXXX\"); trap 'rm -rf \"$tmp\"' EXIT; "
+        );
+    }
+
+    /// Shell epilogue: publish the compiled files atomically (see `_onDemandCompilePrologue`).
+    function _onDemandCompileEpilogue() internal pure returns (string memory) {
+        return "for f in \"$tmp\"/*.yul; do mv -f \"$f\" \"$out/\"; done";
+    }
+
+    /// The external libraries the example manifest links (as CI's "Generate Yul" step).
+    function _manifestLinkArgs() internal pure returns (string memory) {
+        return " --link examples/external-libs/PoseidonT3.yul --link examples/external-libs/PoseidonT4.yul";
     }
 
     // Edge-case values matching Lean's edgeUint256Values and DiffTestConfig._edgeUintValues():
@@ -127,8 +154,35 @@ abstract contract YulTestBase is Test {
     }
 
     function deployYul(string memory name) internal returns (address) {
+        _ensureDeployableYul(name);
         string memory path = string.concat(_yulDir(), "/", name, ".yul");
         return _deploy(_compileYul(path));
+    }
+
+    /// Make `<_yulDir()>/<name>.yul` exist: a contract of the example manifest is compiled with
+    /// the whole manifest (as CI does), any other one as the module `Contracts.<name>.<name>`.
+    function _ensureDeployableYul(string memory name) internal {
+        string memory outDir = _yulDir();
+        string memory artifactPath = string.concat(outDir, "/", name, ".yul");
+        if (vm.exists(artifactPath)) return;
+        string memory manifest = "packages/verity-examples/contracts.manifest";
+        // Checked in the shell: foundry.toml's fs_permissions do not cover packages/.
+        if (_manifestListsContract(manifest, name)) {
+            _ensureVerityManifestYul(manifest, name, outDir);
+        } else {
+            _ensureVerityModuleYul(string.concat("Contracts.", name, ".", name), name, outDir);
+        }
+    }
+
+    function _manifestListsContract(string memory manifest, string memory name) internal returns (bool) {
+        string[] memory cmds = new string[](3);
+        cmds[0] = "bash";
+        cmds[1] = "-c";
+        cmds[2] = string.concat(
+            "if grep -qE '\\.", name, "[[:space:]]*$' '", manifest, "' 2>/dev/null; then printf 1; else printf 0; fi"
+        );
+        bytes memory out = vm.ffi(cmds);
+        return out.length == 1 && out[0] == "1";
     }
 
     function _ensureVerityModuleYul(
@@ -142,9 +196,8 @@ abstract contract YulTestBase is Test {
         cmds[0] = "bash";
         cmds[1] = "-c";
         cmds[2] = string.concat(
-            "out='",
-            outDir,
-            "'; module='",
+            _onDemandCompilePrologue(outDir, artifactPath),
+            "module='",
             moduleName,
             "'; compiler_name='",
             _verityCompilerBinName(),
@@ -155,8 +208,9 @@ abstract contract YulTestBase is Test {
             "'; ",
             "compiler=\"./.lake/build/bin/$compiler_name\"; ",
             "if [ ! -x \"$compiler\" ] && [ -x \"./compiler/bin/$compiler_name\" ]; then compiler=\"./compiler/bin/$compiler_name\"; fi; ",
-            "mkdir -p \"$out\" && if [ -x \"$compiler\" ]; then lake build \"$module\" >/dev/null; else lake build \"$module\" \"$compiler_target\" >/dev/null; fi && ",
-            "\"$compiler\" --module \"$module\" --output \"$out\" $compiler_args >/dev/null"
+            "if [ -x \"$compiler\" ]; then lake build \"$module\" >/dev/null; else lake build \"$module\" \"$compiler_target\" >/dev/null; fi; ",
+            "\"$compiler\" --module \"$module\" --output \"$tmp\" $compiler_args >/dev/null; ",
+            _onDemandCompileEpilogue()
         );
         vm.ffi(cmds);
         require(vm.exists(artifactPath), "Verity module compile did not emit Yul artifact");
@@ -173,9 +227,8 @@ abstract contract YulTestBase is Test {
         cmds[0] = "bash";
         cmds[1] = "-c";
         cmds[2] = string.concat(
-            "out='",
-            outDir,
-            "'; manifest='",
+            _onDemandCompilePrologue(outDir, artifactPath),
+            "manifest='",
             manifestPath,
             "'; compiler_name='",
             _verityCompilerBinName(),
@@ -183,11 +236,13 @@ abstract contract YulTestBase is Test {
             _verityCompilerBuildTarget(),
             "'; compiler_args='",
             _verityCompilerArgs(),
+            _manifestLinkArgs(),
             "'; ",
             "compiler=\"./.lake/build/bin/$compiler_name\"; ",
             "if [ ! -x \"$compiler\" ] && [ -x \"./compiler/bin/$compiler_name\" ]; then compiler=\"./compiler/bin/$compiler_name\"; fi; ",
-            "mkdir -p \"$out\" && set -- $(grep -vE '^[[:space:]]*($|#)' \"$manifest\") && if [ -x \"$compiler\" ]; then lake build \"$@\" >/dev/null; else lake build \"$@\" \"$compiler_target\" >/dev/null; fi && ",
-            "\"$compiler\" --manifest \"$manifest\" --output \"$out\" $compiler_args >/dev/null"
+            "set -- $(grep -vE '^[[:space:]]*($|#)' \"$manifest\"); if [ -x \"$compiler\" ]; then lake build \"$@\" >/dev/null; else lake build \"$@\" \"$compiler_target\" >/dev/null; fi; ",
+            "\"$compiler\" --manifest \"$manifest\" --output \"$tmp\" $compiler_args >/dev/null; ",
+            _onDemandCompileEpilogue()
         );
         vm.ffi(cmds);
         require(vm.exists(artifactPath), "Verity manifest compile did not emit Yul artifact");
@@ -204,6 +259,7 @@ abstract contract YulTestBase is Test {
     }
 
     function deployYulWithArgs(string memory name, bytes memory args) internal returns (address) {
+        _ensureDeployableYul(name);
         string memory path = string.concat(_yulDir(), "/", name, ".yul");
         bytes memory initCode = bytes.concat(_compileYul(path), args);
         return _deploy(initCode);

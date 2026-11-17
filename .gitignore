@@ -39,3 +39,7 @@ artifacts/verification_status.json
 /PrintAxioms.lean
 /scripts/VerityUnionAxioms.lean
 /artifacts/trust_surface_report.json
+
+# Yul generated for Foundry (CI's "Generate Yul" steps, or compiled on demand by test/yul/YulTestBase.sol)
+/compiler/yul*/
+/compiler/bin/
