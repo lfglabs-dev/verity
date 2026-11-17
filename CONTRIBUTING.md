@@ -26,9 +26,9 @@ Enforced by CI; changing a rule means changing its script.
 1. No `sorry` (`scripts/check_lean_hygiene.py` double-checks the build).
 2. No new axiom without a same-commit entry in docs/AXIOMS.md
    (`scripts/check_axioms.py`).
-3. Regenerate `PrintAxioms.lean` (`scripts/generate_print_axioms.py`) and
-   `artifacts/verification_status.json` (`make refresh-status`) when theorems
-   or counts change.
+3. Regenerate `PrintAxioms.lean` (`scripts/generate_print_axioms.py`) when
+   theorems change. Repository counts (tests, theorems, lines) are computed
+   on demand and never committed (`scripts/verification_metrics.py`).
 4. Proofs stay under 30 lines; over 50 needs an allowlist entry with a reason
    (`scripts/check_proof_length.py`).
 5. No `native_decide` outside smoke tests, and no `#eval`/`#check`/`#print`
@@ -47,8 +47,8 @@ an `AXIOM:` doc comment pointing there.
   that hosts `include`. `python3 scripts/generate_contract.py <Name>`
   scaffolds the files; `scripts/check_contract_structure.py` checks them.
 - Refresh `test/property_manifest.json`
-  (`python3 scripts/extract_property_manifest.py`) and the counts
-  (`make refresh-status`, `python3 scripts/update_doc_numbers.py`).
+  (`python3 scripts/extract_property_manifest.py`) and the other derived
+  artifacts (`make refresh-status`); counts are not committed.
 - Intrinsics (`verity_intrinsic`) are consumer-owned opcode bindings; see
   [docs/INTRINSICS.md](docs/INTRINSICS.md).
 - Solidity imports: see [docs/SOLIDITY_IMPORT.md](docs/SOLIDITY_IMPORT.md) for

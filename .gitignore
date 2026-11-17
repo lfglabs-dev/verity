@@ -29,3 +29,6 @@ cache/
 .sandboxed-sh_context.json
 __pycache__/
 .vercel
+
+# Derived counts: computed on demand, never committed (scripts/verification_metrics.py)
+artifacts/verification_status.json

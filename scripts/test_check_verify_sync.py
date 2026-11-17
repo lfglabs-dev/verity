@@ -1697,7 +1697,7 @@ class VerifySyncTests(unittest.TestCase):
         rc, _, err = self._run_makefile_check(
             """
             check:
-            	python3 scripts/generate_verification_status.py --check
+            	python3 scripts/generate_layer2_boundary_catalog.py --check
             	python3 scripts/check_verification_status_doc.py
             	python3 scripts/check_verify_sync.py
             	python3 scripts/check_issue_templates.py
@@ -1706,7 +1706,7 @@ class VerifySyncTests(unittest.TestCase):
             """,
             expected_checks_commands=["make check"],
             required_makefile_check_commands=[
-                "python3 scripts/generate_verification_status.py --check",
+                "python3 scripts/generate_layer2_boundary_catalog.py --check",
                 "python3 scripts/check_verification_status_doc.py",
                 "python3 scripts/check_verify_sync.py",
                 "python3 scripts/check_issue_templates.py",
@@ -1725,7 +1725,7 @@ class VerifySyncTests(unittest.TestCase):
     def test_makefile_check_passes_when_required_commands_are_present(self) -> None:
         makefile = """
         check:
-        \tpython3 scripts/generate_verification_status.py --check
+        \tpython3 scripts/generate_layer2_boundary_catalog.py --check
         \tpython3 scripts/check_verification_status_doc.py
         \tpython3 scripts/check_verify_sync.py
         \tpython3 scripts/check_issue_templates.py
@@ -1742,7 +1742,7 @@ class VerifySyncTests(unittest.TestCase):
             makefile,
             expected_checks_commands=["make check"],
             required_makefile_check_commands=[
-                "python3 scripts/generate_verification_status.py --check",
+                "python3 scripts/generate_layer2_boundary_catalog.py --check",
                 "python3 scripts/check_verification_status_doc.py",
                 "python3 scripts/check_verify_sync.py",
                 "python3 scripts/check_issue_templates.py",
@@ -1761,7 +1761,7 @@ class VerifySyncTests(unittest.TestCase):
     def test_makefile_check_fails_when_generated_report_commands_are_missing(self) -> None:
         makefile = """
         check:
-        \tpython3 scripts/generate_verification_status.py --check
+        \tpython3 scripts/generate_layer2_boundary_catalog.py --check
         \tpython3 scripts/check_verification_status_doc.py
         \tpython3 scripts/check_verify_sync.py
         \tpython3 scripts/check_issue_templates.py
@@ -1773,7 +1773,7 @@ class VerifySyncTests(unittest.TestCase):
             makefile,
             expected_checks_commands=["make check"],
             required_makefile_check_commands=[
-                "python3 scripts/generate_verification_status.py --check",
+                "python3 scripts/generate_layer2_boundary_catalog.py --check",
                 "python3 scripts/check_verification_status_doc.py",
                 "python3 scripts/check_verify_sync.py",
                 "python3 scripts/check_issue_templates.py",
@@ -1801,7 +1801,7 @@ class VerifySyncTests(unittest.TestCase):
     def test_makefile_check_fails_when_required_solc_pin_command_is_missing(self) -> None:
         makefile = """
         check:
-        \tpython3 scripts/generate_verification_status.py --check
+        \tpython3 scripts/generate_layer2_boundary_catalog.py --check
         \tpython3 scripts/check_verification_status_doc.py
         \tpython3 scripts/check_verify_sync.py
         \tpython3 scripts/check_issue_templates.py
@@ -1811,7 +1811,7 @@ class VerifySyncTests(unittest.TestCase):
             makefile,
             expected_checks_commands=["make check"],
             required_makefile_check_commands=[
-                "python3 scripts/generate_verification_status.py --check",
+                "python3 scripts/generate_layer2_boundary_catalog.py --check",
                 "python3 scripts/check_verification_status_doc.py",
                 "python3 scripts/check_verify_sync.py",
                 "python3 scripts/check_issue_templates.py",
@@ -1834,7 +1834,7 @@ class VerifySyncTests(unittest.TestCase):
         \tpython3 scripts/check_paths.py
         \tpython3 scripts/check_compilationmodel_split.py
         \tpython3 scripts/check_axioms.py
-        \tpython3 scripts/generate_verification_status.py --check
+        \tpython3 scripts/generate_layer2_boundary_catalog.py --check
         \tpython3 scripts/check_verification_status_doc.py
         \tpython3 scripts/check_verify_sync.py
         \tpython3 scripts/check_issue_templates.py
@@ -1857,7 +1857,7 @@ class VerifySyncTests(unittest.TestCase):
                 "python3 scripts/check_paths.py",
                 "python3 scripts/check_compilationmodel_split.py",
                 "python3 scripts/check_axioms.py",
-                "python3 scripts/generate_verification_status.py --check",
+                "python3 scripts/generate_layer2_boundary_catalog.py --check",
                 "python3 scripts/check_verification_status_doc.py",
                 "python3 scripts/check_verify_sync.py",
                 "python3 scripts/check_bridge_coverage_sync.py",

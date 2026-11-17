@@ -8,7 +8,7 @@ Use this file for day-to-day operation. Each script's docstring describes what i
 # Local CI-equivalent subset
 make check
 
-# Refresh the verification-status artifact
+# Regenerate the committed derived artifacts
 make refresh-status
 
 # Run Python unit tests
@@ -46,4 +46,4 @@ sudo scripts/ci_host_maintenance.sh install-systemd
 - Generated verify workflow sync artifact: `scripts/verify_sync_spec.json`
 - Unified verify workflow validator: `scripts/check_verify_sync.py`
 - Docs workflow trigger contract: `scripts/check_docs_workflow_sync.py`
-- Verification metrics: `artifacts/verification_status.json`
+- Verification metrics: `scripts/verification_metrics.py` (`current_metrics()`, computed on demand; `scripts/generate_verification_status.py` writes the git-ignored `artifacts/verification_status.json`)
