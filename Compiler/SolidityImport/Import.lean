@@ -2076,6 +2076,18 @@ private def argumentAt (call : Json) (i : Nat) : M Json := do
 private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := do
   let argTy := if argTy.endsWith " storage ref" then (argTy.dropEnd 12).toString else argTy
   if argTy == paramTy then return v
+  -- A string literal reaches here already lowered to its left-aligned word by
+  -- `fixedBytesStringLiteral?` (`lowerExpr` rejects string literals).
+  if argTy.startsWith "literal_string " && (fixedBytesWidth? paramTy).isSome then
+    if v.pre.isEmpty then
+      if let .literal _ := v.expr then return v
+    failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+  -- `bytesN` values are left-aligned words with zero low bytes, so widening
+  -- `bytesN` to `bytesM` (N ≤ M) keeps the word, as the explicit cast does.
+  if let some pw := fixedBytesWidth? paramTy then
+    if let some aw := fixedBytesWidth? argTy then
+      if aw ≤ pw then return v
+      else failAt at_ s!"implicit narrowing from {argTy} to {paramTy}"
   if let some pb := signedBitsOf paramTy then
     if argTy.startsWith "int_const" then
       return v
@@ -2364,6 +2376,40 @@ private partial def unparenJson (j : Json) : Json :=
     | some (.arr #[only]) => if only.isNull then j else unparenJson only
     | _ => j
   else j
+
+/-- A string literal (`"…"`, `unicode"…"`, `hex"…"`) read as a `bytesN` value: its bytes
+left-aligned in one word, as solc's implicit literal conversion produces. `none` when `ty`
+is not `bytesN` or `j` is not such a literal. -/
+private def fixedBytesStringLiteral? (ty : String) (j : Json) : M (Option Val) := do
+  let some byteW := fixedBytesWidth? ty | return none
+  let node := unparenJson j
+  unless optStr node "nodeType" == some "Literal" do return none
+  let kind := optStr node "kind" |>.getD ""
+  unless kind == "string" || kind == "unicodeString" || kind == "hexString" do return none
+  let hex ← mStr (← mField node "hexValue")
+  unless hex.length % 2 == 0 && hex.length / 2 ≤ byteW do
+    failAt j s!"{ty} string literal requires at most {byteW} bytes, found {hex.length / 2}"
+  let word ← if hex.isEmpty then pure 0 else
+    match Compiler.Hex.parseHexNat? ("0x" ++ hex) with
+    | some n => pure n
+    | none => failAt j s!"invalid {ty} literal hexValue"
+  return some { pre := #[], expr := .literal (word * 16 ^ (64 - hex.length)) }
+
+/-- The declared type of the single value a `Return` statement returns: the function on
+the inlining stack whose return parameter list is the statement's
+`functionReturnParameters`. -/
+private def returnTargetType? (ret : Json) : M (Option String) := do
+  let some listId := (field? ret "functionReturnParameters").bind (·.getNat?.toOption)
+    | return none
+  let env ← get
+  for fnId in env.stack do
+    let some fn := env.funs.find? fnId | continue
+    let some rets := field? fn "returnParameters" | continue
+    unless (field? rets "id").bind (·.getNat?.toOption) == some listId do continue
+    let params ← mArr (← mField rets "parameters")
+    if params.size == 1 then return some (← mType params[0]!)
+    return none
+  return none
 
 /-- The literal a `bytes`/`string` constant initializer denotes: a string or hex literal,
 possibly parenthesized or wrapped in `bytes(…)` / `string(…)` conversions (which keep the
@@ -3765,6 +3811,17 @@ private partial def lowerSelectorMemberAccess (at_ base : Json) : M Ref := do
   else
     failAt at_ "function .selector member access is outside this slice"
 
+/-- Lower `j` where solc expects a value of type `ty`: a string literal in a `bytesN`
+context is its left-aligned word, anything else is `lowerExpr j`. -/
+private partial def lowerExprAs (ty : String) (j : Json) : M Val := do
+  if let some word ← fixedBytesStringLiteral? ty j then
+    return word
+  lowerExpr j
+
+/-- `lowerExprAs ty j` followed by solc's implicit conversion of `j` to `ty`. -/
+private partial def lowerConverted (ty : String) (j : Json) : M Val := do
+  convert ty (← mType j) (← lowerExprAs ty j) j
+
 private partial def lowerBinary (j : Json) : M Val := do
   let op ← mStr (← mField j "operator")
   let leftNode ← mField j "leftExpression"
@@ -3786,8 +3843,9 @@ private partial def lowerBinary (j : Json) : M Val := do
     -- reads makes that observable.
     if memoryWriteOrderHazard leftNode rightNode env then
       failAt j "memory-writing helper operands require explicit evaluation-order support"
-  let mut left ← lowerExpr leftNode
-  let mut right ← lowerExpr rightNode
+  let commonTy := (field? j "commonType").bind (optStr · "typeString") |>.getD ""
+  let mut left ← lowerExprAs commonTy leftNode
+  let mut right ← lowerExprAs commonTy rightNode
   unless op == "&&" || op == "||" do
     if (assignmentIn leftNode && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
         (assignmentIn rightNode && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
@@ -3867,8 +3925,12 @@ private partial def lowerBinary (j : Json) : M Val := do
     if bw < 32 then
       let leftTy ← mType (← mField j "leftExpression")
       let rightTy ← mType (← mField j "rightExpression")
-      unless leftTy == common && rightTy == common do
+      let fixedOrLiteral := fun (ty : String) =>
+        (fixedBytesWidth? ty).isSome || ty.startsWith "literal_string "
+      unless fixedOrLiteral leftTy && fixedOrLiteral rightTy do
         failAt j s!"implicit constant conversion to {common} is outside this slice"
+      left ← convert common leftTy left leftNode
+      right ← convert common rightTy right rightNode
   unless (bitsOf common).isSome || common == "bool" || (fixedBytesWidth? common).isSome || isSigned do
     failAt j s!"unsupported operand type {common}"
   match op with
@@ -4276,18 +4338,8 @@ private partial def lowerCast (j : Json) : M Val := do
     if src == "bytes" || src == "bytes memory" || src == "bytes calldata" ||
        src == "bytes calldata slice" || src == "bytes storage ref" || src == "bytes storage pointer" then
       return ← lowerBytesToFixedBytes args[0]! byteW j
-    let innerArg ← stripParens args[0]!
-    if byteW < 32 && (← mKind innerArg) == "Literal" then
-      let kind ← mStr (← mField innerArg "kind")
-      if kind == "string" || kind == "unicodeString" || kind == "hexString" then
-        let hex ← mStr (← mField innerArg "hexValue")
-        unless hex.length % 2 == 0 && hex.length / 2 ≤ byteW do
-          failAt j s!"{tname} string literal cast requires at most {byteW} bytes, found {hex.length / 2}"
-        let word ← if hex.isEmpty then pure 0 else
-          match Compiler.Hex.parseHexNat? ("0x" ++ hex) with
-          | some n => pure n
-          | none => failAt j s!"invalid {tname} literal hexValue"
-        return { pre := #[], expr := .literal (word * 16 ^ (64 - hex.length)) }
+    if let some word ← fixedBytesStringLiteral? tname args[0]! then
+      return word
   let v ← lowerExpr args[0]!
   if src.startsWith "int" && !src.startsWith "int_const" && (signedBitsOf src).isNone then
     failAt j s!"unsupported cast source {src}"
@@ -7141,7 +7193,7 @@ private partial def lowerLowLevelCallSequence? (s : Json) (following : List Json
   let mut pre := target.pre
   let mut words : Array Expr := #[]
   for (param, component) in params.zip components do
-    let word ← atom (← convert (← mType param) (← mType component) (← lowerExpr component) component)
+    let word ← atom (← lowerConverted (← mType param) component)
     pre := pre ++ word.pre
     words := words.push word.expr
   let result ← fresh
@@ -7225,7 +7277,7 @@ private partial def lowerCall (j : Json) : M Val := do
               let arg := args[0]!
               if !pre.isEmpty && (statefulCallIn arg (← get) || assignmentIn arg) then
                 failAt arg "storage array push prelude with stateful argument is unsupported"
-              let val ← atom (← convert elemTy (← mType arg) (← lowerExpr arg) arg)
+              let val ← atom (← lowerConverted elemTy arg)
               return ← pushStorageDynamicArray (pre ++ val.pre) fieldName slotExpr elemTy (some val.expr)
             else
               failAt j "storage array push expects at most one argument"
@@ -7287,6 +7339,14 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
     let argNode ← argumentAt at_ i
     let argTy ← mType argNode
     let some arg := args[i]? | failAt at_ s!"missing argument {i}"
+    -- A string literal bound to a `bytesN` parameter is its left-aligned word;
+    -- the memory buffer lowered for it at the call site is dropped.
+    let arg ← match arg with
+      | .stringBuffer _ => do
+          match ← fixedBytesStringLiteral? pty argNode with
+          | some word => pure (CallArg.scalar word)
+          | none => pure arg
+      | _ => pure arg
     if pname != "" then
       modify fun e =>
         { e with yulMemoryArrays := e.yulMemoryArrays.erase pname,
@@ -8548,7 +8608,7 @@ private partial def lowerInlineArrayLiteral (j : Json) (arr : FixedMemArray) :
     if component.isNull then failAt j "empty inline array component"
     if components.size > 1 && (statefulCallIn component (← get) || assignmentIn component) then
       failAt component "stateful or assignment inline array component requires explicit evaluation-order support"
-    let value ← atom (← convert arr.elementType (← mType component) (← lowerExpr component) component)
+    let value ← atom (← lowerConverted arr.elementType component)
     let stored := if arr.elementType == "bool" then Expr.logicalNot (.logicalNot value.expr) else value.expr
     let slot := fixedMemElementAddr arr (.literal index)
     pre := pre ++ value.pre |>.push (.mstore slot stored)
@@ -10902,7 +10962,7 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
               else
                 failAt statement "bare helper returns are unsupported"
             else
-              let v ← lowerExpr expression
+              let v ← lowerExprAs ((← returnTargetType? statement).getD "") expression
               pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])
         | kind => failAt statement s!"unsupported helper loop statement {kind}"
       if rest.isEmpty then
@@ -11025,10 +11085,10 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
             let (valPre, structPtr) ← lowerBytesStructPointer expression (← get).helperStructSid
             pure (valPre.push (.assignVar ptrBinding structPtr), some (.localVar ptrBinding))
           else
-            let v ← lowerExpr expression
+            let v ← lowerExprAs ((← returnTargetType? s).getD "") expression
             pure (v.pre, some v.expr)
         else
-          let v ← lowerExpr expression
+          let v ← lowerExprAs ((← returnTargetType? s).getD "") expression
           pure (v.pre, some v.expr)
     | "InlineAssembly" =>
         if let some (_, ty) := (← get).helperResult then
@@ -11598,7 +11658,7 @@ private partial def lowerBytesStructPointer (j : Json) (sid : Nat) : M (Array St
           pre := pre ++ w.pre
           words := words.push (mName, w.expr)
       | _ =>
-          let v ← atom (← convert mTy (← mType arg) (← lowerExpr arg) arg)
+          let v ← atom (← lowerConverted mTy arg)
           let normExpr := if mTy == "bool" then Expr.logicalNot (.logicalNot v.expr) else v.expr
           let w ← atom { pre := v.pre, expr := normExpr }
           pre := pre ++ w.pre
@@ -12134,7 +12194,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             if args.isEmpty then
               return (← pushStorageDynamicArray pre fieldName slotExpr elemTy none).pre
             else if args.size == 1 then
-              let val ← atom (← convert elemTy (← mType args[0]!) (← lowerExpr args[0]!) args[0]!)
+              let val ← atom (← lowerConverted elemTy args[0]!)
               return (← pushStorageDynamicArray (pre ++ val.pre) fieldName slotExpr elemTy (some val.expr)).pre
             else
               failAt expression "storage array push takes at most one argument"
@@ -12424,7 +12484,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           failAt target s!"unsupported scalar local assignment type {ty}"
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
-          atom (← convert ty (← mType right) (← lowerExpr right) right)
+          atom (← lowerConverted ty right)
         return value.pre.push (.assignVar binding value.expr)
       if let some buf := (← get).byteBuffers.find? id.toNat then
         if !deleting then
@@ -12492,7 +12552,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         if deleting then
           return #[.assignVar binding (.literal 0)]
         let right ← mField expression "rightHandSide"
-        let value ← atom (← convert mTy (← mType right) (← lowerExpr right) right)
+        let value ← atom (← lowerConverted mTy right)
         let stored := if mTy == "bool" then Expr.logicalNot (.logicalNot value.expr) else value.expr
         return value.pre.push (.assignVar binding stored)
     | .path pre path =>
@@ -12511,7 +12571,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let right ← mField expression "rightHandSide"
           if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
             failAt target "raw-slot struct member write prelude with stateful RHS is unsupported"
-          let value ← atom (← convert mInfo.ty (← mType right) (← lowerExpr right) right)
+          let value ← atom (← lowerConverted mInfo.ty right)
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo value.expr false
           return value.pre ++ pre ++ writeStmts
         -- solc evaluates the right-hand side before the target's keys; these
@@ -12575,7 +12635,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         markField name
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
-          atom (← convert ty (← mType right) (← lowerExpr right) right)
+          atom (← lowerConverted ty right)
         return (pre ++ value.pre).push (write value.expr)
     | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
@@ -12595,7 +12655,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
           let right ← mField expression "rightHandSide"
           let elemTy := (← get).nestedMemArrays.find? outerId.toNat |>.map (·.elementType) |>.getD ""
-          atom (← convert elemTy (← mType right) (← lowerExpr right) right)
+          atom (← lowerConverted elemTy right)
         let .scalarArray innerId basePre ← lowerRef baseNode
           | failAt target "unsupported nested memory array element"
         let some inner := (← get).scalarArrays.find? innerId | failAt target "unknown nested array element"
@@ -12633,7 +12693,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           -- solc evaluates the right-hand side before the indexed target.
           let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
             let right ← mField expression "rightHandSide"
-            atom (← convert arr.elementType (← mType right) (← lowerExpr right) right)
+            atom (← lowerConverted arr.elementType right)
           let key ← atom (← lowerExpr indexExpression)
           let stored := if arr.elementType == "bool" && !deleting then
             Expr.logicalNot (.logicalNot value.expr)
@@ -12651,7 +12711,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             failAt target "scalar array index must be unsigned"
           let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
             let right ← mField expression "rightHandSide"
-            atom (← convert arr.elementType (← mType right) (← lowerExpr right) right)
+            atom (← lowerConverted arr.elementType right)
           let key ← atom (← lowerExpr indexExpression)
           let stored := if arr.elementType == "bool" && !deleting then
             Expr.logicalNot (.logicalNot value.expr)
@@ -12716,7 +12776,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       unless info.keyCount == count do failAt target "fixed array mapping key count differs"
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
-        atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+        atom (← lowerConverted (← mType target) right)
       let capturedValue ← fresh
       let valuePre := value.pre.push (.letVar capturedValue value.expr)
       let mut result := (valuePre ++ pre).push (.ite (.lt index (.literal length))
@@ -12738,7 +12798,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       unless info.keyCount == count do failAt target "fixed array mapping key count differs"
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
-        atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+        atom (← lowerConverted (← mType target) right)
       let capturedValue ← fresh
       let valuePre := value.pre.push (.letVar capturedValue value.expr)
       let mut result := (valuePre ++ pre).push (.ite (.lt index (.literal arrInfo.length))
@@ -12757,7 +12817,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     if let .structDynamicElement pre path dynInfo index := reference then
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
-        atom (← convert dynInfo.elemType (← mType right) (← lowerExpr right) right)
+        atom (← lowerConverted dynInfo.elemType right)
       if !pre.isEmpty && !deleting then
         let right ← mField expression "rightHandSide"
         if assignmentIn right || statefulCallIn right (← get) then
@@ -12767,7 +12827,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     if let .storageDynamicElement pre fieldName slotExpr elemTy index := reference then
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
-        atom (← convert elemTy (← mType right) (← lowerExpr right) right)
+        atom (← lowerConverted elemTy right)
       if !pre.isEmpty && !deleting then
         let right ← mField expression "rightHandSide"
         if assignmentIn right || statefulCallIn right (← get) then
@@ -12776,7 +12836,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     if let .structMappingElement pre path mapInfo key := reference then
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
-        atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+        atom (← lowerConverted (← mType target) right)
       if !pre.isEmpty && !deleting then
         let right ← mField expression "rightHandSide"
         if assignmentIn right || statefulCallIn right (← get) then
@@ -12809,7 +12869,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     markField name
     let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
       let right ← mField expression "rightHandSide"
-      atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+      atom (← lowerConverted (← mType target) right)
     let expr := if info.booleanMapping then Expr.logicalNot (.logicalNot value.expr) else value.expr
     return (pre ++ value.pre).push (write expr)
   unless (← mKind target) == "Identifier" || (← mKind target) == "FunctionCall" do
@@ -12846,7 +12906,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       markField name
       let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
         let right ← mField expression "rightHandSide"
-        atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+        atom (← lowerConverted (← mType target) right)
       if info.booleanScalar && !deleting then
         return (pre ++ value.pre).push (.setStorage name (.logicalNot (.logicalNot value.expr)))
       return (pre ++ value.pre).push (.setStorage name value.expr)
@@ -13208,7 +13268,7 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
       let ty ← mType target
       unless (paramType ty).isSome do
         failAt target s!"unsupported scalar local assignment type {ty}"
-      let value ← atom (← convert ty (← mType right) (← lowerExpr right) right)
+      let value ← atom (← lowerConverted ty right)
       return { pre := value.pre.push (.assignVar binding value.expr), expr := .localVar binding }
   let .state name pre ← lowerRef target
     | failAt target "assignment target is not scalar storage"
@@ -13216,7 +13276,7 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
   unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
   if info.bytesStorage then failAt target "bytes or string storage assignment expression is outside this slice"
   markField name
-  let value ← atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+  let value ← atom (← lowerConverted (← mType target) right)
   let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot value.expr) else value.expr
   let resultVar ← fresh
   return { pre := (pre ++ value.pre).push (.letVar resultVar storedExpr) |>.push (.setStorage name (.localVar resultVar)), expr := .localVar resultVar }
@@ -14670,7 +14730,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
           failAt d "reassigned struct locals are outside this slice"
         failAt d "struct local initializer must be a supported struct or struct-array element reference"
   else
-    let v ← lowerExpr init
+    let v ← lowerExprAs (← mType d) init
     unless loc == "default" do
       failAt d s!"unsupported local storage location {loc}"
     let ty ← mType d
@@ -15402,7 +15462,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 if c.isNull then failAt expr "empty return component"
                 if cs.size > 1 && (statefulCallIn c (← get) || assignmentIn c) then
                   failAt c "stateful or assignment expression in inline return array requires explicit evaluation-order support"
-                let v ← atom (← convert elemTy (← mType c) (← lowerExpr c) c)
+                let v ← atom (← lowerConverted elemTy c)
                 pres := pres ++ v.pre
                 if env.rootPost.isEmpty then
                   exprs := exprs.push v.expr
@@ -15556,7 +15616,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             | .mem .. => failAt expr "ABI returns of memory structs with bytes members are unsupported"
             | _ => failAt expr "storage struct return requires a storage path"
           else
-            let v ← atom (← lowerExpr expr)
+            let v ← atom (← lowerExprAs (env.rootReturnTypes[0]?.getD "") expr)
             if env.rootPost.isEmpty then
               out := out ++ v.pre |>.push (.returnValues [v.expr])
             else

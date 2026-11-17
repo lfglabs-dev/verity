@@ -990,6 +990,45 @@ def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-modulo variant: {variant}')
 
 
+def stateful_fixed_bytes_conversions_source(fixture: str, variant: str) -> str:
+    """Compare implicit bytesN widening and string-literal bytesN values with hex literals and explicit casts."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = set(['acc', 'c', 'code', 'failed', 'flags', 'known', 'sameSel', 'sel', 'v', 'wide', 'widened', 'word', 'x'])
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'hex-literals':
+        replacements = {
+            'bytes5 c = "GS001";':
+            'bytes5 c = hex"4753303031";',
+            'c = "GS013";':
+            'c = hex"4753303133";',
+            'code = "GS025";':
+            'code = hex"4753303235";',
+            'bool known = c == "GS001";':
+            'bool known = c == hex"4753303031";',
+            '_widen(sel) ^':
+            '_widen(bytes32(sel)) ^',
+            '_code("GS010")':
+            '_code(hex"4753303130")',
+            'return "GS0";':
+            'return hex"475330";',
+            'return "GS01";':
+            'return hex"47533031";',
+            'bytes32 failed = "FAIL";':
+            'bytes32 failed = bytes32(hex"4641494c");',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing fixed-bytes-conversions fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown fixed-bytes-conversions variant: {variant}')
+
+
 def stateful_narrow_for_counters_source(fixture: str, variant: str) -> str:
     """Compare narrow uintN for loop counters with a uint256 counter whose last iteration performs the checked uint8 increment."""
     if variant == 'baseline':
