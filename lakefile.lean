@@ -152,6 +152,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.EventRejections,
     .one `Contracts.SolidityImportSmoke.ErrorPayloads,
     .one `Contracts.SolidityImportSmoke.ErrorSequenceModel,
+    .one `Contracts.SolidityImportSmoke.TerminalErrorGuard,
     .one `Contracts.SolidityImportSmoke.Require,
     .one `Contracts.SolidityImportSmoke.RequireCustom]
   needs := #[solidityImportSmokeSources]

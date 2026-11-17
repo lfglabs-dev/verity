@@ -11,6 +11,15 @@ concrete packed read. Interpreter `#eval` checks are not theorems. The frontend 
 builds the model from solc JSON remains a trust assumption; see
 `TRUST_ASSUMPTIONS.md`.
 
+The literal-zero custom-error guard refinement classifies only
+`requireError (literal 0)` as terminal, retaining its argument expressions for
+validation. `Verity/Core/Model/DenoteErrorGuard.lean` establishes metadata
+consistency, exact existing Denote outcomes and no continuation, including
+argument-evaluation and error-encoding failures. It adds no axiom or cryptographic
+premise. These local lemmas do not prove the complete control-flow analysis or
+source/compiler correspondence; statement execution and compiler lowering are
+unchanged.
+
 `EntryPointInvariants.lean` proves rollback and composition of per-entry-point
 invariants over finite model-call sequences, including explicit environment
 preparation. These theorems and the executable-model example in
