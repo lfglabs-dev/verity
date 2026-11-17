@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
-"""Validate docs/VERIFICATION_STATUS.md against the current verification metrics."""
+"""Validate docs/VERIFICATION_STATUS.md against the current verification metrics.
+
+The committed doc must hold no repository counts (they made every test- or
+theorem-adding PR conflict): its Layer 1 table lists contracts without counts,
+its property-coverage section is empty, and none of the count-bearing lines
+below may appear in it. The generated copy rendered by
+`sync_verification_status_doc.py` is then checked line by line against
+`verification_metrics.current_metrics()`.
+"""
 
 from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
 
-from property_utils import ROOT, collect_covered, load_exclusions
+from property_utils import collect_covered, load_exclusions
+from sync_verification_status_doc import (
+    COVERAGE_SECTION,
+    STATUS_DOC,
+    layer1_rows,
+    render_status_doc,
+    section_body,
+)
 from verification_metrics import current_metrics
-
-STATUS_DOC = ROOT / "docs" / "VERIFICATION_STATUS.md"
 
 LAYER1_ROW_RE = re.compile(r"^\| ([A-Za-z0-9]+) \| (\d+) \| [^|]+ \| `[^`]+` \|$", re.MULTILINE)
 TOTAL_ROW_RE = re.compile(r"^\| \*\*Total\*\* \| \*\*(\d+)\*\* \|", re.MULTILINE)
@@ -24,6 +36,17 @@ BULLET_TOTAL_RE = re.compile(r"^- \*\*Total Properties\*\*: (\d+)$", re.MULTILIN
 BULLET_COVERED_RE = re.compile(r"^- \*\*Covered\*\*: (\d+)$", re.MULTILINE)
 BULLET_EXCLUDED_RE = re.compile(r"^- \*\*Excluded\*\*: (\d+) \(all proof-only\)$", re.MULTILINE)
 SORRY_RE = re.compile(r"^(\d+) `sorry` remaining across `Compiler/\*\*/\*\.lean` and `Verity/\*\*/\*\.lean` proof modules\.$", re.MULTILINE)
+
+COUNT_BEARING = {
+    "Layer 1 count row": LAYER1_ROW_RE,
+    "Layer 1 total row": TOTAL_ROW_RE,
+    "Layer 1 note total": NOTE_TOTAL_RE,
+    "coverage row": COVERAGE_ROW_RE,
+    "coverage status summary": STATUS_RE,
+    "total properties bullet": BULLET_TOTAL_RE,
+    "covered bullet": BULLET_COVERED_RE,
+    "excluded bullet": BULLET_EXCLUDED_RE,
+}
 
 
 def _require_match(pattern: re.Pattern[str], text: str, label: str) -> tuple[str, ...]:
@@ -48,10 +71,24 @@ def _parse_exclusions(cell: str) -> int:
     return int(match.group(1))
 
 
-def main() -> None:
-    artifact = current_metrics()
-    text = STATUS_DOC.read_text(encoding="utf-8")
+def check_committed(text: str, artifact: dict) -> None:
+    """The committed doc lists the right contracts and embeds no counts."""
+    for label, pattern in COUNT_BEARING.items():
+        match = pattern.search(text)
+        if match is not None:
+            raise ValueError(
+                f"{STATUS_DOC}: committed {label} {match.group(0)!r}; counts are generated "
+                "(scripts/sync_verification_status_doc.py --write), not committed"
+            )
+    expected = set(artifact["theorems"]["per_contract"]) | {"CryptoHash"}
+    _check_equal({name for name, _, _ in layer1_rows(text)}, expected, "Layer 1 contract table")
+    if section_body(text, COVERAGE_SECTION).strip():
+        raise ValueError(f"{STATUS_DOC}: generated section {COVERAGE_SECTION!r} must be empty")
+    _check_equal(int(_require_match(SORRY_RE, text, "sorry summary")[0]), artifact["proofs"]["sorry"], "sorry summary")
 
+
+def check_rendered(text: str, artifact: dict, covered: dict, exclusions: dict) -> None:
+    """The rendered copy states the current counts."""
     expected_layer1 = dict(artifact["theorems"]["per_contract"])
     expected_layer1["CryptoHash"] = 0
     found_layer1 = {name: int(count) for name, count in LAYER1_ROW_RE.findall(text)}
@@ -59,8 +96,6 @@ def main() -> None:
     _check_equal(int(_require_match(TOTAL_ROW_RE, text, "Layer 1 total row")[0]), artifact["theorems"]["total"], "Layer 1 total row")
     _check_equal(int(_require_match(NOTE_TOTAL_RE, text, "Layer 1 note total")[0]), artifact["theorems"]["total"], "Layer 1 note total")
 
-    covered = collect_covered()
-    exclusions = load_exclusions()
     expected_coverage: dict[str, tuple[int, int, int, int]] = {}
     for name, total in artifact["theorems"]["per_contract"].items():
         covered_count = len(covered.get(name, set()))
@@ -89,6 +124,15 @@ def main() -> None:
     _check_equal(int(_require_match(BULLET_COVERED_RE, text, "covered bullet")[0]), artifact["theorems"]["covered"], "covered bullet")
     _check_equal(int(_require_match(BULLET_EXCLUDED_RE, text, "excluded bullet")[0]), artifact["theorems"]["excluded"], "excluded bullet")
     _check_equal(int(_require_match(SORRY_RE, text, "sorry summary")[0]), artifact["proofs"]["sorry"], "sorry summary")
+
+
+def main() -> None:
+    artifact = current_metrics()
+    text = STATUS_DOC.read_text(encoding="utf-8")
+    check_committed(text, artifact)
+    covered = collect_covered()
+    exclusions = load_exclusions()
+    check_rendered(render_status_doc(text, artifact, covered, exclusions), artifact, covered, exclusions)
 
 
 if __name__ == "__main__":

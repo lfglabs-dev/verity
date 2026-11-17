@@ -24,27 +24,31 @@ EVM Bytecode
 
 ### Verified Contracts
 
-| Contract | Properties | Status | Location |
-|----------|------------|--------|----------|
-| SimpleStorage | 20 | Complete | `Contracts/SimpleStorage/Proofs/` |
-| Counter | 45 | Complete | `Contracts/Counter/Proofs/` |
-| SafeCounter | 25 | Complete | `Contracts/SafeCounter/Proofs/` |
-| Owned | 23 | Complete | `Contracts/Owned/Proofs/` |
-| Ownable | 6 | Complete | `Contracts/Ownable/Proofs/` |
-| OwnedCounter | 64 | Complete | `Contracts/OwnedCounter/Proofs/` |
-| OwnedCounterComposed | 6 | Complete | `Contracts/OwnedCounterComposed/Proofs/` |
-| Ledger | 35 | Complete | `Contracts/Ledger/Proofs/` |
-| LocalObligationMacroSmoke | 4 | Baseline | `Contracts/LocalObligationMacroSmoke/Proofs/` |
-| SimpleToken | 61 | Complete | `Contracts/SimpleToken/Proofs/` |
-| ERC20 | 26 | Baseline | `Contracts/ERC20/Proofs/` |
-| ERC721 | 11 | Baseline | `Contracts/ERC721/Proofs/` |
-| Vault | 17 | Baseline | `Contracts/Vault/Proofs/` |
-| ReentrancyExample | 5 | Complete | `Contracts/ReentrancyExample/Contract.lean` |
-| ReentrancyRelyGuarantee | 10 | Semantic | `Contracts/ReentrancyRelyGuarantee/Contract.lean` |
-| CryptoHash | 0 | No specs | `Contracts/CryptoHash/Contract.lean` |
-| **Total** | **358** | **✅ 100%** | — |
+Per-contract property counts, the total and the coverage figures below are computed
+from the repository, not committed: run `make status` (`--json` for machine-readable
+output), or read the generated copy of this page at
+[veritylang.com/verification-status.txt](https://veritylang.com/verification-status.txt).
 
-> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (358 total properties).
+<!-- BEGIN GENERATED LAYER 1 COUNTS -->
+| Contract | Status | Location |
+|----------|--------|----------|
+| SimpleStorage | Complete | `Contracts/SimpleStorage/Proofs/` |
+| Counter | Complete | `Contracts/Counter/Proofs/` |
+| SafeCounter | Complete | `Contracts/SafeCounter/Proofs/` |
+| Owned | Complete | `Contracts/Owned/Proofs/` |
+| Ownable | Complete | `Contracts/Ownable/Proofs/` |
+| OwnedCounter | Complete | `Contracts/OwnedCounter/Proofs/` |
+| OwnedCounterComposed | Complete | `Contracts/OwnedCounterComposed/Proofs/` |
+| Ledger | Complete | `Contracts/Ledger/Proofs/` |
+| LocalObligationMacroSmoke | Baseline | `Contracts/LocalObligationMacroSmoke/Proofs/` |
+| SimpleToken | Complete | `Contracts/SimpleToken/Proofs/` |
+| ERC20 | Baseline | `Contracts/ERC20/Proofs/` |
+| ERC721 | Baseline | `Contracts/ERC721/Proofs/` |
+| Vault | Baseline | `Contracts/Vault/Proofs/` |
+| ReentrancyExample | Complete | `Contracts/ReentrancyExample/Contract.lean` |
+| ReentrancyRelyGuarantee | Semantic | `Contracts/ReentrancyRelyGuarantee/Contract.lean` |
+| CryptoHash | No specs | `Contracts/CryptoHash/Contract.lean` |
+<!-- END GENERATED LAYER 1 COUNTS -->
 
 Layer 1 uses macro-generated EDSL-to-`CompilationModel` bridge theorems backed by a generic typed-IR compilation-correctness theorem ([`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean)). Tuple/bytes/fixed-array/dynamic-array/string parameters now stay inside that proof path when they are carried as ABI head words/offsets. Advanced constructs beyond that typed-IR head-word surface (linked libraries, ECMs, fully custom ABI behavior) are still expressed directly in `CompilationModel` and trusted at that boundary. Higher-order internal helpers (function-pointer parameters, [#1747](https://github.com/lfglabs-dev/verity/issues/1747)) are eliminated by a compile-time monomorphization pre-pass that runs before any lowering, so the `CompilationModel` only ever contains first-order helpers: these calls are covered by the existing first-order proof path and introduce no new boundary trust.
 
@@ -200,35 +204,15 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 
 ## Property Test Coverage
 
-| Contract | Coverage | Exclusions |
-|----------|----------|------------|
-| ERC20 | 88% (23/26) | 3 proof-only |
-| Vault | 0% (0/17) | 17 proof-only |
-| ERC721 | 100% (11/11) | 0 |
-| SafeCounter | 100% (25/25) | 0 |
-| ReentrancyExample | 100% (5/5) | 0 |
-| ReentrancyRelyGuarantee | 0% (0/10) | 10 proof-only |
-| Ledger | 97% (34/35) | 1 proof-only |
-| LocalObligationMacroSmoke | 100% (4/4) | 0 |
-| SimpleStorage | 95% (19/20) | 1 proof-only |
-| OwnedCounter | 69% (44/64) | 20 proof-only |
-| Owned | 87% (20/23) | 3 proof-only |
-| Ownable | 0% (0/6) | 6 proof-only |
-| OwnedCounterComposed | 0% (0/6) | 6 proof-only |
-| SimpleToken | 85% (52/61) | 9 proof-only |
-| Counter | 69% (31/45) | 14 proof-only |
-| Stdlib | 0% (0/0) | 0 proof-only |
+Per-contract coverage, the status line and the exclusion totals are generated (see
+[Verified Contracts](#verified-contracts)). Proof-only properties are internal proof
+machinery that cannot be tested in Foundry.
 
-**Status**: 75% coverage (268/358), 90 remaining exclusions all proof-only
-
-- **Total Properties**: 358
-- **Covered**: 268
-- **Excluded**: 90 (all proof-only)
-
-**Proof-Only Properties (90 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
+<!-- BEGIN GENERATED PROPERTY COVERAGE -->
+<!-- END GENERATED PROPERTY COVERAGE -->
 
 0 `sorry` remaining across `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules.
-5266 theorems/lemmas (3645 public, 1621 private) verified by `lake build PrintAxioms`.
+All public and private theorems/lemmas are verified by `lake build PrintAxioms`.
 
 0 custom Lean axioms remain. The former `solidityMappingSlot_injective` was inconsistent even on in-range pairs by pigeonhole (2^512 pairs into 2^256 slots). Mapping-write preservation now uses explicit finite accessed-footprint non-alias certificates and concludes finite coherence. The former mapping-slot range axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge is tracked as an explicit theorem hypothesis rather than a Lean axiom. Layer 2 itself still has 0 axioms.
 

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "next dev --webpack -p 3003",
     "postinstall": "node scripts/patch-nextra-zod.mjs",
+    "prebuild": "bash scripts/generate-derived.sh",
     "build": "next build --webpack && node scripts/index-search.mjs",
     "check:highlighting": "node scripts/check-verity-highlighting.mjs",
     "start": "next start -p 3003"

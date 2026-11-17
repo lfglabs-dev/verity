@@ -33,6 +33,11 @@ npm run build
 npm start
 ```
 
+`npm run build` first runs `scripts/generate-derived.sh` (prebuild), which needs
+`python3` and the full repository checkout: it renders `public/verification-status.txt`
+(git-ignored) from `docs/VERIFICATION_STATUS.md` with the current counts. Without
+`python3` it logs one line and the build continues.
+
 ## Structure
 
 ```
@@ -47,6 +52,7 @@ docs-site/
 │   └── _meta.js                     # Navigation config
 ├── public/llms.txt                  # AI agent index
 ├── public/skill.md                  # Operational workflow for agents
+├── public/verification-status.txt  # Generated at prebuild, not committed
 ├── proxy.ts                         # Middleware for AI agent detection
 └── next.config.mjs                  # Next.js config with Nextra
 ```
@@ -69,6 +75,7 @@ The site automatically serves markdown to AI agents through:
    - `/llms.txt` and `/.well-known/llms.txt` - Compact agent index
    - `/llms-full.txt` and `/.well-known/llms-full.txt` - All docs concatenated (Markdown)
    - `/skill.md` and `/.well-known/skill.md` - Operational workflow for agents working in Verity
+   - `/verification-status.txt` - `docs/VERIFICATION_STATUS.md` with current counts (generated at build)
    - `/.well-known/agent-skills` - JSON skill discovery index
 6. **Discovery headers**: Every response advertises `Link`, `X-Llms-Txt`, `X-Llms-Full-Txt`, and `X-Agent-Skill`
 7. **API routes**:

@@ -20,9 +20,11 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 
-# Commands a contributor or CI runs to refresh derived counts.
+# Commands that write derived counts, run from the repository root. All must
+# write only git-ignored paths.
 DERIVED_COUNT_WRITERS: list[list[str]] = [
     ["scripts/generate_verification_status.py"],
+    ["scripts/sync_verification_status_doc.py", "--write", "docs-site/public/verification-status.txt"],
 ]
 
 TEST_TEMPLATE = """// SPDX-License-Identifier: MIT
