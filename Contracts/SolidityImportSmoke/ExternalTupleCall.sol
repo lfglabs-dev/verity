@@ -33,3 +33,47 @@ contract ExternalTupleCallSingleSlot {
         return b - a;
     }
 }
+
+// The other two entry points of a two-word external call: a bare expression statement and
+// partial destructuring. Both are located rejections too.
+contract ExternalTupleCallStatement {
+    uint256 private lo;
+    function pair() external view returns (uint256, uint256) {
+        return (lo, lo);
+    }
+    function poke() external view {
+        ExternalTupleCallStatement(address(this)).pair();
+    }
+    function first() external view returns (uint256) {
+        (uint256 a, ) = ExternalTupleCallStatement(address(this)).pair();
+        return a;
+    }
+}
+
+// Not external calls: `super.pair()` and `TuplePairBase.pair()` name an internal function
+// of a base contract, so they are inlined, with two state variables as well.
+contract TuplePairBase {
+    uint256 internal lo;
+    uint256 internal hi;
+    function pair() internal view returns (uint256, uint256) {
+        return (lo, hi);
+    }
+}
+
+contract InternalTupleBaseCall is TuplePairBase {
+    function change(uint256 x) external returns (uint256) {
+        lo = x;
+        hi = x >> 1;
+        (uint256 a, uint256 b) = super.pair();
+        (uint256 c, uint256 d) = TuplePairBase.pair();
+        return a ^ (b << 1) ^ (c << 2) ^ (d << 3);
+    }
+    function read() external view returns (uint256, uint256) {
+        (uint256 a, uint256 b) = TuplePairBase.pair();
+        return (b, a);
+    }
+    function fail() external {
+        lo = 7;
+        revert();
+    }
+}
