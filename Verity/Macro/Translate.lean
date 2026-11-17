@@ -2285,10 +2285,26 @@ private partial def loopBodyNames (stx : Syntax) : Array String × Array String 
     let (r, d) := loopBodyNames arg
     (acc.1 ++ r, acc.2 ++ d)) here
 
+/-- The source identifier of a reassignment (`x := e`, `x ← e`) of `name` in a loop body. -/
+private def loopReassignIdent? (name : String) (stx : Syntax) : Option Ident :=
+  let isNamed (s : Syntax) : Bool :=
+    match s with
+    | .ident _ raw _ _ => raw.toString == name
+    | _ => false
+  let isReassign (s : Syntax) : Bool :=
+    (s.getKind == `Lean.Parser.Term.doReassign || s.getKind == `Lean.Parser.Term.doReassignArrow)
+      && (s[0][0].find? isNamed).isSome
+  (stx.find? isReassign).bind fun s => (s[0][0].find? isNamed).map (⟨·⟩)
+
 /-- The executable of a loop: run `inner` once per element of `indices`, with `loopIdent`
 bound to the index, threading every enclosing `let mut` local the body reassigns through
 `Contracts.loopList` (Lean's `for` cannot elaborate in `Contract`, an `abbrev` of a function
-type). An early `return` in the body is rejected by type checking. -/
+type). An early `return` in the body is rejected by type checking.
+
+The threaded values are read (the loop's initial state, the step's result) through the
+source identifier of a reassignment in the body: those reads are the source-level uses of
+the enclosing local and of the body's last reassignment, which the generated binders would
+otherwise hide from the unused-variables linter. -/
 private def loopExecutableDoElem (loopIdent : Ident) (indices : Term)
     (inner : Array (TSyntax `doElem)) : CommandElabM (TSyntax `doElem) := do
   let (reassigned, declared) := inner.foldl (fun acc elem =>
@@ -2297,24 +2313,28 @@ private def loopExecutableDoElem (loopIdent : Ident) (indices : Term)
   let threaded := reassigned.foldl (fun acc n =>
     if declared.contains n || acc.contains n then acc else acc.push n) #[]
   let ids : Array Ident := threaded.map fun n => mkIdent (Name.mkSimple n)
+  let uses : Array Ident := threaded.map fun n =>
+    (inner.findSome? fun elem => loopReassignIdent? n elem.raw).getD (mkIdent (Name.mkSimple n))
   let bindIdx ← `(doElem| let $loopIdent : Uint256 := _root_.Verity.Core.Uint256.ofNat __loopIdx)
-  match ids.toList with
-  | [] =>
-      let body := #[bindIdx] ++ inner ++ #[← `(doElem| pure ())]
-      `(doElem| let _ ← _root_.Contracts.loopList $indices () (fun __loopIdx _ => do $[$body:doElem]*))
-  | [x] =>
+  match ids.toList, uses.toList with
+  | [x], [xUse] =>
       let body := #[← `(doElem| let mut $x:ident := __loopState), bindIdx] ++ inner ++
-        #[← `(doElem| pure $x:ident)]
-      `(doElem| $x:ident ← _root_.Contracts.loopList $indices $x:ident
+        #[← `(doElem| pure $xUse:ident)]
+      `(doElem| $x:ident ← _root_.Contracts.loopList $indices $xUse:ident
         (fun __loopIdx __loopState => do $[$body:doElem]*))
-  | x :: rest =>
+  | x :: rest, xUse :: restUses =>
       let restArr : Array Term := rest.toArray.map fun i => ⟨i.raw⟩
+      let restUseArr : Array Term := restUses.toArray.map fun i => ⟨i.raw⟩
       let tuple ← `(term| ($x, $[$restArr],*))
+      let useTuple ← `(term| ($xUse, $[$restUseArr],*))
       let muts ← ids.mapM fun i => `(doElem| let mut $i:ident := $i:ident)
       let body := #[← `(doElem| let $tuple:term := __loopState)] ++ muts ++ #[bindIdx] ++ inner ++
-        #[← `(doElem| pure $tuple:term)]
-      `(doElem| $tuple:term ← _root_.Contracts.loopList $indices $tuple:term
+        #[← `(doElem| pure $useTuple:term)]
+      `(doElem| $tuple:term ← _root_.Contracts.loopList $indices $useTuple:term
         (fun __loopIdx __loopState => do $[$body:doElem]*))
+  | _, _ =>
+      let body := #[bindIdx] ++ inner ++ #[← `(doElem| pure ())]
+      `(doElem| let _ ← _root_.Contracts.loopList $indices () (fun __loopIdx _ => do $[$body:doElem]*))
 
 mutual
 
