@@ -15509,16 +15509,45 @@ other such immutable is a fixed value the source does not determine: reads lower
 `Expr.immutable name`, and the model declares it with a synthesized constructor that takes it
 as an argument, so deployment and proofs supply it explicitly. -/
 
-/-- Every assignment to the state variable `svId` in `j`. -/
-private partial def stateVarAssignments (svId : Nat) : Json → Array Json
+/-- Whether `j` refers to the declaration `svId` anywhere. -/
+private partial def mentionsDeclaration (svId : Nat) : Json → Bool
   | j@(.obj kvs) =>
-      let here :=
-        if optStr j "nodeType" == some "Assignment" &&
-            ((field? j "leftHandSide").bind (field? · "referencedDeclaration")
-              |>.bind (·.getNat?.toOption)) == some svId then #[j] else #[]
-      kvs.foldl (fun acc _ v => acc ++ stateVarAssignments svId v) here
-  | .arr items => items.foldl (fun acc v => acc ++ stateVarAssignments svId v) #[]
+      ((field? j "referencedDeclaration").bind (·.getNat?.toOption)) == some svId ||
+        kvs.foldl (fun acc _ v => acc || mentionsDeclaration svId v) false
+  | .arr items => items.any (mentionsDeclaration svId)
+  | _ => false
+
+/-- Every write that may change the state variable `svId` in `j`: an assignment whose
+left-hand side refers to it (tuple components included) and a `delete` of it. -/
+private partial def stateVarWrites (svId : Nat) : Json → Array Json
+  | j@(.obj kvs) =>
+      let target? := match optStr j "nodeType" with
+        | some "Assignment" => field? j "leftHandSide"
+        | some "UnaryOperation" =>
+            if optStr j "operator" == some "delete" then field? j "subExpression" else none
+        | _ => none
+      let here := if (target?.map (mentionsDeclaration svId)).getD false then #[j] else #[]
+      kvs.foldl (fun acc _ v => acc ++ stateVarWrites svId v) here
+  | .arr items => items.foldl (fun acc v => acc ++ stateVarWrites svId v) #[]
   | _ => #[]
+
+/-- Whether `j` contains a node of kind `kind`. -/
+private partial def containsNodeKind (kind : String) : Json → Bool
+  | j@(.obj kvs) =>
+      optStr j "nodeType" == some kind ||
+        kvs.foldl (fun acc _ v => acc || containsNodeKind kind v) false
+  | .arr items => items.any (containsNodeKind kind)
+  | _ => false
+
+/-- Whether every statement of constructor `c`'s body runs on each successful deployment:
+no `return` ends the body early and no modifier (a base constructor specifier is not one)
+may skip it. -/
+private def constructorBodyAlwaysRuns (c : Json) : Bool :=
+  let modifiers := match field? c "modifiers" with
+    | some (.arr ms) => ms
+    | _ => #[]
+  !containsNodeKind "Return" ((field? c "body").getD .null) &&
+    modifiers.all (optStr · "kind" == some "baseConstructorSpecifier")
 
 /-- `address(this)`, as solc types it. -/
 private def isAddressOfThis (j : Json) : Bool :=
@@ -15531,20 +15560,24 @@ private def isAddressOfThis (j : Json) : Bool :=
   optStr j "nodeType" == some "FunctionCall" && optStr j "kind" == some "typeConversion" &&
     typeString j == some "address" && thisArg
 
-/-- Whether `constructors` assign `svId` exactly once, as a top-level statement of a
-constructor body, to `address(this)`. -/
+/-- Whether the only write to `svId` in `constructors` is `svId = address(this)`, a
+top-level statement of a constructor body that always runs to its end
+(`constructorBodyAlwaysRuns`). Tuple assignments and `delete` count as writes. -/
 private def assignedSelfAddressOnce (constructors : Array Json) (svId : Nat) : Bool :=
-  let all := constructors.foldl (fun acc c => acc ++ stateVarAssignments svId c) #[]
-  let topLevel := constructors.foldl (fun acc c =>
-    match (field? c "body").bind (field? · "statements") with
-    | some (.arr stmts) => acc ++ stmts.filterMap fun s =>
-        if optStr s "nodeType" == some "ExpressionStatement" then field? s "expression" else none
-    | _ => acc) #[]
-  match all with
-  | #[a] =>
-      optStr a "operator" == some "=" &&
+  let writes := constructors.filterMap fun c =>
+    let ws := stateVarWrites svId c
+    if ws.isEmpty then none else some (c, ws)
+  match writes with
+  | #[(c, #[a])] =>
+      let topLevel := match (field? c "body").bind (field? · "statements") with
+        | some (.arr stmts) => stmts.filterMap fun s =>
+            if optStr s "nodeType" == some "ExpressionStatement" then field? s "expression" else none
+        | _ => #[]
+      optStr a "nodeType" == some "Assignment" && optStr a "operator" == some "=" &&
+        ((field? a "leftHandSide").map (optStr · "nodeType" == some "Identifier")).getD false &&
         topLevel.any (fun e => field? e "id" == field? a "id") &&
-        ((field? a "rightHandSide").map isAddressOfThis).getD false
+        ((field? a "rightHandSide").map isAddressOfThis).getD false &&
+        constructorBodyAlwaysRuns c
   | _ => false
 
 /-- The constructors of the target contract's C3 chain. -/
