@@ -46,6 +46,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "immutable-lowering",
     "interface-static-call",
     "interface-static-call-rejections",
+    "interface-void-call",
     "interface-word-static-call",
     "interface-word-static-call-rejections",
     "mapping-dirty",
@@ -104,6 +105,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-yul-numeric",
     "struct-abi",
     "struct-abi-rejections",
+    "yul-memory-call",
 )
 
 

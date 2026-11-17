@@ -212,6 +212,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'selector-responder')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
+    checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',
+        '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
+        '--output', str(output / 'yul-memory-call')]))
+    checks.append(('interface-void-call', ['-m', 'solidity_differential.check_interface_void_call',
+        '--transactions', str(max(96, min(transactions, 128))), '--seed', str(seed),
+        '--output', str(output / 'interface-void-call')]))
     checks.append(('yul-memory-call-rejections', ['-m',
         'solidity_differential.check_yul_memory_call_rejections',
         '--output', str(output / 'yul-memory-call-rejections')]))
