@@ -15831,7 +15831,7 @@ initializer has there: literals, the deployment's environment (`msg.sender`, `tx
 `address(this)`, `block.chainid`, `block.number`, `block.timestamp`) and pure word
 operations. `some true` when it reads the environment, `none` when it reads anything else
 (storage, memory, immutables, calls, parameters, locals). -/
-private partial def deploymentInitializerEnv? : Expr → Option Bool
+private def deploymentInitializerEnv? : Expr → Option Bool
   | .literal _ => some false
   | .caller | .contractAddress | .txOrigin | .chainid | .blockTimestamp | .blockNumber =>
       some true
