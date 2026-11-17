@@ -508,6 +508,14 @@ MUTANTS.update({
 })
 
 MUTANTS.update({
+    'import-msg-sig-mask': ('| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))',
+        '| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal (2 ^ 32 - 1)))'),
+    'import-msg-sig-offset': ('| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))',
+        '| "sig" => pure (Expr.bitAnd (.calldataload (.literal 4)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))'),
+})
+
+
+MUTANTS.update({
     'import-fixed-bytes-literal-align': ('return some { pre := #[], expr := .literal (word * 16 ^ (64 - hex.length)) }',
         'return some { pre := #[], expr := .literal word }'),
     'import-fixed-bytes-widen': ('      if aw ≤ pw then return v\n',
@@ -633,6 +641,8 @@ def run(directory, output, name):
         fixture = "WhileClzAndStructLocSequence"
     if name.startswith("import-exp-and-bitwise-shift-"):
         fixture = "ExpAndBitwiseShiftSequence"
+    if name.startswith("import-msg-sig-"):
+        fixture = "MsgSigSequence"
     if name.startswith("import-fixed-bytes-"):
         fixture = "FixedBytesConversionSequence"
     if name.startswith("import-narrow-for-"):

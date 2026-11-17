@@ -3427,6 +3427,9 @@ private partial def lowerRef (j : Json) : M Ref := do
         let expression ← match member with
           | "sender" => pure Expr.caller
           | "value" => pure Expr.msgValue
+          -- `msg.sig` is the left-aligned `bytes4` of the first calldata word;
+          -- `calldataload` zero-pads calldata shorter than 4 bytes, as solc does.
+          | "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))
           | _ => failAt j s!"unsupported message context member {member}"
         pure (.expr { pre := #[], expr := expression })
       else if (← mKind base) == "Identifier" && optStr base "name" == some "tx" &&

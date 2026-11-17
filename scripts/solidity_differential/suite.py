@@ -23,6 +23,7 @@ STORAGE_FIXTURES = (
     'byte-constant-conversions',
     'narrow-for-counters',
     'fixed-bytes-conversions',
+    'msg-sig',
     'fixed-memory-arrays',
     'inline-array-literals',
     'helper-name-independence',

@@ -1020,6 +1020,33 @@ def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-modulo variant: {variant}')
 
 
+def stateful_msg_sig_source(fixture: str, variant: str) -> str:
+    """Compare msg.sig with renamed locals and with the selectors it equals in each root."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = set(['_selector', 'calls', 'failing', 'lastSig', 'rejected', 's', 'total', 'tracked', 'x'])
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'selector-constants':
+        replacements = {
+            'bytes4 s = _selector();':
+            'bytes4 s = this.change.selector;',
+            'bytes32 failing = bytes32(_selector());':
+            'bytes32 failing = bytes32(this.fail.selector);',
+            'return (msg.sig, lastSig,':
+            'return (this.read.selector, lastSig,',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing msg-sig fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown msg-sig variant: {variant}')
+
+
 def stateful_fixed_bytes_conversions_source(fixture: str, variant: str) -> str:
     """Compare implicit bytesN widening and string-literal bytesN values with hex literals and explicit casts."""
     if variant == 'baseline':

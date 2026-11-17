@@ -160,6 +160,8 @@ def main():
         ('for-nested-bound-step', '', 'uint256 n = x; for (uint256 i = 0; i < n; i++) { for (uint256 j = 0; j < 1; n++) {} } return x;', 'uint256', 'bound must be a literal'),
         ('for-break', '', 'for (uint256 i = 0; i < 3; i++) { break; } return x;', 'uint256', 'unsupported statement Break'),
         ('for-continue', '', 'for (uint256 i = 0; i < 3; i++) { continue; } return x;', 'uint256', 'unsupported statement Continue'),
+        ('msg-sig', '', 'return uint256(uint32(msg.sig)) + x;', 'uint256', None),
+        ('msg-sig-mapping-key', 'mapping(bytes4 => uint256) private calls;', 'calls[msg.sig] += x; return calls[msg.sig];', 'uint256', None),
         ('fixed-bytes-widen-local', '', 'bytes4 s = bytes4(uint32(x)); bytes8 w = s; bytes32 v = w; return uint256(v);', 'uint256', None),
         ('fixed-bytes-widen-compare', '', 'bytes4 s = bytes4(uint32(x)); bytes8 w = s; return s == w ? 1 : 0;', 'uint256', None),
         ('fixed-bytes-widen-helper-arg', 'function helper(bytes32 v) internal pure returns (uint256) { return uint256(v); }', 'return helper(bytes4(uint32(x)));', 'uint256', None),

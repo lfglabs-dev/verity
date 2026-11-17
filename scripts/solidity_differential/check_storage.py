@@ -55,6 +55,7 @@ from .programs import (
     stateful_modifier_unchecked_compound_source,
     stateful_modulo_source,
     stateful_msg_data_and_enum_source,
+    stateful_msg_sig_source,
     stateful_multiproof_mapping_keys_verifiers_source,
     stateful_named_helper_return_source,
     stateful_named_string_return_source,
@@ -171,6 +172,7 @@ FIXTURE_CONTRACTS = {
     'modifier-unchecked-compound': 'ModifierUncheckedCompoundSequence',
     'modulo': 'ModuloSequence',
     'msg-data-and-enum': 'MsgDataAndEnumSequence',
+    'msg-sig': 'MsgSigSequence',
     'multiproof-mapping-keys-verifiers': 'MultiProofMappingKeysVerifiersSequence',
     'named-helper-returns': 'NamedHelperReturnSequence',
     'named-string-return': 'NamedStringReturnSequence',
@@ -351,6 +353,8 @@ def main():
         variants = ('baseline', 'renamed', 'explicit-zero')
     if args.fixture == 'default-locals':
         variants = ('baseline', 'renamed', 'explicit')
+    if args.fixture == 'msg-sig':
+        variants = ('baseline', 'renamed', 'selector-constants')
     if args.fixture == 'modulo':
         variants = ('baseline', 'renamed', 'quotient')
     if args.fixture == 'fixed-memory-arrays':
@@ -395,6 +399,7 @@ def main():
                           else stateful_access_manager_target_role_source(fixture, variant) if args.fixture == "access-manager-target-role"
                           else stateful_governor_slice_proposer_delay_source(fixture, variant) if args.fixture == "governor-slice-proposer-delay"
                           else stateful_unchecked_blocks_source(fixture, variant) if args.fixture == "unchecked-blocks"
+                          else stateful_msg_sig_source(fixture, variant) if args.fixture == "msg-sig"
                           else stateful_tuple_destructuring_source(fixture, variant) if args.fixture == "tuple-destructuring"
                           else stateful_create2_clones_msgdata_deque_source(fixture, variant) if args.fixture == "create2-clones-msgdata-deque"
                           else stateful_narrow_for_counters_source(fixture, variant) if args.fixture == "narrow-for-counters"
@@ -516,6 +521,9 @@ def main():
             # every narrow slot, the x % 7 == 6 probe in range (6, 13) and out
             # of range (34, 41: Panic(0x32)), and high-byte selectors.
             extra = ['--change-prefix', *map(str, FIXED_MEMORY_ARRAY_PREFIX)]
+        if args.fixture == 'msg-sig':
+            # change(2^256 - 1) fills the 28 argument bytes that the msg.sig mask clears.
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 10, 17, 999, 1000, (1 << 256) - 1])]
         if args.fixture == 'timelock-and-bytes4-cast':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 20, 21, 22])]
         if args.fixture == 'string-bytes-mappings-uri-storage-strings':
