@@ -87,7 +87,18 @@ def genDynamicParamLoads
     let dataOffsetLoad := YulStmt.let_ s!"{name}_data_offset" absoluteOffset
     preamble ++ [dataOffsetLoad]
 
-def genScalarLoad
+/-- ABI coder v2 validator for a scalar head word: after `name` is bound to the
+type's cleanup of `word`, revert with empty data unless cleanup was the identity
+(solc's `validator_revert_t_<type>`: `if iszero(eq(value, cleanup(value)))`). -/
+def scalarValidationGuard (name : String) (word : YulExpr) : YulStmt :=
+  YulStmt.if_ (YulExpr.call "iszero" [YulExpr.call "eq" [YulExpr.ident name, word]]) [
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+  ]
+
+/-- Bind `name` to the type's cleanup of one scalar word (solc's
+`cleanup_t_<type>`), without validation. Static tuple and fixed-array members
+use it: solc validates a member of a calldata composite lazily, at its read. -/
+def genScalarCleanLoad
     (loadWord : YulExpr → YulExpr) (name : String) (ty : ParamType) (offset : Nat) :
     List YulStmt :=
   let load := loadWord (YulExpr.lit offset)
@@ -119,6 +130,20 @@ def genScalarLoad
       [YulStmt.let_ name (YulExpr.call "iszero" [YulExpr.call "iszero" [load]])]
   | _ => []
 
+/-- Load one scalar head parameter into `name`, as solc's ABI coder v2 decodes
+it: full-width types bind the word as is; narrower types bind its cleanup and
+then revert with empty data unless the word was already clean, so a dirty
+argument reverts instead of being masked. -/
+def genScalarLoad
+    (loadWord : YulExpr → YulExpr) (name : String) (ty : ParamType) (offset : Nat) :
+    List YulStmt :=
+  match ty with
+  | ParamType.uint8 | ParamType.uint16 | ParamType.uintN _ | ParamType.intN _
+  | ParamType.bytesN _ | ParamType.address | ParamType.bool =>
+      genScalarCleanLoad loadWord name ty offset ++
+        [scalarValidationGuard name (loadWord (YulExpr.lit offset))]
+  | _ => genScalarCleanLoad loadWord name ty offset
+
 def genStaticTypeLoads
     (loadWord : YulExpr → YulExpr) (name : String) (ty : ParamType) (offset : Nat) :
     List YulStmt :=
@@ -126,7 +151,7 @@ def genStaticTypeLoads
   | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
   | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
   | ParamType.address | ParamType.bool | ParamType.bytes32 =>
-      genScalarLoad loadWord name ty offset
+      genScalarCleanLoad loadWord name ty offset
   | ParamType.fixedArray elemTy n =>
       (List.range n).flatMap fun i =>
         genStaticTypeLoads loadWord s!"{name}_{i}" elemTy (offset + i * paramHeadSize elemTy)

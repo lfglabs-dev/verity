@@ -63,6 +63,52 @@ theorem compileGuardedFunctionSpec_ok_metadata (fields : List Field)
     attachNonReentrantGuard_metadata fields spec irFn fn hattach
   exact ⟨hparams' ▸ hparams, hsel' ▸ hsel, hpay' ▸ hpay⟩
 
+/-- The guard transformation keeps the generated parameter loads as the body's
+prefix: the lock prologue is spliced after them. -/
+theorem attachNonReentrantGuard_loads_prefix (fields : List Field)
+    (spec : FunctionSpec) (irFn fn' : IRFunction) (rest : List YulStmt)
+    (hbody : irFn.body = genParamLoads spec.bindingParams ++ rest)
+    (h : attachNonReentrantGuard fields spec irFn = .ok fn') :
+    ∃ rest', fn'.body = genParamLoads spec.bindingParams ++ rest' := by
+  unfold attachNonReentrantGuard at h
+  cases hlock : spec.nonReentrantLock with
+  | none =>
+      rw [hlock] at h
+      obtain rfl := Except.ok.inj h
+      exact ⟨rest, hbody⟩
+  | some lockField =>
+      rw [hlock] at h
+      simp only [bind, Except.bind] at h
+      cases hpro : nonReentrantGuardPrologue fields lockField with
+      | error e =>
+          rw [hpro] at h
+          cases h
+      | ok guardStmts =>
+          rw [hpro] at h
+          obtain rfl := Except.ok.inj h
+          exact ⟨_, by simp [hbody, List.splitAt_eq, List.append_assoc]; exact rfl⟩
+
+/-- A guarded compiled function (standard ABI decoding) has the declared
+parameters and a body that starts with the generated parameter loads. -/
+theorem compileGuardedFunctionSpec_ok_loads_prefix (fields : List Field)
+    (events : List EventDef) (errors : List ErrorDef)
+    (internalFunctions : List FunctionSpec)
+    (sel : Nat) (spec : FunctionSpec) (fn : IRFunction)
+    (habi : spec.abiDecoding = .standard)
+    (h : compileGuardedFunctionSpec fields events errors [] internalFunctions
+      sel spec = .ok fn) :
+    fn.params = spec.params.map Param.toIRParam ∧
+      ∃ rest, fn.body = genParamLoads spec.params ++ rest := by
+  refine ⟨(compileGuardedFunctionSpec_ok_metadata fields events errors internalFunctions
+    sel spec fn h).1, ?_⟩
+  obtain ⟨irFn, hcompile, hattach⟩ :=
+    compileGuardedFunctionSpec_inv fields events errors [] internalFunctions
+      sel spec .cancun fn h
+  obtain ⟨bodyStmts, hbody⟩ := compileFunctionSpec_body_shape fields events errors []
+    sel spec .cancun internalFunctions irFn hcompile
+  simpa [FunctionSpec.bindingParams, habi] using
+    attachNonReentrantGuard_loads_prefix fields spec irFn fn bodyStmts hbody hattach
+
 /-- Erasure-free `Forall₂` decomposition of the guarded compile mapM: no
 lock-free hypothesis, each entry is characterized by the guarded pipeline. -/
 theorem guarded_functions_forall₂_of_mapM_ok

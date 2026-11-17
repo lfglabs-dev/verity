@@ -235,7 +235,7 @@ instance [ToDispatchVal α] [ToDispatchVal β] : ToDispatchVal (α × β) where
     .tuple (flattenDispatchTuple (ToDispatchVal.toDispatchVal p.1) ++
       flattenDispatchTuple (ToDispatchVal.toDispatchVal p.2))
 
-/-- How `genScalarLoad` normalizes a loaded word before the body sees it. -/
+/-- Which cleanup `genScalarLoad` applies to a loaded word (`genScalarCleanLoad`). -/
 inductive ScalarLoadKind where
   | identity
   | bool
@@ -258,8 +258,12 @@ def normalizeLoadedWord (kind : ScalarLoadKind) (loaded : Nat) : Nat :=
   | .bytesN bytes =>
       w &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
 
+/-- Compiled dispatch validates each scalar word as solc's ABI coder v2 does: a
+loaded word matches only if it is a valid encoding of its type (cleanup is the
+identity on it) and equals the canonical word; a dirty word reverts. -/
 def scalarWordMatches (kind : ScalarLoadKind) (canonical loaded : Nat) : Bool :=
-  normalizeLoadedWord kind loaded == canonical % Compiler.Constants.evmModulus
+  normalizeLoadedWord kind loaded == loaded % Compiler.Constants.evmModulus &&
+    loaded % Compiler.Constants.evmModulus == canonical % Compiler.Constants.evmModulus
 
 def dispatchWordsMatch : List ScalarLoadKind → List Nat → List Nat → Bool
   | [], _, _ => true
@@ -272,17 +276,17 @@ def dispatchWordsMatch : List ScalarLoadKind → List Nat → List Nat → Bool
 selected the function (`calldataload` at 4 + 32*i, `calldatasize` at
 least 4 + 32 * n). Extra trailing words are allowed, matching Yul
 `calldatasizeGuard`. `argWords` is the ABI data region (no 4-byte selector),
-from `abiEncodeDispatchArgs`, not `ExternalArg.toWords`. Scalar prefixes
-compare after `genScalarLoad` normalization so noncanonical Bool/uintN/
-address words still register. -/
+from `abiEncodeDispatchArgs`, not `ExternalArg.toWords`. Words compare
+exactly. -/
 def dispatchCalldataMatches (ctx : CallbackContext) (argWords : List Nat) : Prop :=
   dispatchWordsMatch
       (List.replicate argWords.length ScalarLoadKind.identity)
       argWords (ctx.calldata.take argWords.length) = true ∧
     Verity.Core.Uint256.ofNat (4 + 32 * argWords.length) ≤ ctx.calldataSize
 
-/-- Like `dispatchCalldataMatches`, but scalar words compare after the compiled
-`genScalarLoad` normalization for each argument. -/
+/-- Like `dispatchCalldataMatches`, but each scalar word is checked against its
+argument's type by `scalarWordMatches`: noncanonical Bool/uintN/address/bytesN
+words do not register, since compiled dispatch reverts on them. -/
 def dispatchCalldataMatchesKinds (ctx : CallbackContext)
     (kinds : List ScalarLoadKind) (argWords : List Nat) : Prop :=
   dispatchWordsMatch kinds argWords (ctx.calldata.take argWords.length) = true ∧

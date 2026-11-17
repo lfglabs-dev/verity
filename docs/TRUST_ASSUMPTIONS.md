@@ -997,8 +997,9 @@ global invariant `I : ContractState → Prop`.
       (`Contracts/Smoke/FallbackNonReentrantSmoke.lean`). Registry-mode executables observe that same calldata through
       `calldatasizeLive`/`calldataloadLive`, including the selected
       entrypoint selector at `calldataload 0` (`CallbackContext.selector` /
-      `ContractState.selector`). `dispatchCalldataMatches` accepts
-      `genScalarLoad`-normalized noncanonical Bool / uintN / address words.
+      `ContractState.selector`). `dispatchCalldataMatchesKinds` rejects
+      noncanonical Bool / uintN / address / bytesN words, on which compiled
+      dispatch reverts.
       `FixedArray` encodes as a length-free composite (tuple of members);
       source `Tuple` encodings are flattened before `abiEncodeDispatchArgs`.
       Helpers whose bodies (transitively) read `calldatasize`/`calldataload`
@@ -1272,11 +1273,31 @@ model logical operators. Differential fixtures compare skipped and executed
 guards, mapping accesses and helper calls against solc, plus conditional and
 De Morgan variants. This is tested lowering, not a Solidity semantics proof.
 
+### Scalar ABI head validation
+
+The generic parameter loader (`genScalarLoad`) validates every scalar head
+parameter as solc's ABI coder v2 does (`validator_revert_t_<type>`): it binds
+the type's cleanup (`and` mask for `address`/`uintN`/`bytesN`, `signextend` for
+`intN`, `iszero(iszero(..))` for `bool`) and reverts with empty data unless the
+cleanup equals the raw word. Full-width `uint256`/`int256`/`bytes32` words are
+bound as is. The source semantics (`decodeSupportedParamWord`) rejects the same
+words, so binding fails and the call reverts; the IR proofs cover both outcomes
+(`ParamLoading.exec_genParamLoads_supported_then` /
+`exec_genParamLoads_supported_revert`). Members of static tuple and fixed-array
+parameters (`genScalarCleanLoad`, `cleanSupportedParamWord`) are cleaned
+without validation, since solc validates a member of a calldata composite only
+when it is read; dynamic-array elements read through `arrayElement` helpers are
+neither cleaned nor validated.
+
 ### Imported scalar ABI entry guards
 
-Scalar `uintN`, address and bool parameters now receive entry checks against
-raw calldata words, before any source statement. Parameter cleanup alone is
-not validation. Failed guards use the fresh EIP-211 return-data buffer, which
+Scalar `uintN`, address and bool parameters also receive importer entry checks
+against raw calldata words, before any source statement, which carry the
+importer's own bounds (enum ordinals). On a standard entry the generic loader
+rejects a dirty word first; on an explicit-prelude entry (for instance one with
+a `bytes calldata` parameter) the loader binds nothing, and these checks are the
+only scalar validation. The ABI probe covers both (`preludeValue` in
+`AbiCanonicality.sol`), so the importer guard mutants stay observable. Failed guards use the fresh EIP-211 return-data buffer, which
 is empty at external-call entry; `Denote.returndata_withTransactionContext`
 pins that initialization. Imported functions record this low-level boundary
 as the explicit `solidity_scalar_abi_entry` local obligation with status
@@ -1296,9 +1317,10 @@ return/revert bytes, checking public `denoteFunction` status and successful
 return words against that frame. `revertReturndata` now preserves the actual
 word buffer as `revertWithData` bytes; the observer never synthesizes empty bytes for an
 unclassified Denote failure. The existing returndata representation is word-based; arbitrary partial-byte
-external returndata is outside this entry-guard instrument. The scalar probe rejects unexpected binding
-failure and therefore cannot silently reinterpret a missing semantics arm as
-an ABI rejection.
+external returndata is outside this entry-guard instrument. A noncanonical
+scalar head word fails public Denote binding, which the probe reports as a
+revert with empty data; every row is compared with solc, so a missing semantics
+arm (binding failure on a canonical row) still shows up as a divergence.
 
 Scalar guard positions use the sum of preceding model ABI head sizes, not
 source parameter ordinals or one word per model parameter. Flat structs whose

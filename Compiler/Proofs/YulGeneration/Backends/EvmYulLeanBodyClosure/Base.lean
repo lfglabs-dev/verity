@@ -311,7 +311,8 @@ private theorem bridgedStraightStmt_maybeFieldStorageStore_mapping
       bridgedStraightStmt_fieldStorageStore_mapping fields field baseExpr keyExpr valueExpr
         hBase hKey hValue
 
-/-- Scalar ABI parameter types handled inline by `genScalarLoad`. These are
+/-- Scalar ABI parameter types handled inline by `genScalarLoad` (and, as
+static-composite members, by `genScalarCleanLoad`). These are
 the `ParamType` constructors whose head word is consumed directly from
 calldata without offset/length bookkeeping. -/
 def IsScalarParamType : ParamType → Prop
@@ -453,57 +454,84 @@ private theorem bridgedExpr_lt_calldatasize (n : Nat) :
     cases hNested
   · exact BridgedExpr.lit n
 
-/-- Every output of `genScalarLoad` for a scalar `ty` with the calldata
+/-- The scalar validator guard
+`if iszero(eq(name, calldataload(lit offset))) { revert(0, 0) }` is bridged. -/
+private theorem scalarValidationGuard_calldataload_bridged (name : String) (offset : Nat) :
+    BridgedStmt
+      (scalarValidationGuard name (YulExpr.call "calldataload" [YulExpr.lit offset])) := by
+  refine BridgedStmt.if_ _ _ ?_ ?_
+  · refine BridgedExpr.call "iszero" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+    intro arg hMem
+    simp only [List.mem_singleton] at hMem
+    subst hMem
+    refine BridgedExpr.call "eq" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+    intro arg hMem
+    simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+    rcases hMem with rfl | rfl
+    · exact BridgedExpr.ident name
+    · exact bridgedExpr_calldataload_lit offset
+  · intro s hs
+    simp only [List.mem_singleton] at hs
+    subst hs
+    exact BridgedStmt.straight _ bridgedStraightStmt_revert_zero
+
+/-- Every output of `genScalarCleanLoad` for a scalar `ty` with the calldata
 `loadWord` is a `BridgedStmt` — each emitted statement is a `let_` whose
 right-hand side is built from bridged builtins. -/
+theorem genScalarCleanLoad_calldataload_bridged
+    (name : String) (ty : ParamType) (offset : Nat)
+    (hScalar : IsScalarParamType ty) :
+    BridgedStmts
+      (genScalarCleanLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty offset) := by
+  have hLoad := bridgedExpr_calldataload_lit offset
+  intro stmt hMem
+  match ty, hScalar with
+  | ParamType.uint256, _ | ParamType.int256, _ | ParamType.bytes32, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _ hLoad)
+  | ParamType.uintN bits, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_lit_mask _ hLoad (2 ^ bits - 1)))
+  | ParamType.intN bits, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_signextend_lit (bits / 8 - 1) _ hLoad))
+  | ParamType.bytesN bytes, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_lit_mask _ hLoad ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))))
+  | ParamType.uint8, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_lit_mask _ hLoad 255))
+  | ParamType.uint16, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_lit_mask _ hLoad 65535))
+  | ParamType.address, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_hex_mask _ hLoad addressMask))
+  | ParamType.bool, _ =>
+      simp only [genScalarCleanLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_iszero_iszero _ hLoad))
+
+/-- Every output of `genScalarLoad` for a scalar `ty` with the calldata
+`loadWord` is a `BridgedStmt`: the bridged cleanup `let_`, followed for narrow
+types by the bridged validator guard. -/
 theorem genScalarLoad_calldataload_bridged
     (name : String) (ty : ParamType) (offset : Nat)
     (hScalar : IsScalarParamType ty) :
     BridgedStmts
       (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty offset) := by
-  intro stmt hMem
-  match ty, hScalar with
-  | ParamType.uint256, _
-  | ParamType.int256, _
-  | ParamType.bytes32, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
-      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _ (bridgedExpr_calldataload_lit offset))
-  | ParamType.uintN bits, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
-      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
-        (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) (2 ^ bits - 1)))
-  | ParamType.intN bits, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
-      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
-        (bridgedExpr_signextend_lit (bits / 8 - 1) _ (bridgedExpr_calldataload_lit offset)))
-  | ParamType.bytesN bytes, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
-      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
-        (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset)
-          ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))))
-  | ParamType.uint8, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
-        (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) 255))
-  | ParamType.uint16, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _
-          (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) 65535))
-  | ParamType.address, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _
-          (bridgedExpr_and_hex_mask _ (bridgedExpr_calldataload_lit offset) addressMask))
-  | ParamType.bool, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _
-          (bridgedExpr_iszero_iszero _ (bridgedExpr_calldataload_lit offset)))
+  have hClean := genScalarCleanLoad_calldataload_bridged name ty offset hScalar
+  have hGuard := BridgedStmts_singleton (scalarValidationGuard_calldataload_bridged name offset)
+  cases ty <;> simp only [IsScalarParamType] at hScalar
+  all_goals first
+    | exact hClean
+    | exact BridgedStmts_append hClean hGuard
 
 /-- `flatMap` preserves `BridgedStmts` when every generated chunk is bridged. -/
 private theorem BridgedStmts_flatMap {α : Type} (xs : List α) (f : α → List YulStmt)
@@ -547,7 +575,7 @@ theorem genStaticTypeLoads_calldataload_bridged
   | @scalar ty hScalar =>
       cases ty <;> simp [IsScalarParamType, genStaticTypeLoads.eq_def] at hScalar ⊢
       all_goals
-        exact genScalarLoad_calldataload_bridged name _ offset (by trivial)
+        exact genScalarCleanLoad_calldataload_bridged name _ offset (by trivial)
   | @fixedArray elemTy n hElem ih =>
       rw [genStaticTypeLoads.eq_def]
       apply BridgedStmts_flatMap
@@ -714,12 +742,20 @@ theorem genParamLoads_scalar_bridged
     exact BridgedStmt.straight _ bridgedStraightStmt_revert_zero
   · exact genParamLoadBodyFrom_calldataload_bridged _ 4 params 4 hScalar stmt hMem
 
+private theorem genScalarCleanLoad_noFuncDefs
+    (loadWord : YulExpr → YulExpr) (name : String)
+    (ty : ParamType) (offset : Nat) :
+    Native.yulStmtsContainFuncDef
+      (genScalarCleanLoad loadWord name ty offset) = false := by
+  cases ty <;> simp [genScalarCleanLoad, Native.yulStmtContainsFuncDef]
+
 private theorem genScalarLoad_noFuncDefs
     (loadWord : YulExpr → YulExpr) (name : String)
     (ty : ParamType) (offset : Nat) :
     Native.yulStmtsContainFuncDef
       (genScalarLoad loadWord name ty offset) = false := by
-  cases ty <;> simp [genScalarLoad, Native.yulStmtContainsFuncDef]
+  cases ty <;>
+    simp [genScalarLoad, genScalarCleanLoad, scalarValidationGuard, Native.yulStmtContainsFuncDef]
 
 private theorem genStaticTypeLoads_go_noFuncDefs
     (loadWord : YulExpr → YulExpr) (name : String)
@@ -757,7 +793,7 @@ private theorem genStaticTypeLoads_noFuncDefs
   | @scalar ty hScalar =>
       cases ty <;> simp [IsScalarParamType, genStaticTypeLoads.eq_def] at hScalar ⊢
       all_goals
-        exact genScalarLoad_noFuncDefs loadWord name _ offset
+        exact genScalarCleanLoad_noFuncDefs loadWord name _ offset
   | @fixedArray elemTy n hElem ih =>
       rw [genStaticTypeLoads.eq_def]
       exact Native.yulStmtsContainFuncDef_flatMap_false

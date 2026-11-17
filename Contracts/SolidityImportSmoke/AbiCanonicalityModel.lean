@@ -18,6 +18,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "AbiCanonica
   function fullValue(uint256)
   function unusedValue(uint8)
   function mixedValue(uint256,uint8,address,bool)
+  function preludeValue(uint8,address,bool,bytes)
   function structValue(Pair,uint8)
 def model : CompilationModel := imported.model
 end SolidityImportSmoke.AbiCanonicalityModel
@@ -49,19 +50,27 @@ def main (args : List String) : IO UInt32 := do
           { sender := 1, functionSelector := selector, args := values }
         let result := Denote.denoteFunction oracle model fn tx Verity.defaultState
         let world := Denote.withTransactionContext Verity.defaultState tx
-        let some bindings := Denote.bindExternalParams selector fn.params values
-          | throw (IO.userError "complete scalar ABI fixture unexpectedly failed parameter binding")
-        let outcome := Denote.execStmtList oracle (Denote.effectiveFields model)
-          { world, bindings, selector, errors := model.errors } fn.body
-        let frame ← IO.ofExcept (SolidityImport.Transactions.finishFrame world outcome)
-        unless frame.success == result.success do
-          throw (IO.userError "public Denote and observed frame statuses disagree")
-        if frame.success then
-          unless frame.data == result.returnWords.flatMap Denote.wordBytes do
-            throw (IO.userError "public Denote and observed return bytes disagree")
-        results := results.push (Json.mkObj [("success", toJson result.success),
-          ("words", toJson (result.returnWords.map toString)),
-          ("data", toJson (frame.data.map UInt8.toNat)), ("events", toJson result.events)])
+        match Denote.bindExternalParams selector fn.bindingParams values with
+        | none =>
+          -- A noncanonical scalar head word fails binding: public Denote
+          -- reverts before the body runs, with empty data.
+          if result.success then
+            throw (IO.userError "public Denote succeeded although parameter binding failed")
+          results := results.push (Json.mkObj [("success", toJson false),
+            ("words", toJson ([] : List String)), ("data", toJson ([] : List Nat)),
+            ("events", toJson result.events)])
+        | some bindings =>
+          let outcome := Denote.execStmtList oracle (Denote.effectiveFields model)
+            { world, bindings, selector, errors := model.errors } fn.body
+          let frame ← IO.ofExcept (SolidityImport.Transactions.finishFrame world outcome)
+          unless frame.success == result.success do
+            throw (IO.userError "public Denote and observed frame statuses disagree")
+          if frame.success then
+            unless frame.data == result.returnWords.flatMap Denote.wordBytes do
+              throw (IO.userError "public Denote and observed return bytes disagree")
+          results := results.push (Json.mkObj [("success", toJson result.success),
+            ("words", toJson (result.returnWords.map toString)),
+            ("data", toJson (frame.data.map UInt8.toNat)), ("events", toJson result.events)])
       IO.FS.writeFile output (Json.arr results).pretty
       return 0
   | _ => throw (IO.userError "expected compile or observe arguments")

@@ -467,6 +467,96 @@ theorem exec_compiledFunctionIR_of_body
   exec_compiledFunctionIR_of_body_extraFuel state selector spec returns bodyStmts bindings
     tailResult 0 hsupported hcalldataSizeFits hbind hbody
 
+/-- A function body's fuel covers its parameter-load prefix and the rest with
+some slack. -/
+private theorem body_fuel_eq_extraFuel (pre rest : List YulStmt) :
+    ∃ extraFuel, sizeOf (pre ++ rest) = pre.length + rest.length + extraFuel := by
+  have hle := yulStmtList_length_le_sizeOf (pre ++ rest)
+  simp only [List.length_append] at hle
+  exact ⟨_, (Nat.add_sub_cancel' hle).symm⟩
+
+/-- When the source binder rejects arguments that cover every parameter (a
+dirty scalar head word), a function whose body starts with the generated
+parameter loads reverts: storage and events roll back to the initial state,
+whatever follows the loads. -/
+theorem execIRFunction_revert_of_bind_none
+    (state : IRState) (irFn : IRFunction) (params : List Param) (rest : List YulStmt)
+    (hparams : irFn.params = params.map Param.toIRParam)
+    (hbody : irFn.body = genParamLoads params ++ rest)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
+    (hlen : params.length ≤ state.calldata.length)
+    (hnone : SourceSemantics.bindSupportedParams params state.calldata = none) :
+    execIRFunction irFn state.calldata state =
+      { success := false, returnValue := none, finalStorage := state.storage
+        finalMappings := Compiler.Proofs.storageAsMappings state.storage
+        events := state.events } := by
+  obtain ⟨extraFuel, hfuel⟩ := body_fuel_eq_extraFuel (genParamLoads params) rest
+  obtain ⟨reverted, hexec⟩ := ParamLoading.exec_genParamLoads_supported_revert
+    (prebindRawArgs state params) params rest extraFuel hsupported
+    (by simpa using hlen) (by simpa using hnone)
+  have hprebound :
+      List.foldl (fun s x => s.setVar x.1.name x.2) state
+        ((List.map Param.toIRParam params).zip state.calldata) =
+        prebindRawArgs state params := rfl
+  unfold execIRFunction
+  rw [hparams, hbody, hfuel]
+  dsimp only
+  rw [hprebound, hexec]
+
+/-- A prefix that reverts makes the whole statement list revert. -/
+theorem execIRStmtsWithInternals_append_of_prefix_revert :
+    ∀ (contract : IRContract) (pre rest : List YulStmt) (fuel : Nat)
+      (state reverted : IRState),
+      execIRStmtsWithInternals contract fuel state pre = .revert reverted →
+      execIRStmtsWithInternals contract fuel state (pre ++ rest) = .revert reverted
+  | _, [], _, _, _, _, hprefix => by simp [execIRStmtsWithInternals] at hprefix
+  | _, _ :: _, _, 0, _, _, hprefix => by simpa [execIRStmtsWithInternals] using hprefix
+  | contract, stmt :: pre, rest, fuel + 1, state, reverted, hprefix => by
+      simp only [List.cons_append, execIRStmtsWithInternals] at hprefix ⊢
+      cases hstep : execIRStmtWithInternals contract fuel state stmt <;>
+        simp only [hstep] at hprefix ⊢ <;>
+        first
+        | exact hprefix
+        | exact execIRStmtsWithInternals_append_of_prefix_revert contract pre rest fuel _ _ hprefix
+
+/-- Helper-aware analogue of `execIRFunction_revert_of_bind_none`: the
+parameter loads call no internal helper, so a rejected argument still reverts
+before the rest of the body runs. -/
+theorem execIRFunctionWithInternals_revert_of_bind_none
+    (runtimeContract : IRContract) (helperFuel : Nat)
+    (state : IRState) (irFn : IRFunction) (params : List Param) (rest : List YulStmt)
+    (hparams : irFn.params = params.map Param.toIRParam)
+    (hbody : irFn.body = genParamLoads params ++ rest)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
+    (hlen : params.length ≤ state.calldata.length)
+    (hnone : SourceSemantics.bindSupportedParams params state.calldata = none)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params)) :
+    execIRFunctionWithInternals runtimeContract helperFuel irFn state.calldata state =
+      { success := false, returnValue := none, finalStorage := state.storage
+        finalMappings := Compiler.Proofs.storageAsMappings state.storage
+        events := state.events } := by
+  obtain ⟨extraFuel, hfuel⟩ := body_fuel_eq_extraFuel (genParamLoads params) rest
+  obtain ⟨reverted, hexec⟩ := ParamLoading.exec_genParamLoads_supported_revert
+    (prebindRawArgs state params) params [] (rest.length + extraFuel + helperFuel)
+    hsupported (by simpa using hlen) (by simpa using hnone)
+  simp only [List.length_nil, Nat.add_zero, List.append_nil] at hexec
+  have hprefix := execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint runtimeContract
+    ((genParamLoads params).length + (rest.length + extraFuel + helperFuel) + 1)
+    (prebindRawArgs state params) (genParamLoads params) hparamDisjoint
+  rw [hexec] at hprefix
+  dsimp only at hprefix
+  have hprebound :
+      List.foldl (fun s x => s.setVar x.1.name x.2) state
+        ((List.map Param.toIRParam params).zip state.calldata) =
+        prebindRawArgs state params := rfl
+  unfold execIRFunctionWithInternals
+  rw [hparams, hbody, hfuel]
+  dsimp only
+  rw [hprebound, show (genParamLoads params).length + rest.length + extraFuel + helperFuel + 1 =
+      (genParamLoads params).length + (rest.length + extraFuel + helperFuel) + 1 by omega,
+    execIRStmtsWithInternals_append_of_prefix_revert runtimeContract _ _ _ _ _ hprefix]
+
 theorem execIRStmtsWithInternals_append_of_prefix_continue :
     ∀ (contract : IRContract) (pre rest : List YulStmt) (fuel : Nat)
       (state state' : IRState),
@@ -2530,7 +2620,10 @@ private theorem genScalarLoad_legacy
     (hsupported : SupportedExternalScalarParamType ty) :
     LegacyCompatibleExternalStmtList (genScalarLoad loadWord name ty offset) := by
   cases ty <;> simp [SupportedExternalScalarParamType] at hsupported ⊢
-  all_goals exact .let_ _ _ [] .nil
+  all_goals
+    first
+    | exact .let_ _ _ [] .nil
+    | exact .let_ _ _ _ (.if_ _ _ [] (.exprStmt _ _ .nil) .nil)
 
 private theorem genParamLoadBodyFrom_scalar_legacy
     (loadWord : YulExpr → YulExpr) (sizeExpr : YulExpr) (headSize baseOffset : Nat) :
@@ -2543,10 +2636,12 @@ private theorem genParamLoadBodyFrom_scalar_legacy
       have htail := genParamLoadBodyFrom_scalar_legacy loadWord sizeExpr headSize
         baseOffset rest (headOffset + paramHeadSize param.ty)
         (by intro p hp; exact hsupported p (by simp [hp]))
+      have hhead := genScalarLoad_legacy loadWord param.name param.ty headOffset
+        (hsupported param (by simp))
       cases hty : param.ty <;> simp [SupportedExternalScalarParamType, hty] at hsupported
       all_goals
-        simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
-          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+        simpa [genParamLoadBodyFrom, genSingleParamLoad, hty]
+          using legacyCompatibleExternalStmtList_append hhead htail
 
 private theorem genParamLoads_scalar_legacy
     (params : List Param)
@@ -3304,12 +3399,50 @@ theorem compileFunctionSpec_body_legacyCompatible_of_terminalCore
       (compilerScope := spec.params.map (·.name)) hbodyTerminal)
     hcompile
 
-/-- Disjointness of a single scalar param-load (with the `calldataload` word
-loader used by `genParamLoads`) from a runtime contract's internal-function
-table. Every EVM/Yul builtin emitted by `genScalarLoad`
-(`calldataload`, `and`, `signextend`, `iszero`) is assumed absent from the table; the
-generated statement introduces no other calls. -/
-private theorem genScalarLoad_calldataload_callsDisjoint
+/-- Disjointness of the scalar validator guard
+`if iszero(eq(name, calldataload(lit offset))) { revert(0, 0) }` from a runtime
+contract's internal-function table. -/
+private theorem scalarValidationGuard_calldataload_callsDisjoint
+    (runtimeContract : IRContract) (name : String) (offset : Nat)
+    (hload : yulExprCallsDisjointFromInternalTable runtimeContract
+      (YulExpr.call "calldataload" [YulExpr.lit offset]))
+    (heq : findInternalFunction? runtimeContract "eq" = none)
+    (hrevert : findInternalFunction? runtimeContract "revert" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract
+      [scalarValidationGuard name (YulExpr.call "calldataload" [YulExpr.lit offset])] := by
+  refine .if_ _ _ _ ?_ (.exprStmt _ _ ?_ .nil) .nil
+  · simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hiszero, ?_⟩
+    intro arg harg; simp only [List.mem_singleton] at harg
+    subst harg
+    simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨heq, ?_⟩
+    intro arg harg; simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+    rcases harg with h1 | h2
+    · subst h1; simp only [yulExprCallsDisjointFromInternalTable]
+    · subst h2; exact hload
+  · simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hrevert, ?_⟩
+    intro arg harg; simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+    rcases harg with h1 | h2 <;> (subst_vars; simp only [yulExprCallsDisjointFromInternalTable])
+
+private theorem calldataload_lit_callsDisjoint
+    (runtimeContract : IRContract) (offset : Nat)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none) :
+    yulExprCallsDisjointFromInternalTable runtimeContract
+      (YulExpr.call "calldataload" [YulExpr.lit offset]) := by
+  simp only [yulExprCallsDisjointFromInternalTable]
+  refine ⟨hcd, ?_⟩
+  intro arg harg; simp only [List.mem_singleton] at harg
+  subst harg
+  simp only [yulExprCallsDisjointFromInternalTable]
+
+/-- Disjointness of a scalar cleanup load (`genScalarCleanLoad` with the
+`calldataload` word loader) from a runtime contract's internal-function table:
+its builtins (`calldataload`, `and`, `signextend`, `iszero`) are assumed absent
+from the table. -/
+private theorem genScalarCleanLoad_calldataload_callsDisjoint
     (runtimeContract : IRContract) (name : String) (ty : ParamType) (offset : Nat)
     (hsupported : SupportedExternalScalarParamType ty)
     (hcd : findInternalFunction? runtimeContract "calldataload" = none)
@@ -3317,14 +3450,8 @@ private theorem genScalarLoad_calldataload_callsDisjoint
     (hsignextend : findInternalFunction? runtimeContract "signextend" = none)
     (hiszero : findInternalFunction? runtimeContract "iszero" = none) :
     YulStmtListCallsDisjointFromInternalTable runtimeContract
-      (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty offset) := by
-  have hload : yulExprCallsDisjointFromInternalTable runtimeContract
-      (YulExpr.call "calldataload" [YulExpr.lit offset]) := by
-    simp only [yulExprCallsDisjointFromInternalTable]
-    refine ⟨hcd, ?_⟩
-    intro arg harg; simp only [List.mem_singleton] at harg
-    subst harg
-    simp only [yulExprCallsDisjointFromInternalTable]
+      (genScalarCleanLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty offset) := by
+  have hload := calldataload_lit_callsDisjoint runtimeContract offset hcd
   cases ty <;> simp only [SupportedExternalScalarParamType] at hsupported ⊢
   all_goals
     first
@@ -3354,9 +3481,33 @@ private theorem genScalarLoad_calldataload_callsDisjoint
        subst harg2
        exact hload)
 
+/-- Disjointness of a single scalar param-load (with the `calldataload` word
+loader used by `genParamLoads`) from a runtime contract's internal-function
+table: the cleanup load, then for narrow types the validator guard (`eq`,
+`iszero`, `revert`). -/
+private theorem genScalarLoad_calldataload_callsDisjoint
+    (runtimeContract : IRContract) (name : String) (ty : ParamType) (offset : Nat)
+    (hsupported : SupportedExternalScalarParamType ty)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none)
+    (hand : findInternalFunction? runtimeContract "and" = none)
+    (hsignextend : findInternalFunction? runtimeContract "signextend" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none)
+    (heq : findInternalFunction? runtimeContract "eq" = none)
+    (hrevert : findInternalFunction? runtimeContract "revert" = none) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract
+      (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty offset) := by
+  have hclean := genScalarCleanLoad_calldataload_callsDisjoint runtimeContract name ty offset
+    hsupported hcd hand hsignextend hiszero
+  have hguard := scalarValidationGuard_calldataload_callsDisjoint runtimeContract name offset
+    (calldataload_lit_callsDisjoint runtimeContract offset hcd) heq hrevert hiszero
+  cases ty <;> simp only [SupportedExternalScalarParamType] at hsupported
+  all_goals first
+    | exact hclean
+    | exact yulStmtListCallsDisjoint_append hclean hguard
+
 /-- Disjointness of the whole param-load body (the recursive `genSingleParamLoad`
 sequence used by `genParamLoads`) from a runtime contract's internal-function
-table, given the three scalar-load builtins are absent. Recurses over the
+table, given the scalar-load and validator builtins are absent. Recurses over the
 supported scalar params, appending per-param disjointness. -/
 private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
     (runtimeContract : IRContract)
@@ -3364,6 +3515,8 @@ private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
     (hand : findInternalFunction? runtimeContract "and" = none)
     (hsignextend : findInternalFunction? runtimeContract "signextend" = none)
     (hiszero : findInternalFunction? runtimeContract "iszero" = none)
+    (heq : findInternalFunction? runtimeContract "eq" = none)
+    (hrevert : findInternalFunction? runtimeContract "revert" = none)
     (sizeExpr : YulExpr) (headSize baseOffset : Nat) :
     ∀ (params : List Param) (headOffset : Nat),
       (∀ param ∈ params, SupportedExternalScalarParamType param.ty) →
@@ -3373,12 +3526,12 @@ private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
   | [], _, _ => .nil
   | param :: rest, headOffset, hsupported => by
       have htail := genParamLoadBodyFrom_calldataload_callsDisjoint runtimeContract
-        hcd hand hsignextend hiszero sizeExpr headSize baseOffset rest
+        hcd hand hsignextend hiszero heq hrevert sizeExpr headSize baseOffset rest
         (headOffset + paramHeadSize param.ty)
         (by intro p hp; exact hsupported p (by simp [hp]))
       have hhead_sup : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
       have hhead := genScalarLoad_calldataload_callsDisjoint runtimeContract
-        param.name param.ty headOffset hhead_sup hcd hand hsignextend hiszero
+        param.name param.ty headOffset hhead_sup hcd hand hsignextend hiszero heq hrevert
       cases hty : param.ty <;>
         simp only [SupportedExternalScalarParamType, hty] at hhead_sup <;>
         simpa only [genParamLoadBodyFrom, genSingleParamLoad, hty]
@@ -3386,8 +3539,8 @@ private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
 
 /-- Disjointness of the full `genParamLoads` output (min-input-size guard plus
 the param-load body) from a runtime contract's internal-function table, given
-that none of the seven EVM/Yul builtins it emits (`calldataload`, `calldatasize`,
-`lt`, `revert`, `and`, `signextend`, `iszero`) collide with an internal helper. -/
+that none of the eight EVM/Yul builtins it emits (`calldataload`, `calldatasize`,
+`lt`, `revert`, `and`, `signextend`, `iszero`, `eq`) collide with an internal helper. -/
 private theorem genParamLoads_callsDisjoint_of_builtins
     (runtimeContract : IRContract) (params : List Param)
     (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
@@ -3397,10 +3550,11 @@ private theorem genParamLoads_callsDisjoint_of_builtins
     (hrevert : findInternalFunction? runtimeContract "revert" = none)
     (hand : findInternalFunction? runtimeContract "and" = none)
     (hsignextend : findInternalFunction? runtimeContract "signextend" = none)
-    (hiszero : findInternalFunction? runtimeContract "iszero" = none) :
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none)
+    (heq : findInternalFunction? runtimeContract "eq" = none) :
     YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) := by
   have hbody := genParamLoadBodyFrom_calldataload_callsDisjoint runtimeContract
-    hcd hand hsignextend hiszero (YulExpr.call "calldatasize" [])
+    hcd hand hsignextend hiszero heq hrevert (YulExpr.call "calldatasize" [])
     ((params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0) 4 params 4 hsupported
   simp only [genParamLoads, genParamLoadsFrom]
   refine .if_ _ _ _ ?_ ?_ hbody
@@ -3424,9 +3578,9 @@ private theorem genParamLoads_callsDisjoint_of_builtins
 
 /-- Package `genParamLoads` disjointness directly from the runtime contract's
 reserved-name invariant. Every helper name is reserved (`internal_`-, `__verity_`-,
-`checked_`-, or `panic_error_`-prefixed), while the seven builtins emitted by the
+`checked_`-, or `panic_error_`-prefixed), while the eight builtins emitted by the
 param-load prologue (`calldataload`, `calldatasize`, `lt`, `revert`, `and`,
-`signextend`, `iszero`) are provably *not* reserved, so none of them can resolve to a helper.
+`signextend`, `iszero`, `eq`) are provably *not* reserved, so none of them can resolve to a helper.
 This is the true seam that replaces the false "every helper is `internal_`-prefixed"
 premise: real compiler helpers are not `internal_`-prefixed, but they *are*
 reserved, so the invariant is dischargeable from actual compilation output. -/
@@ -3443,6 +3597,7 @@ theorem genParamLoads_callsDisjoint_of_reserved
     (findInternalFunction?_eq_none_of_not_reserved runtimeContract "and" hinv (by decide))
     (findInternalFunction?_eq_none_of_not_reserved runtimeContract "signextend" hinv (by decide))
     (findInternalFunction?_eq_none_of_not_reserved runtimeContract "iszero" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "eq" hinv (by decide))
 
 /-- Package `genParamLoads` disjointness from the `internal_`-prefix naming
 invariant, routed through the reserved-name seam

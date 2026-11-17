@@ -2332,21 +2332,24 @@ def successResult (oracle : DenoteOracle) (spec : CompilationModel)
     finalStorage := encodeStorage oracle spec world
     events := encodeEvents world.events }
 
+/-- Strict ABI decoding of a scalar head word (see
+`DynamicAbi.decodeSupportedParamWord`): an invalid encoding of `ty` fails, so
+the call reverts. -/
 def decodeSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
   let word := wordNormalize word
   match ty with
   | .uint256 | .int256 | .bytes32 => some word
-  | .uint8 => some (word &&& (uint8Modulus - 1))
-  | .uint16 => some (word &&& (2^16 - 1))
-  | .uintN bits => some (word &&& (2 ^ bits - 1))
-  | .intN bits => some
+  | .uint8 => DynamicAbi.validatedWord (word &&& (uint8Modulus - 1)) word
+  | .uint16 => DynamicAbi.validatedWord (word &&& (2^16 - 1)) word
+  | .uintN bits => DynamicAbi.validatedWord (word &&& (2 ^ bits - 1)) word
+  | .intN bits => DynamicAbi.validatedWord
       (Verity.Core.Uint256.signextend
         (Verity.Core.Uint256.ofNat (bits / 8 - 1))
-        (Verity.Core.Uint256.ofNat word)).val
-  | .bytesN bytes => some
-      (word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))))
-  | .address => some (word &&& Compiler.Constants.addressMask)
-  | .bool => some (if word = 0 then 0 else 1)
+        (Verity.Core.Uint256.ofNat word)).val word
+  | .bytesN bytes => DynamicAbi.validatedWord
+      (word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))) word
+  | .address => DynamicAbi.validatedWord (word &&& Compiler.Constants.addressMask) word
+  | .bool => DynamicAbi.validatedWord (if word = 0 then 0 else 1) word
   | _ => none
 
 def bindSupportedParams (params : List Param) (args : List Nat) : Option Env :=

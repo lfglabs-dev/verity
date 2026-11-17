@@ -2507,7 +2507,8 @@ theorem compile_preserves_semantics_with_helper_rich_support_of_body_goals
     compile_ok_yields_compiled_functions_with_helper_rich_support
       model selectors hSupported ir hcompile
   refine Dispatch.interpretContractWithInternals_correct_of_compiled_functions_with_helper_rich_support
-    model selectors hSupported ir irFuelSlack ir.functions tx initialWorld rfl hcompiled ?_
+    model selectors hSupported ir irFuelSlack ir.functions tx initialWorld rfl
+    (InternalTableNamesReserved_of_compileValidatedCore model selectors ir hcore) hcompiled ?_
   intro fn sel irFn bindings hfn hcompileFn hbind
   have habi : fn.abiDecoding = .standard :=
     (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi

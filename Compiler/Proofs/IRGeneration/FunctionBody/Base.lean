@@ -1054,6 +1054,10 @@ private theorem decodeSupportedParamWord_passthrough_lt_evmModulus
     cases hvalue
     exact wordNormalize_lt_evmModulus word
 
+private theorem value_eq_of_validatedWord {cleaned word value : Nat}
+    (h : DynamicAbi.validatedWord cleaned word = some value) : value = cleaned :=
+  (DynamicAbi.validatedWord_eq_some_iff.mp h).2.symm
+
 private theorem decodeSupportedParamWord_masked_lt_evmModulus
     {ty : ParamType}
     {word value : Nat}
@@ -1061,16 +1065,16 @@ private theorem decodeSupportedParamWord_masked_lt_evmModulus
     (hdecode : SourceSemantics.decodeSupportedParamWord ty word = some value) :
     value < Compiler.Constants.evmModulus := by
   rcases hmasked with rfl | rfl | rfl
-  · have hvalue : value = SourceSemantics.wordNormalize word &&& (SourceSemantics.uint8Modulus - 1) := by
-      simpa [SourceSemantics.decodeSupportedParamWord] using hdecode.symm
+  · have hvalue : value = SourceSemantics.wordNormalize word &&& (SourceSemantics.uint8Modulus - 1) :=
+      value_eq_of_validatedWord (by simpa only [SourceSemantics.decodeSupportedParamWord] using hdecode)
     cases hvalue
     exact maskedWordNormalize_lt_evmModulus word (SourceSemantics.uint8Modulus - 1)
-  · have hvalue : value = SourceSemantics.wordNormalize word &&& (2^16 - 1) := by
-      simpa [SourceSemantics.decodeSupportedParamWord] using hdecode.symm
+  · have hvalue : value = SourceSemantics.wordNormalize word &&& (2^16 - 1) :=
+      value_eq_of_validatedWord (by simpa only [SourceSemantics.decodeSupportedParamWord] using hdecode)
     cases hvalue
     exact maskedWordNormalize_lt_evmModulus word (2^16 - 1)
-  · have hvalue : value = SourceSemantics.wordNormalize word &&& Compiler.Constants.addressMask := by
-      simpa [SourceSemantics.decodeSupportedParamWord] using hdecode.symm
+  · have hvalue : value = SourceSemantics.wordNormalize word &&& Compiler.Constants.addressMask :=
+      value_eq_of_validatedWord (by simpa only [SourceSemantics.decodeSupportedParamWord] using hdecode)
     cases hvalue
     exact maskedWordNormalize_lt_evmModulus word Compiler.Constants.addressMask
 
@@ -1078,9 +1082,8 @@ private theorem decodeSupportedParamWord_bool_lt_evmModulus
     {word value : Nat}
     (hdecode : SourceSemantics.decodeSupportedParamWord .bool word = some value) :
     value < Compiler.Constants.evmModulus := by
-  simp only [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize,
-    Option.some.injEq] at hdecode
-  subst value
+  simp only [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize] at hdecode
+  rw [value_eq_of_validatedWord hdecode]
   split <;> simp [Compiler.Constants.evmModulus]
 
 theorem decodeSupportedParamWord_lt_evmModulus
@@ -1098,9 +1101,8 @@ theorem decodeSupportedParamWord_lt_evmModulus
   | uint16 =>
       exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inr (.inl rfl)) hdecode
   | uintN _ | intN _ | bytesN _ =>
-      simp only [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize,
-        Option.some.injEq] at hdecode
-      subst value
+      simp only [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize] at hdecode
+      rw [value_eq_of_validatedWord hdecode]
       first
       | exact Verity.Core.Uint256.isLt _
       | rw [show Compiler.Constants.evmModulus = 2 ^ 256 by rfl, Nat.land_comm]

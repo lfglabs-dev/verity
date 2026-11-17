@@ -31,7 +31,54 @@ def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat
       ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) %
         Compiler.Constants.evmModulus
 
+/-- ABI coder v2 validation of one head word: `cleaned` is the type's cleanup of
+`word` (solc's `cleanup_t_<type>`); the word is a valid encoding iff cleanup is
+the identity on it (solc's `validator_revert_t_<type>`), else decoding fails. -/
+def validatedWord (cleaned word : Nat) : Option Nat :=
+  if cleaned = word then some cleaned else none
+
+@[simp] theorem validatedWord_self (word : Nat) : validatedWord word word = some word := by
+  simp [validatedWord]
+
+theorem validatedWord_of_eq {cleaned word : Nat} (h : cleaned = word) :
+    validatedWord cleaned word = some word := by
+  subst h
+  exact validatedWord_self cleaned
+
+theorem validatedWord_eq_some_iff {cleaned word value : Nat} :
+    validatedWord cleaned word = some value ↔ cleaned = word ∧ cleaned = value := by
+  unfold validatedWord
+  by_cases h : cleaned = word <;> simp [h]
+
+theorem validatedWord_eq_none_iff {cleaned word : Nat} :
+    validatedWord cleaned word = none ↔ cleaned ≠ word := by
+  unfold validatedWord
+  by_cases h : cleaned = word <;> simp [h]
+
+/-- Strict ABI decoding of a scalar head word: a word that is not a valid
+encoding of `ty` (high bits set for `address`/`uintN`, low bits set for
+`bytesN`, not sign-extended for `intN`, not 0/1 for `bool`) fails. -/
 def decodeSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
+  let word := wordNormalize word
+  match ty with
+  | .uint256 | .int256 | .bytes32 => some word
+  | .uint8 => validatedWord (word &&& (uint8Modulus - 1)) word
+  | .uint16 => validatedWord (word &&& (2^16 - 1)) word
+  | .uintN bits => validatedWord (word &&& (2 ^ bits - 1)) word
+  | .intN bits => validatedWord
+      (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat word)).val word
+  | .bytesN bytes => validatedWord
+      (word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))) word
+  | .address => validatedWord (word &&& Compiler.Constants.addressMask) word
+  | .bool => validatedWord (if word = 0 then 0 else 1) word
+  | _ => none
+
+/-- Non-validating scalar decoding: the type's cleanup of the word, as bound to
+a static tuple member (`Compiler.genScalarCleanLoad`; solc validates members of
+a calldata composite only at their read). -/
+def cleanSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
   let word := wordNormalize word
   match ty with
   | .uint256 | .int256 | .bytes32 => some word
@@ -244,7 +291,8 @@ private def dynamicTupleParamBindings (name : String) (relativeOffset absoluteOf
   , (s!"{name}_data_offset", absoluteOffset) ]
 
 /-- Static tuple fields use the same recursive indexed names and word offsets
-as `Compiler.genStaticTypeLoads`. Unsupported leaves and missing words fail;
+as `Compiler.genStaticTypeLoads`, binding each member's cleanup without
+validation (`cleanSupportedParamWord`). Unsupported leaves and missing words fail;
 this helper does not manufacture bindings for dynamic data or fixed arrays. -/
 def bindStaticTupleType (selector : Nat) (calldata : List Nat)
     (name : String) (ty : ParamType) (offset : Nat) :
@@ -263,7 +311,7 @@ def bindStaticTupleType (selector : Nat) (calldata : List Nat)
       go elemTys 0 offset
   | _ => do
       let word ← externalWordAt? selector calldata offset
-      let value ← decodeSupportedParamWord ty word
+      let value ← cleanSupportedParamWord ty word
       some [(name, value)]
 termination_by sizeOf ty
 
@@ -335,51 +383,55 @@ theorem bindExternalParam_bytes_refines_dynamic_loader
     dynamicParamBindings, hhead, hdecodeBytes, hnotHeadInTail, hnotTailOutOfBounds, hlength,
     hpayloadBound]
 
-/-- On the scalar branch — where `decodeSupportedParamWord` is total — a
-successful `bindExternalParam` is exactly the decoded ABI head word. -/
+/-- The single-word scalar parameter types: `bindExternalParam` binds them
+through `decodeSupportedParamWord` alone. -/
+def ScalarHeadParamType : ParamType → Prop
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => True
+  | _ => False
+
+/-- On the scalar branch, `bindExternalParam` is the decoded ABI head word: it
+fails exactly when the head word is missing or not a valid encoding. -/
+theorem bindExternalParam_eq_map_of_scalar
+    {selector : Nat} {calldata : List Nat} {headSize baseOffset headOffset : Nat}
+    {param : Param} (hscalar : ScalarHeadParamType param.ty) :
+    bindExternalParam selector calldata headSize baseOffset headOffset param =
+      (decodeSupportedParamWord param.ty =<< externalWordAt? selector calldata headOffset).map
+        (fun value => [(param.name, value)]) := by
+  unfold bindExternalParam
+  cases decodeSupportedParamWord param.ty =<< externalWordAt? selector calldata headOffset with
+  | some value => rfl
+  | none =>
+      obtain ⟨name, ty⟩ := param
+      cases ty <;> simp_all [ScalarHeadParamType, externalDynamicPayloadShape?,
+        isDynamicParamType]
+
+/-- On the scalar branch a successful `bindExternalParam` is exactly the decoded
+ABI head word. -/
 theorem bindExternalParam_scalar_eq_some_inv
     {selector : Nat} {calldata : List Nat} {headSize baseOffset headOffset : Nat}
     {param : Param} {bindings : List (String × Nat)}
-    (htotal : ∀ w : Nat, ∃ v, decodeSupportedParamWord param.ty w = some v)
+    (hscalar : ScalarHeadParamType param.ty)
     (hbind : bindExternalParam selector calldata headSize baseOffset headOffset param =
       some bindings) :
     ∃ word value,
       externalWordAt? selector calldata headOffset = some word ∧
         decodeSupportedParamWord param.ty word = some value ∧
         bindings = [(param.name, value)] := by
+  rw [bindExternalParam_eq_map_of_scalar hscalar] at hbind
   cases hword : externalWordAt? selector calldata headOffset with
-  | some word =>
-      obtain ⟨value, hvalue⟩ := htotal word
-      unfold bindExternalParam at hbind
-      rw [hword] at hbind
-      -- `Option.bind` on `some` reduces definitionally, so `hvalue` retypes directly.
-      have hred : decodeSupportedParamWord param.ty =<< some word = some value := hvalue
-      rw [hred] at hbind
-      have hbind' : some [(param.name, value)] = some bindings := hbind
-      exact ⟨word, value, rfl, hvalue, (Option.some.inj hbind').symm⟩
   | none =>
-      exfalso
-      have hshape : ∀ shape,
-          decodeLengthPrefixedDynamicParam? selector calldata shape headSize baseOffset
-            headOffset = none := by
-        intro shape
-        unfold decodeLengthPrefixedDynamicParam?
-        rw [hword]
-        rfl
-      have hnone :
-          bindExternalParam selector calldata headSize baseOffset headOffset param = none := by
-        unfold bindExternalParam
-        rw [hword]
-        have hb : decodeSupportedParamWord param.ty =<< (none : Option Nat) = none := rfl
-        rw [hb]
-        cases hs : externalDynamicPayloadShape? param.ty with
-        | some shape => simp [hshape shape]
-        | none =>
-            by_cases hdyn : isDynamicParamType param.ty <;> simp [hdyn]
-            obtain ⟨value, hvalue⟩ := htotal 0
-            cases hty : param.ty <;> simp_all [decodeSupportedParamWord]
-      rw [hnone] at hbind
+      rw [hword, show (decodeSupportedParamWord param.ty =<< (none : Option Nat)) = none
+        from rfl] at hbind
       simp at hbind
+  | some word =>
+      rw [hword, show (decodeSupportedParamWord param.ty =<< some word) =
+        decodeSupportedParamWord param.ty word from rfl] at hbind
+      cases hvalue : decodeSupportedParamWord param.ty word with
+      | none => simp [hvalue] at hbind
+      | some value =>
+          simp only [hvalue, Option.map_some, Option.some.injEq] at hbind
+          exact ⟨word, value, rfl, hvalue, hbind.symm⟩
 
 /-- Inversion for the length-prefixed decoder at an arbitrary payload shape: a
 successful decode pins every field of the result and certifies the head, tail
@@ -889,6 +941,86 @@ def bindExternalParams (selector : Nat) (params : List Param) (calldata : List N
         bindExternalParamsFrom selector calldata headSize 4 params 4
   else
     none
+
+theorem wordNormalize_mod (n : Nat) :
+    wordNormalize (n % Compiler.Constants.evmModulus) = wordNormalize n := by
+  show n % Compiler.Constants.evmModulus % Compiler.Constants.evmModulus =
+    n % Compiler.Constants.evmModulus
+  exact Nat.mod_mod _ _
+
+theorem decodeSupportedParamWord_mod (ty : ParamType) (word : Nat) :
+    decodeSupportedParamWord ty (word % Compiler.Constants.evmModulus) =
+      decodeSupportedParamWord ty word := by
+  simp only [decodeSupportedParamWord, wordNormalize_mod]
+
+/-- At an aligned in-range head offset the external word is the calldata word
+(reduced mod 2^256). -/
+private theorem externalWordAt?_aligned_mod {selector : Nat} {calldata : List Nat} {idx : Nat}
+    (hidx : idx < calldata.length) :
+    externalWordAt? selector calldata (4 + 32 * idx) =
+      some (calldata.getD idx 0 % Compiler.Constants.evmModulus) := by
+  have hbound : 4 ≤ 4 + 32 * idx ∧ 4 + 32 * idx + 32 ≤ externalCalldataSize calldata := by
+    simp only [externalCalldataSize]
+    omega
+  have hword : calldataloadWord selector calldata (4 + 32 * idx) =
+      calldata.getD idx 0 % Compiler.Constants.evmModulus := by
+    have h4 : ¬ 4 + 32 * idx < 4 := by omega
+    simp [calldataloadWord, h4]
+  simp only [externalWordAt?, hbound, and_self, ↓reduceIte, hword]
+
+theorem paramHeadSize_of_scalarHead {ty : ParamType} (hscalar : ScalarHeadParamType ty) :
+    paramHeadSize ty = 32 := by
+  cases ty <;> simp_all [ScalarHeadParamType, paramHeadSize]
+
+/-- For scalar head parameters covered by the calldata, the external binder
+fails whenever the word-by-word scalar binder does: a word that is not a valid
+encoding of its type is rejected on both paths. -/
+theorem bindExternalParamsFrom_scalar_eq_none
+    (selector : Nat) (calldata : List Nat) (headSize baseOffset : Nat) :
+    ∀ (params : List Param) (idx : Nat),
+      (∀ param ∈ params, ScalarHeadParamType param.ty) →
+      idx + params.length ≤ calldata.length →
+      bindSupportedParams params (calldata.drop idx) = none →
+      bindExternalParamsFrom selector calldata headSize baseOffset params (4 + 32 * idx) = none
+  | [], _, _, _, hnone => by simp [bindSupportedParams] at hnone
+  | param :: rest, idx, hscalar, hlen, hnone => by
+      have hhead := hscalar param (by simp)
+      have hidx : idx < calldata.length := by simp at hlen; omega
+      rw [List.drop_eq_getElem_cons hidx] at hnone
+      have hget : calldata[idx] = calldata.getD idx 0 := by
+        simp [List.getElem?_eq_getElem hidx]
+      rw [hget] at hnone
+      simp only [bindExternalParamsFrom, bindExternalParam_eq_map_of_scalar hhead,
+        externalWordAt?_aligned_mod hidx, paramHeadSize_of_scalarHead hhead]
+      rw [show (decodeSupportedParamWord param.ty =<<
+          some (calldata.getD idx 0 % Compiler.Constants.evmModulus)) =
+          decodeSupportedParamWord param.ty (calldata.getD idx 0) from
+        decodeSupportedParamWord_mod _ _]
+      cases hdec : decodeSupportedParamWord param.ty (calldata.getD idx 0) with
+      | none => rfl
+      | some value =>
+          have hrest : bindSupportedParams rest (calldata.drop (idx + 1)) = none := by
+            cases h : bindSupportedParams rest (calldata.drop (idx + 1)) with
+            | none => rfl
+            | some bs => simp [bindSupportedParams, hdec, h, -List.getD_eq_getElem?_getD] at hnone
+          have ih := bindExternalParamsFrom_scalar_eq_none selector calldata headSize baseOffset
+            rest (idx + 1) (fun p hp => hscalar p (by simp [hp])) (by simp at hlen ⊢; omega) hrest
+          rw [show 4 + 32 * idx + 32 = 4 + 32 * (idx + 1) by omega]
+          simp [ih]
+
+/-- Under scalar head parameters, the external binder fails whenever the
+word-by-word scalar binder does. -/
+theorem bindExternalParams_eq_none_of_bindSupportedParams_none
+    (selector : Nat) {params : List Param} {args : List Nat}
+    (hscalar : ∀ param ∈ params, ScalarHeadParamType param.ty)
+    (hnone : bindSupportedParams params args = none) :
+    bindExternalParams selector params args = none := by
+  unfold bindExternalParams
+  by_cases hlen : params.length ≤ args.length
+  · rw [if_pos hlen, hnone]
+    simpa using bindExternalParamsFrom_scalar_eq_none selector args _ 4 params 0 hscalar
+      (by simpa using hlen) (by simpa using hnone)
+  · rw [if_neg hlen]
 
 end DynamicAbi
 
