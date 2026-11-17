@@ -110,7 +110,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         # Root ABI parameters: the full deterministic call list (well-formed
         # and malformed ABI inputs) runs before the random calls.
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
-            '--fixture', fixture, '--transactions', str(max(160, transactions)),
+            '--fixture', fixture, '--transactions', str(max(200, transactions)),
             '--seed', str(seed), '--output', str(output / ('storage-' + fixture))]))
     for fixture in STORAGE_FIXTURES:
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',

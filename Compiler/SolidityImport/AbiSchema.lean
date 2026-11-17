@@ -145,4 +145,18 @@ end
 
 def paramType (schema : List Member) : ParamType := .tuple (memberTypeList schema)
 
+mutual
+  /-- Whether a member is, or (through nested structs) contains, a `string`. -/
+  def memberHasString : Member → Bool
+    | .bytesField _ isString => isString
+    | .nestedStruct _ _ _ _ subSchema => membersHaveString subSchema
+    | _ => false
+  termination_by m => sizeOf m
+
+  def membersHaveString : List Member → Bool
+    | [] => false
+    | m :: rest => memberHasString m || membersHaveString rest
+  termination_by ms => sizeOf ms
+end
+
 end Compiler.CompilationModel.SolidityImport.AbiSchema

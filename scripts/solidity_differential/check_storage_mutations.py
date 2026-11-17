@@ -737,7 +737,7 @@ def run(directory, output, name):
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         # The deterministic root-parameter call list (`check_stateful.ROOT_PARAM_CALLS`)
         # runs first; the budget covers all of it.
-        argv[argv.index('--transactions') + 1] = '160'
+        argv[argv.index('--transactions') + 1] = '200'
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     # Compiles the model against the (possibly mutated) importer, then replays up

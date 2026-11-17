@@ -19,7 +19,33 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "StructStrin
   function labelLengthCalldata(CategoryConfig)
   function labelHashCalldata(CategoryConfig)
   function taggedDigest(Tagged)
+  function storeLabel(CategoryConfig)
+  function readLabel()
+  function storeLabelCalldata(CategoryConfig)
+  function nestedName(Outer)
+  function nestedNameCalldata(Outer)
 def model : CompilationModel := imported.model
+
+/-- The ABI parameter types of the imported roots named `fn`. -/
+def paramTypesOf (fn : String) : Option (List ParamType) :=
+  (model.functions.find? (·.name == fn)).map (·.params.map (·.ty))
+
+/-- A `string` struct member keeps the `string` ABI type (`AbiSchema.memberType`
+of `bytesField _ true`); the selectors and ABI of the model depend on it. -/
+example : paramTypesOf "configure" = some [.tuple [.uintN 16, .bool, .string]] := by rfl
+
+/-- The `bytes`-typed reading of the same member is not the imported ABI. -/
+example : paramTypesOf "configure" ≠ some [.tuple [.uintN 16, .bool, .bytes]] := by
+  intro h
+  cases h
+
+/-- A `string` beside a `bytes` member: each keeps its own ABI type. -/
+example : paramTypesOf "taggedDigest" = some [.tuple [.string, .uint256, .bytes]] := by rfl
+
+/-- A `string` inside a nested dynamic struct. -/
+example : paramTypesOf "nestedName" =
+    some [.tuple [.uint256, .tuple [.string, .uint256, .bytes]]] := by rfl
+
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
 end SolidityImportSmoke.StructStringMemberParamSequenceModel

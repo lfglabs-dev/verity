@@ -231,35 +231,77 @@ def _stateless_byte_calls():
 def _struct_string_member_calls():
     """`string` members of ABI-decoded struct parameters (#2711): empty, short
     and word-boundary labels, memory and calldata structs, a `string` beside a
-    `bytes` member, and malformed heads (label offset past calldata, a length
-    beyond the payload, a dirty `uint16` / `bool`, a truncated tuple head)."""
+    `bytes` member, a `string` written to storage (then read back), a `string`
+    inside a nested dynamic struct, and malformed heads: member offsets past
+    calldata, beyond 64 bits, or backwards (`2**256 - 32`, which solc accepts
+    for calldata structs, signed comparison, and rejects for memory structs),
+    lengths past the payload or beyond 64 bits, a dirty `uint16` / `bool`, and
+    truncated heads. Signatures first appear in the Model.lean function order."""
+    cfg_sigs = ('configure((uint16,bool,string))', 'labelLength((uint16,bool,string))',
+                'labelHash((uint16,bool,string))', 'labelLengthCalldata((uint16,bool,string))',
+                'labelHashCalldata((uint16,bool,string))')
+    tagged_sig = 'taggedDigest((string,uint256,bytes))'
+    store_sigs = ('storeLabel((uint16,bool,string))', 'storeLabelCalldata((uint16,bool,string))')
+    read_sig = 'readLabel()'
+    nested_sigs = ('nestedName((uint256,(string,uint256,bytes)))',
+                   'nestedNameCalldata((uint256,(string,uint256,bytes)))')
+    partner = {0: 3, 1: 33, 5: 0, 31: 32, 32: 1, 33: 70, 70: 5}
+    backwards = (1 << 256) - 32
+
+    def tagged(name, weight, payload):
+        # Tagged tuple body: name offset, weight, payload offset, then the tails.
+        return [96, weight, 96 + 32 * len(name)] + name + payload
+
     calls = []
     for size in (0, 1, 5, 31, 32, 33, 70):
         label = _bytes_words(_BYTE_PAYLOADS[size])
         for ltv, flag in ((7, 0), (65535, 1)):
             cfg = [32, ltv, flag, 96] + label
-            for sig in ('configure((uint16,bool,string))', 'labelLength((uint16,bool,string))',
-                        'labelHash((uint16,bool,string))', 'labelLengthCalldata((uint16,bool,string))',
-                        'labelHashCalldata((uint16,bool,string))'):
+            for sig in cfg_sigs:
                 calls.append((sig, cfg))
-        name, payload = label, _bytes_words(_BYTE_PAYLOADS[{0: 3, 1: 33, 5: 0, 31: 32, 32: 1, 33: 70, 70: 5}[size]])
-        calls.append(('taggedDigest((string,uint256,bytes))',
-                      [32, 96, size + 1, 96 + 32 * len(name)] + name + payload))
-    good = [32, 9, 1, 96] + _bytes_words(_BYTE_PAYLOADS[5])
+        payload = _bytes_words(_BYTE_PAYLOADS[partner[size]])
+        calls.append((tagged_sig, [32] + tagged(label, size + 1, payload)))
+    for size in (0, 5, 32, 70, 1):
+        label = _bytes_words(_BYTE_PAYLOADS[size])
+        calls.append((store_sigs[0], [32, 3, 1, 96] + label))
+        calls.append((read_sig, []))
+        calls.append((store_sigs[1], [32, 4, 0, 96] + _bytes_words(_BYTE_PAYLOADS[partner[size]])))
+        calls.append((read_sig, []))
+    for size in (0, 5, 33, 70):
+        name = _bytes_words(_BYTE_PAYLOADS[size])
+        outer = [32, 1000 + size, 64] + tagged(name, size, _bytes_words(_BYTE_PAYLOADS[partner[size]]))
+        for sig in nested_sigs:
+            calls.append((sig, outer))
+    label5 = _bytes_words(_BYTE_PAYLOADS[5])
+    good = [32, 9, 1, 96] + label5
     malformed = (
-        [32, 1 << 16, 0, 96] + _bytes_words(_BYTE_PAYLOADS[5]),   # dirty uint16
-        [32, 9, 2, 96] + _bytes_words(_BYTE_PAYLOADS[5]),         # dirty bool
-        [32, 9, 1, 4096] + _bytes_words(_BYTE_PAYLOADS[5]),       # label offset past calldata
-        [32, 9, 1, 1 << 64] + _bytes_words(_BYTE_PAYLOADS[5]),    # label offset beyond 64 bits
-        [32, 9, 1, 96, 200] + _bytes_words(_BYTE_PAYLOADS[5])[1:],  # length past the payload
-        [32, 9, 1, 96, 1 << 64],                                  # length beyond 64 bits
-        [32, 9, 1],                                               # truncated tuple head
-        good[:-1],                                                # truncated label word
+        [32, 1 << 16, 0, 96] + label5,   # dirty uint16
+        [32, 9, 2, 96] + label5,         # dirty bool
+        [32, 9, 1, 4096] + label5,       # label offset past calldata
+        [32, 9, 1, 1 << 64] + label5,    # label offset beyond 64 bits
+        [32, 9, 1, backwards] + label5,  # backwards label offset: calldata accepts, memory reverts
+        [32, 9, 1, 96, 200] + label5[1:],  # length past the payload
+        [32, 9, 1, 96, 1 << 64],         # length beyond 64 bits
+        [32, 9, 1],                      # truncated tuple head
+        good[:-1],                       # truncated label word
     )
     for words in malformed:
-        for sig in ('configure((uint16,bool,string))', 'labelLength((uint16,bool,string))',
-                    'labelHashCalldata((uint16,bool,string))', 'labelLengthCalldata((uint16,bool,string))'):
+        for sig in cfg_sigs + store_sigs:
             calls.append((sig, words))
+    calls.append((read_sig, []))
+    name5, payload3 = label5, _bytes_words(_BYTE_PAYLOADS[3])
+    for name_off, payload_off in ((4096, None), (backwards, None), (None, 4096),
+                                  (None, 1 << 64), (None, backwards), (None, (1 << 256) - 64)):
+        body = tagged(name5, 7, payload3)
+        if name_off is not None:
+            body[0] = name_off
+        if payload_off is not None:
+            body[2] = payload_off
+        calls.append((tagged_sig, [32] + body))
+    for tag_off in (4096, backwards, (1 << 256) - 64):
+        outer = [32, 1005, tag_off] + tagged(name5, 5, payload3)
+        for sig in nested_sigs:
+            calls.append((sig, outer))
     return calls
 
 

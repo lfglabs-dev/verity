@@ -3096,8 +3096,8 @@ def stateful_tuple_destructuring_source(original, variant):
 # importer resolves declarations by id, not by text).
 ROOT_PARAM_RENAMES = {
     'struct-string-member-param': (
-        {'cfg', 't', 'x'},
-        {'ltv', 'isolated', 'label', 'name', 'weight', 'payload', 'stored'}),
+        {'cfg', 't', 'o', 'x'},
+        {'ltv', 'isolated', 'label', 'name', 'weight', 'payload', 'stored', 'storedLabel', 'id', 'tag'}),
 }
 
 
