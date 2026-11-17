@@ -49,7 +49,7 @@ Alongside the shims in `InlineAssemblyShims.lean`, `Compiler/SolidityImport/Impo
 
 ## 3. `PoolManager.sol` Function Inventory (`37/38` Imported)
 
-Every function in `src/PoolManager.sol` elaborates via `solidity_import` with `modelImportCovered model = true`:
+Every function in `src/PoolManager.sol` except `modifyLiquidity` (row 3, a located rejection) elaborates via `solidity_import` with `modelImportCovered model = true`:
 
 | # | Function Signature | Category |
 | --- | --- | --- |
@@ -95,4 +95,4 @@ Every function in `src/PoolManager.sol` elaborates via `solidity_import` with `m
 | 40* | `exttload(bytes32)` | `Exttload` Single-Slot Transient Introspection |
 | 41* | `exttload(bytes32[])` | `Exttload` Batch-Array Transient Introspection |
 
-*(Note: `extsload` has 3 overloads and `exttload` has 2 overloads; all 38 distinct function/overload probes in `PoolManager` pass with `modelImportCovered = true`.)*
+*(Note: `extsload` has 3 overloads and `exttload` has 2 overloads; 37 of the 38 distinct function/overload probes in `PoolManager` pass with `modelImportCovered = true`; `modifyLiquidity` is rejected (row 3).)*
