@@ -164,6 +164,20 @@ def calldatacopyWritesAt (dst size offset : Nat) : Prop :=
 instance (dst size offset : Nat) : Decidable (calldatacopyWritesAt dst size offset) := by
   unfold calldatacopyWritesAt; infer_instance
 
+/-- Mirrors `Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded` (equal by
+`Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded_eq_denote`): EVM
+`CALLDATACOPY(dst, src, size)` on word-addressed memory; complete destination words
+are replaced and a final partial word preserves its untouched low bytes. -/
+def calldatacopyMemoryPadded (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (memory : Nat → Nat) (offset : Nat) : Nat :=
+  if size % 32 ≠ 0 ∧ offset = dst + (size / 32) * 32 then
+    let shift := 8 * (32 - size % 32)
+    (calldataloadWord selector calldata (src + (size / 32) * 32) /
+      2 ^ shift) * 2 ^ shift + memory offset % 2 ^ shift
+  else if calldatacopyWritesAt dst size offset then
+    calldataloadWord selector calldata (src + (offset - dst))
+  else memory offset
+
 /-- Mirrors `Compiler.Proofs.IRGeneration.returndataloadWord` (pure arithmetic):
 byte-addressed word read from the EIP-211 returndata buffer, zero-extended past
 the end. Unlike calldata there is no 4-byte selector prefix. -/
