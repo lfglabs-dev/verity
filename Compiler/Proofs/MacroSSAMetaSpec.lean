@@ -507,7 +507,7 @@ theorem desugarBoolNot_sound
 
 /-- **Corollary 3a (`desugarDiscardBind_sound`, `#2421`)**:
     Desugaring `let _ ← eff; rest` into a fresh synthetic discard binding
-    `let __discard_k ← eff; rest` preserves contract state, return value, and
+    `let discard_k ← eff; rest` preserves contract state, return value, and
     every user-visible local variable in `rest`. -/
 theorem desugarDiscardBind_sound
     (eff : EffectOp ImpExpr) (rest : ImpStmt) (s : State) (env : SSAEnv)
@@ -582,19 +582,19 @@ theorem witness_one_armed_if_accumulator :
 /-- Witness 3 (`#2421`): Multiple discard bindings (`let _ ← ...`) do not collide
     with each other or with user variables. -/
 def witnessHygienicDiscardsProg : ImpStmt :=
-  .seq (.letMut "__discard" (.litInt 7))
+  .seq (.letMut "discard" (.litInt 7))
   (.seq (.discardBind (.zeroArgHelperEffect true 0 10))
   (.seq (.discardBind (.zeroArgHelperEffect true 0 20))
-        (.ret (.var "__discard"))))
+        (.ret (.var "discard"))))
 
 theorem witness_hygienic_discard_binds :
     let (ssaProg, finalEnv) := desugarImpToSSA ⟨[], 0⟩ witnessHygienicDiscardsProg
     let (sImp, _, retImp) := evalImpStmt ⟨[]⟩ ⟨[]⟩ witnessHygienicDiscardsProg
     let (sSSA, _, retSSA) := evalSSAStmt ⟨[]⟩ ⟨[]⟩ ssaProg
-    let fresh := Compiler.CompilationModel.pickFreshName "__discard" ["__discard", "x"]
+    let fresh := Compiler.CompilationModel.pickFreshName "discard" ["discard", "x"]
     sImp.read 0 = 30 ∧ retImp = some (.int 7) ∧
       sSSA = sImp ∧ retSSA = retImp ∧ finalEnv.nextDiscard = 2 ∧
-      !(["__discard", "x"].contains fresh) = true := by
+      !(["discard", "x"].contains fresh) = true := by
   decide
 
 /-- Witness 4 (`#2434`, `#2427`): Boolean negation (`!b`) and signed `Int256`

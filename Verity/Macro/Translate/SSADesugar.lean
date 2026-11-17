@@ -104,8 +104,12 @@ def desugarTypedDoElem?
       some <$> `(doElem| let mut $name:ident ← $rhs:term)
   | _ => pure none
 
-/-- Generate a collision-free discard local name while preserving the expected
-    base prefix (`"discard"` or `"__discard"`) for CompilationModel parity (#2421). -/
+/-- Generate a collision-free discard local name from `base` (#2421).
+    Names that reach the CompilationModel must use a base outside the
+    compiler-reserved `__` prefix (`"discard"`): model binders lower to Yul
+    variables and identifier validation rejects `__`-prefixed binders. The
+    executable-only rewrite keeps `"__discard"` so the synthetic Lean local
+    never shadows `discard`. -/
 def freshHygienicDiscardName
     (base : String)
     (params : Array ParamDecl)

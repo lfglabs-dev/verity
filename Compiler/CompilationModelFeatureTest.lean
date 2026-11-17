@@ -905,9 +905,9 @@ verity_contract MacroTupleDestructuring where
     let (_, second) := helperPair seed
     setStorage secondSlot second
 
-  function storeHelperPairTailNameCollision («__tuple_discard_0» : Uint256, seed : Uint256) : Unit := do
+  function storeHelperPairTailNameCollision («tuple_discard_0» : Uint256, seed : Uint256) : Unit := do
     let (_, second) := helperPair seed
-    setStorage firstSlot «__tuple_discard_0»
+    setStorage firstSlot «tuple_discard_0»
     setStorage secondSlot second
 
 def storePairModelDestructuresTupleParam : Bool :=
@@ -988,7 +988,7 @@ example : storeHelperPairEqModelUsesInternalCallAssign = true := by native_decid
 
 def storeHelperPairTailModelUsesHiddenDiscardTarget : Bool :=
   match MacroTupleDestructuring.storeHelperPairTail_modelBody with
-  | [Stmt.internalCallAssign ["__tuple_discard_0", "second"] helperName [Expr.param "seed"],
+  | [Stmt.internalCallAssign ["tuple_discard_0", "second"] helperName [Expr.param "seed"],
       Stmt.setStorage "secondSlot" (Expr.localVar "second"),
       Stmt.stop] =>
       helperName == helperPairInternalModelName
@@ -998,8 +998,8 @@ example : storeHelperPairTailModelUsesHiddenDiscardTarget = true := by native_de
 
 def storeHelperPairTailNameCollisionModelUsesFreshDiscardTarget : Bool :=
   match MacroTupleDestructuring.storeHelperPairTailNameCollision_modelBody with
-  | [Stmt.internalCallAssign ["__tuple_discard_0_1", "second"] helperName [Expr.param "seed"],
-      Stmt.setStorage "firstSlot" (Expr.param "__tuple_discard_0"),
+  | [Stmt.internalCallAssign ["tuple_discard_0_1", "second"] helperName [Expr.param "seed"],
+      Stmt.setStorage "firstSlot" (Expr.param "tuple_discard_0"),
       Stmt.setStorage "secondSlot" (Expr.localVar "second"),
       Stmt.stop] =>
       helperName == helperPairInternalModelName
@@ -1054,6 +1054,36 @@ def storeHelperPairTailNameCollisionExecutablePreservesParam : Bool :=
   | .revert _ _ => false
 
 example : storeHelperPairTailNameCollisionExecutablePreservesParam = true := by native_decide
+
+-- Minimal contract whose only non-trivial feature is a tuple binding with a
+-- `_` element (pure and monadic); used to check that the synthetic discard
+-- binder is accepted by identifier validation end to end.
+verity_contract MacroTupleDiscardCompile where
+  storage
+
+  function helperPair (seed : Uint256) : Tuple [Uint256, Uint256] := do
+    return (seed, add seed 1)
+
+  function tailOfParam (pair : Tuple [Uint256, Uint256]) : Uint256 := do
+    let (_, second) := pair
+    return second
+
+  function tailOfHelper (seed : Uint256) : Uint256 := do
+    let (_, second) ← helperPair seed
+    return second
+
+-- Minimal contract exercising monadic discards (`let _ ← ...`), whose
+-- synthetic binder must also be accepted by identifier validation.
+verity_contract MacroBindDiscardCompile where
+  storage
+
+  function reentrancy_trusted dropThenRead ()
+    local_obligations [low_level_frame := assumed "Reading returndata size is an explicit refinement boundary."]
+    : Uint256 := do
+    let _ ← returnDataSize()
+    let _ ← (returnDataSize())
+    let observed ← returnDataSize()
+    return observed
 
 end MacroTupleDestructuringSmoke
 
@@ -5917,6 +5947,12 @@ set_option maxRecDepth 4096 in
   discard <| expectCompile
     "matchAdt with terminating branches"
     matchAdtAllBranchesTerminateSpec
+  discard <| expectCompile
+    "tuple bindings with `_` elements compile (discard binders avoid the `__` prefix)"
+    MacroTupleDestructuringSmoke.MacroTupleDiscardCompile.spec
+  discard <| expectCompile
+    "`let _ ← returnDataSize()` compiles (discard binders avoid the `__` prefix)"
+    MacroTupleDestructuringSmoke.MacroBindDiscardCompile.spec
   expectCompileErrorContains
     "function with return value rejects stop-only termination"
     returnValueStopRejectedSpec
