@@ -1,6 +1,5 @@
 import Compiler.CompilationModel
 import Compiler.Proofs.MappingSlot
-import Compiler.Proofs.YulGeneration.Calldata
 import Compiler.Keccak.MemorySlice
 import Verity.Core
 import Verity.Core.Semantics
@@ -479,12 +478,12 @@ def copyBytes (data : ByteArray) (dest : Uint256) : Contract Unit := fun state =
 /-- Deprecated no-op; contract code lowers `calldatacopy` to `calldatacopyLive`. -/
 def calldatacopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 /-- `calldatacopy(dest, src, size)` on word-addressed memory, byte-exact on the final
-partial word (`Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded`). -/
+partial word (`Compiler.CompilationModel.Denote.calldatacopyMemoryPadded`). -/
 def calldatacopyLive (destOffset sourceOffset size : Uint256) : Contract Unit := fun state =>
   ContractResult.success ()
     { state with
       memory := fun offset => Verity.Core.Uint256.ofNat
-        (Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded state.selector state.calldata
+        (Compiler.CompilationModel.Denote.calldatacopyMemoryPadded state.selector state.calldata
           destOffset.val sourceOffset.val size.val (fun a => (state.memory a).val) offset) }
 def returndataCopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def revertReturndata : Contract Unit := pure ()
