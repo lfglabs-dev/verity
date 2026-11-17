@@ -15,7 +15,7 @@ from property_utils import ROOT
 from verification_metrics import current_metrics
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Write the current verification metrics as JSON (a build output, not committed)."
     )
@@ -25,7 +25,7 @@ def main() -> None:
         default=ROOT / "artifacts" / "verification_status.json",
         help="Output JSON path.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     current_metrics(cache=args.output)
     print(f"Wrote verification metrics: {args.output}")

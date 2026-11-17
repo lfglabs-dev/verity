@@ -33,3 +33,4 @@ public/_pagefind
 
 # Generated at prebuild (scripts/generate-derived.sh)
 public/verification-status.txt
+public/llms.txt
