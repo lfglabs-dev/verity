@@ -282,9 +282,10 @@ jobs:
           CHANGED_FILES: ${{ steps.filter.outputs.changed_files }}
           IMPORTER_CHANGED: ${{ steps.filter.outputs.importer }}
           EVENT_NAME: ${{ github.event_name }}
-          # Same tier test as compiler-regressions: main pushes, nightly, dispatch, ci:full PRs.
           FULL_TIER: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
         run: |
+          # FULL_TIER uses the same tier test as compiler-regressions: main pushes,
+          # nightly, dispatch and ci:full PRs.
           # `compiler` is decided per changed file here, not by the paths-filter
           # output: with the default `some` quantifier a `!Verity/Proofs/**` entry
           # matches every file outside Verity/Proofs, so any change (docs too) used
