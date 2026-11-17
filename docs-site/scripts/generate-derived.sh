@@ -10,11 +10,14 @@
 #
 # Without python3 the build continues: public/llms.txt is the template with an
 # empty quick-facts block, and public/verification-status.txt is absent.
+# `--fast` (used by `npm run dev`) does the same on purpose: computing the counts
+# takes ~40 s, and only real builds publish them.
 # Runs with docs-site/ as the working directory.
 set -euo pipefail
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "generate-derived: python3 not found; skipping generated counts"
+if [ "${1:-}" = "--fast" ] || ! command -v python3 >/dev/null 2>&1; then
+  if [ "${1:-}" = "--fast" ]; then reason="fast mode (npm run dev)"; else reason="python3 not found"; fi
+  echo "generate-derived: $reason; skipping generated counts"
   cp llms.template.txt public/llms.txt
   exit 0
 fi
