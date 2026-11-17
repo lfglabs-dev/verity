@@ -345,7 +345,7 @@ jobs:
             --branch ${{ github.event.pull_request.base.ref || github.ref_name }}
 
   build:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     # Proof build + audit prebuilds + smoke imports (~30-45 min). The importer
     # mutation campaigns (~180 isolated snapshots, each recompiling
     # Compiler.SolidityImport.Import) moved to the sharded `import-mutations` job:
@@ -353,8 +353,6 @@ jobs:
     timeout-minutes: 120
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
-    env:
-      LEAN_NUM_THREADS: 16
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -624,12 +622,11 @@ jobs:
   build-compiler-binaries:
     # Ephemeral 16-vCPU lean.ci runner (64 GiB RAM) builds compiler targets
     # without serializing behind a single self-hosted build-heavy host.
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 360
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.compiler == 'true'
     env:
-      LEAN_NUM_THREADS: 16
       CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
@@ -1287,13 +1284,11 @@ jobs:
       # Parity-pack identity report upload removed (see above).
 
   compiler-regressions:
-    runs-on: lean-32vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 200
     needs: [changes, checks, build, build-compiler-binaries]
     # ~2 runner-hours: main pushes, nightly, dispatch, or PRs labelled ci:full.
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))
-    env:
-      LEAN_NUM_THREADS: 16
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1455,15 +1450,13 @@ jobs:
         run: stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest
 
   lean-profile:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 45
     needs: [changes, build]
     # Profiling is diagnostic telemetry. Keep it behind the proof build and
     # non-blocking so interrupted profiling cannot cancel validation.
     continue-on-error: true
     if: github.event_name == 'workflow_dispatch' && inputs.lean_profile && needs.changes.outputs.build == 'true' && needs.build.result == 'success'
-    env:
-      LEAN_NUM_THREADS: 16
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
