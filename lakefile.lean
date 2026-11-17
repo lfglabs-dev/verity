@@ -141,6 +141,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.InlineArrayLiteralSequenceModel,
     .one `Contracts.SolidityImportSmoke.DynamicMemoryArraySequenceModel,
     .one `Contracts.SolidityImportSmoke.CollectUnsupportedSurveyChecks,
+    .one `Contracts.SolidityImportSmoke.ExternalTupleCallChecks,
     .one `Contracts.SolidityImportSmoke.ImportedEventSequenceModel,
     .one `Contracts.SolidityImportSmoke.NarrowEventSequenceModel,
     .one `Contracts.SolidityImportSmoke.MappingDirtySequenceModel,
