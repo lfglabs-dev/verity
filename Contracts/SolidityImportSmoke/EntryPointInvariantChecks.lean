@@ -122,6 +122,49 @@ theorem callee_sequence_preserves
     (fun oracle calls _ => every_entry_preserves_with oracle calls (allowed oracle))
     before after initial sequence
 
+theorem zero_exec_reentrant (oracle : DenoteOracle) (before : Verity.ContractState)
+    (bindings : Env) {calls : ByteCallEnvironment} :
+    executeReentrantBody oracle fields before bindings zeroEntry.body [] (byteCalls := calls) =
+      .ok ⟨true, [], writeUintFieldSlots fields "stored" (beginReentrantFrame before) [0] 0⟩ := by
+  rfl
+
+theorem one_exec_reentrant (oracle : DenoteOracle) (before : Verity.ContractState)
+    (bindings : Env) {calls : ByteCallEnvironment} :
+    executeReentrantBody oracle fields before bindings oneEntry.body [] (byteCalls := calls) =
+      .ok ⟨true, [], writeUintFieldSlots fields "stored" (beginReentrantFrame before) [0] 1⟩ := by
+  rfl
+
+theorem failed_exec_reentrant (oracle : DenoteOracle) (before : Verity.ContractState)
+    (bindings : Env) {calls : ByteCallEnvironment} :
+    executeReentrantBody oracle fields before bindings failedEntry.body [] (byteCalls := calls) =
+      .ok ⟨false, panicBytes 1, beginReentrantFrame before⟩ := by
+  rfl
+
+/-- The obligation for entry points called back within a transaction. -/
+theorem every_entry_preserves_reentrant (oracle : DenoteOracle) (calls : ByteCallEnvironment)
+    (admits : FunctionSpec → Verity.ContractState → Prop) :
+    AllEntryPointsPreserveReentrant oracle calls model invariant (admits := admits) := by
+  intro fn member _ before bindings result _ _ initial executed
+  simp only [model, List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl
+  · change executeReentrantBody oracle fields before bindings zeroEntry.body []
+      (byteCalls := calls) = .ok result at executed
+    rw [zero_exec_reentrant] at executed
+    cases executed
+    change (0 : Nat) ≤ 1
+    decide
+  · change executeReentrantBody oracle fields before bindings oneEntry.body []
+      (byteCalls := calls) = .ok result at executed
+    rw [one_exec_reentrant] at executed
+    cases executed
+    change (1 : Nat) ≤ 1
+    decide
+  · change executeReentrantBody oracle fields before bindings failedEntry.body []
+      (byteCalls := calls) = .ok result at executed
+    rw [failed_exec_reentrant] at executed
+    cases executed
+    exact initial
+
 /-- A callee that calls back into the contract `depth + 1` levels deep keeps the invariant. -/
 theorem reentrant_answer_keeps
     (allowed : DenoteOracle → FunctionSpec → Verity.ContractState → Prop)
@@ -138,7 +181,7 @@ theorem reentrant_answer_keeps
       rw [same (.slot 0) (by intro owner slot h; cases h)]
       exact held)
     keepsStorage_preserves
-    (fun oracle calls _ => every_entry_preserves_with oracle calls (allowed oracle))
+    (fun oracle calls _ => every_entry_preserves_reentrant oracle calls (allowed oracle))
     calls reentrant adversary configured request world after data touched answered initial
 
 /-- The steps are not vacuous: `one` decodes from any frame and is a step of a sequence. -/
@@ -149,5 +192,74 @@ theorem one_step (oracle : DenoteOracle) (before : Verity.ContractState) :
   .step before before _ rfl oracle {} trivial oneEntry (by simp [model]) rfl rfl [] rfl _
     (one_exec oracle before [])
     (.empty _)
+
+/-! Transient storage across a callback (EIP-1153). `inner` writes `42` exactly when transient
+slot 0 holds `1`. Called back from a frame whose transaction stored `1` there, as by an outer
+`tstore(0, 1)` before an external call, it writes `42` on the EVM. A fresh transaction never does,
+so callbacks explained by top-level steps (`CalleeEntryPointSequence`, through
+`beginTransaction`) could never write `42`, and an invariant `stored ≠ 42` would have been
+provable for an answer the EVM gives. -/
+
+def innerEntry : FunctionSpec :=
+  { name := "inner", params := [], returnType := none
+    body := [.ite (.eq (.tload (.literal 0)) (.literal 1))
+      [.setStorage "stored" (.literal 42)] [], .stop] }
+
+def transientModel : CompilationModel :=
+  { name := "TransientCallback", fields, constructor := none, functions := [innerEntry] }
+
+/-- The world in which a callback starts after its caller ran `tstore(0, 1)`. -/
+def flagged : Verity.ContractState :=
+  Verity.defaultState.withStorageWords fun
+    | .transient 0 => 1
+    | _ => 0
+
+theorem inner_callback_exec (oracle : DenoteOracle) :
+    executeReentrantBody oracle fields flagged [] innerEntry.body [] =
+      .ok ⟨true, [], writeUintFieldSlots fields "stored" (beginReentrantFrame flagged) [0] 42⟩ := by
+  rfl
+
+theorem inner_callback_writes :
+    ((writeUintFieldSlots fields "stored" (beginReentrantFrame flagged) [0] 42).storage 0).val =
+      42 := by
+  rfl
+
+/-- The callback reads its caller's transient storage: one call back into `inner` from
+`flagged` is a reentrant sequence that writes `42`. -/
+theorem callback_reads_caller_transient (oracle : DenoteOracle) :
+    ReentrantEntryPointSequence transientModel (fun _ => 0)
+      (fun before prepared => prepared = before) (fun o _ _ => o = oracle) (fun _ => True) flagged
+      (writeUintFieldSlots fields "stored" (beginReentrantFrame flagged) [0] 42) :=
+  .step flagged flagged _ rfl oracle {} trivial innerEntry (by simp [transientModel]) rfl rfl [] rfl
+    _ (inner_callback_exec oracle) (.empty _)
+
+theorem inner_fresh_exec (oracle : DenoteOracle) (before : Verity.ContractState) (bindings : Env)
+    {calls : ByteCallEnvironment} :
+    executeBody oracle fields before bindings innerEntry.body [] (byteCalls := calls) =
+      .ok ⟨true, [], beginTransaction before⟩ := by
+  rfl
+
+/-- Top-level transactions start with empty transient storage, so no sequence of them writes
+`42`: they cannot stand for the callback above. -/
+theorem fresh_sequence_never_writes
+    (allowed : DenoteOracle → FunctionSpec → Verity.ContractState → Prop)
+    (callees : ByteCallEnvironment → Prop) (before after : Verity.ContractState)
+    (initial : (before.storage 0).val ≠ 42)
+    (sequence : CalleeEntryPointSequence transientModel (fun _ => 0)
+      (fun before prepared => prepared = before) allowed callees before after) :
+    (after.storage 0).val ≠ 42 := by
+  refine invariant_of_callee_entry_points transientModel (fun _ => 0)
+    (fun world => (world.storage 0).val ≠ 42) (fun before prepared => prepared = before)
+    allowed callees
+    (fun world prepared (same : prepared = world) held => same ▸ held) ?_ before after initial
+    sequence
+  intro oracle calls _ fn member _ world bindings result _ _ held executed
+  simp only [transientModel, List.mem_cons, List.not_mem_nil, or_false] at member
+  subst member
+  change executeBody oracle fields world bindings innerEntry.body [] (byteCalls := calls)
+    = .ok result at executed
+  rw [inner_fresh_exec] at executed
+  cases executed
+  exact held
 
 end SolidityImportSmoke.EntryPointInvariantChecks

@@ -125,18 +125,106 @@ theorem callee_sequence_append (model : CompilationModel)
       exact .step before prepared after context oracle calls admitted fn member isPublic
         permitted bindings decoded result executed (ih second)
 
+/-- The frame of a call back into the contract within the current transaction: memories,
+return data and the frame's journals start empty, as in `beginTransaction`, but transient
+storage keeps the transaction's values (EIP-1153 clears it only when the transaction ends),
+so a callback reads what its caller stored there, and the caller reads what it stores. -/
+def beginReentrantFrame (world : Verity.ContractState) : Verity.ContractState :=
+  { world with
+    memory := fun _ => 0
+    byteMemory := DenoteMemory.Memory.empty
+    returndata := []
+    events := []
+    calls := [] }
+
+@[simp] theorem beginReentrantFrame_storageWords (world : Verity.ContractState) :
+    (beginReentrantFrame world).storageWords = world.storageWords := rfl
+
+@[simp] theorem beginReentrantFrame_storageArray (world : Verity.ContractState) :
+    (beginReentrantFrame world).storageArray = world.storageArray := rfl
+
+/-- `executeBody` for a call back into the contract: the frame starts from
+`beginReentrantFrame`, and a reverting body rolls back to it, transient writes included. -/
+def executeReentrantBody (oracle : DenoteOracle) (fields : List Field)
+    (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
+    (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {})
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0) :
+    Except String FrameResult :=
+  let initial := beginReentrantFrame world
+  finishFrame initial (execStmtList oracle fields
+    { world := initial, bindings, errors, immutable := immutables,
+      byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body)
+
+/-- `CalleeEntryPointSequence` for calls back into the contract within one transaction: every
+step runs through `executeReentrantBody`, so transient storage flows from the caller into the
+first step, from step to step, and back to the caller, as on the EVM. -/
+inductive ReentrantEntryPointSequence (model : CompilationModel)
+    (immutables : String → Verity.Core.Uint256)
+    (prepare : Verity.ContractState → Verity.ContractState → Prop)
+    (allowed : DenoteOracle → FunctionSpec → Verity.ContractState → Prop)
+    (callees : ByteCallEnvironment → Prop) :
+    Verity.ContractState → Verity.ContractState → Prop where
+  | empty (world) : ReentrantEntryPointSequence model immutables prepare allowed callees world world
+  | step (before prepared after : Verity.ContractState)
+      (context : prepare before prepared) (oracle : DenoteOracle)
+      (calls : ByteCallEnvironment) (admitted : callees calls)
+      (fn : FunctionSpec) (member : fn ∈ model.functions) (isPublic : fn.isInternal = false)
+      (permitted : allowed oracle fn prepared)
+      (bindings : Env) (decoded : DecodedCall fn prepared bindings) (result : FrameResult)
+      (executed : executeReentrantBody oracle (effectiveFields model) prepared bindings
+        fn.body model.errors (byteCalls := calls) (immutables := immutables) = .ok result)
+      (tail : ReentrantEntryPointSequence model immutables prepare allowed callees
+        result.world after) :
+      ReentrantEntryPointSequence model immutables prepare allowed callees before after
+
+/-- `AllEntryPointsPreserveWith` for calls back into the contract (`executeReentrantBody`):
+the body may read transient storage the transaction wrote before the call. -/
+def AllEntryPointsPreserveReentrant (oracle : DenoteOracle) (calls : ByteCallEnvironment)
+    (model : CompilationModel) (invariant : Verity.ContractState → Prop)
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0)
+    (admits : FunctionSpec → Verity.ContractState → Prop := fun _ _ => True) : Prop :=
+  ∀ fn ∈ model.functions, fn.isInternal = false →
+    ∀ before bindings result,
+      admits fn before → DecodedCall fn before bindings → invariant before →
+      executeReentrantBody oracle (effectiveFields model) before bindings fn.body model.errors
+        (byteCalls := calls) (immutables := immutables) = .ok result →
+      invariant result.world
+
+/-- `invariant_of_callee_entry_points` for callbacks within one transaction. -/
+theorem invariant_of_reentrant_entry_points (model : CompilationModel)
+    (immutables : String → Verity.Core.Uint256)
+    (invariant : Verity.ContractState → Prop)
+    (prepare : Verity.ContractState → Verity.ContractState → Prop)
+    (allowed : DenoteOracle → FunctionSpec → Verity.ContractState → Prop)
+    (callees : ByteCallEnvironment → Prop)
+    (contextPreserves : ∀ before prepared, prepare before prepared →
+      invariant before → invariant prepared)
+    (preserved : ∀ oracle calls, callees calls →
+      AllEntryPointsPreserveReentrant oracle calls model invariant immutables (allowed oracle))
+    (before after : Verity.ContractState) (initial : invariant before)
+    (sequence : ReentrantEntryPointSequence model immutables prepare allowed callees
+      before after) :
+    invariant after := by
+  induction sequence with
+  | empty => exact initial
+  | step before prepared after context oracle calls admitted fn member isPublic permitted
+      bindings decoded result executed tail ih =>
+      exact ih (preserved oracle calls admitted fn member isPublic prepared bindings result
+        permitted decoded (contextPreserves before prepared context initial) executed)
+
 /-- The contract's own storage: every key but other accounts' slots. -/
 def OwnStorageKey (key : Verity.StorageKey) : Prop := ∀ owner slot, key ≠ .contractSlot owner slot
 
 /-- Callees that may call back into the contract, at most `depth` levels deep. At depth 0 they
 answer as `base` allows. At depth `n + 1`, a successful answer's world is the request world after
-a callee-choosing sequence of the contract's own entry points (the callee calling back, each call
-prepared from the world it starts in by `nested`, its own callees at depth `n`): the caller's
-frame restored (`commitCalleeWorld`) and the contract's storage as the sequence left it. Other
-accounts are the callee's to change. A callee that does not call back is the empty sequence.
-Each nested call starts a fresh frame (`executeBody`'s `beginTransaction`), which clears
-transient storage that the EVM would keep within the transaction: more behaviours than the
-EVM's, never fewer. -/
+a sequence of the contract's own entry points called back within the transaction
+(`ReentrantEntryPointSequence`: each call prepared from the world it starts in by `nested`, its
+own callees at depth `n`): the caller's frame restored (`commitCalleeWorld`) and the contract's
+storage, transient storage included, as the sequence left it. Other accounts are the callee's
+to change. A callee that does not call back is the empty sequence. Each nested call starts a
+new frame (`beginReentrantFrame`) that keeps the transaction's transient storage, as the EVM
+does; starting it from `beginTransaction` instead would clear it, so a callback could neither
+read what its caller stored there nor leave the caller its own values. -/
 def ReentrantCallees (model : CompilationModel) (immutables : String → Verity.Core.Uint256)
     (nested : Verity.ContractState → Verity.ContractState → Prop)
     (allowed : DenoteOracle → FunctionSpec → Verity.ContractState → Prop)
@@ -146,7 +234,7 @@ def ReentrantCallees (model : CompilationModel) (immutables : String → Verity.
       ∀ adversary, calls.adversary = some adversary →
         ∀ request world after data touched,
           adversary.respond request world = .success after data touched →
-            ∃ reached, CalleeEntryPointSequence model immutables nested allowed
+            ∃ reached, ReentrantEntryPointSequence model immutables nested allowed
                 (ReentrantCallees model immutables nested allowed base depth) world reached ∧
               DenoteByteExternalCalls.commitCalleeWorld world after = after ∧
               (∀ key, OwnStorageKey key → after.storageWords key = reached.storageWords key) ∧
@@ -166,7 +254,7 @@ theorem reentrant_answer_preserves (model : CompilationModel)
     (nestedPreserves : ∀ before prepared, nested before prepared →
       invariant before → invariant prepared)
     (preserved : ∀ oracle calls, ReentrantCallees model immutables nested allowed base depth calls →
-      AllEntryPointsPreserveWith oracle calls model invariant immutables (allowed oracle))
+      AllEntryPointsPreserveReentrant oracle calls model invariant immutables (allowed oracle))
     (calls : ByteCallEnvironment)
     (reentrant : ReentrantCallees model immutables nested allowed base (depth + 1) calls)
     (adversary : ByteExternalCall.Adversary Verity.ContractState Verity.StorageKey)
@@ -177,7 +265,7 @@ theorem reentrant_answer_preserves (model : CompilationModel)
   obtain ⟨reached, sequence, _, storage, arrays⟩ :=
     reentrant adversary configured request world after data touched answered
   have kept : invariant reached :=
-    invariant_of_callee_entry_points model immutables invariant nested allowed _
+    invariant_of_reentrant_entry_points model immutables invariant nested allowed _
       nestedPreserves preserved world reached initial sequence
   exact storageOnly reached after storage arrays kept
 
