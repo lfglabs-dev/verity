@@ -17,7 +17,7 @@ Encapsulates the verified inline-assembly and library lowering shims required fo
 - `SqrtPriceMath` (`getAmount0Delta`, `getAmount1Delta`, `getNextSqrtPriceFromInput`, `getNextSqrtPriceFromOutput`)
 - `BitMath.mostSignificantBit` and `BitMath.leastSignificantBit`
 - `SwapMath.computeSwapStep` and `TickMath.getSqrtPriceAtTick` / `getTickAtSqrtPrice`
-- `Position.calculatePositionKey`, `TickBitmap.flipTick`, `Pool.updateTick`
+- `TickBitmap.flipTick`, `Pool.updateTick`
 - `Hooks.callHook` / `Hooks.callHookWithReturnDelta` and `IUnlockCallback.unlockCallback`
 -/
 
@@ -37,7 +37,6 @@ inductive VerifiedCompilerShimKind where
   | bitMathScan
   | swapMathStep
   | tickMathLookup
-  | positionKeyHash
   | tickBitmapFlip
   | poolUpdateTick
   | hooksCall
@@ -118,11 +117,6 @@ def uniswapV4VerifiedShims : List VerifiedCompilerShim :=
   , { kind := .tickMathLookup
       libraryName := "TickMath"
       functionName := "getSqrtPriceAtTick"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .positionKeyHash
-      libraryName := "Position"
-      functionName := "calculatePositionKey"
       preservesStorageSafety := true
       coveredByDenote := true }
   , { kind := .tickBitmapFlip
@@ -247,23 +241,6 @@ def lowerBatchRangeSloadShim (startSlotExpr nSlotsExpr : Expr) : M (Array Stmt) 
     .revertEmpty
   ]
 
-/-- Lower `Position.calculatePositionKey(address owner, int24 tickLower, int24 tickUpper, bytes32 salt)`
-into a memory-safe `keccak256` digest computation. -/
-def lowerPositionKeyShim (ownerExpr tickLowerExpr tickUpperExpr saltExpr : Expr) : M Val := do
-  let ptr ← fresh
-  let finish ← fresh
-  let digest ← fresh
-  modify fun e => { e with encodingMemory := true }
-  let allocStmts := AbiEncoding.reserve ptr finish (.literal 128)
-  let stmts := allocStmts.toArray ++ #[
-    .mstore (.localVar ptr) ownerExpr,
-    .mstore (.add (.localVar ptr) (.literal 32)) tickLowerExpr,
-    .mstore (.add (.localVar ptr) (.literal 64)) tickUpperExpr,
-    .mstore (.add (.localVar ptr) (.literal 96)) saltExpr,
-    .letVar digest (.keccak256 (.localVar ptr) (.literal 128))
-  ]
-  return { pre := stmts, expr := .localVar digest }
-
 /-- Lower `TickBitmap.flipTick(mapping(int16 => uint256) storage self, int24 tick, int24 tickSpacing)`
 into a tick-spacing alignment guard and storage bitmap word XOR update. -/
 def lowerTickBitmapFlipShim (mapSlotExpr tickExpr tickSpacingExpr : Expr) : M (Array Stmt) := do
@@ -294,13 +271,13 @@ def lowerTickBitmapFlipShim (mapSlotExpr tickExpr tickSpacingExpr : Expr) : M (A
 
 /-- **Layer I MetaSpec** for `InlineAssemblyShims`:
 1. Every shim in `uniswapV4VerifiedShims` preserves storage safety and is covered by `Denote`.
-2. `uniswapV4VerifiedShims` has exactly 18 canonical Uniswap v4 shim entries.
+2. `uniswapV4VerifiedShims` has exactly 17 canonical Uniswap v4 shim entries.
 3. For any `s`, `allShimsVerified [s] = (s.preservesStorageSafety && s.coveredByDenote)`. -/
 structure InlineAssemblyShimsMetaSpec (s : VerifiedCompilerShim) : Prop where
   registry_all_verified :
     allShimsVerified uniswapV4VerifiedShims = true
   registry_card :
-    uniswapV4VerifiedShims.length = 18
+    uniswapV4VerifiedShims.length = 17
   singleton_verified_iff :
     allShimsVerified [s] = (s.preservesStorageSafety && s.coveredByDenote)
 
@@ -321,7 +298,7 @@ theorem uniswapV4VerifiedShims_all_verified :
     preservesStorageSafety := true, coveredByDenote := true }).registry_all_verified
 
 theorem uniswapV4VerifiedShims_length :
-    uniswapV4VerifiedShims.length = 18 :=
+    uniswapV4VerifiedShims.length = 17 :=
   (inlineAssemblyShims_satisfies_metaSpec {
     kind := .customRevertSelector, libraryName := "", functionName := "",
     preservesStorageSafety := true, coveredByDenote := true }).registry_card

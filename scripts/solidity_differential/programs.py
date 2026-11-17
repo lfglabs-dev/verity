@@ -1152,6 +1152,25 @@ def stateful_inline_array_literal_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown inline-array-literals variant: {variant}')
 
 
+def stateful_helper_name_independence_source(fixture: str, variant: str) -> str:
+    """An internal helper is modeled by its body: renaming or inlining it is unobservable."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        if fixture.count('calculatePositionKey') != 2:
+            raise ValueError('missing helper-name-independence helper anchor')
+        return fixture.replace('calculatePositionKey', 'combineWords')
+    if variant == 'inlined':
+        call = ('key = calculatePositionKey(address(uint160(x >> 96)), lower, upper, '
+                'bytes32(x << 200));')
+        body = ('key = bytes32((uint256(uint160(address(uint160(x >> 96)))) << 48) | '
+                '((uint256(uint24(upper)) << 24) | uint256(uint24(lower)))) ^ bytes32(x << 200);')
+        if fixture.count(call) != 1:
+            raise ValueError('missing helper-name-independence call anchor')
+        return fixture.replace(call, body)
+    raise ValueError(f'unknown helper-name-independence variant: {variant}')
+
+
 def stateful_dynamic_memory_array_source(fixture: str, variant: str) -> str:
     """Compare T[] / T[][] memory reference semantics with renamed and explicit forms."""
     if variant == 'baseline':

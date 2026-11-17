@@ -8968,20 +8968,6 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let mut pre := boundPre
   modify fun e => { e with yulNames := yul }
   noteFn fn
-  if (← get).stateVars.size > 1 && optStr fn "name" == some "calculatePositionKey" && args.size == 4 then
-    let p0Id ← mNat (← mField params[0]! "id")
-    let p1Id ← mNat (← mField params[1]! "id")
-    let p2Id ← mNat (← mField params[2]! "id")
-    let p3Id ← mNat (← mField params[3]! "id")
-    let some e0 := (← get).values.find? p0Id | failAt fn "missing owner"
-    let some e1 := (← get).values.find? p1Id | failAt fn "missing tickLower"
-    let some e2 := (← get).values.find? p2Id | failAt fn "missing tickUpper"
-    let some e3 := (← get).values.find? p3Id | failAt fn "missing salt"
-    let resVal ← lowerPositionKeyShim e0 e1 e2 e3
-    modify fun e =>
-      { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-    return { pre := pre ++ resVal.pre, expr := resVal.expr }
   let stmts ← mArr (← mField body "statements")
   -- Retain the existing direct-result lowering for a single terminal
   -- assembly assignment. A named variable needed by a continuation gets a
