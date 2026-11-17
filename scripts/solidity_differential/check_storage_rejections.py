@@ -19,6 +19,7 @@ MEMORY_WRITE_HELPERS = (
 # Root ABI parameter controls: the `function` line of each case's import.
 ROOT_PARAM_SIGNATURES = {
     'root-param-string-member-accepted': 'checked(S)',
+    'root-param-string-member-staticcall-rejected': 'checked(S)',
 }
 
 
@@ -605,6 +606,13 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
+        # A `string` struct member re-encoded into a typed-interface staticcall
+        # stays rejected until that encoding has differential coverage.
+        ('root-param-string-member-staticcall-rejected',
+         "pragma solidity 0.8.34;\ninterface IL {\n  struct S { uint16 a; string s; }\n  function len(S calldata x) external view returns (uint256);\n}\ncontract C {\n  uint256 private v;\n  function checked(IL.S calldata x) external view returns (uint256) {\n    uint256 r = IL(address(this)).len(x);\n    return r + v;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] typed interface staticcall struct arguments with string members are outside this slice'),
         ('bytes-param-calldata-accepted',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes calldata b) external pure returns (uint256) { return b.length; }\n}\n",
          None,

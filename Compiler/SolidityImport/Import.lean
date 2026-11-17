@@ -6873,6 +6873,10 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
           | .ok schema =>
               unless schema.any AbiSchema.isDynamicMember do
                 failAt j "typed interface staticcall arguments are outside this slice"
+              -- `string` members are admitted for decoded parameters only; their
+              -- re-encoding into a typed call has no differential coverage yet.
+              if AbiSchema.membersHaveString schema then
+                failAt arg "typed interface staticcall struct arguments with string members are outside this slice"
               hasDynamicArg := true
           | .error _ =>
               failAt j "typed interface staticcall arguments are outside this slice"
