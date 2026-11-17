@@ -977,7 +977,7 @@ SPEC['expected_job_timeouts']['foundry'] = 45
 
 # ci-gate: the single required status check on main.
 CI_GATE_NEEDS = ['changes', 'checks', 'build', 'build-audits', 'import-mutations',
-                 'build-compiler-binaries', 'compiler-audits', 'compiler-regressions',
+                 'importer-differential', 'build-compiler-binaries', 'compiler-audits', 'compiler-regressions',
                  'foundry-gas-calibration', 'foundry', 'foundry-patched', 'foundry-multi-seed']
 SPEC['pull_request_unfiltered'] = True
 SPEC['expected_jobs'].append('ci-gate')
@@ -987,3 +987,49 @@ SPEC['expected_job_if_conditions']['ci-gate'] = (
 SPEC['expected_job_runs_on']['ci-gate'] = 'ubuntu-latest'
 SPEC['expected_job_timeouts']['ci-gate'] = 5
 SPEC['expected_job_permissions']['ci-gate'] = {'contents': 'read'}
+
+# Importer-only PRs skip the compiler/Foundry lane (no compiler executable imports
+# Compiler.SolidityImport) and run the importer slice comparisons here instead.
+SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index('import-mutations') + 1, 'importer-differential')
+SPEC['heavy_runner_jobs'].insert(SPEC['heavy_runner_jobs'].index('build') + 1, 'importer-differential')
+SPEC['expected_job_needs']['importer-differential'] = ['changes', 'checks', 'build']
+SPEC['expected_job_needs']['failure-hints'].insert(
+    SPEC['expected_job_needs']['failure-hints'].index('import-mutations') + 1, 'importer-differential')
+SPEC['expected_job_if_conditions']['importer-differential'] = (
+    "needs.checks.result == 'success' && needs.build.result == 'success' && "
+    "needs.changes.outputs.importer == 'true'")
+SPEC['expected_job_runs_on']['importer-differential'] = 'lean-16vcpu-ubuntu-2604'
+SPEC['expected_job_timeouts']['importer-differential'] = 45
+SPEC['expected_job_outputs']['changes']['importer'] = '${{ steps.effective.outputs.importer }}'
+
+_eff = next(st for st in SPEC['expected_step_contracts']['changes'] if st.get('id') == 'effective')
+_eff['env'] = {'FORCE_FULL_RUN': '${{ env.VERIFY_FORCE_FULL_RUN }}', 'CODE_CHANGED': '${{ steps.filter.outputs.code }}', 'BUILD_CHANGED': '${{ steps.filter.outputs.build }}', 'COMPILER_CHANGED': '${{ steps.filter.outputs.compiler }}', 'CHANGED_FILES': '${{ steps.filter.outputs.changed_files }}', 'IMPORTER_CHANGED': '${{ steps.filter.outputs.importer }}', 'EVENT_NAME': '${{ github.event_name }}', 'FULL_TIER': "${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}"}
+_eff['run'] = '# FULL_TIER uses the same tier test as compiler-regressions: main pushes,\n# nightly, dispatch and ci:full PRs.\n# `compiler` is decided per changed file here, not by the paths-filter\n# output: with the default `some` quantifier a `!Verity/Proofs/**` entry\n# matches every file outside Verity/Proofs, so any change (docs too) used\n# to count as a compiler change. The list below is the filter\'s intent.\n# Importer paths are excluded: the compiler executables, Contracts and the\n# Foundry suites never import Compiler.SolidityImport (checked against\n# their Lake import cones), and `importer-differential` covers them.\n# A lakefile.lean change counts as importer-only when every changed line\n# names a SolidityImportSmoke target (pull requests only; pushes stay strict).\n# On the full tier an importer change still counts as a compiler change, so\n# compiler-regressions (stateful checks, import coverage) keeps running there.\nlakefile_only_smoke() {\n  [ "$EVENT_NAME" = "pull_request" ] || return 1\n  git rev-parse --verify -q HEAD^1 >/dev/null || return 1\n  ! git diff HEAD^1 HEAD -- lakefile.lean \\\n    | grep -E \'^[+-]\' | grep -vE \'^(\\+\\+\\+|---)\' \\\n    | grep -vE \'SolidityImportSmoke|^[+-][[:space:]]*$\' | grep -q .\n}\nis_compiler_path() {\n  case "$1" in\n    Verity/Proofs/*|Compiler/Proofs/*|Contracts/*/Proofs/*) return 1 ;;\n    Compiler/SolidityImport/*|Contracts/SolidityImportSmoke/*) return 1 ;;\n    .github/actions/*|.github/workflows/verify.yml) return 0 ;;\n    Verity/*|Compiler/*|Compiler.lean|Contracts/*|Contracts.lean|examples/*|packages/*|test/*) return 0 ;;\n    lake-manifest.json|lean-toolchain|foundry.toml) return 0 ;;\n    scripts/check_gas.py|scripts/check_patch_gas_delta.py|scripts/check_selectors.py|scripts/check_yul.py) return 0 ;;\n    scripts/keccak256.py|scripts/lean_cc_ccache_clang.sh|scripts/property_utils.py) return 0 ;;\n    lakefile.lean) lakefile_only_smoke && return 1; return 0 ;;\n  esac\n  return 1\n}\ncompiler_needed=false\neval "set -- $CHANGED_FILES"\nfor f in "$@"; do\n  if is_compiler_path "$f"; then\n    echo "compiler path changed: $f"\n    compiler_needed=true\n    break\n  fi\ndone\nif [ "$FULL_TIER" = "true" ] && [ "$IMPORTER_CHANGED" = "true" ]; then\n  echo "importer change on the full tier: running the compiler jobs"\n  compiler_needed=true\nfi\n\nif [ "$FORCE_FULL_RUN" = "true" ]; then\n  code=true\n  build=true\n  compiler=true\nelse\n  code="$CODE_CHANGED"\n  build="$BUILD_CHANGED"\n  compiler="$compiler_needed"\nfi\n# compiler-regressions already runs the same slice comparisons on the full tier.\nimporter="$IMPORTER_CHANGED"\nif [ "$FORCE_FULL_RUN" = "true" ] || [ "$FULL_TIER" = "true" ]; then importer=false; fi\n\n{\n  echo "code=$code"\n  echo "build=$build"\n  echo "compiler=$compiler"\n  echo "importer=$importer"\n} >> "$GITHUB_OUTPUT"'
+
+def _insert_after(mapping, after, key, value):
+    out = {}
+    for k, v in mapping.items():
+        out[k] = v
+        if k == after:
+            out[key] = value
+    return out
+
+def _insert_before(mapping, before, key, value):
+    out = {}
+    for k, v in mapping.items():
+        if k == before:
+            out[key] = value
+        out[k] = v
+    return out
+
+SPEC['expected_uploaded_artifacts'] = _insert_before(
+    SPEC['expected_uploaded_artifacts'], 'build-compiler-binaries', 'importer-differential',
+    ['solidity-import-differential-pr'])
+SPEC['expected_uploaded_artifact_paths'] = _insert_before(
+    SPEC['expected_uploaded_artifact_paths'], 'build-compiler-binaries', 'importer-differential',
+    ['.lake/import-differential/**'])
+SPEC['expected_downloaded_artifacts'] = _insert_after(
+    SPEC['expected_downloaded_artifacts'], 'import-mutations', 'importer-differential',
+    ['lean-workspace-build'])
+SPEC['expected_downloaded_artifact_paths'] = _insert_after(
+    SPEC['expected_downloaded_artifact_paths'], 'import-mutations', 'importer-differential', [None])
