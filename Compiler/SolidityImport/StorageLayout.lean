@@ -231,7 +231,8 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
             failAt mNode s!"unsupported storage struct dynamic array member {mName} : {mTy}"
           let elemInfo ← resolveRawStructInfo elemSid.toNat mNode
           unless elemInfo.mappings.isEmpty && elemInfo.dynamicArrays.isEmpty &&
-              elemInfo.subStructs.isEmpty && !elemInfo.scalars.isEmpty && elemInfo.wordCount > 0 do
+              elemInfo.subStructs.isEmpty && elemInfo.opaqueMemberNames.isEmpty &&
+              !elemInfo.scalars.isEmpty && elemInfo.wordCount > 0 do
             failAt mNode s!"unsupported storage struct dynamic array member {mName} : {mTy}"
           pure (baseTy, ParamType.uint256, SolidityAbi.ScalarKind.bytes32, some elemSid.toNat)
         else
@@ -411,7 +412,8 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
           let some sid := resolveStructIdFromSolcType? (← get) baseKey | return none
           let rawInfo ← try resolveRawStructInfo sid Json.null catch _ => return none
           unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty &&
-              rawInfo.subStructs.isEmpty && !rawInfo.scalars.isEmpty && rawInfo.wordCount > 0 do
+              rawInfo.subStructs.isEmpty && rawInfo.opaqueMemberNames.isEmpty &&
+              !rawInfo.scalars.isEmpty && rawInfo.wordCount > 0 do
             return none
           unless (← mNat (← mField base "numberOfBytes")) == rawInfo.wordCount * 32 do
             return none
