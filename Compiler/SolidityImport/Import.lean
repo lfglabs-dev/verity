@@ -13920,9 +13920,10 @@ private partial def recordUsedEvent (callee : Json) (id : Nat) (definition : Eve
 non-indexed arguments are ABI-encoded exactly as `abi.encode(...)` into memory and
 logged by the closed log transport with solc's event selector as topic 0. Indexed
 parameters must be total value-type expressions; they become cleaned topic words.
-Struct arguments must be memory struct variables, and a `string` argument that precedes
-an indexed argument must be a variable or literal: topics are lowered before the data,
-while solc evaluates event arguments left to right, so no evaluation order is chosen. -/
+Struct arguments must be memory struct variables. In an event with a `string` parameter,
+every non-indexed argument that precedes an indexed argument must be a variable or literal:
+topics are lowered before the data, while solc evaluates event arguments left to right, so
+no evaluation order is chosen. -/
 private partial def lowerStructEmit (callee declaration : Json) (name : String)
     (parameters arguments : Array Json) (id : Nat) : M (Array Stmt) := do
   let some selector := optStr declaration "eventSelector"
@@ -13935,19 +13936,21 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
   let mut pre : Array Stmt := #[]
   let mut data : Array Json := #[]
   let mut lastIndexed : Option Nat := none
+  let mut hasString := false
   for index in [:parameters.size] do
     if ← mBool (← mField parameters[index]! "indexed") then
       lastIndexed := some index
+    if (← mType parameters[index]!) == "string" then
+      hasString := true
   for index in [:parameters.size] do
     let parameter := parameters[index]!
     let argument := arguments[index]!
     let ty ← mType parameter
     let parameterName ← mStr (← mField parameter "name")
-    if ty == "string" && !(← mBool (← mField parameter "indexed")) &&
-        lastIndexed.any (index < ·) then
+    if hasString && !(← mBool (← mField parameter "indexed")) && lastIndexed.any (index < ·) then
       let kind ← mKind argument
       unless kind == "Identifier" || kind == "Literal" do
-        failAt argument "string event arguments before an indexed argument must be variables or literals"
+        failAt argument "event data arguments before an indexed argument must be variables or literals"
     if ← mBool (← mField parameter "indexed") then
       if ty.startsWith "struct " then
         failAt parameter "indexed struct event parameters are unsupported"

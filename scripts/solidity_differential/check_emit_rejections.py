@@ -100,6 +100,33 @@ def main():
       'event E(bytes16 value);',
       'emit E(bytes16(bytes32(x))); return x;',
       'unsupported event parameter type bytes16'),
+     ('string-data',
+      'uint256',
+      'event E(uint64 indexed id, string label);',
+      'string memory label = "a label"; emit E(uint64(x), label); emit E(1, "literal"); return x;',
+      None),
+     ('string-variable-before-indexed',
+      'uint256',
+      'event E(string note, uint256 indexed value, string tail);',
+      'string memory note = "n"; emit E(note, x, string.concat(note, note)); return x;',
+      None),
+     ('string-computed-before-indexed',
+      'uint256',
+      'event E(string note, uint256 indexed value); function tag(uint256 v) internal pure returns (string memory) '
+      '{ require(v != 7, "seven"); return "t"; }',
+      'emit E(tag(x), x); return x;',
+      'event data arguments before an indexed argument must be variables or literals'),
+     ('string-event-scalar-before-indexed',
+      'uint256',
+      'event E(uint256 a, uint256 indexed b, string s); function inc(uint256 v) internal pure returns (uint256) '
+      '{ return v + 1; }',
+      'emit E(inc(x), x, "s"); return x;',
+      'event data arguments before an indexed argument must be variables or literals'),
+     ('string-indexed',
+      'uint256',
+      'event E(uint256 value, string indexed name);',
+      'emit E(x, "n"); return x;',
+      'unsupported event parameter type string'),
      ('empty', 'uint256', 'event E();', 'emit E(); return x;', None)]
     for name, parameter_type, fields, body, expected in cases:
         returns = parameter_type

@@ -1435,7 +1435,7 @@ contract C {
 ''')
     elif name == 'import-string-event-data-before-indexed-guard':
         # solc evaluates event arguments left to right; the importer lowers topics first.
-        diagnostic = 'string event arguments before an indexed argument must be variables or literals'
+        diagnostic = 'event data arguments before an indexed argument must be variables or literals'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
  event Before(string note, uint256 indexed value);
