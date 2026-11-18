@@ -869,6 +869,18 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(check_iface_prefix[:remaining_budget])
+    if 'lockSelector(bytes4)' in source['methodIdentifiers']:
+        # Root `bytes4` custom-error argument: zero (no revert), set bytes, and a dirty low byte
+        # (ABI validation reverts before the body).
+        lock_selector_prefix = [
+            ('lockSelector(bytes4)', [0]),
+            ('lockSelector(bytes4)', [0xdeadbeef << 224]),
+            ('lockSelector(bytes4)', [0xffffffff << 224]),
+            ('lockSelector(bytes4)', [(0x12345678 << 224) | 1]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(lock_selector_prefix[:remaining_budget])
     if 'royaltyAndHolderCheck(uint256,uint256)' in source['methodIdentifiers']:
         royalty_prefix = [
             ('royaltyAndHolderCheck(uint256,uint256)', [0, 10000]),
@@ -1431,6 +1443,8 @@ def main():
                 [64, 250, 15, 64, 2, 7, 3, 1, 13, 5, 0],
                 [64, 100, 10, 64, 1, 7, 1 << 64, 1],
             ])
+        elif name == 'lockSelector(bytes4)':
+            call_args = [rng.choice([0, 0xdeadbeef << 224, 1 << 224, (0x12345678 << 224) | 1])]
         elif name == 'checkInterface(bytes4,uint256)':
             call_args = rng.choice([
                 [0x01ffc9a7 << 224, 7],

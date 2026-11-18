@@ -11,6 +11,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "CustomError
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)
+  function lockSelector(bytes4)
   function fail()
   function read()
 def model : CompilationModel := imported.model
