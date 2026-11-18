@@ -63,6 +63,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "scalar-array-abi-rejections",
     "scoped",
     "storage",
+    "storage-byte-constant-conversions",
     "storage-bytes",
     "storage-bytes-named-return-slice-struct",
     "storage-bytes-named-return-stateless",

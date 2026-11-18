@@ -2343,6 +2343,30 @@ private partial def unparenJson (j : Json) : Json :=
     | _ => j
   else j
 
+/-- The literal a `bytes`/`string` constant initializer denotes: a string or hex literal,
+possibly parenthesized or wrapped in `bytes(…)` / `string(…)` conversions (which keep the
+bytes), or a named constant with such an initializer. `none` for anything else. -/
+private partial def constantByteLiteral? (j : Json) (seen : List Nat := []) : M (Option Json) := do
+  let node := unparenJson j
+  match ← mKind node with
+  | "Literal" => pure (some node)
+  | "FunctionCall" =>
+      unless optStr node "kind" == some "typeConversion" do return none
+      unless (← mKind (← mField node "expression")) == "ElementaryTypeNameExpression" do
+        return none
+      let target ← mType node
+      unless target == "bytes memory" || target == "string memory" do return none
+      let args ← mArr (← mField node "arguments")
+      unless args.size == 1 do return none
+      constantByteLiteral? args[0]! seen
+  | "Identifier" =>
+      let id ← refInt node
+      unless id ≥ 0 && !seen.contains id.toNat do return none
+      let some decl := (← get).stateVars.find? id.toNat | return none
+      unless (field? decl "constant").bind (·.getBool?.toOption) == some true do return none
+      constantByteLiteral? (← mField decl "value") (id.toNat :: seen)
+  | _ => pure none
+
 /-- The `call` member of `target.call(...)` or `target.call{...}(...)` on an
 address-typed receiver. -/
 private def lowLevelCallMember? (call : Json) : M (Option Json) := do
@@ -5842,9 +5866,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       | failAt j "only literal constants are supported as named byte buffers"
     if (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true then
       let value ← mField decl "value"
-      unless (← mKind value) == "Literal" do
-        failAt value "byte constant must have a literal initializer"
-      return ← lowerEncodedBytes value
+      let some literal ← constantByteLiteral? value
+        | failAt value "byte constant must have a literal initializer"
+      return ← lowerEncodedBytes literal
     if optStr decl "mutability" == some "immutable" then
       let name ← mStr (← mField decl "name")
       failAt j s!"immutable state variable {name} is outside this slice"
@@ -15325,9 +15349,9 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
     let declared ← mType varDecl
     let initializer ← mField varDecl "value"
     if declared == "string" || declared == "bytes" then
-      unless (← mKind initializer) == "Literal" do
-        failAt initializer "byte constant must have a literal initializer"
-      let buf ← lowerEncodedBytes initializer
+      let some literal ← constantByteLiteral? initializer
+        | failAt initializer "byte constant must have a literal initializer"
+      let buf ← lowerEncodedBytes literal
       let stem ← fresh
       let memStem := s!"_verity_memret_{stem}"
       let dataBinding := s!"{memStem}_data_offset"

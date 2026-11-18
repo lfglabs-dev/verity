@@ -964,6 +964,35 @@ def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-modulo variant: {variant}')
 
 
+def stateful_byte_constant_conversions_source(fixture: str, variant: str) -> str:
+    """Compare bytes(...) / string(...) byte-constant initializers with their literal forms."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = set(['HEX_BYTES', 'NAME', 'NAME_BYTES', 'REVISION', 'ROUND_TRIP', 'h', 'last', 'total', 'x'])
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'literal-initializers':
+        replacements = {
+            '= bytes("1");':
+            '= "1";',
+            '= bytes(NAME);':
+            '= "Verity";',
+            '= bytes(hex"0102ff");':
+            '= hex"0102ff";',
+            '= string(bytes("ab"));':
+            '= "ab";',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing byte-constant-conversions fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown byte-constant-conversions variant: {variant}')
+
+
 def stateful_bytes_named_return_slice_struct_source(fixture: str, variant: str) -> str:
     """Compare named `bytes memory` returns, calldata-slice helper arguments and
     a bytes-member memory struct with the unnamed-return, inline-slice dialect.

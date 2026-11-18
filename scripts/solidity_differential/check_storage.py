@@ -12,6 +12,7 @@ from .programs import (
     stateful_access_manager_target_role_source,
     stateful_array_string_params_and_context_source,
     stateful_array_write_order_source,
+    stateful_byte_constant_conversions_source,
     stateful_bytes_and_string_storage_source,
     stateful_bytes_memory_and_abi_encode_call_source,
     stateful_bytes_named_return_slice_struct_source,
@@ -119,6 +120,7 @@ FIXTURE_CONTRACTS = {
     'access-manager-target-role': 'AccessManagerTargetRoleSequence',
     'array-string-params-and-context': 'ArrayStringParamsAndContextSequence',
     'array-write-order': 'FixedArrayWriteOrderSequence',
+    'byte-constant-conversions': 'ByteConstantConversionSequence',
     'bytes': 'StorageBytesSequence',
     'bytes-and-string-storage': 'BytesAndStringStorageSequence',
     'bytes-memory-and-abi-encode-call': 'BytesMemoryAndAbiEncodeCallSequence',
@@ -344,6 +346,8 @@ def main():
         variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'signed-modulo':
         variants = ('baseline', 'renamed', 'truncated-quotient')
+    if args.fixture == 'byte-constant-conversions':
+        variants = ('baseline', 'renamed', 'literal-initializers')
     if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return'):
         variants = ('baseline', 'renamed', 'unnamed-returns')
     if args.fixture == 'if-else':
@@ -425,6 +429,7 @@ def main():
                           else stateful_helper_name_independence_source(fixture, variant) if args.fixture == "helper-name-independence"
                           else stateful_dynamic_memory_array_source(fixture, variant) if args.fixture == "dynamic-memory-arrays"
                           else stateful_signed_modulo_source(fixture, variant) if args.fixture == "signed-modulo"
+                          else stateful_byte_constant_conversions_source(fixture, variant) if args.fixture == "byte-constant-conversions"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
@@ -449,6 +454,8 @@ def main():
             # reduction), the narrow int8 range, and both min % -1 parities.
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 127, 128, 255, 256,
                      261888, 261889, 523775, 523776, 8380416, 8380417, (1 << 256) - 1])]
+        if args.fixture == 'byte-constant-conversions':
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 5, 6, 15, 30, 99, 100])]
         if args.fixture == 'bytes-named-return-slice-struct':
             # Every `x % 3` arm of the named-return helper (unassigned, early
             # `return out`, assigned) and the uint8 truncation boundary.
