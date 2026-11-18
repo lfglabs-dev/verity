@@ -9,7 +9,7 @@ set_option autoImplicit false
 Construct-generic classifiers over `CompilationModel.Stmt` and
 `Compiler.ECM.ExternalCallModule` used by `Compiler.SolidityImport.Import`:
 * Closed byte-transport recognizers (`isClosedLowLevelCall`, `isClosedExtCodeSize`,
-  `isClosedExtCodeCopy`, `isClosedReturnMemory`, `isClosedStaticCall`,
+  `isClosedExtCodeCopy`, `isClosedReturnMemory`, `isClosedRevertMemory`, `isClosedStaticCall`,
   `isClosedCreate2`, `isClosedLog`)
 * CEI and reentrancy barrier erasure / window classifiers (`eraseClosedStaticCalls`,
   `eraseClosedTransports`, `onlyClosedTransportCEIBarriers`,
