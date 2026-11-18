@@ -200,7 +200,10 @@ inductive CallArg where
   | stringBuffer (buffer : EncodedBytes)
   | calldataBytes (descriptor : CalldataBytesParam) (pre : Array Stmt)
   | storagePath (structId : Nat) (path : SPath) (pre : Array Stmt)
+  /-- `byRef`: the argument is a caller's own memory struct local, not a struct built in the
+  argument, so the helper must not write or return it (see `Env.byRefFlatStructs`). -/
   | flatStruct (structId : Nat) (structName : String) (members : Array (String × String × Expr)) (pre : Array Stmt)
+      (byRef : Bool)
   | storageBytes (target : String × Expr × Array Stmt) (isString : Bool)
   | storageDynamicArray (fieldName : String) (slotExpr : Expr) (elemTy : String) (elemStructId : Option Nat) (pre : Array Stmt)
   | fnPtr (ptr : FnPtr) (pre : Array Stmt)

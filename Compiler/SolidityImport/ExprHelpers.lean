@@ -133,6 +133,9 @@ structure Env where
   snapshots : RBMap Nat (Array Expr) compare := RBMap.empty
   mems : RBMap Nat MemParam compare
   flatStructs : RBMap Nat FlatStructLocal compare := RBMap.empty
+  /-- Memory struct parameters bound from a caller's own memory struct: the binding is a copy,
+  so member writes and returning the parameter (which alias the caller's struct) are rejected. -/
+  byRefFlatStructs : List Nat := []
   abiElements : RBMap Nat AbiElementLocal compare := RBMap.empty
   calldataBytes : RBMap Nat CalldataBytesParam compare := RBMap.empty
   scalarArrays : RBMap Nat ScalarArrayParam compare := RBMap.empty
