@@ -10,6 +10,9 @@ from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, com
 from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
+    'import-event-checked-competing-guard': (
+        'if checkedGuard && guardedArguments.size > 1 then',
+        'if false then'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),
     'import-void-fallthrough': ('out := out.push .stop', 'out := out.push (.require (.literal 0) "mutated void return") |>.push .stop'),
@@ -520,6 +523,8 @@ def run(directory, output, name):
         fixture = "AccessManagerTargetRoleSequence"
     if name == 'import-bare-empty-revert':
         fixture = 'EmptyRevertSequence'
+    if name == 'import-event-checked-competing-guard':
+        fixture = 'EventNestedMappingReadSequence'
     if name.startswith("import-governor-slice-proposer-delay-"):
         fixture = "GovernorSliceProposerDelaySequence"
     if name.startswith("import-create2-clones-msgdata-deque-"):
@@ -1307,6 +1312,16 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-event-checked-competing-guard':
+        # Two event arguments that can revert differently: via-IR and legacy codegen
+        # evaluate event arguments in different orders.
+        diagnostic = 'event arguments with competing revert paths require explicit evaluation-order support'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ event E(uint256 a, uint256 b);
+ function checked(uint256 x) external { emit E(100 / x, x - 1); }
+}
+''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':
         diagnostic = 'event direct parameter type differs from its declaration'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1427,7 +1442,8 @@ def mutation_campaign(output, selected=None):
                                   'import-ecdsa-merkle-checkpoints-storage-slot-unaligned-byte-mload-guard',
                                   'import-create2-clones-msgdata-deque-nonempty-pop-loop-body-guard',
                                   'import-governor-slice-proposer-delay-unaligned-tail-offset-guard',
-                                  'import-access-manager-target-role-narrow-bytes-event-guard'}
+                                  'import-access-manager-target-role-narrow-bytes-event-guard',
+                                  'import-event-checked-competing-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)

@@ -32,6 +32,7 @@ from .programs import (
     stateful_encoded_byte_local_source,
     stateful_enumerable_set_map_storage_arrays_source,
     stateful_erc2981_holders_arrays_msghash_source,
+    stateful_event_nested_mapping_read_source,
     stateful_exp_and_bitwise_shift_source,
     stateful_fixed_array_source,
     stateful_fixed_memory_array_source,
@@ -143,6 +144,7 @@ FIXTURE_CONTRACTS = {
     'encoded-byte-locals': 'EncodedByteLocalSequence',
     'enumerable-set-map-storage-arrays': 'EnumerableSetMapSequence',
     'erc2981-holders-arrays-msghash': 'ERC2981HoldersArraysMsgHashSequence',
+    'event-nested-mapping-read': 'EventNestedMappingReadSequence',
     'exp-and-bitwise-shifts': 'ExpAndBitwiseShiftSequence',
     'fixed-arrays': 'MappingFixedArraySequence',
     'fixed-memory-arrays': 'FixedMemoryArraySequence',
@@ -229,6 +231,8 @@ def main():
     variants = ('baseline', 'bindings', 'reordered' if args.fixture in ('packed', 'mapping') else 'expression')
     if args.fixture == 'empty-revert':
         variants = ('baseline', 'renamed', 'expression')
+    if args.fixture == 'event-nested-mapping-read':
+        variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'short-circuit':
         variants = ('baseline', 'conditional', 'de-morgan')
     if args.fixture in ('numeric-literals', 'constant-arrays'):
@@ -372,6 +376,7 @@ def main():
         source = directory / 'Sequence.sol'
         source.write_text(stateful_imported_event_source(fixture, variant, args.fixture == "narrow-event") if args.fixture in ("imported-event", "narrow-event")
                           else stateful_empty_revert_source(fixture, variant) if args.fixture == "empty-revert"
+                          else stateful_event_nested_mapping_read_source(fixture, variant) if args.fixture == "event-nested-mapping-read"
                           else stateful_access_manager_target_role_source(fixture, variant) if args.fixture == "access-manager-target-role"
                           else stateful_governor_slice_proposer_delay_source(fixture, variant) if args.fixture == "governor-slice-proposer-delay"
                           else stateful_unchecked_blocks_source(fixture, variant) if args.fixture == "unchecked-blocks"
