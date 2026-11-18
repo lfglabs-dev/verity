@@ -20,6 +20,11 @@ STORAGE_ARRAY_GROW = (
     'uint256[] internal _list; uint256 internal _a; uint256 internal _b; '
     'function _grow() internal returns (uint256) { _list.push(7); return _list.length; }')
 
+# A mapping of structs with a storage array member, and a non-view helper.
+STORAGE_ARRAY_KEY_BUMP = (
+    'struct S { uint256[] list; } mapping(uint256 => S) _s; uint256 total = 1; uint256 _k; '
+    'function _bump() internal returns (uint256) { total = 2; _s[0].list.push(5); return 0; }')
+
 # Storage scalar and string state variables written by a non-view helper.
 STORAGE_WORD_STRING_BUMP = (
     'uint256 total = 1; string _name = "old"; '
@@ -327,6 +332,16 @@ def main():
          'effectful ABI encoding argument is unsupported'),
         ('dynamic-tuple-return-storage-string-then-write', STORAGE_WORD_STRING_BUMP,
          'return (_name, _bump());', 'string memory, uint256',
+         'effectful ABI encoding argument is unsupported'),
+        # An effect in the storage array's own key runs before the copy, but a
+        # deferred earlier head would be read after it.
+        ('storage-array-key-call', STORAGE_ARRAY_KEY_BUMP, 'return (total, _s[_bump()].list);', 'uint256, uint256[] memory',
+         'effectful ABI encoding argument is unsupported'),
+        ('storage-array-key-increment', STORAGE_ARRAY_KEY_BUMP, 'return (x, _s[x++].list);', 'uint256, uint256[] memory',
+         'effectful ABI encoding argument is unsupported'),
+        ('storage-array-key-assignment', STORAGE_ARRAY_KEY_BUMP, 'return (_k, _s[_k = 3].list);', 'uint256, uint256[] memory',
+         'effectful ABI encoding argument is unsupported'),
+        ('storage-array-key-encode', STORAGE_ARRAY_KEY_BUMP, 'return uint256(keccak256(abi.encode(total, _s[_bump()].list)));', 'uint256',
          'effectful ABI encoding argument is unsupported'),
     ]
     for name, fields, body, returns, expected in cases:

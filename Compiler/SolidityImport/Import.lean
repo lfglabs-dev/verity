@@ -6165,6 +6165,10 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           -- solc evaluates every argument before it copies the storage array
           -- while encoding; the copy here runs at the argument's position.
           let env ← get
+          -- An effect in the array's own path (a mapping key) runs before
+          -- earlier heads that are read as deferred expressions.
+          if args.size > 1 && (assignmentIn arg || statefulCallIn arg env || jsonHasCustomRevert env [] arg) then
+            failAt arg "effectful ABI encoding argument is unsupported"
           if let some later := (args.extract (argIdx + 1) args.size).find? fun a =>
               assignmentIn a || statefulCallIn a env then
             failAt later "state-writing ABI encoding argument after a storage array is unsupported"
