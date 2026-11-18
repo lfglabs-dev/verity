@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-// Event arguments that read a member of a mapping nested in a mapped storage struct (the
-// slot derivation hashes through scratch memory 0x00/0x20 inside the argument prelude), and
-// a single checked-arithmetic event argument, which panics before the log on underflow.
+// Event arguments that read a member of a mapping nested in a mapped storage struct: the
+// slot derivation hashes through scratch memory 0x00/0x20 inside the argument prelude. One
+// read is keyed by a bounds-checked memory array element, which panics before the log.
 contract SequenceFixture {
     struct Entry {
         uint128 index;
@@ -19,7 +19,7 @@ contract SequenceFixture {
 
     event Updated(address indexed owner, address indexed key, uint256 rate);
     event Pair(uint256 first, uint256 second, uint128 index);
-    event Accrued(uint256 delta, address indexed owner, uint256 rate);
+    event Picked(address indexed owner, uint256 rate);
 
     function change(uint256 next) external returns (uint256) {
         saved = next;
@@ -30,7 +30,9 @@ contract SequenceFixture {
         emit Updated(owner, key, groups[owner].entries[key].rate);
         emit Pair(groups[owner].entries[key].rate, groups[key].entries[owner].rate,
             groups[owner].entries[key].index);
-        emit Accrued(next - 3, owner, groups[owner].entries[key].rate);
+        address[2] memory picks = [owner, key];
+        uint256 pick = next % 4;
+        emit Picked(owner, groups[picks[pick]].entries[key].rate);
         return saved;
     }
 

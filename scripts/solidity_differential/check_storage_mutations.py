@@ -10,8 +10,8 @@ from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, com
 from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
-    'import-event-checked-competing-guard': (
-        'if checkedGuard && guardedArguments.size > 1 then',
+    'import-event-scratch-competing-guard': (
+        'if scratchGuard && guardedArguments.size > 1 then',
         'if false then'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),
@@ -523,7 +523,7 @@ def run(directory, output, name):
         fixture = "AccessManagerTargetRoleSequence"
     if name == 'import-bare-empty-revert':
         fixture = 'EmptyRevertSequence'
-    if name == 'import-event-checked-competing-guard':
+    if name == 'import-event-scratch-competing-guard':
         fixture = 'EventNestedMappingReadSequence'
     if name.startswith("import-governor-slice-proposer-delay-"):
         fixture = "GovernorSliceProposerDelaySequence"
@@ -1312,14 +1312,19 @@ contract C {
  }
 }
 ''')
-    elif name == 'import-event-checked-competing-guard':
+    elif name == 'import-event-scratch-competing-guard':
         # Two event arguments that can revert differently: via-IR and legacy codegen
         # evaluate event arguments in different orders.
         diagnostic = 'event arguments with competing revert paths require explicit evaluation-order support'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
- event E(uint256 a, uint256 b);
- function checked(uint256 x) external { emit E(100 / x, x - 1); }
+ struct S { mapping(uint256 => uint256) inner; uint256 total; }
+ mapping(uint256 => S) m;
+ event E(uint256 a, uint256 indexed b);
+ function checked(uint256 x) external {
+  uint256[3] memory arr = [uint256(1), 2, 3];
+  emit E(arr[x], m[arr[x]].inner[x]);
+ }
 }
 ''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':
@@ -1443,7 +1448,7 @@ def mutation_campaign(output, selected=None):
                                   'import-create2-clones-msgdata-deque-nonempty-pop-loop-body-guard',
                                   'import-governor-slice-proposer-delay-unaligned-tail-offset-guard',
                                   'import-access-manager-target-role-narrow-bytes-event-guard',
-                                  'import-event-checked-competing-guard'}
+                                  'import-event-scratch-competing-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)
