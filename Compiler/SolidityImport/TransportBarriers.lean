@@ -138,6 +138,62 @@ partial def eraseClosedTransports : Stmt → Stmt
 
 abbrev eraseNonCallClosedTransports := eraseClosedTransports
 
+/-- Replace the closed transports that change no account (code reads, staticcalls, logs,
+memory returns) by call-free statements. Every other interaction, including a low-level
+`CALL` and `create2`, is kept. -/
+partial def eraseAccountPreservingTransports : Stmt → Stmt
+  | .ecm mod args =>
+      if isClosedStaticCall mod || isClosedExtCodeSize mod || isClosedExtCodeHash mod ||
+          isClosedExtCodeCopy mod then
+        .letVar (mod.resultVars.headD "") (.literal 0)
+      else if isClosedLog mod then .ite (.literal 0) [] []
+      else if isClosedReturnMemory mod then .stop
+      else .ecm mod args
+  | .ite cond yes no =>
+      .ite cond (yes.map eraseAccountPreservingTransports) (no.map eraseAccountPreservingTransports)
+  | .forEach name count body => .forEach name count (body.map eraseAccountPreservingTransports)
+  | .forEachSetBit name bitmap body =>
+      .forEachSetBit name bitmap (body.map eraseAccountPreservingTransports)
+  | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseAccountPreservingTransports)
+  | .matchAdt adt scrutinee branches =>
+      .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
+        (tag, names, body.map eraseAccountPreservingTransports))
+  | statement => statement
+
+/-- `statement` may hand control to another account or create one, so the account world a
+later code-hash read observes may differ: a value transfer makes an empty account exist,
+`create2` gives an address code. -/
+def stmtMayChangeAccounts (statement : Stmt) : Bool :=
+  Compiler.CompilationModel.stmtOpensReentrancyWindow (eraseAccountPreservingTransports statement)
+
+/-- Result bindings of the closed code-hash reads of `statements` that run after a
+statement that may change accounts (`stmtMayChangeAccounts`), in program order, starting
+from `seen`; also whether such a statement has run at the end. Either branch of a
+conditional may have run, and a loop body's later iterations run after every account
+change in it. -/
+partial def codeHashesAfterChange (seen : Bool) (statements : List Stmt) : Bool × List String :=
+  statements.foldl (fun (seen, found) statement =>
+    let (seen', here) : Bool × List String := match statement with
+      | .ecm mod _ =>
+          match mod.byteTransport with
+          | some (.extCodeHash result) =>
+              if isClosedExtCodeHash mod then (seen, if seen then [result] else [])
+              else (seen || stmtMayChangeAccounts statement, [])
+          | _ => (seen || stmtMayChangeAccounts statement, [])
+      | .ite _ yes no =>
+          let (afterYes, foundYes) := codeHashesAfterChange seen yes
+          let (afterNo, foundNo) := codeHashesAfterChange seen no
+          (afterYes || afterNo, foundYes ++ foundNo)
+      | .forEach _ _ body | .forEachSetBit _ _ body =>
+          codeHashesAfterChange (seen || body.any stmtMayChangeAccounts) body
+      | .unsafeBlock _ body => codeHashesAfterChange seen body
+      | .matchAdt _ _ branches =>
+          branches.foldl (fun (after, acc) (_, _, body) =>
+            let (afterBody, foundBody) := codeHashesAfterChange seen body
+            (after || afterBody, acc ++ foundBody)) (seen, [])
+      | _ => (seen || stmtMayChangeAccounts statement, [])
+    (seen', found ++ here)) (seen, [])
+
 /-- A body whose only CEI barriers are closed transports. A log, code read or
 memory return hands control to no account; Denote admits `create2` only for checked
 initcode templates, which copy and return their payload without executing any

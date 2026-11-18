@@ -16,7 +16,14 @@ MESSAGES = {
     'error-argument': 'custom-error arguments currently require literals or scalar bindings',
     'self-alias': 'code hash of an account that may be the executing contract is unsupported',
     'self-alias-length': 'code length of an account that may be the executing contract is unsupported',
+    'after-call': 'code hash read after an external call or create2 is unsupported',
 }
+
+# A validated low-level call (the optional-bool return-data shape the importer admits).
+SAFE_CALL = ('(bool ok, bytes memory data) = account.call(abi.encodeCall(C.checked, (account)));\n'
+             '        if (!ok) {\n            assembly ("memory-safe") {\n'
+             '                revert(add(data, 0x20), mload(data))\n            }\n        }\n'
+             '        require(data.length == 0 || abi.decode(data, (bool)), Unbound());\n')
 
 HASH_HELPER = ('    function hashOf(address target) internal view returns (bytes32) {\n'
                '        return target.codehash;\n    }\n')
@@ -74,6 +81,12 @@ CASES = [
      '        for (uint256 i = 0; i < 2; i++) {\n            found = target.codehash;\n'
      '            target = address(this);\n        }\n        last = found;',
      ('target.codehash', 0, 'MemberAccess', 'self-alias')),
+    # The call can make an empty account exist (a value transfer), so a later code hash may
+    # differ from the model's account world. Reads before the call are admitted.
+    ('call-then-code-hash', SAFE_CALL + '        last = account.codehash;',
+     ('account.codehash;', 0, 'MemberAccess', 'after-call')),
+    ('code-hash-then-call', 'last = account.codehash;\n        ' + SAFE_CALL, None),
+    ('call-then-code-length', SAFE_CALL + '        counter = account.code.length;', None),
     # A self alias in one root does not reject a foreign alias of the same name in the next.
     ('second-root-name-reuse', 'address self = account;\n        last = self.codehash;', None),
 ]

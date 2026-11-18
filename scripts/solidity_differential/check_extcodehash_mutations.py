@@ -59,6 +59,10 @@ MUTANTS = {
     'import-code-read-self-alias': (EXPR_HELPERS,
         'if ← mayBeSelfAddress lowered.expr then failAt node message',
         'if false then failAt node message', 'admission', 'self-alias-code-hash'),
+    # The post-call guard: a code hash read after a low-level call imports again.
+    'import-code-hash-after-call-guard': (EXPR_HELPERS,
+        '    if late.contains result then',
+        '    if false && late.contains result then', 'admission', 'call-then-code-hash'),
     'import-code-hash-this-guard': (IMPORT,
         'if ← isThisAddressConv account then\n    failAt member',
         'if false then\n    failAt member', 'admission', 'this-code-hash'),

@@ -2162,10 +2162,14 @@ Trust boundary changes:
   that way, like a runtime argument equal to the executing contract's own
   address, is outside the validated domain.
 - The transport hands control to no account, so `eraseClosedTransports` erases
-  it for the CEI check. It is not admitted after a trailing low-level call
-  (`stmtAfterTrailingCall`): unlike code length, the call can change what it
-  observes, since a value transfer to an empty account makes it exist and moves
-  its hash from `0` to `keccak256("")`. No A/B/C case covers that sequence.
+  it for the CEI check. A call or `create2` can change what it observes (a value
+  transfer makes an empty account exist and moves its hash from `0` to
+  `keccak256("")`; `create2` gives an address code), and the model's account
+  world does not follow those changes, so a code-hash read that runs after such a
+  statement in program order rejects (`codeHashesAfterChange`, checked per root;
+  either branch of a conditional and every later loop iteration count). Reads
+  before the call are admitted. The transport is not admitted after a trailing
+  low-level call (`stmtAfterTrailingCall`) either.
 - Compilation keeps `proofStatus := .assumed`; agreement of the compiled model
   with solc and Denote is differential evidence (`ExtCodeHashSequence`, three
   equivalent variants over coded accounts, an account that exists through its
