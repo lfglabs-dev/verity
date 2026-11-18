@@ -24,6 +24,7 @@ STORAGE_FIXTURES = (
     'narrow-for-counters',
     'fixed-bytes-conversions',
     'msg-sig',
+    'yul-empty-revert',
     'fixed-memory-arrays',
     'inline-array-literals',
     'helper-name-independence',

@@ -88,6 +88,7 @@ from .programs import (
     stateful_while_clz_and_struct_loc_source,
     stateful_yul_block_mulmod_tstore_source,
     stateful_yul_builtins_and_encode_selector_source,
+    stateful_yul_empty_revert_source,
     stateful_yul_numeric_source,
 )
 
@@ -207,6 +208,7 @@ FIXTURE_CONTRACTS = {
     'while-clz-and-struct-loc': 'WhileClzAndStructLocSequence',
     'yul-block-mulmod-tstore': 'YulBlockMulmodTstoreSequence',
     'yul-builtins-and-encode-selector': 'YulBuiltinsAndEncodeSelectorSequence',
+    'yul-empty-revert': 'YulEmptyRevertSequence',
     'yul-numeric': 'YulNumericSequence',
 }
 
@@ -373,6 +375,8 @@ def main():
         variants = ('baseline', 'renamed', 'truncated-quotient')
     if args.fixture == 'byte-constant-conversions':
         variants = ('baseline', 'renamed', 'literal-initializers')
+    if args.fixture == 'yul-empty-revert':
+        variants = ('baseline', 'renamed', 'offsets')
     if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return',
                         'dynamic-array-root-returns', 'dynamic-array-root-returns-stateless'):
         variants = ('baseline', 'renamed', 'unnamed-returns')
@@ -461,6 +465,7 @@ def main():
                           else stateful_dynamic_memory_array_source(fixture, variant) if args.fixture == "dynamic-memory-arrays"
                           else stateful_signed_modulo_source(fixture, variant) if args.fixture == "signed-modulo"
                           else stateful_byte_constant_conversions_source(fixture, variant) if args.fixture == "byte-constant-conversions"
+                          else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
@@ -481,6 +486,9 @@ def main():
         if args.fixture in ('inheritance', 'void-helper-guards', 'modifier-unchecked-compound', 'tuple-helper', 'int256-contract-types', 'fn-ptr-struct-delete-modifier', 'overload-const-error-cond-tuple-tload', 'struct-fixed-array-and-fixed-return', 'msg-data-and-enum', 'exp-and-bitwise-shifts', 'while-clz-and-struct-loc', 'yul-builtins-and-encode-selector', 'array-string-params-and-context', 'bytes-memory-and-abi-encode-call', 'dynamic-bytes-and-string-return', 'bytes-and-string-storage', 'yul-block-mulmod-tstore', 'merkle-and-nonces', 'multiproof-mapping-keys-verifiers', 'udvt-param-assign-struct-hash', 'struct-mapping-and-bytes4-interface', 'erc2981-holders-arrays-msghash', 'enumerable-set-map-storage-arrays', 'checkpoints-and-struct-arrays', 'wad-exp-and-three-key-mapping', 'struct-hash-and-domain-separator', 'abi-decode-and-verifier', 'votes-checkpoints-arrays-bitmaps', 'public-getters-and-builtins', 'ecrecover-authorizer-arrays-map', 'struct-params-and-balances', 'packed-struct-mapping-ternary-tuple', 'timelock-and-bytes4-cast', 'string-bytes-mappings-uri-storage-strings', 'strings-hex-arrays-bitmaps', 'ecdsa-merkle-checkpoints-storage-slot', 'create2-clones-msgdata-deque', 'governor-slice-proposer-delay', 'access-manager-target-role'):
 
             extra = ['--change-prefix', *map(str, list(range(9)) + [19, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]
+        if args.fixture == 'yul-empty-revert':
+            # Both zero-size revert branches (x % 5 == 0 and 1) and a call that stores.
+            extra = ['--change-prefix', '10', '11', '12', '15', '16', '17']
         if args.fixture == 'signed-modulo':
             # Centered-reduction boundaries (ALPHA / 2, ALPHA, the 8380417
             # reduction), the narrow int8 range, and both min % -1 parities.
