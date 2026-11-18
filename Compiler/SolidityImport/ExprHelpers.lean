@@ -832,12 +832,28 @@ def noteSelfAddress (binding : String) (value : Expr) : M Unit := do
       if e.selfAddressBindings.contains binding then e
       else { e with selfAddressBindings := e.selfAddressBindings.push binding }
 
-/-- Record the self-address bindings that the statements `pre` introduce. -/
+/-- The `letVar` / `assignVar` bindings of `statement` and of its nested bodies
+(branches, loops, unsafe blocks, match arms), in order. -/
+partial def stmtBindings : Stmt → List (String × Expr)
+  | .letVar binding value => [(binding, value)]
+  | .assignVar binding value => [(binding, value)]
+  | .ite _ yes no => yes.flatMap stmtBindings ++ no.flatMap stmtBindings
+  | .forEach _ _ body => body.flatMap stmtBindings
+  | .forEachSetBit _ _ body => body.flatMap stmtBindings
+  | .unsafeBlock _ body => body.flatMap stmtBindings
+  | .matchAdt _ _ branches => branches.flatMap fun (_, _, body) => body.flatMap stmtBindings
+  | _ => []
+
+/-- Record the self-address bindings that the statements `pre` introduce, including
+assignments nested in branches (a conditional's or an inlined helper's result
+binding). Iterated to a fixpoint, so the order of a chain does not matter. -/
 def noteSelfAddressStmts (pre : Array Stmt) : M Unit := do
-  for statement in pre do
-    match statement with
-    | .letVar binding value | .assignVar binding value => noteSelfAddress binding value
-    | _ => pure ()
+  let bindings := pre.toList.flatMap stmtBindings
+  for _ in [0:bindings.length + 1] do
+    let before := (← get).selfAddressBindings.size
+    for (binding, value) in bindings do
+      noteSelfAddress binding value
+    if (← get).selfAddressBindings.size == before then return
 
 /-- The lowered account operand of a code read (`code.length`, `code`, `codehash`).
 It is rejected at `node` with `message` when it may be the executing contract,
