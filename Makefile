@@ -82,6 +82,7 @@ profile-lean: ## Profile Lean module build time and update docs/LEAN_PERF_QUEUE.
 	python3 scripts/profile_lean_modules.py --output docs/LEAN_PERF_QUEUE.md
 
 axiom-report: ## Generate axiom dependency report for all 550 theorems
+	python3 scripts/generate_print_axioms.py
 	lake env lean PrintAxioms.lean 2>&1 | tee axiom-report-raw.log
 	python3 scripts/check_axioms.py --log axiom-report-raw.log
 
@@ -159,13 +160,18 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/lean_lint.py --only lean_hygiene
 	python3 scripts/check_gas.py coverage
 	python3 scripts/check_compiler_boundaries.py
+	python3 scripts/check_lake_default_coverage.py
 	python3 scripts/lean_lint.py --only split_compiler_test_artifacts
 	python3 scripts/check_yul.py --builtin-boundary-only
 	python3 scripts/lean_lint.py --only rewrite_proof_metadata
 	python3 scripts/generate_evmyullean_capability_report.py --check
 	python3 scripts/generate_evmyullean_native_lowering_report.py --check
 	python3 scripts/generate_evmyullean_fork_audit.py --check
+	# Generated, never committed: write them, then --check reruns the union
+	# coverage validation over the fresh files.
+	python3 scripts/generate_print_axioms.py
 	python3 scripts/generate_print_axioms.py --check
+	python3 scripts/generate_trust_surface_report.py
 	python3 scripts/generate_trust_surface_report.py --check
 	python3 scripts/lean_lint.py --only proof_length
 	python3 scripts/check_issue_1060_integrity.py

@@ -667,7 +667,22 @@ def isTupleComponentRef (params : Array ParamDecl) (name : String) : Bool :=
   | _ => false
 
 def lookupVarExpr (params : Array ParamDecl) (locals : Array String) (name : String) : CommandElabM Term := do
-  if params.any (fun p => p.name == name) then
+  if let some p := params.find? (fun p => p.name == name) then
+    -- A static tuple, struct or fixed-array parameter is ABI-decoded into its leaves
+    -- `name_0`, `name_1`, …; no Yul variable carries the whole value (the external
+    -- dispatcher's `name := name_0` alias does not exist in internal functions).
+    match p.ty with
+    | .tuple elemTys =>
+      throwError s!"tuple parameter '{name}' cannot be used as a single value on the \
+        compilation-model path; use its components '{name}_0' … '{name}_{elemTys.length - 1}' \
+        or destructure it with `let (…) := {name}`"
+    | .struct structName _ =>
+      throwError s!"parameter '{name}' of composite type '{structName}' cannot be used as a \
+        single value on the compilation-model path; use its fields"
+    | .fixedArray _ _ =>
+      throwError s!"fixed-array parameter '{name}' cannot be used as a single value on the \
+        compilation-model path; return it or pass it to a function directly"
+    | _ => pure ()
     `(Compiler.CompilationModel.Expr.param $(strTerm name))
   else if isTupleComponentRef params name then
     `(Compiler.CompilationModel.Expr.param $(strTerm name))
@@ -681,12 +696,38 @@ inductive LocalSource where
   | arrayElement (paramName : String) (index : Term) (elemTy : ValueType)
   | memoryArray
   | externalStaticStruct (fields : List (String × String))
+  /-- A static composite (tuple/struct/fixed array) bound by a typed interface call; it
+  exists in Yul only as its leaves (`staticLeafBindings`). -/
+  | compositeLeaves
 
 structure TypedLocal where
   name : String
   ty : ValueType
   source : LocalSource := .value
   interfaceName? : Option String := none
+
+/-- Leaves `(name, type)` of a static composite value, in ABI order, named like the
+ABI decoder names parameter leaves (`x_0`, `x_0_1`, …). Scalars are their own leaf. -/
+partial def staticLeafBindings (name : String) (ty : ValueType) : List (String × ValueType) :=
+  let indexed (tys : List ValueType) : List (String × ValueType) :=
+    (tys.zipIdx).flatMap fun (elemTy, idx) => staticLeafBindings s!"{name}_{idx}" elemTy
+  match ty with
+  | .fixedArray elemTy size => indexed (List.replicate size elemTy)
+  | .tuple elemTys => indexed elemTys
+  | .struct _ fields => indexed (fields.map (·.snd))
+  | .newtype _ baseTy =>
+      match baseTy with
+      | .fixedArray .. | .tuple _ | .struct .. => staticLeafBindings name baseTy
+      | _ => [(name, ty)]
+  | _ => [(name, ty)]
+
+/-- A local bound to a static composite value (a tuple, struct or fixed array returned by
+a typed interface call) lives in Yul as its leaves; this is the leaf list, if `name` is one. -/
+def compositeLocalLeaves? (locals : Array TypedLocal) (name : String) :
+    Option (List (String × ValueType)) :=
+  match locals.find? (fun entry => entry.name == name) with
+  | some { source := .compositeLeaves, ty, .. } => some (staticLeafBindings name ty)
+  | _ => none
 
 def mkTypedLocal (name : String) (ty : ValueType) (interfaceName? : Option String := none) : TypedLocal :=
   { name, ty, interfaceName? }
@@ -1289,6 +1330,7 @@ def localArrayElementAlias?
   | .value => none
   | .memoryArray => none
   | .externalStaticStruct _ => none
+  | .compositeLeaves => none
 
 def localExternalStaticStructProjection?
     (locals : Array TypedLocal)
@@ -1743,6 +1785,23 @@ def throwPureContextAccessorError (stx : Syntax) (name : String) : CommandElabM 
   throwErrorAt stx
     s!"context accessor '{name}' is monadic; use `let x ← {name}` before using it in a pure expression"
 
+/-- The receiver `x` of a dotted call head `x.m`, as an identifier.  When `x` is spelled
+plainly in the source, the identifier keeps the original source range of that prefix, so
+the generated code's use of `x` is a source-level reference (hover, go-to-definition, and
+the unused-variables linter see the binder as used). -/
+def dottedReceiverIdent (head : Syntax) (targetName : String) : Term :=
+  match head with
+  | .ident (.original leading pos trailing _) rawVal _ _ =>
+      if rawVal.toString.startsWith (targetName ++ ".") then
+        let stop := pos + targetName
+        let info := SourceInfo.original leading pos
+          { trailing with startPos := stop, stopPos := stop } stop
+        let raw := { rawVal with stopPos := rawVal.startPos + targetName }
+        ⟨Syntax.ident info raw (Name.mkSimple targetName) []⟩
+      else
+        mkIdent (Name.mkSimple targetName)
+  | _ => mkIdent (Name.mkSimple targetName)
+
 mutual
 partial def leanExprAppFnArgs (expr : Expr) : Expr × Array Expr :=
   let rec go (fn : Expr) (argsRev : Array Expr) : Expr × Array Expr :=
@@ -2194,6 +2253,10 @@ partial def inferPureExprType
       for arg in [gas, target, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level staticcall" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
+  | `(term| bytesLength $name:term) =>
+      match directParamNameWithType? params name with
+      | some (_, .bytes) => pure .uint256
+      | _ => throwErrorAt name "bytesLength expects a Bytes parameter"
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: accept `arrayLength (arrayElement <param> <i>).<dynField>`
       -- projections where `dynField` is a dynamic member of the struct-array
@@ -2750,7 +2813,7 @@ partial def resolveTypedInterfaceCallEarly?
     (match head.raw with
     | .ident _ _ raw _ =>
         match nameComponents raw with
-        | [targetName, method] => some (mkIdent (Name.mkSimple targetName), method)
+        | [targetName, method] => some (dottedReceiverIdent head.raw targetName, method)
         | _ => none
     | _ => none)
     | pure none
@@ -3434,6 +3497,8 @@ partial def translatePureExprWithTypes
       throwPureContextAccessorError stx "chainid"
   | `(term| $id:ident) =>
       let name := toString id.getId
+      if (compositeLocalLeaves? locals name).isSome then
+        throwErrorAt id s!"local '{name}' holds a tuple/struct/fixed-array value, which has no single-word form on the compilation-model path; return it, or destructure it"
       if params.any (fun p => p.name == name) || isTupleComponentRef params name || localNames.contains name then
         lookupVarExpr params localNames name
       else if let some actualName := findContextAccessorShadowName? params localNames name then
@@ -3760,6 +3825,11 @@ partial def translatePureExprWithTypes
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants linkedExternalLowerer?)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants linkedExternalLowerer?)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants linkedExternalLowerer?))
+  | `(term| bytesLength $name:term) =>
+      match directParamNameWithType? params name with
+      | some (paramName, .bytes) =>
+          `(Compiler.CompilationModel.Expr.param $(strTerm s!"{paramName}_length"))
+      | _ => throwErrorAt name "bytesLength expects a Bytes parameter"
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: `arrayLength (arrayElement <param> <i>).<dynField>`
       -- lowers through `Expr.arrayElementDynamicMemberLength`, reading the
@@ -4513,7 +4583,18 @@ def tupleReturnValueExprs?
   | none =>
       match stripParens rhs with
       | `(term| $id:ident) =>
-          tupleParamElemExprs? params (toString id.getId)
+          match compositeLocalLeaves? locals (toString id.getId) with
+          | some leaves =>
+              pure (some (← leaves.toArray.mapM fun (leaf, _) =>
+                `(Compiler.CompilationModel.Expr.localVar $(strTerm leaf))))
+          | none =>
+              -- A whole fixed-array or struct parameter: its ABI-decoded leaves, in order.
+              match params.find? (fun p => p.name == toString id.getId) with
+              | some { ty := ty@(.fixedArray ..), .. } | some { ty := ty@(.struct ..), .. } =>
+                  let leaves := staticLeafBindings (toString id.getId) ty
+                  pure (some (← leaves.toArray.mapM fun (leaf, _) =>
+                    `(Compiler.CompilationModel.Expr.param $(strTerm leaf))))
+              | _ => tupleParamElemExprs? params (toString id.getId)
       | _ =>
           pure none
 
@@ -4726,6 +4807,14 @@ def translateLinkedExternalCallArgs
             if externalCallDynamicArgSupported ty then
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
+            else if isStaticCompositeInternalHelperType ty then
+              -- A static tuple/struct/fixed array is ABI-encoded as its words inline, which
+              -- are exactly the decoded leaves `name_0`, `name_0_1`, … in order.
+              let leaves := staticInternalHelperBindingNames name ty
+              unless some leaves.length == staticAbiWordCount? ty do
+                throwErrorAt arg s!"argument '{name}' has no static ABI word layout; it cannot be passed whole to an external call"
+              out := out ++ (← leaves.toArray.mapM fun leaf =>
+                `(Compiler.CompilationModel.Expr.param $(strTerm leaf)))
             else
               out := out.push (← translateScalar)
         | none =>
@@ -5870,7 +5959,7 @@ partial def typedDotCallSyntax? (stx : Term) : Option (Term × String × Array T
   | .ident _ _ raw _ =>
       match nameComponents raw with
       | [targetName, methodName] =>
-          let target : Term := mkIdent (Name.mkSimple targetName)
+          let target : Term := dottedReceiverIdent head.raw targetName
           some (target, methodName, argTerms)
       | _ => none
   | _ => none

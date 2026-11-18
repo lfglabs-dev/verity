@@ -28,8 +28,10 @@ on:
       - 'lake-manifest.json'
       - 'lean-toolchain'
       - 'foundry.toml'
+      - 'foundry.lock'
+      - '.gitmodules'
+      - 'lib/**'
       - 'Makefile'
-      - 'PrintAxioms.lean'
       - 'README.md'
   pull_request:
     types: [opened, synchronize, reopened, closed]
@@ -168,12 +170,17 @@ jobs:
       code: ${{ steps.effective.outputs.code }}
       build: ${{ steps.effective.outputs.build }}
       compiler: ${{ steps.effective.outputs.compiler }}
+      importer: ${{ steps.effective.outputs.importer }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # HEAD^1 is the PR base: needed to see what a lakefile.lean change touches.
+          fetch-depth: 2
 
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         with:
+          list-files: shell
           filters: |
             code:
               - '.github/actions/**'
@@ -192,6 +199,9 @@ jobs:
               - 'lake-manifest.json'
               - 'lean-toolchain'
               - 'foundry.toml'
+              - 'foundry.lock'
+              - '.gitmodules'
+              - 'lib/**'
             build:
               - '.github/actions/**'
               - '.github/workflows/verify.yml'
@@ -215,6 +225,20 @@ jobs:
               - 'scripts/solidity_import_corpus/**'
               - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
+              # Every path is_compiler_path accepts must also start this job: the
+              # compiler and Foundry jobs need its workspace.
+              - 'scripts/check_gas.py'
+              - 'scripts/check_patch_gas_delta.py'
+              - 'scripts/check_selectors.py'
+              - 'scripts/check_yul.py'
+              - 'scripts/keccak256.py'
+              - 'scripts/lean_cc_ccache_clang.sh'
+              - 'scripts/property_utils.py'
+              - 'test/**'
+              - 'foundry.toml'
+              - 'foundry.lock'
+              - '.gitmodules'
+              - 'lib/**'
             compiler:
               - '.github/actions/**'
               - '.github/workflows/verify.yml'
@@ -249,6 +273,24 @@ jobs:
               - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
               - 'foundry.toml'
+            importer:
+              # Workflow edits also run importer-differential so the job itself is exercised.
+              - '.github/actions/**'
+              - '.github/workflows/verify.yml'
+              - 'Compiler/SolidityImport/**'
+              - 'Contracts/SolidityImportSmoke/**'
+              - 'lakefile.lean'
+              - 'scripts/solidity_differential/**'
+              - 'scripts/solidity_import_differential.py'
+              - 'scripts/check_solidity_differential.sh'
+              - 'scripts/solidity_import_mutations.py'
+              - 'scripts/test_solidity_stateful*.py'
+              - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
+              - 'scripts/solidity_import_corpus/**'
+              - 'scripts/test_solidity_import_coverage.py'
+            changed:
+              - '**'
       - name: Resolve effective change flags
         id: effective
         env:
@@ -256,7 +298,60 @@ jobs:
           CODE_CHANGED: ${{ steps.filter.outputs.code }}
           BUILD_CHANGED: ${{ steps.filter.outputs.build }}
           COMPILER_CHANGED: ${{ steps.filter.outputs.compiler }}
+          CHANGED_FILES: ${{ steps.filter.outputs.changed_files }}
+          IMPORTER_CHANGED: ${{ steps.filter.outputs.importer }}
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_TIER: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
         run: |
+          # FULL_TIER uses the same tier test as compiler-regressions: main pushes,
+          # nightly, dispatch and ci:full PRs.
+          # `compiler` is decided per changed file here, not by the paths-filter
+          # output: with the default `some` quantifier a `!Verity/Proofs/**` entry
+          # matches every file outside Verity/Proofs, so any change (docs too) used
+          # to count as a compiler change. The list below is the filter's intent.
+          # Importer paths are excluded: the compiler executables, Contracts and the
+          # Foundry suites never import Compiler.SolidityImport (checked against
+          # their Lake import cones), and `importer-differential` covers them.
+          # A lakefile.lean change counts as importer-only when every changed line
+          # names a SolidityImportSmoke target (pull requests only; pushes stay strict).
+          # On the full tier an importer change still counts as a compiler change, so
+          # compiler-regressions (stateful checks, import coverage) keeps running there.
+          lakefile_only_smoke() {
+            [ "$EVENT_NAME" = "pull_request" ] || return 1
+            git rev-parse --verify -q HEAD^1 >/dev/null || return 1
+            ! git diff HEAD^1 HEAD -- lakefile.lean \
+              | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' \
+              | grep -vE 'SolidityImportSmoke|^[+-][[:space:]]*$' | grep -q .
+          }
+          is_compiler_path() {
+            case "$1" in
+              # Proof directories are not excluded: difftest-interpreter and
+              # compiler-main-test import executable code under */Proofs/**
+              # (e.g. Compiler/Proofs/MappingSlot.lean via Contracts/Common.lean).
+              Compiler/SolidityImport/*|Contracts/SolidityImportSmoke/*) return 1 ;;
+              .github/actions/*|.github/workflows/verify.yml) return 0 ;;
+              Verity/*|Compiler/*|Compiler.lean|Contracts/*|Contracts.lean|examples/*|packages/*|test/*) return 0 ;;
+              lake-manifest.json|lean-toolchain|foundry.toml|foundry.lock|.gitmodules|lib/*) return 0 ;;
+              scripts/check_gas.py|scripts/check_patch_gas_delta.py|scripts/check_selectors.py|scripts/check_yul.py) return 0 ;;
+              scripts/keccak256.py|scripts/lean_cc_ccache_clang.sh|scripts/property_utils.py) return 0 ;;
+              lakefile.lean) lakefile_only_smoke && return 1; return 0 ;;
+            esac
+            return 1
+          }
+          compiler_needed=false
+          eval "set -- $CHANGED_FILES"
+          for f in "$@"; do
+            if is_compiler_path "$f"; then
+              echo "compiler path changed: $f"
+              compiler_needed=true
+              break
+            fi
+          done
+          if [ "$FULL_TIER" = "true" ] && [ "$IMPORTER_CHANGED" = "true" ]; then
+            echo "importer change on the full tier: running the compiler jobs"
+            compiler_needed=true
+          fi
+
           if [ "$FORCE_FULL_RUN" = "true" ]; then
             code=true
             build=true
@@ -264,13 +359,17 @@ jobs:
           else
             code="$CODE_CHANGED"
             build="$BUILD_CHANGED"
-            compiler="$COMPILER_CHANGED"
+            compiler="$compiler_needed"
           fi
+          # compiler-regressions already runs the same slice comparisons on the full tier.
+          importer="$IMPORTER_CHANGED"
+          if [ "$FORCE_FULL_RUN" = "true" ] || [ "$FULL_TIER" = "true" ]; then importer=false; fi
 
           {
             echo "code=$code"
             echo "build=$build"
             echo "compiler=$compiler"
+            echo "importer=$importer"
           } >> "$GITHUB_OUTPUT"
 
   checks:
@@ -282,7 +381,7 @@ jobs:
       run:
         working-directory: checks-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -294,26 +393,17 @@ jobs:
       - name: Materialize reused checkout
         run: git reset --hard HEAD
 
-      - name: Regenerate derived artifacts
+      # Only the untracked generated files are written here. The committed ones
+      # (layer2 catalog, verify sync spec, EVMYulLean reports) must stay as the
+      # PR committed them, so `make check` --check catches a stale copy.
+      - name: Generate untracked audit files
         run: |
-          python3 scripts/generate_layer2_boundary_catalog.py
-          python3 scripts/generate_verify_sync_spec.py
-          python3 scripts/generate_evmyullean_capability_report.py
-          python3 scripts/generate_evmyullean_native_lowering_report.py
           python3 scripts/generate_print_axioms.py
           python3 scripts/generate_trust_surface_report.py
 
-      - name: Auto-commit refreshed artifacts
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          git diff --quiet || {
-            git config user.name  "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "chore: auto-refresh derived artifacts"
-            git push
-          }
-
+      # PrintAxioms.lean, scripts/VerityUnionAxioms.lean and the trust surface
+      # report are generated above and never committed, so no refresh commit
+      # is pushed (it started no CI on its own head).
       - name: Run all checks
         run: make check
 
@@ -394,6 +484,9 @@ jobs:
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
+
+      - name: Generate axiom audit modules
+        run: python3 scripts/generate_print_axioms.py
 
       - name: Prebuild shared audit Lean targets
         run: |
@@ -492,13 +585,16 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Build split Lake packages independently
         run: python3 scripts/check_split_package_builds.py
 
       - name: Check documented Lean axioms
         run: python3 scripts/check_axioms.py
+
+      - name: Generate axiom audit modules
+        run: python3 scripts/generate_print_axioms.py
 
       - name: Build proof modules for axiom audit
         run: lake build PrintAxioms
@@ -584,7 +680,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
@@ -616,6 +712,88 @@ jobs:
       - name: Remove mutation snapshots
         if: always()
         run: rm -rf .lake/import-mutations
+
+  importer-differential:
+    # Importer-only PRs skip the compiler and Foundry jobs (see `changes`), so run
+    # the importer's own Solidity vs Denote vs compiled-model slice comparisons
+    # here (~10 min, the PR-tier part of compiler-regressions). The stateful
+    # instrument checks stay in compiler-regressions (ci:full) and the mutation
+    # campaigns in import-mutations (ci:mutations).
+    runs-on: lean-16vcpu-ubuntu-2604
+    timeout-minutes: 45
+    needs: [changes, checks, build]
+    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.importer == 'true'
+    env:
+      LEAN_NUM_THREADS: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: recursive
+
+      - name: Setup Lean
+        uses: ./.github/actions/setup-lean
+        with:
+          cache-key-prefix: lake
+          use-sticky-disks: ${{ env.VERIFY_USE_STICKY_DISKS }}
+          sticky-disk-key-prefix: verify
+          lake-packages-sticky-key: lake-packages-verify-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
+          lake-packages-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('lake-packages-verify-{0}-{1}-{2}-{3}-{4}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
+          disable-lake-cache-restore: ${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}
+          cache-primary-key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
+
+      - name: Restore prepared Lean workspace build (local)
+        id: local-restore-lean-workspace
+        continue-on-error: true
+        run: |
+          scripts/ci_local_persistence.sh fetch \
+            --run-id "${{ github.run_id }}" \
+            --name lean-workspace-build \
+            --timeout 60
+
+      - name: Download prepared Lean workspace build
+        if: steps.local-restore-lean-workspace.outcome != 'success'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: lean-workspace-build
+
+      - name: Restore prepared Lean workspace build
+        if: steps.local-restore-lean-workspace.outcome != 'success'
+        run: tar -I zstd -xf lean-workspace-build.tar.zst
+
+      - name: Setup pinned solc for Solidity import
+        run: python3 scripts/setup_solc_import.py
+
+      # The differential controls execute EVM bytecode via forge/anvil.
+      - name: Check preinstalled Foundry for Solidity differential controls
+        id: preinstalled-foundry-mutations
+        run: |
+          if [ -x "$HOME/.foundry/bin/forge" ] && [ -x "$HOME/.foundry/bin/anvil" ]; then
+            echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Foundry for Solidity differential controls
+        if: steps.preinstalled-foundry-mutations.outputs.installed != 'true'
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.5.0
+
+      - name: Compare Solidity, Denote and compiled models
+        timeout-minutes: 30
+        run: |
+          scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json --output .lake/import-differential/smoke --cases 128 --seed 2438
+          scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential-loss.json --output .lake/import-differential/loss --cases 64 --seed 2438
+          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 --output .lake/import-differential/programs
+
+      - name: Archive Solidity slice comparison evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: solidity-import-differential-pr
+          path: |
+            .lake/import-differential/**
 
   build-compiler-binaries:
     # Ephemeral 16-vCPU lean.ci runner (64 GiB RAM) builds compiler targets
@@ -740,7 +918,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Reset ccache statistics
         run: ccache -z
@@ -847,6 +1025,13 @@ jobs:
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.UnitReturnSmoke
+            Contracts.Smoke.WholeCompositeValueSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
+            Contracts.Smoke.NamedStructReturnSmoke
+            Contracts.Smoke.Create2AddressSmoke
+            Contracts.Smoke.MemoryHashSmoke
+            Contracts.Smoke.DirectDynamicECMArgSmoke
+            Contracts.Smoke.SpillFreeMemorySmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.Int256CheckedSmoke
@@ -899,6 +1084,13 @@ jobs:
             Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.UnitReturnSmoke
+            Contracts.Smoke.WholeCompositeValueSmoke
+            Contracts.Smoke.InterfaceCompositeReturnSmoke
+            Contracts.Smoke.NamedStructReturnSmoke
+            Contracts.Smoke.Create2AddressSmoke
+            Contracts.Smoke.MemoryHashSmoke
+            Contracts.Smoke.DirectDynamicECMArgSmoke
+            Contracts.Smoke.SpillFreeMemorySmoke
             Contracts.Smoke.ArithmeticPanicSmoke
             Contracts.Smoke.MulDiv512Smoke
             Contracts.Smoke.Int256CheckedSmoke
@@ -1114,7 +1306,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1133,7 +1325,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Restore generated Yul (local)
         id: local-restore-yul
@@ -1322,7 +1514,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1341,7 +1533,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Check preinstalled Foundry for Solidity slice comparisons
         id: preinstalled-foundry-slices
@@ -1677,7 +1869,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Restore compiler workspace build (local)
         id: local-restore-compiler-workspace
@@ -1696,7 +1888,7 @@ jobs:
 
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-compiler-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-compiler-build.tar.zst
 
       - name: Restore patched smoke Yul (local)
         id: local-restore-yul-patched-smoke
@@ -1901,7 +2093,7 @@ jobs:
 
   failure-hints:
     runs-on: ubuntu-latest
-    needs: [checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
+    needs: [checks, build, build-audits, import-mutations, importer-differential, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')
     permissions:
       contents: read
@@ -1970,7 +2162,7 @@ jobs:
     # by design (change filters, tiering). A failed or cancelled job fails it.
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [changes, checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
+    needs: [changes, checks, build, build-audits, import-mutations, importer-differential, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')
     permissions:
       contents: read

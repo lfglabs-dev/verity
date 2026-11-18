@@ -18,8 +18,24 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "UniswapV4Ty
   function exttload(bytes32)
   function setPoolFee(PoolKey, uint24)
   function accountPoolBalanceDelta(PoolKey, int128, int128)
-  function recordPositionLiquidity(int24, int24, bytes32, uint256)
 def model : CompilationModel := imported.model
+
+/-
+`recordPositionLiquidity` hashes its position key in a helper whose inline assembly reads
+the free-memory pointer (`mload(0x40)`). There is no lowering for that, so the function is a
+located rejection. It used to import only through a name-keyed shim that replaced the
+helper body with `keccak256(abi.encode(..))` (128 bytes instead of the 58 packed bytes).
+-/
+/--
+error: UniswapV4TypesAndTransientSequence.sol:114:24: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload
+closure: SequenceFixture.recordPositionLiquidity -> PositionSlice.calculatePositionKey
+mload(0x40)
+-/
+#guard_msgs in
+solidity_import positionKeyHelper from "Contracts/SolidityImportSmoke" entry "UniswapV4TypesAndTransientSequence.sol"
+  using { solc := "0.8.26+commit.8a97fa7a", evmVersion := "cancun", viaIR := true, optimizerRuns := some 200, bytecodeHash := "none" }
+  contract SequenceFixture
+  function recordPositionLiquidity(int24, int24, bytes32, uint256)
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
 end SolidityImportSmoke.UniswapV4TypesAndTransientSequenceModel

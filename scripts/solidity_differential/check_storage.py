@@ -6,9 +6,81 @@ import sys
 import tempfile
 
 from .engine import command, write_json
-from .programs import stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source, stateful_imported_event_source, stateful_if_else_source, stateful_numeric_literal_source, stateful_constant_array_source, stateful_modulo_source, stateful_signed_modulo_source, stateful_fixed_memory_array_source, stateful_inline_array_literal_source, stateful_dynamic_memory_array_source, stateful_default_local_source, stateful_local_write_source, stateful_invariant_for_source, stateful_helper_loop_source, stateful_packed_member_write_source, stateful_helper_effect_source, stateful_fixed_array_source, stateful_array_write_order_source, stateful_discarded_helper_source, stateful_encoded_byte_local_source, stateful_named_helper_return_source, stateful_yul_numeric_source, stateful_solc_0810_source, stateful_inheritance_source, stateful_void_helper_guard_source, stateful_modifier_unchecked_compound_source, stateful_tuple_helper_source, stateful_int256_contract_type_source, stateful_fn_ptr_struct_delete_modifier_source, stateful_empty_array_bytes_calldata_source, stateful_overload_const_error_cond_tuple_tload_source, stateful_struct_fixed_array_and_fixed_return_source, stateful_msg_data_and_enum_source, stateful_exp_and_bitwise_shift_source, stateful_while_clz_and_struct_loc_source, stateful_yul_builtins_and_encode_selector_source, stateful_array_string_params_and_context_source, stateful_bytes_memory_and_abi_encode_call_source, stateful_dynamic_bytes_and_string_return_source, stateful_bytes_and_string_storage_source, stateful_yul_block_mulmod_tstore_source, stateful_merkle_and_nonces_source, stateful_multiproof_mapping_keys_verifiers_source, stateful_udvt_param_assign_struct_hash_source, stateful_struct_mapping_and_bytes4_interface_source, stateful_erc2981_holders_arrays_msghash_source, stateful_enumerable_set_map_storage_arrays_source, stateful_checkpoints_and_struct_arrays_source, stateful_wad_exp_and_three_key_mapping_source, stateful_struct_hash_and_domain_separator_source, stateful_abi_decode_and_verifier_source, stateful_votes_checkpoints_arrays_bitmaps_source, stateful_public_getters_and_builtins_source, stateful_ecrecover_authorizer_arrays_map_source, stateful_struct_params_and_balances_source, stateful_packed_struct_mapping_ternary_tuple_source, stateful_timelock_and_bytes4_cast_source, stateful_string_bytes_mappings_uri_storage_strings_source, stateful_strings_hex_arrays_bitmaps_source, stateful_ecdsa_merkle_checkpoints_storage_slot_source, stateful_create2_clones_msgdata_deque_source, stateful_governor_slice_proposer_delay_source
-from .programs import stateful_bytes_named_return_slice_struct_source, stateful_bytes_named_return_stateless_source
-from .programs import stateful_empty_revert_source, stateful_access_manager_target_role_source, stateful_unchecked_blocks_source, stateful_tuple_destructuring_source
+from .programs import (
+    stateful_abi_decode_and_verifier_source,
+    stateful_access_manager_target_role_source,
+    stateful_array_string_params_and_context_source,
+    stateful_array_write_order_source,
+    stateful_bytes_and_string_storage_source,
+    stateful_bytes_memory_and_abi_encode_call_source,
+    stateful_bytes_named_return_slice_struct_source,
+    stateful_bytes_named_return_stateless_source,
+    stateful_checkpoints_and_struct_arrays_source,
+    stateful_constant_array_source,
+    stateful_create2_clones_msgdata_deque_source,
+    stateful_default_local_source,
+    stateful_discarded_helper_source,
+    stateful_dynamic_bytes_and_string_return_source,
+    stateful_dynamic_memory_array_source,
+    stateful_ecdsa_merkle_checkpoints_storage_slot_source,
+    stateful_ecrecover_authorizer_arrays_map_source,
+    stateful_empty_array_bytes_calldata_source,
+    stateful_empty_revert_source,
+    stateful_encoded_byte_local_source,
+    stateful_enumerable_set_map_storage_arrays_source,
+    stateful_erc2981_holders_arrays_msghash_source,
+    stateful_exp_and_bitwise_shift_source,
+    stateful_fixed_array_source,
+    stateful_fixed_memory_array_source,
+    stateful_fn_ptr_struct_delete_modifier_source,
+    stateful_governor_slice_proposer_delay_source,
+    stateful_helper_effect_source,
+    stateful_helper_loop_source,
+    stateful_helper_name_independence_source,
+    stateful_if_else_source,
+    stateful_imported_event_source,
+    stateful_inheritance_source,
+    stateful_inline_array_literal_source,
+    stateful_int256_contract_type_source,
+    stateful_invariant_for_source,
+    stateful_local_write_source,
+    stateful_mapping_source,
+    stateful_merkle_and_nonces_source,
+    stateful_modifier_unchecked_compound_source,
+    stateful_modulo_source,
+    stateful_msg_data_and_enum_source,
+    stateful_multiproof_mapping_keys_verifiers_source,
+    stateful_named_helper_return_source,
+    stateful_named_string_return_source,
+    stateful_numeric_literal_source,
+    stateful_overload_const_error_cond_tuple_tload_source,
+    stateful_packed_member_write_source,
+    stateful_packed_struct_mapping_ternary_tuple_source,
+    stateful_public_getters_and_builtins_source,
+    stateful_short_circuit_source,
+    stateful_signed_modulo_source,
+    stateful_solc_0810_source,
+    stateful_storage_source,
+    stateful_storage_word_source,
+    stateful_string_bytes_mappings_uri_storage_strings_source,
+    stateful_strings_hex_arrays_bitmaps_source,
+    stateful_struct_fixed_array_and_fixed_return_source,
+    stateful_struct_hash_and_domain_separator_source,
+    stateful_struct_mapping_and_bytes4_interface_source,
+    stateful_struct_params_and_balances_source,
+    stateful_timelock_and_bytes4_cast_source,
+    stateful_tuple_destructuring_source,
+    stateful_tuple_helper_source,
+    stateful_udvt_param_assign_struct_hash_source,
+    stateful_unchecked_blocks_source,
+    stateful_void_helper_guard_source,
+    stateful_votes_checkpoints_arrays_bitmaps_source,
+    stateful_wad_exp_and_three_key_mapping_source,
+    stateful_while_clz_and_struct_loc_source,
+    stateful_yul_block_mulmod_tstore_source,
+    stateful_yul_builtins_and_encode_selector_source,
+    stateful_yul_numeric_source,
+)
 
 
 
@@ -38,9 +110,90 @@ def canonical_observations(observations):
     return result
 
 
+# Fixture name -> Contracts/SolidityImportSmoke/<contract>.sol. One entry per line,
+# sorted, so PRs adding different fixtures do not touch the same line.
+FIXTURE_CONTRACTS = {
+    'abi-decode-and-verifier': 'AbiDecodeAndVerifierSequence',
+    'access-manager-target-role': 'AccessManagerTargetRoleSequence',
+    'array-string-params-and-context': 'ArrayStringParamsAndContextSequence',
+    'array-write-order': 'FixedArrayWriteOrderSequence',
+    'bytes': 'StorageBytesSequence',
+    'bytes-and-string-storage': 'BytesAndStringStorageSequence',
+    'bytes-memory-and-abi-encode-call': 'BytesMemoryAndAbiEncodeCallSequence',
+    'bytes-named-return-slice-struct': 'BytesNamedReturnSliceStructSequence',
+    'bytes-named-return-stateless': 'BytesNamedReturnStatelessSequence',
+    'checkpoints-and-struct-arrays': 'CheckpointsAndStructArraysSequence',
+    'constant-arrays': 'ConstantArraySequence',
+    'create2-clones-msgdata-deque': 'Create2ClonesMsgDataDequeSequence',
+    'default-locals': 'DefaultLocalSequence',
+    'discarded-helper': 'DiscardedHelperSequence',
+    'dynamic-bytes-and-string-return': 'DynamicBytesAndStringReturnSequence',
+    'dynamic-memory-arrays': 'DynamicMemoryArraySequence',
+    'ecdsa-merkle-checkpoints-storage-slot': 'EcdsaMerkleCheckpointsStorageSlotSequence',
+    'ecrecover-authorizer-arrays-map': 'EcrecoverAuthorizerArraysMapSequence',
+    'empty-array-bytes-calldata': 'EmptyArrayReturnBytesCalldataSequence',
+    'empty-revert': 'EmptyRevertSequence',
+    'encoded-byte-locals': 'EncodedByteLocalSequence',
+    'enumerable-set-map-storage-arrays': 'EnumerableSetMapSequence',
+    'erc2981-holders-arrays-msghash': 'ERC2981HoldersArraysMsgHashSequence',
+    'exp-and-bitwise-shifts': 'ExpAndBitwiseShiftSequence',
+    'fixed-arrays': 'MappingFixedArraySequence',
+    'fixed-memory-arrays': 'FixedMemoryArraySequence',
+    'fn-ptr-struct-delete-modifier': 'FnPtrStructDeleteModifierSequence',
+    'governor-slice-proposer-delay': 'GovernorSliceProposerDelaySequence',
+    'helper-effects': 'HelperEffectSequence',
+    'helper-loops': 'HelperLoopSequence',
+    'helper-name-independence': 'HelperNameIndependenceSequence',
+    'if-else': 'IfElseSequence',
+    'imported-event': 'ImportedEventSequence',
+    'inheritance': 'InheritanceSequence',
+    'inline-array-literals': 'InlineArrayLiteralSequence',
+    'int256-contract-types': 'Int256ContractTypeSequence',
+    'invariant-for': 'InvariantForSequence',
+    'local-writes': 'LocalWriteSequence',
+    'mapping': 'MappingSequence',
+    'merkle-and-nonces': 'MerkleAndNoncesSequence',
+    'modifier-unchecked-compound': 'ModifierUncheckedCompoundSequence',
+    'modulo': 'ModuloSequence',
+    'msg-data-and-enum': 'MsgDataAndEnumSequence',
+    'multiproof-mapping-keys-verifiers': 'MultiProofMappingKeysVerifiersSequence',
+    'named-helper-returns': 'NamedHelperReturnSequence',
+    'named-string-return': 'NamedStringReturnSequence',
+    'narrow-event': 'NarrowEventSequence',
+    'numeric-literals': 'NumericLiteralSequence',
+    'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
+    'packed': 'StorageSequence',
+    'packed-member-writes': 'PackedMemberWriteSequence',
+    'packed-struct-mapping-ternary-tuple': 'PackedStructMappingAndTernaryTupleSequence',
+    'public-getters-and-builtins': 'PublicGettersAndBuiltinsSequence',
+    'short-circuit': 'ShortCircuitSequence',
+    'signed-modulo': 'SignedModuloSequence',
+    'solc-0810': 'Solc0810Sequence',
+    'string-bytes-mappings-uri-storage-strings': 'StringBytesMappingsUriStorageStringsSequence',
+    'strings-hex-arrays-bitmaps': 'StringsHexArraysBitmapsSequence',
+    'struct-fixed-array-and-fixed-return': 'StructFixedArrayAndFixedReturnSequence',
+    'struct-hash-and-domain-separator': 'StructHashAndDomainSeparatorSequence',
+    'struct-mapping-and-bytes4-interface': 'StructMappingAndBytes4InterfaceSequence',
+    'struct-params-and-balances': 'StructParamsAndBalancesSequence',
+    'timelock-and-bytes4-cast': 'TimelockAndBytes4CastSequence',
+    'tuple-destructuring': 'TupleSequence',
+    'tuple-helper': 'TupleHelperSequence',
+    'udvt-param-assign-struct-hash': 'UdvtParamAssignStructHashSequence',
+    'unchecked-blocks': 'UncheckedSequence',
+    'void': 'StorageVoidSequence',
+    'void-helper-guards': 'VoidHelperGuardSequence',
+    'votes-checkpoints-arrays-bitmaps': 'VotesCheckpointsArraysBitMapsSequence',
+    'wad-exp-and-three-key-mapping': 'WadExpAndThreeKeyMappingSequence',
+    'while-clz-and-struct-loc': 'WhileClzAndStructLocSequence',
+    'yul-block-mulmod-tstore': 'YulBlockMulmodTstoreSequence',
+    'yul-builtins-and-encode-selector': 'YulBuiltinsAndEncodeSelectorSequence',
+    'yul-numeric': 'YulNumericSequence',
+}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'signed-modulo', 'fixed-memory-arrays', 'inline-array-literals', 'dynamic-memory-arrays', 'default-locals', 'local-writes', 'invariant-for', 'helper-loops', 'packed-member-writes', 'helper-effects', 'fixed-arrays', 'array-write-order', 'discarded-helper', 'encoded-byte-locals', 'named-helper-returns', 'yul-numeric', 'solc-0810', 'inheritance', 'void-helper-guards', 'modifier-unchecked-compound', 'tuple-helper', 'int256-contract-types', 'fn-ptr-struct-delete-modifier', 'empty-array-bytes-calldata', 'overload-const-error-cond-tuple-tload', 'struct-fixed-array-and-fixed-return', 'msg-data-and-enum', 'exp-and-bitwise-shifts', 'while-clz-and-struct-loc', 'yul-builtins-and-encode-selector', 'array-string-params-and-context', 'bytes-memory-and-abi-encode-call', 'dynamic-bytes-and-string-return', 'bytes-and-string-storage', 'yul-block-mulmod-tstore', 'merkle-and-nonces', 'multiproof-mapping-keys-verifiers', 'udvt-param-assign-struct-hash', 'struct-mapping-and-bytes4-interface', 'erc2981-holders-arrays-msghash', 'enumerable-set-map-storage-arrays', 'checkpoints-and-struct-arrays', 'wad-exp-and-three-key-mapping', 'struct-hash-and-domain-separator', 'abi-decode-and-verifier', 'votes-checkpoints-arrays-bitmaps', 'public-getters-and-builtins', 'ecrecover-authorizer-arrays-map', 'struct-params-and-balances', 'packed-struct-mapping-ternary-tuple', 'timelock-and-bytes4-cast', 'string-bytes-mappings-uri-storage-strings', 'strings-hex-arrays-bitmaps', 'ecdsa-merkle-checkpoints-storage-slot', 'create2-clones-msgdata-deque', 'governor-slice-proposer-delay', 'empty-revert', 'unchecked-blocks', 'tuple-destructuring', 'access-manager-target-role'), default='packed')
+    parser.add_argument('--fixture', choices=tuple(FIXTURE_CONTRACTS), default='packed')
 
 
 
@@ -51,7 +204,7 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve() if args.output else Path(tempfile.mkdtemp(prefix='storage-', dir='.lake')).resolve()
     output.mkdir(parents=True, exist_ok=args.output is None)
-    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence', 'imported-event': 'ImportedEventSequence', 'narrow-event': 'NarrowEventSequence', 'if-else': 'IfElseSequence', 'numeric-literals': 'NumericLiteralSequence', 'constant-arrays': 'ConstantArraySequence', 'modulo': 'ModuloSequence', 'bytes-named-return-slice-struct': 'BytesNamedReturnSliceStructSequence', 'bytes-named-return-stateless': 'BytesNamedReturnStatelessSequence', 'signed-modulo': 'SignedModuloSequence', 'fixed-memory-arrays': 'FixedMemoryArraySequence', 'inline-array-literals': 'InlineArrayLiteralSequence', 'dynamic-memory-arrays': 'DynamicMemoryArraySequence', 'default-locals': 'DefaultLocalSequence', 'local-writes': 'LocalWriteSequence', 'invariant-for': 'InvariantForSequence', 'helper-loops': 'HelperLoopSequence', 'packed-member-writes': 'PackedMemberWriteSequence', 'helper-effects': 'HelperEffectSequence', 'fixed-arrays': 'MappingFixedArraySequence', 'array-write-order': 'FixedArrayWriteOrderSequence', 'discarded-helper': 'DiscardedHelperSequence', 'encoded-byte-locals': 'EncodedByteLocalSequence', 'named-helper-returns': 'NamedHelperReturnSequence', 'yul-numeric': 'YulNumericSequence', 'solc-0810': 'Solc0810Sequence', 'inheritance': 'InheritanceSequence', 'void-helper-guards': 'VoidHelperGuardSequence', 'modifier-unchecked-compound': 'ModifierUncheckedCompoundSequence', 'tuple-helper': 'TupleHelperSequence', 'int256-contract-types': 'Int256ContractTypeSequence', 'fn-ptr-struct-delete-modifier': 'FnPtrStructDeleteModifierSequence', 'empty-array-bytes-calldata': 'EmptyArrayReturnBytesCalldataSequence', 'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence', 'struct-fixed-array-and-fixed-return': 'StructFixedArrayAndFixedReturnSequence', 'msg-data-and-enum': 'MsgDataAndEnumSequence', 'exp-and-bitwise-shifts': 'ExpAndBitwiseShiftSequence', 'while-clz-and-struct-loc': 'WhileClzAndStructLocSequence', 'yul-builtins-and-encode-selector': 'YulBuiltinsAndEncodeSelectorSequence', 'array-string-params-and-context': 'ArrayStringParamsAndContextSequence', 'bytes-memory-and-abi-encode-call': 'BytesMemoryAndAbiEncodeCallSequence', 'dynamic-bytes-and-string-return': 'DynamicBytesAndStringReturnSequence', 'bytes-and-string-storage': 'BytesAndStringStorageSequence', 'yul-block-mulmod-tstore': 'YulBlockMulmodTstoreSequence', 'merkle-and-nonces': 'MerkleAndNoncesSequence', 'multiproof-mapping-keys-verifiers': 'MultiProofMappingKeysVerifiersSequence', 'udvt-param-assign-struct-hash': 'UdvtParamAssignStructHashSequence', 'struct-mapping-and-bytes4-interface': 'StructMappingAndBytes4InterfaceSequence', 'erc2981-holders-arrays-msghash': 'ERC2981HoldersArraysMsgHashSequence', 'enumerable-set-map-storage-arrays': 'EnumerableSetMapSequence', 'checkpoints-and-struct-arrays': 'CheckpointsAndStructArraysSequence', 'wad-exp-and-three-key-mapping': 'WadExpAndThreeKeyMappingSequence', 'struct-hash-and-domain-separator': 'StructHashAndDomainSeparatorSequence', 'abi-decode-and-verifier': 'AbiDecodeAndVerifierSequence', 'votes-checkpoints-arrays-bitmaps': 'VotesCheckpointsArraysBitMapsSequence', 'public-getters-and-builtins': 'PublicGettersAndBuiltinsSequence', 'ecrecover-authorizer-arrays-map': 'EcrecoverAuthorizerArraysMapSequence', 'struct-params-and-balances': 'StructParamsAndBalancesSequence', 'packed-struct-mapping-ternary-tuple': 'PackedStructMappingAndTernaryTupleSequence', 'timelock-and-bytes4-cast': 'TimelockAndBytes4CastSequence', 'string-bytes-mappings-uri-storage-strings': 'StringBytesMappingsUriStorageStringsSequence', 'strings-hex-arrays-bitmaps': 'StringsHexArraysBitmapsSequence', 'ecdsa-merkle-checkpoints-storage-slot': 'EcdsaMerkleCheckpointsStorageSlotSequence', 'create2-clones-msgdata-deque': 'Create2ClonesMsgDataDequeSequence', 'governor-slice-proposer-delay': 'GovernorSliceProposerDelaySequence', 'empty-revert': 'EmptyRevertSequence', 'unchecked-blocks': 'UncheckedSequence', 'tuple-destructuring': 'TupleSequence', 'access-manager-target-role': 'AccessManagerTargetRoleSequence'}[args.fixture]
+    name = FIXTURE_CONTRACTS[args.fixture]
 
 
 
@@ -182,11 +335,13 @@ def main():
         variants = ('baseline', 'renamed', 'unrolled')
     if args.fixture == 'inline-array-literals':
         variants = ('baseline', 'renamed', 'element-writes')
+    if args.fixture == 'helper-name-independence':
+        variants = ('baseline', 'renamed', 'inlined')
     if args.fixture == 'dynamic-memory-arrays':
         variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'signed-modulo':
         variants = ('baseline', 'renamed', 'truncated-quotient')
-    if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless'):
+    if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return'):
         variants = ('baseline', 'renamed', 'unnamed-returns')
     if args.fixture == 'if-else':
         variants = ('baseline', 'inverted', 'ternary')
@@ -262,10 +417,12 @@ def main():
                           else stateful_modulo_source(fixture, variant) if args.fixture == "modulo"
                           else stateful_fixed_memory_array_source(fixture, variant) if args.fixture == "fixed-memory-arrays"
                           else stateful_inline_array_literal_source(fixture, variant) if args.fixture == "inline-array-literals"
+                          else stateful_helper_name_independence_source(fixture, variant) if args.fixture == "helper-name-independence"
                           else stateful_dynamic_memory_array_source(fixture, variant) if args.fixture == "dynamic-memory-arrays"
                           else stateful_signed_modulo_source(fixture, variant) if args.fixture == "signed-modulo"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
+                          else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
                           else stateful_constant_array_source(fixture, variant) if args.fixture == "constant-arrays"
                           else stateful_numeric_literal_source(fixture, variant) if args.fixture == "numeric-literals"
                           else stateful_if_else_source(fixture, variant) if args.fixture == "if-else"
@@ -293,10 +450,18 @@ def main():
         if args.fixture == 'bytes-named-return-stateless':
             # Both arms of the named-return `change` and the uint8 domain truncation.
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 255, 256, 257, (1 << 256) - 1])]
+        if args.fixture == 'named-string-return':
+            # Every `x % 5` arm of the named-string `change` (unassigned,
+            # literal, storage copy, early literal return, encoded bytes32).
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, (1 << 256) - 1])]
         if args.fixture == 'dynamic-memory-arrays':
             # Every length n = x % 5, the scaled alias (x % 3 == 0), the
             # out-of-range c[n] (x % 7 == 6) and v[2][0] (x % 11 == 10) panics.
             extra = ['--change-prefix', *map(str, DYNAMIC_MEMORY_ARRAY_PREFIX)]
+        if args.fixture == 'helper-name-independence':
+            # Negative and positive tick ranges, zero and high-word owners.
+            extra = ['--change-prefix', *map(str, [0, 1, 499, 500, 999, 1000, 1 << 10, 99 << 10,
+                     (1 << 96) | 7, (1 << 256) - 1])]
         if args.fixture == 'inline-array-literals':
             # Every mixed / small / table slot, the x % 9 == 8 out-of-range
             # table read (Panic(0x32): 8, 17), high words for x >> 240.

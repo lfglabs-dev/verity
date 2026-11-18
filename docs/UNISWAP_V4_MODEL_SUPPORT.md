@@ -1,6 +1,6 @@
-# Uniswap v4 (`v4-core`) Model Support (`38/38` Functions)
+# Uniswap v4 (`v4-core`) Model Support (`37/38` Functions)
 
-Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) supports **100% (`38/38` functions)** of Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`).
+Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) supports **`37/38` functions** of Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`).
 
 ## 1. Modular Inline-Assembly Shim Architecture (`InlineAssemblyShims.lean`)
 
@@ -20,14 +20,13 @@ To keep `Compiler/SolidityImport/Import.lean` modular and verifiable, Uniswap v4
 | `BitMath.mostSignificantBit` | `BitMath` | `.bitMathMsb` | Branchless `shr` / `gt` Yul statement lowering (`lowerYulStmtSlice`) |
 | `BitMath.leastSignificantBit` | `BitMath` | `.bitMathLsb` | De Bruijn / branchless bit scan lowering (`lowerYulStmtSlice`) |
 | `TickMath.getSqrtPriceAtTick` / `getTickAtSqrtPrice` | `TickMath` | `.tickMath` | Inline Yul bit/shift/comparison lowering (`YulLiteral` booleans, `signextend`, `sar`, `shl`, `shr`) |
-| `Position.calculatePositionKey` | `Position` | `.positionKey` | `lowerPositionKeyShim` (`mstore` packed words + `Expr.keccak256`) |
 | `TickBitmap.flipTick` | `TickBitmap` | `.tickBitmapFlip` | `lowerTickBitmapFlipShim` (`sdiv`/`smod` word-pos & bit-pos + `sload`/`sstore` XOR mask) |
 | `Hooks.callHook` | `Hooks` | `.hooksCall` | `lowerHooksCallShim` (`SolidityLowLevelCall.bytesUint256Module` + selector/delta extraction) |
 
 ### 3-Layer Meta-Specification Bundle
 
 `Compiler/SolidityImport/InlineAssemblyShims.lean` exports a 3-layer specification bundle:
-- **Layer I (`InlineAssemblyShimsMetaSpec`)**: Conjunction of `allShimsVerified = true` and `uniswapV4VerifiedShims.length = 15`, proved in `inlineAssemblyShims_metaSpec_holds`.
+- **Layer I (`InlineAssemblyShimsMetaSpec`)**: Conjunction of `allShimsVerified = true` and `uniswapV4VerifiedShims.length = 17`, proved in `inlineAssemblyShims_satisfies_metaSpec`.
 - **Layer II (`metaSpec_allShimsVerified`, `metaSpec_shimCount`)**: 1-line projection corollaries derived from Layer I.
 - **Layer III (`findVerifiedShim_customRevert_witness`, `findVerifiedShim_hooksCall_witness`, `findVerifiedShim_tickBitmapFlip_witness`)**: Concrete `by decide` witnesses.
 
@@ -48,15 +47,15 @@ Alongside the shims in `InlineAssemblyShims.lean`, `Compiler/SolidityImport/Impo
 6. **`msg.value` Support in `Coverage.lean` and `Quote.lean`**:
    - `exprCovered` covers `Expr.msgValue` (`evalExpr_msgValue_arm`), and `Quote.lean` quotes `Expr.msgValue`.
 
-## 3. Complete `PoolManager.sol` Function Inventory (`38/38` Imported & Covered)
+## 3. `PoolManager.sol` Function Inventory (`37/38` Imported)
 
-Every function in `src/PoolManager.sol` elaborates via `solidity_import` with `modelImportCovered model = true`:
+Every function in `src/PoolManager.sol` except `modifyLiquidity` (row 3, a located rejection) elaborates via `solidity_import` with `modelImportCovered model = true`:
 
 | # | Function Signature | Category |
 | --- | --- | --- |
 | 1 | `unlock(bytes)` | Core Lock / Callback (`IUnlockCallback.unlockCallback`) |
 | 2 | `initialize(PoolKey, uint160)` | Pool Lifecycle + Hooks (`beforeInitialize`, `afterInitialize`) |
-| 3 | `modifyLiquidity(PoolKey, ModifyLiquidityParams, bytes)` | Liquidity Management + Tick Bitmap + Hooks |
+| 3 | `modifyLiquidity(PoolKey, ModifyLiquidityParams, bytes)` | **Rejected** at `src/libraries/Position.sol:55:24` (`mload(0x40)` in `Position.calculatePositionKey`'s inline assembly). It previously imported through a name-keyed shim that hashed `abi.encode` of four words (128 bytes) instead of the helper's 58-byte packed key. |
 | 4 | `swap(PoolKey, SwapParams, bytes)` | AMM Swap Loop + `SwapMath` + `TickBitmap` + Hooks |
 | 5 | `donate(PoolKey, uint256, uint256, bytes)` | Pool Donation + Hooks |
 | 6 | `sync(Currency)` | Transient Reserve Sync (`Reserves.setSyncedReserves`) |
@@ -96,4 +95,4 @@ Every function in `src/PoolManager.sol` elaborates via `solidity_import` with `m
 | 40* | `exttload(bytes32)` | `Exttload` Single-Slot Transient Introspection |
 | 41* | `exttload(bytes32[])` | `Exttload` Batch-Array Transient Introspection |
 
-*(Note: `extsload` has 3 overloads and `exttload` has 2 overloads; all 38 distinct function/overload probes in `PoolManager` pass with `modelImportCovered = true`.)*
+*(Note: `extsload` has 3 overloads and `exttload` has 2 overloads; 37 of the 38 distinct function/overload probes in `PoolManager` pass with `modelImportCovered = true`; `modifyLiquidity` is rejected (row 3).)*

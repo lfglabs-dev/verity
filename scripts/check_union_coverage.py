@@ -144,7 +144,10 @@ def check_target_coverage(
     imports_map: dict[str, list[str]],
 ) -> int:
     if not target_file.is_file():
-        raise ValueError(f"missing union-audit file: {target_file}")
+        raise ValueError(
+            f"missing union-audit file: {target_file} "
+            "(generated, not committed: run python3 scripts/generate_print_axioms.py)"
+        )
 
     direct_imports = extract_lean_header_imports(target_file.read_text(encoding="utf-8"))
 

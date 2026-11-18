@@ -8968,20 +8968,6 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let mut pre := boundPre
   modify fun e => { e with yulNames := yul }
   noteFn fn
-  if (← get).stateVars.size > 1 && optStr fn "name" == some "calculatePositionKey" && args.size == 4 then
-    let p0Id ← mNat (← mField params[0]! "id")
-    let p1Id ← mNat (← mField params[1]! "id")
-    let p2Id ← mNat (← mField params[2]! "id")
-    let p3Id ← mNat (← mField params[3]! "id")
-    let some e0 := (← get).values.find? p0Id | failAt fn "missing owner"
-    let some e1 := (← get).values.find? p1Id | failAt fn "missing tickLower"
-    let some e2 := (← get).values.find? p2Id | failAt fn "missing tickUpper"
-    let some e3 := (← get).values.find? p3Id | failAt fn "missing salt"
-    let resVal ← lowerPositionKeyShim e0 e1 e2 e3
-    modify fun e =>
-      { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-    return { pre := pre ++ resVal.pre, expr := resVal.expr }
   let stmts ← mArr (← mField body "statements")
   -- Retain the existing direct-result lowering for a single terminal
   -- assembly assignment. A named variable needed by a continuation gets a
@@ -9418,39 +9404,6 @@ private partial def lowerMultiCall (j : Json) (expectedTypes : Option (Array (Op
               elseB := elseB.push (.assignVar dest nExpr)
               outRets := outRets.push (.localVar dest, yTy)
             return (pre.push (.ite cond thenB.toList elseB.toList), outRets)
-  if (← mKind callee) == "MemberAccess" && (← get).stateVars.size > 1 then
-    let refId ← refInt callee
-    if refId ≥ 0 then
-      let env ← get
-      if let some fnDecl := env.funs.find? refId.toNat then
-        let cid := env.funContractId.find? refId.toNat |>.getD 0
-        let ckind := env.contractKinds.find? cid |>.getD ""
-        let rets ← mArr (← mField (← mField fnDecl "returnParameters") "parameters")
-        if ckind == "contract" && rets.size == 2 then
-          let r0Ty ← mType rets[0]!
-          let r1Ty ← mType rets[1]!
-          if r0Ty == "uint256" && r1Ty == "uint256" then
-            let some hex := optStr fnDecl "functionSelector"
-              | failAt j "external call is missing functionSelector"
-            let mut sel : Nat := 0
-            for c in hex.toList do
-              let some d := Compiler.Hex.hexCharToNat? c | failAt j s!"invalid selector hex {hex}"
-              sel := sel * 16 + d
-            let base ← mField callee "expression"
-            let target ← atom (← convert "address" (← mType base) (← lowerExpr base) base)
-            let args ← mArr (← mField j "arguments")
-            let mut pre := target.pre
-            let mut callWords : Array Expr := #[target.expr]
-            for arg in args do
-              let v ← atom (← lowerExpr arg)
-              pre := pre ++ v.pre
-              callWords := callWords.push v.expr
-            let r0 ← fresh
-            let r1 ← fresh
-            let m0 := Compiler.ECM.SolidityStaticCall.uint256Module r0 sel args.size
-            let m1 := Compiler.ECM.SolidityStaticCall.uint256Module r1 sel args.size
-            pre := (pre.push (.ecm m0 callWords.toList)).push (.ecm m1 callWords.toList)
-            return (pre, #[(.localVar r0, "uint256"), (.localVar r1, "uint256")])
   let (fnId, vals) ← resolveCallTargetAndArgs j
   inlineMultiFn fnId vals j
 
@@ -12378,11 +12331,17 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           -- A writable `bytes memory` local (a named result, or a local whose
           -- binding is not a literal) is rebound to the right-hand buffer, as
           -- solc's memory pointer assignment does; a calldata source is copied.
+          -- A named `string memory` root result shares this binding: a string
+          -- literal, a storage string or a `string calldata` value is copied
+          -- into memory, a `string memory` value is aliased.
           if (← get).nonLiteralByteLocals.contains id.toNat then
             if let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) then
               let rTy ← mType right
+              let isStringTarget := (← mType target) == "string memory"
               if rTy == "bytes memory" || rTy == "bytes calldata" || rTy == "bytes" ||
-                  rTy == "bytes calldata slice" then
+                  rTy == "bytes calldata slice" ||
+                  (isStringTarget && (rTy == "string memory" || rTy == "string calldata" ||
+                    rTy == "string storage ref" || rTy.startsWith "literal_string ")) then
                 let rhsBuf ← lowerEncodedBytes right
                 let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
                 return rhsBuf.pre ++ rebind
@@ -14644,7 +14603,10 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
   | "bytes" =>
       return some .bytes
   | "string" =>
-      unless rname == "" do return none
+      -- A named `string memory` result is bound like a named `bytes` result
+      -- (same length-prefixed memory layout and ABI encoding); a named
+      -- `string calldata` result has no buffer to bind.
+      unless rname == "" || loc == "memory" do return none
       return some .string
   | _ => return none
 
@@ -15705,7 +15667,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
                  yulNames := e.yulNames.erase rname,
                  yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
     rootFlatStructState? := some (retSid, retStructName, memberBindings, rname != "")
-  else if dynamicBytesRet? == some .bytes && returns.size == 1 then
+  else if dynamicBytesRet?.isSome && returns.size == 1 then
     let r := returns[0]!
     let rname ← mStr (← mField r "name")
     if rname != "" then
@@ -15774,9 +15736,9 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
         out := out ++ #[.returnValues (Array.replicate memberSpecs.size (.literal 0)).toList]
       else
         failAt fn "an explicit root return is required"
-    else if dynamicBytesRet? == some .bytes && returns.size == 1 && (← mStr (← mField returns[0]! "name")) != "" then
+    else if dynamicBytesRet?.isSome && returns.size == 1 && (← mStr (← mField returns[0]! "name")) != "" then
       let rid ← mNat (← mField returns[0]! "id")
-      let some buf := (← get).byteBuffers.find? rid | failAt fn "missing named bytes return buffer"
+      let some buf := (← get).byteBuffers.find? rid | failAt fn "missing named bytes or string return buffer"
       let stem ← fresh
       let memStem := s!"_verity_memret_{stem}"
       let dataBinding := s!"_verity_memret_{stem}_data_offset"
@@ -16046,15 +16008,37 @@ private partial def collectSources
     | .ok next => acc ← collectSources root next remaps acc
   pure acc
 
+/-- Why the pinned solc binary at `path` cannot be used, if it cannot: it is not
+installed (Lake never downloads it), it cannot be hashed, or its SHA-256 is not
+one of the release's pinned digests. Each message names the path and the setup
+command, so a worktree whose `.lake` lacks `solidity-import/` is not reported
+as a corrupted compiler. -/
+def solcBinaryProblem? (binaryName path : String) (installed : Bool) (hashExitCode : UInt32)
+    (sha256 : String) (pinned : Array String) : Option String :=
+  let setup := s!"run `python3 scripts/setup_solc_import.py --all` from the Verity root"
+  if !installed then
+    some s!"solc binary {binaryName} is not installed at {path}; {setup} (Lake never downloads the compiler)"
+  else if hashExitCode != 0 then
+    some s!"cannot compute the SHA-256 of {path} (exit code {hashExitCode}); {setup}"
+  else if !pinned.contains sha256 then
+    some s!"compiler checksum mismatch: {path} has SHA-256 {sha256}, not a pinned digest of {binaryName}; {setup} to reinstall it"
+  else
+    none
+
 private def verifyCompiler (release : SolcRelease) (compiler : System.FilePath) : MetaM String := do
-  let output ←
-    if System.Platform.isOSX then
+  let installed ← compiler.pathExists
+  let output : IO.Process.Output ←
+    if !installed then
+      pure { exitCode := 1, stdout := "", stderr := "" }
+    else if System.Platform.isOSX then
       IO.Process.output { cmd := "/usr/bin/shasum", args := #["-a", "256", compiler.toString] }
     else
       IO.Process.output { cmd := "/usr/bin/sha256sum", args := #[compiler.toString] }
-  unless output.exitCode == 0 && release.sha256s.contains (output.stdout.take 64).toString do
-    throwError "compiler checksum mismatch"
-  return (output.stdout.take 64).toString
+  let sha256 := (output.stdout.take 64).toString
+  if let some problem := solcBinaryProblem? release.binaryName compiler.toString installed
+      output.exitCode sha256 release.sha256s then
+    throwError problem
+  return sha256
 
 /-- Verity itself stores the importer next to its lakefile. A downstream package
 stores that checkout at `.lake/packages/verity`. The digest must hash those

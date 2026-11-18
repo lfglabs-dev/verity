@@ -6,6 +6,28 @@ import sys
 from .engine import HarnessError, command, write_json
 
 
+# check_storage fixtures run with default arguments, one `storage-<fixture>` check each.
+# One entry per line (in run order), so PRs adding different fixtures do not touch the same line.
+STORAGE_FIXTURES = (
+    'void',
+    'bytes',
+    'mapping',
+    'short-circuit',
+    'imported-event',
+    'narrow-event',
+    'if-else',
+    'numeric-literals',
+    'constant-arrays',
+    'modulo',
+    'signed-modulo',
+    'fixed-memory-arrays',
+    'inline-array-literals',
+    'helper-name-independence',
+    'dynamic-memory-arrays',
+    'unchecked-blocks',
+    'tuple-destructuring',
+)
+
 def stateful_campaign(output, transactions, seed, jobs=1):
     if transactions < 3:
         raise HarnessError('stateful campaign requires at least three transactions')
@@ -84,7 +106,10 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('storage-bytes-named-return-stateless', ['-m', 'solidity_differential.check_storage',
         '--fixture', 'bytes-named-return-stateless', '--transactions', str(max(96, transactions)),
         '--seed', str(seed), '--output', str(output / 'storage-bytes-named-return-stateless')]))
-    for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'signed-modulo', 'fixed-memory-arrays', 'inline-array-literals', 'dynamic-memory-arrays', 'unchecked-blocks', 'tuple-destructuring'):
+    checks.append(('storage-named-string-return', ['-m', 'solidity_differential.check_storage',
+        '--fixture', 'named-string-return', '--transactions', str(max(64, transactions)),
+        '--seed', str(seed), '--output', str(output / 'storage-named-string-return')]))
+    for fixture in STORAGE_FIXTURES:
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
             '--output', str(output / ('storage-' + fixture))]))

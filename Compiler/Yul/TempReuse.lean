@@ -407,12 +407,79 @@ def reuseAndSpillTemps
     (reuseAndSpillTempsChildren maxStackLocals protectedNames stmts)
 end
 
-/-- Apply temporary reuse and scratch-memory spilling to a full `YulObject`. -/
+mutual
+/-- One past the highest spill slot (`mload`/`mstore` at a literal address at or above
+`defaultSpillBase`) used in an expression, or 0 if none. -/
+def spillHighWaterExpr : YulExpr → Nat
+  | .call func args =>
+      let here := match func, args with
+        | "mload", [.lit slot] | "mstore", .lit slot :: _ =>
+            if defaultSpillBase ≤ slot then slot + 32 else 0
+        | _, _ => 0
+      max here (spillHighWaterExprs args)
+  | _ => 0
+
+/-- `spillHighWaterExpr` over a list of expressions. -/
+def spillHighWaterExprs : List YulExpr → Nat
+  | [] => 0
+  | e :: es => max (spillHighWaterExpr e) (spillHighWaterExprs es)
+end
+
+mutual
+/-- One past the highest spill slot used anywhere in a statement (including nested blocks
+and function bodies), or 0 if none. -/
+def spillHighWaterStmt : YulStmt → Nat
+  | .comment _ | .leave => 0
+  | .let_ _ value | .letMany _ value | .assign _ value | .exprStmt value =>
+      spillHighWaterExpr value
+  | .if_ cond body => max (spillHighWaterExpr cond) (spillHighWaterStmts body)
+  | .for_ init cond post body =>
+      max (max (spillHighWaterStmts init) (spillHighWaterExpr cond))
+        (max (spillHighWaterStmts post) (spillHighWaterStmts body))
+  | .switch expr cases default =>
+      max (spillHighWaterExpr expr)
+        (max (spillHighWaterCases cases)
+          (match default with
+           | none => 0
+           | some body => spillHighWaterStmts body))
+  | .block stmts => spillHighWaterStmts stmts
+  | .funcDef _ _ _ body => spillHighWaterStmts body
+
+/-- `spillHighWaterStmt` over a statement list. -/
+def spillHighWaterStmts : List YulStmt → Nat
+  | [] => 0
+  | s :: ss => max (spillHighWaterStmt s) (spillHighWaterStmts ss)
+
+/-- `spillHighWaterStmt` over switch cases. -/
+def spillHighWaterCases : List (Nat × List YulStmt) → Nat
+  | [] => 0
+  | (_, body) :: rest => max (spillHighWaterStmts body) (spillHighWaterCases rest)
+end
+
+/-- Raise the free-memory-pointer initialisation `mstore(64, 128)` (top level of a code
+section) to `minFree` when that is higher. Spill slots live at fixed addresses from
+`defaultSpillBase`; unless the free pointer starts above them, a runtime-sized allocation
+(a `calldatacopy` of a `bytes` argument, an ABI encoding) can overwrite spilled locals. -/
+def raiseFreePointerInit (minFree : Nat) : List YulStmt → List YulStmt
+  | [] => []
+  | (.exprStmt (.call "mstore" [.lit 64, .lit init])) :: rest =>
+      .exprStmt (.call "mstore" [.lit 64, .lit (max init minFree)]) :: raiseFreePointerInit minFree rest
+  | s :: rest => s :: raiseFreePointerInit minFree rest
+
+/-- Spill a code section, then start its free memory above the spill slots it uses. -/
+def reuseAndSpillTempsSection (maxStackLocals : Nat) (code : List YulStmt) : List YulStmt :=
+  let spilled := reuseAndSpillTemps maxStackLocals [] code
+  let highWater := spillHighWaterStmts spilled
+  if highWater = 0 then spilled else raiseFreePointerInit highWater spilled
+
+/-- Apply temporary reuse and scratch-memory spilling to a full `YulObject`. When a code
+section spills, its free-memory pointer starts above the spill slots, so memory allocated
+at runtime never aliases a spilled local. -/
 def reuseAndSpillTempsObject
     (maxStackLocals : Nat := defaultMaxStackLocals)
     (obj : YulObject) : YulObject :=
   { obj with
-    deployCode := reuseAndSpillTemps maxStackLocals [] obj.deployCode
-    runtimeCode := reuseAndSpillTemps maxStackLocals [] obj.runtimeCode }
+    deployCode := reuseAndSpillTempsSection maxStackLocals obj.deployCode
+    runtimeCode := reuseAndSpillTempsSection maxStackLocals obj.runtimeCode }
 
 end Compiler.Yul.TempReuse

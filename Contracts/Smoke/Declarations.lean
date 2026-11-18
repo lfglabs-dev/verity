@@ -591,7 +591,6 @@ verity_contract OverloadSignatureEncodingSmoke where
     return amount
 
   function quote (pair : Tuple [Uint256, Uint256]) : Uint256 := do
-    let _pairValue := pair
     return pair_0
 
 end Contracts.Smoke
