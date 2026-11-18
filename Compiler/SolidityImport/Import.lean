@@ -6162,6 +6162,12 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         dynTails := dynTails.push (headIdx, .inr (.inl (ptrVal.expr, sizeVal.expr)))
       else if (scalarArrayElement? ty).isSome then
         if let some (copyPre, arrId) ← copyStorageScalarArray? arg then
+          -- solc evaluates every argument before it copies the storage array
+          -- while encoding; the copy here runs at the argument's position.
+          let env ← get
+          if let some later := (args.extract (argIdx + 1) args.size).find? fun a =>
+              assignmentIn a || statefulCallIn a env then
+            failAt later "state-writing ABI encoding argument after a storage array is unsupported"
           pre := pre ++ copyPre
           let headIdx := headWords.size
           headWords := headWords.push none

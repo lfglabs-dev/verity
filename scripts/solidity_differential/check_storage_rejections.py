@@ -15,6 +15,11 @@ MEMORY_WRITE_HELPERS = (
     'function bumpDynamic(uint256[] memory a) internal pure returns (uint256) { a[0] = a[0] + 1; return a[0]; } '
     'function g(uint256 p, uint256 q) internal pure returns (uint256) { return p + q; }')
 
+# A storage array and a non-view helper that pushes onto it.
+STORAGE_ARRAY_GROW = (
+    'uint256[] internal _list; uint256 internal _a; uint256 internal _b; '
+    'function _grow() internal returns (uint256) { _list.push(7); return _list.length; }')
+
 
 # Root ABI parameter controls: the `function` line of each case's import.
 ROOT_PARAM_SIGNATURES = {
@@ -303,6 +308,13 @@ def main():
         ('fixed-memory-result-yul-shadow', 'function mk() internal pure returns (uint256[2] memory out) { uint256 v; assembly { v := mload(add(add(out, 0x20), mul(0, 0x20))) } out[0] = v; }',
          'uint256[] memory out = new uint256[](3); out[0] = x; uint256[2] memory r = mk(); return r[0] + out.length;', 'uint256', 'unsupported Yul builtin mload'),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
+        # solc copies a storage array only while encoding, after every tuple
+        # component ran: the copy at the argument's position would miss a later
+        # component's write (solc returns ([7], 1)).
+        ('storage-array-return-then-write', STORAGE_ARRAY_GROW, 'return (_list, _grow());', 'uint256[] memory, uint256',
+         'state-writing ABI encoding argument after a storage array is unsupported'),
+        ('storage-array-encode-then-write', STORAGE_ARRAY_GROW, 'return uint256(keccak256(abi.encode(_list, _grow())));', 'uint256',
+         'state-writing ABI encoding argument after a storage array is unsupported'),
     ]
     for name, fields, body, returns, expected in cases:
         if next(ordinal) % parts != part:
