@@ -21,6 +21,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HELPERS = ("deployCompiledVerityModule", "_ensureVerityModuleYul")
+# Floor on the number of distinct modules found under test/: the 26 modules of the
+# hand-maintained lists this script replaced. Fewer means the scan regressed (a parser
+# change, a renamed helper) and would silently stop prebuilding modules, so it fails
+# instead. Raise it when smoke tests are added; never lower it to make CI pass.
+MIN_MODULES = 26
 
 _CALL = re.compile(r"\b(?:" + "|".join(HELPERS) + r")\s*\(\s*\"([^\"\\]+)\"")
 # String literals are matched first so that `//` inside a string is kept.
@@ -57,10 +62,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--test-dir", type=Path, default=ROOT / "test", help="Foundry test root (default: test/)"
     )
+    parser.add_argument(
+        "--min-modules", type=int, default=MIN_MODULES,
+        help=f"fail if fewer distinct modules are found (default: {MIN_MODULES})",
+    )
     args = parser.parse_args(argv)
     modules = list_smoke_modules(args.test_dir)
-    if not modules:
-        print(f"no on-demand Verity module found under {args.test_dir}", file=sys.stderr)
+    if len(modules) < args.min_modules:
+        print(f"found {len(modules)} on-demand Verity module(s) under {args.test_dir}, "
+              f"expected at least {args.min_modules}", file=sys.stderr)
         return 1
     print("\n".join(modules))
     return 0
