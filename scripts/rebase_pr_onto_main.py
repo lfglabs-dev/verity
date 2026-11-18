@@ -5,8 +5,9 @@ Usage:
   python3 scripts/rebase_pr_onto_main.py [--base origin/main] [--branch NAME] [--json]
 
 PR branches in this repository conflict with main mostly on files nobody
-edits by hand: generated files (``PrintAxioms.lean``, ``artifacts/*.json``)
-and append-only lists (smoke module lists, smoke imports). This tool rebases
+edits by hand: generated files (``artifacts/*.json``, ``verify_sync_spec.json``)
+and append-only lists (smoke module lists, smoke imports, differential
+fixture registries). This tool rebases
 the branch and resolves exactly those conflicts, per the tables below:
 
   * generated file   -> take the base's side during the rebase, regenerate once
@@ -67,14 +68,6 @@ class Generator:
 # not listed: a conflict on their outputs stops the tool.
 GENERATORS: tuple[Generator, ...] = (
     Generator(
-        ("PrintAxioms.lean", "scripts/VerityUnionAxioms.lean"),
-        ("python3", "scripts/generate_print_axioms.py"),
-    ),
-    Generator(
-        ("artifacts/trust_surface_report.json",),
-        ("python3", "scripts/generate_trust_surface_report.py"),
-    ),
-    Generator(
         ("artifacts/evmyullean_capability_report.json", "artifacts/evmyullean_unsupported_nodes.json"),
         ("python3", "scripts/generate_evmyullean_capability_report.py"),
     ),
@@ -104,11 +97,21 @@ APPEND_ONLY: dict[str, str] = {
     "Contracts/Smoke.lean": r"^import [A-Za-z0-9_.]+$",
     # Only the import header is a list; conflicts in the test code stop the tool.
     "Compiler/MainTest.lean": r"^import [A-Za-z0-9_.]+$",
+    # One `from .programs import` name or one FIXTURE_CONTRACTS entry per line.
+    "scripts/solidity_differential/check_storage.py":
+        r"^    (stateful_[a-z0-9_]+_source|'[a-z0-9-]+': '[A-Za-z0-9]+'),$",
+    # One STORAGE_FIXTURES entry per line.
+    "scripts/solidity_differential/suite.py": r"^    '[a-z0-9-]+',$",
 }
 
 # Files deleted on the base that the PR may still modify (formerly committed
 # artifacts): the deletion wins. Other modify/delete conflicts stop the tool.
-DELETED_ON_BASE_PATTERNS: tuple[str, ...] = ("artifacts/*",)
+DELETED_ON_BASE_PATTERNS: tuple[str, ...] = (
+    "artifacts/*",
+    # Generated on demand since they stopped being committed.
+    "PrintAxioms.lean",
+    "scripts/VerityUnionAxioms.lean",
+)
 
 
 @dataclass(frozen=True)
