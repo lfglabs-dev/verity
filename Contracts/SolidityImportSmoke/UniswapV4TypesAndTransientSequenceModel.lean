@@ -22,12 +22,13 @@ def model : CompilationModel := imported.model
 
 /-
 `recordPositionLiquidity` hashes its position key in a helper whose inline assembly reads
-the free-memory pointer (`mload(0x40)`). There is no lowering for that, so the function is a
-located rejection. It used to import only through a name-keyed shim that replaced the
+the free-memory pointer (`mload(0x40)`) to use it as an allocation base. A free-pointer read is
+admitted only to restore the pointer or place a bubbled revert, so the function is a located
+rejection. It used to import only through a name-keyed shim that replaced the
 helper body with `keccak256(abi.encode(..))` (128 bytes instead of the 58 packed bytes).
 -/
 /--
-error: UniswapV4TypesAndTransientSequence.sol:114:24: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload
+error: UniswapV4TypesAndTransientSequence.sol:114:24: YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert
 closure: SequenceFixture.recordPositionLiquidity -> PositionSlice.calculatePositionKey
 mload(0x40)
 -/

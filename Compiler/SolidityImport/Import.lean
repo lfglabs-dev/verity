@@ -1294,12 +1294,17 @@ private def yulCallIndependent : Expr → Bool
   | .selfBalance => false
   | e => isOrderIndependentSibling e
 
-/-- Hoisted statements that touch the outside world: anything but local bindings. -/
+/-- A hoisted statement that touches the outside world: anything but local bindings, looking
+through the branches and bounded loops a builtin's own lowering hoists (`mulmod`, `addmod`). -/
+private partial def yulStmtHasEffect : Stmt → Bool
+  | .letVar _ _ | .assignVar _ _ => false
+  | .ite _ yes no => yes.any yulStmtHasEffect || no.any yulStmtHasEffect
+  | .forEach _ _ body => body.any yulStmtHasEffect
+  | _ => true
+
+/-- Hoisted statements that touch the outside world (`yulStmtHasEffect`). -/
 private def yulPreHasEffect (pre : Array Stmt) : Bool :=
-  pre.any fun
-    | .letVar _ _ => false
-    | .assignVar _ _ => false
-    | _ => true
+  pre.any yulStmtHasEffect
 
 /-- Yul evaluates the operands of one builtin right to left, but the model runs every operand's
 hoisted statements left to right before the enclosing expression. That is only the same order
