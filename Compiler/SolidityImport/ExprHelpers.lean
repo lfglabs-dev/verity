@@ -220,6 +220,10 @@ structure Env where
   /-- `bytes memory` locals whose initializer begins with a checked CREATE2
       initcode template literal (`DenoteCreate2.templateCost`). -/
   initcodeTemplates : Array Nat := #[]
+  /-- Scalar bindings that may hold the executing contract's address: bound or
+      assigned a value that mentions `address(this)` (`Expr.contractAddress`) or
+      another such binding. Code reads of them are rejected (`mayBeSelfAddress`). -/
+  selfAddressBindings : Array String := #[]
   currentFile : String
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
@@ -810,6 +814,43 @@ def atom (v : Val) : M Val := do
   else
     let n ← fresh
     pure { pre := v.pre.push (.letVar n v.expr), expr := .localVar n }
+
+/-- Whether `expr` may evaluate to the executing contract's address: it mentions
+`address(this)` (`Expr.contractAddress`) or a binding recorded by
+`noteSelfAddress`. An over-approximation: any mention counts. -/
+def mayBeSelfAddress (expr : Expr) : M Bool := do
+  let bindings := (← get).selfAddressBindings
+  return expr.anyDeep fun
+    | .contractAddress => true
+    | .localVar name => bindings.contains name
+    | _ => false
+
+/-- Record that `binding` may hold the executing contract's address when `value` may. -/
+def noteSelfAddress (binding : String) (value : Expr) : M Unit := do
+  if ← mayBeSelfAddress value then
+    modify fun e =>
+      if e.selfAddressBindings.contains binding then e
+      else { e with selfAddressBindings := e.selfAddressBindings.push binding }
+
+/-- Record the self-address bindings that the statements `pre` introduce. -/
+def noteSelfAddressStmts (pre : Array Stmt) : M Unit := do
+  for statement in pre do
+    match statement with
+    | .letVar binding value | .assignVar binding value => noteSelfAddress binding value
+    | _ => pure ()
+
+/-- The lowered account operand of a code read (`code.length`, `code`, `codehash`).
+It is rejected at `node` with `message` when it may be the executing contract,
+whose code differs between the source and compiled routes and is not modeled: a
+local, helper or modifier parameter bound or assigned `address(this)` (directly
+or through another such binding), or an expression that mentions either. A
+literal `address(this)` operand is rejected before lowering with its own
+message. Values read from storage, calldata or memory are not tracked; that case
+is a documented trust assumption. -/
+def lowerCodeReadTarget (lowered : Val) (node : Json) (message : String) : M Val := do
+  noteSelfAddressStmts lowered.pre
+  if ← mayBeSelfAddress lowered.expr then failAt node message
+  atom lowered
 
 def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256
