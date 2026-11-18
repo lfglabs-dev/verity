@@ -13,15 +13,15 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "StructStrin
   function change(uint256)
   function fail()
   function read()
-  function configure(CategoryConfig)
-  function labelLength(CategoryConfig)
-  function labelHash(CategoryConfig)
-  function labelLengthCalldata(CategoryConfig)
-  function labelHashCalldata(CategoryConfig)
+  function scalarsBesideString(LabeledStruct)
+  function labelLength(LabeledStruct)
+  function labelHash(LabeledStruct)
+  function labelLengthCalldata(LabeledStruct)
+  function labelHashCalldata(LabeledStruct)
   function taggedDigest(Tagged)
-  function storeLabel(CategoryConfig)
+  function storeLabel(LabeledStruct)
   function readLabel()
-  function storeLabelCalldata(CategoryConfig)
+  function storeLabelCalldata(LabeledStruct)
   function nestedName(Outer)
   function nestedNameCalldata(Outer)
 def model : CompilationModel := imported.model
@@ -32,10 +32,10 @@ def paramTypesOf (fn : String) : Option (List ParamType) :=
 
 /-- A `string` struct member keeps the `string` ABI type (`AbiSchema.memberType`
 of `bytesField _ true`); the selectors and ABI of the model depend on it. -/
-example : paramTypesOf "configure" = some [.tuple [.uintN 16, .bool, .string]] := by rfl
+example : paramTypesOf "scalarsBesideString" = some [.tuple [.uintN 16, .bool, .string]] := by rfl
 
 /-- The `bytes`-typed reading of the same member is not the imported ABI. -/
-example : paramTypesOf "configure" ≠ some [.tuple [.uintN 16, .bool, .bytes]] := by
+example : paramTypesOf "scalarsBesideString" ≠ some [.tuple [.uintN 16, .bool, .bytes]] := by
   intro h
   cases h
 
