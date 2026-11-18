@@ -408,7 +408,7 @@ def _bytes_array_param_calls():
     shapes = ((), (0,), (5,), (31, 32, 33), (70, 0, 1, 4))
     for sizes in shapes:
         arr = array(*sizes)
-        calls.append(('multicall(bytes[])', [32] + arr))
+        calls.append(('arrayLength(bytes[])', [32] + arr))
         calls.append(('digestAll(bytes[])', [32] + arr))
         calls.append(('totalLengthMemory(bytes[])', [32] + arr))
         for i in sorted({0, max(len(sizes) - 1, 0), len(sizes), (1 << 256) - 1}):
@@ -434,7 +434,7 @@ def _bytes_array_param_calls():
         [32] + good[:-1],                    # truncated last element
     )
     for words in malformed_heads + malformed_elements:
-        calls.append(('multicall(bytes[])', words))
+        calls.append(('arrayLength(bytes[])', words))
         calls.append(('digestAll(bytes[])', words))
         calls.append(('totalLengthMemory(bytes[])', words))
         calls.append(('lengthAt(bytes[],uint256)', [64, 0] + words[1:] if words else [64]))

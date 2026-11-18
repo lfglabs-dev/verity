@@ -13,7 +13,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "BytesArrayP
   function change(uint256)
   function fail()
   function read()
-  function multicall(«bytes[]»)
+  function arrayLength(«bytes[]»)
   function digestAll(«bytes[]»)
   function totalLengthMemory(«bytes[]»)
   function lengthAt(«bytes[]»,uint256)

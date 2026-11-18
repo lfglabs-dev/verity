@@ -8,8 +8,8 @@ pragma solidity 0.8.34;
 contract SequenceFixture {
     uint256 private stored;
 
-    // The issue's shape.
-    function multicall(bytes[] calldata data) external returns (uint256) {
+    // `data.length` of a root `bytes[] calldata` (the issue's shape).
+    function arrayLength(bytes[] calldata data) external returns (uint256) {
         return data.length;
     }
 
