@@ -143,7 +143,7 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
   if let .ok rows := input.getObjVal? "accountBalance" then
     for row in ← rows.getArr? do
       let (owner, balance) ← pair row
-      unless owner < 2^160 && owner != account && balance != 0 do
+      unless owner < 2^160 && owner != account && balance != 0 && balance < 2^256 do
         throw "invalid foreign balance account"
       let address := Address.ofNat owner
       unless (world.accountWorld address).balance.val == 0 do

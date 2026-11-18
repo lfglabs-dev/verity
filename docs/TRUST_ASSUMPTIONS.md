@@ -2164,12 +2164,14 @@ Trust boundary changes:
 - The transport hands control to no account, so `eraseClosedTransports` erases
   it for the CEI check. A call or `create2` can change what it observes (a value
   transfer makes an empty account exist and moves its hash from `0` to
-  `keccak256("")`; `create2` gives an address code), and the model's account
-  world does not follow those changes, so a code-hash read that runs after such a
-  statement in program order rejects (`codeHashesAfterChange`, checked per root;
-  either branch of a conditional and every later loop iteration count). Reads
-  before the call are admitted. The transport is not admitted after a trailing
-  low-level call (`stmtAfterTrailingCall`) either.
+  `keccak256("")`; `create2` gives an address code). The model's account world
+  does not follow what a called account does, and no A/B/C case covers a read
+  after `create2` (Denote commits its code, nonce and balance), so a code-hash
+  read that runs after such a statement in program order rejects
+  (`codeHashesAfterChange`, checked per root; either branch of a conditional and
+  every later loop iteration count). Reads before the call are admitted.
+  `stmtAfterTrailingCall` (the `reentrancyTrusted` classifier) does not count a
+  code-hash read as trailing-call-safe.
 - Compilation keeps `proofStatus := .assumed`; agreement of the compiled model
   with solc and Denote is differential evidence (`ExtCodeHashSequence`, three
   equivalent variants over coded accounts, an account that exists through its
