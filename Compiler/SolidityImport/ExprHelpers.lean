@@ -174,6 +174,10 @@ structure Env where
   rootDynamicBytesReturn : Option ParamType := none
   /-- `returns (S memory)` of a struct with dynamic members: its id and schema. -/
   rootDynamicStructReturn : Option (Nat × List AbiSchema.Member) := none
+  /-- Return parameter declarations of a root whose ABI return tuple has a
+  dynamic `T[] memory`, `bytes` or `string` component
+  (`functionDynamicTupleReturn?`): `return` ABI-encodes the tuple in memory. -/
+  rootDynamicTupleReturn : Option (Array Json) := none
   publicVarGetterReturns : Array ParamType := #[]
   rootPost : Array Stmt := #[]
   modifiers : RBMap Nat Json compare := RBMap.empty

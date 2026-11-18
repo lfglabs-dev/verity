@@ -68,6 +68,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-bytes-named-return-slice-struct",
     "storage-bytes-named-return-stateless",
     "storage-constant-arrays",
+    "storage-dynamic-array-root-returns",
+    "storage-dynamic-array-root-returns-stateless",
     "storage-dynamic-memory-arrays",
     "storage-fixed-memory-arrays",
     "storage-helper-name-independence",

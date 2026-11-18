@@ -6089,6 +6089,22 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     failAt callee "unsupported ABI encoding builtin"
   lowerAbiEncodeArgs args
 
+/-- A dynamic storage array of ABI scalars (a state variable, a storage pointer
+local or a struct member) copied into a fresh memory array, as solc copies a
+storage array it ABI-encodes (`copyStorageDynamicArrayToMemory`, the copy of
+`T[] memory m = arr;`). The copy is registered as a memory array under a fresh
+id. `none` if `arg` is not a storage array. -/
+private partial def copyStorageScalarArray? (arg : Json) : M (Option (Array Stmt × Nat)) := do
+  let ty ← mType arg
+  unless ty.endsWith " storage ref" || ty.endsWith " storage pointer" do return none
+  let some (pre, fieldName, slotExpr, elemTy, modelElemTy, abiKind, none) ←
+      resolveStorageDynamicArrayTarget (← lowerRef arg) arg
+    | failAt arg "unsupported storage array copy source"
+  let (copyPre, desc) ← copyStorageDynamicArrayToMemory pre fieldName slotExpr elemTy modelElemTy abiKind ""
+  let arrId := 1000000000 + (← get).next
+  modify fun e => { e with next := e.next + 1, scalarArrays := e.scalarArrays.insert arrId desc }
+  return some (copyPre, arrId)
+
 /-- `abi.encode(args...)` into a fresh aligned memory buffer. -/
 private partial def lowerAbiEncodeArgs (args : Array Json)
     (params? : Option (Array Json) := none) : M EncodedBytes := do
@@ -6145,6 +6161,27 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         headWords := headWords.push none
         dynTails := dynTails.push (headIdx, .inr (.inl (ptrVal.expr, sizeVal.expr)))
       else if (scalarArrayElement? ty).isSome then
+        if let some (copyPre, arrId) ← copyStorageScalarArray? arg then
+          pre := pre ++ copyPre
+          let headIdx := headWords.size
+          headWords := headWords.push none
+          dynTails := dynTails.push (headIdx, .inr (.inr arrId))
+          continue
+        if (← mKind (← stripParens arg)) != "Identifier" then
+          -- `new T[](n)`, an array helper result or a nested-array row: the
+          -- memory array value, encoded like a binding of it.
+          if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get) || jsonHasCustomRevert (← get) [] arg) then
+            failAt arg "effectful ABI encoding argument is unsupported"
+          let some (elemStr, _, _) := scalarArrayElement? ty
+            | failAt arg s!"unsupported ABI encoding argument type {ty}"
+          let (valPre, desc) ← lowerDynArrayValue arg elemStr
+          let arrId := 1000000000 + (← get).next
+          modify fun e => { e with next := e.next + 1, scalarArrays := e.scalarArrays.insert arrId desc }
+          pre := pre ++ valPre
+          let headIdx := headWords.size
+          headWords := headWords.push none
+          dynTails := dynTails.push (headIdx, .inr (.inr arrId))
+          continue
         unless (← mKind arg) == "Identifier" do
           failAt arg s!"unsupported ABI encoding argument type {ty}"
         let .scalarArray arrId arrPre ← lowerRef arg
@@ -14688,6 +14725,80 @@ private def functionDynamicStructReturn? (fn : Json) :
     failAt r "named dynamic struct return parameters are unsupported"
   return some (sid.toNat, schema)
 
+/-- The model return types of a root whose ABI return tuple has a dynamic
+component: a scalar `T[] memory` array, or `bytes`/`string memory` beside other
+components (a lone `bytes`/`string` result is `functionDynamicBytesReturn?`).
+Every other component must be an ABI scalar. `return` ABI-encodes the tuple into
+memory (`lowerAbiEncodeArgs`, as `abi.encode`) and returns it through the closed
+memory `return` transport. Empty-body roots keep `functionEmptyBodyArrayReturnType?`. -/
+private def functionDynamicTupleReturn? (fn : Json) : M (Option (Array ParamType)) := do
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  if rets.isEmpty || (← functionEmptyBodyArrayReturnType? fn).isSome then return none
+  let mut types : Array ParamType := #[]
+  let mut dynamic := false
+  for r in rets do
+    let rty ← mType r
+    let loc := optStr r "storageLocation" |>.getD "default"
+    if let some (_, elemPty, _) := scalarArrayElement? rty then
+      unless loc == "memory" do return none
+      types := types.push (.array elemPty)
+      dynamic := true
+    else if rty == "bytes" || rty == "string" then
+      unless loc == "memory" && rets.size > 1 do return none
+      types := types.push (if rty == "bytes" then .bytes else .string)
+      dynamic := true
+    else
+      let some pty := paramType rty | return none
+      types := types.push pty
+  return if dynamic then some types else none
+
+/-- An `Identifier` naming the root return parameter `r`: falling off the end of
+a root with named results returns those variables. -/
+private def returnParamIdentifier (r : Json) : M Json := do
+  let name ← mField r "name"
+  let id ← mField r "id"
+  return Json.mkObj [("nodeType", Json.str "Identifier"), ("name", name), ("referencedDeclaration", id),
+    ("typeDescriptions", ← mField r "typeDescriptions"), ("src", (field? r "src").getD Json.null)]
+
+/-- Bind the named component `r` of a dynamic root return tuple to its zero
+value: a `T[] memory` result is solc's zero-length array at `0x60` (reassignable,
+as a `T[] memory x;` local), a `bytes`/`string` result an empty buffer rebound by
+assignment (as a named `bytes` result), and a scalar result `0`. -/
+private def bindRootDynamicTupleResult (r : Json) : M (Array Stmt) := do
+  let rname ← mStr (← mField r "name")
+  let rid ← mNat (← mField r "id")
+  let rty ← mType r
+  if let some (elemStr, elemPty, abiKind) := scalarArrayElement? rty then
+    let template : ScalarArrayParam :=
+      { param := rname, elementType := elemStr, modelElementType := elemPty, abiKind,
+        inMemory := true, lengthBinding := "" }
+    let (ownPre, owned) ← ownDynArray rname template (.literal 96)
+    modify fun e =>
+      { e with scalarArrays := e.scalarArrays.insert rid owned, yulNames := e.yulNames.erase rname,
+               yulMemoryArrays := e.yulMemoryArrays.erase rname,
+               yulMemoryStructs := e.yulMemoryStructs.erase rname }
+    return ownPre
+  if rty == "bytes" || rty == "string" then
+    let ptrBinding ← fresh
+    let sizeBinding ← fresh
+    let buf : EncodedBytes := { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
+    modify fun e =>
+      { e with byteBuffers := e.byteBuffers.insert rid buf,
+               nonLiteralByteLocals := e.nonLiteralByteLocals.push rid,
+               yulNames := e.yulNames.erase rname,
+               yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
+    return #[.letVar ptrBinding (.literal 0), .letVar sizeBinding (.literal 0)]
+  discard (validateEnumTypeIfNeeded r rty)
+  let some scalar := paramType rty | failAt r s!"unsupported named root return type {rty}"
+  let rbinding ← freshFor rname
+  let rexpr := Expr.localVar rbinding
+  modify fun e =>
+    { e with values := e.values.insert rid rexpr,
+             writableLocals := e.writableLocals.insert rid rbinding,
+             scalarTy := e.scalarTy.insert rid scalar,
+             yulNames := e.yulNames.insert rname rexpr }
+  return #[.letVar rbinding (.literal 0)]
+
 /-- The memory struct returned by `return expr` from a root returning the dynamic
 struct `retSid`: `abi.decode(bytes, (S))`, materialized under a fresh root id, or a
 memory struct variable with a complete schema. Returns the root id and effects. -/
@@ -15024,6 +15135,28 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
                 yulNames := if rawName == "" then e.yulNames else e.yulNames.insert rawName (.localVar binding) }
   pure out
 
+/-- Return `components` from a root with a dynamic ABI return tuple: ABI-encode
+them against the declared return parameters `retDecls` into a fresh memory
+buffer (`lowerAbiEncodeArgs`, converting scalars and copying a storage array into
+memory as solc does), run the modifier epilogue, and return the buffer through
+the closed memory `return` transport. -/
+private def lowerDynamicTupleReturn (components retDecls : Array Json) (at_ : Json) : M (Array Stmt) := do
+  unless components.size == retDecls.size do
+    failAt at_ s!"root multi-return arity {components.size} does not match {retDecls.size}"
+  -- Components are lowered left to right; reject a memory write beside a
+  -- memory read whose result would depend on that order.
+  for i in [:components.size] do
+    for k in [i + 1:components.size] do
+      if memoryWriteOrderHazard components[i]! components[k]! (← get) then
+        failAt components[k]! "memory-writing helper beside a memory read in a root return tuple"
+  let payload ← lowerAbiEncodeArgs components (some retDecls)
+  let pointer ← atom { pre := payload.pre, expr := payload.pointer }
+  let size ← atom { pre := #[], expr := payload.size }
+  -- The transport halts the frame; the unreachable empty revert closes the path
+  -- for the compiler's exhaustive return analysis, as for dynamic struct returns.
+  return pointer.pre ++ size.pre ++ (← get).rootPost ++
+    #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, size.expr], .revertEmpty]
+
 private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := false) : M (Array Stmt × Bool) := do
   let mut out : Array Stmt := #[]
   let mut returned := false
@@ -15153,6 +15286,13 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               out := out ++ env.rootPost ++ #[.returnValues env.rootReturns.toList]
             else
               failAt s "bare return requires a void or named-return root function"
+          else if let some retDecls := env.rootDynamicTupleReturn then
+            let isTuple ← if (← mKind expr) == "TupleExpression" then
+                pure !(← mBool (← mField expr "isInlineArray"))
+              else pure false
+            let components ← if isTuple then mArr (← mField expr "components") else pure #[expr]
+            if components.any (·.isNull) then failAt expr "empty return component"
+            out := out ++ (← lowerDynamicTupleReturn components retDecls expr)
           else if let some (elemTy, _, length) := env.rootFixedArrayReturn then
             let isInlineArr ← if (← mKind expr) == "TupleExpression" then
               mBool (← mField expr "isInlineArray")
@@ -15676,6 +15816,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let msgDataRet ← functionMsgDataReturn? fn
   let dynamicBytesRet? ← functionDynamicBytesReturn? fn
   let dynamicStructRet? ← functionDynamicStructReturn? fn
+  let dynamicTupleRet? ← functionDynamicTupleReturn? fn
   let rootReturnTypes ← returns.mapM mType
   let mut rootRetExprs : Array Expr := #[]
   let mut rootNamedReturn? : Option (Nat × String × String × String) := none
@@ -15711,6 +15852,11 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
                  nonLiteralByteLocals := e.nonLiteralByteLocals.push rid,
                  yulNames := e.yulNames.erase rname,
                  yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
+  else if dynamicTupleRet?.isSome then
+    allNamedScalar := false
+    for r in returns do
+      if (← mStr (← mField r "name")) != "" then
+        rootInit := rootInit ++ (← bindRootDynamicTupleResult r)
   else if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone && !isRootScalarArrayRet then
     for r in returns do
       let rty ← mType r
@@ -15743,7 +15889,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
              rootFlatStructReturn := rootFlatStructState?,
              rootMsgDataReturn := msgDataRet,
              rootDynamicBytesReturn := dynamicBytesRet?,
-             rootDynamicStructReturn := dynamicStructRet? }
+             rootDynamicStructReturn := dynamicStructRet?,
+             rootDynamicTupleReturn := dynamicTupleRet?.map fun _ => returns }
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with rootPost := modPost }
   let (bodyOut, returned) ← lowerRootStatements stmts true
@@ -15779,6 +15926,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
       out := out ++ buf.pre ++ #[.letVar dataBinding buf.pointer, .letVar lenBinding buf.size, .returnBytes memStem]
     else if msgDataRet || dynamicBytesRet?.isSome then
       failAt fn "an explicit root return is required"
+    else if dynamicTupleRet?.isSome && !(← returns.anyM fun r => do pure ((← mStr (← mField r "name")) == "")) then
+      out := out ++ (← lowerDynamicTupleReturn (← returns.mapM returnParamIdentifier) returns fn)
     else if stmts.isEmpty then
       let mut zeroReturns : List Expr := []
       for r in returns do
@@ -16480,6 +16629,8 @@ private def importSlice
           return #[dynRetTy]
         if ← functionStorageStructReturn? fn then
           return #[.uint256]
+        if let some tys ← functionDynamicTupleReturn? fn then
+          return tys
         if (← get).stateVars.size > 1 then
           let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
           if rets.size == 1 then

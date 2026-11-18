@@ -113,6 +113,10 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(max(200, transactions)),
             '--seed', str(seed), '--output', str(output / ('storage-' + fixture))]))
+    for fixture in ('dynamic-array-root-returns', 'dynamic-array-root-returns-stateless'):
+        checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
+            '--fixture', fixture, '--transactions', str(max(64, transactions)),
+            '--seed', str(seed), '--output', str(output / ('storage-' + fixture))]))
     for fixture in STORAGE_FIXTURES:
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
