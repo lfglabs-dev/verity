@@ -861,16 +861,12 @@ def noteSelfAddressStmts (pre : Array Stmt) : M Unit := do
       noteSelfAddress binding value
     if (← get).selfAddressBindings.size == before then return
 
-/-- The lowered account operand of a code read (`code.length`, `code`, `codehash`).
-It is rejected at `node` with `message` when it may be the executing contract,
-whose code differs between the source and compiled routes and is not modeled. An
-operand that visibly mentions `address(this)` fails here; every operand is also
-recorded and rechecked against the whole root body (`checkCodeReadTargets`). A
-literal `address(this)` operand is rejected before lowering with its own
-message. -/
+/-- The lowered account operand of a code read (`code.length`, `code`, `codehash`),
+recorded with the node and message of its rejection: once the root is lowered,
+`checkCodeReadTargets` rejects it when it may be the executing contract, whose code
+differs between the source and compiled routes and is not modeled. A literal
+`address(this)` operand is rejected before lowering with its own message. -/
 def lowerCodeReadTarget (lowered : Val) (node : Json) (message : String) : M Val := do
-  noteSelfAddressStmts lowered.pre
-  if ← mayBeSelfAddress lowered.expr then failAt node message
   let target ← atom lowered
   modify fun e => { e with codeReadSites := e.codeReadSites.push (target.expr, node, message) }
   return target
