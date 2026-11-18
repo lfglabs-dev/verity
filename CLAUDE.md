@@ -33,7 +33,7 @@ Both `AGENTS.md` and `CLAUDE.md` are authoritative for all coding agents (`claud
    make check
    python3 scripts/solidity_import_mutations.py
    # Plus smoke + loss + programs differential campaigns & PrintAxioms check:
-   python3 scripts/generate_print_axioms.py --check
+   python3 scripts/generate_print_axioms.py && python3 scripts/generate_print_axioms.py --check
    ```
    Never claim completion without passing evidence on the exact commit SHA.
 
