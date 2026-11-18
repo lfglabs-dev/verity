@@ -20,6 +20,11 @@ STORAGE_ARRAY_GROW = (
     'uint256[] internal _list; uint256 internal _a; uint256 internal _b; '
     'function _grow() internal returns (uint256) { _list.push(7); return _list.length; }')
 
+# Storage scalar and string state variables written by a non-view helper.
+STORAGE_WORD_STRING_BUMP = (
+    'uint256 total = 1; string _name = "old"; '
+    'function _bump() internal returns (uint256) { total = 2; _name = "new"; return 9; }')
+
 
 # Root ABI parameter controls: the `function` line of each case's import.
 ROOT_PARAM_SIGNATURES = {
@@ -315,6 +320,14 @@ def main():
          'state-writing ABI encoding argument after a storage array is unsupported'),
         ('storage-array-encode-then-write', STORAGE_ARRAY_GROW, 'return uint256(keccak256(abi.encode(_list, _grow())));', 'uint256',
          'state-writing ABI encoding argument after a storage array is unsupported'),
+        # A non-view helper is an effectful encoding component wherever it
+        # sits, so a storage read beside it cannot be reordered.
+        ('dynamic-tuple-return-storage-word-then-write', STORAGE_WORD_STRING_BUMP,
+         'uint256[] memory xs = new uint256[](1); return (total, _bump(), xs);', 'uint256, uint256, uint256[] memory',
+         'effectful ABI encoding argument is unsupported'),
+        ('dynamic-tuple-return-storage-string-then-write', STORAGE_WORD_STRING_BUMP,
+         'return (_name, _bump());', 'string memory, uint256',
+         'effectful ABI encoding argument is unsupported'),
     ]
     for name, fields, body, returns, expected in cases:
         if next(ordinal) % parts != part:
