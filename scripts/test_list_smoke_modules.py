@@ -67,10 +67,10 @@ class ListSmokeModulesTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    def run_main(self) -> tuple[int, str, str]:
+    def run_main(self, min_modules: int = 1) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = tool.main(["--test-dir", str(self.root)])
+            code = tool.main(["--test-dir", str(self.root), "--min-modules", str(min_modules)])
         return code, out.getvalue(), err.getvalue()
 
     def test_single_line_both_helpers(self) -> None:
@@ -97,7 +97,23 @@ class ListSmokeModulesTest(unittest.TestCase):
         code, out, err = self.run_main()
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("no on-demand Verity module", err)
+        self.assertIn("found 0 on-demand Verity module(s)", err)
+
+    def test_fewer_than_floor_fails(self) -> None:
+        self.write("A.t.sol", SINGLE_LINE)
+        code, out, err = self.run_main(min_modules=3)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("found 2 on-demand Verity module(s)", err)
+        self.assertIn("expected at least 3", err)
+
+    def test_repository_has_at_least_the_floor(self) -> None:
+        # The real test tree: the scan must find at least MIN_MODULES distinct modules
+        # (the 26 of the hand-maintained lists it replaced).
+        modules = tool.list_smoke_modules(tool.ROOT / "test")
+        self.assertEqual(len(modules), len(set(modules)))
+        self.assertGreaterEqual(len(modules), tool.MIN_MODULES)
+        self.assertGreaterEqual(tool.MIN_MODULES, 26)
 
 
 if __name__ == "__main__":
