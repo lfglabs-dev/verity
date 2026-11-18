@@ -545,12 +545,10 @@ jobs:
           key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
 
   build-audits:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 20
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
-    env:
-      LEAN_NUM_THREADS: 16
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -622,7 +620,7 @@ jobs:
             axiom-report-raw.log
 
   import-mutations:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 210
     needs: [changes, checks, build]
     # ~6 runner-hours per run: nightly, manual dispatch, or PRs labelled
@@ -1216,12 +1214,10 @@ jobs:
           path: gas-report-static-patched.tsv
 
   compiler-audits:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 45
     needs: [changes, checks, build, build-compiler-binaries]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
-    env:
-      LEAN_NUM_THREADS: 16
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1623,7 +1619,7 @@ jobs:
           path: lean-perf-queue.md
 
   foundry-gas-calibration:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 15
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -1680,7 +1676,7 @@ jobs:
           --allow-missing-contract Vault
 
   foundry:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 45
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -1793,7 +1789,7 @@ jobs:
           forge test
 
   foundry-patched:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 60
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -1919,7 +1915,7 @@ jobs:
           forge test --no-match-test "Random10000"
 
   foundry-multi-seed:
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 75
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && github.event_name != 'pull_request'

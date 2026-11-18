@@ -369,7 +369,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
             self.assertIsNotNone(match, job)
             body = match.group("body")
-            self.assertIn("runs-on: lean-16vcpu-ubuntu-2604", body, job)
+            self.assertIn("runs-on: lean-8vcpu-ubuntu-2604", body, job)
             self.assertNotIn("max-parallel:", body, job)
         self.assertNotIn("build-medium", text)
 
