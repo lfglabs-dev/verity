@@ -60,10 +60,23 @@ class UnionCoverageTests(unittest.TestCase):
             "Verity.Proofs.Model.GeneratedEntrypointRegistry",
         ):
             self.assertIn(required, verified)
-        self.assertEqual(
-            check_union_coverage.check_union_coverage(check_union_coverage.ROOT),
-            len(verified),
-        )
+        # The audit modules are generated, never committed: check freshly
+        # generated content (not whatever is on disk) so this also works on a
+        # clean checkout.
+        root = check_union_coverage.ROOT
+        disk_map, verified_now, imports_map, _ = check_union_coverage.discover_population(root)
+        with tempfile.TemporaryDirectory() as directory:
+            union = Path(directory) / "VerityUnionAxioms.lean"
+            union.write_text(generate_print_axioms.generate_union_axioms(root), encoding="utf-8")
+            print_axioms = Path(directory) / "PrintAxioms.lean"
+            print_axioms.write_text(generate_print_axioms.generate(root), encoding="utf-8")
+            self.assertEqual(
+                check_union_coverage.check_target_coverage(union, disk_map, verified_now, imports_map),
+                len(verified),
+            )
+            check_union_coverage.check_target_coverage(
+                print_axioms, disk_map, verified_now, imports_map
+            )
 
     def test_synthetic_transitive_coverage(self) -> None:
         self.assertEqual(check_union_coverage.check_union_coverage(self.root), 4)

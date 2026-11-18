@@ -102,6 +102,8 @@ APPEND_ONLY: dict[str, str] = {
         r"^    (stateful_[a-z0-9_]+_source|'[a-z0-9-]+': '[A-Za-z0-9]+'),$",
     # One STORAGE_FIXTURES entry per line.
     "scripts/solidity_differential/suite.py": r"^    '[a-z0-9-]+',$",
+    # One EXPECTED_CAMPAIGN_CHECKS name per line.
+    "scripts/test_solidity_differential.py": r'^    "[a-z0-9-]+",$',
 }
 
 # Files deleted on the base that the PR may still modify (formerly committed
