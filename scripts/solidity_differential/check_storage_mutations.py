@@ -487,6 +487,14 @@ MUTANTS.update({
                                         '        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD (decls.size - 1 - i) (.literal 0, "")'),
 })
 
+MUTANTS.update({
+    'import-narrow-for-panic': ('out := out.push (.ite (.lt limit cap) [] [.panicCode (.literal 0x11)])',
+        'out := out.push (.ite (.lt limit cap) [] [])'),
+    'import-narrow-for-cap': ('let cap := Expr.literal (2 ^ counterBits)',
+        'let cap := Expr.literal (2 ^ counterBits - 1)'),
+})
+
+
 # Root ABI parameters (#2711): byte buffers of `string` struct members, from
 # memory (payload pointer) and from calldata (member word).
 MUTANTS.update({
@@ -570,6 +578,8 @@ def run(directory, output, name):
         fixture = "WhileClzAndStructLocSequence"
     if name.startswith("import-exp-and-bitwise-shift-"):
         fixture = "ExpAndBitwiseShiftSequence"
+    if name.startswith("import-narrow-for-"):
+        fixture = "NarrowForCounterSequence"
     if name.startswith("import-msg-data-and-enum-"):
         fixture = "MsgDataAndEnumSequence"
     if name.startswith("import-struct-fixed-array-"):
@@ -657,6 +667,12 @@ def run(directory, output, name):
         argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence', 'DynamicBytesAndStringReturnSequence', 'BytesAndStringStorageSequence', 'YulBlockMulmodTstoreSequence', 'MerkleAndNoncesSequence', 'MultiProofMappingKeysVerifiersSequence', 'UdvtParamAssignStructHashSequence', 'StructMappingAndBytes4InterfaceSequence', 'ERC2981HoldersArraysMsgHashSequence', 'StorageStructParamsDequeShortStringsSequence', 'StorageSlotShortStringsTimeSequence', 'EnumerableSetMapSequence', 'CheckpointsAndStructArraysSequence', 'WadExpAndThreeKeyMappingSequence', 'StructHashAndDomainSeparatorSequence', 'AbiDecodeAndVerifierSequence', 'VotesCheckpointsArraysBitMapsSequence', 'PublicGettersAndBuiltinsSequence', 'EcrecoverAuthorizerArraysMapSequence', 'StructParamsAndBalancesSequence', 'PackedStructMappingAndTernaryTupleSequence', 'TimelockAndBytes4CastSequence', 'StringBytesMappingsUriStorageStringsSequence', 'StringsHexArraysBitmapsSequence', 'EcdsaMerkleCheckpointsStorageSlotSequence', 'Create2ClonesMsgDataDequeSequence', 'GovernorSliceProposerDelaySequence', 'AccessManagerTargetRoleSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
+    if fixture == 'NarrowForCounterSequence':
+        # The same boundaries as `check_storage --fixture narrow-for-counters`:
+        # x % 300 == 255 is the last bound a uint8 counter reaches without the
+        # checked-increment panic, 256 the first that panics.
+        argv[argv.index('--transactions') + 1] = '20'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 19, 20, 255, 256, 257, 299, 300, 555, 556, 999, (1 << 256) - 1])])
     if fixture == 'YulNumericSequence':
         argv = argv[:argv.index('--change-prefix')] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
     if fixture == 'NamedHelperReturnSequence':

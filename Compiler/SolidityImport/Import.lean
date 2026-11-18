@@ -2583,6 +2583,17 @@ private def allocateZeroedFixedMemArray (hint : String)
     [.mstore (fixedMemElementAddr arr (.localVar index)) (.literal 0)]
   pure ((fixedMemAllocate arr.pointer next arr.length).push zero, arr)
 
+/-- Whether a `uintN` for loop counter (`N = counterBits`) can reach `2^N - 1` below the
+bound: the bound is neither a literal below `2^N` nor of an unsigned type of at most N bits. -/
+private def narrowCounterMayWrap (counterBits : Nat) (bound : Val) (boundNode : Json) :
+    M Bool := do
+  if counterBits ≥ 256 then return false
+  if let .literal n := bound.expr then return n ≥ 2 ^ counterBits
+  let boundTy ← mType boundNode
+  match (if boundTy.startsWith "uint" then bitsOf boundTy else none) with
+  | some bits => pure (bits > counterBits)
+  | none => pure true
+
 set_option maxHeartbeats 1600000 in
 mutual
 
@@ -9967,7 +9978,9 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
   let d := decls[0]!
   let counter ← mNat (← mField d "id")
   let counterName ← mStr (← mField d "name")
-  unless (← mType d) == "uint256" do failAt d "a for loop counter must be uint256"
+  let counterTy ← mType d
+  let some counterBits := if counterTy.startsWith "uint" then bitsOf counterTy else none
+    | failAt d "a for loop counter must be an unsigned integer"
   let body ← mField s "body"
   let writes := bodyAssignedIds body
   let isCounter (j : Json) : M Bool := do
@@ -10124,12 +10137,26 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   let mut out : Array Stmt := #[]
+  let mut limit := bound.expr
   if abiLength then
     let captured ← fresh
     out := out ++ bound.pre |>.push (.letVar captured bound.expr)
-    out := out.push (.forEach binding (.localVar captured) bodyOut.toList)
+    limit := .localVar captured
+  if ← narrowCounterMayWrap counterBits bound boundNode then
+    -- `i < n` with `n ≥ 2^N` runs the body for i = 0 … 2^N - 1, then the
+    -- checked `i++` on the uintN counter panics.
+    if (← get).unchecked then
+      failAt d s!"an unchecked {counterTy} for loop counter can wrap below a wider bound"
+    if (← stmtContainsReturn body) || (← stmtContainsBreakOrContinue body) then
+      failAt d s!"a {counterTy} for loop counter with a wider bound requires a body without return, break or continue"
+    let capped ← fresh
+    let cap := Expr.literal (2 ^ counterBits)
+    out := out.push (.letVar capped cap)
+    out := out.push (.ite (.lt limit cap) [.assignVar capped limit] [])
+    out := out.push (.forEach binding (.localVar capped) bodyOut.toList)
+    out := out.push (.ite (.lt limit cap) [] [.panicCode (.literal 0x11)])
   else
-    out := out.push (.forEach binding bound.expr bodyOut.toList)
+    out := out.push (.forEach binding limit bodyOut.toList)
   pure out
 
 private partial def unwrapLoopBodyStmts (j : Json) : M (Array Json) := do
