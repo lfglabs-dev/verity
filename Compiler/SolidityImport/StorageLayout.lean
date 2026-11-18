@@ -278,7 +278,7 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
   return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, wordCount }
 
 partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat) (types structTy : Json) :
-    M (Array StructMember × Array String × Array String × Array String × Array StructFixedArrayInfo × Array StructMappingInfo × Array StructDynamicArrayInfo × Array (String × Nat)) := do
+    M (Array StructMember × Array String × Array String × Array String × Array StructFixedArrayInfo × Array StructMappingInfo × Array StructDynamicArrayInfo × Array (String × Nat) × Array (String × Nat)) := do
   let members ← mArr (← mField structTy "members")
   let mut members' : Array StructMember := #[]
   let mut names : Array String := #[]
@@ -288,6 +288,7 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
   let mut structMappings : Array StructMappingInfo := #[]
   let mut structDynamicArrays : Array StructDynamicArrayInfo := #[]
   let mut subStructs : Array (String × Nat) := #[]
+  let mut signedMembers : Array (String × Nat) := #[]
   for m in members do
     let rawLabel ← mStr (← mField m "label")
     let qualLabel := if prefixStr == "" then rawLabel else s!"{prefixStr}.{rawLabel}"
@@ -302,7 +303,7 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
       if byteOff == 0 && (← mStr (← mField subTy "encoding")) == "inplace" && (field? subTy "members").isSome then
         if let some sid := resolveStructIdFromSolcType? (← get) rawSolcType then
           subStructs := subStructs.push (qualLabel, sid)
-          let (subMembers, subNames, subSkipped, subBools, subFixed, subMaps, subDyns, subSubs) ←
+          let (subMembers, subNames, subSkipped, subBools, subFixed, subMaps, subDyns, subSubs, subSigned) ←
             decodeStructLayoutMembers name qualLabel word types subTy
           members' := members' ++ subMembers
           names := names ++ subNames
@@ -312,6 +313,7 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
           structMappings := structMappings ++ subMaps
           structDynamicArrays := structDynamicArrays ++ subDyns
           subStructs := subStructs ++ subSubs
+          signedMembers := signedMembers ++ subSigned
         else
           let item : OpaqRec := ⟨name, qualLabel, rawSolcType, word, byteOff⟩
           modify fun e => { e with opaqueMembers := e.opaqueMembers.push item }
@@ -479,9 +481,12 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
       names := names.push qualLabel
       if solcType == "t_bool" then
         booleanMembers := booleanMembers.push qualLabel
+      else if solcType.startsWith "t_int" && bits < 256 then
+        signedMembers := signedMembers.push (qualLabel, bits)
     else
       throwError "unsupported layout member {qualLabel} : {rawSolcType}"
-  pure (members', names, skipped, booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs)
+  pure (members', names, skipped, booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs,
+    signedMembers)
 
 def rawStructMemberSlot (baseSlot : Expr) (wordOffset : Nat) : Expr :=
   if wordOffset == 0 then baseSlot else .add baseSlot (.literal wordOffset)

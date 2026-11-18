@@ -90,6 +90,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-signed-modulo",
     "storage-struct-array-param",
     "storage-struct-string-member-param",
+    "storage-signed-struct-member-read",
     "storage-tuple-destructuring",
     "storage-unchecked-blocks",
     "storage-void",

@@ -68,6 +68,7 @@ from .programs import (
     stateful_root_param_source,
     stateful_short_circuit_source,
     stateful_signed_modulo_source,
+    stateful_signed_struct_member_read_source,
     stateful_solc_0810_source,
     stateful_storage_source,
     stateful_storage_word_source,
@@ -105,6 +106,12 @@ INLINE_ARRAY_LITERAL_PREFIX = [0, 1, 2, 3, 4, 7, 8, 16, 17, 0xffff, 0x10000,
                                (0xabcd << 240) | 5, (1 << 256) - 1]
 FIXED_MEMORY_ARRAY_PREFIX = [0, 1, 2, 3, 6, 7, 11, 13, 34, 41, 0x5a00000003,
                              (3 << 40) | 0x01020304, (1 << 256) - 1]
+# The first three calls push the three cells (k = x % length). 0 stores the most negative
+# int24 / int16 / int128 inputs, the second call stores -5 / -5 / 5 - 2^31, the third the
+# largest positive ones; bit 64 skips the writes so later calls only read stored values.
+SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 1 | (32763 << 8) | (123 << 24) | (5 << 32),
+                                    2 | (0xffff << 8) | (0xff << 24) | (0xffffffff << 32),
+                                    1 << 64, (1 << 64) | 1, (1 << 64) | 2, (1 << 256) - 1]
 
 
 def canonical_observations(observations):
@@ -187,6 +194,7 @@ FIXTURE_CONTRACTS = {
     'public-getters-and-builtins': 'PublicGettersAndBuiltinsSequence',
     'short-circuit': 'ShortCircuitSequence',
     'signed-modulo': 'SignedModuloSequence',
+    'signed-struct-member-read': 'SignedStructMemberReadSequence',
     'solc-0810': 'Solc0810Sequence',
     'string-bytes-mappings-uri-storage-strings': 'StringBytesMappingsUriStorageStringsSequence',
     'strings-hex-arrays-bitmaps': 'StringsHexArraysBitmapsSequence',
@@ -377,6 +385,8 @@ def main():
         variants = ('baseline', 'renamed', 'literal-initializers')
     if args.fixture == 'yul-empty-revert':
         variants = ('baseline', 'renamed', 'offsets')
+    if args.fixture == 'signed-struct-member-read':
+        variants = ('baseline', 'renamed', 'local-reads')
     if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return',
                         'dynamic-array-root-returns', 'dynamic-array-root-returns-stateless'):
         variants = ('baseline', 'renamed', 'unnamed-returns')
@@ -466,6 +476,7 @@ def main():
                           else stateful_signed_modulo_source(fixture, variant) if args.fixture == "signed-modulo"
                           else stateful_byte_constant_conversions_source(fixture, variant) if args.fixture == "byte-constant-conversions"
                           else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
+                          else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
@@ -489,6 +500,9 @@ def main():
         if args.fixture == 'yul-empty-revert':
             # Both zero-size revert branches (x % 5 == 0 and 1) and a call that stores.
             extra = ['--change-prefix', '10', '11', '12', '15', '16', '17']
+        if args.fixture == 'signed-struct-member-read':
+            # Negative, positive-extreme and read-only calls on every cell and both struct paths.
+            extra = ['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)]
         if args.fixture == 'signed-modulo':
             # Centered-reduction boundaries (ALPHA / 2, ALPHA, the 8380417
             # reduction), the narrow int8 range, and both min % -1 parities.

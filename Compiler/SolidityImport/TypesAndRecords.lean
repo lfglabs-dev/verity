@@ -224,6 +224,8 @@ structure FieldInfo where
   memberNames : Array String
   opaqueNames : Array String
   booleanMembers : Array String := #[]
+  /-- Narrow signed (`int8`..`int248`) layout members with their bit width. -/
+  signedMembers : Array (String × Nat) := #[]
   structFixedArrays : Array StructFixedArrayInfo := #[]
   structMappings : Array StructMappingInfo := #[]
   structDynamicArrays : Array StructDynamicArrayInfo := #[]

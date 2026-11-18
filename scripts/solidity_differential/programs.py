@@ -1005,6 +1005,38 @@ def stateful_yul_empty_revert_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown yul-empty-revert variant: {variant}')
 
 
+def stateful_signed_struct_member_read_source(fixture: str, variant: str) -> str:
+    """Reads of negative narrow signed packed struct members (storage array, mapping, state
+    variable, storage reference, memory copy) agree with renamed identifiers and with the same
+    reads bound to typed locals first."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        out = fixture
+        for old, new in (('cells', 'slots'), ('byKey', 'keyed'), ('top', 'single'), ('Cell', 'Slot'),
+                         ('m', 'copy'), ('r', 'ref'), ('acc', 'total'), ('k', 'key')):
+            if len(re.findall(rf'\b{old}\b', out)) < 2:
+                raise ValueError(f'missing signed-struct-member-read anchor {old}')
+            out = re.sub(rf'\b{old}\b', new, out)
+        return out
+    if variant == 'local-reads':
+        out = fixture
+        for old, new in (
+                ('        int256 acc = int256(cells[k].t);\n',
+                 '        int24 firstT = cells[k].t;\n        int256 acc = int256(firstT);\n'),
+                ('        if (byKey[k].w < 0) {\n',
+                 '        int128 keyedW = byKey[k].w;\n        if (keyedW < 0) {\n'),
+                ('        acc = acc * 13 + int256(top.t) - int256(top.u);\n',
+                 '        int24 topT = top.t;\n        int16 topU = top.u;\n'
+                 '        acc = acc * 13 + int256(topT) - int256(topU);\n'),
+                ('        int24 v = c.t - 1;\n', '        int24 old = c.t;\n        int24 v = old - 1;\n')):
+            if out.count(old) != 1:
+                raise ValueError(f'missing signed-struct-member-read anchor {old!r}')
+            out = out.replace(old, new)
+        return out
+    raise ValueError(f'unknown signed-struct-member-read variant: {variant}')
+
+
 def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     """Compare signed remainder with its truncated-quotient identity."""
     if variant == 'baseline':
