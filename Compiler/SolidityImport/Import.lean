@@ -7190,7 +7190,8 @@ private partial def lowerExtCodeSize (code : Json) : M Val := do
   let account ← mField code "expression"
   if ← isThisAddressConv account then
     failAt code "code length of the executing contract is unsupported"
-  let target ← atom (← lowerExpr account)
+  let target ← lowerCodeReadTarget (← lowerExpr account) code
+    "code length of an account that may be the executing contract is unsupported"
   let result ← fresh
   let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]
   pure { pre := target.pre.push read, expr := .localVar result }
@@ -7205,7 +7206,8 @@ private partial def lowerExtCodeHash (member : Json) : M Val := do
   let account ← mField member "expression"
   if ← isThisAddressConv account then
     failAt member "code hash of the executing contract is unsupported"
-  let target ← atom (← lowerExpr account)
+  let target ← lowerCodeReadTarget (← lowerExpr account) member
+    "code hash of an account that may be the executing contract is unsupported"
   let result ← fresh
   let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeHash.module result) [target.expr]
   pure { pre := target.pre.push read, expr := .localVar result }
@@ -7220,7 +7222,8 @@ private partial def lowerExtCodeCopy (code : Json) : M EncodedBytes := do
   let account ← mField code "expression"
   if (← isThisAddressConv account) then
     failAt code "code of the executing contract is unsupported"
-  let target ← atom (← lowerExpr account)
+  let target ← lowerCodeReadTarget (← lowerExpr account) code
+    "code of an account that may be the executing contract is unsupported"
   let array ← fresh
   let data ← fresh
   let length ← fresh
@@ -7449,6 +7452,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           let binding ← freshFor (if pname == "" then "param" else pname)
           let expr := Expr.localVar binding
           pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)
+          noteSelfAddressStmts converted.pre
+          noteSelfAddress binding converted.expr
           modify fun e =>
             { e with values := e.values.insert pid expr,
                      writableLocals := e.writableLocals.insert pid binding,
@@ -7457,6 +7462,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             yul := yul.insert pname expr
         else
           let bound ← atom converted
+          noteSelfAddressStmts bound.pre
           pre := pre ++ bound.pre
           modify fun e => { e with values := e.values.insert pid bound.expr }
           if pname != "" then
@@ -9786,6 +9792,8 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
       let binding ← freshFor (if pname == "" then "param" else pname)
       let expr := Expr.localVar binding
       pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)
+      noteSelfAddressStmts converted.pre
+      noteSelfAddress binding converted.expr
       modify fun e =>
         { e with values := e.values.insert pid expr,
                  writableLocals := e.writableLocals.insert pid binding,
@@ -12497,6 +12505,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             failAt c "only declaration-bound scalar locals are writable"
           unless (localParamType cty).isSome do
             failAt c s!"unsupported scalar local assignment type {cty}"
+          noteSelfAddressStmts converted.pre
+          noteSelfAddress binding converted.expr
           assigns := assigns ++ converted.pre |>.push (.assignVar binding converted.expr)
         else
           let .state name pre ← lowerRef c
@@ -12569,6 +12579,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
           atom (← lowerConverted ty right)
+        noteSelfAddressStmts value.pre
+        noteSelfAddress binding value.expr
         return value.pre.push (.assignVar binding value.expr)
       if let some buf := (← get).byteBuffers.find? id.toNat then
         if !deleting then
@@ -13353,6 +13365,8 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
       unless (paramType ty).isSome do
         failAt target s!"unsupported scalar local assignment type {ty}"
       let value ← atom (← lowerConverted ty right)
+      noteSelfAddressStmts value.pre
+      noteSelfAddress binding value.expr
       return { pre := value.pre.push (.assignVar binding value.expr), expr := .localVar binding }
   let .state name pre ← lowerRef target
     | failAt target "assignment target is not scalar storage"
@@ -14896,6 +14910,8 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       { e with values := e.values.insert id expr, scalarTy := e.scalarTy.insert id scalarType,
                yulNames := e.yulNames.insert name expr, writableLocals := e.writableLocals.insert id binding,
                zeroInitLocals := if isZero then (if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id) else e.zeroInitLocals.filter (· != id) }
+    noteSelfAddressStmts converted.pre
+    noteSelfAddress binding converted.expr
     pure (converted.pre.push (.letVar binding converted.expr))
 
 end

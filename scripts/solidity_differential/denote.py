@@ -34,7 +34,7 @@ def _calldata(tx):
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
                  lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=600,
-                 account_code=(), account_balance=()):
+                 account_code=(), account_balance=(), foreign_nonce=()):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         if not isinstance(lean_command, (list, tuple)) or not lean_command or any(
@@ -70,6 +70,16 @@ class SequenceAdapter:
             if type(balance) is not int or not 0 < balance < 1 << 256:
                 raise HarnessError('foreign account balance must be a nonzero uint256')
             self.account_balance.append([str(int(owner, 16)), str(balance)])
+        # Foreign nonces as held on the EVM routes (an account created with empty
+        # runtime code exists through its nonce alone; observed by code-hash reads).
+        self.foreign_nonce = []
+        for owner, nonce in foreign_nonce:
+            owner = _bytes(owner, 20)
+            if owner == self.account:
+                raise HarnessError('foreign account nonce requires a foreign account')
+            if type(nonce) is not int or not 0 < nonce < 1 << 64:
+                raise HarnessError('foreign account nonce must be a nonzero 64-bit integer')
+            self.foreign_nonce.append([str(int(owner, 16)), str(nonce)])
         for owner, slot, value in initial_storage:
             owner = _bytes(owner, 20)
             row = [str(int(_bytes(slot, 32), 16)), str(int(_bytes(value, 32), 16))]
@@ -125,6 +135,8 @@ class SequenceAdapter:
             payload['accountCode'] = self.account_code
         if self.account_balance:
             payload['accountBalance'] = self.account_balance
+        if self.foreign_nonce:
+            payload['foreignNonce'] = self.foreign_nonce
         write_json(directory / 'input.json', payload)
         argv = [*self.lean_command, self.driver, directory / 'input.json', directory / 'output.json']
         command(argv, log=directory / 'lean.log', timeout=self.timeout)

@@ -2127,7 +2127,11 @@ than `address(this)`, as a `bytes32` value. It lowers to a new closed byte
 transport, `SolidityExtCodeHash.module` (`let r := extcodehash(addr)`), whose
 Denote arm is pinned by `execStmt_ecm_extCodeHash_arm` and admitted by
 `closedTransportCovered`. `address(this).codehash` fails closed with a located
-diagnostic.
+diagnostic, and so does a read whose lowered operand may be the executing
+contract (`lowerCodeReadTarget` / `mayBeSelfAddress`): a local, helper or
+modifier parameter bound or assigned `address(this)`, directly or through
+another such binding, or an operand expression that mentions either. The same
+lowered-operand rule applies to `<addr>.code.length` and `<addr>.code`.
 
 Trust boundary changes:
 - Denote answers `DenoteExternalCode.extCodeHash` over
@@ -2141,19 +2145,29 @@ Trust boundary changes:
   this value.
 - Existence is read from the account world, which Denote does not populate for
   accounts it never writes. Differential campaigns install the runtime code of
-  every coded account they probe (`accountCode` input) and the balance of every
-  funded EOA (`accountBalance` input, anvil's genesis balance). The EOA's nonce
-  and gas payments are not modeled; only existence is observed. The executing
-  contract's own code and nonce differ between the routes and are not modeled:
-  `address(this).codehash` rejects, and passing the executing contract's own
-  address as a runtime argument is outside the validated domain.
+  every coded account they probe (`accountCode` input), the balance of every
+  funded EOA (`accountBalance` input, anvil's genesis balance) and the nonce of
+  an account created from initcode that returns empty runtime code
+  (`foreignNonce` input: nonce 1, no balance, no code). The probes pin both
+  halves of EIP-161 existence: a balance alone and a nonce alone each make an
+  account without code answer `keccak256("")`. The EOAs' nonces and gas
+  payments are not modeled. The executing contract's own code and nonce differ
+  between the routes and are not modeled: `address(this).codehash` and reads
+  through locals or parameters bound to `address(this)` reject. The importer
+  does not track the executing contract's address through storage, calldata,
+  memory or inline-assembly assignments, so an operand that reaches the read
+  that way, like a runtime argument equal to the executing contract's own
+  address, is outside the validated domain.
 - The transport hands control to no account, so `eraseClosedTransports` erases
-  it for the CEI check and `stmtAfterTrailingCall` admits it after a trailing
-  low-level call, as for code length.
+  it for the CEI check. It is not admitted after a trailing low-level call
+  (`stmtAfterTrailingCall`): unlike code length, the call can change what it
+  observes, since a value transfer to an empty account makes it exist and moves
+  its hash from `0` to `keccak256("")`. No A/B/C case covers that sequence.
 - Compilation keeps `proofStatus := .assumed`; agreement of the compiled model
   with solc and Denote is differential evidence (`ExtCodeHashSequence`, three
-  equivalent variants over coded accounts, two funded EOAs, a never-touched
-  address and a precompile address), not a proof. `DenoteAgreement` excludes
+  equivalent variants over coded accounts, an account that exists through its
+  nonce alone, two funded EOAs, a never-touched address and a precompile
+  address), not a proof. `DenoteAgreement` excludes
   every closed byte transport.
 
 ### ABI memory proof integration

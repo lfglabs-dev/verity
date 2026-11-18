@@ -16,6 +16,7 @@ from solidity_differential.engine import HarnessError, command, write_json
 from solidity_differential.mutations import release, snapshot
 
 IMPORT = 'Compiler/SolidityImport/Import.lean'
+EXPR_HELPERS = 'Compiler/SolidityImport/ExprHelpers.lean'
 DENOTE = 'Verity/Core/Model/Denote.lean'
 EXTERNAL_CODE = 'Verity/Core/Model/DenoteExternalCode.lean'
 ECM = 'Verity/Core/Model/ECM.lean'
@@ -40,10 +41,24 @@ MUTANTS = {
     'denote-code-hash-existence': (EXTERNAL_CODE,
         'account.nonce.val == 0 && account.balance.val == 0 && account.code.isEmpty',
         'account.nonce.val == 0 && account.code.isEmpty', 'runtime', None),
+    # Denote ignores the nonce: an account created with empty runtime code (nonce 1,
+    # no balance, no code) looks empty and answers 0 instead of keccak256("").
+    'denote-code-hash-nonce': (EXTERNAL_CODE,
+        'account.nonce.val == 0 && account.balance.val == 0 && account.code.isEmpty',
+        'account.balance.val == 0 && account.code.isEmpty', 'runtime', None),
+    # The issue's eq/iszero mutant: `h != C` lowers to `eq(h, C)` instead of
+    # `iszero(eq(h, C))`, so the `isBound` guard reverts exactly for the bound code.
+    'import-code-hash-eq-iszero': (IMPORT,
+        '  | "!=" =>\n      let v ← cmp .eq left right\n      pure { v with expr := .logicalNot v.expr }',
+        '  | "!=" =>\n      let v ← cmp .eq left right\n      pure v', 'runtime', None),
     # Compiled code reads EXTCODESIZE; source and Denote keep EXTCODEHASH.
     'ecm-code-hash-opcode': (ECM,
         '| [target] => pure [.let_ resultVar (.call "extcodehash" [target])]',
         '| [target] => pure [.let_ resultVar (.call "extcodesize" [target])]', 'runtime', None),
+    # The lowered-target guard: an alias of address(this) imports again.
+    'import-code-read-self-alias': (EXPR_HELPERS,
+        'if ← mayBeSelfAddress lowered.expr then failAt node message',
+        'if false then failAt node message', 'admission', 'self-alias-code-hash'),
     'import-code-hash-this-guard': (IMPORT,
         'if ← isThisAddressConv account then\n    failAt member',
         'if false then\n    failAt member', 'admission', 'this-code-hash'),
@@ -58,7 +73,7 @@ def environment(directory):
 
 def runtime(directory, output):
     argv = [sys.executable, '-m', 'solidity_differential.check_extcodehash',
-            '--single', '--transactions', '128', '--seed', '2627', '--shrink-attempts', '40',
+            '--single', '--transactions', '160', '--seed', '2627', '--shrink-attempts', '40',
             '--output', str(output)]
     result = subprocess.run(argv, cwd=directory, env=environment(directory), text=True,
                             capture_output=True, timeout=10800)

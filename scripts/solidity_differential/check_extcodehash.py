@@ -2,12 +2,15 @@
 
 Every variant of the fixture is imported independently; its A/B/C sequence
 probes accounts with runtime code (deployed on the EVM routes from raw initcode,
-installed verbatim in Denote's account world), two funded EOAs without code
-(the deployer, with a nonzero nonce, and an unused prefunded account with nonce
-zero), a never-touched address and a precompile address. On the EVM routes the
-EOAs hold anvil's genesis balance; Denote is given the same nonzero balance and
-no nonce, since only the existence of an account without code is observed
-(EIP-1052: `0` for an empty account, `keccak256("")` for an existing one). The
+installed verbatim in Denote's account world), an account created from initcode
+that returns empty runtime code (nonce 1, no balance, no code), two funded EOAs
+without code (the deployer, with a nonzero nonce, and an unused prefunded
+account with nonce zero), a never-touched address and a precompile address. On
+the EVM routes the EOAs hold anvil's genesis balance; Denote is given the same
+nonzero balance and no nonce. The created account exists through its nonce
+alone, so Denote is given that nonce and nothing else; together the probes pin
+both halves of EIP-161 existence (EIP-1052: `0` for an empty account,
+`keccak256("")` for an existing one). The
 executing contract's own address is never probed: its code differs between the
 source and compiled routes and is not modeled. A divergence is shrunk to a
 deletion-minimal sequence. Equivalent variants must produce identical
@@ -47,6 +50,9 @@ PREFIX = bytes.fromhex('600b380380600b5f395ff3')
 # and a multi-word code whose length is not a multiple of 32.
 RUNTIMES = [bytes.fromhex('5f5ff3'), bytes.fromhex('00'),
             bytes([0x00]) + bytes((7 * i + 3) % 256 for i in range(76))]
+# The prefix alone returns empty runtime code: the created account keeps nonce 1
+# (EIP-161) and has no code and no balance, so it exists by its nonce only.
+NONCE_ONLY_INITCODE = PREFIX
 SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True, 'runs': 466},
             'metadata': {'bytecodeHash': 'none'}}
 ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "ExtCodeHashSequence.sol"'
@@ -66,8 +72,9 @@ def roots(template):
     return found
 
 
-def transactions_for(count, seed, caller, coded):
-    accounts = [*coded, SENDER, FUNDED, EMPTY, PRECOMPILE]
+def transactions_for(count, seed, caller, coded, created):
+    accounts = [*coded, created, SENDER, FUNDED, EMPTY, PRECOMPILE]
+    deployments = len(coded) + 2
     rng = random.Random(seed)
     calls = []
 
@@ -78,7 +85,7 @@ def transactions_for(count, seed, caller, coded):
         calls.append({'id': str(index), 'function': function[:function.index('(')],
                       'args': [int(v, 16) for v in values], 'sender': SENDER, 'target': caller,
                       'data': '0x' + selector + encode(types, values).hex(), 'value': '0x0',
-                      'timestamp': 1000000100 + index, 'blockNumber': len(coded) + 2 + index})
+                      'timestamp': 1000000100 + index, 'blockNumber': deployments + 1 + index})
 
     # Deterministic prefix: every account through every root, then every pair.
     for account in accounts:
@@ -126,19 +133,22 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     caller_c = '0x' + next(iter(generated.values()))['evm']['bytecode']['object']
     caller = address(0)
     coded = [address(i + 1) for i in range(len(RUNTIMES))]
+    created = address(len(RUNTIMES) + 1)
     initcodes = ['0x' + (PREFIX + runtime).hex() for runtime in RUNTIMES]
-    calls = transactions_for(transactions, seed, caller, coded)
+    initcodes.append('0x' + NONCE_ONLY_INITCODE.hex())
+    calls = transactions_for(transactions, seed, caller, coded, created)
     write_json(directory / 'transactions.json', calls)
     adapters = {
         'source': EVM(directory / 'A', [caller_a, *initcodes]),
         'model': Denote(directory / 'B', driver, caller, byte_call_environment={},
                         account_code=[(a, '0x' + r.hex()) for a, r in zip(coded, RUNTIMES, strict=True)],
-                        account_balance=[(SENDER, GENESIS_BALANCE), (FUNDED, GENESIS_BALANCE)]),
+                        account_balance=[(SENDER, GENESIS_BALANCE), (FUNDED, GENESIS_BALANCE)],
+                        foreign_nonce=[(created, 1)]),
         'compiled': EVM(directory / 'C', [caller_c, *initcodes])}
     result = replay_three_routes(calls, adapters)
     report = {'transactions': calls, 'observations': result['observations'],
               'divergences': result['divergences'], 'seed': seed,
-              'runtimes': ['0x' + r.hex() for r in RUNTIMES], 'coded': coded,
+              'runtimes': ['0x' + r.hex() for r in RUNTIMES], 'coded': coded, 'created': created,
               'eoas': [SENDER, FUNDED], 'empty': [EMPTY, PRECOMPILE],
               'sourceSha256': hashlib.sha256(source.encode()).hexdigest(),
               'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest()}
@@ -157,6 +167,12 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     expected = {'0x' + keccak(r).hex() for r in RUNTIMES} | {'0x' + keccak(b'').hex(), '0x' + '00' * 32}
     if hashes != expected:
         raise HarnessError(f'campaign must observe every code-hash case: {sorted(hashes)}')
+    # The account that exists through its nonce alone must answer keccak256("").
+    created_hashes = {row['data'] for call, row in zip(calls, rows, strict=True)
+                      if call['function'] == 'codeHash' and row['status'] == 'ok'
+                      and int(call['args'][0]) == int(created, 16)}
+    if created_hashes != {'0x' + keccak(b'').hex()}:
+        raise HarnessError(f'nonce-only account must hash to keccak256(""): {sorted(created_hashes)}')
     write_json(directory / 'campaign.json', report)
     return 0, report
 
@@ -174,7 +190,7 @@ def canonical(observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--transactions', type=int, default=128)
+    parser.add_argument('--transactions', type=int, default=160)
     parser.add_argument('--seed', type=int, default=2627)
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--variant', action='append', choices=('baseline', 'renamed', 'expanded'))
@@ -182,7 +198,7 @@ def main():
                         help='one unmodified-source campaign into --output; exit 1 on divergence')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    accounts = len(RUNTIMES) + 4
+    accounts = len(RUNTIMES) + 5
     minimum = accounts * len(SINGLE) + accounts * accounts
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every account and root')

@@ -176,15 +176,15 @@ abbrev purePostCallExpr := exprStorageFree
 
 /-- Statements allowed after a closed low-level call in a trailing-call body:
 local bindings, checks, returns and further closed low-level calls, none of
-which reads or writes storage or logs. -/
+which reads or writes storage or logs. A code-hash read is not admitted: the
+call can change the account world it observes (a value transfer makes an empty
+account exist, moving its hash from `0` to `keccak256("")`). -/
 partial def stmtAfterTrailingCall : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .require value _ => exprStorageFree value
   | .requireError condition _ args => exprStorageFree condition && args.all exprStorageFree
   | .ite condition yes no =>
       exprStorageFree condition && yes.all stmtAfterTrailingCall && no.all stmtAfterTrailingCall
-  | .ecm mod args =>
-      (isClosedLowLevelCall mod || isClosedExtCodeSize mod || isClosedExtCodeHash mod) &&
-        args.all exprStorageFree
+  | .ecm mod args => (isClosedLowLevelCall mod || isClosedExtCodeSize mod) && args.all exprStorageFree
   | .return value => exprStorageFree value
   | .returnValues values => values.all exprStorageFree
   | .revertEmpty | .stop => true

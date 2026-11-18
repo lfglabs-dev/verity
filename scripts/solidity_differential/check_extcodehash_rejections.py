@@ -14,7 +14,14 @@ import tempfile
 MESSAGES = {
     'this-code-hash': 'code hash of the executing contract is unsupported',
     'error-argument': 'custom-error arguments currently require literals or scalar bindings',
+    'self-alias': 'code hash of an account that may be the executing contract is unsupported',
+    'self-alias-length': 'code length of an account that may be the executing contract is unsupported',
 }
+
+HASH_HELPER = ('    function hashOf(address target) internal view returns (bytes32) {\n'
+               '        return target.codehash;\n    }\n')
+# Extra contract members of a case, by case name.
+MEMBERS = {'self-helper-code-hash': HASH_HELPER, 'helper-code-hash': HASH_HELPER}
 
 # name, body, expected
 # expected: None (positive control) or (marker, occurrence, construct, message key)
@@ -30,15 +37,31 @@ CASES = [
      ('address(this).codehash', 0, 'MemberAccess', 'this-code-hash')),
     ('error-argument', 'if (account.codehash != BOUND) revert Found(account.codehash);',
      ('account.codehash)', 0, 'MemberAccess', 'error-argument')),
+    # The lowered operand decides, not its syntax: aliases of address(this) reject.
+    ('foreign-alias', 'address other = account;\n        last = other.codehash;', None),
+    ('helper-code-hash', 'last = hashOf(account);', None),
+    ('self-alias-code-hash', 'address self = address(this);\n        last = self.codehash;',
+     ('self.codehash', 0, 'MemberAccess', 'self-alias')),
+    ('self-reassigned-code-hash',
+     'address target = account;\n        target = address(this);\n        last = target.codehash;',
+     ('target.codehash', 0, 'MemberAccess', 'self-alias')),
+    ('self-chained-code-hash',
+     'address self = address(this);\n        address copy = self;\n        last = copy.codehash;',
+     ('copy.codehash', 0, 'MemberAccess', 'self-alias')),
+    ('self-helper-code-hash', 'last = hashOf(address(this));',
+     ('target.codehash', 0, 'MemberAccess', 'self-alias')),
+    ('self-alias-code-length', 'address self = address(this);\n        counter = self.code.length;',
+     ('self.code', 0, 'MemberAccess', 'self-alias-length')),
 ]
 
 
-def source(statements):
+def source(statements, members=''):
     return ('// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n'
             'contract C {\n'
             '    bytes32 internal constant BOUND = bytes32(uint256(7));\n'
             '    error Unbound();\n    error Found(bytes32 found);\n'
             '    uint256 private counter;\n    bytes32 private last;\n'
+            f'{members}'
             '    function checked(address account) external {\n'
             f'        {statements}\n    }}\n}}\n')
 
@@ -68,7 +91,7 @@ def main():
             continue
         directory = output / name
         directory.mkdir()
-        text = source(statements)
+        text = source(statements, MEMBERS.get(name, ''))
         (directory / 'Fixture.sol').write_text(text)
         driver = directory / 'Check.lean'
         driver.write_text(f'''import Compiler.SolidityImport.Import
