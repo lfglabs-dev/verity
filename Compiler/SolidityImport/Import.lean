@@ -1316,6 +1316,47 @@ private def checkYulOperandOrder (at_ : Json) (vals : Array Val) : M Unit := do
         failAt at_ "Yul external call is evaluated after an operand that could observe it; assign the call to a variable first"
     earlier := earlier.push right
 
+/-- `add(buf, 0x20)` (either operand order) of a `bytes memory` local: the address of its
+payload, as the importer's own binding. -/
+private def yulBytePayloadAddress? (node : Json) : M (Option Val) := do
+  unless (← mKind node) == "YulFunctionCall" do return none
+  unless (← mStr (← mField (← mField node "functionName") "name")) == "add" do return none
+  let args ← mArr (← mField node "arguments")
+  unless args.size == 2 do return none
+  for (bufNode, offNode) in [(args[0]!, args[1]!), (args[1]!, args[0]!)] do
+    if let some buf ← yulByteBufferByName? bufNode then
+      if (← yulPositiveWordOffsetLiteral? offNode) == some 32 then
+        return some { pre := buf.pre, expr := buf.pointer }
+  return none
+
+/-- `add(buf, 0x20)` with size `mload(buf)` over the same `bytes memory` local: exactly its
+payload. -/
+private def yulBytePayloadRange? (offNode sizeNode : Json) : M Bool := do
+  if (← yulBytePayloadAddress? offNode).isNone then return false
+  unless (← mKind sizeNode) == "YulFunctionCall" do return false
+  unless (← mStr (← mField (← mField sizeNode "functionName") "name")) == "mload" do return false
+  let .arr #[len] := (field? sizeNode "arguments").getD .null | return false
+  let ident (n : Json) : Option String :=
+    if optStr n "nodeType" == some "YulIdentifier" then optStr n "name" else none
+  let some lenName := ident len | return false
+  let .arr #[a, b] := (field? offNode "arguments").getD .null | return false
+  return ident a == some lenName || ident b == some lenName
+
+/-- A nonempty memory range of an inline-assembly call must be the payload of a
+`bytes memory` local or literal bytes below `limit` that the block wrote unconditionally
+(`yulWrittenBytes`). Other memory holds what solc's code generator left there (mapping
+hashes, the free-memory pointer, the heap), which the model does not reproduce; an output
+range reaching `0x40` would also overwrite the free-memory pointer or the zero slot behind
+the block's restore checks. -/
+private def checkYulCallRange (offNode sizeNode : Json) (off size : Expr) (limit : Nat)
+    (message : String) : M Unit := do
+  if let .literal 0 := size then return
+  if ← yulBytePayloadRange? offNode sizeNode then return
+  if let (.literal lo, .literal n) := (off, size) then
+    let written := (← get).yulWrittenBytes
+    if lo + n ≤ limit && (List.range n).all fun k => written.testBit (lo + k) then return
+  failAt offNode message
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1367,12 +1408,6 @@ private partial def lowerYul (j : Json) : M Val := do
                 failAt j "Yul mload below 0x80 must read a scratch word this block wrote or the zero slot"
               return { pre := #[], expr := .mload (.literal off) }
         failAt j "unsupported Yul builtin mload"
-      -- `add(buf, 0x20)` of a `bytes memory` local is the address of its payload.
-      if fname == "add" && args.size == 2 then
-        for (bufNode, offNode) in [(args[0]!, args[1]!), (args[1]!, args[0]!)] do
-          if let some buf ← yulByteBufferByName? bufNode then
-            if (← yulPositiveWordOffsetLiteral? offNode) == some 32 then
-              return { pre := buf.pre, expr := buf.pointer }
       if fname == "call" || fname == "staticcall" then
         let isStatic := fname == "staticcall"
         let arity := if isStatic then 6 else 7
@@ -1392,9 +1427,20 @@ private partial def lowerYul (j : Json) : M Val := do
         let operands := if isStatic then args.extract 1 6 else #[args[1]!] ++ args.extract 3 7
         let mut xs : Array Expr := #[]
         for operand in operands do
-          let v ← lowerYul operand
+          -- `add(buf, 0x20)` of a `bytes memory` local is the address of its payload; it is
+          -- admitted only here, where the call consumes the address (the model's
+          -- allocations differ from solc's, so the address itself is not a value).
+          let v ← match ← yulBytePayloadAddress? operand with
+            | some v => pure v
+            | none => lowerYul operand
           unless v.pre.isEmpty do failAt operand s!"Yul {fname} operands must be effect-free"
           xs := xs.push v.expr
+        -- operands: target, input offset and size, output offset and size.
+        let x (i : Nat) : Expr := xs.getD i (.literal 0)
+        checkYulCallRange operands[1]! operands[2]! (x 1) (x 2) yulReservedMemoryEnd
+          s!"Yul {fname} input must be a bytes memory payload or bytes this block wrote below 0x80"
+        checkYulCallRange operands[3]! operands[4]! (x 3) (x 4) 0x40
+          s!"Yul {fname} output must be a bytes memory payload or scratch bytes this block wrote below 0x40"
         let result ← fresh
         return { pre := #[.ecm (Compiler.ECM.YulMemoryCall.module isStatic result) xs.toList],
                  expr := .localVar result }
@@ -2016,9 +2062,34 @@ private partial def yulIdentifierUses (name : String) : Json → Nat
   | .arr items => items.foldl (fun acc v => acc + yulIdentifierUses name v) 0
   | _ => 0
 
+/-- `copy` is `returndatacopy(name, 0, returndatasize())` and `rev` is
+`revert(name, returndatasize())`, as expression statements. -/
+private def yulBubblePairFor (name : String) (copy rev : Json) : Bool :=
+  let call (s : Json) (fname : String) : Option (Array Json) :=
+    if optStr s "nodeType" != some "YulExpressionStatement" then none else
+    match field? s "expression" with
+    | some e =>
+        if optStr e "nodeType" == some "YulFunctionCall" &&
+            (field? e "functionName").bind (optStr · "name") == some fname then
+          match field? e "arguments" with
+          | some (.arr args) => some args
+          | _ => none
+        else none
+    | none => none
+  let isName (e : Json) := optStr e "nodeType" == some "YulIdentifier" && optStr e "name" == some name
+  let isZero (e : Json) := optStr e "nodeType" == some "YulLiteral" &&
+    ((optStr e "value").bind fun raw => Compiler.Hex.parseHexNat? raw <|> raw.toNat?) == some 0
+  let isSize (e : Json) := optStr e "nodeType" == some "YulFunctionCall" &&
+    (field? e "functionName").bind (optStr · "name") == some "returndatasize" &&
+    (match field? e "arguments" with | some (.arr #[]) => true | _ => false)
+  match call copy "returndatacopy", call rev "revert" with
+  | some #[d, z, s], some #[p, t] => isName d && isZero z && isSize s && isName p && isSize t
+  | _, _ => false
+
 /-- Uses of `name` that only restore the free-memory pointer (`mstore(0x40, name)`) or place a
-bubbled revert (`returndatacopy(name, ..)`, `revert(name, ..)`), whose payload is the return
-data wherever it is copied. -/
+bubbled revert (an adjacent `returndatacopy(name, 0, returndatasize())` +
+`revert(name, returndatasize())` pair, lowered as `revertReturndata`), whose payload is the
+return data wherever it is copied. -/
 private partial def yulFreePointerUses (name : String) : Json → Nat
   | j@(.obj kvs) =>
       let isName (e : Json) := optStr e "nodeType" == some "YulIdentifier" && optStr e "name" == some name
@@ -2028,12 +2099,17 @@ private partial def yulFreePointerUses (name : String) : Json → Nat
         if optStr j "nodeType" == some "YulFunctionCall" then
           match (field? j "functionName").bind (optStr · "name"), field? j "arguments" with
           | some "mstore", some (.arr #[a, b]) => if isLit a 0x40 && isName b then 1 else 0
-          | some "returndatacopy", some (.arr #[a, _, _]) => if isName a then 1 else 0
-          | some "revert", some (.arr #[a, _]) => if isName a then 1 else 0
           | _, _ => 0
         else 0
       here + kvs.foldl (fun acc _ v => acc + yulFreePointerUses name v) 0
-  | .arr items => items.foldl (fun acc v => acc + yulFreePointerUses name v) 0
+  | .arr items =>
+      -- `returndatacopy(name, 0, returndatasize())` then `revert(name, returndatasize())`:
+      -- the two statements of a bubbled revert, lowered together as `revertReturndata`.
+      let pairAt (i : Nat) : Bool := i + 1 < items.size && yulBubblePairFor name items[i]! items[i+1]!
+      (List.range items.size).foldl (fun acc i =>
+        if pairAt i then acc + 2
+        else if i > 0 && pairAt (i - 1) then acc
+        else acc + yulFreePointerUses name items[i]!) 0
   | _ => 0
 
 /-- `let name := mload(0x40)` in the block `j` whose every other use of `name` restores the
@@ -2159,6 +2235,8 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
             | failAt expr "Yul mstore requires a fixed address below 0x80"
           unless offVal.pre.isEmpty && off + 32 ≤ yulReservedMemoryEnd do
             failAt expr "Yul mstore requires a fixed address below 0x80"
+          modify fun e =>
+            { e with yulWrittenBytes := Nat.lor e.yulWrittenBytes (Nat.shiftLeft (2^32 - 1) off) }
           -- A scratch word counts as written only when an mstore covers all of it.
           if off == 0 then
             modify fun e => { e with yulScratch0 := true }
@@ -2199,7 +2277,10 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           let condVal ← lowerYul (← mField stmt "condition")
           let bodyNode ← mField stmt "body"
           let bodyStmts ← mArr (← mField bodyNode "statements")
+          let before ← get
           let bodyOut ← lowerYulStmtSlice j bodyStmts refs retName
+          modify fun e => { e with yulScratch0 := before.yulScratch0, yulScratch32 := before.yulScratch32,
+                                   yulWrittenBytes := before.yulWrittenBytes }
           out := out ++ condVal.pre |>.push (.ite (.logicalNot (.eq condVal.expr (.literal 0))) bodyOut.toList [])
         else
           failAt stmt "unsupported Yul statement YulIf"
@@ -2221,12 +2302,13 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array 
   let savedYulNames := (← get).yulNames
   let savedScratch0 := (← get).yulScratch0
   let savedScratch32 := (← get).yulScratch32
-  modify fun e => { e with yulScratch0 := false, yulScratch32 := false }
+  let savedWritten := (← get).yulWrittenBytes
+  modify fun e => { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0 }
   if let some prefixStmts ← lowerYulPrefixKeccakBlock? j stmts refs retName then
-    modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
+    modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
     return prefixStmts
   let out ← lowerYulStmtSlice j stmts refs retName
-  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
+  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
   pure out
 
 private partial def lowerTailScratchReturnAssembly? (j : Json) : M (Option (Array Stmt)) := do
@@ -2250,10 +2332,11 @@ private partial def lowerTailScratchReturnAssembly? (j : Json) : M (Option (Arra
   let savedYulNames := (← get).yulNames
   let savedScratch0 := (← get).yulScratch0
   let savedScratch32 := (← get).yulScratch32
-  modify fun e => { e with yulScratch0 := false, yulScratch32 := false }
+  let savedWritten := (← get).yulWrittenBytes
+  modify fun e => { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0 }
   let prefixStmts ← lowerYulStmtSlice j stmts.pop refs ""
   let wroteScratch0 := (← get).yulScratch0
-  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
+  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
   unless wroteScratch0 do
     failAt last "Yul return(0, 32) requires a preceding scratch write at offset 0"
   return some (prefixStmts.push (.returnValues [.mload (.literal 0)]))
@@ -9255,12 +9338,13 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
           let savedAsmYul := (← get).yulNames
           let savedScratch0 := (← get).yulScratch0
           let savedScratch32 := (← get).yulScratch32
-          modify fun e => { e with yulScratch0 := false, yulScratch32 := false }
+          let savedWritten := (← get).yulWrittenBytes
+          modify fun e => { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0 }
           let extPre ← bindYulExternalConstants s false
           let refs ← mArr (← mField s "externalReferences")
           let prefixPre ← lowerYulStmtSlice s prefixYstmts refs ""
           let slotVal ← lowerYul rhs
-          modify fun e => { e with yulNames := savedAsmYul, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
+          modify fun e => { e with yulNames := savedAsmYul, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
           let sMembers ← mArr (← mField retStructDecl "members")
           let rawBytesString? ← if prefixYstmts.isEmpty && sMembers.size == 1 then do
             let m0Ty ← mType sMembers[0]!
