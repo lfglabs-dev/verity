@@ -902,6 +902,10 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
             "jobs cannot be both build-heavy and build-medium: "
             + ", ".join(sorted(overlapping_runner_classes))
         )
+    routed_runner_jobs: set[str] = set(spec.get("routed_runner_jobs", []))
+    routed_runs_on: str | None = spec.get("routed_runs_on")
+    if routed_runner_jobs and not routed_runs_on:
+        errors.append("routed_runner_jobs requires a routed_runs_on expression in the spec")
     expected_timeouts: dict[str, int] = spec.get("expected_job_timeouts", {})
     expected_fail_fast: dict[str, bool] = spec.get("expected_job_strategy_fail_fast", {})
     expected_max_parallel: dict[str, int | None] = spec.get(
@@ -978,13 +982,27 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
 
         actual_runs_on = _extract_top_level_job_value(job_body, "runs-on")
         expected_job_runs_on = expected_runs_on.get(job)
-        if job in heavy_runner_jobs and expected_job_runs_on is not None:
+        if job in routed_runner_jobs:
+            # Routed jobs pick build-medium or lean.ci at run time; the router
+            # expression is the only accepted runs-on and `route` must be needed.
+            if expected_job_runs_on != routed_runs_on:
+                errors.append(
+                    f"{job} is routed but its runs-on spec is not the router expression: "
+                    f"spec={expected_job_runs_on!r}, router={routed_runs_on!r}"
+                )
+            if "route" not in actual_needs:
+                errors.append(f"{job} is routed but does not need the route job")
+        elif job in heavy_runner_jobs and expected_job_runs_on is not None:
             if not expected_job_runs_on.startswith("lean-"):
                 if not expected_job_runs_on.endswith("]"):
                     errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
                 else:
                     expected_job_runs_on = expected_job_runs_on[:-1] + ", build-heavy]"
-        if job in medium_runner_jobs and expected_job_runs_on is not None:
+        if (
+            job in medium_runner_jobs
+            and job not in routed_runner_jobs
+            and expected_job_runs_on is not None
+        ):
             if not expected_job_runs_on.startswith("lean-"):
                 if not expected_job_runs_on.endswith("]"):
                     errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
