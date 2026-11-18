@@ -234,12 +234,12 @@ private def buildField (types item : Json) : M FieldInfo := do
     if (field? top "members").isSome then
       unless (← mNat (← mField item "offset")) == 0 do
         throwError "top-level storage struct {name} must start at byte offset 0"
-      let (members', names, skipped, booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs) ←
-        decodeStructLayoutMembers name "" 0 types top
+      let (members', names, skipped, booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs,
+          signedMembers) ← decodeStructLayoutMembers name "" 0 types top
       let field : Field := { name, ty := .uint256, slot := some slot }
       return { slot, field, keyCount := 0, memberNames := names, opaqueNames := skipped,
-               booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs,
-               structMembers := members' }
+               booleanMembers, signedMembers, structFixedArrays, structMappings, structDynamicArrays,
+               subStructs, structMembers := members' }
     if let some baseId := optStr top "base" then
       unless (← mNat (← mField item "offset")) == 0 do
         throwError "top-level fixed storage array {name} must start at byte offset 0"
@@ -493,8 +493,8 @@ private def buildField (types item : Json) : M FieldInfo := do
     return { slot, field, keyCount := if key2.isSome then 2 else 1,
              memberNames := #[], opaqueNames := #[], scalarMapping := true,
              booleanMapping := leafType == "bool" }
-  let (members', names, skipped, booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs) ←
-    decodeStructLayoutMembers name "" 0 types structTy
+  let (members', names, skipped, booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs,
+      signedMembers) ← decodeStructLayoutMembers name "" 0 types structTy
   let ty : FieldType :=
     match key2 with
     | some k2 => .mappingStruct2 key1 k2 members'.toList
@@ -502,7 +502,7 @@ private def buildField (types item : Json) : M FieldInfo := do
   let field : Field := { name, ty, slot := some slot }
   pure { slot, field, keyCount := if key2.isSome then 2 else 1,
          memberNames := names, opaqueNames := skipped, booleanMembers, structFixedArrays, structMappings,
-         structDynamicArrays, subStructs, structMembers := members' }
+         structDynamicArrays, subStructs, signedMembers, structMembers := members' }
 
 /-- Resolve only reached fields: an unrelated unsupported layout must not
 prevent importing a supported function closure. -/
@@ -545,7 +545,11 @@ private def readRawStructScalar (pre : Array Stmt) (baseSlot : Expr) (mInfo : Ra
   let rawWord := Expr.storageArrayElement rawStorageFieldName wordSlot
   let shifted := if mInfo.byteOffset == 0 then rawWord else Expr.shr (.literal (mInfo.byteOffset * 8)) rawWord
   let masked := if mInfo.bitWidth < 256 then Expr.bitAnd shifted (.literal (2 ^ mInfo.bitWidth - 1)) else shifted
-  let cleaned := if mInfo.isBool then Expr.logicalNot (.logicalNot masked) else masked
+  -- solc loads a narrow signed member sign-extended; every `intN` consumer expects that word.
+  let cleaned := if mInfo.isBool then Expr.logicalNot (.logicalNot masked)
+    else match signedBitsOf mInfo.ty with
+      | some bits => if bits < 256 then Expr.signextend (.literal (bits / 8 - 1)) masked else masked
+      | none => masked
   let dest ← fresh
   pure { pre := pre.push (.letVar dest cleaned), expr := .localVar dest }
 
@@ -883,7 +887,11 @@ private def memberRead (pre : Array Stmt) (path : SPath) (member : String) (at_ 
   unless info.memberNames.contains qualMember do
     failAt at_ s!"member {qualMember} is not a layout member of {fieldName}"
   markField fieldName
-  let expr := if info.booleanMembers.contains qualMember then Expr.logicalNot (.logicalNot read) else read
+  -- The packed member decodes zero-extended; solc loads narrow signed members sign-extended.
+  let expr := if info.booleanMembers.contains qualMember then Expr.logicalNot (.logicalNot read)
+    else match info.signedMembers.find? (·.1 == qualMember) with
+      | some (_, bits) => Expr.signextend (.literal (bits / 8 - 1)) read
+      | none => read
   pure { pre, expr }
 
 private def scalarMappingRead (pre : Array Stmt) (path : SPath) (at_ : Json) : M Val := do
