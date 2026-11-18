@@ -11,16 +11,14 @@ open Verity.EVM.Uint256
 verity_contract MemoryHashSmoke where
   storage
 
-  function hashBytes (data : Bytes) : Uint256 := do
-    unsafe "copy a bytes argument to memory to hash it" do
-      copyBytes data 0
+  function hashBytes (data : Bytes) local_obligations [bytes_hash_scratch := assumed "copies a bytes argument to memory at 0 to hash it"] : Uint256 := do
+    copyBytes data 0
     let digest := keccak256 0 (bytesLength data)
     return digest
 
-  function hashWords (a : Uint256, b : Uint256) : Uint256 := do
-    unsafe "abi.encode(a, b) in scratch memory" do
-      mstore 0 a
-      mstore 32 b
+  function hashWords (a : Uint256, b : Uint256) local_obligations [words_hash_scratch := assumed "writes abi.encode(a, b) to scratch memory at 0 to hash it"] : Uint256 := do
+    mstore 0 a
+    mstore 32 b
     let digest := keccak256 0 64
     return digest
 

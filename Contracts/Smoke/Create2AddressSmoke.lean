@@ -12,9 +12,8 @@ open Verity.EVM.Uint256
 verity_contract Create2AddressSmoke where
   storage
 
-  function reentrancy_trusted deploy (initcode : Bytes, salt : Uint256) : Address := do
-    unsafe "copy the initcode to memory for create2" do
-      copyBytes initcode 0
+  function reentrancy_trusted deploy (initcode : Bytes, salt : Uint256) local_obligations [initcode_scratch := assumed "copies the initcode to memory at 0 for create2"] : Address := do
+    copyBytes initcode 0
     let size := bytesLength initcode
     let zero := 0
     let pointer ← ecmCall Compiler.Modules.Create2SSTORE2.deployModule
