@@ -56,6 +56,7 @@ from .programs import (
     stateful_multiproof_mapping_keys_verifiers_source,
     stateful_named_helper_return_source,
     stateful_named_string_return_source,
+    stateful_narrow_for_counters_source,
     stateful_numeric_literal_source,
     stateful_overload_const_error_cond_tuple_tload_source,
     stateful_packed_member_write_source,
@@ -169,6 +170,7 @@ FIXTURE_CONTRACTS = {
     'named-helper-returns': 'NamedHelperReturnSequence',
     'named-string-return': 'NamedStringReturnSequence',
     'narrow-event': 'NarrowEventSequence',
+    'narrow-for-counters': 'NarrowForCounterSequence',
     'numeric-literals': 'NumericLiteralSequence',
     'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
     'packed': 'StorageSequence',
@@ -345,6 +347,8 @@ def main():
         variants = ('baseline', 'renamed', 'quotient')
     if args.fixture == 'fixed-memory-arrays':
         variants = ('baseline', 'renamed', 'unrolled')
+    if args.fixture == 'narrow-for-counters':
+        variants = ('baseline', 'renamed', 'checked-increment')
     if args.fixture == 'inline-array-literals':
         variants = ('baseline', 'renamed', 'element-writes')
     if args.fixture == 'helper-name-independence':
@@ -382,6 +386,7 @@ def main():
                           else stateful_unchecked_blocks_source(fixture, variant) if args.fixture == "unchecked-blocks"
                           else stateful_tuple_destructuring_source(fixture, variant) if args.fixture == "tuple-destructuring"
                           else stateful_create2_clones_msgdata_deque_source(fixture, variant) if args.fixture == "create2-clones-msgdata-deque"
+                          else stateful_narrow_for_counters_source(fixture, variant) if args.fixture == "narrow-for-counters"
                           else stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture, variant) if args.fixture == "ecdsa-merkle-checkpoints-storage-slot"
                           else stateful_strings_hex_arrays_bitmaps_source(fixture, variant) if args.fixture == "strings-hex-arrays-bitmaps"
                           else stateful_string_bytes_mappings_uri_storage_strings_source(fixture, variant) if args.fixture == "string-bytes-mappings-uri-storage-strings"
@@ -509,6 +514,8 @@ def main():
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 20])]
         if args.fixture == 'create2-clones-msgdata-deque':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
+        if args.fixture == 'narrow-for-counters':
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 19, 20, 255, 256, 257, 299, 300, 555, 556, 999, 255000, 256000, (1 << 256) - 1])]
         if args.fixture == 'governor-slice-proposer-delay':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'access-manager-target-role':

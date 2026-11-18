@@ -990,6 +990,29 @@ def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-modulo variant: {variant}')
 
 
+def stateful_narrow_for_counters_source(fixture: str, variant: str) -> str:
+    """Compare narrow uintN for loop counters with a uint256 counter whose last iteration performs the checked uint8 increment."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = set(['acc', 'half', 'i', 'j', 'k', 'm', 'n', 'runs', 'start', 't', 'total', 'x'])
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'checked-increment':
+        replacements = {
+            'for (uint8 i = 0; i < n; i++) {\n            acc += uint256(i) * 3 + 1;\n        }':
+            'for (uint256 i = 0; i < n; i++) {\n            acc += i * 3 + 1;\n            if (i == 255) {\n                uint8 w = 255;\n                w++;\n            }\n        }',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing narrow-for-counters fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown narrow-for-counters variant: {variant}')
+
+
 def stateful_byte_constant_conversions_source(fixture: str, variant: str) -> str:
     """Compare bytes(...) / string(...) byte-constant initializers with their literal forms."""
     if variant == 'baseline':
