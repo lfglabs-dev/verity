@@ -20,6 +20,7 @@ STORAGE_FIXTURES = (
     'constant-arrays',
     'modulo',
     'signed-modulo',
+    'byte-constant-conversions',
     'fixed-memory-arrays',
     'inline-array-literals',
     'helper-name-independence',
