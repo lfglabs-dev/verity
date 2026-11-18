@@ -17,7 +17,7 @@ def main():
         ('no-message', 'require(value > 7);', 'supported Solidity builtin signature'),
         ('custom-error', 'require(value > 7, Failure(value));', None),
         ('custom-error-expression', 'require(value > 7, Failure(value + 1));', 'literals or scalar bindings'),
-        # Named arguments in declaration order lower as the positional call (c2b61a1a3).
+        # Named arguments in declaration order lower as the positional call.
         ('custom-error-named', 'require(value > 7, Failure({value: value}));', None),
         ('custom-error-named-reordered', 'require(value > 7, Failure({code: 1, value: value}));',
          'named custom-error arguments'),

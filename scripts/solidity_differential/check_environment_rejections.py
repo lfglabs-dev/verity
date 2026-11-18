@@ -25,7 +25,7 @@ def main():
         ('signature', 'bytes4', 'msg.sig', 'view', None),
         ('data', 'uint256', 'msg.data.length', 'view', None),
         ('gasprice', 'uint256', 'tx.gasprice', 'view', None),
-        # `msg.data` is a byte buffer since 6bd725157 (lowerEncodedBytes), so indexing it imports.
+        # `msg.data` is a byte buffer (lowerEncodedBytes, since typed calls without return values), so indexing it imports.
         ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', None),
     ]
     for name, ty, expr, mutability, expected in cases:
