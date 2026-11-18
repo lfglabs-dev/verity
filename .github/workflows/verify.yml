@@ -305,7 +305,9 @@ jobs:
           }
           is_compiler_path() {
             case "$1" in
-              Verity/Proofs/*|Compiler/Proofs/*|Contracts/*/Proofs/*) return 1 ;;
+              # Proof directories are not excluded: difftest-interpreter and
+              # compiler-main-test import executable code under */Proofs/**
+              # (e.g. Compiler/Proofs/MappingSlot.lean via Contracts/Common.lean).
               Compiler/SolidityImport/*|Contracts/SolidityImportSmoke/*) return 1 ;;
               .github/actions/*|.github/workflows/verify.yml) return 0 ;;
               Verity/*|Compiler/*|Compiler.lean|Contracts/*|Contracts.lean|examples/*|packages/*|test/*) return 0 ;;

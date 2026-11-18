@@ -14,6 +14,79 @@ from solidity_differential.mutations import mutation_campaign, snapshot, release
 from solidity_differential.suite import STORAGE_FIXTURES, run_checks, stateful_campaign
 
 
+# Every check `stateful_campaign` schedules. One name per line, sorted.
+EXPECTED_CAMPAIGN_CHECKS = (
+    "abi",
+    "abi-event-composition",
+    "abi-rejections",
+    "anvil",
+    "baseline",
+    "block-rejections",
+    "checked-oracle-mock",
+    "create2-parent-opcode",
+    "create2-struct-emit",
+    "create2-struct-emit-rejections",
+    "early-return",
+    "emit-rejections",
+    "environment",
+    "errors",
+    "event-mutations",
+    "events-baseline",
+    "events-early-return",
+    "events-scoped",
+    "extcodecopy-struct-decode",
+    "extcodecopy-struct-decode-rejections",
+    "external-code-low-level-call",
+    "external-code-low-level-call-rejections",
+    "hashing-programs",
+    "hashing-rejections",
+    "interface-static-call",
+    "interface-static-call-rejections",
+    "interface-word-static-call",
+    "interface-word-static-call-rejections",
+    "mapping-dirty",
+    "mocks",
+    "multiple-dynamic-abi",
+    "mutations",
+    "narrow-event-16",
+    "narrow-event-248",
+    "narrow-event-8",
+    "nested-dynamic-struct-abi",
+    "nested-dynamic-struct-abi-rejections",
+    "pinned-sequence",
+    "protocol",
+    "reference-arguments",
+    "reference-rejections",
+    "rejections",
+    "scalar-array-abi",
+    "scalar-array-abi-rejections",
+    "scoped",
+    "storage",
+    "storage-bytes",
+    "storage-bytes-named-return-slice-struct",
+    "storage-bytes-named-return-stateless",
+    "storage-constant-arrays",
+    "storage-dynamic-memory-arrays",
+    "storage-fixed-memory-arrays",
+    "storage-helper-name-independence",
+    "storage-if-else",
+    "storage-imported-event",
+    "storage-inline-array-literals",
+    "storage-mapping",
+    "storage-modulo",
+    "storage-narrow-event",
+    "storage-numeric-literals",
+    "storage-short-circuit",
+    "storage-signed-modulo",
+    "storage-tuple-destructuring",
+    "storage-unchecked-blocks",
+    "storage-void",
+    "storage-yul-numeric",
+    "struct-abi",
+    "struct-abi-rejections",
+)
+
+
 class SolidityDifferentialTests(unittest.TestCase):
     def test_mutant_build_is_private_with_a_sticky_cache(self):
         for sticky in (False, True):
@@ -264,14 +337,12 @@ class SolidityDifferentialTests(unittest.TestCase):
                 "scalar-array-abi",
             ],
         )
-        # No fixed total: a PR adding a check must not edit a shared count.
-        # Every registered storage fixture is scheduled exactly once, no check
-        # is scheduled twice, and the campaign never shrinks below the 68
-        # checks it had when the count was removed.
+        # Exactly the expected checks, each once. EXPECTED_CAMPAIGN_CHECKS is one
+        # name per line, sorted, so PRs adding different checks do not conflict.
         self.assertEqual(len(captured), len(set(captured)))
+        self.assertEqual(sorted(captured), list(EXPECTED_CAMPAIGN_CHECKS))
         for fixture in STORAGE_FIXTURES:
             self.assertIn("storage-" + fixture, captured)
-        self.assertGreaterEqual(len(captured), 68)
 
 if __name__ == "__main__":
     unittest.main()

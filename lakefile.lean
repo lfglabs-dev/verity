@@ -73,7 +73,9 @@ input_dir solidityImportSmokeSources where
 -- lakefile edit, so PRs adding different models do not conflict here.
 @[default_target]
 lean_lib «SolidityImportSmoke» where
-  globs := #[.submodules `Contracts.SolidityImportSmoke]
+  globs := #[.submodules `Contracts.SolidityImportSmoke,
+    .one `Compiler.SolidityImport.AbiByteLanes,
+    .one `Compiler.SolidityImport.AbiMemory]
   needs := #[solidityImportSmokeSources]
 
 @[default_target]
