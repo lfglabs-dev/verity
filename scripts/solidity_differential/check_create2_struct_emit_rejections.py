@@ -24,7 +24,6 @@ MESSAGES = {
     'indexed-type': 'unsupported event parameter type string',
     'anonymous': 'anonymous events are unsupported',
     'indexed-narrow': 'unsupported indexed struct-event parameter type bytes4',
-    'reassigned': 'encoded byte locals are limited to hash and packed encoding operands',
 }
 
 
@@ -79,11 +78,13 @@ CASES = [
      ('add(code, 0x20)', 0, 'YulFunctionCall', 'template')),
     ('no-template', '', '', body(init='abi.encode(leg)'),
      ('add(code, 0x20)', 0, 'YulFunctionCall', 'template')),
+    # Rebinding the buffer is admitted (a writable `bytes memory` local), but a
+    # reassigned buffer is never a checked initcode template: create2 rejects it.
     ('reassigned-buffer', '', '',
      f'bytes memory code = abi.encodePacked({PREFIX}, abi.encode(leg));\n'
      f'        code = abi.encodePacked({PREFIX}, abi.encode(salt));\n'
      f'        assembly {{ deployed := {deploy()} }}',
-     (f'code = abi.encodePacked({PREFIX}, abi.encode(salt))', 0, 'Identifier', 'reassigned')),
+     ('add(code, 0x20)', 0, 'YulFunctionCall', 'template')),
     ('nested-create2', '', '',
      body(assembly=f'deployed := and({deploy()}, 0xffffffffffffffffffffffffffffffffffffffff)'),
      ('create2(', 0, 'YulFunctionCall', 'placement')),
