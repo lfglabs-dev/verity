@@ -1,4 +1,5 @@
 import Contracts.Common
+import Contracts.ProofKit
 
 namespace Contracts.Smoke
 
@@ -22,13 +23,39 @@ verity_contract MemoryHashSmoke where
     let digest := keccak256 0 64
     return digest
 
-/-- `copyBytes` + `keccak256` hash a bytes argument as the EVM does: keccak256("abc"). -/
-def hashBytesExecutableMatchesKeccak : Bool :=
-  match MemoryHashSmoke.hashBytes "abc".toUTF8 Verity.defaultState with
-  | .success digest _ =>
-      digest.val == 0x4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45
-  | .revert _ _ => false
+open Contracts.ProofKit in
+/-- `copyBytes` + `keccak256` hash a bytes argument as the EVM does: `hashBytes data`
+returns `keccak256(data)` for every `data`. -/
+theorem hashBytes_is_keccak (data : ByteArray) (s : ContractState)
+    (hsize : data.size + 32 < 2 ^ 256) :
+    ∃ s', MemoryHashSmoke.hashBytes data s =
+      .success (Verity.Core.Uint256.ofNat (keccakBytes data.data.toList)) s' := by
+  unfold MemoryHashSmoke.hashBytes
+  obtain ⟨u, s1, h1⟩ : ∃ u s1, Contracts.copyBytes data 0 s = .success u s1 :=
+    ⟨_, _, copyBytes_run _ _ _⟩
+  rw [bind_step h1, bind_step (keccak256Live_eq _ _ _),
+    keccak_after_copyBytes h1 (by simpa using hsize)]
+  exact ⟨_, rfl⟩
 
-example : hashBytesExecutableMatchesKeccak = true := by native_decide
+open Contracts.ProofKit in
+/-- `mstore` + `keccak256`: `hashWords a b` returns `keccak256(abi.encode(a, b))`. -/
+theorem hashWords_is_keccak (a b : Uint256) (s : ContractState) :
+    ∃ s', MemoryHashSmoke.hashWords a b s =
+      .success (Verity.Core.Uint256.ofNat (keccakBytes (toBE 32 a.val ++ toBE 32 b.val))) s' := by
+  unfold MemoryHashSmoke.hashWords
+  obtain ⟨u0, s1, h0⟩ : ∃ u s1, Contracts.mstore 0 a s = .success u s1 := ⟨_, _, mstore_eq _ _ _⟩
+  obtain ⟨u1, s2, h1⟩ : ∃ u s2, Contracts.mstore 32 b s1 = .success u s2 :=
+    ⟨_, _, mstore_eq _ _ _⟩
+  rw [bind_step h0, bind_step h1, bind_step (keccak256Live_eq _ _ _)]
+  have hk : Compiler.Keccak.MemorySlice.keccak (fun a => (s2.memory a).val) 0 64 =
+      keccakBytes (toBE 32 a.val ++ toBE 32 b.val) := by
+    apply keccak_eq_keccakBytes
+    rw [mstore_ok h1, mstore_ok h0, bytesBE_of_words _ _ _ [a.val, b.val] rfl]
+    · simp
+    · intro i hi
+      simp at hi
+      have h32 : (32 : Uint256).val = 32 := rfl
+      interval_cases i <;> simp [h32]
+  exact ⟨s2, by rw [← hk]; rfl⟩
 
 end Contracts.Smoke
