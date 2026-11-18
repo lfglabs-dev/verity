@@ -22,8 +22,9 @@ A change to the trust boundary, an axiom, or CI updates
 To bring a PR branch up to date with main, run
 `python3 scripts/rebase_pr_onto_main.py` on a clean branch that matches its
 upstream. It rebases onto `origin/main`, takes main's side of generated files
-(`PrintAxioms.lean`, `artifacts/*.json`) and regenerates them once at the end,
-union-merges the append-only smoke lists, drops old `chore: regenerate`
+(`artifacts/*.json`, `scripts/verify_sync_spec.json`) and regenerates them once
+at the end, union-merges the append-only smoke lists and differential fixture
+registries, drops old `chore: regenerate`
 commits, and stops with the file list (exit 3) on any other conflict; rerun it
 after resolving to resume. It never pushes: it prints the
 `git push --force-with-lease` command to run.
@@ -35,8 +36,11 @@ Enforced by CI; changing a rule means changing its script.
 1. No `sorry` (`scripts/check_lean_hygiene.py` double-checks the build).
 2. No new axiom without a same-commit entry in docs/AXIOMS.md
    (`scripts/check_axioms.py`).
-3. Regenerate `PrintAxioms.lean` (`scripts/generate_print_axioms.py`) when
-   theorems change. Repository counts (tests, theorems, lines) are computed
+3. `PrintAxioms.lean`, `scripts/VerityUnionAxioms.lean` and
+   `artifacts/trust_surface_report.json` are generated, never committed:
+   `make check` and CI write them (`scripts/generate_print_axioms.py`,
+   `scripts/generate_trust_surface_report.py`); run the generators yourself
+   before `lake build PrintAxioms` or `make axiom-report`. Repository counts (tests, theorems, lines) are computed
    on demand and never committed: `make status` prints them.
 4. Proofs stay under 30 lines; over 50 needs an allowlist entry with a reason
    (`scripts/check_proof_length.py`).

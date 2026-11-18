@@ -100,6 +100,7 @@ jobs:
               ;;
             print-axioms)
               python3 scripts/setup_solc_import.py --all
+              python3 scripts/generate_print_axioms.py
               command=(lake build PrintAxioms)
               ;;
             *)
