@@ -74,6 +74,7 @@ from .programs import (
     stateful_storage_source,
     stateful_storage_word_source,
     stateful_string_bytes_mappings_uri_storage_strings_source,
+    stateful_string_event_param_source,
     stateful_strings_hex_arrays_bitmaps_source,
     stateful_struct_fixed_array_and_fixed_return_source,
     stateful_struct_hash_and_domain_separator_source,
@@ -201,6 +202,7 @@ FIXTURE_CONTRACTS = {
     'signed-struct-member-read': 'SignedStructMemberReadSequence',
     'solc-0810': 'Solc0810Sequence',
     'string-bytes-mappings-uri-storage-strings': 'StringBytesMappingsUriStorageStringsSequence',
+    'string-event-param': 'StringEventParamSequence',
     'strings-hex-arrays-bitmaps': 'StringsHexArraysBitmapsSequence',
     'struct-array-param': 'StructArrayParamSequence',
     'struct-fixed-array-and-fixed-return': 'StructFixedArrayAndFixedReturnSequence',
@@ -260,6 +262,8 @@ def main():
     if args.fixture == 'dynamic-revert-string':
         variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'custom-error-fixed-bytes':
+        variants = ('baseline', 'renamed', 'expanded')
+    if args.fixture == 'string-event-param':
         variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'short-circuit':
         variants = ('baseline', 'conditional', 'de-morgan')
@@ -417,6 +421,7 @@ def main():
                           else stateful_event_nested_mapping_read_source(fixture, variant) if args.fixture == "event-nested-mapping-read"
                           else stateful_dynamic_revert_string_source(fixture, variant) if args.fixture == "dynamic-revert-string"
                           else stateful_custom_error_fixed_bytes_source(fixture, variant) if args.fixture == "custom-error-fixed-bytes"
+                          else stateful_string_event_param_source(fixture, variant) if args.fixture == "string-event-param"
                           else stateful_access_manager_target_role_source(fixture, variant) if args.fixture == "access-manager-target-role"
                           else stateful_governor_slice_proposer_delay_source(fixture, variant) if args.fixture == "governor-slice-proposer-delay"
                           else stateful_unchecked_blocks_source(fixture, variant) if args.fixture == "unchecked-blocks"

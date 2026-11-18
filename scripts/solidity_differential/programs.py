@@ -359,6 +359,38 @@ def stateful_custom_error_fixed_bytes_source(original, variant):
     raise ValueError('unknown custom-error fixed-bytes program variant')
 
 
+def stateful_string_event_param_source(original, variant):
+    """Equivalent non-indexed `string` event programs; event names (topics) are kept."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('next', 'replacement'), ('saved', 'stored'), ('text', 'message'),
+                         ('id', 'key')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ('emit Labeled(uint64(next), "a literal label longer than one thirty-two byte word");',
+             'string memory longLabel = "a literal label longer than one thirty-two byte word";\n'
+             '        uint64 narrowed = uint64(next);\n'
+             '        emit Labeled(narrowed, longLabel);'),
+            ('emit Pair(string.concat("<", text, ">"), amount, text);',
+             'string memory wrapped = string(abi.encodePacked("<", text, ">"));\n'
+             '        emit Pair(wrapped, amount, text);'),
+            ('emit Noted(text, saved, string.concat(text, text));',
+             'string memory doubled = string(abi.encodePacked(text, text));\n'
+             '        emit Noted(text, saved, doubled);'),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError(f'nonunique string event variant anchor: {old}')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown string event program variant')
+
+
 def stateful_interface_static_call_source(original, variant):
     """Equivalent typed-interface staticcall programs over the same call sequence."""
     if variant == 'baseline':

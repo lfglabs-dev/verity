@@ -13815,7 +13815,7 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
   for index in [:parameters.size] do
     let pty ← mType parameters[index]!
     let arg := arguments[index]!
-    if pty.startsWith "struct " || (scalarArrayElement? pty).isSome ||
+    if pty.startsWith "struct " || (scalarArrayElement? pty).isSome || pty == "string" ||
         (pty == "bytes" && optStr arg "nodeType" != some "Literal") then
       useStructEmit := true
   if useStructEmit then
@@ -13916,11 +13916,13 @@ private partial def recordUsedEvent (callee : Json) (id : Nat) (definition : Eve
   else
     modify fun e => { e with usedEvents := e.usedEvents ++ [(id, definition)] }
 
-/-- `emit E(...)` with a non-indexed struct parameter. The non-indexed arguments
-are ABI-encoded exactly as `abi.encode(...)` into memory and logged by the closed
-log transport with solc's event selector as topic 0. Indexed parameters must be
-total value-type expressions; they become cleaned topic words. Struct arguments
-must be memory struct variables, so no evaluation order is chosen. -/
+/-- `emit E(...)` with a non-indexed struct, array, `bytes` or `string` parameter. The
+non-indexed arguments are ABI-encoded exactly as `abi.encode(...)` into memory and
+logged by the closed log transport with solc's event selector as topic 0. Indexed
+parameters must be total value-type expressions; they become cleaned topic words.
+Struct arguments must be memory struct variables, and a `string` argument that precedes
+an indexed argument must be a variable or literal: topics are lowered before the data,
+while solc evaluates event arguments left to right, so no evaluation order is chosen. -/
 private partial def lowerStructEmit (callee declaration : Json) (name : String)
     (parameters arguments : Array Json) (id : Nat) : M (Array Stmt) := do
   let some selector := optStr declaration "eventSelector"
@@ -13932,11 +13934,20 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
   let mut topics : Array Expr := #[.literal (digits.foldl (fun word d => word * 16 + d) 0)]
   let mut pre : Array Stmt := #[]
   let mut data : Array Json := #[]
+  let mut lastIndexed : Option Nat := none
+  for index in [:parameters.size] do
+    if ← mBool (← mField parameters[index]! "indexed") then
+      lastIndexed := some index
   for index in [:parameters.size] do
     let parameter := parameters[index]!
     let argument := arguments[index]!
     let ty ← mType parameter
     let parameterName ← mStr (← mField parameter "name")
+    if ty == "string" && !(← mBool (← mField parameter "indexed")) &&
+        lastIndexed.any (index < ·) then
+      let kind ← mKind argument
+      unless kind == "Identifier" || kind == "Literal" do
+        failAt argument "string event arguments before an indexed argument must be variables or literals"
     if ← mBool (← mField parameter "indexed") then
       if ty.startsWith "struct " then
         failAt parameter "indexed struct event parameters are unsupported"
@@ -13969,6 +13980,8 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
           | _ => failAt argument "struct event arguments must be memory struct variables"
         else if ty == "bytes" then
           pure .bytes
+        else if ty == "string" then
+          pure .string
         else if let some (_, elemPty, _) := scalarArrayElement? ty then
           pure (.array elemPty)
         else match paramType ty with
