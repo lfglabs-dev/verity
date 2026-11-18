@@ -29,6 +29,15 @@ contract SequenceFixture {
         return saved;
     }
 
+    // A root `bytes4` parameter passed straight to the error (decoded, then re-encoded).
+    function lockSelector(bytes4 selector) external returns (uint256) {
+        saved = saved + 1;
+        if (selector != bytes4(0)) {
+            revert LockedSelector(selector);
+        }
+        return saved;
+    }
+
     function fail() external {
         saved = 99;
         revert LockedSelector(bytes4(0xdeadbeef));

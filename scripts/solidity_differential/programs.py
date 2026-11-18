@@ -348,6 +348,7 @@ def stateful_custom_error_fixed_bytes_source(original, variant):
             ('if (next % 4 == 1) {', 'if (next & 3 == 1) {'),
             ('revert LockedSelector(bytes4(0xdeadbeef));',
              'bytes4 locked = bytes4(0xdeadbeef);\n        revert LockedSelector(locked);'),
+            ('saved = saved + 1;', 'saved += 1;'),
         ]
         expanded = original
         for old, new in replacements:
