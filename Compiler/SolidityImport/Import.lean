@@ -7452,8 +7452,6 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           let binding ← freshFor (if pname == "" then "param" else pname)
           let expr := Expr.localVar binding
           pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)
-          noteSelfAddressStmts converted.pre
-          noteSelfAddress binding converted.expr
           modify fun e =>
             { e with values := e.values.insert pid expr,
                      writableLocals := e.writableLocals.insert pid binding,
@@ -7462,7 +7460,6 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             yul := yul.insert pname expr
         else
           let bound ← atom converted
-          noteSelfAddressStmts bound.pre
           pre := pre ++ bound.pre
           modify fun e => { e with values := e.values.insert pid bound.expr }
           if pname != "" then
@@ -9792,8 +9789,6 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
       let binding ← freshFor (if pname == "" then "param" else pname)
       let expr := Expr.localVar binding
       pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)
-      noteSelfAddressStmts converted.pre
-      noteSelfAddress binding converted.expr
       modify fun e =>
         { e with values := e.values.insert pid expr,
                  writableLocals := e.writableLocals.insert pid binding,
@@ -12424,7 +12419,6 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       else lowerMultiCall right (some expectedTypes)
     unless cs.size == retExprs.size do
       failAt expression s!"tuple assignment arity {cs.size} does not match helper return arity {retExprs.size}"
-    noteSelfAddressStmts callPre
     let mut seenIds : Array Nat := #[]
     let mut assigns : Array Stmt := #[]
     for i in [:cs.size] do
@@ -12506,8 +12500,6 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             failAt c "only declaration-bound scalar locals are writable"
           unless (localParamType cty).isSome do
             failAt c s!"unsupported scalar local assignment type {cty}"
-          noteSelfAddressStmts converted.pre
-          noteSelfAddress binding converted.expr
           assigns := assigns ++ converted.pre |>.push (.assignVar binding converted.expr)
         else
           let .state name pre ← lowerRef c
@@ -12580,8 +12572,6 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
           atom (← lowerConverted ty right)
-        noteSelfAddressStmts value.pre
-        noteSelfAddress binding value.expr
         return value.pre.push (.assignVar binding value.expr)
       if let some buf := (← get).byteBuffers.find? id.toNat then
         if !deleting then
@@ -13366,8 +13356,6 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
       unless (paramType ty).isSome do
         failAt target s!"unsupported scalar local assignment type {ty}"
       let value ← atom (← lowerConverted ty right)
-      noteSelfAddressStmts value.pre
-      noteSelfAddress binding value.expr
       return { pre := value.pre.push (.assignVar binding value.expr), expr := .localVar binding }
   let .state name pre ← lowerRef target
     | failAt target "assignment target is not scalar storage"
@@ -14278,7 +14266,6 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       else lowerMultiCall init (some expectedTypes)
     unless expectedTypes.size == retExprs.size do
       failAt s s!"tuple declaration arity {decls.size} does not match helper return arity {retExprs.size}"
-    noteSelfAddressStmts callPre
     let mut out := callPre
     for i in [:decls.size] do
       let d := decls[i]!
@@ -14342,8 +14329,6 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       let binding ← freshFor name
       let expr := Expr.localVar binding
       out := out ++ converted.pre |>.push (.letVar binding converted.expr)
-      noteSelfAddressStmts converted.pre
-      noteSelfAddress binding converted.expr
       let isZero := converted.pre.isEmpty && (match converted.expr with | .literal 0 => true | _ => false)
       modify fun e =>
         { e with values := e.values.insert id expr,
@@ -14914,8 +14899,6 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       { e with values := e.values.insert id expr, scalarTy := e.scalarTy.insert id scalarType,
                yulNames := e.yulNames.insert name expr, writableLocals := e.writableLocals.insert id binding,
                zeroInitLocals := if isZero then (if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id) else e.zeroInitLocals.filter (· != id) }
-    noteSelfAddressStmts converted.pre
-    noteSelfAddress binding converted.expr
     pure (converted.pre.push (.letVar binding converted.expr))
 
 end
@@ -16293,6 +16276,13 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
       failAt fn "an explicit root return is required"
   pure (out, srcParams)
 
+/-- `lowerRoot`, then the whole-body recheck of its code-read operands
+(`checkCodeReadTargets`). -/
+private def lowerRootChecked (fn : Json) : M (Array Stmt × Array SrcParam) := do
+  let lowered ← lowerRoot fn
+  checkCodeReadTargets lowered.1
+  return lowered
+
 private partial def index (file : String) (contract? : Option (Nat × String)) (j : Json) : M Unit := do
   match j with
   | .obj o =>
@@ -16805,8 +16795,8 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[] }
-      let ((body, srcParams), env2) ← (lowerRoot fn).run env
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[] }
+      let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       let mut modelParams : Array Param := #[]
       let mut modelParamNames : Array String := #[]

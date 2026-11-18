@@ -224,6 +224,9 @@ structure Env where
       assigned a value that mentions `address(this)` (`Expr.contractAddress`) or
       another such binding. Code reads of them are rejected (`mayBeSelfAddress`). -/
   selfAddressBindings : Array String := #[]
+  /-- Account operands of the code reads lowered so far in the current root, with the
+      node and message of their rejection (`checkCodeReadTargets`). -/
+  codeReadSites : Array (Expr × Json × String) := #[]
   currentFile : String
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
@@ -857,16 +860,30 @@ def noteSelfAddressStmts (pre : Array Stmt) : M Unit := do
 
 /-- The lowered account operand of a code read (`code.length`, `code`, `codehash`).
 It is rejected at `node` with `message` when it may be the executing contract,
-whose code differs between the source and compiled routes and is not modeled: a
-local, helper or modifier parameter bound or assigned `address(this)` (directly
-or through another such binding), or an expression that mentions either. A
+whose code differs between the source and compiled routes and is not modeled. An
+operand that visibly mentions `address(this)` fails here; every operand is also
+recorded and rechecked against the whole root body (`checkCodeReadTargets`). A
 literal `address(this)` operand is rejected before lowering with its own
-message. Values read from storage, calldata or memory are not tracked; that case
-is a documented trust assumption. -/
+message. -/
 def lowerCodeReadTarget (lowered : Val) (node : Json) (message : String) : M Val := do
   noteSelfAddressStmts lowered.pre
   if ← mayBeSelfAddress lowered.expr then failAt node message
-  atom lowered
+  let target ← atom lowered
+  modify fun e => { e with codeReadSites := e.codeReadSites.push (target.expr, node, message) }
+  return target
+
+/-- Recheck every code-read operand of a lowered root `body`. A local may hold the
+executing contract's address when any binding statement of the body (a declaration,
+an assignment, a tuple component, a conditional's or inlined helper's result, an
+inline-assembly assignment, at any nesting depth, including later in a loop body)
+gives it a value that mentions `address(this)` or another such local; the marks are
+computed to a fixpoint over the whole body, so statement order does not matter.
+Values read back from storage, calldata or memory are not tracked; that case is a
+documented trust assumption. -/
+def checkCodeReadTargets (body : Array Stmt) : M Unit := do
+  noteSelfAddressStmts body
+  for (operand, node, message) in (← get).codeReadSites do
+    if ← mayBeSelfAddress operand then failAt node message
 
 def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256
