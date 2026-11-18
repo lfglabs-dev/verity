@@ -17031,8 +17031,9 @@ private def importSlice
             (if !onlyStaticCallCEIBarriers body.toList &&
                 onlyClosedTransportCEIBarriers body.toList then [{
               name := "solidity_closed_transport_cei"
-              obligation := "State writes follow only closed STATICCALL, CREATE2, LOG and " ++
-                "EXTCODESIZE transports. A LOG or EXTCODESIZE hands control to no account, and " ++
+              obligation := "State writes follow only closed STATICCALL, CREATE2, LOG, " ++
+                "EXTCODESIZE, EXTCODECOPY and EXTCODEHASH transports. A LOG or code read hands " ++
+                "control to no account, and " ++
                 "Denote executes CREATE2 " ++
                 "only for checked initcode templates that copy and return their payload " ++
                 "without a call, so the CEI opt-out admits no reentrant write window. " ++
