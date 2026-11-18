@@ -1973,11 +1973,14 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)
           let newByte := Expr.shl shift (.bitAnd valVal.expr (.literal 0xff))
           out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))
-        else if fname == "revert" && (← get).stateVars.size > 1 then
+        else if fname == "revert" then
           unless args.size == 2 do failAt expr "revert requires two arguments"
+          -- Only a zero-size revert is modeled (`revertEmpty`); a nonzero size returns memory
+          -- bytes as revert data, which this lowering cannot reproduce.
+          unless (← yulNumber? args[1]!) == some 0 do
+            failAt expr "Yul revert with revert data (nonzero size) is unsupported"
           let offVal ← lowerYul args[0]!
-          let szVal ← lowerYul args[1]!
-          out := out ++ offVal.pre ++ szVal.pre |>.push .revertEmpty
+          out := out ++ offVal.pre |>.push .revertEmpty
         else
           failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
     | "YulIf" =>
