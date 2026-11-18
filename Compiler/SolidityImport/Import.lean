@@ -3238,8 +3238,9 @@ private partial def lowerRef (j : Json) : M Ref := do
           if let some (.bytesArray _) := schema[memberIndex]? then
             -- `data[i]` of a root `bytes[]`: bounds check, then the element's
             -- `bytes` descriptor under a synthetic id (above every AST id), so
-            -- every `bytes` lowering (`.length`, hashing, slices, helper
-            -- arguments, `abi.decode`) applies to it unchanged.
+            -- the descriptor-based `bytes` lowerings (`.length`, hashing,
+            -- packed encoding, `bytes calldata` helper arguments) apply to it
+            -- unchanged. Slices and `abi.decode` of `data[i]` stay rejected.
             let sid := 2 ^ 62 + (← get).next
             discard fresh
             let elemHeader ← fresh
