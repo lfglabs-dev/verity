@@ -19,6 +19,15 @@ A change to the trust boundary, an axiom, or CI updates
 [docs/TRUST_ASSUMPTIONS.md](docs/TRUST_ASSUMPTIONS.md) and
 [docs/AXIOMS.md](docs/AXIOMS.md) in the same PR.
 
+To bring a PR branch up to date with main, run
+`python3 scripts/rebase_pr_onto_main.py` on a clean branch that matches its
+upstream. It rebases onto `origin/main`, takes main's side of generated files
+(`PrintAxioms.lean`, `artifacts/*.json`) and regenerates them once at the end,
+union-merges the append-only smoke lists, drops old `chore: regenerate`
+commits, and stops with the file list (exit 3) on any other conflict; rerun it
+after resolving to resume. It never pushes: it prints the
+`git push --force-with-lease` command to run.
+
 ## Proof hygiene
 
 Enforced by CI; changing a rule means changing its script.
