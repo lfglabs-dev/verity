@@ -18,6 +18,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "ImmutableSc
   function scaledEnd()
   function isCurrentChain()
   function deployer()
+  function literalWords()
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
