@@ -227,6 +227,9 @@ structure Env where
   /-- Account operands of the code reads lowered so far in the current root, with the
       node and message of their rejection (`checkCodeReadTargets`). -/
   codeReadSites : Array (Expr × Json × String) := #[]
+  /-- Result bindings of the code-hash reads lowered so far in the current root, with their
+      nodes (`checkCodeReadTargets` rejects those that run after an account change). -/
+  codeHashSites : Array (String × Json) := #[]
   currentFile : String
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
@@ -884,6 +887,12 @@ def checkCodeReadTargets (body : Array Stmt) : M Unit := do
   noteSelfAddressStmts body
   for (operand, node, message) in (← get).codeReadSites do
     if ← mayBeSelfAddress operand then failAt node message
+  -- A code hash read after a call or `create2` may observe an account the call created or
+  -- funded, which the model's account world does not track.
+  let (_, late) := codeHashesAfterChange false body.toList
+  for (result, node) in (← get).codeHashSites do
+    if late.contains result then
+      failAt node "code hash read after an external call or create2 is unsupported"
 
 def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256

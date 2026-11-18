@@ -7220,6 +7220,7 @@ private partial def lowerExtCodeHash (member : Json) : M Val := do
   let target ← lowerCodeReadTarget (← lowerExpr account) member
     "code hash of an account that may be the executing contract is unsupported"
   let result ← fresh
+  modify fun e => { e with codeHashSites := e.codeHashSites.push (result, member) }
   let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeHash.module result) [target.expr]
   pure { pre := target.pre.push read, expr := .localVar result }
 
@@ -16806,7 +16807,7 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[] }
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[] }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       let mut modelParams : Array Param := #[]
