@@ -1039,3 +1039,43 @@ SPEC['expected_downloaded_artifacts'] = _insert_after(
     ['lean-workspace-build'])
 SPEC['expected_downloaded_artifact_paths'] = _insert_after(
     SPEC['expected_downloaded_artifact_paths'], 'import-mutations', 'importer-differential', [None])
+
+# Runner router: `route` (ubuntu-latest) picks build-medium or lean-8vcpu at run
+# time for the jobs both pools can run, so they stop queueing behind the three
+# build-medium hosts. ROUTED_RUNS_ON is the only runs-on those jobs may use.
+ROUTED_RUNS_ON = '${{ fromJSON(needs.route.outputs.runs_on) }}'
+ROUTED_RUNNER_JOBS = ['build-audits', 'import-mutations', 'compiler-audits',
+                      'foundry-gas-calibration', 'foundry', 'foundry-patched',
+                      'foundry-multi-seed']
+SPEC['routed_runs_on'] = ROUTED_RUNS_ON
+SPEC['routed_runner_jobs'] = list(ROUTED_RUNNER_JOBS)
+SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index('changes') + 1, 'route')
+SPEC['expected_job_needs'] = _insert_after(SPEC['expected_job_needs'], 'changes', 'route', ['changes'])
+SPEC['expected_job_runs_on'] = _insert_after(SPEC['expected_job_runs_on'], 'changes', 'route', 'ubuntu-latest')
+SPEC['expected_job_timeouts'] = _insert_after(SPEC['expected_job_timeouts'], 'changes', 'route', 5)
+SPEC['expected_job_permissions'] = _insert_after(
+    SPEC['expected_job_permissions'], 'closed-pr-cleanup', 'route', {'actions': 'read'})
+SPEC['expected_job_outputs']['route'] = {
+    'runs_on': '${{ steps.route.outputs.runs_on }}',
+    'on_lean': '${{ steps.route.outputs.on_lean }}',
+}
+SPEC['expected_workflow_env']['VERIFY_ROUTE_QUEUE_THRESHOLD'] = '6'
+for _job in ROUTED_RUNNER_JOBS:
+    SPEC['expected_job_needs'][_job].insert(1, 'route')
+    SPEC['expected_job_runs_on'][_job] = ROUTED_RUNS_ON
+SPEC['expected_job_needs']['ci-gate'].insert(1, 'route')
+# build-medium keeps main's matrix throttles; lean.ci runs every shard at once.
+SPEC['expected_job_strategy_max_parallel']['foundry'] = (
+    "${{ needs.route.outputs.on_lean == 'true' && 4 || 2 }}")
+SPEC['expected_job_strategy_max_parallel']['foundry-multi-seed'] = (
+    "${{ needs.route.outputs.on_lean == 'true' && 7 || 1 }}")
+SPEC['expected_step_contracts']['route'] = [
+    {'id': 'route', 'name': 'Choose runner pool',
+     'env': {'GH_TOKEN': '${{ github.token }}', 'REPO': '${{ github.repository }}',
+             'RUNNER_ROUTE': "${{ inputs.runner_route || 'auto' }}"}},
+]
+SPEC['expected_step_contracts']['build-audits'].insert(0, {
+    'name': 'Cap Lean threads on build-medium',
+    'if': "needs.route.outputs.on_lean != 'true'",
+    'run': 'echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"',
+})

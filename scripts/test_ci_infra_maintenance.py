@@ -345,6 +345,11 @@ class CiInfraMaintenanceTests(unittest.TestCase):
 
     def test_ephemeral_heavy_build_jobs_use_all_vm_cores(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
+        def job_body(job: str) -> str:
+            match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
+            self.assertIsNotNone(match, job)
+            return match.group("body")
+
         for job in (
             "build",
             "build-audits",
@@ -353,25 +358,111 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             "compiler-regressions",
             "lean-profile",
         ):
-            match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
-            self.assertIsNotNone(match, job)
-            body = match.group("body")
+            body = job_body(job)
             # lean.ci sizes and grows these VMs; Lean must use the cores it gets.
             self.assertNotIn("LEAN_NUM_THREADS:", body, job)
-            self.assertIn("runs-on: lean-", body, job)
-        for job in (
+        for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
+            self.assertIn("runs-on: lean-", job_body(job), job)
+
+        routed_runs_on = "runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}"
+        routed = (
+            "build-audits",
             "import-mutations",
+            "compiler-audits",
             "foundry-gas-calibration",
             "foundry",
             "foundry-patched",
             "foundry-multi-seed",
-        ):
-            match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
-            self.assertIsNotNone(match, job)
-            body = match.group("body")
-            self.assertIn("runs-on: lean-8vcpu-ubuntu-2604", body, job)
-            self.assertNotIn("max-parallel:", body, job)
-        self.assertNotIn("build-medium", text)
+        )
+        for job in routed:
+            body = job_body(job)
+            self.assertIn(routed_runs_on, body, job)
+            self.assertRegex(body, r"(?m)^    needs: \[changes, route(, [a-z-]+)*\]$", job)
+        # Only the routed jobs may land on build-medium, and only through `route`.
+        self.assertEqual(text.count(routed_runs_on), len(routed))
+        self.assertNotIn("runs-on: [self-hosted, linux, x64, verity, build, build-medium]", text)
+
+        route = job_body("route")
+        self.assertIn("runs-on: ubuntu-latest", route)
+        self.assertIn("    permissions:\n      actions: read\n", route)
+        self.assertIn(
+            """medium='["self-hosted","linux","x64","verity","build","build-medium"]'""", route
+        )
+        self.assertIn("""lean='["lean-8vcpu-ubuntu-2604"]'""", route)
+        self.assertIn("VERIFY_ROUTE_QUEUE_THRESHOLD: 6\n", text)
+        self.assertRegex(job_body("ci-gate"), r"(?m)^    needs: \[changes, route, ")
+
+        # build-medium keeps main's per-host limits; lean.ci keeps the VM defaults.
+        self.assertIn(
+            "      - name: Cap Lean threads on build-medium\n"
+            "        if: needs.route.outputs.on_lean != 'true'\n"
+            "        run: echo \"LEAN_NUM_THREADS=4\" >> \"$GITHUB_ENV\"\n",
+            job_body("build-audits"),
+        )
+        self.assertIn(
+            "max-parallel: ${{ needs.route.outputs.on_lean == 'true' && 4 || 2 }}",
+            job_body("foundry"),
+        )
+        self.assertIn(
+            "max-parallel: ${{ needs.route.outputs.on_lean == 'true' && 7 || 1 }}",
+            job_body("foundry-multi-seed"),
+        )
+        for job in ("import-mutations", "foundry-gas-calibration", "foundry-patched"):
+            self.assertNotIn("max-parallel:", job_body(job), job)
+
+    def test_route_job_picks_pool_from_build_medium_queue(self) -> None:
+        text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
+        match = re.search(
+            r"^        id: route\n(?:        .*\n)*?        run: \|\n(?P<run>(?:          .*\n|\n)+)",
+            text,
+            re.M,
+        )
+        self.assertIsNotNone(match)
+        script = "\n".join(line[10:] for line in match.group("run").splitlines())
+        medium = '["self-hosted","linux","x64","verity","build","build-medium"]'
+        lean = '["lean-8vcpu-ubuntu-2604"]'
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            fake_gh = tmp / "gh"
+            # FAKE_QUEUED queued build-medium jobs in one run; FAKE_FAIL=1 fails the API.
+            fake_gh.write_text(
+                "#!/usr/bin/env bash\n"
+                '[ "${FAKE_FAIL:-0}" = 1 ] && exit 1\n'
+                'case "$*" in *"/jobs"*) echo "$FAKE_QUEUED" ;; *status=queued*) echo 11 ;; esac\n',
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+
+            def route(mode: str, queued: int, fail: bool = False) -> dict[str, str]:
+                out = tmp / "out"
+                out.write_text("", encoding="utf-8")
+                subprocess.run(
+                    ["bash", "-c", script],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env=dict(
+                        os.environ,
+                        PATH=f"{tmp}:{os.environ['PATH']}",
+                        GITHUB_OUTPUT=str(out),
+                        GITHUB_STEP_SUMMARY=str(tmp / "summary"),
+                        REPO="o/r",
+                        RUNNER_ROUTE=mode,
+                        VERIFY_ROUTE_QUEUE_THRESHOLD="6",
+                        FAKE_QUEUED=str(queued),
+                        FAKE_FAIL="1" if fail else "0",
+                    ),
+                )
+                return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+            self.assertEqual(route("auto", 5), {"runs_on": medium, "on_lean": "false"})
+            self.assertEqual(route("auto", 6), {"runs_on": lean, "on_lean": "true"})
+            self.assertEqual(route("auto", 6, fail=True), {"runs_on": medium, "on_lean": "false"})
+            self.assertEqual(route("lean", 0), {"runs_on": lean, "on_lean": "true"})
+            self.assertEqual(route("build-medium", 50), {"runs_on": medium, "on_lean": "false"})
+            summary = (tmp / "summary").read_text(encoding="utf-8")
+            self.assertIn("GitHub API error; falling back to build-medium", summary)
+            self.assertIn("Queued build-medium jobs: 6 (threshold 6", summary)
 
     def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
