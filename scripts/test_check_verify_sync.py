@@ -161,6 +161,7 @@ class VerifySyncTests(unittest.TestCase):
         expected_workflow_permissions: dict[str, str] | None = None,
         expected_workflow_concurrency: dict[str, str] | None = None,
         expected_workflow_env: dict[str, str] | None = None,
+        extra_spec: dict | None = None,
     ) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory(dir=SCRIPT_DIR.parent) as td:
             root = Path(td)
@@ -181,6 +182,7 @@ class VerifySyncTests(unittest.TestCase):
                         "expected_workflow_permissions": expected_workflow_permissions or {},
                         "expected_workflow_concurrency": expected_workflow_concurrency or {},
                         "expected_workflow_env": expected_workflow_env or {},
+                        **(extra_spec or {}),
                     }
                 ),
                 encoding="utf-8",
@@ -887,6 +889,68 @@ class VerifySyncTests(unittest.TestCase):
             "foundry strategy.max-parallel does not match spec: workflow='2', spec=None",
             err,
         )
+
+    ROUTED_RUNS_ON = "${{ fromJSON(needs.route.outputs.runs_on) }}"
+
+    def _routed_foundry_workflow(self, needs: str) -> str:
+        return textwrap.dedent(
+            f"""
+            name: verify
+            jobs:
+              route:
+                runs-on: ubuntu-latest
+                steps: []
+              foundry:
+                runs-on: {self.ROUTED_RUNS_ON}
+                needs: {needs}
+                steps: []
+            """
+        )
+
+    def _run_routed_check(self, workflow: str, foundry_runs_on: str, foundry_needs: list[str]):
+        return self._run_job_contracts_check(
+            workflow,
+            expected_job_needs={"route": [], "foundry": foundry_needs},
+            expected_job_if_conditions={"route": None, "foundry": None},
+            expected_job_runs_on={"route": "ubuntu-latest", "foundry": foundry_runs_on},
+            extra_spec={
+                "medium_runner_jobs": ["foundry"],
+                "routed_runner_jobs": ["foundry"],
+                "routed_runs_on": self.ROUTED_RUNS_ON,
+            },
+        )
+
+    def test_job_contracts_check_accepts_routed_runs_on_expression(self) -> None:
+        rc, out, err = self._run_routed_check(
+            self._routed_foundry_workflow("[route]"), self.ROUTED_RUNS_ON, ["route"]
+        )
+        self.assertEqual(rc, 0, err)
+        self.assertIn("[PASS] job-contracts", out)
+
+    def test_job_contracts_check_rejects_routed_job_with_fixed_runs_on_spec(self) -> None:
+        rc, _, err = self._run_routed_check(
+            self._routed_foundry_workflow("[route]"), "lean-8vcpu-ubuntu-2604", ["route"]
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("foundry is routed but its runs-on spec is not the router expression", err)
+
+    def test_job_contracts_check_rejects_routed_job_without_route_need(self) -> None:
+        rc, _, err = self._run_routed_check(
+            self._routed_foundry_workflow("[]"), self.ROUTED_RUNS_ON, []
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("foundry is routed but does not need the route job", err)
+
+    def test_job_contracts_check_rejects_router_expression_on_unrouted_medium_job(self) -> None:
+        rc, _, err = self._run_job_contracts_check(
+            self._routed_foundry_workflow("[route]"),
+            expected_job_needs={"route": [], "foundry": ["route"]},
+            expected_job_if_conditions={"route": None, "foundry": None},
+            expected_job_runs_on={"route": "ubuntu-latest", "foundry": self.ROUTED_RUNS_ON},
+            extra_spec={"medium_runner_jobs": ["foundry"]},
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("foundry runs-on spec is not a label list", err)
 
     def test_job_contracts_check_fails_when_multiline_needs_contains_empty_item(self) -> None:
         workflow = textwrap.dedent(

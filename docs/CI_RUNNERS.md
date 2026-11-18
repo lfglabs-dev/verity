@@ -17,10 +17,15 @@ GitHub Actions for lfglabs-dev/verity
   |     runs-on: ubuntu-latest
   |
   |-- lean.ci ephemeral runners
-  |     role: Lean proof builds, compiler binaries, audits, import mutations,
-  |           Foundry differential tests, profiling, turbo-lean cache checks
+  |     role: Lean proof builds, compiler binaries, profiling, turbo-lean
+  |           cache checks; overflow pool for the routed jobs below
   |     runs-on: lean-4vcpu-ubuntu-2604, lean-8vcpu-ubuntu-2604,
   |              lean-16vcpu-ubuntu-2604
+  |
+  |-- build-medium self-hosted runners (3 hosts)
+  |     role: routed jobs (audits, import mutations, Foundry) while their
+  |           queue is short
+  |     labels: self-hosted, linux, x64, verity, build, build-medium
   |
   |-- dgx-spark-gpu-1
   |     host: spark-de79 over Tailscale
@@ -43,6 +48,27 @@ runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
 runs-on: [self-hosted, linux, x64, paloma-ocr]
 ```
 
+Seven Verify jobs (`build-audits`, `import-mutations`, `compiler-audits`,
+`foundry-gas-calibration`, `foundry`, `foundry-patched`, `foundry-multi-seed`)
+are routed at run time instead of naming a pool:
+
+```yaml
+runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+```
+
+The `route` job (`ubuntu-latest`, `actions: read`) counts the repository's
+queued jobs labelled `build-medium` across queued and in-progress runs. Fewer
+than `VERIFY_ROUTE_QUEUE_THRESHOLD` (default 6) sends the routed jobs to
+`["self-hosted","linux","x64","verity","build","build-medium"]`; otherwise to
+`["lean-8vcpu-ubuntu-2604"]`. A GitHub API error falls back to build-medium.
+Manual dispatches can force the pool with the `runner_route` input (`auto`,
+`build-medium`, `lean`). The decision and the count are in the `route` job
+summary. On build-medium the routed jobs keep main's per-host limits
+(`LEAN_NUM_THREADS=4` for `build-audits`, `max-parallel` 2 for `foundry` and 1
+for `foundry-multi-seed`); on lean.ci they use the whole VM and run every
+matrix entry at once. `ci-gate` needs `route`, so a failed route (which skips
+the routed jobs) still fails the gate.
+
 Host labels such as `hz1`, `hz2`, and `ci-host-*` are inventory labels. Use
 them only for temporary debugging or deliberate host pinning via
 `runner-benchmark.yml` or `runner-lean-validation.yml`.
@@ -53,12 +79,14 @@ them only for temporary debugging or deliberate host pinning via
   `timeout-watchdog`, `failure-hints`, `ci-gate`) on GitHub-hosted ephemeral
   `ubuntu-latest` runners so they run with unlimited concurrency and never
   serialize behind a single self-hosted host.
-- Route Lean proof, compiler-binary, audit, mutation, Foundry, profiling, and
-  `turbo-lean` jobs onto ephemeral `lean.ci` runners (`lean-8vcpu-ubuntu-2604`
-  for the build, audit, mutation and Foundry jobs, `lean-16vcpu-ubuntu-2604` for
-  `importer-differential`, `lean-4vcpu-ubuntu-2604` for the turbo-lean cache
-  check; `LEAN_NUM_THREADS=2` per worker on sharded `import-mutations`) so
-  concurrent PRs do not serialize behind fixed self-hosted build pools.
+- Route Lean proof, compiler-binary, profiling, and `turbo-lean` jobs onto
+  ephemeral `lean.ci` runners (`lean-8vcpu-ubuntu-2604` for the build jobs,
+  `lean-16vcpu-ubuntu-2604` for `importer-differential`,
+  `lean-4vcpu-ubuntu-2604` for the turbo-lean cache check) so concurrent PRs
+  do not serialize behind fixed self-hosted build pools. The audit, mutation
+  and Foundry jobs go through `route`: build-medium while it has room,
+  `lean-8vcpu-ubuntu-2604` once it backs up (`LEAN_NUM_THREADS=2` per worker
+  on sharded `import-mutations` on either pool).
   Ephemeral runners automatically fall back to GitHub Actions caches and
   `$RUNNER_TEMP` when `/srv/verity-ci-cache` is absent.
 - Prefer one full Verity build runner per 8-core host when using self-hosted

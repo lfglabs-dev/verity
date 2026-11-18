@@ -81,6 +81,7 @@
   "expected_jobs": [
     "closed-pr-cleanup",
     "changes",
+    "route",
     "checks",
     "timeout-watchdog",
     "build",
@@ -117,6 +118,9 @@
   "expected_job_needs": {
     "closed-pr-cleanup": [],
     "changes": [],
+    "route": [
+      "changes"
+    ],
     "checks": [
       "changes"
     ],
@@ -129,6 +133,7 @@
     ],
     "build-audits": [
       "changes",
+      "route",
       "checks",
       "build"
     ],
@@ -139,6 +144,7 @@
     ],
     "compiler-audits": [
       "changes",
+      "route",
       "checks",
       "build",
       "build-compiler-binaries"
@@ -155,18 +161,22 @@
     ],
     "foundry-gas-calibration": [
       "changes",
+      "route",
       "build-compiler-binaries"
     ],
     "foundry": [
       "changes",
+      "route",
       "build-compiler-binaries"
     ],
     "foundry-patched": [
       "changes",
+      "route",
       "build-compiler-binaries"
     ],
     "foundry-multi-seed": [
       "changes",
+      "route",
       "build-compiler-binaries"
     ],
     "failure-hints": [
@@ -185,11 +195,13 @@
     ],
     "import-mutations": [
       "changes",
+      "route",
       "checks",
       "build"
     ],
     "ci-gate": [
       "changes",
+      "route",
       "checks",
       "build",
       "build-audits",
@@ -232,26 +244,28 @@
   "expected_job_runs_on": {
     "closed-pr-cleanup": "ubuntu-latest",
     "changes": "ubuntu-latest",
+    "route": "ubuntu-latest",
     "checks": "ubuntu-latest",
     "timeout-watchdog": "ubuntu-latest",
     "build": "lean-8vcpu-ubuntu-2604",
-    "build-audits": "lean-8vcpu-ubuntu-2604",
+    "build-audits": "${{ fromJSON(needs.route.outputs.runs_on) }}",
     "build-compiler-binaries": "lean-8vcpu-ubuntu-2604",
-    "compiler-audits": "lean-8vcpu-ubuntu-2604",
+    "compiler-audits": "${{ fromJSON(needs.route.outputs.runs_on) }}",
     "compiler-regressions": "lean-8vcpu-ubuntu-2604",
     "lean-profile": "lean-8vcpu-ubuntu-2604",
-    "foundry-gas-calibration": "lean-8vcpu-ubuntu-2604",
-    "foundry": "lean-8vcpu-ubuntu-2604",
-    "foundry-patched": "lean-8vcpu-ubuntu-2604",
-    "foundry-multi-seed": "lean-8vcpu-ubuntu-2604",
+    "foundry-gas-calibration": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+    "foundry": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+    "foundry-patched": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+    "foundry-multi-seed": "${{ fromJSON(needs.route.outputs.runs_on) }}",
     "failure-hints": "ubuntu-latest",
-    "import-mutations": "lean-8vcpu-ubuntu-2604",
+    "import-mutations": "${{ fromJSON(needs.route.outputs.runs_on) }}",
     "ci-gate": "ubuntu-latest",
     "importer-differential": "lean-16vcpu-ubuntu-2604"
   },
   "expected_job_timeouts": {
     "closed-pr-cleanup": 5,
     "changes": 5,
+    "route": 5,
     "checks": 45,
     "timeout-watchdog": 5,
     "build": 120,
@@ -275,8 +289,8 @@
   },
   "expected_job_strategy_max_parallel": {
     "import-mutations": null,
-    "foundry": null,
-    "foundry-multi-seed": null
+    "foundry": "${{ needs.route.outputs.on_lean == 'true' && 4 || 2 }}",
+    "foundry-multi-seed": "${{ needs.route.outputs.on_lean == 'true' && 7 || 1 }}"
   },
   "expected_job_outputs": {
     "changes": {
@@ -284,12 +298,19 @@
       "build": "${{ steps.effective.outputs.build }}",
       "compiler": "${{ steps.effective.outputs.compiler }}",
       "importer": "${{ steps.effective.outputs.importer }}"
+    },
+    "route": {
+      "runs_on": "${{ steps.route.outputs.runs_on }}",
+      "on_lean": "${{ steps.route.outputs.on_lean }}"
     }
   },
   "expected_job_permissions": {
     "closed-pr-cleanup": {
       "actions": "write",
       "contents": "read"
+    },
+    "route": {
+      "actions": "read"
     },
     "checks": {
       "contents": "read"
@@ -323,7 +344,8 @@
     "VERIFY_DISABLE_LAKE_CACHE_RESTORE": "${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}",
     "VERIFY_CACHE_BUCKET": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}",
     "VERIFY_MAIN_CACHE_BUCKET": "ref-main",
-    "VERIFY_LOCAL_ARTIFACT_ROOT": "/srv/verity-ci-cache/artifacts"
+    "VERIFY_LOCAL_ARTIFACT_ROOT": "/srv/verity-ci-cache/artifacts",
+    "VERIFY_ROUTE_QUEUE_THRESHOLD": "6"
   },
   "build_compiler_job_names": [
     "build-compiler-binaries"
@@ -448,6 +470,11 @@
       }
     ],
     "build-audits": [
+      {
+        "name": "Cap Lean threads on build-medium",
+        "if": "needs.route.outputs.on_lean != 'true'",
+        "run": "echo \"LEAN_NUM_THREADS=4\" >> \"$GITHUB_ENV\""
+      },
       {
         "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
@@ -844,6 +871,17 @@
           "script": "const marker = \"<!-- ci-failure-hints -->\";\nconst needs = JSON.parse(process.env.NEEDS_JSON || \"{}\");\nconst failed = Object.entries(needs)\n  .filter(([, info]) => info && info.result === \"failure\")\n  .map(([name]) => name);\nif (failed.length === 0) {\n  core.info(\"No failed jobs; no hint comment needed.\");\n  return;\n}\n\nconst lines = [];\nlines.push(marker);\nlines.push(\"### CI Failure Hints\");\nlines.push(\"\");\nlines.push(\"Failed jobs: \" + failed.map((n) => \"`\" + n + \"`\").join(\", \"));\nlines.push(\"\");\nlines.push(\"Copy-paste local triage:\");\nlines.push(\"```bash\");\nlines.push(\"make check\");\nlines.push(\"lake build\");\nlines.push(\"FOUNDRY_PROFILE=difftest forge test -vv\");\nlines.push(\"```\");\nconst body = lines.join(\"\\\\n\");\n\nconst owner = context.repo.owner;\nconst repo = context.repo.repo;\nconst issue_number = context.issue.number;\nconst comments = await github.paginate(github.rest.issues.listComments, {\n  owner,\n  repo,\n  issue_number,\n  per_page: 100\n});\nconst existing = comments.find((c) =>\n  c.user && c.user.type === \"Bot\" && typeof c.body === \"string\" && c.body.includes(marker)\n);\nif (existing) {\n  await github.rest.issues.updateComment({\n    owner,\n    repo,\n    comment_id: existing.id,\n    body\n  });\n} else {\n  await github.rest.issues.createComment({\n    owner,\n    repo,\n    issue_number,\n    body\n  });\n}"
         }
       }
+    ],
+    "route": [
+      {
+        "id": "route",
+        "name": "Choose runner pool",
+        "env": {
+          "GH_TOKEN": "${{ github.token }}",
+          "REPO": "${{ github.repository }}",
+          "RUNNER_ROUTE": "${{ inputs.runner_route || 'auto' }}"
+        }
+      }
     ]
   },
   "expected_checks_commands": [
@@ -1110,5 +1148,15 @@
       "compiler/yul-smoke"
     ]
   },
-  "pull_request_unfiltered": true
+  "pull_request_unfiltered": true,
+  "routed_runs_on": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+  "routed_runner_jobs": [
+    "build-audits",
+    "import-mutations",
+    "compiler-audits",
+    "foundry-gas-calibration",
+    "foundry",
+    "foundry-patched",
+    "foundry-multi-seed"
+  ]
 }
