@@ -22,7 +22,7 @@ def main():
         ('prevrandao', 'uint256', 'block.prevrandao', 'view', 'unsupported block context member prevrandao'),
         ('coinbase', 'address', 'block.coinbase', 'view', 'unsupported block context member coinbase'),
         ('origin', 'address', 'tx.origin', 'view', None),
-        ('signature', 'bytes4', 'msg.sig', 'view', 'unsupported message context member sig'),
+        ('signature', 'bytes4', 'msg.sig', 'view', None),
         ('data', 'uint256', 'msg.data.length', 'view', None),
         ('gasprice', 'uint256', 'tx.gasprice', 'view', None),
         ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', 'hash input must be a supported ABI encoding'),
