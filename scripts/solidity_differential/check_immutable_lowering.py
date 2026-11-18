@@ -7,7 +7,10 @@ read as `Expr.immutable NAME`, be declared in `model.immutables`, and be install
 synthesized constructor from an argument of its type, in declaration order. One never written
 whose inline initializer reads the deployment environment must be installed from that
 initializer; one never written whose value the source fixes (no initializer, or a literal
-one) must read as that value. A case passes only if the printed model matches exactly these
+one) must read as that value, and the check compares the literal. Writes count wherever
+solc accepts them: `++`, `--` and `delete` too, in state-variable initializers and in
+inheritance-specifier arguments. An initializer that reads an immutable runs before the
+constructors, so it is rejected. A case passes only if the printed model matches exactly these
 expectations; other inline initializers and enum-typed immutables keep a located rejection.
 """
 import argparse
@@ -22,7 +25,7 @@ HEADER = '// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n'
 # name, source, roots, expected
 # expected: ('model', argument immutables in declaration order, immutables not read as
 #            `Expr.contractAddress`[, installed (name, initializer) pairs[, argument types
-#            [, immutables read as the value the source fixes]]]])
+#            [, (immutable, literal word) pairs the source fixes, read as that literal]]]])
 #        or ('reject', marker, construct, message)
 CASES = [
     ('constructor-argument',
@@ -128,14 +131,60 @@ CASES = [
      '    uint256 private immutable CHAIN = block.chainid;\n'
      '    function f() external view returns (bool) { return msg.sender == OWNER && block.chainid == CHAIN; }\n}\n',
      ['f()'], ('model', [], [], [('OWNER', 'Expr.caller'), ('CHAIN', 'Expr.chainid')])),
+    # Each root returns only the fixed immutable, so the literal in its body is that value.
     ('initializer-literal',
      'contract C {\n    uint256 private immutable SCALE = 1e6;\n'
-     '    function f(uint256 x) external view returns (uint256) { return x / SCALE; }\n}\n',
-     ['f(uint256)'], ('model', [], [], [], None, ['SCALE'])),
+     '    function f() external view returns (uint256) { return SCALE; }\n}\n',
+     ['f()'], ('model', [], [], [], None, [('SCALE', 10**6)])),
+    ('initializer-literal-bool',
+     'contract C {\n    bool private immutable ON = true;\n'
+     '    function f() external view returns (bool) { return ON; }\n}\n',
+     ['f()'], ('model', [], [], [], None, [('ON', 1)])),
+    ('initializer-literal-int',
+     'contract C {\n    int16 private immutable NEG = -7;\n'
+     '    function f() external view returns (int16) { return NEG; }\n}\n',
+     ['f()'], ('model', [], [], [], None, [('NEG', 2**256 - 7)])),
+    ('initializer-literal-bytes',
+     'contract C {\n    bytes4 private immutable TAG = 0x12345678;\n'
+     '    function f() external view returns (bytes4) { return TAG; }\n}\n',
+     ['f()'], ('model', [], [], [], None, [('TAG', 0x12345678 << 224)])),
     ('never-written',
      'contract C {\n    uint256 private immutable UNSET;\n'
      '    function f() external view returns (uint256) { return UNSET; }\n}\n',
-     ['f()'], ('model', [], [], [], None, ['UNSET'])),
+     ['f()'], ('model', [], [], [], None, [('UNSET', 0)])),
+    # `++` and `--` are writes: deployed, `X = 1; X++` is 2 and an unchecked `--X` from 0 is
+    # 2^256 - 1, neither the value the source alone fixes.
+    ('increment-after-initializer',
+     'contract C {\n    uint256 private immutable X = 1;\n'
+     '    constructor() { X++; }\n'
+     '    function f() external view returns (uint256) { return X; }\n}\n',
+     ['f()'], ('model', ['X'], [])),
+    ('decrement-unchecked',
+     'contract C {\n    uint256 private immutable X;\n'
+     '    constructor() { unchecked { --X; } }\n'
+     '    function f() external view returns (uint256) { return X; }\n}\n',
+     ['f()'], ('model', ['X'], [])),
+    # A state variable's initializer may write an immutable (solc >= 0.8.21), and so may an
+    # immutable's own initializer and an inheritance specifier's arguments.
+    ('state-variable-initializer-write',
+     'contract C {\n    uint256 private immutable A;\n    uint256 public x = (A = 5);\n'
+     '    function f() external view returns (uint256) { return A; }\n}\n',
+     ['f()'], ('model', ['A'], [])),
+    ('state-variable-initializer-write-address',
+     'contract C {\n    address private immutable A;\n'
+     '    bool private set = (A = msg.sender) != address(0);\n'
+     '    function f() external view returns (bool) { return msg.sender == A; }\n}\n',
+     ['f()'], ('model', ['A'], [])),
+    ('immutable-initializer-write',
+     'contract C {\n    uint256 private immutable A;\n    uint256 private immutable B = (A = 5);\n'
+     '    function f() external view returns (uint256) { return A; }\n}\n',
+     ['f()'], ('model', ['A'], [])),
+    ('inheritance-specifier-write',
+     'abstract contract Base {\n    uint256 internal immutable X;\n}\n'
+     'contract Arg {\n    constructor(uint256) {}\n}\n'
+     'contract C is Base, Arg(Base.X = 5) {\n'
+     '    function f() external view returns (uint256) { return X; }\n}\n',
+     ['f()'], ('model', ['X'], [])),
     ('public-getter',
      'contract C {\n    uint64 public immutable START;\n'
      '    constructor(uint64 s) { START = s; }\n}\n',
@@ -149,6 +198,17 @@ CASES = [
      'contract C {\n    bytes32 private immutable H = keccak256(abi.encode(msg.sender));\n'
      '    function f() external view returns (bytes32) { return H; }\n}\n',
      ['f()'], ('reject', 'H; }', 'Identifier', 'immutable state variable H is outside this slice')),
+    # Initializers run before the constructors: deployed, `B = A` is 0 here, not address(this).
+    ('initializer-reads-immutable-rejected',
+     'contract C {\n    address private immutable A;\n    address private immutable B = A;\n'
+     '    constructor() { A = address(this); }\n'
+     '    function f() external view returns (address) { return B; }\n}\n',
+     ['f()'], ('reject', 'B; }', 'Identifier', 'immutable state variable B is outside this slice')),
+    ('initializer-reads-immutable-through-helper-rejected',
+     'contract C {\n    uint256 private immutable A = 4;\n    uint256 private immutable B = g();\n'
+     '    function g() internal view returns (uint256) { return A; }\n'
+     '    function f() external view returns (uint256) { return B; }\n}\n',
+     ['f()'], ('reject', 'B; }', 'Identifier', 'immutable state variable B is outside this slice')),
     ('enum-rejected',
      'contract C {\n    enum K { A, B }\n    K private immutable KIND;\n'
      '    constructor(K k) { KIND = k; }\n'
@@ -172,13 +232,18 @@ def expected_lines(unknown, selves, installed=(), types=None, fixed=()):
     lines.append(f'constructor {"some" if unknown or installed else "none"}')
     lines += [f'reads-immutable {name}' for name in unknown]
     lines += [f'reads-immutable {name}' for name, _ in installed]
-    lines += [f'not-read-as-immutable {name}' for name in list(selves) + list(fixed)]
+    lines += [f'not-read-as-immutable {name}' for name in list(selves) + [n for n, _ in fixed]]
+    lines += [f'fixed-value {name} {value} true' for name, value in fixed]
     lines.append(f'reads-contract-address {"true" if selves else "any"}')
     return lines
 
 
 def driver(directory, roots, unknown, selves, installed=(), types=None, fixed=()):
-    names = json.dumps(unknown + [name for name, _ in installed] + selves + list(fixed))
+    names = json.dumps(unknown + [name for name, _ in installed] + selves + [n for n, _ in fixed])
+    fixed_values = '\n'.join(
+        f'  IO.println s!"fixed-value {name} {value} '
+        f'{{if (body.splitOn "Expr.literal {value}").length > 1 then "true" else "false"}}"'
+        for name, value in fixed)
     installed_names = json.dumps([name for name, _ in installed])
     typed = 'true' if types else 'false'
     functions = '\n'.join(f'  function {root}' for root in roots)
@@ -209,13 +274,15 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         IO.println s!"argument-type {{imm.name}} {{(repr imm.ty).pretty}}"
   unless params.length == i do throw (IO.userError "constructor takes extra arguments")
   IO.println s!"constructor {{if m.constructor.isSome then "some" else "none"}}"
-  let body := toString (repr (m.functions.map (·.body)))
+  -- One line: a wrapped `Expr.literal` and its value would not match the searches below.
+  let body := (repr (m.functions.map (·.body))).pretty 1000000
   for name in ({names} : List String) do
     if (body.splitOn s!"Expr.immutable \\"{{name}}\\"").length > 1 then
       IO.println s!"reads-immutable {{name}}"
     else
       IO.println s!"not-read-as-immutable {{name}}"
   IO.println s!"reads-contract-address {{if (body.splitOn "Expr.contractAddress").length > 1 then "true" else "false"}}"
+{fixed_values}
 '''
 
 
@@ -251,7 +318,7 @@ def main():
                 raise SystemExit(f'{name}: import failed\n{log}')
             seen = [line for line in log.splitlines() if line.split(' ')[0] in (
                 'immutable', 'installed', 'argument-type', 'constructor', 'reads-immutable',
-                'not-read-as-immutable', 'reads-contract-address')]
+                'not-read-as-immutable', 'reads-contract-address', 'fixed-value')]
             want = expected_lines(unknown, selves, installed, types, fixed)
             got = [line.replace('Compiler.CompilationModel.', '').replace('ParamType.', '')
                    for line in seen if not (line.startswith('reads-contract-address') and

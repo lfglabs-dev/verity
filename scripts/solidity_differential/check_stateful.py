@@ -263,7 +263,16 @@ def main():
                              'sender:INDEX or word:N appends the next constructor argument '
                              '(after any --immutable-sender ones) and gives the model that '
                              'value; deployer or chainid only gives the model the deployment '
-                             "sender or chain id, the value an inline initializer installs")
+                             'sender or chain id, the value an inline initializer installs, and '
+                             'model:N gives the model N and appends it to the compiled '
+                             "constructor's arguments only, for an immutable the source writes "
+                             "without a constructor argument (`X++`, a state variable initializer)")
+    parser.add_argument('--dirty-constructor-word', action='append', default=[],
+                        metavar='INDEX=WORD',
+                        help='deploy the compiled model with constructor word INDEX replaced by '
+                             'WORD (SENDER<i>|N ors N into sender i), keeping the clean word for '
+                             'the source and the model: the compiled constructor must clean it '
+                             'to the immutable value of its type')
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
@@ -425,6 +434,7 @@ def main():
         'scaledEnd()',
         'isCurrentChain()',
         'deployer()',
+        'literalWords()',
         'namedReturnCopy(bytes)',
         'namedReturnEarly(bytes,uint256)',
         'sliceArgumentDigest(bytes,uint256,uint256)',
@@ -482,6 +492,7 @@ def main():
                 raise HarnessError(f'invalid --immutable-sender {spec!r}')
             immutables.append((name, int(senders[int(index)], 16)))
         constructor_words = ''.join(format(value, '064x') for _, value in immutables)
+        model_only_words = []
         for spec in args.immutable:
             name, _, value = spec.partition('=')
             kind, _, operand = value.partition(':')
@@ -495,6 +506,10 @@ def main():
             elif value == 'chainid' and name:
                 immutables.append((name, int(node.rpc('eth_chainId'), 16)))
                 continue
+            elif kind == 'model' and name and operand.isdigit() and int(operand) < 2 ** 256:
+                immutables.append((name, int(operand)))
+                model_only_words.append(format(int(operand), '064x'))
+                continue
             else:
                 raise HarnessError(f'invalid --immutable {spec!r}')
             if not name:
@@ -502,7 +517,22 @@ def main():
             immutables.append((name, word))
             constructor_words += format(word, '064x')
         source_code += constructor_words
-        compiled_code += constructor_words
+        compiled_words = [constructor_words[i:i + 64] for i in range(0, len(constructor_words), 64)]
+        for spec in args.dirty_constructor_word:
+            index, _, word = spec.partition('=')
+            base, _, extra = word.partition('|')
+            if base.startswith('SENDER') and base[6:].isdigit() and int(base[6:]) < len(senders):
+                dirty = int(senders[int(base[6:])], 16) | int(extra or '0')
+            elif base.isdigit() and not extra:
+                dirty = int(base)
+            else:
+                raise HarnessError(f'invalid --dirty-constructor-word {spec!r}')
+            if not index.isdigit() or int(index) >= len(compiled_words) or dirty >= 2 ** 256:
+                raise HarnessError(f'invalid --dirty-constructor-word {spec!r}')
+            compiled_words[int(index)] = format(dirty, '064x')
+        # The synthesized constructor takes every argument immutable, so the model-only ones
+        # follow the source constructor's arguments (list them in declaration order after those).
+        compiled_code += ''.join(compiled_words + model_only_words)
         deployed = node.transact({'from': sender, 'data': source_code, 'gas': hex(10000000)})
         if deployed['receipt']['status'] != '0x1':
             raise HarnessError('source fixture deployment failed')
@@ -542,7 +572,8 @@ def main():
         # Reads of scalar immutables: constructor arguments, installed initializers, a literal
         # initializer and an unwritten one, through a tuple, arithmetic and public getters.
         scalar_prefix = [('scalarWords()', []), ('scaledEnd()', []), ('isCurrentChain()', []),
-                         ('asset()', []), ('deployer()', []), ('read()', [])]
+                         ('asset()', []), ('deployer()', []), ('literalWords()', []),
+                         ('read()', [])]
         calls.extend(scalar_prefix[:max(0, args.transactions - len(calls))])
     if 'inspectBytes(bytes,uint256)' in source['methodIdentifiers']:
         bytes_prefix = [
