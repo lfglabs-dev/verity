@@ -213,6 +213,9 @@ structure Env where
   yulMemoryStructs : RBMap String Nat compare := RBMap.empty
   yulScratch0 : Bool := false
   yulScratch32 : Bool := false
+  /-- Bytes below `0x80` that the current inline-assembly block wrote unconditionally
+      (bit `i` is byte `i`), by fixed-address `mstore`s outside any `if` body. -/
+  yulWrittenBytes : Nat := 0
   /-- AST ids of the typed-interface staticcalls the current statement may
       lower (`admittedInterfaceCallIds` of its whole initializer, right-hand
       side or expression statement). Each id is consumed when lowered. -/

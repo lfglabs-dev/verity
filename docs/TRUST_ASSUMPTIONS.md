@@ -2040,8 +2040,16 @@ Trust boundary changes:
   read a scratch word an `mstore` at exactly that address in the same block wrote, or the
   zero slot. solc's code generator leaves mapping-slot hashes and other data in the
   scratch space, and the importer's allocations are not solc's, so the free-memory pointer
-  is read only into a variable that restores it or places a bubbled revert, and a block
-  that overwrites it must restore it.
+  is read only into a variable that restores it or places a bubbled revert (a
+  `returndatacopy(p, 0, returndatasize())` + `revert(p, returndatasize())` pair), and a
+  block that overwrites it with an `mstore` must restore it.
+- The memory a call sends or receives obeys the same rule. A nonempty input range must be
+  the payload of a `bytes memory` local (`add(buf, 0x20)` with size `mload(buf)`) or literal
+  bytes below `0x80` that fixed-address `mstore`s of the block wrote unconditionally; a
+  nonempty output range must be such a payload or written scratch bytes below `0x40`, so a
+  call never writes the free-memory pointer or the zero slot. Writes inside an `if` body do
+  not count after it. `add(buf, 0x20)` is admitted only as a call operand: the model's
+  allocation addresses are not solc's.
 - A non-static call opens a cross-function reentrancy window and is classified with the
   closed low-level calls (`isClosedLowLevelCall`); a `staticcall` with the closed static
   calls (`isClosedStaticCall`).
