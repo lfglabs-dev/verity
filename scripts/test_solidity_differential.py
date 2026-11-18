@@ -11,7 +11,7 @@ from solidity_differential.engine import HarnessError, parse_evm, execute, comma
 from solidity_differential.programs import generated_campaign, source, smaller_expressions
 from solidity_differential.reduce import reduce_failure, signature
 from solidity_differential.mutations import mutation_campaign, snapshot, release
-from solidity_differential.suite import run_checks, stateful_campaign
+from solidity_differential.suite import STORAGE_FIXTURES, run_checks, stateful_campaign
 
 
 class SolidityDifferentialTests(unittest.TestCase):
@@ -264,8 +264,14 @@ class SolidityDifferentialTests(unittest.TestCase):
                 "scalar-array-abi",
             ],
         )
-        self.assertEqual(len(captured), 69)
-        self.assertEqual(len(set(captured)), 69)
+        # No fixed total: a PR adding a check must not edit a shared count.
+        # Every registered storage fixture is scheduled exactly once, no check
+        # is scheduled twice, and the campaign never shrinks below the 68
+        # checks it had when the count was removed.
+        self.assertEqual(len(captured), len(set(captured)))
+        for fixture in STORAGE_FIXTURES:
+            self.assertIn("storage-" + fixture, captured)
+        self.assertGreaterEqual(len(captured), 68)
 
 if __name__ == "__main__":
     unittest.main()
