@@ -970,7 +970,7 @@ def stateful_narrow_for_counters_source(fixture: str, variant: str) -> str:
         return fixture
     if variant == 'renamed':
         import re
-        names = set(['acc', 'half', 'i', 'j', 'k', 'm', 'n', 'runs', 'start', 't', 'total', 'x'])
+        names = set(['acc', 'half', 'i', 'j', 'k', 'm', 'n', 'runs', 'start', 't', 'total', 'u', 'v', 'w', 'x'])
         return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
                       lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
                       fixture)

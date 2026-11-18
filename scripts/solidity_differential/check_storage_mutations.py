@@ -492,6 +492,10 @@ MUTANTS.update({
         'out := out.push (.ite (.lt limit cap) [] [])'),
     'import-narrow-for-cap': ('let cap := Expr.literal (2 ^ counterBits)',
         'let cap := Expr.literal (2 ^ counterBits - 1)'),
+    'import-narrow-for-literal-bound': ('if let .literal n := bound.expr then return n ≥ 2 ^ counterBits',
+        'if let .literal n := bound.expr then return n > 2 ^ counterBits'),
+    'import-narrow-for-typed-bound': ('| some bits => pure (bits > counterBits)',
+        '| some bits => pure (bits > counterBits + 8)'),
 })
 
 
@@ -670,9 +674,10 @@ def run(directory, output, name):
     if fixture == 'NarrowForCounterSequence':
         # The same boundaries as `check_storage --fixture narrow-for-counters`:
         # x % 300 == 255 is the last bound a uint8 counter reaches without the
-        # checked-increment panic, 256 the first that panics.
+        # checked-increment panic, 256 the first that panics; 999 hits the
+        # literal 256 bound and 255000 / 256000 the uint16 bound w = 255 / 256.
         argv[argv.index('--transactions') + 1] = '20'
-        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 19, 20, 255, 256, 257, 299, 300, 555, 556, 999, (1 << 256) - 1])])
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 19, 20, 255, 256, 257, 299, 300, 555, 556, 999, 255000, 256000, (1 << 256) - 1])])
     if fixture == 'YulNumericSequence':
         argv = argv[:argv.index('--change-prefix')] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
     if fixture == 'NamedHelperReturnSequence':

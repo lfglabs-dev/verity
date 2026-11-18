@@ -28,6 +28,21 @@ contract SequenceFixture {
         for (uint32 k = start; k > 0; k--) {
             acc += k;
         }
+        // A literal bound of 2^8: solc compares in uint16, so `u` reaches 255 and
+        // the checked `u++` panics.
+        if (x == 999) {
+            for (uint8 u = 0; u < 256; u++) {
+                acc += 1;
+            }
+        }
+        // A uint16 bound wider than the uint8 counter: w = 255 completes, w = 256
+        // panics after the v = 255 iteration.
+        if (x >= 255000 && x < 257000) {
+            uint16 w = uint16(x / 1000);
+            for (uint8 v = 0; v < w; v++) {
+                acc += v;
+            }
+        }
         acc += _sum8(x % 300);
         total += acc;
         runs += 1;
