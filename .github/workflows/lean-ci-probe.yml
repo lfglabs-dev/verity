@@ -1,0 +1,61 @@
+name: lean.ci capacity probe (throwaway, never merge)
+
+# Branch-only probe for the #2770 migration: can lean-16vcpu-ubuntu-2604 start ~10 parallel jobs,
+# and does #2770's Foundry setup work on those images? Triggered only by pushes to this branch.
+on:
+  push:
+    branches: [ci/lean-ci-probe]
+
+permissions:
+  contents: read
+
+env:
+  SOLC_VERSION: "0.8.33"
+  SOLC_URL: "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.33+commit.64118f21"
+  SOLC_SHA256: "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468"
+
+jobs:
+  probe:
+    name: probe ${{ matrix.shard }}
+    runs-on: lean-16vcpu-ubuntu-2604
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    steps:
+      - name: Runner facts
+        run: |
+          echo "runner=${RUNNER_NAME} host=$(hostname) started=$(date -u +%FT%TZ)"
+          echo "cpus=$(nproc) mem=$(free -g | awk '/Mem:/{print $2}')G disk_free=$(df -BG --output=avail / | tail -1)"
+          cat /etc/os-release | grep -E '^(PRETTY_NAME)='
+          ls -d "$HOME/.foundry/bin" 2>/dev/null && echo "foundry preinstalled dir present" || echo "no preinstalled foundry"
+      - uses: actions/checkout@v4
+      # Foundry steps copied from #2770's .github/actions/setup-foundry (check, cache, install, verify).
+      - name: Check preinstalled Foundry binaries
+        id: pre
+        run: |
+          b="$HOME/.foundry/bin"
+          if [ -x "$b/forge" ] && "$b/forge" --version >/dev/null 2>&1 && "$b/cast" --version >/dev/null 2>&1 && "$b/anvil" --version >/dev/null 2>&1; then
+            echo "installed=true" >> "$GITHUB_OUTPUT"; else echo "installed=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Cache Foundry binaries
+        if: steps.pre.outputs.installed != 'true'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.foundry/bin
+            ~/.foundry/versions
+          key: foundry-v1.5.0-linux-amd64-v2
+      - name: Install Foundry
+        if: steps.pre.outputs.installed != 'true'
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.5.0
+      - name: Verify Foundry tools
+        run: |
+          export PATH="$HOME/.foundry/bin:$PATH"
+          forge --version && cast --version && anvil --version
+      - name: Setup solc
+        uses: ./.github/actions/setup-solc
+      - name: Done
+        run: echo "finished=$(date -u +%FT%TZ)"
