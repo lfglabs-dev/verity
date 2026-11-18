@@ -12424,6 +12424,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       else lowerMultiCall right (some expectedTypes)
     unless cs.size == retExprs.size do
       failAt expression s!"tuple assignment arity {cs.size} does not match helper return arity {retExprs.size}"
+    noteSelfAddressStmts callPre
     let mut seenIds : Array Nat := #[]
     let mut assigns : Array Stmt := #[]
     for i in [:cs.size] do
@@ -14277,6 +14278,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       else lowerMultiCall init (some expectedTypes)
     unless expectedTypes.size == retExprs.size do
       failAt s s!"tuple declaration arity {decls.size} does not match helper return arity {retExprs.size}"
+    noteSelfAddressStmts callPre
     let mut out := callPre
     for i in [:decls.size] do
       let d := decls[i]!
@@ -14340,6 +14342,8 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       let binding ← freshFor name
       let expr := Expr.localVar binding
       out := out ++ converted.pre |>.push (.letVar binding converted.expr)
+      noteSelfAddressStmts converted.pre
+      noteSelfAddress binding converted.expr
       let isZero := converted.pre.isEmpty && (match converted.expr with | .literal 0 => true | _ => false)
       modify fun e =>
         { e with values := e.values.insert id expr,
@@ -16801,7 +16805,7 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[] }
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[] }
       let ((body, srcParams), env2) ← (lowerRoot fn).run env
       env := env2
       let mut modelParams : Array Param := #[]

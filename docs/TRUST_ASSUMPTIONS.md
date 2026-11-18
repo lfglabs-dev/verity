@@ -2129,8 +2129,10 @@ Denote arm is pinned by `execStmt_ecm_extCodeHash_arm` and admitted by
 `closedTransportCovered`. `address(this).codehash` fails closed with a located
 diagnostic, and so does a read whose lowered operand may be the executing
 contract (`lowerCodeReadTarget` / `mayBeSelfAddress`): a local, helper or
-modifier parameter bound or assigned `address(this)`, directly or through
-another such binding, or an operand expression that mentions either. The same
+modifier parameter, tuple component, conditional result or inlined helper result
+bound or assigned `address(this)` (on any branch), directly or through another
+such binding, or an operand expression that mentions either. The marks are reset
+for each imported root. The same
 lowered-operand rule applies to `<addr>.code.length` and `<addr>.code`.
 
 Trust boundary changes:

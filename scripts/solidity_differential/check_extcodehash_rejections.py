@@ -20,8 +20,15 @@ MESSAGES = {
 
 HASH_HELPER = ('    function hashOf(address target) internal view returns (bytes32) {\n'
                '        return target.codehash;\n    }\n')
+PICK_HELPER = ('    function pick(address target, bool own) internal view returns (address) {\n'
+               '        if (own) return address(this);\n        return target;\n    }\n')
+OTHER_ROOT = ('    function other() external view returns (uint256) {\n'
+              '        address self = address(this);\n        return uint256(uint160(self));\n    }\n')
 # Extra contract members of a case, by case name.
-MEMBERS = {'self-helper-code-hash': HASH_HELPER, 'helper-code-hash': HASH_HELPER}
+MEMBERS = {'self-helper-code-hash': HASH_HELPER, 'helper-code-hash': HASH_HELPER,
+           'self-helper-branch-code-hash': PICK_HELPER, 'second-root-name-reuse': OTHER_ROOT}
+# Imported roots of a case, in import order (default: `checked(address)` only).
+ROOTS = {'second-root-name-reuse': ['other()', 'checked(address)']}
 
 # name, body, expected
 # expected: None (positive control) or (marker, occurrence, construct, message key)
@@ -52,6 +59,17 @@ CASES = [
      ('target.codehash', 0, 'MemberAccess', 'self-alias')),
     ('self-alias-code-length', 'address self = address(this);\n        counter = self.code.length;',
      ('self.code', 0, 'MemberAccess', 'self-alias-length')),
+    # address(this) reaching the operand through a branch or a tuple.
+    ('self-conditional-code-hash',
+     'last = (account == address(0) ? address(this) : account).codehash;',
+     ('(account == address(0)', 0, 'MemberAccess', 'self-alias')),
+    ('self-helper-branch-code-hash', 'last = pick(account, counter == 0).codehash;',
+     ('pick(account', 0, 'MemberAccess', 'self-alias')),
+    ('self-tuple-code-hash',
+     '(address self, uint256 n) = (address(this), 1);\n        counter = n;\n        last = self.codehash;',
+     ('self.codehash', 0, 'MemberAccess', 'self-alias')),
+    # A self alias in one root does not reject a foreign alias of the same name in the next.
+    ('second-root-name-reuse', 'address self = account;\n        last = self.codehash;', None),
 ]
 
 
@@ -92,14 +110,14 @@ def main():
         directory = output / name
         directory.mkdir()
         text = source(statements, MEMBERS.get(name, ''))
+        roots = ''.join(f'  function {root}\n' for root in ROOTS.get(name, ['checked(address)']))
         (directory / 'Fixture.sol').write_text(text)
         driver = directory / 'Check.lean'
         driver.write_text(f'''import Compiler.SolidityImport.Import
 solidity_import tested from "{directory}" entry "Fixture.sol"
   using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
   contract C
-  function checked(address)
-''')
+{roots}''')
         artifact = directory / 'Check.olean'
         result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],
                                 cwd=root, text=True, capture_output=True, timeout=300)
