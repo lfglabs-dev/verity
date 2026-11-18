@@ -3097,13 +3097,13 @@ def stateful_tuple_destructuring_source(original, variant):
 ROOT_PARAM_RENAMES = {
     'struct-string-member-param': (
         {'cfg', 't', 'o', 'x'},
-        {'ltv', 'isolated', 'label', 'name', 'weight', 'payload', 'stored', 'storedLabel', 'id', 'tag'}),
+        {'narrow', 'flag', 'label', 'name', 'weight', 'payload', 'stored', 'storedLabel', 'id', 'tag'}),
 }
 
 
 def stateful_root_param_source(fixture: str, variant: str, kind: str) -> str:
     """`renamed`: parameters and locals; `members-renamed`: struct members,
-    internal helpers and the state variable."""
+    internal helpers and state variables (each fixture's `ROOT_PARAM_RENAMES`)."""
     import re
     if variant == 'baseline':
         return fixture

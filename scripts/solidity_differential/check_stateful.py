@@ -237,7 +237,7 @@ def _struct_string_member_calls():
     for calldata structs, signed comparison, and rejects for memory structs),
     lengths past the payload or beyond 64 bits, a dirty `uint16` / `bool`, and
     truncated heads. Signatures first appear in the Model.lean function order."""
-    cfg_sigs = ('configure((uint16,bool,string))', 'labelLength((uint16,bool,string))',
+    cfg_sigs = ('scalarsBesideString((uint16,bool,string))', 'labelLength((uint16,bool,string))',
                 'labelHash((uint16,bool,string))', 'labelLengthCalldata((uint16,bool,string))',
                 'labelHashCalldata((uint16,bool,string))')
     tagged_sig = 'taggedDigest((string,uint256,bytes))'
@@ -255,8 +255,8 @@ def _struct_string_member_calls():
     calls = []
     for size in (0, 1, 5, 31, 32, 33, 70):
         label = _bytes_words(_BYTE_PAYLOADS[size])
-        for ltv, flag in ((7, 0), (65535, 1)):
-            cfg = [32, ltv, flag, 96] + label
+        for narrow, flag in ((7, 0), (65535, 1)):
+            cfg = [32, narrow, flag, 96] + label
             for sig in cfg_sigs:
                 calls.append((sig, cfg))
         payload = _bytes_words(_BYTE_PAYLOADS[partner[size]])

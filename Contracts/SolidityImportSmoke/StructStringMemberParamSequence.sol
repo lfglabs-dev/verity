@@ -8,9 +8,9 @@ pragma solidity 0.8.34;
 // written to a `string` storage variable and a `string` inside a nested
 // dynamic struct.
 contract SequenceFixture {
-    struct CategoryConfig {
-        uint16 ltv;
-        bool isolated;
+    struct LabeledStruct {
+        uint16 narrow;
+        bool flag;
         string label;
     }
 
@@ -29,24 +29,24 @@ contract SequenceFixture {
     string private storedLabel;
 
     // The issue's shape: only a scalar sibling of the `string` member is read.
-    function configure(CategoryConfig memory cfg) external returns (uint256) {
-        stored = cfg.ltv;
-        return cfg.isolated ? 1 : 0;
+    function scalarsBesideString(LabeledStruct memory cfg) external returns (uint256) {
+        stored = cfg.narrow;
+        return cfg.flag ? 1 : 0;
     }
 
-    function labelLength(CategoryConfig memory cfg) external pure returns (uint256) {
+    function labelLength(LabeledStruct memory cfg) external pure returns (uint256) {
         return bytes(cfg.label).length;
     }
 
-    function labelHash(CategoryConfig memory cfg) external pure returns (bytes32) {
+    function labelHash(LabeledStruct memory cfg) external pure returns (bytes32) {
         return keccak256(bytes(cfg.label));
     }
 
-    function labelLengthCalldata(CategoryConfig calldata cfg) external pure returns (uint256) {
-        return bytes(cfg.label).length + cfg.ltv;
+    function labelLengthCalldata(LabeledStruct calldata cfg) external pure returns (uint256) {
+        return bytes(cfg.label).length + cfg.narrow;
     }
 
-    function labelHashCalldata(CategoryConfig calldata cfg) external pure returns (bytes32) {
+    function labelHashCalldata(LabeledStruct calldata cfg) external pure returns (bytes32) {
         return keccak256(bytes(cfg.label));
     }
 
@@ -54,11 +54,11 @@ contract SequenceFixture {
         return keccak256(abi.encodePacked(bytes(t.name), t.weight, t.payload));
     }
 
-    function storeLabel(CategoryConfig memory cfg) external {
+    function storeLabel(LabeledStruct memory cfg) external {
         storedLabel = cfg.label;
     }
 
-    function storeLabelCalldata(CategoryConfig calldata cfg) external {
+    function storeLabelCalldata(LabeledStruct calldata cfg) external {
         storedLabel = cfg.label;
     }
 
