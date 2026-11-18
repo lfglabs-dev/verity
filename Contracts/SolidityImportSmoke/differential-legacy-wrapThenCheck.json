@@ -1,0 +1,32 @@
+{
+  "project": ".",
+  "entry": "LegacyArithmetic.sol",
+  "contract": "LegacyArithmetic",
+  "function": "wrapThenCheck",
+  "solc": "0.7.6+commit.7338295f",
+  "settings": {
+    "evmVersion": "istanbul",
+    "viaIR": false,
+    "optimizer": {
+      "enabled": false,
+      "runs": 200
+    },
+    "metadata": {
+      "bytecodeHash": "ipfs"
+    }
+  },
+  "param_types": [
+    "uint256",
+    "uint256"
+  ],
+  "variables": {
+    "x": 256,
+    "y": 256
+  },
+  "arguments": {
+    "x": "x",
+    "y": "y"
+  },
+  "storage": [],
+  "corpus": "legacy-corpus.json"
+}
