@@ -7328,10 +7328,10 @@ private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := d
   unless args.isEmpty do
     let payload ← lowerAbiEncodeArgs args (some params)
     let ptr ← atom { pre := payload.pre, expr := payload.pointer }
-    let size ← atom { pre := #[], expr := payload.size }
-    pre := pre ++ ptr.pre ++ size.pre
+    let payloadBytes ← atom { pre := #[], expr := payload.size }
+    pre := pre ++ ptr.pre ++ payloadBytes.pre
     payloadPtr := ptr.expr
-    payloadSize := size.expr
+    payloadSize := payloadBytes.expr
   -- The selector is the low four bytes of the first word of a word-aligned
   -- allocation; the payload's words follow it, so the calldata starts at offset 28.
   let callBase ← fresh
