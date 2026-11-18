@@ -273,6 +273,34 @@ def stateful_empty_revert_source(original, variant):
     raise ValueError('unknown empty-revert program variant')
 
 
+def stateful_event_nested_mapping_read_source(original, variant):
+    """Equivalent event programs over nested struct-mapping reads; event names are kept."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('next', 'replacement'), ('saved', 'stored'), ('owner', 'holder'),
+                         ('key', 'peer'), ('groups', 'pools'), ('entries', 'items')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ('emit Updated(owner, key, groups[owner].entries[key].rate);',
+             'uint88 rate = groups[owner].entries[key].rate;\n'
+             '        emit Updated(owner, key, rate);'),
+            ('emit Accrued(next - 3, owner, groups[owner].entries[key].rate);',
+             'uint256 delta = next - 3;\n'
+             '        emit Accrued(delta, owner, rate);'),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError(f'nonunique event nested mapping variant anchor: {old}')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown event nested mapping program variant')
+
+
 def stateful_interface_static_call_source(original, variant):
     """Equivalent typed-interface staticcall programs over the same call sequence."""
     if variant == 'baseline':

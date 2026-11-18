@@ -13454,6 +13454,9 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
   let mut params : List EventParam := []
   let mut values : List Expr := []
   let mut pre : Array Stmt := #[]
+  -- Arguments whose prelude can revert, and those guarded by checked arithmetic.
+  let mut guardedArguments : Array Json := #[]
+  let mut checkedGuard := false
   for index in [:parameters.size] do
     let parameter := parameters[index]!
     let ty ← mType parameter
@@ -13469,15 +13472,30 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     let parameterName ← mStr (← mField parameter "name")
     let argument := arguments[index]!
     let mut value ← convert ty (← mType argument) (← lowerExpr argument) argument
-    -- Total scalar reads/casts commute. Reject guards and effects rather than
-    -- choosing an argument evaluation order for competing revert paths.
-    unless value.pre.all (fun
-        | .letVar _ _ => true
-        | .assignVar _ _ => multiSlot
-        | .ite _ [] [.revertEmpty] => true
-        | .ite _ [] [.panicCode (.literal 0x32)] => true
-        | _ => false) do
+    -- Total scalar reads/casts commute. Scratch-space hashing writes (`mstore` at
+    -- 0x00/0x20, as in nested mapping slot derivation) are consumed by the following
+    -- `keccak256` and never observed by other arguments. Guards and effects are rejected
+    -- unless no evaluation order has to be chosen for competing revert paths.
+    let isTotal : Stmt → Bool := fun
+      | .letVar _ _ => true
+      | .assignVar _ _ => multiSlot
+      | .mstore (.literal 0) _ | .mstore (.literal 32) _ => true
+      | _ => false
+    let isGuard : Stmt → Bool := fun
+      | .ite _ [] [.revertEmpty] => true
+      | .ite _ [] [.panicCode (.literal 0x32)] => true
+      | _ => false
+    -- A checked-arithmetic result: panic, or assign the in-range value.
+    let isCheckedGuard : Stmt → Bool := fun
+      | .ite _ [.panic _] [.assignVar _ _] => true
+      | .ite _ [.assignVar _ _] [.panic _] => true
+      | _ => false
+    unless value.pre.all (fun s => isTotal s || isGuard s || isCheckedGuard s) do
       failAt argument "event arguments currently require total scalar expressions"
+    if value.pre.any (fun s => isGuard s || isCheckedGuard s) then
+      guardedArguments := guardedArguments.push argument
+    if value.pre.any isCheckedGuard then
+      checkedGuard := true
     match value.expr with
     | .param parameterName =>
         let some actualType := rootParamType? (← get) parameterName
@@ -13508,6 +13526,11 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     params := params ++ [{ name := parameterName, ty := modelType, kind := if indexed then .indexed else .unindexed }]
     values := values ++ [boundValue.expr]
     pre := pre ++ boundValue.pre
+  -- solc orders event arguments differently under via-IR (left to right) and legacy
+  -- codegen (indexed last to first, then data), so a checked-arithmetic argument is
+  -- admitted only when no other argument can revert.
+  if checkedGuard && guardedArguments.size > 1 then
+    failAt guardedArguments[1]! "event arguments with competing revert paths require explicit evaluation-order support"
   unless (params.filter (·.kind == .indexed)).length ≤ 3 do
     failAt declaration "event has more than three indexed parameters"
   if let some previous := (← get).usedEvents.find? (fun pair => pair.2.name == name) then
@@ -13555,6 +13578,7 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
       let value ← convert ty (← mType argument) (← lowerExpr argument) argument
       unless value.pre.all (fun
           | .letVar _ _ => true
+          | .mstore (.literal 0) _ | .mstore (.literal 32) _ => true
           | .ite _ [] [.revertEmpty] => true
           | .ite _ [] [.panicCode (.literal 0x32)] => true
           | _ => false) do
