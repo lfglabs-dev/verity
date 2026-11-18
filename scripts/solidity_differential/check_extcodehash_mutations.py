@@ -55,10 +55,11 @@ MUTANTS = {
     'ecm-code-hash-opcode': (ECM,
         '| [target] => pure [.let_ resultVar (.call "extcodehash" [target])]',
         '| [target] => pure [.let_ resultVar (.call "extcodesize" [target])]', 'runtime', None),
-    # The lowered-target guard: an alias of address(this) imports again.
+    # The whole-body operand recheck: an alias of address(this) assigned later in a loop
+    # body (the next iteration reads the executing contract) imports again.
     'import-code-read-self-alias': (EXPR_HELPERS,
-        'if ← mayBeSelfAddress lowered.expr then failAt node message',
-        'if false then failAt node message', 'admission', 'self-alias-code-hash'),
+        '    if ← mayBeSelfAddress operand then failAt node message',
+        '    if false then failAt node message', 'admission', 'self-loop-carried-code-hash'),
     # The post-call guard: a code hash read after a low-level call imports again.
     'import-code-hash-after-call-guard': (EXPR_HELPERS,
         '    if late.contains result then',

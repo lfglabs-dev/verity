@@ -2158,7 +2158,7 @@ Trust boundary changes:
   between the routes and are not modeled: `address(this).codehash` and reads
   through locals or parameters bound to `address(this)` reject. The importer
   does not track the executing contract's address through storage, calldata,
-  memory or inline-assembly assignments, so an operand that reaches the read
+  or memory, so an operand that reaches the read
   that way, like a runtime argument equal to the executing contract's own
   address, is outside the validated domain.
 - The transport hands control to no account, so `eraseClosedTransports` erases
