@@ -491,6 +491,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
 DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    "import-msg-sender", "import-address-this",
                    "import-narrow-for-panic", "import-narrow-for-cap",
+                   "import-narrow-for-literal-bound", "import-narrow-for-typed-bound",
                    "import-block-number", "import-block-chainid",
                    "import-require-condition", "denote-require-selector",
                    "import-custom-require-condition", "denote-custom-require-selector",
