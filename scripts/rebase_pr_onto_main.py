@@ -6,9 +6,8 @@ Usage:
 
 PR branches in this repository conflict with main mostly on files nobody
 edits by hand: generated files (``artifacts/*.json``, ``verify_sync_spec.json``)
-and append-only lists (smoke module lists, smoke imports, differential
-fixture registries). This tool rebases
-the branch and resolves exactly those conflicts, per the tables below:
+and append-only lists (smoke imports, differential fixture registries). This
+tool rebases the branch and resolves exactly those conflicts, per the tables below:
 
   * generated file   -> take the base's side during the rebase, regenerate once
                         at the end (one "chore: regenerate ..." commit);
@@ -91,8 +90,6 @@ GENERATORS: tuple[Generator, ...] = (
 
 # Append-only lists: path -> regex every line of a conflict hunk must match.
 APPEND_ONLY: dict[str, str] = {
-    # The two `smoke_modules=( ... )` bash arrays are the only lines that are a bare module name.
-    ".github/workflows/verify.yml": r"^\s+Contracts(\.[A-Za-z0-9_]+)+\s*$",
     # The file is a list of imports.
     "Contracts/Smoke.lean": r"^import [A-Za-z0-9_.]+$",
     # Only the import header is a list; conflicts in the test code stop the tool.

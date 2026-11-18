@@ -1019,34 +1019,11 @@ jobs:
       - name: Pre-build smoke test Yul artifacts (unpatched)
         run: |
           set -euo pipefail
-          smoke_modules=(
-            Contracts.BytesEqSmoke
-            Contracts.Smoke.EnumFeatureTest
-            Contracts.Smoke.ImmutableSmoke
-            Contracts.Smoke.LowLevelTryCatchSmoke
-            Contracts.Smoke.UnitReturnSmoke
-            Contracts.Smoke.WholeCompositeValueSmoke
-            Contracts.Smoke.InterfaceCompositeReturnSmoke
-            Contracts.Smoke.NamedStructReturnSmoke
-            Contracts.Smoke.Create2AddressSmoke
-            Contracts.Smoke.MemoryHashSmoke
-            Contracts.Smoke.DirectDynamicECMArgSmoke
-            Contracts.Smoke.SpillFreeMemorySmoke
-            Contracts.Smoke.LoopSemanticsSmoke
-            Contracts.Smoke.ArithmeticPanicSmoke
-            Contracts.Smoke.MulDiv512Smoke
-            Contracts.Smoke.Int256CheckedSmoke
-            Contracts.Smoke.SelfBalanceSmoke
-            Contracts.Smoke.FallbackNonReentrantSmoke
-            Contracts.Smoke.TryCatchSmoke
-            Contracts.Smoke.TryCatchArgSmoke
-            Contracts.StringArrayErrorSmoke
-            Contracts.StringArrayEventSmoke
-            Contracts.StringEqSmoke
-            Contracts.StringErrorSmokeContract
-            Contracts.StringEventSmoke
-            Contracts.StringSmoke
-          )
+          mapfile -t smoke_modules < <(python3 scripts/list_smoke_modules.py)
+          if [ "${#smoke_modules[@]}" -eq 0 ]; then
+            echo "scripts/list_smoke_modules.py listed no module" >&2
+            exit 1
+          fi
           lake build "${smoke_modules[@]}" >/dev/null
           mkdir -p compiler/yul-smoke
           for module in "${smoke_modules[@]}"; do
@@ -1080,34 +1057,11 @@ jobs:
       - name: Pre-build patched smoke test Yul artifacts for foundry-patched
         run: |
           set -euo pipefail
-          smoke_modules=(
-            Contracts.BytesEqSmoke
-            Contracts.Smoke.EnumFeatureTest
-            Contracts.Smoke.ImmutableSmoke
-            Contracts.Smoke.LowLevelTryCatchSmoke
-            Contracts.Smoke.UnitReturnSmoke
-            Contracts.Smoke.WholeCompositeValueSmoke
-            Contracts.Smoke.InterfaceCompositeReturnSmoke
-            Contracts.Smoke.NamedStructReturnSmoke
-            Contracts.Smoke.Create2AddressSmoke
-            Contracts.Smoke.MemoryHashSmoke
-            Contracts.Smoke.DirectDynamicECMArgSmoke
-            Contracts.Smoke.SpillFreeMemorySmoke
-            Contracts.Smoke.LoopSemanticsSmoke
-            Contracts.Smoke.ArithmeticPanicSmoke
-            Contracts.Smoke.MulDiv512Smoke
-            Contracts.Smoke.Int256CheckedSmoke
-            Contracts.Smoke.SelfBalanceSmoke
-            Contracts.Smoke.FallbackNonReentrantSmoke
-            Contracts.Smoke.TryCatchSmoke
-            Contracts.Smoke.TryCatchArgSmoke
-            Contracts.StringArrayErrorSmoke
-            Contracts.StringArrayEventSmoke
-            Contracts.StringEqSmoke
-            Contracts.StringErrorSmokeContract
-            Contracts.StringEventSmoke
-            Contracts.StringSmoke
-          )
+          mapfile -t smoke_modules < <(python3 scripts/list_smoke_modules.py)
+          if [ "${#smoke_modules[@]}" -eq 0 ]; then
+            echo "scripts/list_smoke_modules.py listed no module" >&2
+            exit 1
+          fi
           mkdir -p compiler/yul-patched-smoke
           for module in "${smoke_modules[@]}"; do
             ./compiler/bin/verity-compiler \

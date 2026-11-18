@@ -23,6 +23,9 @@ python3 scripts/profile_ci_resources.py --name check --output-dir artifacts/ci-p
 # Run Foundry differential tests
 make test-foundry
 
+# List the modules Foundry tests compile on demand (CI prebuilds their Yul)
+python3 scripts/list_smoke_modules.py
+
 # Rebase the current PR branch onto origin/main, resolving generated files and
 # append-only lists, regenerating at the end (never pushes; --json for JSON)
 python3 scripts/rebase_pr_onto_main.py
