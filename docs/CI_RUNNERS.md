@@ -19,7 +19,8 @@ GitHub Actions for lfglabs-dev/verity
   |-- lean.ci ephemeral runners
   |     role: Lean proof builds, compiler binaries, audits, import mutations,
   |           Foundry differential tests, profiling, turbo-lean cache checks
-  |     runs-on: lean-16vcpu-ubuntu-2604, lean-32vcpu-ubuntu-2604
+  |     runs-on: lean-4vcpu-ubuntu-2604, lean-8vcpu-ubuntu-2604,
+  |              lean-16vcpu-ubuntu-2604
   |
   |-- dgx-spark-gpu-1
   |     host: spark-de79 over Tailscale
@@ -35,8 +36,9 @@ The workflows route by capability, not by hostname:
 
 ```yaml
 runs-on: ubuntu-latest
+runs-on: lean-4vcpu-ubuntu-2604
+runs-on: lean-8vcpu-ubuntu-2604
 runs-on: lean-16vcpu-ubuntu-2604
-runs-on: lean-32vcpu-ubuntu-2604
 runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
 runs-on: [self-hosted, linux, x64, paloma-ocr]
 ```
@@ -52,9 +54,10 @@ them only for temporary debugging or deliberate host pinning via
   `ubuntu-latest` runners so they run with unlimited concurrency and never
   serialize behind a single self-hosted host.
 - Route Lean proof, compiler-binary, audit, mutation, Foundry, profiling, and
-  `turbo-lean` jobs onto ephemeral `lean.ci` runners (`lean-16vcpu-ubuntu-2604`
-  and `lean-32vcpu-ubuntu-2604` with `LEAN_NUM_THREADS=16` on Lean build/audit
-  jobs and `LEAN_NUM_THREADS=2` per worker on sharded `import-mutations`) so
+  `turbo-lean` jobs onto ephemeral `lean.ci` runners (`lean-8vcpu-ubuntu-2604`
+  for the build, audit, mutation and Foundry jobs, `lean-16vcpu-ubuntu-2604` for
+  `importer-differential`, `lean-4vcpu-ubuntu-2604` for the turbo-lean cache
+  check; `LEAN_NUM_THREADS=2` per worker on sharded `import-mutations`) so
   concurrent PRs do not serialize behind fixed self-hosted build pools.
   Ephemeral runners automatically fall back to GitHub Actions caches and
   `$RUNNER_TEMP` when `/srv/verity-ci-cache` is absent.
