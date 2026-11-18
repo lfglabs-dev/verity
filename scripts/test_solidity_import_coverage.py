@@ -16,6 +16,7 @@ from solidity_import_coverage import classify, position, spelling, summarize, ch
 from solidity_import_coverage import IMPORTER_SOLC, IMPORTER_DEFAULT_SOLC, importer_compiler, pragma_at, matrix_entry, compiler_matrix, measure
 
 REPO = Path(__file__).resolve().parents[1]
+V76 = '0.7.6+commit.7338295f'
 V34, V26, V10 = '0.8.34+commit.80d5c536', '0.8.26+commit.8a97fa7a', '0.8.10+commit.fc410830'
 
 
@@ -407,7 +408,7 @@ class CompilerMatrixTests(unittest.TestCase):
         text = markdown(report)
         self.assertIn(f'| p:C | 0.5.16 | {V34} (importer default) | {V10} |', text)
         self.assertIn('| p:D | unavailable | unavailable | unavailable |', text)
-        self.assertIn(f'Importer-pinned solc releases: {V34}, {V26}, {V10}.', text)
+        self.assertIn(f'Importer-pinned solc releases: {V76}, {V34}, {V26}, {V10}.', text)
 
     def test_submodule_checkout_rejects_unpinned_or_unsafe_paths(self):
         with tempfile.TemporaryDirectory() as tmp:

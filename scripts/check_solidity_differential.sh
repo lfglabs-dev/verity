@@ -27,4 +27,5 @@ if [ ! -f "$verity_test_stamp" ] || [ "$(cat "$verity_test_stamp")" != "$verity_
 fi
 python3 "$verity_test_root/scripts/setup_solc_import.py" --output .lake/solidity-import/solc-0.8.34
 python3 "$verity_test_root/scripts/setup_solc_import.py" --version 0.8.10 --output .lake/solidity-import/solc-0.8.10
+python3 "$verity_test_root/scripts/setup_solc_import.py" --version 0.7.6 --output .lake/solidity-import/solc-0.7.6
 exec "$verity_test_venv/bin/python" "$verity_test_root/scripts/solidity_import_differential.py" "$@"

@@ -10,6 +10,7 @@ import threading
 import time
 
 from .cases import canonical, generate, materialize
+from setup_solc_import import RELEASES, file_sha256, host_platform
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE = Path.cwd().resolve()
@@ -98,9 +99,25 @@ def implementation_hashes():
             for directory in ("Compiler", "Verity", "scripts/solidity_differential")
             for p in (ROOT / directory).rglob("*") if p.suffix in (".lean", ".py", ".sol", ".txt")}
 
-    for name in ("scripts/solidity_import_differential.py", "lake-manifest.json", "lean-toolchain"):
+    for name in ("scripts/solidity_import_differential.py", "scripts/setup_solc_import.py",
+                 "lake-manifest.json", "lean-toolchain"):
         hashes[name] = hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
     return hashes
+
+
+def source_compiler(config):
+    """Exact reference selection; no pragma inference or compiler fallback."""
+    selected = config.get("solc", RELEASES["0.8.34"]["long_version"])
+    release = next((entry for entry in RELEASES.values() if entry["long_version"] == selected), None)
+    if release is None:
+        raise HarnessError("fixture_unsupported: unpinned source compiler " + str(selected))
+    path = WORKSPACE / ".lake/solidity-import" / release["binary_name"]
+    if not path.is_file() or file_sha256(path) != release["sha256"][host_platform()]:
+        raise HarnessError("source compiler missing or checksum mismatch: " + str(path))
+    banner = command([path, "--version"]).strip()
+    if f"Version: {selected}." not in banner:
+        raise HarnessError("source compiler version mismatch: " + banner)
+    return selected, path
 
 
 def prepare(config_path, output):
@@ -115,12 +132,20 @@ def prepare(config_path, output):
     for name, bits in config["variables"].items():
         if not isinstance(bits, int) or not 1 <= bits <= 256:
             raise HarnessError("invalid variable width: " + name)
+    selected_solc, reference_solc = source_compiler(config)
+    # Legacy source and model Yul use different binaries; admit both explicitly.
+    if reference_solc != SOLC:
+        source_compiler({"solc": RELEASES["0.8.34"]["long_version"]})
     settings = config.get("settings", {})
     if set(settings) - {"evmVersion", "viaIR", "optimizer", "metadata"}:
         raise HarnessError("fixture_unsupported: unknown compiler settings")
     profile = {"evmVersion": "osaka", "viaIR": True, "optimizer": {"enabled": True, "runs": 466},
                "metadata": {"bytecodeHash": "none"}, **settings}
-    if profile["evmVersion"] != "osaka":
+    legacy = selected_solc == "0.7.6+commit.7338295f"
+    if legacy:
+        if profile["evmVersion"] != "istanbul" or profile["viaIR"]:
+            raise HarnessError("fixture_unsupported: legacy differential profile requires Istanbul and viaIR=false")
+    elif profile["evmVersion"] != "osaka":
         raise HarnessError("fixture_unsupported: this runner currently targets Osaka")
     # Parallel campaigns share one workspace: let one `lake build` run at a time.
     with BUILD_LOCK:
@@ -134,7 +159,7 @@ def prepare(config_path, output):
                for ty in config["param_types"]]
     driver.write_text('import Compiler.SolidityImport.Import\nimport Compiler.SolidityImport.Differential\n'
         + f'solidity_import tested from {json.dumps(str(project))} entry {json.dumps(config["entry"])}\n'
-        + f'  using {{ evmVersion := {json.dumps(profile["evmVersion"])}, viaIR := {str(profile["viaIR"]).lower()}, '
+        + f'  using {{ solc := {json.dumps(selected_solc)}, evmVersion := {json.dumps(profile["evmVersion"])}, viaIR := {str(profile["viaIR"]).lower()}, '
         + f'optimizerRuns := {runs}, bytecodeHash := {json.dumps(profile["metadata"]["bytecodeHash"])} }}\n'
         + f'  contract {config["contract"]}\n'
         + f'  function {config["function"]}({", ".join(written)})\n'
@@ -148,7 +173,7 @@ def prepare(config_path, output):
     imported_settings = json.loads(metadata["settings"])
     source_request = {"language": "Solidity", "sources": {config["entry"]: {"urls": [config["entry"]]}},
                       "settings": {**imported_settings, "outputSelection": {"*": {"*": ["abi", "storageLayout", "evm.bytecode.object", "evm.deployedBytecode.object"]}}}}
-    source_result = solc_compile(source_request, project, output / "source")
+    source_result = solc_compile(source_request, project, output / "source", solc=reference_solc)
     contract = source_result["contracts"][config["entry"]][config["contract"]]
     constructors = [x for x in contract["abi"] if x["type"] == "constructor"]
     if constructors and constructors[0]["inputs"]:
@@ -163,21 +188,28 @@ def prepare(config_path, output):
     source_bin = bytes.fromhex(contract["evm"]["bytecode"]["object"])
     (output / "source.bin").write_bytes(source_bin)
     yul_request = {"language": "Yul", "sources": {"Model.yul": {"content": (output / "model.yul").read_text()}},
-                   "settings": {"evmVersion": profile["evmVersion"], "optimizer": profile["optimizer"],
+                   "settings": {"evmVersion": "osaka", "optimizer": profile["optimizer"],
                                 "outputSelection": {"*": {"*": ["evm.bytecode.object", "evm.deployedBytecode.object"]}}}}
     compiled_result = solc_compile(yul_request, project, output / "compiled")
     compiled_contracts = list(compiled_result["contracts"]["Model.yul"].values())
     if len(compiled_contracts) != 1:
         raise HarnessError("harness: expected one compiled Yul object")
     (output / "compiled.bin").write_bytes(bytes.fromhex(compiled_contracts[0]["evm"]["bytecode"]["object"]))
-    shutil.copyfile(Path(__file__).with_name("Runner.t.sol"), output / "Runner.t.sol")
-    (output / "foundry.toml").write_text('[profile.default]\nsrc = "empty"\ntest = "."\n'
+    # Only compile the observation harness with 0.8.34. Archived reference sources
+    # may require a different compiler and are already compiled above.
+    (output / "tests").mkdir(exist_ok=True)
+    shutil.copyfile(Path(__file__).with_name("Runner.t.sol"), output / "tests/Runner.t.sol")
+    (output / "foundry.toml").write_text('[profile.default]\nsrc = "empty"\ntest = "tests"\n'
         + f'solc = {json.dumps(str(SOLC))}\nevm_version = "osaka"\noptimizer = true\nvia_ir = true\n'
         + 'gas_limit = 9223372036854775807\ncode_size_limit = 100000\n'
         + 'fs_permissions = [{ access = "read-write", path = "./" }]\n')
     manifest = {"config": config, "configPath": str(config_path), "model": metadata,
                 "verity": command(["git", "rev-parse", "HEAD"], cwd=ROOT).strip(),
                 "solcSha256": hashlib.sha256(SOLC.read_bytes()).hexdigest(),
+                "sourceCompiler": selected_solc,
+                "sourceSolcSha256": file_sha256(reference_solc),
+                "modelCompiler": RELEASES["0.8.34"]["long_version"],
+                "executionEvm": "osaka",
                 "forge": command(["forge", "--version"]).strip(),
                 "observables": ["success/revert", "return words", "observed storage", "no storage writes", "A/B/C revert payload"],
                 "exclusions": ["gas equivalence", "memory allocation identity", "full ABI equivalence"]}
@@ -195,7 +227,7 @@ def prepare(config_path, output):
     write_json(output / "layout.json", contract["storageLayout"])
     manifest["implementationHashes"] = implementation_hashes()
     manifest["artifactHashes"] = {name: hashlib.sha256((output / name).read_bytes()).hexdigest()
-        for name in ("source.bin", "compiled.bin", "model.yul", "Driver.lean", "Runner.t.sol", "foundry.toml", "abi.json", "layout.json")
+        for name in ("source.bin", "compiled.bin", "model.yul", "Driver.lean", "tests/Runner.t.sol", "foundry.toml", "abi.json", "layout.json")
         if (output / name).exists()}
     write_json(output / "manifest.json", manifest)
     return config, metadata, abi, contract["storageLayout"], driver
