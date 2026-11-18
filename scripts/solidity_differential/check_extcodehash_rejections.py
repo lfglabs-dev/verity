@@ -68,6 +68,12 @@ CASES = [
     ('self-tuple-code-hash',
      '(address self, uint256 n) = (address(this), 1);\n        counter = n;\n        last = self.codehash;',
      ('self.codehash', 0, 'MemberAccess', 'self-alias')),
+    # Assigned after the read in a loop body: the next iteration reads the contract itself.
+    ('self-loop-carried-code-hash',
+     'address target = account;\n        bytes32 found = bytes32(0);\n'
+     '        for (uint256 i = 0; i < 2; i++) {\n            found = target.codehash;\n'
+     '            target = address(this);\n        }\n        last = found;',
+     ('target.codehash', 0, 'MemberAccess', 'self-alias')),
     # A self alias in one root does not reject a foreign alias of the same name in the next.
     ('second-root-name-reuse', 'address self = account;\n        last = self.codehash;', None),
 ]
