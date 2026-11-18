@@ -525,7 +525,8 @@ MUTANTS.update({
 # Root ABI parameters (#2711, #2708, #2701): byte buffers of `string` struct
 # members, from memory (payload pointer) and from calldata (member word); the
 # root argument tuple pointer, the `bytes[]` element bound, the calldata tail
-# base, and the base of the eager memory copy of each element.
+# base, the base of the eager memory copy of each element, and the struct a
+# root memory array must not allocate (it moves every `Panic(0x41)` boundary).
 MUTANTS.update({
     'import-root-param-string-member-pointer': ('pointer := .add (.localVar bytesPtr) (.literal 32),',
                                                 'pointer := .add (.localVar bytesPtr) (.literal 0),'),
@@ -540,6 +541,9 @@ MUTANTS.update({
                                               '[] []] ++ tail.toArray'),
     'import-root-param-bytes-element-base': ('let tail := AbiLowering.calldataBytesTailAt (.localVar data)',
                                              'let tail := AbiLowering.calldataBytesTailAt (.localVar header)'),
+    'import-root-param-lowering-memory-wrapper': (
+        'materializeFromCalldata calldataPointer stem schema (wrapper := false)',
+        'materializeFromCalldata calldataPointer stem schema (wrapper := true)'),
 })
 ROOT_PARAM_MUTANT_FIXTURES = {
     'import-root-param-string-member-pointer': 'StructStringMemberParamSequence',
@@ -548,6 +552,7 @@ ROOT_PARAM_MUTANT_FIXTURES = {
     'import-root-param-lowering-bytes-copy': 'BytesArrayParamSequence',
     'import-root-param-bytes-element-bound': 'BytesArrayParamSequence',
     'import-root-param-bytes-element-base': 'BytesArrayParamSequence',
+    'import-root-param-lowering-memory-wrapper': 'StructArrayParamSequence',
 }
 
 

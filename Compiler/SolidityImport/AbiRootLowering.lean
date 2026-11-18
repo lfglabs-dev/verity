@@ -13,18 +13,26 @@ structure Plan where
   body : List Stmt
   deriving Inhabited
 
+/-- Binding of the memory pointer of array member `i` materialized under `stem`. -/
+def memberArrayMemoryPointer (stem : String) (i : Nat) : String :=
+  stem ++ "_array" ++ toString i ++ "_memory"
+
 /-- Materialize a schema-checked struct from a validated calldata pointer into
 freshly allocated memory, returning the memory pointer, reserved binding names,
-and statements. Matches solc's `convert_t_struct_calldata_ptr_to_t_struct_memory_ptr`. -/
+and statements. Matches solc's `convert_t_struct_calldata_ptr_to_t_struct_memory_ptr`.
+With `wrapper := false` (the root argument tuple, see `rootArray`) no struct is
+allocated, scalar members are skipped, and each array member stays in its own
+pointer binding (`memberArrayMemoryPointer`): solc's `abi_decode_tuple`
+allocates only the parameters themselves. -/
 def materializeFromCalldata (calldataPointer stem : String)
-    (schema : List Member) (fuel : Nat := 16) : Plan :=
+    (schema : List Member) (fuel : Nat := 16) (wrapper : Bool := true) : Plan :=
   match fuel with
   | 0 => { calldataPointer, memoryPointer := stem ++ "_memory", names := [], body := [] }
   | fuel + 1 => Id.run do
     let memoryPointer := stem ++ "_memory"
     let nextPointer := stem ++ "_next"
-    let mut names := [memoryPointer, nextPointer]
-    let mut body : List Stmt := [
+    let mut names := if wrapper then [memoryPointer, nextPointer] else []
+    let mut body : List Stmt := if !wrapper then [] else [
       .letVar memoryPointer (.mload (.literal 64)),
       .letVar nextPointer (.add (.localVar memoryPointer) (.literal (32*schema.length))),
       .ite (.le (.localVar nextPointer) (.literal (2^64-1))) [] [.panicCode (.literal 0x41)],
@@ -32,12 +40,14 @@ def materializeFromCalldata (calldataPointer stem : String)
       .mstore (.literal 64) (.localVar nextPointer)]
     for (member, i) in schema.zipIdx do
       let destination := Expr.add (.localVar memoryPointer) (.literal (32*i))
+      let store := fun (value : Expr) => if wrapper then [Stmt.mstore destination value] else []
       match member with
       | .scalar field =>
-        let value := Expr.calldataload (.add (.localVar calldataPointer) (.literal (32*i)))
-        let bound := SolidityAbi.scalarBound field.kind
-        if bound < 2^256 then body := body ++ [guard (.lt value (.literal bound))]
-        body := body ++ [.mstore destination value]
+        if wrapper then
+          let value := Expr.calldataload (.add (.localVar calldataPointer) (.literal (32*i)))
+          let bound := SolidityAbi.scalarBound field.kind
+          if bound < 2^256 then body := body ++ [guard (.lt value (.literal bound))]
+          body := body ++ [.mstore destination value]
       | .bytesField _ _ =>
         let memberStem := stem ++ "_bytes" ++ toString i
         let bytesPointer := memberStem ++ "_memory"
@@ -50,10 +60,10 @@ def materializeFromCalldata (calldataPointer stem : String)
         body := body ++
           memoryBytesField (.localVar calldataPointer) i
             bytesPointer header length data next copyIndex ++
-          [.mstore destination (.localVar bytesPointer)]
+          store (.localVar bytesPointer)
       | .scalarArray field =>
         let memberStem := stem ++ "_array" ++ toString i
-        let arrayPointer := memberStem ++ "_memory"
+        let arrayPointer := memberArrayMemoryPointer stem i
         let header := memberStem ++ "_header"
         let length := memberStem ++ "_length"
         let data := memberStem ++ "_data"
@@ -65,10 +75,10 @@ def materializeFromCalldata (calldataPointer stem : String)
             header length data next ++
           materializeStaticScalarArray (.localVar data) (.localVar length)
             (.localVar arrayPointer) (.localVar next) elementStem field.kind ++
-          [.mstore destination (.localVar arrayPointer)]
+          store (.localVar arrayPointer)
       | .structArray _ fields =>
         let memberStem := stem ++ "_array" ++ toString i
-        let arrayPointer := memberStem ++ "_memory"
+        let arrayPointer := memberArrayMemoryPointer stem i
         let header := memberStem ++ "_header"
         let length := memberStem ++ "_length"
         let data := memberStem ++ "_data"
@@ -82,12 +92,12 @@ def materializeFromCalldata (calldataPointer stem : String)
             header length data next ++
           materializeStaticStructArray (.localVar data) (.localVar length)
             (.localVar arrayPointer) (.localVar next) elementStem (fields.map (·.kind)) ++
-          [.mstore destination (.localVar arrayPointer)]
+          store (.localVar arrayPointer)
       | .bytesArray _ =>
         -- `abi_decode_t_array$_t_bytes_memory_ptr_$dyn_memory_ptr`: the
         -- pointer array, then each element's eager `bytes` copy.
         let memberStem := stem ++ "_array" ++ toString i
-        let arrayPointer := memberStem ++ "_memory"
+        let arrayPointer := memberArrayMemoryPointer stem i
         let header := memberStem ++ "_header"
         let length := memberStem ++ "_length"
         let data := memberStem ++ "_data"
@@ -109,8 +119,8 @@ def materializeFromCalldata (calldataPointer stem : String)
                (elementStem ++ "_length") (elementStem ++ "_data") (elementStem ++ "_next")
                (elementStem ++ "_index") ++
              [.mstore (.add (.add (.localVar arrayPointer) (.literal 32))
-               (.mul (.localVar index) (.literal 32))) (.localVar element)]),
-           .mstore destination (.localVar arrayPointer)]
+               (.mul (.localVar index) (.literal 32))) (.localVar element)])] ++
+          store (.localVar arrayPointer)
       | .nestedStruct _ _ _ _ subSchema =>
         let memberStem := stem ++ "_struct" ++ toString i
         let subCalldata := memberStem ++ "_calldata"
@@ -119,7 +129,7 @@ def materializeFromCalldata (calldataPointer stem : String)
         body := body ++
           memoryNestedStructHead (.localVar calldataPointer) i subSchema.length subCalldata ++
           subMat.body ++
-          [.mstore destination (.localVar subMat.memoryPointer)]
+          store (.localVar subMat.memoryPointer)
     return { calldataPointer, memoryPointer, names, body }
 
 /-- Materialize a single flat static struct element from a calldata pointer
@@ -178,15 +188,17 @@ def rootArraySchema (word : Nat) (member : Member) : List Member :=
 4 and against which ABI offsets are relative. solc decodes root arrays
 eagerly: calldata gets the full array-head checks of `abi_decode_t_array_*_calldata_ptr`
 at entry (element reads re-check lazily), memory the same eager copy as a
-struct-array member (`memoryStaticArrayHead` + `materializeStaticStructArray`). -/
+struct-array member (`memoryStaticArrayHead` + `materializeStaticStructArray`),
+and allocates nothing else (no struct for the root tuple): the array pointer
+stays in `memberArrayMemoryPointer stem w` (read by `MemParam.memoryMemberWord`). -/
 def rootArray (stem : String) (rootHeadWords : Nat) (schema : List Member)
     (inMemory : Bool) : Plan :=
   let calldataPointer := stem ++ "_calldata"
   let tuple := Stmt.letVar calldataPointer (.literal 4)
   if inMemory then
-    let mat := materializeFromCalldata calldataPointer stem schema
+    let mat := materializeFromCalldata calldataPointer stem schema (wrapper := false)
     { calldataPointer
-      memoryPointer := mat.memoryPointer
+      memoryPointer := memberArrayMemoryPointer stem (schema.length - 1)
       names := calldataPointer :: mat.names
       body := [guard (.logicalNot (.slt (.sub .calldatasize (.literal 4))
           (.literal (32*rootHeadWords)))), tuple] ++ mat.body }

@@ -2677,6 +2677,20 @@ private def calldataBytesBuffer (cb : CalldataBytesParam) : M EncodedBytes := do
       (.calldataload (.add (.localVar cb.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
   return { pre := (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := .localVar cb.lengthBinding }
 
+/-- Struct declaration id of the elements of the struct-array member
+`memberIndex` of the ABI root `mem`: recorded for a root `S[]` parameter
+(`rootArrayStructId`), else the base type of the parent struct's member. -/
+private def abiElementStructId (mem : MemParam) (memberIndex : Nat) (node : Json) : M Int := do
+  if mem.rootArrayWord == some memberIndex then
+    let some sid := mem.rootArrayStructId | failAt node "unknown root array element struct"
+    return sid
+  let some parentDecl := (← get).structs.find? mem.structId
+    | failAt node "unknown parent struct"
+  let parentMembers ← mArr (← mField parentDecl "members")
+  let some memberNode := parentMembers[memberIndex]?
+    | failAt node "missing parent struct member"
+  refInt (← mField (← mField memberNode "typeName") "baseType")
+
 set_option maxHeartbeats 1600000 in
 mutual
 
@@ -3263,8 +3277,7 @@ private partial def lowerRef (j : Json) : M Ref := do
                 pre.push (AbiLowering.guard (.lt value (.literal bound))) else pre
               return .expr { pre, expr := value }
             else
-              let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
-                (.literal (32*memberIndex)))
+              let array := mem.memoryMemberWord memberIndex
               let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
               let value := Expr.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))
               return .expr { pre, expr := value }
@@ -3294,8 +3307,7 @@ private partial def lowerRef (j : Json) : M Ref := do
               modify fun e => { e with calldataBytes := e.calldataBytes.insert sid desc }
               return .calldataBytes sid pre
             else
-              let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
-                (.literal (32*memberIndex)))
+              let array := mem.memoryMemberWord memberIndex
               let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
               let pre := pre ++ #[
                 .letVar elemHeader (.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))),
@@ -3318,8 +3330,7 @@ private partial def lowerRef (j : Json) : M Ref := do
             pure (.abiElement id memberIndex
               (.add (.localVar data) (.mul key.expr (.literal (32*fields.length)))) false pre)
           else
-            let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
-              (.literal (32*memberIndex)))
+            let array := mem.memoryMemberWord memberIndex
             let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
             pure (.abiElement id memberIndex
               (.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))) true pre)
@@ -3609,7 +3620,7 @@ private partial def lowerRef (j : Json) : M Ref := do
                   else
                     let subStem ← freshAbiStem subSchema true
                     let loadPtr := Stmt.letVar (subStem ++ "_memory")
-                      (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32*i))))
+                      (mem.memoryMemberWord i)
                     let subMem : MemParam :=
                       { structId := subSid
                         param := s!"{mem.param}_{member}"
@@ -3637,8 +3648,7 @@ private partial def lowerRef (j : Json) : M Ref := do
                 (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data
               return .expr { pre := pre ++ checks.toArray, expr := .localVar length }
             else
-              let bytesPtr := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
-                (.literal (32*memberIndex)))
+              let bytesPtr := mem.memoryMemberWord memberIndex
               return .expr { pre, expr := .mload bytesPtr }
         | .abiArray id memberIndex pre =>
             unless member == "length" do failAt j s!"unsupported array member {member}"
@@ -3656,8 +3666,7 @@ private partial def lowerRef (j : Json) : M Ref := do
                 (.localVar (mem.abiStem ++ "_calldata")) memberIndex elementWords header length data
               return .expr { pre := pre ++ checks.toArray, expr := .localVar length }
             else
-              let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
-                (.literal (32*memberIndex)))
+              let array := mem.memoryMemberWord memberIndex
               return .expr { pre, expr := .mload array }
         | .abiElement id memberIndex pointer inMemory pre =>
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
@@ -4680,8 +4689,7 @@ private partial def lowerEncodedMemBody (id : Nat) (tuple : Expr) (arg : Json) :
         else
           let bytesPtr ← fresh
           pre := pre ++ #[
-            .letVar bytesPtr (.mload (.add (.localVar (mem.abiStem ++ "_memory"))
-              (.literal (32 * memberIndex)))),
+            .letVar bytesPtr (mem.memoryMemberWord memberIndex),
             .letVar length (.mload (.localVar bytesPtr)),
             .letVar data (.add (.localVar bytesPtr) (.literal 32))]
         let tailPtr ← fresh
@@ -4731,7 +4739,7 @@ private partial def lowerEncodedMemBody (id : Nat) (tuple : Expr) (arg : Json) :
         else
           let subStem ← freshAbiStem subSchema true
           let loadPtr := Stmt.letVar (subStem ++ "_memory")
-            (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32 * memberIndex))))
+            (mem.memoryMemberWord memberIndex)
           let subMem : MemParam :=
             { structId := subSid
               param := s!"{mem.param}_{mname}"
@@ -4768,8 +4776,7 @@ private partial def lowerEncodedMemBody (id : Nat) (tuple : Expr) (arg : Json) :
             header length data).toArray
         else
           pre := pre ++ #[
-            .letVar header (.mload (.add (.localVar (mem.abiStem ++ "_memory"))
-              (.literal (32 * memberIndex)))),
+            .letVar header (mem.memoryMemberWord memberIndex),
             .letVar length (.mload (.localVar header)),
             .letVar data (.add (.localVar header) (.literal 32))]
         let tail ← fresh
@@ -5675,7 +5682,7 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
             let length ← fresh
             let dataPtr ← fresh
             let loadStmts : Array Stmt := #[
-              .letVar bytesPtr (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32 * memberIndex)))),
+              .letVar bytesPtr (mem.memoryMemberWord memberIndex),
               .letVar length (.mload (.localVar bytesPtr)),
               .letVar dataPtr (.add (.localVar bytesPtr) (.literal 32))
             ]
@@ -5990,7 +5997,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           let bytesPtr ← fresh
           let length ← fresh
           let loadStmts : Array Stmt := #[
-            .letVar bytesPtr (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32 * memberIndex)))),
+            .letVar bytesPtr (mem.memoryMemberWord memberIndex),
             .letVar length (.mload (.localVar bytesPtr))
           ]
           return { pre := pre ++ loadStmts,
@@ -7463,12 +7470,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         let some schema := mem.schema | failAt p "missing ABI schema"
         let some (.structArray _ fields) := schema[bound.memberIndex]?
           | failAt p "expected a struct-array element"
-        let some parentDecl := (← get).structs.find? mem.structId
-          | failAt p "unknown parent struct"
-        let parentMembers ← mArr (← mField parentDecl "members")
-        let some memberNode := parentMembers[bound.memberIndex]?
-          | failAt p "missing parent struct member"
-        let elemSid ← refInt (← mField (← mField memberNode "typeName") "baseType")
+        let elemSid ← abiElementStructId mem bound.memberIndex p
         unless sid >= 0 && elemSid >= 0 && elemSid.toNat == sid.toNat do
           failAt p "reference argument struct declaration differs"
         let location := optStr p "storageLocation" |>.getD "default"
@@ -14746,12 +14748,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
         let some schema := mem.schema | failAt d "missing ABI schema"
         let some (.structArray _ fields) := schema[memberIndex]?
           | failAt d "expected a struct-array element"
-        let some parentDecl := (← get).structs.find? mem.structId
-          | failAt d "unknown parent struct"
-        let parentMembers ← mArr (← mField parentDecl "members")
-        let some memberNode := parentMembers[memberIndex]?
-          | failAt d "missing parent struct member"
-        let elemSid ← refInt (← mField (← mField memberNode "typeName") "baseType")
+        let elemSid ← abiElementStructId mem memberIndex d
         unless elemSid ≥ 0 && elemSid.toNat == sid.toNat do
           failAt d "struct local declaration differs from initializer"
         if loc == "calldata" then
@@ -15313,11 +15310,14 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
         | .error failure => failAt failure.node failure.message
       let schema := AbiRootLowering.rootArraySchema headWord member
       let abiStem ← freshAbiStem schema (loc == "memory") (rootArray := true)
+      let elementStruct ← if ty == "bytes[]" then pure none else do
+        let sid ← refInt (← mField (← mField p "typeName") "baseType")
+        pure (if sid ≥ 0 then some sid.toNat else none)
       modify fun e =>
         let bound : MemParam :=
           { structId := 0, param := name, structName := "", members := #[]
             calldataLocation := loc == "calldata", schema := some schema, abiStem
-            rootArrayWord := some headWord }
+            rootArrayWord := some headWord, rootArrayStructId := elementStruct }
         { e with mems := e.mems.insert id bound }
     else if ty.startsWith "struct " && !ty.contains "[" && loc == "storage" &&
         (optStr fn "visibility" == some "internal" || optStr fn "visibility" == some "private") then
