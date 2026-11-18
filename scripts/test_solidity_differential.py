@@ -93,6 +93,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-tuple-destructuring",
     "storage-unchecked-blocks",
     "storage-void",
+    "storage-yul-empty-revert",
     "storage-yul-numeric",
     "struct-abi",
     "struct-abi-rejections",

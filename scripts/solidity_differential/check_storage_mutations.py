@@ -118,6 +118,8 @@ MUTANTS.update({
     'import-signed-modulo-value': ('Stmt.assignVar dest (.smod a.expr b.expr)', 'Stmt.assignVar dest (.mod a.expr b.expr)'),
     'import-signed-modulo-zero': ('let check := iteStmt (.eq b.expr (.literal 0)) divPanic ok', 'let check := iteStmt (.eq b.expr (.literal 1)) divPanic ok'),
     'import-signed-modulo-dispatch': ('        signedModulo left right', '        checkedModulo left right'),
+    'import-yul-empty-revert-drop': ('          out := out ++ offVal.pre |>.push .revertEmpty\n',
+                                     '          out := out ++ offVal.pre\n'),
     'import-bytes-named-slice-default': ('let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 0)]', 'let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 1)]'),
     'import-bytes-named-slice-end': ('    AbiLowering.guard (.le (.localVar endVar) baseLen),', '    AbiLowering.guard (.lt (.localVar endVar) baseLen),'),
     'import-bytes-named-slice-start': ('    | _ => Expr.add baseOff (.localVar startVar)', '    | _ => Expr.add baseOff (.add (.localVar startVar) (.literal 1))'),
@@ -711,6 +713,8 @@ def run(directory, output, name):
         fixture = "DynamicMemoryArraySequence"
     if name.startswith("import-dynamic-root-return-"):
         fixture = "DynamicArrayRootReturnStatelessSequence"
+    if name.startswith("import-yul-empty-revert-"):
+        fixture = "YulEmptyRevertSequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
     if name.startswith("import-bytes-named-slice-"):

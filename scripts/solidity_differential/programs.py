@@ -985,6 +985,26 @@ def stateful_modulo_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown modulo variant: {variant}')
 
 
+def stateful_yul_empty_revert_source(fixture: str, variant: str) -> str:
+    """Yul `revert(offset, 0)` reverts with no data whatever the offset: renamed identifiers
+    and other offsets agree."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        if len(re.findall(r'\btotal\b', fixture)) < 2:
+            raise ValueError('missing yul-empty-revert anchor total')
+        return re.sub(r'\btotal\b', 'sum', fixture)
+    if variant == 'offsets':
+        out = fixture
+        for old, new in (('revert(0, 0)', 'revert(0x20, 0)'), ('revert(0x80, 0)', 'revert(0, 0)'),
+                         ('revert(0x40, 0)', 'revert(0xffff, 0)')):
+            if out.count(old) != 1:
+                raise ValueError(f'missing yul-empty-revert anchor {old}')
+            out = out.replace(old, new)
+        return out
+    raise ValueError(f'unknown yul-empty-revert variant: {variant}')
+
+
 def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     """Compare signed remainder with its truncated-quotient identity."""
     if variant == 'baseline':
