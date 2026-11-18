@@ -75,6 +75,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-inline-array-literals",
     "storage-mapping",
     "storage-modulo",
+    "storage-named-string-return",
     "storage-narrow-event",
     "storage-numeric-literals",
     "storage-short-circuit",
