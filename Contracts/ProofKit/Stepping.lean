@@ -63,6 +63,19 @@ theorem mloadLive_eq (o : Uint256) (s : ContractState) :
 theorem keccak256Live_eq (o z : Uint256) (s : ContractState) :
     Contracts.keccak256Live o z s = .success (Verity.Core.Uint256.ofNat
       (Compiler.Keccak.MemorySlice.keccak (fun a => (s.memory a).val) o.val z.val)) s := rfl
+theorem create2Live_eq (v o z salt : Uint256) (s : ContractState) :
+    Contracts.create2Live v o z salt s = .success (Verity.Core.Uint256.ofNat
+      (Verity.Core.Model.Create2.create2Address salt (Verity.Core.Uint256.ofNat
+        (Compiler.Keccak.MemorySlice.keccak (fun a => (s.memory a).val) o.val z.val))
+        s.thisAddress).val) s := rfl
+/-- An address widened to a word and narrowed back is unchanged. -/
+@[simp] theorem wordToAddress_ofNat_val (a : Address) :
+    wordToAddress (Verity.Core.Uint256.ofNat a.val) = a := by
+  have h : a.val < 2 ^ 160 := a.isLt
+  ext
+  simp only [wordToAddress, Verity.Core.Uint256.val_ofNat, Verity.Core.Address.val_ofNat]
+  show a.val % 2 ^ 256 % 2 ^ 160 = a.val
+  rw [Nat.mod_eq_of_lt (show a.val < 2 ^ 256 by omega), Nat.mod_eq_of_lt h]
 theorem chainid_eq (s : ContractState) : Contracts.chainid s = .success s.chainId s := rfl
 theorem contractAddress_eq (s : ContractState) :
     Contracts.contractAddress s = .success s.thisAddress s := rfl
