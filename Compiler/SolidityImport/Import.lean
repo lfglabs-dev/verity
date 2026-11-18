@@ -13689,7 +13689,6 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
       let value ← convert ty (← mType argument) (← lowerExpr argument) argument
       unless value.pre.all (fun
           | .letVar _ _ => true
-          | .mstore (.literal 0) _ | .mstore (.literal 32) _ => true
           | .ite _ [] [.revertEmpty] => true
           | .ite _ [] [.panicCode (.literal 0x32)] => true
           | _ => false) do
