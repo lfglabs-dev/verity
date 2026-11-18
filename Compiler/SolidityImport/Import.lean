@@ -15712,7 +15712,9 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
 /-! ### Immutables
 
 An immutable is fixed when the contract is deployed: its inline initializer runs, then the
-chain's constructors may write it (solc 0.8.21+ accepts conditional and repeated writes).
+deployment code may write it (solc 0.8.21+ accepts conditional and repeated writes, `++`,
+`--` and `delete`, in constructors, in any state variable's initializer and in
+inheritance-specifier arguments; `chainDeploymentCode`).
 Each immutable of a value type gets one `ImmutableBinding`:
 
 - `read`: the source determines the value and reads lower to it. An address immutable the
@@ -15723,13 +15725,14 @@ Each immutable of a value type gets one `ImmutableBinding`:
 - `installed`: never written, with an initializer that also reads the deployment
   environment (`msg.sender`, `block.chainid`, …). Reads lower to `Expr.immutable name`, and
   the synthesized constructor evaluates the initializer at deployment.
-- `argument`: any constructor write, whatever its shape. The value is one the source does
+- `argument`: any write in the deployment code, whatever its shape and place. The value is one the source does
   not determine: reads lower to `Expr.immutable name`, and the synthesized constructor takes
   it as an argument of the immutable's type, so deployment and proofs supply it explicitly.
 
 No binding picks a value the deployment might not have. Any other immutable (an enum or
-function type, or an initializer `immutableInitializer?` rejects) stays unbound, and its
-reads keep their located rejection. -/
+function type, or an initializer `immutableInitializer?` rejects, including every initializer
+that reads an immutable, since initializers run before the constructors) stays unbound, and
+its reads keep their located rejection. -/
 
 /-- Whether `j` refers to the declaration `svId` anywhere. -/
 private partial def mentionsDeclaration (svId : Nat) : Json → Bool
@@ -15740,13 +15743,16 @@ private partial def mentionsDeclaration (svId : Nat) : Json → Bool
   | _ => false
 
 /-- Every write that may change the state variable `svId` in `j`: an assignment whose
-left-hand side refers to it (tuple components included) and a `delete` of it. -/
+left-hand side refers to it (tuple components included), and a `delete`, `++` or `--` of
+it. -/
 private partial def stateVarWrites (svId : Nat) : Json → Array Json
   | j@(.obj kvs) =>
       let target? := match optStr j "nodeType" with
         | some "Assignment" => field? j "leftHandSide"
         | some "UnaryOperation" =>
-            if optStr j "operator" == some "delete" then field? j "subExpression" else none
+            if ["delete", "++", "--"].contains ((optStr j "operator").getD "") then
+              field? j "subExpression"
+            else none
         | _ => none
       let here := if (target?.map (mentionsDeclaration svId)).getD false then #[j] else #[]
       kvs.foldl (fun acc _ v => acc ++ stateVarWrites svId v) here
@@ -15812,6 +15818,18 @@ private def chainConstructors : M (Array Json) := do
         out := out.push n
   return out
 
+/-- Every node of the chain's contracts and their inheritance specifiers: all the code that
+can write an immutable. solc accepts writes in constructor bodies and their base-constructor
+and modifier arguments, in any state variable's initializer and in inheritance-specifier
+arguments (`is Base(A.X = v)`), and rejects them anywhere else. -/
+private def chainDeploymentCode : M Json := do
+  let env ← get
+  let mut out := #[]
+  for cid in env.linearizedBases do
+    out := out ++ (env.contractNodes.find? cid |>.getD #[])
+    out := out.push (env.contractBaseSpecifiers.find? cid |>.getD .null)
+  return .arr out
+
 /-- How a deployment fixes an immutable of the chain (see the section comment). -/
 private inductive ImmutableBinding where
   /-- Reads lower to this expression: the source determines the value. -/
@@ -15843,13 +15861,21 @@ private def deploymentInitializerEnv? : Expr → Option Bool
   | _ => none
 
 /-- The inline initializer of immutable `decl`, lowered and converted to its declared type
-like a constant's, if it is a total expression `deploymentInitializerEnv?` admits, with
-whether it reads the environment. Lowering leaves no trace in the state. -/
-private def immutableInitializer? (decl : Json) (init : Json) : M (Option (Expr × Bool)) := do
+like a constant's, if it is a total expression `deploymentInitializerEnv?` admits and reads
+none of the chain's `immutables`, with whether it reads the environment. Lowering leaves no
+trace in the state. -/
+private def immutableInitializer? (immutables : Array Nat) (decl : Json) (init : Json) :
+    M (Option (Expr × Bool)) := do
   let saved ← get
   let pending ← match saved.unsupportedSink with
     | some sink => sink.pending.get
     | none => pure none
+  -- Initializers run before the constructors, so another immutable's value there is not the
+  -- one its binding models (it may still be `0`). Unbinding every immutable of the chain
+  -- makes any read of one, direct or through a helper, fail like an unbound immutable's.
+  modify fun e =>
+    { e with values := immutables.foldl (fun m id => m.erase id) e.values,
+             scalarTy := immutables.foldl (fun m id => m.erase id) e.scalarTy }
   let result ← try
       let raw ← lowerExpr init
       let v ← convert (← mType decl) (← mType init) raw init
@@ -15869,6 +15895,7 @@ immutables too. -/
 private def bindChainImmutables : M (Array (Nat × String × ParamType × ImmutableBinding)) := do
   let env ← get
   let ctors ← chainConstructors
+  let code ← chainDeploymentCode
   let mut candidates := #[]
   for (svId, svDecl) in env.stateVars.toList do
     let scope := (field? svDecl "scope").bind (·.getNat?.toOption)
@@ -15882,15 +15909,15 @@ private def bindChainImmutables : M (Array (Nat × String × ParamType × Immuta
     if ty.startsWith "enum " then continue
     let name ← mStr (← mField svDecl "name")
     let init? := (field? svDecl "value").filter (!·.isNull)
-    let written := ctors.any fun c => !(stateVarWrites svId c).isEmpty
-    let binding? ← if written then
-        pure (some (if ty == "address" && assignedSelfAddressOnce ctors svId
+    let writes := stateVarWrites svId code
+    let binding? ← if !writes.isEmpty then
+        pure (some (if ty == "address" && writes.size == 1 && assignedSelfAddressOnce ctors svId
           then ImmutableBinding.read .contractAddress else .argument))
       else match init? with
         -- Never written: the zero value.
         | none => pure (some (.read (.literal 0)))
         | some init => do
-            match ← immutableInitializer? svDecl init with
+            match ← immutableInitializer? (candidates.map (·.1)) svDecl init with
             | some (value, true) => pure (some (.installed value))
             | some (value, false) => pure (some (.read value))
             | none => pure none
@@ -17059,7 +17086,9 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
                 { e with contractNames := e.contractNames.insert id n,
                          contractKinds := e.contractKinds.insert id kind,
                          contractBases := e.contractBases.insert id bases,
-                         contractNodes := e.contractNodes.insert id cnodes }
+                         contractNodes := e.contractNodes.insert id cnodes,
+                         contractBaseSpecifiers :=
+                           e.contractBaseSpecifiers.insert id ((field? j "baseContracts").getD .null) }
               next := some (id, n)
           | "FunctionDefinition" =>
               let baseIds ← match field? j "baseFunctions" with

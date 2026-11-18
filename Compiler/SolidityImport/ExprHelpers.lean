@@ -114,6 +114,9 @@ structure Env where
   contractFuns : RBMap Nat (Array Nat) compare := RBMap.empty
   contractPublicVars : RBMap Nat (Array Nat) compare := RBMap.empty
   contractNodes : RBMap Nat (Array Json) compare := RBMap.empty
+  /-- Each contract's `baseContracts` inheritance specifiers, whose arguments run at
+  deployment. -/
+  contractBaseSpecifiers : RBMap Nat Json compare := RBMap.empty
   linearizedBases : Array Nat := #[]
   duplicateLayoutLabels : Array String := #[]
   structs : RBMap Nat Json compare
