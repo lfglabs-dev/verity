@@ -28,6 +28,9 @@ on:
       - 'lake-manifest.json'
       - 'lean-toolchain'
       - 'foundry.toml'
+      - 'foundry.lock'
+      - '.gitmodules'
+      - 'lib/**'
       - 'Makefile'
       - 'README.md'
   pull_request:
@@ -196,6 +199,9 @@ jobs:
               - 'lake-manifest.json'
               - 'lean-toolchain'
               - 'foundry.toml'
+              - 'foundry.lock'
+              - '.gitmodules'
+              - 'lib/**'
             build:
               - '.github/actions/**'
               - '.github/workflows/verify.yml'
@@ -219,6 +225,12 @@ jobs:
               - 'scripts/solidity_import_corpus/**'
               - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
+              # Foundry inputs: the compiler and Foundry jobs need this job's workspace.
+              - 'test/**'
+              - 'foundry.toml'
+              - 'foundry.lock'
+              - '.gitmodules'
+              - 'lib/**'
             compiler:
               - '.github/actions/**'
               - '.github/workflows/verify.yml'
