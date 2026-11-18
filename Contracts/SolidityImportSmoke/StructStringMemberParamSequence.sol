@@ -5,8 +5,8 @@ pragma solidity 0.8.34;
 // `bytes` share the dynamic byte-array ABI encoding, so a `string` member is
 // decoded, bounds-checked and read exactly like a `bytes` member, in memory
 // (eager copy) and calldata (lazy) structs. Also covered: a `string` member
-// written to a `string` storage variable (`Pool.configureEModeCategory`'s
-// shape) and a `string` inside a nested dynamic struct.
+// written to a `string` storage variable and a `string` inside a nested
+// dynamic struct.
 contract SequenceFixture {
     struct CategoryConfig {
         uint16 ltv;
