@@ -32,6 +32,7 @@ lean_lib «Contracts» where
   globs := #[
     .one `Contracts,
     .one `Contracts.Common,
+    .andSubmodules `Contracts.ProofKit,
     .one `Contracts.Specs,
     .one `Contracts.Interpreter,
     .submodules `Contracts.Examples,
