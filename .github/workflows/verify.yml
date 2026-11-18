@@ -897,6 +897,10 @@ jobs:
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential-loss.json --output .lake/import-differential/loss --cases 64 --seed 2438
           scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 --output .lake/import-differential/programs
 
+      - name: Compare Solidity 0.7.6 scalar arithmetic and ABI decoding
+        run: |
+          PYTHONPATH=scripts .lake/slice-testing-venv/bin/python -m solidity_differential.check_legacy --output .lake/import-differential/legacy
+
       - name: Archive Solidity slice comparison evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

@@ -26,6 +26,12 @@ preparation. These theorems and the executable-model example in
 `EntryPointInvariantChecks.lean` are included in `PrintAxioms.lean`; they add no
 project axiom, `sorry`, or `native_decide`.
 
+The experimental Solidity 0.7.6 scalar importer adds no theorem or project
+axiom. Its generated `covered` certificates use the existing coverage check;
+legacy semantics and source correspondence remain frontend trust assumptions.
+Differential and mutation outcomes are execution evidence, not proofs of source
+or deployed-bytecode equivalence.
+
 ## Policy
 
 Axioms are exceptional. When an axiom exists, it must have:

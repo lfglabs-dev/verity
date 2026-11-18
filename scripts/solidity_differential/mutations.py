@@ -8,6 +8,8 @@ import sys
 from .engine import ROOT, WORKSPACE, MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 
 MUTANTS = {
+    "import-legacy-root-checked": ("Compiler/SolidityImport/Import.lean", 'legacyWrapping := legacy, unchecked := legacy', 'legacyWrapping := legacy, unchecked := false'),
+    "import-legacy-helper-checked": ("Compiler/SolidityImport/Import.lean", 'legacyWrapping := legacy, unchecked := legacy', 'legacyWrapping := false, unchecked := legacy'),
     "import-require-condition": ("Compiler/SolidityImport/Import.lean", 'return condition.pre.push (.require condition.expr value)', 'return condition.pre.push (.require (.literal 1) value)'),
     "denote-require-selector": ("Verity/Core/Model/Denote.lean", '[0x08, 0xc3, 0x79, 0xa0]', '[0x08, 0xc3, 0x79, 0xa1]'),
     "import-custom-require-condition": ("Compiler/SolidityImport/Import.lean", '(.requireError condition.expr name values)', '(.requireError (.literal 1) name values)'),
@@ -43,7 +45,7 @@ def snapshot(destination):
     else:
         command(["cp", "-aL", "--reflink=auto", build, cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
-    for compiler_name in ("solc-0.8.34", "solc-0.8.10"):
+    for compiler_name in ("solc-0.7.6", "solc-0.8.34", "solc-0.8.26", "solc-0.8.10"):
         compiler_src = WORKSPACE / ".lake/solidity-import" / compiler_name
         if compiler_src.exists():
             shutil.copy2(compiler_src, cache / "solidity-import" / compiler_name)
@@ -130,6 +132,10 @@ def mutation_campaign(output, selected=None):
             if text.count(before) != 1:
                 raise HarnessError("mutation anchor drifted: " + name)
             config = "differential-require.json" if "require" in name else "differential.json"
+            if name == "import-legacy-root-checked":
+                config = "differential-legacy-arithmetic.json"
+            elif name == "import-legacy-helper-checked":
+                config = "differential-legacy-helper.json"
             if "custom-require" in name:
                 config = "differential-require-custom.json"
             argv = [sys.executable, str(directory / "scripts/solidity_import_differential.py"),

@@ -1,0 +1,35 @@
+{
+  "project": ".",
+  "entry": "LegacyAbiV2Directive.sol",
+  "contract": "LegacyAbiV2Directive",
+  "function": "scalarAbi",
+  "solc": "0.7.6+commit.7338295f",
+  "settings": {
+    "evmVersion": "istanbul",
+    "viaIR": false,
+    "optimizer": {
+      "enabled": false,
+      "runs": 200
+    },
+    "metadata": {
+      "bytecodeHash": "ipfs"
+    }
+  },
+  "param_types": [
+    "uint8",
+    "bool",
+    "address"
+  ],
+  "variables": {
+    "x": 8,
+    "flag": 1,
+    "recipient": 160
+  },
+  "arguments": {
+    "x": "x",
+    "flag": "flag",
+    "recipient": "recipient"
+  },
+  "storage": [],
+  "corpus": "legacy-abi-corpus.json"
+}
