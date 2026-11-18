@@ -11,9 +11,9 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "CustomError
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)
-  function lockSelector(bytes4)
   function fail()
   function read()
+  function lockSelector(bytes4)
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
 end SolidityImportSmoke.CustomErrorFixedBytesSequenceModel

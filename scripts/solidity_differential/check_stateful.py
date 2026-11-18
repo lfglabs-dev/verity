@@ -559,6 +559,7 @@ def main():
         'getPayload()',
         'hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)',
         'checkInterface(bytes4,uint256)',
+        'lockSelector(bytes4)',
         'royaltyAndHolderCheck(uint256,uint256)',
         'dequeAndBitmapStep(string,uint256)',
         'slotAndShortStringStep(string,uint32,uint32,uint256)',
