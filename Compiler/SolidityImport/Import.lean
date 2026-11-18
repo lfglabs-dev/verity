@@ -517,6 +517,28 @@ private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
   modify fun e => { e with fieldsByName := e.fieldsByName.insert name info }
   return info
 
+/-- A member write through a memory struct parameter bound from the caller's own struct would
+reach the caller in solc; the parameter is a copy here, so the write is rejected. -/
+private def rejectByRefStructWrite (structLocalId : Nat) (at_ : Json) : M Unit := do
+  if (← get).byRefFlatStructs.contains structLocalId then
+    failAt at_ ("member write through a memory struct parameter is outside this slice " ++
+      "(it would change the caller's struct)")
+
+/-- Whether `j` can evaluate to a memory struct parameter bound from the caller's own struct,
+through parentheses, conditionals and tuple components (member accesses read a scalar). -/
+private partial def refersToByRefStruct (j : Json) : M Bool := do
+  match ← mKind j with
+  | "Identifier" =>
+      let id ← refInt j
+      pure (id ≥ 0 && (← get).byRefFlatStructs.contains id.toNat)
+  | "TupleExpression" =>
+      (← mArr (← mField j "components")).anyM fun c =>
+        if c.isNull then pure false else refersToByRefStruct c
+  | "Conditional" =>
+      pure ((← refersToByRefStruct (← mField j "trueExpression")) ||
+        (← refersToByRefStruct (← mField j "falseExpression")))
+  | _ => pure false
+
 private def readRawStructScalar (pre : Array Stmt) (baseSlot : Expr) (mInfo : RawStructMemberInfo) : M Val := do
   modify fun e => { e with usedRawStorage := true }
   let wordSlot := rawStructMemberSlot baseSlot mInfo.wordOffset
@@ -6288,7 +6310,7 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
           (optStr arg "kind" == some "structConstructorCall" ||
            (optStr arg "kind" == some "functionCall" && argTy.endsWith " memory")) then
         let (sid, sName, initPre, memberVals) ← lowerFlatStructValue arg none false
-        vals := vals.push (.flatStruct sid sName memberVals initPre)
+        vals := vals.push (.flatStruct sid sName memberVals initPre false)
       else
         match ← lowerRef arg with
         | .mem id pre =>
@@ -6299,7 +6321,7 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
             vals := vals.push (.abiElement { rootId, memberIndex, pointer, inMemory } pre)
         | .flatStruct _ =>
             let (sid, sName, initPre, memberVals) ← lowerFlatStructValue arg none true
-            vals := vals.push (.flatStruct sid sName memberVals initPre)
+            vals := vals.push (.flatStruct sid sName memberVals initPre (argTy.endsWith " memory"))
         | .path pre path =>
             let (sid, _) ← resolveStructDeclFromType arg
             let capture (key : Expr) : M (Array Stmt × Expr) := do
@@ -6519,9 +6541,9 @@ private partial def atomizeCallArgs (vals : Array CallArg) : M (Array Stmt × Ar
     | .storagePath sid path spre =>
         pre := pre ++ spre
         out := out.push (.storagePath sid path #[])
-    | .flatStruct sid sName members fpre =>
+    | .flatStruct sid sName members fpre byRef =>
         pre := pre ++ fpre
-        out := out.push (.flatStruct sid sName members #[])
+        out := out.push (.flatStruct sid sName members #[] byRef)
     | .storageBytes (fieldName, slotExpr, spre) isString =>
         let slotAtom ← atom { pre := spre, expr := slotExpr }
         pre := pre ++ slotAtom.pre
@@ -7484,6 +7506,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               members := members.push (mName, mTy, binding)
             modify fun e =>
               { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
+                       byRefFlatStructs := e.byRefFlatStructs.erase pid,
                        yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
           else
             let (rawFieldName, count) ← match path with
@@ -7517,6 +7540,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               members := members.push (mName, mTy, binding)
             modify fun e =>
               { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
+                       byRefFlatStructs := e.byRefFlatStructs.erase pid,
                        yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         else
           failAt p s!"unsupported storage struct helper parameter location {location}"
@@ -7525,7 +7549,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             | "storage", .rawSlot _ baseSlot | "storage", .bytesSlot (_, baseSlot) _ =>
                 yul.erase pname |>.insert s!"{pname}.slot" baseSlot
             | _, _ => yul.erase pname
-    | .flatStruct argSid sName memberVals effects =>
+    | .flatStruct argSid sName memberVals effects byRef =>
         unless pty.startsWith "struct " && !pty.contains "[" do
           failAt p "flat struct argument requires a struct parameter"
         let sid ← refInt (← mField p "typeName")
@@ -7544,6 +7568,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           members := members.push (mName, mTy, binding)
         modify fun e =>
           { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
+                   byRefFlatStructs :=
+                     if byRef then pid :: e.byRefFlatStructs.erase pid else e.byRefFlatStructs.erase pid,
                    yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         if pname != "" then
           yul := yul.erase pname
@@ -11156,6 +11182,8 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
                 failAt c "stateful or assignment expression in multi-return tuple requires explicit evaluation-order support"
               let cTy ← mType c
               if cTy.startsWith "struct " && !cTy.contains "[" && (← get).stateVars.size > 1 then
+                if ← refersToByRefStruct c then
+                  failAt c "returning a memory struct parameter (an alias) is outside this slice"
                 let (_, _, valPre, memberVals) ← lowerFlatStructValue c none true
                 pre := pre ++ valPre
                 for (_, _, mExpr) in memberVals do
@@ -11230,6 +11258,8 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
             if isSameNamedRet then
               pure (← get).helperPost
             else
+              if ← refersToByRefStruct expression then
+                failAt expression "returning a memory struct parameter (an alias) is outside this slice"
               let (exprSid, _, valPre, memberVals) ← lowerFlatStructValue expression (some retSid) true
               unless exprSid == retSid && memberVals.size == memberBindings.size do
                 failAt expression "returned struct value does not match helper return type"
@@ -12150,6 +12180,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let member ← mStr (← mField c "memberName")
         match ← lowerRef (← mField c "expression") with
         | .flatStruct structLocalId =>
+            rejectByRefStructWrite structLocalId c
             let some flat := (← get).flatStructs.find? structLocalId
               | failAt c "unknown flat struct local"
             let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
@@ -12349,6 +12380,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     let member ← mStr (← mField target "memberName")
     match ← lowerRef (← mField target "expression") with
     | .flatStruct structLocalId =>
+        rejectByRefStructWrite structLocalId target
         let some flat := (← get).flatStructs.find? structLocalId
           | failAt target "unknown flat struct local"
         let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
@@ -12900,6 +12932,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
     let cMember ← mStr (← mField target "memberName")
     match ← lowerRef (← mField target "expression") with
     | .flatStruct structLocalId =>
+        rejectByRefStructWrite structLocalId target
         let some flat := (← get).flatStructs.find? structLocalId
           | failAt target "unknown flat struct local"
         let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == cMember)
@@ -13111,6 +13144,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
     let cMember ← mStr (← mField target "memberName")
     match ← lowerRef (← mField target "expression") with
     | .flatStruct structLocalId =>
+        rejectByRefStructWrite structLocalId target
         let some flat := (← get).flatStructs.find? structLocalId
           | failAt target "unknown flat struct local"
         let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == cMember)
