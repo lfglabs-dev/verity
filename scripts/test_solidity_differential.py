@@ -81,6 +81,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-modulo",
     "storage-named-string-return",
     "storage-narrow-event",
+    "storage-narrow-for-counters",
     "storage-numeric-literals",
     "storage-short-circuit",
     "storage-signed-modulo",
