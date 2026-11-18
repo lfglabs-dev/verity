@@ -20,6 +20,14 @@ MESSAGES = {
                 'assign the call to a variable first',
     'hoisted': 'Yul operands left of an external call must not need hoisting; '
                'assign the call to a variable first',
+    'input': 'Yul call input must be a bytes memory payload or bytes this block wrote below 0x80',
+    'static-input': 'Yul staticcall input must be a bytes memory payload or bytes this block wrote '
+                    'below 0x80',
+    'static-output': 'Yul staticcall output must be a bytes memory payload or scratch bytes this block '
+                     'wrote below 0x40',
+    'mload': 'Yul mload below 0x80 must read a scratch word this block wrote or the zero slot',
+    'free-pointer': 'Yul reads of the free-memory pointer may only restore it or place a bubbled revert',
+    'unbound-data': 'unbound Yul identifier data',
 }
 
 CALL = 'call(gas(), token, 0, 0x00, 0x20, 0x00, 0x20)'
@@ -38,6 +46,58 @@ CASES = [
     ('nested-memory-sibling', f'and(or({CALL}, 0), eq(mload(0x00), 1))', ('and(or(', 'observer')),
     ('hoisted-sibling', f'and(extcodesize(token), {CALL})', ('and(extcodesize(', 'hoisted')),
 ]
+
+
+# Whole assembly blocks: name, Solidity statements before the block, Yul statements, expected.
+# expected: None (positive control) or (marker, message key, construct). Memory a call sends or
+# receives must be a `bytes memory` payload or bytes the block itself wrote unconditionally.
+BLOCK_CASES = [
+    # solc's mapping hash leaves (msg.sender, slot) in scratch; the model's scratch is zero.
+    ('unwritten-input', 'm[msg.sender] = 1;', ['ok := call(gas(), token, 0, 0x00, 0x40, 0, 0)'],
+     ('0x00, 0x40, 0, 0)', 'input', 'YulLiteral')),
+    ('partially-written-input', '', ['mstore(0x00, amount)',
+                                     'ok := call(gas(), token, 0, 0x00, 0x24, 0x00, 0x20)'],
+     ('0x00, 0x24,', 'input', 'YulLiteral')),
+    ('conditional-write-input', '', ['if amount { mstore(0x00, amount) }',
+                                     'ok := call(gas(), token, 0, 0x00, 0x20, 0, 0)'],
+     ('0x00, 0x20, 0, 0)', 'input', 'YulLiteral')),
+    ('conditional-write-mload', '', ['if amount { mstore(0x00, amount) }', 'ok := eq(mload(0x00), 1)'],
+     ('mload(0x00)', 'mload', 'YulFunctionCall')),
+    # The callee's word would become the free-memory pointer or the zero slot.
+    ('free-pointer-output', '', ['ok := staticcall(gas(), token, 0, 0, 0x40, 0x20)'],
+     ('0x40, 0x20)', 'static-output', 'YulLiteral')),
+    ('zero-slot-output', '', ['ok := staticcall(gas(), token, 0, 0, 0x60, 0x20)'],
+     ('0x60, 0x20)', 'static-output', 'YulLiteral')),
+    ('heap-input', '', ['ok := staticcall(gas(), token, 0x80, 0x20, 0, 0)'],
+     ('0x80, 0x20, 0, 0)', 'static-input', 'YulLiteral')),
+    # The model's payload address is not solc's; it is admitted only as a call operand.
+    ('payload-address-value', 'bytes memory data = abi.encode(amount);',
+     ['let p := add(data, 0x20)', 'ok := gt(p, 0)'], ('data, 0x20)', 'unbound-data', 'YulIdentifier')),
+    # A free-pointer revert outside the returndatacopy + revert bubble pair.
+    ('free-pointer-revert', '', ['let fmp := mload(0x40)', 'mstore(0x00, amount)',
+                                 'ok := call(gas(), token, 0, 0x00, 0x20, 0x00, 0x20)',
+                                 'if iszero(ok) { revert(fmp, returndatasize()) }'],
+     ('mload(0x40)', 'free-pointer', 'YulFunctionCall')),
+    ('bubbled-revert', '', ['let fmp := mload(0x40)', 'mstore(0x00, amount)',
+                            'ok := call(gas(), token, 0, 0x00, 0x20, 0x00, 0x20)',
+                            'if iszero(ok) { returndatacopy(fmp, 0, returndatasize()) '
+                            'revert(fmp, returndatasize()) }'], None),
+    ('payload-input', 'bytes memory data = abi.encode(amount);',
+     ['mstore(0x00, 0)', 'ok := call(gas(), token, 0, add(data, 0x20), mload(data), 0x00, 0x20)'], None),
+]
+
+
+def block_source(prelude, lines):
+    body = ''.join(f'            {line}\n' for line in lines)
+    return ('// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n'
+            'contract C {\n    uint256 private pushes;\n    uint256 private lastAmount;\n'
+            '    mapping(address => uint256) private m;\n\n'
+            '    function f(address token, uint256 amount) external returns (bool ok) {\n'
+            '        pushes += 1;\n        lastAmount = amount;\n'
+            f'        {prelude}\n'
+            '        assembly ("memory-safe") {\n'
+            f'{body}'
+            '        }\n    }\n}\n')
 
 
 def source(expression):
@@ -69,12 +129,14 @@ def main():
               Path(tempfile.mkdtemp(prefix='yul-memory-call-rejections-', dir=root / '.lake')))
     output.mkdir(parents=True, exist_ok=True)
     results = []
-    for name, expression, expected in CASES:
+    cases = [(name, source(expression), expected) for name, expression, expected in CASES]
+    cases += [(name, block_source(prelude, lines), expected)
+              for name, prelude, lines, expected in BLOCK_CASES]
+    for name, text, expected in cases:
         if args.only and args.only != name:
             continue
         directory = output / name
         directory.mkdir()
-        text = source(expression)
         (directory / 'Fixture.sol').write_text(text)
         driver = directory / 'Check.lean'
         driver.write_text(f'''import Compiler.SolidityImport.Import
@@ -93,9 +155,10 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
                 raise SystemExit(f'{name}: positive control failed\n{log}')
             diagnostic = None
         else:
-            marker, key = expected
+            marker, key, *construct = expected
             line, column = location(text, marker)
-            diagnostic = (f'Fixture.sol:{line}:{column}: YulFunctionCall: '
+            construct = construct[0] if construct else 'YulFunctionCall'
+            diagnostic = (f'Fixture.sol:{line}:{column}: {construct}: '
                           f'[solidity-import:unsupported] {MESSAGES[key]}')
             if result.returncode == 0 or artifact.exists() or diagnostic not in log:
                 raise SystemExit(f'{name}: expected exact located rejection {diagnostic!r}\n{log}')
