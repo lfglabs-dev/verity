@@ -30,7 +30,7 @@ def main():
         ('multi-dynamic-struct', 'struct S { uint256[] a; }', 'S memory s', 'keccak256(abi.encode(s, uint256(0)))',
          None, None),
         ('dynamic-bytes', '', 'bytes calldata value', 'keccak256(value)', None, None),
-        # `msg.data` is a byte buffer since 6bd725157 (lowerEncodedBytes, the whole calldata).
+        # `msg.data` is a byte buffer (lowerEncodedBytes, the whole calldata) since typed calls without return values.
         ('msg-data-bytes', '', '', 'keccak256(msg.data)', None, None),
     ]
     results = []
