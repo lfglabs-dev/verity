@@ -107,6 +107,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "struct-abi",
     "struct-abi-rejections",
     "yul-memory-call",
+    "yul-memory-call-rejections",
 )
 
 
