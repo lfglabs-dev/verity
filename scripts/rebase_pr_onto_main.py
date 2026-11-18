@@ -307,7 +307,9 @@ def _sequence_editor(todo: Path) -> int:
     kept = []
     for line in lines:
         words = line.split(None, 2)
-        if len(words) == 3 and words[0] in ("pick", "p") and words[2].startswith(SKIP_SUBJECT_PREFIX):
+        # Git >= 2.45 writes "pick <sha> # <subject>"; older versions "pick <sha> <subject>".
+        subject = words[2].removeprefix("# ") if len(words) == 3 else ""
+        if words and words[0] in ("pick", "p") and subject.startswith(SKIP_SUBJECT_PREFIX):
             kept.append("drop " + line.split(None, 1)[1])
         else:
             kept.append(line)
@@ -337,7 +339,10 @@ def drive_rebase(git: Git, config: Config, result: Result) -> None:
             return
         subject = _stopped_subject(git)
         if subject.startswith(SKIP_SUBJECT_PREFIX):
-            result.skipped.append(_short(git, "REBASE_HEAD"))
+            stopped = git.out("rev-parse", "REBASE_HEAD")
+            # Already counted when it was planned for dropping: count each commit once.
+            if not any(stopped.startswith(sha) for sha in result.skipped):
+                result.skipped.append(_short(git, "REBASE_HEAD"))
             git.run("rebase", "--skip", env={"GIT_EDITOR": "true"})
             continue
         bad = resolve_conflicts(git, config, result)

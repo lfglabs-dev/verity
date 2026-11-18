@@ -260,5 +260,24 @@ class UnionMergeTests(unittest.TestCase):
 
 Git = tool.Git
 
+
+
+class SequenceEditorTests(unittest.TestCase):
+    """The todo list format changed in git 2.45 ("pick <sha> # <subject>")."""
+
+    def _edit(self, todo_text: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            todo = Path(tmp) / "git-rebase-todo"
+            todo.write_text(todo_text, encoding="utf-8")
+            tool._sequence_editor(todo)
+            return todo.read_text(encoding="utf-8")
+
+    def test_drops_regenerate_commit_in_both_todo_formats(self) -> None:
+        old = "pick abc123 chore: regenerate x\npick def456 fix: keep\n"
+        new = "pick abc123 # chore: regenerate x\npick def456 # fix: keep\n"
+        self.assertEqual(self._edit(old), "drop abc123 chore: regenerate x\npick def456 fix: keep\n")
+        self.assertEqual(self._edit(new), "drop abc123 # chore: regenerate x\npick def456 # fix: keep\n")
+
+
 if __name__ == "__main__":
     unittest.main()
