@@ -22,6 +22,7 @@ from .programs import (
     stateful_create2_clones_msgdata_deque_source,
     stateful_default_local_source,
     stateful_discarded_helper_source,
+    stateful_dynamic_array_root_return_source,
     stateful_dynamic_bytes_and_string_return_source,
     stateful_dynamic_memory_array_source,
     stateful_ecdsa_merkle_checkpoints_storage_slot_source,
@@ -131,6 +132,8 @@ FIXTURE_CONTRACTS = {
     'create2-clones-msgdata-deque': 'Create2ClonesMsgDataDequeSequence',
     'default-locals': 'DefaultLocalSequence',
     'discarded-helper': 'DiscardedHelperSequence',
+    'dynamic-array-root-returns': 'DynamicArrayRootReturnSequence',
+    'dynamic-array-root-returns-stateless': 'DynamicArrayRootReturnStatelessSequence',
     'dynamic-bytes-and-string-return': 'DynamicBytesAndStringReturnSequence',
     'dynamic-memory-arrays': 'DynamicMemoryArraySequence',
     'ecdsa-merkle-checkpoints-storage-slot': 'EcdsaMerkleCheckpointsStorageSlotSequence',
@@ -348,7 +351,8 @@ def main():
         variants = ('baseline', 'renamed', 'truncated-quotient')
     if args.fixture == 'byte-constant-conversions':
         variants = ('baseline', 'renamed', 'literal-initializers')
-    if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return'):
+    if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return',
+                        'dynamic-array-root-returns', 'dynamic-array-root-returns-stateless'):
         variants = ('baseline', 'renamed', 'unnamed-returns')
     if args.fixture == 'if-else':
         variants = ('baseline', 'inverted', 'ternary')
@@ -434,6 +438,7 @@ def main():
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
                           else stateful_root_param_source(fixture, variant, args.fixture) if args.fixture in ROOT_PARAM_RENAMES
+                          else stateful_dynamic_array_root_return_source(fixture, variant, args.fixture) if args.fixture.startswith("dynamic-array-root-returns")
                           else stateful_constant_array_source(fixture, variant) if args.fixture == "constant-arrays"
                           else stateful_numeric_literal_source(fixture, variant) if args.fixture == "numeric-literals"
                           else stateful_if_else_source(fixture, variant) if args.fixture == "if-else"
@@ -467,6 +472,11 @@ def main():
             # Every `x % 5` arm of the named-string `change` (unassigned,
             # literal, storage copy, early literal return, encoded bytes32).
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, (1 << 256) - 1])]
+        if args.fixture.startswith('dynamic-array-root-returns'):
+            # Every `x % 4` / `x % 5` length or arm, the `x % 7 == 6` storage
+            # tuple return, and high bytes for the pushed addresses.
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 13, 20, 27, 255,
+                     0x0102030405060708, (1 << 256) - 1])]
         if args.fixture == 'dynamic-memory-arrays':
             # Every length n = x % 5, the scaled alias (x % 3 == 0), the
             # out-of-range c[n] (x % 7 == 6) and v[2][0] (x % 11 == 10) panics.

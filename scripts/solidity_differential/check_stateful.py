@@ -509,6 +509,10 @@ def main():
         'conditionalSlice(bytes,bytes,uint256)',
         'rotateFixed(uint256[4],uint64[2])',
         *ROOT_PARAM_SIGNATURES,
+        'snapshot()',
+        'firstMembers()',
+        'labelled()',
+        'echoNarrow(uint8[])',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -617,6 +621,17 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(array_str_prefix[:remaining_budget])
+    if 'echoNarrow(uint8[])' in source['methodIdentifiers']:
+        # Empty, in-range and out-of-range `uint8` elements (the last two revert).
+        echo_prefix = [
+            ('echoNarrow(uint8[])', [32, 0]),
+            ('echoNarrow(uint8[])', [32, 3, 7, 0, 255]),
+            ('echoNarrow(uint8[])', [32, 1, 256]),
+            ('echoNarrow(uint8[])', [32, 2, 1, (1 << 256) - 1]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(echo_prefix[:remaining_budget])
     if 'inspectBytesMemory(bytes,bytes,string,uint256)' in source['methodIdentifiers']:
         bytes_mem_prefix = [
             ('inspectBytesMemory(bytes,bytes,string,uint256)', [128, 160, 192, 7, 0, 0, 0]),
@@ -1195,6 +1210,13 @@ def main():
                 [128, 192, 288, 23, 1, 100, 2, 0x1111, 0x2222, 0],
                 [128, 192, 256, 29, 1, 100, 1, 1 << 160, 0],
                 [128, 192, 256, 31, 1, 100, 1, 0x1234, 33, 1],
+            ])
+        elif name == 'echoNarrow(uint8[])':
+            call_args = rng.choice([
+                [32, 0],
+                [32, 3, 7, 0, 255],
+                [32, 1, 256],
+                [32, 2, 1, (1 << 256) - 1],
             ])
         elif name == 'inspectNarrowArray(uint64[],uint256)':
             call_args = rng.choice([

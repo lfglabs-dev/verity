@@ -179,6 +179,18 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    # A named `T[]` root result no longer starts as the zero-length array.
+    'import-dynamic-root-return-zero-array': (
+        '    let (ownPre, owned) ← ownDynArray rname template (.literal 96)\n    modify fun e =>',
+        '    let (ownPre, owned) ← ownDynArray rname template (.literal 64)\n    modify fun e =>'),
+    # The returned tuple buffer loses its last word.
+    'import-dynamic-root-return-size': (
+        '    #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, size.expr], .revertEmpty]',
+        '    #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, .sub size.expr (.literal 32)], .revertEmpty]'),
+})
+
+
 # Review follow-up (#2622): helper parameter ownership and the element `op=` bound.
 MUTANTS.update({
     'import-dynamic-memory-array-param-snapshot': (
@@ -628,6 +640,8 @@ def run(directory, output, name):
         fixture = "InlineArrayLiteralSequence"
     if name.startswith("import-dynamic-memory-array-"):
         fixture = "DynamicMemoryArraySequence"
+    if name.startswith("import-dynamic-root-return-"):
+        fixture = "DynamicArrayRootReturnStatelessSequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
     if name.startswith("import-bytes-named-slice-"):
@@ -726,6 +740,10 @@ def run(directory, output, name):
         from solidity_differential.check_storage import DYNAMIC_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, DYNAMIC_MEMORY_ARRAY_PREFIX)])
+    if fixture == 'DynamicArrayRootReturnStatelessSequence':
+        # Every `x % 5` arm: the unassigned named result (0, 5) and the size.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5])])
     if fixture == 'InlineArrayLiteralSequence':
         from solidity_differential.check_storage import INLINE_ARRAY_LITERAL_PREFIX
         argv[argv.index('--transactions') + 1] = '24'

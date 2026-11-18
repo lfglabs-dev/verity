@@ -1159,6 +1159,87 @@ def stateful_named_string_return_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown named-string-return variant: {variant}')
 
 
+DYNAMIC_ARRAY_ROOT_RETURN_UNNAMED = {
+    'dynamic-array-root-returns': {
+        """returns (address[] memory added, uint256[] memory amounts) {
+        uint256 n = x % 4;
+        added = new address[](n);
+        amounts = new uint256[](n);""": """returns (address[] memory, uint256[] memory) {
+        uint256 n = x % 4;
+        address[] memory added = new address[](n);
+        uint256[] memory amounts = new uint256[](n);""",
+        """        if (x % 7 == 6) return (members, amounts);
+    }""": """        if (x % 7 == 6) return (members, amounts);
+        return (added, amounts);
+    }""",
+        """returns (uint256 count, address[] memory all, uint256 sum) {
+        count = members.length;
+        return (count, members, total);""": """returns (uint256, address[] memory, uint256) {
+        return (members.length, members, total);""",
+        """returns (address[] memory head) {
+        uint256 n = members.length < 2 ? members.length : 2;
+        head = new address[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            head[i] = members[i];
+        }
+    }""": """returns (address[] memory) {
+        uint256 n = members.length < 2 ? members.length : 2;
+        address[] memory head = new address[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            head[i] = members[i];
+        }
+        return head;
+    }""",
+    },
+    'dynamic-array-root-returns-stateless': {
+        """returns (uint256[] memory items, uint256 next) {
+        next = x % 5;
+        if (next == 0) return (items, next);
+        items = window(x);""": """returns (uint256[] memory, uint256) {
+        uint256 next = x % 5;
+        uint256[] memory items;
+        if (next == 0) return (items, next);
+        items = window(x);""",
+        """        if (next == 4) return (new uint256[](next), low);
+    }""": """        if (next == 4) return (new uint256[](next), low);
+        return (items, next);
+    }""",
+        """returns (string memory name, bool[] memory flags, bytes memory tag) {
+        name = "flags";
+        flags = new bool[](2);
+        flags[1] = true;
+        tag = abi.encodePacked(uint16(0xbeef));
+    }""": """returns (string memory, bool[] memory, bytes memory) {
+        bool[] memory flags = new bool[](2);
+        flags[1] = true;
+        return ("flags", flags, abi.encodePacked(uint16(0xbeef)));
+    }""",
+    },
+}
+
+
+def stateful_dynamic_array_root_return_source(fixture: str, variant: str, name: str) -> str:
+    """Compare dynamic root return tuples (#2707, #2723) with renamed
+    identifiers and with unnamed results returned explicitly."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'x', 'n', 'i', 'added', 'amounts', 'member', 'members', 'total', 'count', 'all',
+                 'sum', 'head', 'w', 'items', 'next', 'narrow', 'low', 'name', 'flags', 'tag',
+                 'xs'}
+        token = r'//[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda match: match.group(0) + 'Renamed'
+                      if match.group(0) in names else match.group(0), fixture)
+    if variant == 'unnamed-returns':
+        for before, after in DYNAMIC_ARRAY_ROOT_RETURN_UNNAMED[name].items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing {name} anchor: {before.splitlines()[0]}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown {name} variant: {variant}')
+
+
 def stateful_fixed_memory_array_source(fixture: str, variant: str) -> str:
     """Compare T[N] memory reference semantics with renamed and unrolled forms."""
     if variant == 'baseline':
