@@ -142,6 +142,8 @@ MUTANTS.update({
                                              '      | some bits => if bits < 256 then masked else masked'),
     'import-signed-struct-member-layout-read': ('      | some (_, bits) => Expr.signextend (.literal (bits / 8 - 1)) read',
                                                 '      | some (_, bits) => read'),
+    'import-packed-signed-width': ('    let bits := (bitsOf ty).getD ((signedBitsOf ty).getD 256)',
+                                   '    let bits := (bitsOf ty).getD 256'),
     'import-bytes-named-slice-default': ('let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 0)]', 'let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 1)]'),
     'import-bytes-named-slice-end': ('    AbiLowering.guard (.le (.localVar endVar) baseLen),', '    AbiLowering.guard (.lt (.localVar endVar) baseLen),'),
     'import-bytes-named-slice-start': ('    | _ => Expr.add baseOff (.localVar startVar)', '    | _ => Expr.add baseOff (.add (.localVar startVar) (.literal 1))'),
@@ -747,6 +749,8 @@ def run(directory, output, name):
         fixture = "SignedModuloSequence"
     if name.startswith("import-signed-struct-member-"):
         fixture = "SignedStructMemberReadSequence"
+    if name.startswith("import-packed-signed-"):
+        fixture = "PackedSignedIntSequence"
     if name.startswith("import-bytes-named-slice-"):
         fixture = "BytesNamedReturnSliceStructSequence"
     if name in ROOT_PARAM_MUTANT_FIXTURES:
@@ -878,6 +882,10 @@ def run(directory, output, name):
         from solidity_differential.check_storage import SIGNED_STRUCT_MEMBER_READ_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)])
+    if fixture == 'PackedSignedIntSequence':
+        from solidity_differential.check_storage import PACKED_SIGNED_INT_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, PACKED_SIGNED_INT_PREFIX)])
     if fixture == 'FixedMemoryArraySequence':
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'

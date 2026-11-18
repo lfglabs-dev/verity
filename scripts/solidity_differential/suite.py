@@ -28,6 +28,7 @@ STORAGE_FIXTURES = (
     'msg-sig',
     'yul-empty-revert',
     'signed-struct-member-read',
+    'packed-signed-int',
     'fixed-memory-arrays',
     'inline-array-literals',
     'helper-name-independence',

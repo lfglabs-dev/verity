@@ -1205,6 +1205,29 @@ def stateful_signed_struct_compound_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown signed-struct-compound variant: {variant}')
 
 
+def stateful_packed_signed_int_source(fixture: str, variant: str) -> str:
+    """`abi.encodePacked` of narrow signed integers agrees with renamed identifiers and with
+    the same bytes built as two packed buffers joined by `bytes.concat`."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        out = fixture
+        for old, new in (('s', 'narrow'), ('t', 'mid'), ('w', 'wide'), ('who', 'account'),
+                         ('buffer', 'packed'), ('total', 'sum')):
+            if len(re.findall(rf'\b{old}\b', out)) < 2:
+                raise ValueError(f'missing packed-signed-int anchor {old}')
+            out = re.sub(rf'\b{old}\b', new, out)
+        return out
+    if variant == 'split-buffer':
+        old = '        bytes memory buffer = abi.encodePacked(t, s, w);\n'
+        new = ('        bytes memory head = abi.encodePacked(t, s);\n'
+               '        bytes memory buffer = bytes.concat(head, abi.encodePacked(w));\n')
+        if fixture.count(old) != 1:
+            raise ValueError('missing packed-signed-int buffer anchor')
+        return fixture.replace(old, new)
+    raise ValueError(f'unknown packed-signed-int variant: {variant}')
+
+
 def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     """Compare signed remainder with its truncated-quotient identity."""
     if variant == 'baseline':
