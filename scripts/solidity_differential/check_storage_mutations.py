@@ -16,6 +16,9 @@ MUTANTS = {
     'denote-custom-error-fixed-bytes-signature': (
         '| .bytesN n => if 0 < n && n < 32 then some s!"bytes{n}" else none',
         '| .bytesN n => if 0 < n && n < 32 then some "bytes32" else none'),
+    'import-string-event-data-before-indexed-guard': (
+        'unless kind == "Identifier" || kind == "Literal" do',
+        'unless true do'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),
     'import-dynamic-revert-string-selector': ('[.literal (0x08c379a0 * 2 ^ 224)]',
@@ -594,6 +597,8 @@ def run(directory, output, name):
         fixture = 'DynamicRevertStringSequence'
     if name.startswith('denote-custom-error-fixed-bytes-'):
         fixture = 'CustomErrorFixedBytesSequence'
+    if name.startswith('import-string-event-'):
+        fixture = 'StringEventParamSequence'
     if name.startswith("import-governor-slice-proposer-delay-"):
         fixture = "GovernorSliceProposerDelaySequence"
     if name.startswith("import-create2-clones-msgdata-deque-"):
@@ -1428,6 +1433,16 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-string-event-data-before-indexed-guard':
+        # solc evaluates event arguments left to right; the importer lowers topics first.
+        diagnostic = 'string event arguments before an indexed argument must be variables or literals'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ event Before(string note, uint256 indexed value);
+ function tag(uint256 n) internal pure returns (string memory) { require(n != 7, "seven"); return "t"; }
+ function checked(uint256 n) external { emit Before(tag(n), n); }
+}
+''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':
         diagnostic = 'event direct parameter type differs from its declaration'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1550,7 +1565,8 @@ def mutation_campaign(output, selected=None):
                                   'import-create2-clones-msgdata-deque-nonempty-pop-loop-body-guard',
                                   'import-governor-slice-proposer-delay-unaligned-tail-offset-guard',
                                   'import-access-manager-target-role-narrow-bytes-event-guard',
-                                  'import-event-scratch-competing-guard'}
+                                  'import-event-scratch-competing-guard',
+                                  'import-string-event-data-before-indexed-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)

@@ -560,6 +560,7 @@ def main():
         'hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)',
         'checkInterface(bytes4,uint256)',
         'lockSelector(bytes4)',
+        'label(uint64,string)',
         'royaltyAndHolderCheck(uint256,uint256)',
         'dequeAndBitmapStep(string,uint256)',
         'slotAndShortStringStep(string,uint32,uint32,uint256)',
@@ -882,6 +883,20 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(lock_selector_prefix[:remaining_budget])
+    if 'label(uint64,string)' in source['methodIdentifiers']:
+        # Calldata `string` event data: empty, short, exactly one word, longer than a
+        # word, a dirty uint64 id and an out-of-range offset (both fail ABI validation).
+        label_prefix = [
+            ('label(uint64,string)', [3, 64, 0]),
+            ('label(uint64,string)', [5, 64, 2, 0x6869 << 240]),
+            ('label(uint64,string)', [7, 64, 32, (1 << 256) - 1]),
+            ('label(uint64,string)', [9, 64, 33, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x36 << 248]),
+            ('label(uint64,string)', [1 << 64, 64, 2, 0x6869 << 240]),
+            ('label(uint64,string)', [11, 1 << 64, 0]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(label_prefix[:remaining_budget])
     if 'royaltyAndHolderCheck(uint256,uint256)' in source['methodIdentifiers']:
         royalty_prefix = [
             ('royaltyAndHolderCheck(uint256,uint256)', [0, 10000]),
@@ -1446,6 +1461,13 @@ def main():
             ])
         elif name == 'lockSelector(bytes4)':
             call_args = [rng.choice([0, 0xdeadbeef << 224, 1 << 224, (0x12345678 << 224) | 1])]
+        elif name == 'label(uint64,string)':
+            call_args = rng.choice([
+                [rng.choice([0, 1, (1 << 64) - 1]), 64, 0],
+                [rng.choice([0, 1, (1 << 64) - 1]), 64, 3, 0x616263 << 232],
+                [rng.choice([0, 1, (1 << 64) - 1]), 64, 40, (1 << 256) - 1, 0xff << 248],
+                [1 << 64, 64, 0],
+            ])
         elif name == 'checkInterface(bytes4,uint256)':
             call_args = rng.choice([
                 [0x01ffc9a7 << 224, 7],
