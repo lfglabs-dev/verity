@@ -339,7 +339,7 @@ class SolidityDifferentialTests(unittest.TestCase):
             ],
         )
         # Exactly the expected checks, each once. EXPECTED_CAMPAIGN_CHECKS is one
-        # name per line, sorted, so PRs adding different checks do not conflict.
+        # name per line, so PRs adding different checks do not conflict.
         self.assertEqual(len(captured), len(set(captured)))
         self.assertEqual(sorted(captured), sorted(EXPECTED_CAMPAIGN_CHECKS))
         for fixture in STORAGE_FIXTURES:
