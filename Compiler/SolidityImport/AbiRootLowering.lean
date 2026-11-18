@@ -43,11 +43,11 @@ def materializeFromCalldata (calldataPointer stem : String)
       let store := fun (value : Expr) => if wrapper then [Stmt.mstore destination value] else []
       match member with
       | .scalar field =>
-        if wrapper then
-          let value := Expr.calldataload (.add (.localVar calldataPointer) (.literal (32*i)))
-          let bound := SolidityAbi.scalarBound field.kind
-          if bound < 2^256 then body := body ++ [guard (.lt value (.literal bound))]
-          body := body ++ [.mstore destination value]
+        if !wrapper then continue
+        let value := Expr.calldataload (.add (.localVar calldataPointer) (.literal (32*i)))
+        let bound := SolidityAbi.scalarBound field.kind
+        if bound < 2^256 then body := body ++ [guard (.lt value (.literal bound))]
+        body := body ++ [.mstore destination value]
       | .bytesField _ _ =>
         let memberStem := stem ++ "_bytes" ++ toString i
         let bytesPointer := memberStem ++ "_memory"
