@@ -11,7 +11,7 @@ from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
     'import-event-scratch-competing-guard': (
-        'if scratchGuard && guardedArguments.size > 1 then',
+        'if scratchArgument && guardedArguments.size > 1 then',
         'if false then'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),

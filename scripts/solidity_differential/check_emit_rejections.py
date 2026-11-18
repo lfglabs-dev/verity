@@ -73,9 +73,16 @@ def main():
       'event E(uint256 a, uint256 indexed b);',
       'uint256[3] memory arr = [uint256(1), 2, 3]; emit E(arr[x], m[arr[x]].inner[x]); return x;',
       'event arguments with competing revert paths require explicit evaluation-order support'),
+     ('nested-mapping-read-unguarded-competing',
+      'uint256',
+      'struct S { mapping(uint256 => uint256) inner; uint256 total; } mapping(uint256 => S) m; '
+      'event E(uint256 a, uint256 indexed b, uint256 c);',
+      'uint256[3] memory arr = [uint256(1), 2, 3]; uint256[2] memory two = [uint256(4), 5]; '
+      'emit E(two[x], arr[x], m[x].inner[x]); return x;',
+      'event arguments with competing revert paths require explicit evaluation-order support'),
      ('assignment-argument',
       'uint256',
-      'event E(uint256 a, uint256 b);',
+      'uint256 first; uint256 second; event E(uint256 a, uint256 b);',
       'uint256 y = x; emit E(y, y = 5); return y;',
       'event arguments with assignments require explicit evaluation-order support'),
      ('increment-argument',

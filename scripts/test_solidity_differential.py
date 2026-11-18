@@ -71,6 +71,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-dynamic-array-root-returns",
     "storage-dynamic-array-root-returns-stateless",
     "storage-dynamic-memory-arrays",
+    "storage-event-nested-mapping-read",
     "storage-fixed-memory-arrays",
     "storage-helper-name-independence",
     "storage-if-else",
