@@ -4887,7 +4887,10 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
         hashCall := (← refInt callee) == -8
     unless hashCall do checkEncodingScalar j
     let value ← atom (← lowerExpr j)
-    let size := if ty == "bool" || ty == "bytes1" then 1 else if ty == "bytes4" then 4 else (bitsOf ty).getD 256 / 8
+    -- Packed scalars take their own width; a narrow signed value contributes the low bytes of its
+    -- sign-extended word, which the left shift below keeps.
+    let bits := (bitsOf ty).getD ((signedBitsOf ty).getD 256)
+    let size := if ty == "bool" || ty == "bytes1" then 1 else if ty == "bytes4" then 4 else bits / 8
     let pointer ← fresh
     let finish ← fresh
     modify fun env => { env with encodingMemory := true }

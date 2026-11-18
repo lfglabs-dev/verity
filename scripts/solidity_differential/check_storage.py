@@ -64,6 +64,7 @@ from .programs import (
     stateful_numeric_literal_source,
     stateful_overload_const_error_cond_tuple_tload_source,
     stateful_packed_member_write_source,
+    stateful_packed_signed_int_source,
     stateful_packed_struct_mapping_ternary_tuple_source,
     stateful_public_getters_and_builtins_source,
     stateful_root_param_source,
@@ -135,6 +136,11 @@ SIGNED_STRUCT_COMPOUND_PREFIX = [(1 << 16) | (128 << 8) | 1, (1 << 16) | (128 <<
 SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 128 | (0xffff << 8) | (0xff << 24) | (0xffffffff << 32),
                                     128 | (32763 << 8) | (123 << 24) | (5 << 32),
                                     (1 << 64) | 2, 1 << 64, (1 << 64) | 1, (1 << 256) - 1]
+# int8 / int24 / int128 at their minimum (0) and maximum (2^256 - 1), at -1 / -5 / -2 with a
+# nonzero address, just above zero (1 / 1 / 1), and a single high bit (int128 at its minimum).
+PACKED_SIGNED_INT_PREFIX = [0, (1 << 256) - 1,
+                            127 | (8388603 << 8) | ((2 ** 127 - 2) << 32) | (0xdead << 160),
+                            129 | (8388609 << 8) | ((2 ** 127 + 1) << 32), 1 << 255]
 
 
 def canonical_observations(observations):
@@ -214,6 +220,7 @@ FIXTURE_CONTRACTS = {
     'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
     'packed': 'StorageSequence',
     'packed-member-writes': 'PackedMemberWriteSequence',
+    'packed-signed-int': 'PackedSignedIntSequence',
     'packed-struct-mapping-ternary-tuple': 'PackedStructMappingAndTernaryTupleSequence',
     'public-getters-and-builtins': 'PublicGettersAndBuiltinsSequence',
     'short-circuit': 'ShortCircuitSequence',
@@ -420,6 +427,8 @@ def main():
         variants = ('baseline', 'renamed', 'offsets')
     if args.fixture == 'signed-struct-member-read':
         variants = ('baseline', 'renamed', 'local-reads')
+    if args.fixture == 'packed-signed-int':
+        variants = ('baseline', 'renamed', 'split-buffer')
     if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return',
                         'dynamic-array-root-returns', 'dynamic-array-root-returns-stateless'):
         variants = ('baseline', 'renamed', 'unnamed-returns')
@@ -514,6 +523,7 @@ def main():
                           else stateful_byte_constant_conversions_source(fixture, variant) if args.fixture == "byte-constant-conversions"
                           else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
                           else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
+                          else stateful_packed_signed_int_source(fixture, variant) if args.fixture == "packed-signed-int"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
@@ -549,6 +559,9 @@ def main():
             extra = ['--change-prefix', *map(str, SIGNED_COMPOUND_PREFIX)]
         if args.fixture == 'signed-struct-compound':
             extra = ['--change-prefix', *map(str, SIGNED_STRUCT_COMPOUND_PREFIX)]
+        if args.fixture == 'packed-signed-int':
+            # Both ends of every signed width, small negatives, and high-word operands.
+            extra = ['--change-prefix', *map(str, PACKED_SIGNED_INT_PREFIX)]
         if args.fixture == 'signed-modulo':
             # Centered-reduction boundaries (ALPHA / 2, ALPHA, the 8380417
             # reduction), the narrow int8 range, and both min % -1 parities.
