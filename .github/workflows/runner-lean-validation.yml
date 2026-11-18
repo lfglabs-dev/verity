@@ -144,6 +144,9 @@ jobs:
         run: >-
           "$RUNNER_TEMP/time-step" "check Lean warnings" python3 scripts/check_lean_warning_regression.py --log lake-build.log
 
+      - name: Generate axiom audit modules
+        run: python3 scripts/generate_print_axioms.py
+
       - name: Build PrintAxioms
         run: >-
           "$RUNNER_TEMP/time-step" "lake build PrintAxioms" lake build PrintAxioms
