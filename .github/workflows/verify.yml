@@ -311,7 +311,7 @@ jobs:
               Compiler/SolidityImport/*|Contracts/SolidityImportSmoke/*) return 1 ;;
               .github/actions/*|.github/workflows/verify.yml) return 0 ;;
               Verity/*|Compiler/*|Compiler.lean|Contracts/*|Contracts.lean|examples/*|packages/*|test/*) return 0 ;;
-              lake-manifest.json|lean-toolchain|foundry.toml) return 0 ;;
+              lake-manifest.json|lean-toolchain|foundry.toml|foundry.lock|.gitmodules|lib/*) return 0 ;;
               scripts/check_gas.py|scripts/check_patch_gas_delta.py|scripts/check_selectors.py|scripts/check_yul.py) return 0 ;;
               scripts/keccak256.py|scripts/lean_cc_ccache_clang.sh|scripts/property_utils.py) return 0 ;;
               lakefile.lean) lakefile_only_smoke && return 1; return 0 ;;
@@ -373,12 +373,11 @@ jobs:
       - name: Materialize reused checkout
         run: git reset --hard HEAD
 
-      - name: Regenerate derived artifacts
+      # Only the untracked generated files are written here. The committed ones
+      # (layer2 catalog, verify sync spec, EVMYulLean reports) must stay as the
+      # PR committed them, so `make check` --check catches a stale copy.
+      - name: Generate untracked audit files
         run: |
-          python3 scripts/generate_layer2_boundary_catalog.py
-          python3 scripts/generate_verify_sync_spec.py
-          python3 scripts/generate_evmyullean_capability_report.py
-          python3 scripts/generate_evmyullean_native_lowering_report.py
           python3 scripts/generate_print_axioms.py
           python3 scripts/generate_trust_surface_report.py
 

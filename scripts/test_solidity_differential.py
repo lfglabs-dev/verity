@@ -14,7 +14,8 @@ from solidity_differential.mutations import mutation_campaign, snapshot, release
 from solidity_differential.suite import STORAGE_FIXTURES, run_checks, stateful_campaign
 
 
-# Every check `stateful_campaign` schedules. One name per line, sorted.
+# Every check `stateful_campaign` schedules. One name per line (kept sorted,
+# but order is not checked, so union-merged rebases stay valid).
 EXPECTED_CAMPAIGN_CHECKS = (
     "abi",
     "abi-event-composition",
@@ -340,7 +341,7 @@ class SolidityDifferentialTests(unittest.TestCase):
         # Exactly the expected checks, each once. EXPECTED_CAMPAIGN_CHECKS is one
         # name per line, sorted, so PRs adding different checks do not conflict.
         self.assertEqual(len(captured), len(set(captured)))
-        self.assertEqual(sorted(captured), list(EXPECTED_CAMPAIGN_CHECKS))
+        self.assertEqual(sorted(captured), sorted(EXPECTED_CAMPAIGN_CHECKS))
         for fixture in STORAGE_FIXTURES:
             self.assertIn("storage-" + fixture, captured)
 
