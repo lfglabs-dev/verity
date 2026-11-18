@@ -31,6 +31,7 @@ contract SequenceFixture {
             byKey[k].t = a;
             byKey[k].u = b;
             byKey[k].w = c;
+            byKey[k].tag = uint8(x);
             top.t = a;
             top.u = b;
         }
@@ -49,6 +50,9 @@ contract SequenceFixture {
         acc = acc * 13 + int256(top.t) - int256(top.u);
         int24 sum = cells[k].t + a;
         int16 diff = byKey[k].u - b;
+        // The unsigned neighbour member stays zero-extended (tag >= 128 in the prefix).
+        acc = acc * 19 + int256(uint256(cells[k].tag)) + int256(uint256(byKey[k].tag)) +
+            int256(uint256(m.tag));
         return acc * 17 + int256(sum) + int256(diff);
     }
     function fail() external {

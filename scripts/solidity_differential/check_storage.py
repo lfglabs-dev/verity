@@ -106,12 +106,14 @@ INLINE_ARRAY_LITERAL_PREFIX = [0, 1, 2, 3, 4, 7, 8, 16, 17, 0xffff, 0x10000,
                                (0xabcd << 240) | 5, (1 << 256) - 1]
 FIXED_MEMORY_ARRAY_PREFIX = [0, 1, 2, 3, 6, 7, 11, 13, 34, 41, 0x5a00000003,
                              (3 << 40) | 0x01020304, (1 << 256) - 1]
-# The first three calls push the three cells (k = x % length). 0 stores the most negative
-# int24 / int16 / int128 inputs, the second call stores -5 / -5 / 5 - 2^31, the third the
-# largest positive ones; bit 64 skips the writes so later calls only read stored values.
-SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 1 | (32763 << 8) | (123 << 24) | (5 << 32),
-                                    2 | (0xffff << 8) | (0xff << 24) | (0xffffffff << 32),
-                                    1 << 64, (1 << 64) | 1, (1 << 64) | 2, (1 << 256) - 1]
+# check_stateful first runs change(7) (cell 0, most negative inputs), fail() and read(). Then
+# k = x % length: 0 pushes cell 1 and rewrites cell 0; the second value pushes cell 2 and writes
+# the largest positive inputs into it (x % 3 == 2); the third writes -5 / -5 / 5 - 2^31 into
+# cell 1 (x % 3 == 1), so the state-variable struct also holds negative values. Both have an
+# unsigned tag >= 128. Bit 64 skips the writes, so the next calls only read cells 0, 1, 2.
+SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 128 | (0xffff << 8) | (0xff << 24) | (0xffffffff << 32),
+                                    128 | (32763 << 8) | (123 << 24) | (5 << 32),
+                                    (1 << 64) | 2, 1 << 64, (1 << 64) | 1, (1 << 256) - 1]
 
 
 def canonical_observations(observations):
