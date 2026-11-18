@@ -225,7 +225,15 @@ jobs:
               - 'scripts/solidity_import_corpus/**'
               - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
-              # Foundry inputs: the compiler and Foundry jobs need this job's workspace.
+              # Every path is_compiler_path accepts must also start this job: the
+              # compiler and Foundry jobs need its workspace.
+              - 'scripts/check_gas.py'
+              - 'scripts/check_patch_gas_delta.py'
+              - 'scripts/check_selectors.py'
+              - 'scripts/check_yul.py'
+              - 'scripts/keccak256.py'
+              - 'scripts/lean_cc_ccache_clang.sh'
+              - 'scripts/property_utils.py'
               - 'test/**'
               - 'foundry.toml'
               - 'foundry.lock'
