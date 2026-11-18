@@ -13454,9 +13454,9 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
   let mut params : List EventParam := []
   let mut values : List Expr := []
   let mut pre : Array Stmt := #[]
-  -- Arguments whose prelude can revert, and whether one of them hashes through scratch.
+  -- Arguments whose prelude can revert, and whether any argument hashes through scratch.
   let mut guardedArguments : Array Json := #[]
-  let mut scratchGuard := false
+  let mut scratchArgument := false
   for index in [:parameters.size] do
     let parameter := parameters[index]!
     let ty ← mType parameter
@@ -13494,8 +13494,8 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
       failAt argument "event arguments currently require total scalar expressions"
     if value.pre.any isGuard then
       guardedArguments := guardedArguments.push argument
-      if value.pre.any isScratch then
-        scratchGuard := true
+    if value.pre.any isScratch then
+      scratchArgument := true
     match value.expr with
     | .param parameterName =>
         let some actualType := rootParamType? (← get) parameterName
@@ -13527,9 +13527,9 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     values := values ++ [boundValue.expr]
     pre := pre ++ boundValue.pre
   -- solc orders event arguments differently under via-IR (left to right) and legacy
-  -- codegen (indexed last to first, then data), so a guarded nested-mapping read is
-  -- admitted only when no other argument can revert.
-  if scratchGuard && guardedArguments.size > 1 then
+  -- codegen (indexed last to first, then data), so an event with a nested-mapping read
+  -- is admitted only when at most one argument can revert.
+  if scratchArgument && guardedArguments.size > 1 then
     failAt guardedArguments[1]! "event arguments with competing revert paths require explicit evaluation-order support"
   unless (params.filter (·.kind == .indexed)).length ≤ 3 do
     failAt declaration "event has more than three indexed parameters"
