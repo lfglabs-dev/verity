@@ -996,7 +996,7 @@ def stateful_msg_sig_source(fixture: str, variant: str) -> str:
         return fixture
     if variant == 'renamed':
         import re
-        names = set(['_selector', 'calls', 'failing', 'lastSig', 'rejected', 's', 'total', 'tracked', 'x'])
+        names = set(['_count', '_selector', 'callDigest', 'calls', 'counted', 'failing', 'key', 'lastSig', 'perCaller', 'rejected', 's', 'total', 'tracked', 'x'])
         return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
                       lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
                       fixture)
@@ -1008,6 +1008,12 @@ def stateful_msg_sig_source(fixture: str, variant: str) -> str:
             'bytes32 failing = bytes32(this.fail.selector);',
             'return (msg.sig, lastSig,':
             'return (this.read.selector, lastSig,',
+            'uint256 counted = _count(msg.sig, x);':
+            'uint256 counted = _count(this.change.selector, x);',
+            '(msg.sender, address(this), msg.sig)':
+            '(msg.sender, address(this), this.change.selector)',
+            'emit Called(msg.sig, msg.sig, x);':
+            'emit Called(this.change.selector, this.change.selector, x);',
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:

@@ -1346,6 +1346,13 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
+        # msg.sig as an internal-call argument, an external-call ABI argument,
+        # a nested-mapping key and an event argument, in one access-check root.
+        ('msg-sig-call-arguments-positive',
+         "pragma solidity 0.8.34;\ninterface IAccessGate { function permits(address user, address target, bytes4 functionSig) external view returns (bool); }\ncontract C {\n  address private gate;\n  mapping(address => mapping(bytes4 => uint256)) private uses;\n  event Called(bytes4 indexed sig, address caller);\n  function allowed(address user, bytes4 functionSig) internal view returns (bool) {\n    return IAccessGate(gate).permits(user, address(this), functionSig);\n  }\n  function checked(uint256 x) external returns (uint256) {\n    require(allowed(msg.sender, msg.sig) || IAccessGate(gate).permits(msg.sender, address(this), msg.sig), \"UNAUTHORIZED\");\n    uses[msg.sender][msg.sig] += x;\n    emit Called(msg.sig, msg.sender);\n    return uses[msg.sender][msg.sig];\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
         ('storage-ptr-asm-nonarray-statevar-slot-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; }\n  uint256 private v;\n  function _ptr() internal view returns (S storage r) {\n    assembly { r.slot := v.slot }\n  }\n  function checked(uint256 x) external view returns (uint256) {\n    return _ptr().a + x;\n  }\n}\n",
          None,

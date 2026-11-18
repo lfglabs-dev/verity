@@ -507,6 +507,10 @@ MUTANTS.update({
         '| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal (2 ^ 32 - 1)))'),
     'import-msg-sig-offset': ('| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))',
         '| "sig" => pure (Expr.bitAnd (.calldataload (.literal 4)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))'),
+    # Denote reads `calldataload(0)` as the selector word alone, so only the
+    # solc-vs-compiled comparison sees the argument bytes a dropped mask leaks.
+    'import-msg-sig-unmasked': ('| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))',
+        '| "sig" => pure (.calldataload (.literal 0))'),
 })
 
 
@@ -717,6 +721,11 @@ def run(directory, output, name):
         # literal 256 bound and 255000 / 256000 the uint16 bound w = 255 / 256.
         argv[argv.index('--transactions') + 1] = '20'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 19, 20, 255, 256, 257, 299, 300, 555, 556, 999, 255000, 256000, (1 << 256) - 1])])
+    if fixture == 'MsgSigSequence':
+        # The same boundaries as `check_storage --fixture msg-sig`: change(2^256 - 1)
+        # fills the 28 argument bytes of calldata word 0 that the msg.sig mask clears.
+        argv[argv.index('--transactions') + 1] = '16'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 10, 17, 999, 1000, (1 << 256) - 1])])
     if fixture == 'YulNumericSequence':
         argv = argv[:argv.index('--change-prefix')] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
     if fixture == 'NamedHelperReturnSequence':
