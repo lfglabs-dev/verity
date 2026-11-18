@@ -170,15 +170,15 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                           'checks': 'ubuntu-latest',
                           'timeout-watchdog': 'ubuntu-latest',
                           'build': 'lean-8vcpu-ubuntu-2604',
-                          'build-audits': 'lean-16vcpu-ubuntu-2604',
+                          'build-audits': 'lean-8vcpu-ubuntu-2604',
                           'build-compiler-binaries': 'lean-8vcpu-ubuntu-2604',
-                          'compiler-audits': 'lean-16vcpu-ubuntu-2604',
+                          'compiler-audits': 'lean-8vcpu-ubuntu-2604',
                           'compiler-regressions': 'lean-8vcpu-ubuntu-2604',
                           'lean-profile': 'lean-8vcpu-ubuntu-2604',
-                          'foundry-gas-calibration': 'lean-16vcpu-ubuntu-2604',
-                          'foundry': 'lean-16vcpu-ubuntu-2604',
-                          'foundry-patched': 'lean-16vcpu-ubuntu-2604',
-                          'foundry-multi-seed': 'lean-16vcpu-ubuntu-2604',
+                          'foundry-gas-calibration': 'lean-8vcpu-ubuntu-2604',
+                          'foundry': 'lean-8vcpu-ubuntu-2604',
+                          'foundry-patched': 'lean-8vcpu-ubuntu-2604',
+                          'foundry-multi-seed': 'lean-8vcpu-ubuntu-2604',
                           'failure-hints': 'ubuntu-latest'},
  'expected_job_timeouts': {'closed-pr-cleanup': 5,
                            'changes': 5,
@@ -956,7 +956,7 @@ SPEC['expected_job_if_conditions']['import-mutations'] = (
     "needs.changes.outputs.build == 'true' && (github.event_name == 'schedule' || "
     "github.event_name == 'workflow_dispatch' || "
     "contains(github.event.pull_request.labels.*.name, 'ci:mutations'))")
-SPEC['expected_job_runs_on']['import-mutations'] = 'lean-16vcpu-ubuntu-2604'
+SPEC['expected_job_runs_on']['import-mutations'] = 'lean-8vcpu-ubuntu-2604'
 SPEC['expected_job_timeouts']['import-mutations'] = 210
 SPEC['expected_job_strategy_fail_fast']['import-mutations'] = False
 SPEC['expected_build_commands'].remove('solidity_import_mutations.py')
