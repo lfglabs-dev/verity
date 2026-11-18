@@ -190,6 +190,9 @@ structure MemParam where
   member, so the struct-member array lowerings (`.abiArray`) apply unchanged.
   The identifier lowers to `.abiArray id w`, never to `.mem`. -/
   rootArrayWord : Option Nat := none
+  /-- The element struct declaration of a root `S[]` parameter (`rootArrayWord`):
+  the root tuple has no struct declaration to resolve it from. -/
+  rootArrayStructId : Option Nat := none
 
 inductive FnPtr where
   | direct (fnId : Nat)

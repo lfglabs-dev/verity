@@ -311,7 +311,9 @@ def _struct_array_param_calls():
     scalar, `bytes` and `T[N]` head words, two arrays, dirty `address` /
     `uint64` / `bool` / `uint8` fields, and malformed heads (offset past
     calldata or beyond 64 bits, a length past the payload or beyond 64 bits,
-    a truncated head)."""
+    a truncated head), the `Panic(0x41)` boundary of each memory array
+    allocation (no other memory is allocated before it), and `items[i]` bound
+    to struct locals and passed to a helper."""
     calls = []
     item_sigs = ('processBatch((address,uint256)[])', 'sumCalldata((address,uint256)[])',
                  'sumMemory((address,uint256)[])')
@@ -365,6 +367,26 @@ def _struct_array_param_calls():
     for xs, ys in ((0, 0), (1, 0), (2, 3), (5, 1)):
         a, b = items(xs), items(ys)
         calls.append(('pairSum((address,uint256)[],(address,uint256)[])', [64, 64 + 32 * len(a)] + a + b))
+    # Memory allocation boundary: the pointer array of length L ends at
+    # 0x80 + 32*(L+1), which is 2**64 - 32 (fits; then the payload check
+    # reverts empty) for L = 2**59 - 6 and 2**64 (Panic(0x41)) for 2**59 - 5.
+    for length in ((1 << 59) - 6, (1 << 59) - 5):
+        calls.append(('sumMemory((address,uint256)[])', [32, length]))
+        calls.append(('targetAtMemory((address,uint256)[],uint256)', [64, 0, length]))
+        calls.append(('afterHeadMemory(uint256,(uint64,bool,uint8)[],uint256)', [5, 96, 9, length]))
+        calls.append(('pairSum((address,uint256)[],(address,uint256)[])', [64, 96, 0, length]))
+    element_sigs = ('elementCalldata((address,uint256)[],uint256)',
+                    'elementMemory((address,uint256)[],uint256)',
+                    'elementCopied((address,uint256)[],uint256)',
+                    'elementHelper((address,uint256)[],uint256)')
+    for n in (1, 3):
+        for i in (0, n - 1, n):
+            for sig in element_sigs:
+                calls.append((sig, [64, i] + items(n)))
+    for sig in element_sigs:
+        calls.append((sig, [64, 2] + items(3, dirty=True)))
+        calls.append((sig, [64, 0] + items(3, dirty=True)))
+        calls.append((sig, [64, 0, 3] + items(2)[1:]))
     return calls
 
 
@@ -372,8 +394,10 @@ def _bytes_array_param_calls():
     """Root `bytes[] calldata` / `bytes[] memory` parameters (#2701): empty,
     short and word-boundary elements, in- and out-of-range indices
     (Panic(0x32)), an array behind scalar and `bytes` head words, and
-    malformed heads and element tails (offsets past calldata or beyond 64
-    bits, lengths past the payload or beyond 64 bits, truncated calldata)."""
+    malformed heads and element tails (offsets past calldata, beyond 64
+    bits or backwards, lengths past the payload or beyond 64 bits, truncated
+    calldata), and the `Panic(0x41)` boundaries of the memory pointer array
+    and of an element's `bytes` allocation."""
     def array(*sizes):
         head, tail = [len(sizes)], []
         for size in sizes:
@@ -415,6 +439,29 @@ def _bytes_array_param_calls():
         calls.append(('totalLengthMemory(bytes[])', words))
         calls.append(('lengthAt(bytes[],uint256)', [64, 0] + words[1:] if words else [64]))
         calls.append(('hashAt(bytes[],uint256)', [64, 1] + words[1:] if words else [64]))
+    # A backwards element offset (signed): calldata accepts it, like solc's
+    # `access_calldata_tail` (the element is the array length word and on),
+    # memory rejects it (unsigned 64-bit bound).
+    backwards = (1 << 256) - 32
+    for index, words in ((0, [32, 2, backwards, 128] + good[3:]),
+                         (1, [32, 2, 64, backwards] + good[3:])):
+        for sig in ('lengthAt(bytes[],uint256)', 'hashAt(bytes[],uint256)',
+                    'hashAtMemory(bytes[],uint256)'):
+            calls.append((sig, [64, index] + words[1:]))
+        calls.append(('totalLengthMemory(bytes[])', words))
+        calls.append(('digestAll(bytes[])', words))
+    # Memory allocation boundaries. The pointer array of length L ends at
+    # 0x80 + 32*(L+1): 2**64 - 32 (fits; the payload check then reverts empty)
+    # for L = 2**59 - 6, and 2**64 (Panic(0x41)) for 2**59 - 5. The only
+    # element of a one-element array is allocated at 0xc0 with
+    # round_up(len) + 32 bytes: it ends at 2**64 - 32 for len = 2**64 - 0x100
+    # and at 2**64 for len = 2**64 - 0xe0.
+    for length in ((1 << 59) - 6, (1 << 59) - 5):
+        calls.append(('totalLengthMemory(bytes[])', [32, length]))
+        calls.append(('hashAtMemory(bytes[],uint256)', [64, 0, length]))
+    for length in ((1 << 64) - 0x100, (1 << 64) - 0xe0):
+        calls.append(('totalLengthMemory(bytes[])', [32, 1, 32, length]))
+        calls.append(('hashAtMemory(bytes[],uint256)', [64, 0, 1, 32, length]))
     return calls
 
 

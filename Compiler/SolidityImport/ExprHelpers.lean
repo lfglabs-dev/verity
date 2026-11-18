@@ -500,6 +500,15 @@ def freshFor (name : String) : M String := do
   modify fun e => { e with bound := binding :: e.bound }
   pure binding
 
+/-- The pointer in member word `i` of a memory ABI root parameter. A root array
+parameter (`rootArrayWord = some i`) has no struct in memory (solc's
+`abi_decode_tuple` allocates none for the root tuple): its pointer is the
+binding `AbiRootLowering.rootArray` leaves it in. -/
+def MemParam.memoryMemberWord (mem : MemParam) (i : Nat) : Expr :=
+  if mem.rootArrayWord == some i then
+    .localVar (AbiRootLowering.memberArrayMemoryPointer mem.abiStem i)
+  else .mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32*i)))
+
 /-- Reserve every generated ABI name, not just the root prefix. `rootArray`
 selects the names of `AbiRootLowering.rootArray` (a root `S[]` parameter). -/
 def freshAbiStem (schema : List AbiSchema.Member) (inMemory : Bool)

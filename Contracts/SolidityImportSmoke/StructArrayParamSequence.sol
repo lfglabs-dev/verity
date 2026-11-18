@@ -4,7 +4,8 @@ pragma solidity 0.8.34;
 // Root `S[] calldata` / `S[] memory` parameters of a flat scalar struct
 // (#2708): the array is member `w` of the root argument tuple, so it is
 // decoded with solc's eager array-head checks (calldata) or eager copy
-// (memory), and read like a struct-array member of an ABI struct.
+// (memory), and read like a struct-array member of an ABI struct. A memory
+// array allocates only itself and its elements, exactly as solc does.
 contract SequenceFixture {
     struct Item {
         address target;
@@ -70,6 +71,31 @@ contract SequenceFixture {
         uint256 total = xs.length * 1000 + ys.length;
         if (xs.length > 0 && ys.length > 0) total += xs[0].value + ys[ys.length - 1].value;
         return total;
+    }
+
+    // `items[i]` bound to a struct local (calldata, memory, calldata copied
+    // to memory) and passed to a helper.
+    function elementCalldata(Item[] calldata items, uint256 i) external pure returns (uint256) {
+        Item calldata it = items[i];
+        return it.value ^ uint256(uint160(it.target));
+    }
+
+    function elementMemory(Item[] memory items, uint256 i) external pure returns (uint256) {
+        Item memory it = items[i];
+        return it.value ^ uint256(uint160(it.target));
+    }
+
+    function elementCopied(Item[] calldata items, uint256 i) external pure returns (uint256) {
+        Item memory it = items[i];
+        return it.value ^ uint256(uint160(it.target));
+    }
+
+    function elementHelper(Item[] calldata items, uint256 i) external pure returns (uint256) {
+        return valueOf(items[i]);
+    }
+
+    function valueOf(Item calldata it) internal pure returns (uint256) {
+        return it.value + 1;
     }
 
     function change(uint256 x) external {

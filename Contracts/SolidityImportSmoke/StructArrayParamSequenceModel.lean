@@ -21,6 +21,10 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "StructArray
   function afterHead(uint256,bytes,«uint256[2]»,«Packed[]»)
   function afterHeadMemory(uint256,«Packed[]»,uint256)
   function pairSum(«Item[]»,«Item[]»)
+  function elementCalldata(«Item[]»,uint256)
+  function elementMemory(«Item[]»,uint256)
+  function elementCopied(«Item[]»,uint256)
+  function elementHelper(«Item[]»,uint256)
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
