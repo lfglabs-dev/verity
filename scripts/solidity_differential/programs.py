@@ -288,9 +288,7 @@ def stateful_event_nested_mapping_read_source(original, variant):
             ('emit Updated(owner, key, groups[owner].entries[key].rate);',
              'uint88 rate = groups[owner].entries[key].rate;\n'
              '        emit Updated(owner, key, rate);'),
-            ('emit Accrued(next - 3, owner, groups[owner].entries[key].rate);',
-             'uint256 delta = next - 3;\n'
-             '        emit Accrued(delta, owner, rate);'),
+            ('uint256 pick = next % 4;', 'uint256 pick = next & 3;'),
         ]
         expanded = original
         for old, new in replacements:
