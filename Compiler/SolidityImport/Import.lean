@@ -11158,20 +11158,10 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
       .letVar doneVar (.literal 0),
       .forEach loopVar (.literal bits) [.ite (.eq (.localVar doneVar) (.literal 0)) iterStmts []]
     ]
-  if (← get).stateVars.size > 1 && (← mKind cond) == "UnaryOperation" && optStr cond "operator" == some "!" then
-    let body ← mField s "body"
-    let loopVar ← fresh
-    let saved ← get
-    let condVal ← lowerExpr cond
-    let bodyOut ← lowerBody body
-    let loopWrites := bodyAssignedIds body
-    modify fun e =>
-      { e with values := saved.values, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
-               calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-               writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
-    return #[
-      .forEach loopVar (.literal 256) [.ite condVal.expr (condVal.pre ++ bodyOut).toList []]
-    ]
+  -- `while (!cond)` gives no iteration bound to derive, and a fixed bound would cut a longer loop
+  -- short, so it is rejected in every contract.
+  if (← mKind cond) == "UnaryOperation" && optStr cond "operator" == some "!" then
+    failAt cond "a while loop with a negated condition has no derivable iteration bound"
   unless (← mKind cond) == "BinaryOperation" do
     failAt cond "a while loop condition must compare a loop variable against zero"
   if let some stmts ← lowerDivisionWhile? s cond lowerBody then

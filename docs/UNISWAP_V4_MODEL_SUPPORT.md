@@ -1,6 +1,6 @@
 # Uniswap v4 (`v4-core`) Model Support (`35/38` Functions)
 
-Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) supports **`35/38` functions** of Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`).
+Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) last measured support for **`35/38` functions** of Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`).
 
 ## 1. Modular Inline-Assembly Shim Architecture (`InlineAssemblyShims.lean`)
 
@@ -49,14 +49,14 @@ Alongside the shims in `InlineAssemblyShims.lean`, `Compiler/SolidityImport/Impo
 
 ## 3. `PoolManager.sol` Function Inventory (`35/38` Imported)
 
-Every probed function below except `modifyLiquidity` and `swap` (rows 3 and 4, located rejections) elaborates via `solidity_import` with `modelImportCovered model = true`. The `35/38` count is over the coverage tool's 38 probes, which differ from this table: they also probe `_swap`, `_burn`, `checkNotDelegateCall` and `_updateProtocolFees` (of these, only `_swap` rejects, at the same site as `swap`), and they do not probe rows 19, 20, 24, 25, 27, 28 and 29:
+In the last run (#2694), every probed function below except `modifyLiquidity` and `swap` elaborated via `solidity_import` with `modelImportCovered model = true`. The coverage tool also probed `_swap`, `_burn`, `checkNotDelegateCall` and `_updateProtocolFees`; only `_swap` rejected, at the same site as `swap`. It did not probe rows 19, 20, 24, 25, 27, 28 and 29:
 
 | # | Function Signature | Category |
 | --- | --- | --- |
 | 1 | `unlock(bytes)` | Core Lock / Callback (`IUnlockCallback.unlockCallback`) |
 | 2 | `initialize(PoolKey, uint160)` | Pool Lifecycle + Hooks (`beforeInitialize`, `afterInitialize`) |
-| 3 | `modifyLiquidity(PoolKey, ModifyLiquidityParams, bytes)` | **Rejected**. The first blocker is now `src/libraries/LiquidityMath.sol:16:17` (`LiquidityMath.addDelta`'s `mstore(0, 0x93dafdf1) revert(0x1c, 0x04)`, see the note below); `Position.calculatePositionKey`'s `mload(0x40)` at `src/libraries/Position.sol:55:24` rejects as well. It previously imported through a name-keyed shim that hashed `abi.encode` of four words (128 bytes) instead of the helper's 58-byte packed key. |
-| 4 | `swap(PoolKey, SwapParams, bytes)` | **Rejected** at `src/libraries/SqrtPriceMath.sol:200:21` (`SqrtPriceMath.getAmount0Delta`'s `InvalidPrice()` revert, `mstore(0, 0x00bfc921) revert(0x1c, 0x04)`, reached through `SwapMath.computeSwapStep`; see the note below). The private helper `_swap` rejects at the same site. |
+| 3 | `modifyLiquidity(PoolKey, ModifyLiquidityParams, bytes)` | **Rejected in the last coverage run** at `src/libraries/LiquidityMath.sol:16:17`. That scratch-memory revert now fits `Stmt.revertMemory`; the first diagnostic has not been re-measured. `Position.calculatePositionKey` also uses `mload(0x40)` at `src/libraries/Position.sol:55:24`. That helper previously imported through a name-keyed shim that hashed `abi.encode` of four words (128 bytes) instead of the helper's 58-byte packed key. |
+| 4 | `swap(PoolKey, SwapParams, bytes)` | **Rejected in the last coverage run** at `src/libraries/SqrtPriceMath.sol:200:21`, as was `_swap`. That selector revert now fits `Stmt.revertMemory`, but both paths reach the negated step-loop condition in `Pool.swap` (`src/libraries/Pool.sol`). The importer rejects that condition before lowering the loop body rather than silently stopping after 256 iterations. The first diagnostic on these entry points has not been re-measured. |
 | 5 | `donate(PoolKey, uint256, uint256, bytes)` | Pool Donation + Hooks |
 | 6 | `sync(Currency)` | Transient Reserve Sync (`Reserves.setSyncedReserves`) |
 | 7 | `take(Currency, address, uint256)` | Currency Accounting + `CurrencyLibrary.transfer` |
@@ -95,6 +95,6 @@ Every probed function below except `modifyLiquidity` and `swap` (rows 3 and 4, l
 | 40* | `exttload(bytes32)` | `Exttload` Single-Slot Transient Introspection |
 | 41* | `exttload(bytes32[])` | `Exttload` Batch-Array Transient Introspection |
 
-*(Note: `extsload` has 3 overloads and `exttload` has 2 overloads; 35 of the 38 distinct function/overload probes in `PoolManager` (which include the private helper `_swap`) pass with `modelImportCovered = true`; `modifyLiquidity`, `swap` and `_swap` are rejected (rows 3 and 4).)*
+*(The count includes distinct overloads: `extsload` has three and `exttload` has two.)*
 
-*(Note on rows 3 and 4: a Yul `revert(off, size)` whose size is anything other than a literal `0` that reaches the generic inline-assembly lowering used to lower to an empty revert, dropping the payload the EVM returns (here a custom-error selector). It now fails closed with a located rejection. The exact lowering is now `Stmt.revertMemory` (a revert with the memory slice as its data, with proofs), admitted only when the offset and size are literals and every byte of the range lies in the scratch words below 0x40 and was written by the same Yul block on every path; any other shape keeps the located rejection. These two entry points were not re-measured with it (coverage is CI-only) and are listed as rejected until a coverage run says otherwise. The name-keyed `CustomRevert.revertWith` / `bubbleUpAndRevertWith` shims in the table above are not affected by this rule: calls that `lowerSelectorRevertCall?` does not take (selectors with error arguments, and every `bubbleUpAndRevertWith`) still lower to `.revertEmpty` and drop the payload, a known approximation.)*
+*(Note on rows 3 and 4: a Yul `revert(off, size)` whose size is anything other than a literal `0` that reaches the generic inline-assembly lowering used to lower to an empty revert, dropping the payload the EVM returns (here a custom-error selector). At the `35/38` measurement (#2694), these reverts failed closed. Since #2806, the exact lowering is `Stmt.revertMemory` (a revert with the memory slice as its data, with proofs), admitted only when the offset and size are literals and every byte of the range lies in the scratch words below 0x40 and was written by the same Yul block on every path; any other shape keeps the located rejection. These two entry points were not re-measured with it (coverage is CI-only) and are listed as rejected until a coverage run says otherwise. The name-keyed `CustomRevert.revertWith` / `bubbleUpAndRevertWith` shims in the table above are not affected by this rule: calls that `lowerSelectorRevertCall?` does not take (selectors with error arguments, and every `bubbleUpAndRevertWith`) still lower to `.revertEmpty` and drop the payload, a known approximation.)*
