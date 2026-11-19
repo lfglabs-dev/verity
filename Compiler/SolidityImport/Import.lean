@@ -779,6 +779,38 @@ private def computeStructMappingLeafSlot (path : SPath) (info : FieldInfo) (mapI
   ]
   return (baseStmts ++ leafStmts, .localVar leafSlot)
 
+/-- Admission belongs to the consumer, not to the load: solc extracts an 8-bit
+    ordinal but only validates it when encoding the external result. -/
+private partial def localReferencedIn (node : Json) (id : Nat) : Bool :=
+  match node with
+  | .arr xs => xs.any (localReferencedIn · id)
+  | .obj o => o.foldl (fun found k v => found ||
+      ((k == "referencedDeclaration" || k == "declaration") && v.getNat?.toOption == some id) ||
+      localReferencedIn v id) false
+  | _ => false
+
+private def withStorageEnumUse (node : Json) (validate : Bool) (k : M α) : M α := do
+  let saved := (← get).storageEnumUse
+  let id := (field? node "id").bind (·.getNat?.toOption)
+  modify fun e => { e with storageEnumUse := id.map (·, validate) }
+  try k finally modify fun e => { e with storageEnumUse := saved }
+
+private def storageEnumRead (node : Json) (v : Val) : M Val := do
+  let ty := ((field? node "typeDescriptions").bind (optStr · "typeString")).getD ""
+  unless ty.startsWith "enum " do return v
+  let id ← mNat (← mField node "id")
+  let some (allowed, validate) := (← get).storageEnumUse
+    | failAt node "storage enum read requires a direct ABI return or an unused local initializer"
+  unless allowed == id do
+    failAt node "storage enum read requires a direct ABI return or an unused local initializer"
+  unless validate do return v
+  -- The declaration id in solc's type identifier disambiguates homonymous enums.
+  let tid ← mStr (← mField (← mField node "typeDescriptions") "typeIdentifier")
+  let some members := ((tid.splitOn "_$").getLast?.bind String.toNat?).bind (← get).enums.find?
+    | failAt node s!"unresolved storage enum {ty}"
+  let a ← atom v
+  return { a with pre := a.pre.push (.ite (.lt a.expr (.literal members.size)) [] [.panicCode (.literal 0x21)]) }
+
 private def readStructMappingElement (pre : Array Stmt) (path : SPath) (mapInfo : StructMappingInfo)
     (innerKey : Expr) (at_ : Json) : M Val := do
   if let .rawSlot _ baseSlot := path then
@@ -3249,7 +3281,7 @@ private partial def lowerExpr (j : Json) : M Val := do
       | .structFixedArray _ _ arrInfo =>
           failAt j s!"struct fixed array member {arrInfo.member} requires an element index"
       | .structMappingElement pre path mapInfo key =>
-          readStructMappingElement pre path mapInfo key j
+          storageEnumRead j (← readStructMappingElement pre path mapInfo key j)
       | .structMapping _ _ mapInfo =>
           failAt j s!"struct mapping member {mapInfo.member} requires a mapping key"
       | .structDynamicElement pre path dynInfo index =>
@@ -3948,7 +3980,7 @@ private partial def lowerRef (j : Json) : M Ref := do
               else if let some dynInfo := info.structDynamicArrays.find? (·.member == qualMember) then
                 pure (.structDynamicArray pre path dynInfo)
               else
-                pure (.expr (← memberRead pre path member j))
+                pure (.expr (← storageEnumRead j (← memberRead pre path member j)))
         | .structFixedArray pre _ arrInfo =>
             unless member == "length" do failAt j s!"unsupported fixed array member {member}"
             pure (.expr { pre, expr := .literal arrInfo.length })
@@ -13304,7 +13336,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
           failAt target "member assignment requires a supported layout member"
         let ty ← mType target
-        unless (paramType ty).isSome && !ty.startsWith "enum " do
+        unless (paramType ty).isSome do
           failAt target "member assignment requires a supported scalar member"
         let write := if info.booleanMembers.contains qualMember && !deleting then
           fun (value : Expr) => write (.logicalNot (.logicalNot value))
@@ -15462,7 +15494,17 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
           failAt d "reassigned struct locals are outside this slice"
         failAt d "struct local initializer must be a supported struct or struct-array element reference"
   else
-    let v ← lowerExprAs (← mType d) init
+    let ty ← mType d
+    let env ← get
+    let action := lowerExprAs ty init
+    let v ← if ty.startsWith "enum " then do
+      -- Only the actual declaring function can establish that the local is
+      -- dead. Include assembly externalReferences (spelled `declaration`).
+      let fn? := env.stack.head?.bind env.funs.find?
+      if fn?.any (fun fn => (declaredVariables fn).any (·.1 == id) && !localReferencedIn fn id) then
+        withStorageEnumUse init false action
+      else action
+    else action
     unless loc == "default" do
       failAt d s!"unsupported local storage location {loc}"
     let ty ← mType d
@@ -16597,7 +16639,10 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             | .mem .. => failAt expr "ABI returns of memory structs with bytes members are unsupported"
             | _ => failAt expr "storage struct return requires a storage path"
           else
-            let v ← atom (← lowerExprAs (env.rootReturnTypes[0]?.getD "") expr)
+            let ty := env.rootReturnTypes[0]?.getD ""
+            let action := lowerExprAs ty expr
+            let v ← atom (← if ty.startsWith "enum " && env.rootPost.isEmpty then
+              withStorageEnumUse expr true action else action)
             if env.rootPost.isEmpty then
               out := out ++ v.pre |>.push (.returnValues [v.expr])
             else
@@ -16713,7 +16758,8 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       let mTy ← mType mNode
       let some mPty := paramType mTy
         | failAt mNode s!"unsupported public struct getter member {mName} of type {mTy}"
-      discard (validateEnumTypeIfNeeded mNode mTy)
+      if mTy.startsWith "enum " then
+        failAt mNode "public struct getter with an enum member is outside this slice"
       let v ← memberRead #[] path mName varDecl
       let a ← atom v
       pre := pre ++ a.pre
