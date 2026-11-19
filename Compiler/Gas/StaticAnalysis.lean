@@ -82,6 +82,19 @@ def builtinBaseCost (cfg : GasConfig) (name : String) : Nat :=
   else if name = "not" then 3
   else if name = "shl" then 3
   else if name = "shr" then 3
+  /- Signed arithmetic and the remaining stack-only opcodes (Yellow Paper fee tiers:
+     verylow 3, low 5, mid 8). -/
+  else if name = "sar" then 3
+  else if name = "byte" then 3
+  else if name = "slt" then 3
+  else if name = "sgt" then 3
+  else if name = "sdiv" then 5
+  else if name = "smod" then 5
+  else if name = "signextend" then 5
+  else if name = "addmod" then 8
+  else if name = "mulmod" then 8
+  /- EXP is 10 + 50 per exponent byte (EIP-160); bound it with a full 32-byte exponent. -/
+  else if name = "exp" then 1610
   else cfg.unknownCallCost
 
 /-- Extra cost for CALL-like opcodes from forwarded gas argument. -/
