@@ -464,7 +464,7 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
         let rawLeafLabel ← mStr (← mField leafTy "label")
         let leafLabel := (← get).userValueTypes.find? rawLeafLabel |>.getD rawLeafLabel
         let width? : Option Nat :=
-          if leafLabel == "bool" then some 8
+          if leafLabel == "bool" || valKey.startsWith "t_enum(" then some 8
           else if leafLabel == "address" || leafLabel == "address payable" || leafLabel.startsWith "contract " then some 160
           else if leafLabel == "bytes32" || leafLabel == "int256" || leafLabel == "int" then some 256
           else if leafLabel.startsWith "uint" then
@@ -488,9 +488,9 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
       | none => skipped := skipped.push qualLabel
     else if solcType == "t_bool" || solcType == "t_address" || solcType == "t_address_payable" ||
         solcType.startsWith "t_contract(" || solcType == "t_bytes32" || solcType == "t_int256" ||
-        solcType.startsWith "t_uint" || solcType.startsWith "t_int" then
+        solcType.startsWith "t_uint" || solcType.startsWith "t_int" || solcType.startsWith "t_enum(" then
       let bits ←
-        if solcType == "t_bool" then pure 8
+        if solcType == "t_bool" || solcType.startsWith "t_enum(" then pure 8
         else if solcType == "t_address" || solcType == "t_address_payable" || solcType.startsWith "t_contract(" then pure 160
         else if solcType == "t_bytes32" || solcType == "t_int256" then pure 256
         else if solcType.startsWith "t_uint" then do
