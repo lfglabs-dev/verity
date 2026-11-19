@@ -3,7 +3,8 @@
 The fixture calls `nonpayable` and `payable` interface functions that return nothing,
 as whole expression statements, with scalar, `enum`, `msg.data`, calldata-bytes and
 empty argument lists, and one `nonpayable` function with a `bytes32` result and an
-`enum` argument (which skips the code check and reverts on short return data). solc reverts with no data when the target has no code, forwards a
+`enum` argument (return data expected: no code check, a no-data revert on short
+return data). solc reverts with no data when the target has no code, forwards a
 failed call's complete return data and ignores a successful call's return data,
 whatever its length or contents. The A/B/C sequence reuses the Yul memory call
 campaign: the recording responders (every response shape, success and failure,
@@ -56,13 +57,13 @@ def transactions_for(count, seed, caller, responders):
         add('relayData(address,bytes)', ['address', 'bytes'], [target, bytes(range(index + 30))])
         add('poke(address)', ['address'], [target])
         add('fund(address,uint128)', ['address', 'uint128'], [target, 2 ** 128 - 1 - index])
-        add('guard(address,address,uint8)', ['address', 'address', 'uint8'],
+        add('signal(address,address,uint8)', ['address', 'address', 'uint8'],
             [target, SENDER, index % 2])
-        add('guardModule(address,address,uint8)', ['address', 'address', 'uint8'],
+        add('signalWord(address,address,uint8)', ['address', 'address', 'uint8'],
             [target, SENDER, (index + 1) % 2])
     # An out-of-range ordinal panics (0x21) before the call.
-    add('guard(address,address,uint8)', ['address', 'address', 'uint8'], [targets[0], SENDER, 2])
-    add('guardModule(address,address,uint8)', ['address', 'address', 'uint8'],
+    add('signal(address,address,uint8)', ['address', 'address', 'uint8'], [targets[0], SENDER, 2])
+    add('signalWord(address,address,uint8)', ['address', 'address', 'uint8'],
         [targets[0], SENDER, 255])
     add('read()', [], [])
     while len(calls) < count:
@@ -80,10 +81,10 @@ def transactions_for(count, seed, caller, responders):
         elif choice == 4:
             add('fund(address,uint128)', ['address', 'uint128'], [target, amount % 2 ** 128])
         elif choice == 6:
-            add('guard(address,address,uint8)', ['address', 'address', 'uint8'],
+            add('signal(address,address,uint8)', ['address', 'address', 'uint8'],
                 [target, rng.choice(targets), rng.choice([0, 1, 1, 2, 255])])
         elif choice == 7:
-            add('guardModule(address,address,uint8)', ['address', 'address', 'uint8'],
+            add('signalWord(address,address,uint8)', ['address', 'address', 'uint8'],
                 [target, rng.choice(targets), rng.choice([0, 0, 1, 2, 255])])
         else:
             add('read()', [], [])

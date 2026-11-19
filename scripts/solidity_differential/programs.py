@@ -470,8 +470,8 @@ def stateful_interface_word_static_call_source(original, variant):
         }"""),
             ("        IWordOracle(oracle).quote(7, tag);", "        uint256 ignored = IWordOracle(oracle).quote(7, tag);"),
             ("IWordOracle(oracle).tagOf(account, flag);", "IWordOracle(oracle).tagOf(account, flag == true);"),
-            ("saved = IWordOracle(oracle).quoteMode(amount, IWordOracle.Mode.Static);",
-             """IWordOracle.Mode constantMode = IWordOracle.Mode.Static;
+            ("saved = IWordOracle(oracle).quoteMode(amount, IWordOracle.Mode.High);",
+             """IWordOracle.Mode constantMode = IWordOracle.Mode.High;
         uint256 pinned = IWordOracle(oracle).quoteMode(amount, constantMode);
         saved = pinned;"""),
             ("bool ok = IWordOracle(first).allowed(second) || IWordOracle(second).allowed(first);",
