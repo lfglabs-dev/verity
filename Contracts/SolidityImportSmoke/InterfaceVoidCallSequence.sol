@@ -6,9 +6,9 @@ interface INotified {
     function relay(address caller, bytes calldata data) external;
     function poke() external;
     function fund(address to, uint128 amount, bool flag) external payable;
-    enum Operation { Call, DelegateCall }
-    function checkTransaction(address to, uint256 value, Operation operation) external;
-    function checkModule(address to, Operation operation) external returns (bytes32);
+    enum Kind { First, Second }
+    function notifyKind(address to, uint256 value, Kind kind) external;
+    function notifyWord(address to, Kind kind) external returns (bytes32);
 }
 
 /// Typed external calls to functions without return values, as whole expression
@@ -46,19 +46,19 @@ contract InterfaceVoidCallFixture {
         INotified(target).fund(target, amount, amount % 2 == 1);
     }
 
-    function guard(address target, address to, uint8 raw) external {
+    function signal(address target, address to, uint8 raw) external {
         calls += 1;
-        INotified.Operation operation = INotified.Operation(raw);
-        INotified(target).checkTransaction(to, lastAmount, operation);
+        INotified.Kind kind = INotified.Kind(raw);
+        INotified(target).notifyKind(to, lastAmount, kind);
     }
 
     /// A `nonpayable` function with a `bytes32` result: solc expects return data, so it
     /// skips the code check and reverts with no data on fewer than 32 return bytes.
-    function guardModule(address target, address to, uint8 raw) external returns (bytes32) {
+    function signalWord(address target, address to, uint8 raw) external returns (bytes32) {
         calls += 1;
-        INotified.Operation operation = INotified.Operation(raw);
-        bytes32 hash = INotified(target).checkModule(to, operation);
-        return hash;
+        INotified.Kind kind = INotified.Kind(raw);
+        bytes32 word = INotified(target).notifyWord(to, kind);
+        return word;
     }
 
     function read() external view returns (uint256, uint256) {

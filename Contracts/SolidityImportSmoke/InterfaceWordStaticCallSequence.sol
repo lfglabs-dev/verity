@@ -2,7 +2,7 @@
 pragma solidity 0.8.34;
 
 interface IWordOracle {
-    enum Mode { Call, DelegateCall, Static }
+    enum Mode { Low, Mid, High }
 
     function allowed(address account) external view returns (bool);
     function quote(uint256 amount, bytes32 tag) external view returns (uint256);
@@ -51,7 +51,7 @@ contract InterfaceWordStaticCallFixture {
     function route(address oracle, uint256 amount, uint8 raw) external returns (uint256) {
         IWordOracle.Mode mode = IWordOracle.Mode(raw);
         uint256 value = IWordOracle(oracle).quoteMode(amount, mode);
-        saved = IWordOracle(oracle).quoteMode(amount, IWordOracle.Mode.Static);
+        saved = IWordOracle(oracle).quoteMode(amount, IWordOracle.Mode.High);
         return value;
     }
 
