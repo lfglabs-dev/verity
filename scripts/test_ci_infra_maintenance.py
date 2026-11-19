@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import re
 import subprocess
@@ -385,11 +386,23 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         route = job_body("route")
         self.assertIn("runs-on: ubuntu-latest", route)
         self.assertIn("    permissions:\n      actions: read\n", route)
-        self.assertIn(
-            """medium='["self-hosted","linux","x64","verity","build","build-medium"]'""", route
+        self.assertIn("ROUTE_POOLS: ${{ vars.ROUTE_POOLS }}\n", route)
+        self.assertIn("pool: ${{ steps.route.outputs.pool }}\n", route)
+        # The built-in pool list (used when ROUTE_POOLS is unset or invalid)
+        # matches the previous fixed routing: build-medium below 6 queued, then lean-8.
+        default = re.search(r"(?m)^  VERIFY_ROUTE_POOLS_DEFAULT: '(.*)'$", text)
+        self.assertIsNotNone(default)
+        self.assertEqual(
+            json.loads(default.group(1)),
+            [
+                {
+                    "name": "build-medium",
+                    "labels": ["self-hosted", "linux", "x64", "verity", "build", "build-medium"],
+                    "max_queue": 6,
+                },
+                {"name": "lean-8", "labels": ["lean-8vcpu-ubuntu-2604"]},
+            ],
         )
-        self.assertIn("""lean='["lean-8vcpu-ubuntu-2604"]'""", route)
-        self.assertIn("VERIFY_ROUTE_QUEUE_THRESHOLD: 6\n", text)
         self.assertRegex(job_body("ci-gate"), r"(?m)^    needs: \[changes, route, ")
 
         # build-medium keeps main's per-host limits; lean.ci keeps the VM defaults.
@@ -410,7 +423,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         for job in ("import-mutations", "foundry-gas-calibration", "foundry-patched"):
             self.assertNotIn("max-parallel:", job_body(job), job)
 
-    def test_route_job_picks_pool_from_build_medium_queue(self) -> None:
+    def test_route_job_picks_pool_from_queue_depth(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
         match = re.search(
             r"^        id: route\n(?:        .*\n)*?        run: \|\n(?P<run>(?:          .*\n|\n)+)",
@@ -419,24 +432,29 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         script = "\n".join(line[10:] for line in match.group("run").splitlines())
+        default = re.search(r"(?m)^  VERIFY_ROUTE_POOLS_DEFAULT: '(.*)'$", text).group(1)
         medium = '["self-hosted","linux","x64","verity","build","build-medium"]'
         lean = '["lean-8vcpu-ubuntu-2604"]'
+        lean4 = '["lean-4vcpu-ubuntu-2604"]'
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             fake_gh = tmp / "gh"
-            # FAKE_QUEUED queued build-medium jobs in one run; FAKE_FAIL=1 fails the API.
+            # The jobs endpoint prints FAKE_LABELS (the labels of each queued job,
+            # one JSON array per line, as `--jq` would); FAKE_FAIL=1 fails the API.
             fake_gh.write_text(
                 "#!/usr/bin/env bash\n"
                 '[ "${FAKE_FAIL:-0}" = 1 ] && exit 1\n'
-                'case "$*" in *"/jobs"*) echo "$FAKE_QUEUED" ;; *status=queued*) echo 11 ;; esac\n',
+                'case "$*" in *"/jobs"*) printf \'%s\' "$FAKE_LABELS" ;; *status=queued*) echo 11 ;; esac\n',
                 encoding="utf-8",
             )
             fake_gh.chmod(0o755)
 
-            def route(mode: str, queued: int, fail: bool = False) -> dict[str, str]:
+            def route(
+                mode: str, queued: list[str], fail: bool = False, pools: str = ""
+            ) -> tuple[dict[str, str], str]:
                 out = tmp / "out"
                 out.write_text("", encoding="utf-8")
-                subprocess.run(
+                proc = subprocess.run(
                     ["bash", "-c", script],
                     check=True,
                     capture_output=True,
@@ -448,21 +466,54 @@ class CiInfraMaintenanceTests(unittest.TestCase):
                         GITHUB_STEP_SUMMARY=str(tmp / "summary"),
                         REPO="o/r",
                         RUNNER_ROUTE=mode,
-                        VERIFY_ROUTE_QUEUE_THRESHOLD="6",
-                        FAKE_QUEUED=str(queued),
+                        ROUTE_POOLS=pools,
+                        VERIFY_ROUTE_POOLS_DEFAULT=default,
+                        FAKE_LABELS="".join(f"{labels}\n" for labels in queued),
                         FAKE_FAIL="1" if fail else "0",
                     ),
                 )
-                return dict(line.split("=", 1) for line in out.read_text().splitlines())
+                return dict(line.split("=", 1) for line in out.read_text().splitlines()), proc.stdout
 
-            self.assertEqual(route("auto", 5), {"runs_on": medium, "on_lean": "false"})
-            self.assertEqual(route("auto", 6), {"runs_on": lean, "on_lean": "true"})
-            self.assertEqual(route("auto", 6, fail=True), {"runs_on": medium, "on_lean": "false"})
-            self.assertEqual(route("lean", 0), {"runs_on": lean, "on_lean": "true"})
-            self.assertEqual(route("build-medium", 50), {"runs_on": medium, "on_lean": "false"})
+            def chosen(pool: str, runs_on: str) -> dict[str, str]:
+                on_lean = "false" if "build-medium" in runs_on else "true"
+                return {"runs_on": runs_on, "on_lean": on_lean, "pool": pool}
+
+            # Built-in default: build-medium below 6 queued, then lean-8.
+            self.assertEqual(route("auto", [medium] * 5 + [lean] * 9)[0], chosen("build-medium", medium))
+            self.assertEqual(route("auto", [medium] * 6)[0], chosen("lean-8", lean))
+            self.assertEqual(route("auto", [medium] * 6, fail=True)[0], chosen("build-medium", medium))
             summary = (tmp / "summary").read_text(encoding="utf-8")
-            self.assertIn("GitHub API error; falling back to build-medium", summary)
-            self.assertIn("Queued build-medium jobs: 6 (threshold 6", summary)
+            self.assertIn("GitHub API error; falling back to the first pool", summary)
+            # Forced pools; `lean` is the old name of lean-8.
+            self.assertEqual(route("lean", [])[0], chosen("lean-8", lean))
+            self.assertEqual(route("lean-8", [])[0], chosen("lean-8", lean))
+            self.assertEqual(route("build-medium", [medium] * 50)[0], chosen("build-medium", medium))
+            outputs, stdout = route("nope", [medium] * 6)
+            self.assertEqual(outputs, chosen("lean-8", lean))
+            self.assertIn("::warning::runner route: unknown pool 'nope'", stdout)
+            # A three-pool ROUTE_POOLS variable; a pool counts jobs carrying all its labels.
+            three = json.dumps(
+                [
+                    {"name": "build-medium", "labels": json.loads(medium), "max_queue": 2},
+                    {"name": "lean-4", "labels": json.loads(lean4), "max_queue": 1},
+                    {"name": "lean-8", "labels": json.loads(lean)},
+                ]
+            )
+            self.assertEqual(route("auto", [medium], pools=three)[0], chosen("build-medium", medium))
+            self.assertEqual(route("auto", [medium] * 2, pools=three)[0], chosen("lean-4", lean4))
+            self.assertEqual(
+                route("auto", [medium] * 2 + [lean4], pools=three)[0], chosen("lean-8", lean)
+            )
+            self.assertEqual(route("auto", ['["build-medium"]'] * 9, pools=three)[0], chosen("build-medium", medium))
+            summary = (tmp / "summary").read_text(encoding="utf-8")
+            self.assertIn("Pools from the ROUTE_POOLS repository variable", summary)
+            self.assertIn("`lean-4` " + lean4 + ": 0 / 1", summary)
+            # Invalid variables fall back to the default with a warning; unset is silent.
+            for bad in ('[{"name":"x"', "[]", '[{"name":"x","labels":[]}]', '[{"name":"x","labels":["a"],"max_queue":"6"}]'):
+                outputs, stdout = route("auto", [medium] * 6, pools=bad)
+                self.assertEqual(outputs, chosen("lean-8", lean), bad)
+                self.assertIn("ROUTE_POOLS is not a valid pool list", stdout, bad)
+            self.assertNotIn("::warning::", route("auto", [])[1])
 
     def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

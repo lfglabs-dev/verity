@@ -53,14 +53,10 @@ on:
         default: false
         type: boolean
       runner_route:
-        description: 'Runner pool for the routed jobs: auto (by build-medium queue depth), build-medium, or lean'
+        description: 'Runner pool for the routed jobs: auto (by queue depth), or a pool name from ROUTE_POOLS (default pools: build-medium, lean-8; lean = lean-8)'
         required: false
         default: auto
-        type: choice
-        options:
-          - auto
-          - build-medium
-          - lean
+        type: string
 
 permissions:
   contents: read
@@ -87,9 +83,9 @@ env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
   VERIFY_LOCAL_ARTIFACT_ROOT: /srv/verity-ci-cache/artifacts
-  # `route` sends the routed jobs to lean.ci once this many build-medium jobs
-  # are already queued in the repository.
-  VERIFY_ROUTE_QUEUE_THRESHOLD: 6
+  # Runner pools `route` uses when the ROUTE_POOLS repository variable is unset
+  # or invalid. See the `route` job for the format.
+  VERIFY_ROUTE_POOLS_DEFAULT: '[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],"max_queue":6},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]'
 
 jobs:
   closed-pr-cleanup:
@@ -385,11 +381,15 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   route:
-    # Picks the runner pool for the jobs both pools can run: the self-hosted
-    # build-medium hosts while their queue is short, lean.ci 8-vCPU VMs once
-    # VERIFY_ROUTE_QUEUE_THRESHOLD build-medium jobs are already queued. Any
-    # GitHub API error falls back to build-medium. ci-gate needs this job, so a
-    # route failure (which skips the routed jobs) still fails the gate.
+    # Picks the runner pool for the routed jobs from an ordered pool list: the
+    # ROUTE_POOLS repository variable, else VERIFY_ROUTE_POOLS_DEFAULT
+    # (build-medium while fewer than 6 jobs are queued on it, then lean-8). Each
+    # pool is {"name", "labels", "max_queue"}; a pool's queue is the repo's queued
+    # jobs carrying all its labels, the first pool below its max_queue wins, and
+    # the last pool (no max_queue) takes the rest. To add a pool, edit ROUTE_POOLS
+    # (Settings > Secrets and variables > Actions > Variables). A GitHub API error
+    # falls back to the first pool. ci-gate needs this job, so a route failure
+    # (which skips the routed jobs) still fails the gate.
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -398,6 +398,7 @@ jobs:
     outputs:
       runs_on: ${{ steps.route.outputs.runs_on }}
       on_lean: ${{ steps.route.outputs.on_lean }}
+      pool: ${{ steps.route.outputs.pool }}
     steps:
       - name: Choose runner pool
         id: route
@@ -405,57 +406,85 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUNNER_ROUTE: ${{ inputs.runner_route || 'auto' }}
+          ROUTE_POOLS: ${{ vars.ROUTE_POOLS }}
         run: |
           set -uo pipefail
-          medium='["self-hosted","linux","x64","verity","build","build-medium"]'
-          lean='["lean-8vcpu-ubuntu-2604"]'
-          threshold="${VERIFY_ROUTE_QUEUE_THRESHOLD:-6}"
-          case "$threshold" in ''|*[!0-9]*) threshold=6 ;; esac
-          # Queued jobs carrying the build-medium label, across every queued or
-          # in-progress run of the repository.
-          count_queued() {
-            local status page id n total=0 ids=""
+          # A pool list is a non-empty JSON array of
+          # {"name": str, "labels": [str, ...], "max_queue": int (optional)}.
+          valid='type == "array" and length > 0 and all(.[]; type == "object"
+            and (.name | type == "string" and length > 0)
+            and (.labels | type == "array" and length > 0 and all(.[]; type == "string"))
+            and ((has("max_queue") | not) or (.max_queue | type == "number" and . >= 0 and floor == .)))'
+          pools="$VERIFY_ROUTE_POOLS_DEFAULT"; source="built-in default"
+          if [ -n "${ROUTE_POOLS:-}" ]; then
+            if jq -e "$valid" >/dev/null 2>&1 <<<"$ROUTE_POOLS"; then
+              pools=$(jq -c . <<<"$ROUTE_POOLS"); source="ROUTE_POOLS repository variable"
+            else
+              echo "::warning::runner route: ROUTE_POOLS is not a valid pool list; using the built-in default"
+            fi
+          fi
+          npools=$(jq length <<<"$pools")
+          # Labels of every queued job, one JSON array per line, across every
+          # queued or in-progress run of the repository.
+          queued_labels() {
+            local status page id ids=""
             for status in queued in_progress; do
               page=$(gh api --paginate "repos/$REPO/actions/runs?status=$status&per_page=100" \
                 --jq '.workflow_runs[].id') || return 1
               ids+="$page"$'\n'
             done
             for id in $(printf '%s' "$ids" | sort -u); do
-              page=$(gh api --paginate "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" \
-                --jq '[.jobs[] | select(.status == "queued" and any(.labels[]; . == "build-medium"))] | length') || return 1
-              for n in $page; do total=$((total + n)); done
+              gh api --paginate "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" \
+                --jq '.jobs[] | select(.status == "queued") | .labels | tojson' || return 1
             done
-            echo "$total"
           }
-          count="n/a"
-          case "$RUNNER_ROUTE" in
-            build-medium) pool=build-medium; reason="forced by the runner_route input" ;;
-            lean) pool=lean; reason="forced by the runner_route input" ;;
-            *)
-              if count=$(count_queued); then
-                if [ "$count" -lt "$threshold" ]; then
-                  pool=build-medium; reason="$count queued build-medium jobs < threshold $threshold"
-                else
-                  pool=lean; reason="$count queued build-medium jobs >= threshold $threshold"
-                fi
+          route="$RUNNER_ROUTE"
+          if [ "$route" = lean ] && [ "$(jq '[.[] | select(.name == "lean")] | length' <<<"$pools")" = 0 ]; then
+            route=lean-8
+          fi
+          counts="null"; choice=""
+          if [ -n "$route" ] && [ "$route" != auto ]; then
+            choice=$(jq --arg n "$route" 'first(to_entries[] | select(.value.name == $n) | .key) // empty' <<<"$pools")
+            if [ -n "$choice" ]; then
+              reason="forced by the runner_route input"
+            else
+              echo "::warning::runner route: unknown pool '$route' in runner_route; routing automatically"
+            fi
+          fi
+          if [ -z "$choice" ]; then
+            if labels=$(queued_labels); then
+              counts=$(printf '%s\n' "$labels" | jq -sc --argjson pools "$pools" \
+                '. as $jobs | [$pools[] | .labels as $want | [$jobs[] | select(($want - .) == [])] | length]')
+              choice=$(jq -n --argjson pools "$pools" --argjson counts "$counts" \
+                'first(range(0; $pools | length) as $i
+                  | select($i == ($pools | length) - 1 or $pools[$i].max_queue == null
+                      or $counts[$i] < $pools[$i].max_queue) | $i)')
+              if [ "$choice" -eq $((npools - 1)) ] && [ "$npools" -gt 1 ]; then
+                reason="every earlier pool is at its max_queue; last pool takes the rest"
               else
-                count="unknown"; pool=build-medium; reason="GitHub API error; falling back to build-medium"
-                echo "::warning::runner route: $reason"
+                reason="first pool with queued jobs below its max_queue"
               fi
-              ;;
-          esac
-          if [ "$pool" = lean ]; then runs_on="$lean"; on_lean=true; else runs_on="$medium"; on_lean=false; fi
+            else
+              choice=0; reason="GitHub API error; falling back to the first pool"
+              echo "::warning::runner route: $reason"
+            fi
+          fi
+          pool=$(jq -r --argjson i "$choice" '.[$i].name' <<<"$pools")
+          runs_on=$(jq -c --argjson i "$choice" '.[$i].labels' <<<"$pools")
+          on_lean=$(jq --argjson i "$choice" '.[$i].labels | index("build-medium") == null' <<<"$pools")
           echo "runner route: $pool ($reason)"
           {
             echo "runs_on=$runs_on"
             echo "on_lean=$on_lean"
+            echo "pool=$pool"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Runner route"
             echo ""
             echo "- Pool: \`$pool\` (\`runs-on: $runs_on\`)"
-            echo "- Queued build-medium jobs: $count (threshold $threshold, mode \`$RUNNER_ROUTE\`)"
-            echo "- Reason: $reason"
+            echo "- Reason: $reason (mode \`$RUNNER_ROUTE\`)"
+            echo "- Pools from the $source, in order (queued jobs / max_queue):"
+            jq -r --argjson counts "$counts" 'to_entries[] | "  - `\(.value.name)` \(.value.labels | tojson): \(if $counts == null then "n/a" else $counts[.key] end) / \(.value.max_queue // "rest")"' <<<"$pools"
           } >> "$GITHUB_STEP_SUMMARY"
 
   checks:

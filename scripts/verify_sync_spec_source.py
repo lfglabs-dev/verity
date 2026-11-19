@@ -1058,8 +1058,11 @@ SPEC['expected_job_permissions'] = _insert_after(
 SPEC['expected_job_outputs']['route'] = {
     'runs_on': '${{ steps.route.outputs.runs_on }}',
     'on_lean': '${{ steps.route.outputs.on_lean }}',
+    'pool': '${{ steps.route.outputs.pool }}',
 }
-SPEC['expected_workflow_env']['VERIFY_ROUTE_QUEUE_THRESHOLD'] = '6'
+SPEC['expected_workflow_env']['VERIFY_ROUTE_POOLS_DEFAULT'] = (
+    '[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],'
+    '"max_queue":6},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]')
 for _job in ROUTED_RUNNER_JOBS:
     SPEC['expected_job_needs'][_job].insert(1, 'route')
     SPEC['expected_job_runs_on'][_job] = ROUTED_RUNS_ON
@@ -1072,7 +1075,8 @@ SPEC['expected_job_strategy_max_parallel']['foundry-multi-seed'] = (
 SPEC['expected_step_contracts']['route'] = [
     {'id': 'route', 'name': 'Choose runner pool',
      'env': {'GH_TOKEN': '${{ github.token }}', 'REPO': '${{ github.repository }}',
-             'RUNNER_ROUTE': "${{ inputs.runner_route || 'auto' }}"}},
+             'RUNNER_ROUTE': "${{ inputs.runner_route || 'auto' }}",
+             'ROUTE_POOLS': '${{ vars.ROUTE_POOLS }}'}},
 ]
 SPEC['expected_step_contracts']['build-audits'].insert(0, {
     'name': 'Cap Lean threads on build-medium',
