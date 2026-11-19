@@ -120,4 +120,15 @@ solidity_import dirtyKey from "Contracts/SolidityImportSmoke" entry "StorageStru
   contract StorageStructEnum
   function dirtyKey()
 
+/--
+error: StorageStructEnum.sol:74:19: MemberAccess: [solidity-import:unsupported] packed or nested mapping storage arguments are outside this slice
+closure: StorageStructEnum.helperWrite
+entries[id].levels
+-/
+#guard_msgs in
+solidity_import helperWrite from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
+  using enumProfile
+  contract StorageStructEnum
+  function helperWrite(bytes32,address)
+
 end SolidityImportSmoke.StorageStructEnumChecks

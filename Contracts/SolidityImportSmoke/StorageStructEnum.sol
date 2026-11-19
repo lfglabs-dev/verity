@@ -67,4 +67,10 @@ contract StorageStructEnum {
         narrow[0].values[k] = 7;
         return narrow[0].values[1];
     }
+    function writeLeaf(mapping(address => Mode) storage levels, address k) internal {
+        levels[k] = Mode.First;
+    }
+    function helperWrite(bytes32 id, address k) external {
+        writeLeaf(entries[id].levels, k);
+    }
 }

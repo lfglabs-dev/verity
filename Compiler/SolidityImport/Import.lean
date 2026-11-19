@@ -7043,6 +7043,10 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
     else if argTy.startsWith "mapping(" && (← get).stateVars.size > 1 then
       match ← lowerRef arg with
       | .structMapping pre path mapInfo =>
+          -- The helper's raw storage pointer carries no scalar packing metadata.
+          -- Reconstructing it as a full-word mapping would clobber the high bytes.
+          if mapInfo.valueWidth < 256 || mapInfo.innerKeyType.isSome then
+            failAt arg "packed or nested mapping storage arguments are outside this slice"
           let (slotPre, mapSlotExpr) ← if let .rawSlot _ baseSlot := path then
             pure (#[], rawStructMemberSlot baseSlot mapInfo.wordOffset)
           else do
