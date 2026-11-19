@@ -56,13 +56,29 @@ are routed at run time instead of naming a pool:
 runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
 ```
 
-The `route` job (`ubuntu-latest`, `actions: read`) counts the repository's
-queued jobs labelled `build-medium` across queued and in-progress runs. Fewer
-than `VERIFY_ROUTE_QUEUE_THRESHOLD` (default 6) sends the routed jobs to
-`["self-hosted","linux","x64","verity","build","build-medium"]`; otherwise to
-`["lean-8vcpu-ubuntu-2604"]`. A GitHub API error falls back to build-medium.
-Manual dispatches can force the pool with the `runner_route` input (`auto`,
-`build-medium`, `lean`). The decision and the count are in the `route` job
+The `route` job (`ubuntu-latest`, `actions: read`) walks an ordered list of
+runner pools: the `ROUTE_POOLS` repository variable, or
+`VERIFY_ROUTE_POOLS_DEFAULT` in `verify.yml` when the variable is unset or
+invalid (an invalid value also emits a warning). The default is `build-medium`
+(`["self-hosted","linux","x64","verity","build","build-medium"]`, `max_queue`
+6) then `lean-8` (`["lean-8vcpu-ubuntu-2604"]`). A pool's queue is the number
+of the repository's queued jobs, across queued and in-progress runs, whose
+labels include all of that pool's labels; the first pool below its
+`max_queue` wins and the last pool (no `max_queue`) takes the rest. A GitHub
+API error falls back to the first pool. Adding a pool is a one-line change to
+the variable, for example:
+
+```json
+[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],"max_queue":6},
+ {"name":"lean-4","labels":["lean-4vcpu-ubuntu-2604"],"max_queue":4},
+ {"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]
+```
+
+Manual dispatches can force a pool by name with the `runner_route` input
+(`auto` by default; `lean` still means `lean-8`; an unknown name warns and
+routes automatically). `route` outputs `runs_on`, `pool`, and `on_lean` (true
+when the chosen labels do not include `build-medium`). The pool list, per-pool
+counts, choice and reason are in the `route` job
 summary. On build-medium the routed jobs keep main's per-host limits
 (`LEAN_NUM_THREADS=4` for `build-audits`, `max-parallel` 2 for `foundry` and 1
 for `foundry-multi-seed`); on lean.ci they use the whole VM and run every

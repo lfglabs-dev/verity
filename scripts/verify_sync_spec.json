@@ -301,7 +301,8 @@
     },
     "route": {
       "runs_on": "${{ steps.route.outputs.runs_on }}",
-      "on_lean": "${{ steps.route.outputs.on_lean }}"
+      "on_lean": "${{ steps.route.outputs.on_lean }}",
+      "pool": "${{ steps.route.outputs.pool }}"
     }
   },
   "expected_job_permissions": {
@@ -345,7 +346,7 @@
     "VERIFY_CACHE_BUCKET": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}",
     "VERIFY_MAIN_CACHE_BUCKET": "ref-main",
     "VERIFY_LOCAL_ARTIFACT_ROOT": "/srv/verity-ci-cache/artifacts",
-    "VERIFY_ROUTE_QUEUE_THRESHOLD": "6"
+    "VERIFY_ROUTE_POOLS_DEFAULT": "[{\"name\":\"build-medium\",\"labels\":[\"self-hosted\",\"linux\",\"x64\",\"verity\",\"build\",\"build-medium\"],\"max_queue\":6},{\"name\":\"lean-8\",\"labels\":[\"lean-8vcpu-ubuntu-2604\"]}]"
   },
   "build_compiler_job_names": [
     "build-compiler-binaries"
@@ -879,7 +880,8 @@
         "env": {
           "GH_TOKEN": "${{ github.token }}",
           "REPO": "${{ github.repository }}",
-          "RUNNER_ROUTE": "${{ inputs.runner_route || 'auto' }}"
+          "RUNNER_ROUTE": "${{ inputs.runner_route || 'auto' }}",
+          "ROUTE_POOLS": "${{ vars.ROUTE_POOLS }}"
         }
       }
     ]
