@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.7.6;
+import "./LegacyConstantInitializers.sol";
 
 library LegacyArithmeticHelpers {
     /// The helper boundary must preserve the selected arithmetic default.
@@ -18,6 +19,23 @@ library LegacyArithmeticHelpers {
 
 contract LegacyArithmetic {
     uint256 private stored;
+    uint256 private constant QUOTIENT = uint256(10) / (uint256(1) << 256);
+
+    function widenedLiterals() external pure returns (uint256, uint256, uint256) {
+        return (uint256(uint8(256)), uint256(uint8(-1)), LegacyConstantInitializers.IN_RANGE);
+    }
+
+    function localConstant() external pure returns (uint256) {
+        return QUOTIENT;
+    }
+
+    function qualifiedConstant() external pure returns (uint256) {
+        return LegacyConstantInitializers.QUOTIENT;
+    }
+
+    function indirectConstant() external pure returns (uint256) {
+        return LegacyConstantInitializers.ALIAS;
+    }
 
     /// Exercise wide and narrow arithmetic in the same root.
     function arithmetic(uint256 x, uint256 y) external pure

@@ -225,16 +225,20 @@ def spelling(node, source):
 def ast_request(version, target, source_root, solc):
     """AST-only standard-json command and request for `target` under solc `version`."""
     entry = target['entry']
-    if tuple(map(int, version.split('.'))) >= (0, 8, 0):
+    if not (source_root / entry).is_file():
+        raise MeasurementError(f'missing target entry: {entry}')
+    if tuple(map(int, version.split('.'))) >= (0, 7, 6):
         sources = {entry: {'content': (source_root / entry).read_text()}}
         command = [solc, '--base-path', source_root, '--standard-json']
     else:
-        # Legacy solc has no base-path option. Supply the self-contained core
+        # Older inventory pins lack --base-path. Supply the self-contained core
         # production tree inline; do not pull in test-only npm dependencies.
         sources = {p.relative_to(source_root).as_posix(): {'content': p.read_text()}
                    for p in sorted((source_root / 'contracts').rglob('*.sol'))
                    if 'test' not in p.relative_to(source_root).parts}
         command = [solc, '--standard-json']
+        if entry not in sources:
+            raise MeasurementError(f'target entry omitted from solc input: {entry}')
     remapping_file = source_root / 'remappings.txt'
     remappings = [line.strip() for line in remapping_file.read_text().splitlines()
                   if line.strip() and not line.lstrip().startswith('#')] if remapping_file.exists() else []
