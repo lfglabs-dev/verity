@@ -229,6 +229,8 @@ structure Env where
   /-- Exact storage enum expression admitted by its consumer: true at ABI return,
       false for the initializer of an unreferenced local. -/
   storageEnumUse : Option (Nat × Bool) := none
+  /-- Layouts with a packed enum anywhere in the flattened member list. -/
+  enumStructFields : List String := []
   /-- `bytes memory` locals whose initializer begins with a checked CREATE2
       initcode template literal (`DenoteCreate2.templateCost`). -/
   initcodeTemplates : Array Nat := #[]

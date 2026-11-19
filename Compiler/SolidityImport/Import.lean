@@ -811,6 +811,14 @@ private def storageEnumRead (node : Json) (v : Val) : M Val := do
   let a ← atom v
   return { a with pre := a.pre.push (.ite (.lt a.expr (.literal members.size)) [] [.panicCode (.literal 0x21)]) }
 
+/-- Stored ordinals must be clean before packing. For now only enum literals are
+    admitted: assembly may leave even an enum-typed local out of range. -/
+private def checkStoredEnumSource (target rhs : Json) : M Unit := do
+  if (← mType target).startsWith "enum " then
+    unless optStr rhs "nodeType" == some "MemberAccess" &&
+        (← mType (← mField rhs "expression")).startsWith "type(enum " do
+      failAt rhs "storage enum assignment requires an enum literal"
+
 private def readStructMappingElement (pre : Array Stmt) (path : SPath) (mapInfo : StructMappingInfo)
     (innerKey : Expr) (at_ : Json) : M Val := do
   if let .rawSlot _ baseSlot := path then
@@ -12710,6 +12718,8 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   unless !info.scalarMapping && info.fixedArrayLength.isNone && info.keyCount == count do
     failAt target "whole struct storage assignment requires a struct storage path"
   if deleting then
+    if (← get).enumStructFields.contains name then
+      failAt target "whole-struct delete with packed enum members is outside this slice"
     unless info.structMappings.isEmpty do
       failAt target "cannot delete mapping struct with mapping members"
     unless info.opaqueNames.isEmpty do
@@ -13344,6 +13354,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         markField name
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
+          checkStoredEnumSource target right
           atom (← lowerConverted ty right)
         return (pre ++ value.pre).push (write value.expr)
     | _ => failAt target "member assignment requires a mapping struct storage path"
@@ -13545,6 +13556,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     if let .structMappingElement pre path mapInfo key := reference then
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
+        checkStoredEnumSource target right
         atom (← lowerConverted (← mType target) right)
       if !pre.isEmpty && !deleting then
         let right ← mField expression "rightHandSide"
