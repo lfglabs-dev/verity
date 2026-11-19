@@ -6,11 +6,15 @@ interface INotified {
     function relay(address caller, bytes calldata data) external;
     function poke() external;
     function fund(address to, uint128 amount, bool flag) external payable;
+    enum Operation { Call, DelegateCall }
+    function checkTransaction(address to, uint256 value, Operation operation) external;
+    function checkModule(address to, Operation operation) external returns (bytes32);
 }
 
 /// Typed external calls to functions without return values, as whole expression
-/// statements: scalar, calldata-bytes (`msg.data` and a parameter) and empty argument
-/// lists, and a `payable` function called without value. solc reverts with no data when
+/// statements: scalar, `enum`, calldata-bytes (`msg.data` and a parameter) and empty
+/// argument lists, and a `payable` function called without value; and one `nonpayable`
+/// call with a `bytes32` result and an `enum` argument. solc reverts with no data when
 /// the target has no code, forwards a failed call's return data and ignores a successful
 /// call's return data. State is written before each call, so every call is trailing.
 contract InterfaceVoidCallFixture {
@@ -40,6 +44,21 @@ contract InterfaceVoidCallFixture {
     function fund(address target, uint128 amount) external {
         lastAmount = amount;
         INotified(target).fund(target, amount, amount % 2 == 1);
+    }
+
+    function guard(address target, address to, uint8 raw) external {
+        calls += 1;
+        INotified.Operation operation = INotified.Operation(raw);
+        INotified(target).checkTransaction(to, lastAmount, operation);
+    }
+
+    /// A `nonpayable` function with a `bytes32` result: solc expects return data, so it
+    /// skips the code check and reverts with no data on fewer than 32 return bytes.
+    function guardModule(address target, address to, uint8 raw) external returns (bytes32) {
+        calls += 1;
+        INotified.Operation operation = INotified.Operation(raw);
+        bytes32 hash = INotified(target).checkModule(to, operation);
+        return hash;
     }
 
     function read() external view returns (uint256, uint256) {

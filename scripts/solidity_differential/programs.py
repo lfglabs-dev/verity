@@ -449,7 +449,8 @@ def stateful_interface_word_static_call_source(original, variant):
         for old, new in (('IWordOracle', 'IWordSource'), ('oracle', 'feed'), ('value', 'answer'),
                          ('saved', 'stash'), ('label', 'mark'), ('ok', 'pass'),
                          ('pick', 'choose'), ('first', 'left'), ('second', 'right'),
-                         ('account', 'who'), ('next', 'given'), ('flag', 'toggle')):
+                         ('account', 'who'), ('next', 'given'), ('flag', 'toggle'),
+                         ('Mode', 'Kind'), ('mode', 'kind'), ('raw', 'ordinal')):
             renamed = re.sub(rf'\b{old}\b', new, renamed)
         return renamed
     if variant == 'expanded':
@@ -469,6 +470,10 @@ def stateful_interface_word_static_call_source(original, variant):
         }"""),
             ("        IWordOracle(oracle).quote(7, tag);", "        uint256 ignored = IWordOracle(oracle).quote(7, tag);"),
             ("IWordOracle(oracle).tagOf(account, flag);", "IWordOracle(oracle).tagOf(account, flag == true);"),
+            ("saved = IWordOracle(oracle).quoteMode(amount, IWordOracle.Mode.Static);",
+             """IWordOracle.Mode constantMode = IWordOracle.Mode.Static;
+        uint256 pinned = IWordOracle(oracle).quoteMode(amount, constantMode);
+        saved = pinned;"""),
             ("bool ok = IWordOracle(first).allowed(second) || IWordOracle(second).allowed(first);",
              """bool ok = IWordOracle(first).allowed(second);
         if (!ok) {
