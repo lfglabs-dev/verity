@@ -463,6 +463,8 @@ def stmtWritesStateNode : Stmt → Bool
   | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
+  | Stmt.revertMemory offset size =>
+      exprWritesState offset || exprWritesState size
   | Stmt.ite cond _ _ =>
       exprWritesState cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
@@ -568,6 +570,8 @@ def stmtHasUntrackableWritesNode : Stmt → Bool
       exprHasUntrackableWrites offset || exprHasUntrackableWrites value
   | Stmt.calldatacopy destOffset sourceOffset size | Stmt.returndataCopy destOffset sourceOffset size =>
       exprHasUntrackableWrites destOffset || exprHasUntrackableWrites sourceOffset || exprHasUntrackableWrites size
+  | Stmt.revertMemory offset size =>
+      exprHasUntrackableWrites offset || exprHasUntrackableWrites size
   | Stmt.ite cond _ _ =>
       exprHasUntrackableWrites cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
@@ -675,6 +679,8 @@ def stmtContainsExternalCallNode : Stmt → Bool
       exprContainsExternalCall destOffset || exprContainsExternalCall sourceOffset || exprContainsExternalCall size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprContainsExternalCall destOffset || exprContainsExternalCall sourceOffset || exprContainsExternalCall size
+  | Stmt.revertMemory offset size =>
+      exprContainsExternalCall offset || exprContainsExternalCall size
   | Stmt.ite cond _ _ =>
       exprContainsExternalCall cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
@@ -779,6 +785,8 @@ def stmtMayContainExternalCallNode : Stmt → Bool
       exprMayContainExternalCall destOffset || exprMayContainExternalCall sourceOffset || exprMayContainExternalCall size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprMayContainExternalCall destOffset || exprMayContainExternalCall sourceOffset || exprMayContainExternalCall size
+  | Stmt.revertMemory offset size =>
+      exprMayContainExternalCall offset || exprMayContainExternalCall size
   | s => stmtContainsExternalCallNode s
 
 def stmtMayContainExternalCall (s : Stmt) : Bool :=
@@ -818,6 +826,8 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.revertEmpty => false
   | Stmt.revertReturndata =>
       true
+  | Stmt.revertMemory offset size =>
+      exprReadsStateOrEnv offset || exprReadsStateOrEnv size
   | Stmt.stop =>
       false
   | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
@@ -918,6 +928,9 @@ def stmtWritesStateWithFunctionEffectsNode
       exprWritesStateWithFunctionEffects effects destOffset ||
         exprWritesStateWithFunctionEffects effects sourceOffset ||
         exprWritesStateWithFunctionEffects effects size
+  | Stmt.revertMemory offset size =>
+      exprWritesStateWithFunctionEffects effects offset ||
+        exprWritesStateWithFunctionEffects effects size
   | Stmt.ite cond _ _ =>
       exprWritesStateWithFunctionEffects effects cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
@@ -997,6 +1010,9 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
   | Stmt.revertEmpty => false
   | Stmt.revertReturndata =>
       true
+  | Stmt.revertMemory offset size =>
+      exprReadsStateOrEnvWithFunctionEffects effects offset ||
+        exprReadsStateOrEnvWithFunctionEffects effects size
   | Stmt.stop =>
       false
   | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
@@ -1316,6 +1332,9 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
       if exprContainsAdtConstruct destOffset || exprContainsAdtConstruct sourceOffset ||
           exprContainsAdtConstruct size then
         throw "Compilation error: ADT construction cannot be used in copy offsets or sizes."
+  | Stmt.revertMemory offset size => do
+      if exprContainsAdtConstruct offset || exprContainsAdtConstruct size then
+        throw "Compilation error: ADT construction cannot be used in revert offsets or sizes."
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
   | Stmt.returnStorageWords _ | Stmt.returnCodeData _ | Stmt.revertEmpty | Stmt.revertReturndata | Stmt.stop =>
       pure ()

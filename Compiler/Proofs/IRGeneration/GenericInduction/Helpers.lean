@@ -2538,6 +2538,7 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
             | apply stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
             | apply stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
             | apply stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
+            | apply stmtListGenericCore_of_supportedStmtList_revertMemorySingle_of_surface
             | apply stmtListGenericCore_of_supportedStmtList_iteTerminal_of_surface
           ) <;> assumption
         | (exfalso

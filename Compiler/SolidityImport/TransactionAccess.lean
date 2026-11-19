@@ -83,7 +83,7 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
   match statement with
   | .letVar _ value | .assignVar _ value | .return value | .panicCode value =>
       expressionAccesses oracle fields state value
-  | .mstore address value => do
+  | .mstore address value | .revertMemory address value => do
       return (← expressionAccesses oracle fields state address) ++
         (← expressionAccesses oracle fields state value)
   | .tstore address value => do

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 // Yul `revert(offset, 0)` reverts with no data, whatever the offset, in a contract with one state
-// variable. A nonzero size returns memory bytes and is rejected (YulRevertDataChecks.lean).
+// variable. A nonzero size returns memory bytes (YulRevertMemorySequence, YulRevertDataChecks.lean).
 contract SequenceFixture {
     uint256 private total;
     function change(uint256 x) external returns (uint256) {

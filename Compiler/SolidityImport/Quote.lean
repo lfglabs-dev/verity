@@ -216,6 +216,8 @@ partial def quoteStmt : Stmt → m Term
       `(Compiler.CompilationModel.Stmt.requireError $(← quoteExpr condition) $(quote name)
         $(← list (← args.mapM quoteExpr)))
   | .revertReturndata => `(Compiler.CompilationModel.Stmt.revertReturndata)
+  | .revertMemory offset size => do
+      `(Compiler.CompilationModel.Stmt.revertMemory $(← quoteExpr offset) $(← quoteExpr size))
   | .stop => `(Compiler.CompilationModel.Stmt.stop)
   | .emit name args => do
       `(Compiler.CompilationModel.Stmt.emit $(quote name) $(← list (← args.mapM quoteExpr)))

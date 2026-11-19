@@ -6170,11 +6170,16 @@ a `BridgedExpr` via `bridgedBuiltins`), the `revert` maps to
 `BridgedStraightStmt.expr_revert`, and the `returndatacopy` is handled via
 `BridgedStmt.userCallExpr` with all three arguments `BridgedExpr`. -/
 
-/-- First-class reverts: direct empty payload or explicit returndata forwarding.
-The historical name is retained for existing consumers. -/
+/-- First-class reverts: direct empty payload, explicit returndata forwarding, or a
+memory-range payload (`revert(offset, size)`). The historical name is retained for
+existing consumers. -/
 inductive BridgedSourceRevertReturndataStmt : Stmt → Prop
   | revertEmpty : BridgedSourceRevertReturndataStmt .revertEmpty
   | revertReturndata : BridgedSourceRevertReturndataStmt .revertReturndata
+  | revertMemory (offset size : Expr)
+      (hOffset : BridgedSourceExpr offset)
+      (hSize : BridgedSourceExpr size) :
+      BridgedSourceRevertReturndataStmt (.revertMemory offset size)
 
 def BridgedSourceRevertReturndataStmts (stmts : List Stmt) : Prop :=
   ∀ stmt ∈ stmts, BridgedSourceRevertReturndataStmt stmt
@@ -6237,6 +6242,65 @@ private theorem compileStmt_revertReturndata_noFuncDefs
   subst out
   simp [Native.yulStmtContainsFuncDef]
 
+/-- `SupportedFragment.revertMemorySingle` expression witnesses are enough to build
+    the native memory-payload revert bridge witness. -/
+theorem bridgedSourceRevertMemoryStmt_of_exprCompileCore
+    {offset size : Expr}
+    (hOffset : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore offset)
+    (hSize : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore size) :
+    BridgedSourceRevertReturndataStmt (.revertMemory offset size) :=
+  BridgedSourceRevertReturndataStmt.revertMemory offset size
+    (bridgedSourceExpr_of_exprCompileCore hOffset)
+    (bridgedSourceExpr_of_exprCompileCore hSize)
+
+/-- `Stmt.revertMemory offset size` compiles to the singleton
+`revert(compiledOffset, compiledSize)`, matched by `BridgedStraightStmt.expr_revert`. -/
+private theorem compileStmt_revertMemory_bridged
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) (offset size : Expr) :
+    ∀ {out : List YulStmt},
+      compileStmt fields events errors dynamicSource internalRetNames
+        isInternal inScopeNames [] (.revertMemory offset size) = .ok out →
+      BridgedStmts out := by
+  intro out hOk
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hO : compileExprWithInternals fields dynamicSource [] offset with
+  | error err => simp [hO] at hOk
+  | ok compiledOffset =>
+      simp [hO] at hOk
+      cases hS : compileExprWithInternals fields dynamicSource [] size with
+      | error err => simp [hS] at hOk
+      | ok compiledSize =>
+          simp [hS] at hOk
+          subst hOk
+          intro yulStmt hMem
+          simp only [List.mem_singleton] at hMem
+          subst yulStmt
+          exact BridgedStmt.straight _
+            (BridgedStraightStmt.expr_revert compiledOffset compiledSize)
+
+private theorem compileStmt_revertMemory_noFuncDefs
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) (offset size : Expr) :
+    ∀ {out : List YulStmt},
+      compileStmt fields events errors dynamicSource internalRetNames
+        isInternal inScopeNames [] (.revertMemory offset size) = .ok out →
+      Native.yulStmtsContainFuncDef out = false := by
+  intro out hOk
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hO : compileExprWithInternals fields dynamicSource [] offset with
+  | error err => simp [hO] at hOk
+  | ok compiledOffset =>
+      simp [hO] at hOk
+      cases hS : compileExprWithInternals fields dynamicSource [] size with
+      | error err => simp [hS] at hOk
+      | ok compiledSize =>
+          simp [hS, Native.yulStmtContainsFuncDef] at hOk
+          subst out
+          simp [Native.yulStmtContainsFuncDef]
+
 theorem compileStmt_revertReturndata_fragment_bridged
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -6261,6 +6325,9 @@ theorem compileStmt_revertReturndata_fragment_bridged
   | revertReturndata =>
       exact compileStmt_revertReturndata_bridged fields events errors dynamicSource
         internalRetNames isInternal inScopeNames hOk
+  | revertMemory offset size _ _ =>
+      exact compileStmt_revertMemory_bridged fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames offset size hOk
 
 theorem compileStmt_revertReturndata_fragment_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -6281,6 +6348,9 @@ theorem compileStmt_revertReturndata_fragment_noFuncDefs
   | revertReturndata =>
       exact compileStmt_revertReturndata_noFuncDefs fields events errors dynamicSource
         internalRetNames isInternal inScopeNames hOk
+  | revertMemory offset size _ _ =>
+      exact compileStmt_revertMemory_noFuncDefs fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames offset size hOk
 
 /-! ## Source statement body closure: `storageArrayPush`
 

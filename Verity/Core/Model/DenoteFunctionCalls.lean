@@ -418,6 +418,9 @@ mutual
     | state, .returndataCopy dest source size =>
         execResolvedExprs env fields state [dest, source, size]
           (fun | [d, s, n] => .returndataCopy d s n | _ => .returndataCopy dest source size)
+    | state, .revertMemory offset size =>
+        execResolvedExprs env fields state [offset, size]
+          (fun | [o, n] => .revertMemory o n | _ => .revertMemory offset size)
     | state, .emit name args =>
         execResolvedExprs env fields state args (Stmt.emit name)
     | state, .internalCall name args =>

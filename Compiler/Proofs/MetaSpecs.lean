@@ -849,6 +849,10 @@ def stmtEffectSummary (helperEffects : String → EffectSummary) : Stmt → Effe
         mayRevert := true }
   | .revertEmpty | .panic _ | .panicCode _ | .revertReturndata =>
       { mayRevert := true }
+  | .revertMemory offset size =>
+      { readsStorage := hasMask (exprListSurfaceMask [offset, size]) bitStateRead
+        touchesMemory := true
+        mayRevert := true }
   | .internalCall h _ | .internalCallAssign _ h _ =>
       helperEffects h
   | .ecm mod _ =>

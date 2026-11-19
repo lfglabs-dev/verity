@@ -201,6 +201,7 @@ def collectStmtNames : Stmt → List String
   | Stmt.returndataCopy destOffset sourceOffset size =>
       collectExprNames destOffset ++ collectExprNames sourceOffset ++ collectExprNames size
   | Stmt.revertEmpty | Stmt.revertReturndata => []
+  | Stmt.revertMemory offset size => collectExprNames offset ++ collectExprNames size
   | Stmt.stop => []
   | Stmt.ite cond thenBranch elseBranch =>
       collectExprNames cond ++ collectStmtListNames thenBranch ++ collectStmtListNames elseBranch

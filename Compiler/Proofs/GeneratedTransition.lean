@@ -135,6 +135,7 @@ private partial def stmtSummary : Stmt → TransitionSummary
   | .returnValues values => { reads := dedup (values.flatMap exprReads) }
   | .returnArray name | .returnBytes name | .returnStorageWords name => { reads := [name] }
   | .returnCodeData pointer => { reads := dedup (exprReads pointer), events := ["returnCodeData"] }
+  | .revertMemory offset size => { reads := dedup (exprReads offset ++ exprReads size) }
   | .calldatacopy dest src size | .returndataCopy dest src size =>
       { reads := dedup (exprReads dest ++ exprReads src ++ exprReads size) }
   | .internalCall _ args | .internalCallAssign _ _ args =>

@@ -650,6 +650,7 @@ theorem execStmt_rawFree (fields : List Field) :
   | _, .returnValues _, _, h | _, .returnBytes _, _, h => by raw_free_arm
   | _, .returnArray .., _, _ | _, .returnStorageWords .., _, _
   | _, .returnCodeData .., _, _ | _, .revertEmpty, _, _ | _, .revertReturndata .., _, _
+  | _, .revertMemory .., _, _
   | _, .internalCall .., _, _ | _, .internalCallAssign .., _, _ | _, .rawLog .., _, _
   | _, .unsafeBlock .., _, _ | _, .unsafeYul .., _, _ | _, .matchAdt .., _, _ => by raw_free_arm
 
@@ -954,6 +955,9 @@ theorem execStmt_eq (fields : List Field) :
       execStmt_ecm_eq fields st mod args (by simpa only [stmtByteFree, Option.isNone_iff_eq_none]
         using hb) h
   | st, .returnBytes name, _, _ => execStmt_returnBytes_eq fields st name
+  | _, .revertMemory .., _, _ => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt]
+      split <;> rfl
   | _, .stop, _, _ | _, .returnArray .., _, _ | _, .returnStorageWords .., _, _
   | _, .returnCodeData .., _, _ | _, .revertEmpty, _, _ | _, .revertReturndata .., _, _
   | _, .internalCall .., _, _ | _, .internalCallAssign .., _, _ | _, .rawLog .., _, _

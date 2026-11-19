@@ -2986,6 +2986,29 @@ theorem compiledStmtStep_revertEmpty_single
     rw [hfuel]
     exact EmptyRevert.ir_exact state extraFuel
 
+/-- `revertMemory offset size` compiles to `revert(offset, size)`. The IR `revert` reverts
+whatever its arguments evaluate to, and the source statement reverts as well. -/
+theorem compiledStmtStep_revertMemory_single
+    {fields : List Field} {scope : List String} {offset size : Expr}
+    {offsetIR sizeIR : YulExpr}
+    (hoffsetIR : CompilationModel.compileExpr fields .calldata offset = Except.ok offsetIR)
+    (hsizeIR : CompilationModel.compileExpr fields .calldata size = Except.ok sizeIR) :
+    CompiledStmtStep fields scope (.revertMemory offset size)
+      [YulStmt.exprStmt (YulExpr.call "revert" [offsetIR, sizeIR])] where
+  compileOk := by
+    have hoffsetIRInternal := compileExprWithInternals_nil_ok hoffsetIR
+    have hsizeIRInternal := compileExprWithInternals_nil_ok hsizeIR
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      hoffsetIRInternal, hsizeIRInternal, Bind.bind, Except.bind, pure, Except.pure]
+  preserves := by
+    intro runtime state extraFuel _ _ _ _ _
+    refine ⟨.revert, .revert state, rfl, ?_, trivial⟩
+    have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
+    change execIRStmts (1 + extraFuel + 1) state
+      [YulStmt.exprStmt (YulExpr.call "revert" [offsetIR, sizeIR])] = .revert state
+    rw [hfuel]
+    simp [execIRStmts, execIRStmt]
+
 /-- Compiled IR for `revertReturndata`: copy the whole returndata buffer to memory
 and revert with it. -/
 private def revertReturndataIR : List YulStmt :=
@@ -6211,6 +6234,21 @@ theorem stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_
     {fields : List Field} {scope : List String} :
     StmtListGenericCore fields scope [Stmt.revertReturndata] :=
   StmtListGenericCore.cons compiledStmtStep_revertReturndata_empty_single
+    StmtListGenericCore.nil
+
+theorem stmtListGenericCore_of_supportedStmtList_revertMemorySingle_of_surface
+    {fields : List Field} {scope : List String} {offset size : Expr}
+    (hcoreOffset : FunctionBody.ExprCompileCore offset)
+    (_hinScopeOffset : FunctionBody.exprBoundNamesInScope offset scope)
+    (hcoreSize : FunctionBody.ExprCompileCore size)
+    (_hinScopeSize : FunctionBody.exprBoundNamesInScope size scope) :
+    StmtListGenericCore fields scope [Stmt.revertMemory offset size] := by
+  rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreOffset with
+    ⟨offsetIR, hoffsetIR⟩
+  rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreSize with
+    ⟨sizeIR, hsizeIR⟩
+  exact StmtListGenericCore.cons
+    (compiledStmtStep_revertMemory_single (hoffsetIR := hoffsetIR) (hsizeIR := hsizeIR))
     StmtListGenericCore.nil
 
 

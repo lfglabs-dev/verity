@@ -329,6 +329,10 @@ def stmtEffectSummary (helperEffects : String → MacroEffectSummary) :
         (exprEffectSummary helperEffects code)
   | .revertEmpty | .panic _ | .revertReturndata =>
       { mayRevert := true }
+  | .revertMemory offset size =>
+      MacroEffectSummary.join
+        { mayRevert := true, touchesMemory := true }
+        (exprListEffectSummary helperEffects [offset, size])
   | .internalCall h args | .internalCallAssign _ h args =>
       MacroEffectSummary.join
         (helperEffects h)

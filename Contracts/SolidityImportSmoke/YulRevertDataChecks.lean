@@ -1,12 +1,14 @@
 import Compiler.SolidityImport.Import
 
 /-!
-Yul `revert(offset, size)` with a nonzero or non-constant size (`YulRevertData.sol`).
+Yul `revert(offset, size)` with a nonzero size outside the modeled shape (`YulRevertData.sol`).
 
-The revert returns `size` memory bytes as revert data. There is no lowering for that, so the
-importer rejects it with a located error, whatever the number of state variables. It used to
-import as a revert with no data (`revertEmpty`) when the compiled sources declared more than
-one state variable. A zero-size revert is modeled (`YulEmptyRevertSequence`).
+The revert returns `size` memory bytes. The model's memory agrees with the EVM's only on the
+scratch bytes below 0x40 that the same Yul block wrote on every path, so only a literal range of
+such bytes lowers to `Stmt.revertMemory` (`YulRevertMemorySequence`). A restored free-memory
+pointer at 0x40 holds solc's pointer, which the model's differs from, so it never counts.
+Every other shape is a located rejection, whatever the number of state variables. A zero-size
+revert is modeled as `revertEmpty` (`YulEmptyRevertSequence`).
 -/
 namespace SolidityImportSmoke.YulRevertDataChecks
 
@@ -16,21 +18,21 @@ solidity_profile yulRevert where
   optimizerRuns := some 466
   bytecodeHash := "none"
 
--- A constant nonzero size: a 4-byte custom-error selector.
+-- No `mstore` in the block: the scratch words hold whatever the Solidity code left there.
 /--
-error: YulRevertData.sol:14:17: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data (nonzero size) is unsupported
-closure: YulRevertData.selectorRevert
+error: YulRevertData.sol:15:17: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+closure: YulRevertData.unwrittenRevert
 revert(0, 4)
 -/
 #guard_msgs in
-solidity_import selectorForm from "Contracts/SolidityImportSmoke" entry "YulRevertData.sol"
+solidity_import unwrittenForm from "Contracts/SolidityImportSmoke" entry "YulRevertData.sol"
   using yulRevert
   contract YulRevertData
-  function selectorRevert(uint256)
+  function unwrittenRevert(uint256)
 
 -- A size only known at run time.
 /--
-error: YulRevertData.sol:21:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data (nonzero size) is unsupported
+error: YulRevertData.sol:23:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
 closure: YulRevertData.sizedRevert
 revert(0, n)
 -/
@@ -39,5 +41,41 @@ solidity_import sizedForm from "Contracts/SolidityImportSmoke" entry "YulRevertD
   using yulRevert
   contract YulRevertData
   function sizedRevert(uint256)
+
+-- The scratch word is written only when the Yul `if` is taken.
+/--
+error: YulRevertData.sol:31:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+closure: YulRevertData.conditionalWriteRevert
+revert(0, 4)
+-/
+#guard_msgs in
+solidity_import conditionalForm from "Contracts/SolidityImportSmoke" entry "YulRevertData.sol"
+  using yulRevert
+  contract YulRevertData
+  function conditionalWriteRevert(uint256)
+
+-- The range runs past the written scratch words into the unwritten free-memory pointer slot.
+/--
+error: YulRevertData.sol:38:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+closure: YulRevertData.beyondScratchRevert
+revert(0, 0x60)
+-/
+#guard_msgs in
+solidity_import beyondScratchForm from "Contracts/SolidityImportSmoke" entry "YulRevertData.sol"
+  using yulRevert
+  contract YulRevertData
+  function beyondScratchRevert(uint256)
+
+-- The free-memory pointer word, written back from `mload(0x40)`: solc's pointer, not the model's.
+/--
+error: YulRevertData.sol:45:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+closure: YulRevertData.freePointerRevert
+revert(0x40, 0x20)
+-/
+#guard_msgs in
+solidity_import freePointerForm from "Contracts/SolidityImportSmoke" entry "YulRevertData.sol"
+  using yulRevert
+  contract YulRevertData
+  function freePointerRevert(uint256)
 
 end SolidityImportSmoke.YulRevertDataChecks

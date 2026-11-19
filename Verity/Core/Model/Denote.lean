@@ -2297,6 +2297,11 @@ mutual
     | _, .revertEmpty => .revertWithData []
     | state, .revertReturndata => .revertWithData
         (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes))
+    | state, .revertMemory offset size =>
+        match evalExpr oracle fields state offset, evalExpr oracle fields state size with
+        | some off, some sz =>
+            .revertWithData ((state.world.byteMemory.slice off sz).map fun byte => UInt8.ofNat byte.val)
+        | _, _ => .revert
     | state, .returnValues values =>
         match evalExprList oracle fields state values with
         | some resolved =>

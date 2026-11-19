@@ -317,6 +317,8 @@ private def collectUnguardedLowLevelStmtMechanics : Stmt → List String
   | .returndataCopy destOffset sourceOffset size =>
       ["returndataCopy"] ++ collectLowLevelExprMechanics destOffset ++ collectLowLevelExprMechanics sourceOffset ++ collectLowLevelExprMechanics size
   | .revertEmpty => []
+  | .revertMemory offset size =>
+      collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics size
   | .revertReturndata =>
       ["revertReturndata"]
   | .setMapping _ key value

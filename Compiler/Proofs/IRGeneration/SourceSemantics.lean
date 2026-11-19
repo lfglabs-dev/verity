@@ -1900,7 +1900,7 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
         | none => .revert
-    | _, .revertEmpty | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata | _, .revertMemory _ _ => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -2286,7 +2286,7 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               256 state bits
         | none => .revert
-    | _, .revertEmpty | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata | _, .revertMemory _ _ => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -3939,7 +3939,7 @@ mutual
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
         | none => .revert
-    | .revertEmpty | .revertReturndata => .revert
+    | .revertEmpty | .revertReturndata | .revertMemory _ _ => .revert
     | .externalCallBind resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>

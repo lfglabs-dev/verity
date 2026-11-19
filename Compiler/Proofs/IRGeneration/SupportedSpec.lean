@@ -989,6 +989,9 @@ def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
       exprTouchesUnsupportedConstructorRawCalldataSurface destOffset ||
         exprTouchesUnsupportedConstructorRawCalldataSurface sourceOffset ||
         exprTouchesUnsupportedConstructorRawCalldataSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedConstructorRawCalldataSurface offset ||
+        exprTouchesUnsupportedConstructorRawCalldataSurface size
   | .stop | .storageArrayPop _
   | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
   | .revertEmpty | .revertReturndata
@@ -1592,7 +1595,7 @@ def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
   | .setMapping2Word _ _ _ _ _ | .setMappingUint _ _ _ | .setMappingChain _ _ _
   | .setStructMember _ _ _ _ | .setStructMember2 _ _ _ _ _
   | .storageArrayPush _ _ | .storageArrayPop _ | .setStorageArrayElement _ _ _
-  | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertEmpty | .revertReturndata
+  | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertEmpty | .revertReturndata | .revertMemory _ _
   | .internalCall _ _ | .internalCallAssign _ _ _ => false
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite _ thenBranch elseBranch =>
@@ -1649,6 +1652,9 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
       exprTouchesUnsupportedCoreSurface destOffset ||
         exprTouchesUnsupportedCoreSurface sourceOffset ||
         exprTouchesUnsupportedCoreSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedCoreSurface offset ||
+        exprTouchesUnsupportedCoreSurface size
   | .storageArrayPop _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _
@@ -1680,6 +1686,9 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesUnsupportedStateSurface destOffset ||
         exprTouchesUnsupportedStateSurface sourceOffset ||
+        exprTouchesUnsupportedStateSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedStateSurface offset ||
         exprTouchesUnsupportedStateSurface size
   | .stop
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
@@ -1749,6 +1758,9 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
       exprTouchesUnsupportedCallSurface destOffset ||
         exprTouchesUnsupportedCallSurface sourceOffset ||
         exprTouchesUnsupportedCallSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedCallSurface offset ||
+        exprTouchesUnsupportedCallSurface size
   | .revertEmpty | .revertReturndata => false
   | .externalCallBind _ _ args => args.any exprTouchesUnsupportedCallSurface
   | .tryExternalCallBind _ _ _ args => args.any exprTouchesUnsupportedCallSurface
@@ -1802,6 +1814,9 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesUnsupportedHelperSurface destOffset ||
         exprTouchesUnsupportedHelperSurface sourceOffset ||
+        exprTouchesUnsupportedHelperSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedHelperSurface offset ||
         exprTouchesUnsupportedHelperSurface size
   | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
   | .ecm _ args =>
@@ -1860,6 +1875,9 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesInternalHelperSurface destOffset ||
         exprTouchesInternalHelperSurface sourceOffset ||
+        exprTouchesInternalHelperSurface size
+  | .revertMemory offset size =>
+      exprTouchesInternalHelperSurface offset ||
         exprTouchesInternalHelperSurface size
   | .stop
   | .revertEmpty | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
@@ -1941,6 +1959,9 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
       exprTouchesInternalHelperSurface destOffset ||
         exprTouchesInternalHelperSurface sourceOffset ||
         exprTouchesInternalHelperSurface size
+  | .revertMemory offset size =>
+      exprTouchesInternalHelperSurface offset ||
+        exprTouchesInternalHelperSurface size
   | .internalCall _ _ | .internalCallAssign _ _ _ | .stop
   | .revertEmpty | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
   | .storageArrayPop _ | .returnValues _ | .returnArray _
@@ -1967,7 +1988,7 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
   | .return _ | .returnCodeData _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .stop | .setStorageAddr _ _ | .setImmutable _ _ | .setStorageWord _ _ _ | .mstore _ _ | .tstore _ _
  
-  | .calldatacopy _ _ _ | .returndataCopy _ _ _
+  | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertMemory _ _
   | .revertEmpty | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
   | .setMapping _ _ _ | .setMappingWord _ _ _ _
   | .setMappingPackedWord _ _ _ _ _ | .setMapping2 _ _ _ _
@@ -2015,6 +2036,9 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesUnsupportedForeignSurface destOffset ||
         exprTouchesUnsupportedForeignSurface sourceOffset ||
+        exprTouchesUnsupportedForeignSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedForeignSurface offset ||
         exprTouchesUnsupportedForeignSurface size
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _
@@ -2067,6 +2091,9 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
       exprTouchesUnsupportedLowLevelSurface destOffset ||
         exprTouchesUnsupportedLowLevelSurface sourceOffset ||
         exprTouchesUnsupportedLowLevelSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedLowLevelSurface offset ||
+        exprTouchesUnsupportedLowLevelSurface size
   | .revertEmpty | .revertReturndata => false
   | .externalCallBind _ _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .tryExternalCallBind _ _ _ args => args.any exprTouchesUnsupportedLowLevelSurface
@@ -2108,6 +2135,9 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesUnsupportedContractSurface destOffset ||
         exprTouchesUnsupportedContractSurface sourceOffset ||
+        exprTouchesUnsupportedContractSurface size
+  | .revertMemory offset size =>
+      exprTouchesUnsupportedContractSurface offset ||
         exprTouchesUnsupportedContractSurface size
   | .stop => false
   | .revertEmpty | .revertReturndata => false
@@ -2370,7 +2400,7 @@ private theorem compileStmt_eventsErrorsAgnostic_step
           (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed hsurface)]
   | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord
   | require | «return» | mstore | tstore | calldatacopy | returndataCopy
-  | revertEmpty | revertReturndata | stop =>
+  | revertEmpty | revertReturndata | revertMemory | stop =>
       simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
   | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
 
@@ -2590,6 +2620,8 @@ mutual
     | .returndataCopy destOffset sourceOffset size =>
         exprInternalHelperCallNames destOffset ++ exprInternalHelperCallNames sourceOffset ++
           exprInternalHelperCallNames size
+    | .revertMemory offset size =>
+        exprInternalHelperCallNames offset ++ exprInternalHelperCallNames size
     | .setMapping _ key value | .setMappingWord _ key _ value
     | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
     | .setStructMember _ key _ value =>
@@ -2660,6 +2692,8 @@ mutual
     | .returndataCopy destOffset sourceOffset size =>
         exprInternalHelperCallNames destOffset ++ exprInternalHelperCallNames sourceOffset ++
           exprInternalHelperCallNames size
+    | .revertMemory offset size =>
+        exprInternalHelperCallNames offset ++ exprInternalHelperCallNames size
     | .setMapping _ key value | .setMappingWord _ key _ value
     | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
     | .setStructMember _ key _ value =>
@@ -3894,6 +3928,9 @@ private inductive SupportedLeafStmt : Stmt → Prop
       SupportedLeafStmt (.returndataCopy destOffset (.literal 0) (.literal 0))
   | revertEmpty : SupportedLeafStmt .revertEmpty
   | revertReturndata : SupportedLeafStmt .revertReturndata
+  | revertMemory {offset size : Expr} :
+      FunctionBody.ExprCompileCore offset → FunctionBody.ExprCompileCore size →
+      SupportedLeafStmt (.revertMemory offset size)
   | letStorage {tmp fieldName : String} :
       SupportedLeafStmt (.letVar tmp (.storage fieldName))
   | letStorageAddr {tmp fieldName : String} :
