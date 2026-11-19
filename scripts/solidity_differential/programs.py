@@ -1107,6 +1107,26 @@ def stateful_yul_empty_revert_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown yul-empty-revert variant: {variant}')
 
 
+def stateful_yul_revert_memory_source(fixture: str, variant: str) -> str:
+    """Yul `revert(offset, size)` over scratch words written in the same block: renamed
+    identifiers and the two-word revert with its `mstore`s in the other order agree."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        if len(re.findall(r'\btotal\b', fixture)) < 2:
+            raise ValueError('missing yul-revert-memory anchor total')
+        return re.sub(r'\btotal\b', 'sum', fixture)
+    if variant == 'reordered':
+        old = ('                mstore(0x00, x)\n'
+               '                mstore(0x20, add(x, 1))\n')
+        new = ('                mstore(0x20, add(x, 1))\n'
+               '                mstore(0x00, x)\n')
+        if fixture.count(old) != 1:
+            raise ValueError('missing yul-revert-memory anchor two-word mstore')
+        return fixture.replace(old, new)
+    raise ValueError(f'unknown yul-revert-memory variant: {variant}')
+
+
 def stateful_signed_struct_member_read_source(fixture: str, variant: str) -> str:
     """Reads of negative narrow signed packed struct members (storage array, mapping, state
     variable, storage reference, memory copy) agree with renamed identifiers and with the same

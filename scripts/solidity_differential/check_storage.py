@@ -95,6 +95,7 @@ from .programs import (
     stateful_yul_block_mulmod_tstore_source,
     stateful_yul_builtins_and_encode_selector_source,
     stateful_yul_empty_revert_source,
+    stateful_yul_revert_memory_source,
     stateful_yul_numeric_source,
 )
 
@@ -155,6 +156,12 @@ def canonical_observations(observations):
                 'storage': [[*key, storage[key]] for key in sorted(storage)]})
     return result
 
+
+# One call per Yul revert shape (x % 8 in 0..5) with small arguments, the argument shapes with
+# high-bit payload words (selector + argument, two words with `add(x, 1)` near 2^256,
+# `mul(x, 3)` wrapping), and calls that store (x % 8 in 6, 7).
+YUL_REVERT_MEMORY_PREFIX = [16, 17, 18, 19, 20, 21, 22, 23, 2 ** 255 + 2, 2 ** 255 + 3,
+                            2 ** 256 - 5, 2 ** 255 + 4, 2 ** 255 + 5, 2 ** 256 - 1, 2 ** 255 + 6]
 
 # Fixture name -> Contracts/SolidityImportSmoke/<contract>.sol. One entry per line,
 # sorted, so PRs adding different fixtures do not touch the same line.
@@ -251,6 +258,7 @@ FIXTURE_CONTRACTS = {
     'yul-block-mulmod-tstore': 'YulBlockMulmodTstoreSequence',
     'yul-builtins-and-encode-selector': 'YulBuiltinsAndEncodeSelectorSequence',
     'yul-empty-revert': 'YulEmptyRevertSequence',
+    'yul-revert-memory': 'YulRevertMemorySequence',
     'yul-numeric': 'YulNumericSequence',
 }
 
@@ -425,6 +433,8 @@ def main():
         variants = ('baseline', 'renamed', 'literal-initializers')
     if args.fixture == 'yul-empty-revert':
         variants = ('baseline', 'renamed', 'offsets')
+    if args.fixture == 'yul-revert-memory':
+        variants = ('baseline', 'renamed', 'reordered')
     if args.fixture == 'signed-struct-member-read':
         variants = ('baseline', 'renamed', 'local-reads')
     if args.fixture == 'packed-signed-int':
@@ -522,6 +532,7 @@ def main():
                           else stateful_signed_struct_compound_source(fixture, variant) if args.fixture == "signed-struct-compound"
                           else stateful_byte_constant_conversions_source(fixture, variant) if args.fixture == "byte-constant-conversions"
                           else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
+                          else stateful_yul_revert_memory_source(fixture, variant) if args.fixture == "yul-revert-memory"
                           else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
                           else stateful_packed_signed_int_source(fixture, variant) if args.fixture == "packed-signed-int"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
@@ -552,6 +563,10 @@ def main():
         if args.fixture == 'yul-empty-revert':
             # Both zero-size revert branches (x % 5 == 0 and 1) and a call that stores.
             extra = ['--change-prefix', '10', '11', '12', '15', '16', '17']
+        if args.fixture == 'yul-revert-memory':
+            # Every revert shape (x % 8 in 0..5), with small and high-bit payload words, and
+            # calls that store (x % 8 in 6, 7).
+            extra = ['--change-prefix', *map(str, YUL_REVERT_MEMORY_PREFIX)]
         if args.fixture == 'signed-struct-member-read':
             # Negative, positive-extreme and read-only calls on every cell and both struct paths.
             extra = ['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)]

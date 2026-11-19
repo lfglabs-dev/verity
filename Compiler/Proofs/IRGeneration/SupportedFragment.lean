@@ -114,6 +114,16 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
   | revertReturndataEmptySingle
       {scope : List String} :
       SupportedStmtList fields scope [Stmt.revertReturndata]
+  /-- `revert(offset, size)` with a memory payload. Source semantics observes the revert
+  (the payload is carried by `Denote`), so the step needs only compilable, in-scope
+  arguments. -/
+  | revertMemorySingle
+      {scope : List String} {offset size : Expr} :
+      FunctionBody.ExprCompileCore offset →
+      FunctionBody.exprBoundNamesInScope offset scope →
+      FunctionBody.ExprCompileCore size →
+      FunctionBody.exprBoundNamesInScope size scope →
+      SupportedStmtList fields scope [Stmt.revertMemory offset size]
   | letStorageField
       {scope : List String}
       {tmp : String}

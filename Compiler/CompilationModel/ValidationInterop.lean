@@ -184,6 +184,9 @@ def validateInteropStmt (context : String) : Stmt → Except String Unit
       validateInteropExpr context destOffset
       validateInteropExpr context sourceOffset
       validateInteropExpr context size
+  | Stmt.revertMemory offset size => do
+      validateInteropExpr context offset
+      validateInteropExpr context size
   | Stmt.revertEmpty | Stmt.revertReturndata =>
       pure ()
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value

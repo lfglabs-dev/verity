@@ -2281,12 +2281,28 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))
         else if fname == "revert" then
           unless args.size == 2 do failAt expr "revert requires two arguments"
-          -- Only a zero-size revert is modeled (`revertEmpty`); a nonzero size returns memory
-          -- bytes as revert data, which this lowering cannot reproduce.
-          unless (← yulNumber? args[1]!) == some 0 do
-            failAt expr "Yul revert with revert data (nonzero size) is unsupported"
-          let offVal ← lowerYul args[0]!
-          out := out ++ offVal.pre |>.push .revertEmpty
+          if (← yulNumber? args[1]!) == some 0 then
+            let offVal ← lowerYul args[0]!
+            out := out ++ offVal.pre |>.push .revertEmpty
+          else
+            -- A nonzero size reverts with memory bytes. The model's memory agrees with the EVM's
+            -- only on scratch bytes (below 0x40) this Yul block wrote on every path
+            -- (`yulWrittenBytes`): elsewhere solc's code generator left values the model does not
+            -- reproduce, and a restored free-memory pointer at 0x40 holds solc's pointer, which
+            -- the model's differs from. So the range must be literal, below 0x40 and written
+            -- (e.g. `mstore(0, sel) revert(0x1c, 4)`).
+            let written := (← get).yulWrittenBytes
+            let range? := match (← yulNumber? args[0]!), (← yulNumber? args[1]!) with
+              | some off, some size =>
+                  if off + size ≤ 0x40 &&
+                      (List.range size).all fun k => written.testBit (off + k) then
+                    some (off, size)
+                  else none
+              | _, _ => none
+            let some (off, size) := range?
+              | failAt expr ("Yul revert with revert data is supported only for a literal " ++
+                  "range below 0x40 that this Yul block wrote on every path")
+            out := out.push (.revertMemory (.literal off) (.literal size))
         else
           failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
     | "YulIf" =>

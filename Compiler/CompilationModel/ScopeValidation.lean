@@ -506,6 +506,10 @@ def validateScopedStmtIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount sourceOffset
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount size
       pure localScope
+  | Stmt.revertMemory offset size => do
+      validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount offset
+      validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount size
+      pure localScope
   | .panicCode code => do
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount code
       pure localScope

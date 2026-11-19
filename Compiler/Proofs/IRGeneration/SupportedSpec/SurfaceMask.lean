@@ -172,6 +172,8 @@ def stmtSurfaceMask : Stmt → SurfaceMask
       bitConstructorRaw ||| exprSurfaceMask d ||| exprSurfaceMask s ||| exprSurfaceMask sz
   | .returndataCopy d s sz =>
       exprSurfaceMask d ||| exprSurfaceMask s ||| exprSurfaceMask sz
+  | .revertMemory o sz =>
+      exprSurfaceMask o ||| exprSurfaceMask sz
   | .stop | .revertEmpty | .revertReturndata => 0
   | .setMapping _ k v | .setMappingWord _ k _ v
   | .setMappingPackedWord _ k _ _ v | .setMappingUint _ k v

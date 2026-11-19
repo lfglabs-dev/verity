@@ -630,6 +630,11 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       ])]
   | Stmt.revertEmpty =>
       pure [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+  | Stmt.revertMemory offset size => do
+      pure [YulStmt.exprStmt (YulExpr.call "revert" [
+        ← compileExprWithInternals fields dynamicSource internalFunctions offset,
+        ← compileExprWithInternals fields dynamicSource internalFunctions size
+      ])]
   | Stmt.revertReturndata =>
       pure [YulStmt.block [
         YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),

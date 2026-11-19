@@ -104,6 +104,13 @@ inductive StmtListScopeDiscipline (fieldNames : List String) : List String → L
   | revertReturndata {scope : List String} {rest : List Stmt} :
       StmtListScopeDiscipline fieldNames scope rest →
       StmtListScopeDiscipline fieldNames scope (.revertReturndata :: rest)
+  | revertMemory {scope : List String} {offset size : Expr} {rest : List Stmt} :
+      FunctionBody.ExprCompileCore offset →
+      FunctionBody.exprBoundNamesInScope offset scope →
+      FunctionBody.ExprCompileCore size →
+      FunctionBody.exprBoundNamesInScope size scope →
+      StmtListScopeDiscipline fieldNames (stmtNextScope scope (.revertMemory offset size)) rest →
+      StmtListScopeDiscipline fieldNames scope (.revertMemory offset size :: rest)
   | ite {scope : List String} {cond : Expr} {thenBranch elseBranch rest : List Stmt} :
       FunctionBody.ExprCompileCore cond →
       FunctionBody.exprBoundNamesInScope cond scope →
@@ -190,6 +197,11 @@ inductive StmtListScopeCore (fieldNames : List String) : List Stmt → Prop wher
   | revertReturndata {rest : List Stmt} :
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.revertReturndata :: rest)
+  | revertMemory {offset size : Expr} {rest : List Stmt} :
+      FunctionBody.ExprCompileCore offset →
+      FunctionBody.ExprCompileCore size →
+      StmtListScopeCore fieldNames rest →
+      StmtListScopeCore fieldNames (.revertMemory offset size :: rest)
   | ite {cond : Expr} {thenBranch elseBranch rest : List Stmt} :
       FunctionBody.ExprCompileCore cond →
       StmtListScopeCore fieldNames thenBranch →
@@ -1201,6 +1213,16 @@ private theorem scopedStmtListInvariant_revertReturndata {rest : List Stmt}
     (fun h => by simp only [validateScopedStmtIdentifiers, pure, Except.pure] at h; cases h; rfl)
     (by simp [collectStmtBindNames]) StmtListScopeDiscipline.revertReturndata) ih
 
+private theorem scopedStmtListInvariant_revertMemory {offset size : Expr} {rest : List Stmt}
+    (hcoreOffset : FunctionBody.ExprCompileCore offset)
+    (hcoreSize : FunctionBody.ExprCompileCore size)
+    (ih : StmtListInvariant rest) : StmtListInvariant (.revertMemory offset size :: rest) :=
+  scopedStmtListInvariant_cons (scopedStmtStep_of_expr2 hcoreOffset hcoreSize
+    (fun h => except_bind_bind_pure_ok_inv (by
+      simpa only [validateScopedStmtIdentifiers] using h))
+    (fun hoffset hsize => StmtListScopeDiscipline.revertMemory hcoreOffset hoffset hcoreSize hsize))
+    ih
+
 private theorem scopedStmtListInvariant_ite {cond : Expr} {thenBranch elseBranch rest : List Stmt}
     (hcore : FunctionBody.ExprCompileCore cond) (ihThen : StmtListInvariant thenBranch)
     (ihElse : StmtListInvariant elseBranch) (ih : StmtListInvariant rest) :
@@ -1255,6 +1277,7 @@ private theorem scopedStmtListInvariant_of_core {stmts : List Stmt}
   | returndataCopy hd hs hz _ ih => exact scopedStmtListInvariant_returndataCopy hd hs hz ih
   | revertEmpty _ ih => exact scopedStmtListInvariant_revertEmpty ih
   | revertReturndata _ ih => exact scopedStmtListInvariant_revertReturndata ih
+  | revertMemory ho hs _ ih => exact scopedStmtListInvariant_revertMemory ho hs ih
   | ite hc _ _ _ ihT ihE ih => exact scopedStmtListInvariant_ite hc ihT ihE ih
   | forEachLiteralZero _ _ ihB ih => exact scopedStmtListInvariant_forEachLiteralZero ihB ih
   | forEachLiteralEmpty _ ih => exact scopedStmtListInvariant_forEachLiteralEmpty ih

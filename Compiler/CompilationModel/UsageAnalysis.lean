@@ -284,6 +284,9 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprUsesArrayElementKind includePlain includeWord destOffset ||
         exprUsesArrayElementKind includePlain includeWord sourceOffset ||
         exprUsesArrayElementKind includePlain includeWord size
+  | Stmt.revertMemory offset size =>
+      exprUsesArrayElementKind includePlain includeWord offset ||
+        exprUsesArrayElementKind includePlain includeWord size
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value
   | Stmt.setStructMember _ key _ value =>
       exprUsesArrayElementKind includePlain includeWord key ||
@@ -455,6 +458,8 @@ def stmtUsesArrayElement : Stmt → Bool
   | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprUsesArrayElement destOffset || exprUsesArrayElement sourceOffset || exprUsesArrayElement size
+  | Stmt.revertMemory offset size =>
+      exprUsesArrayElement offset || exprUsesArrayElement size
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value
   | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value
   | Stmt.setStructMember _ key _ value =>
@@ -662,6 +667,8 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
   | Stmt.calldatacopy a b c | Stmt.returndataCopy a b c =>
       exprUsesParamDynamicHeadWord a || exprUsesParamDynamicHeadWord b ||
       exprUsesParamDynamicHeadWord c
+  | Stmt.revertMemory a b =>
+      exprUsesParamDynamicHeadWord a || exprUsesParamDynamicHeadWord b
   | Stmt.setMapping _ k v | Stmt.setMappingWord _ k _ v
   | Stmt.setMappingPackedWord _ k _ _ v | Stmt.setMappingUint _ k v
   | Stmt.setStructMember _ k _ v =>
@@ -814,6 +821,8 @@ def stmtUsesMulDiv512 : Stmt → Bool
       exprUsesMulDiv512 offset || exprUsesMulDiv512 value
   | Stmt.calldatacopy a b c | Stmt.returndataCopy a b c =>
       exprUsesMulDiv512 a || exprUsesMulDiv512 b || exprUsesMulDiv512 c
+  | Stmt.revertMemory a b =>
+      exprUsesMulDiv512 a || exprUsesMulDiv512 b
   | Stmt.setMapping _ k v | Stmt.setMappingWord _ k _ v
   | Stmt.setMappingPackedWord _ k _ _ v | Stmt.setMappingUint _ k v
   | Stmt.setStructMember _ k _ v =>
@@ -995,6 +1004,8 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprUsesStorageArrayElement destOffset || exprUsesStorageArrayElement sourceOffset || exprUsesStorageArrayElement size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprUsesStorageArrayElement destOffset || exprUsesStorageArrayElement sourceOffset || exprUsesStorageArrayElement size
+  | Stmt.revertMemory offset size =>
+      exprUsesStorageArrayElement offset || exprUsesStorageArrayElement size
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value
   | Stmt.setStructMember _ key _ value =>
       exprUsesStorageArrayElement key || exprUsesStorageArrayElement value
@@ -1154,6 +1165,8 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
   | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprUsesDynamicBytesEq destOffset || exprUsesDynamicBytesEq sourceOffset || exprUsesDynamicBytesEq size
+  | Stmt.revertMemory offset size =>
+      exprUsesDynamicBytesEq offset || exprUsesDynamicBytesEq size
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value
   | Stmt.setMappingUint _ key value
   | Stmt.setStructMember _ key _ value =>

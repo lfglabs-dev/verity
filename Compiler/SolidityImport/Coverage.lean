@@ -206,6 +206,7 @@ mutual
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
+    | .revertMemory offset size => exprCovered offset && exprCovered size
     | .ecm mod args => closedTransportCovered mod args
     | .emit _ args => exprListCovered args
     | .stop => true
@@ -523,6 +524,17 @@ theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Fie
     (state : DenoteState) :
     execStmt oracle fields state .revertReturndata = .revertWithData
       (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes)) := rfl
+
+/-- A memory-range revert reverts with the bytes of `[offset, offset + size)` of the
+frame's physical memory; an unevaluable argument is a payload-free `.revert`. -/
+theorem execStmt_revertMemory_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset size : Expr) :
+    execStmt oracle fields state (.revertMemory offset size) =
+      (match evalExpr oracle fields state offset, evalExpr oracle fields state size with
+       | some off, some sz =>
+           .revertWithData ((state.world.byteMemory.slice off sz).map fun byte =>
+             UInt8.ofNat byte.val)
+       | _, _ => .revert) := rfl
 
 theorem execStmt_stop_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :

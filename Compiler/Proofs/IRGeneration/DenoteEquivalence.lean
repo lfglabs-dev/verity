@@ -104,8 +104,8 @@ theorem stmtByteFree_of_contractSurfaceClosed :
   | .panicCode .., _ | .panic .., _ | .return .., _ | .stop, _ | .emit .., _
   | .externalCallBind .., _ | .tryExternalCallBind .., _ | .returnValues .., _
   | .returnBytes .., _ | .returnArray .., _ | .returnStorageWords .., _
-  | .returnCodeData .., _ | .revertEmpty, _ | .revertReturndata, _ | .internalCall .., _
-  | .internalCallAssign .., _ | .rawLog .., _ | .unsafeYul .., _ => rfl
+  | .returnCodeData .., _ | .revertEmpty, _ | .revertReturndata, _ | .revertMemory .., _
+  | .internalCall .., _ | .internalCallAssign .., _ | .rawLog .., _ | .unsafeYul .., _ => rfl
 
 theorem stmtListByteFree_of_contractSurfaceClosed :
     ∀ stmts : List Stmt, stmtListTouchesUnsupportedContractSurface stmts = false →

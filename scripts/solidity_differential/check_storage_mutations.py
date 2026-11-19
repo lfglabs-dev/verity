@@ -227,8 +227,14 @@ MUTANTS.update({
     'import-signed-compound-unchecked': (
         '      pure { pre := #[], expr := extend raw }',
         '      pure { pre := #[], expr := raw }'),
-    'import-yul-empty-revert-drop': ('          out := out ++ offVal.pre |>.push .revertEmpty\n',
-                                     '          out := out ++ offVal.pre\n'),
+    'import-yul-empty-revert-drop': ('            out := out ++ offVal.pre |>.push .revertEmpty\n',
+                                     '            out := out ++ offVal.pre\n'),
+    'import-yul-revert-memory-empty': (
+        '            out := out.push (.revertMemory (.literal off) (.literal size))\n',
+        '            out := out.push .revertEmpty\n'),
+    'import-yul-revert-memory-offset': (
+        '            out := out.push (.revertMemory (.literal off) (.literal size))\n',
+        '            out := out.push (.revertMemory (.literal 0) (.literal size))\n'),
     'import-signed-struct-member-raw-read': ('      | some bits => if bits < 256 then Expr.signextend (.literal (bits / 8 - 1)) masked else masked',
                                              '      | some bits => if bits < 256 then masked else masked'),
     'import-signed-struct-member-layout-read': ('      | some (_, bits) => Expr.signextend (.literal (bits / 8 - 1)) read',
@@ -834,6 +840,8 @@ def run(directory, output, name):
         fixture = "DynamicArrayRootReturnStatelessSequence"
     if name.startswith("import-yul-empty-revert-"):
         fixture = "YulEmptyRevertSequence"
+    if name.startswith("import-yul-revert-memory-"):
+        fixture = "YulRevertMemorySequence"
     if name.startswith("import-signed-compound-"):
         fixture = "SignedCompoundAssignmentSequence"
     if name.startswith("import-signed-modulo-"):

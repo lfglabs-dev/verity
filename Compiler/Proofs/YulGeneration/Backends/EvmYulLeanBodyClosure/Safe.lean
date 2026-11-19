@@ -624,6 +624,22 @@ theorem bridgedSafeStmts_revertReturndataEmptySingle
     subst stmt
     exact BridgedSourceRevertReturndataStmt.revertReturndata)
 
+/-- The singleton `revertMemory` shape exposed by `SupportedFragment.revertMemorySingle`
+    is a native safe body whenever its offset and size are compile-core expressions. -/
+theorem bridgedSafeStmts_revertMemorySingle_of_exprCompileCore
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} {offset size : Expr}
+    (hOffset : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore offset)
+    (hSize : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore size) :
+    BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal
+      [Stmt.revertMemory offset size] :=
+  BridgedSafeStmts.revertReturndata (by
+    intro stmt hMem
+    simp only [List.mem_singleton] at hMem
+    subst stmt
+    exact bridgedSourceRevertMemoryStmt_of_exprCompileCore hOffset hSize)
+
 /-- Singleton native safe-body package for a single-slot `setMapping` write. -/
 theorem bridgedSafeStmts_setMappingSingleSlot
     {fields : List Field} {errors : List ErrorDef}

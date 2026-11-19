@@ -111,6 +111,7 @@ Legend: **ok** = supported, **0** = returns 0 (not modeled), **del** = delegated
 | Calldatacopy | `Stmt.calldatacopy` | ok | ok | ok | proved |
 | Returndatacopy | `Stmt.returndataCopy` | ok | ok | ok | partial |
 | Revert returndata | `Stmt.revertReturndata` | **rev** | **rev** | -- | proved |
+| Revert memory range | `Stmt.revertMemory` | **rev** | **rev** | -- | proved |
 | Raw log | `Stmt.rawLog` | **rev** | **rev** | -- | n/m |
 | External call bind | `Stmt.externalCallBind` | **rev** | **rev** | -- | n/m |
 | ECM (`callWithValue` / `callWithValueBytes` included) | `Stmt.ecm` | **rev** | **rev** | -- | n/m |

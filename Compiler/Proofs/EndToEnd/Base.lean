@@ -3845,6 +3845,7 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
   case returndataCopyEmptySingle hDest _ => exact bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore hDest
   case revertEmptySingle => exact bridgedSafeStmts_revertEmptySingle
   case revertReturndataEmptySingle => exact bridgedSafeStmts_revertReturndataEmptySingle
+  case revertMemorySingle hOffset _ hSize _ => exact bridgedSafeStmts_revertMemorySingle_of_exprCompileCore hOffset hSize
   case setMappingUintSingle hKey _ hValue _ _ => exact bridgedSafeStmts_setMappingUintSingle_of_safety hKey hValue hSafety
   case setMappingChainSingle hKeys _ hValue _ _ => exact bridgedSafeStmts_setMappingChainSingle_of_safety hKeys hValue hSafety
   case setMappingSingle hKey _ hValue _ _ => exact bridgedSafeStmts_setMappingSingle_of_safety hKey hValue hSafety
