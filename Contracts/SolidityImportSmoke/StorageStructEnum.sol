@@ -53,4 +53,12 @@ contract StorageStructEnum {
         assembly { k := 3 }
         byMode[k].mode = Mode.First;
     }
+    struct Narrow { mapping(uint8 => Mode) levels; }
+    mapping(uint256 => Narrow) internal narrow;
+    function narrowKey() external returns (Mode) {
+        uint8 k = 0;
+        assembly { k := 257 }
+        narrow[0].levels[k] = Mode.First;
+        return narrow[0].levels[1];
+    }
 }
