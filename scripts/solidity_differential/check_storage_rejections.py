@@ -544,26 +544,36 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
+        ('named-declared-order-assignment-call',
+         "pragma solidity 0.8.34;\ncontract C {\n  function pack(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) { return 100 * a + 10 * b + c; }\n  function checked(uint256 x) external pure returns (uint256) { uint256 y = x % 7; return pack({a: y, b: y++, c: y = 9}); }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('named-reordered-assignment-call-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function pack(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) { return 100 * a + 10 * b + c; }\n  function checked(uint256 x) external pure returns (uint256) { uint256 y = x % 7; return pack({c: y = 9, b: y++, a: y}); }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:4:91: FunctionCall: [solidity-import:unsupported] named call arguments are outside this slice'),
         ('storage-pointer-helper-argument',
          'pragma solidity 0.8.34;\ncontract C { struct S { uint n; } mapping(uint => S) slots;\n'
          'function ptr(uint k) internal returns (S storage) { return slots[k]; }\n'
          'function put(S storage p, uint n) internal { p.n = n; }\n'
          'function checked(uint x) external returns (uint) { put(ptr(x), x); return slots[x].n; }}',
-         None, '{ evmVersion := "osaka", viaIR := true }', None),
+         None, '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }', None),
         ('storage-pointer-helper-receiver',
          'pragma solidity 0.8.34;\nstruct S { uint n; } library L {\n'
          'function put(S storage p, uint n) internal { p.n = n; }}\n'
          'contract C { using L for S; mapping(uint => S) slots;\n'
          'function ptr(uint k) internal returns (S storage) { return slots[k]; }\n'
          'function checked(uint x) external returns (uint) { ptr(x).put(x); return slots[x].n; }}',
-         None, '{ evmVersion := "osaka", viaIR := true }', None),
+         None, '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }', None),
         ('storage-pointer-abstract-receiver',
          'pragma solidity 0.8.34;\nstruct S { uint n; } library L {\n'
          'function put(S storage p, uint n) internal { p.n = n; }}\n'
          'abstract contract C { using L for S;\n'
          'function ptr(uint k) internal virtual returns (S storage);\n'
          'function checked(uint x) external returns (uint) { ptr(x).put(x); return x; }}',
-         None, '{ evmVersion := "osaka", viaIR := true }',
+         None, '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Fixture.sol:6:52: FunctionCall: [solidity-import:unsupported] storage pointer helper has no implementation'),
         ('storage-pointer-receiver-competing-write',
          'pragma solidity 0.8.34;\nstruct S { uint n; } library L {\n'
@@ -571,7 +581,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          'contract C { using L for S; mapping(uint => S) slots;\n'
          'function ptr(uint k) internal returns (S storage) { return slots[k]; }\n'
          'function checked(uint x) external returns (uint) { ptr(x).put(x++); return slots[x].n; }}',
-         None, '{ evmVersion := "osaka", viaIR := true }',
+         None, '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Fixture.sol:6:52: FunctionCall: [solidity-import:unsupported] stateful helper call arguments'),
         ('assignment-expr-mapping-target-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  mapping(uint256 => uint256) private m;\n  function checked(uint256 x) external returns (uint256) { return (m[0] = x) + 1; }\n}\n",
