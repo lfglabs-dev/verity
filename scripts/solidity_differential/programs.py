@@ -3608,6 +3608,19 @@ ROOT_PARAM_RENAMES = {
     'bytes-array-param': (
         {'data', 'i', 'acc', 'total', 'part', 'a', 'b', 'x'},
         {'digest', 'stored'}),
+    # Not root parameters: the same two rename axes for the memory struct fixtures.
+    'struct-memory-array-helpers': (
+        {'list', 'n', 'i', 's', 'k', 'b', 'x', 'shared', 'zeros', 'first', 'probe'},
+        {'asset', 'amount', 'total', 'active', 'build', 'zeroed', 'sum', 'bump', 'same', 'touch',
+         'Balance', 'value', 'last'}),
+    'memory-struct-enum-array-members': (
+        {'a', 'm', 'r', 'q', 'f', 's', 'i', 'n', 'x', 'assets', 'amounts'},
+        {'amount', 'mode', 'flag', 'receiver', 'tag', 'makeRepay', 'weight', 'total', 'Repay',
+         'Flash', 'Mode', 'Stable', 'Variable', 'value', 'last'}),
+    'nested-memory-struct-return': (
+        {'r', 'x', 'k', 'narrow', 'res'},
+        {'data', 'configuration', 'index', 'token', 'extra', 'weight', 'Config', 'Reserve',
+         'value', 'last'}),
 }
 
 

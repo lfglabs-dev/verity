@@ -537,6 +537,28 @@ private partial def refersToByRefStruct (j : Json) : M Bool := do
   | "Conditional" =>
       pure ((← refersToByRefStruct (← mField j "trueExpression")) ||
         (← refersToByRefStruct (← mField j "falseExpression")))
+  | "MemberAccess" =>
+      -- A nested struct member of a by-reference struct is part of the alias.
+      if (← mType j).startsWith "struct " then refersToByRefStruct (← mField j "expression")
+      else pure false
+  | _ => pure false
+
+/-- Whether `j` denotes a struct element in memory (`a[i]`, `p.items[i]`, or a
+local or parameter bound to one): solc returns its pointer, so a struct helper
+returning it hands the caller an alias, which a flat copy cannot model once
+the element is written. -/
+private partial def refersToMemoryStructElement (j : Json) : M Bool := do
+  match ← mKind j with
+  | "Identifier" =>
+      let id ← refInt j
+      pure (id ≥ 0 && ((← get).abiElements.find? id.toNat).any (·.inMemory))
+  | "IndexAccess" => pure ((← mType j).startsWith "struct " && (← mType j).endsWith " memory")
+  | "TupleExpression" =>
+      (← mArr (← mField j "components")).anyM fun c =>
+        if c.isNull then pure false else refersToMemoryStructElement c
+  | "Conditional" =>
+      pure ((← refersToMemoryStructElement (← mField j "trueExpression")) ||
+        (← refersToMemoryStructElement (← mField j "falseExpression")))
   | _ => pure false
 
 private def readRawStructScalar (pre : Array Stmt) (baseSlot : Expr) (mInfo : RawStructMemberInfo) : M Val := do
@@ -2702,6 +2724,64 @@ private def abiElementStructId (mem : MemParam) (memberIndex : Nat) (node : Json
     | failAt node "missing parent struct member"
   refInt (← mField (← mField memberNode "typeName") "baseType")
 
+/-- For a node of type `S[] memory` (a one-level dynamic memory array of a
+struct `S`, read from solc's `typeIdentifier`, never from the struct's name):
+the declaration id of `S` and its member fields, if every member is a scalar
+`AbiSchema.scalarField` admits. A struct with any other member is rejected at
+`node`, since its element layout would not be one scalar word per member. -/
+private def structMemArrayOf? (node : Json) : M (Option (Nat × List AbiSchema.ScalarField)) := do
+  let some tid := (field? node "typeDescriptions").bind (optStr · "typeIdentifier") | return none
+  let pfx := "t_array$_t_struct$_"
+  let sfx := "_memory_ptr_$dyn_memory_ptr"
+  unless tid.startsWith pfx && tid.endsWith sfx do return none
+  let core := (tid.dropEnd sfx.length).toString
+  if ((core.drop pfx.length).toString.splitOn "t_array").length > 1 then return none
+  let some digits := (core.splitOn "_$").getLast? | return none
+  let some sid := digits.toNat? | return none
+  let some decl := (← get).structs.find? sid | return none
+  let members ← mArr (← mField decl "members")
+  if members.isEmpty then failAt node "memory arrays of empty structs are outside this slice"
+  match members.toList.mapM AbiSchema.scalarField with
+  | .ok fields => return some (sid, fields)
+  | .error _ =>
+      failAt node "memory struct arrays require a struct whose members are unsigned scalars, address, bool or bytes32"
+
+/-- solc's `allocate_and_zero_memory_struct`: `words` fresh words at the free
+pointer (`Panic(0x41)` guards as `allocate_memory`), each stored zero. -/
+private def zeroedStructAlloc (ptr finish : String) (words : Nat) : List Stmt :=
+  AbiEncoding.reserve ptr finish (.literal (32 * words)) ++
+    (List.range words).map fun i => Stmt.mstore (.add (.localVar ptr) (.literal (32 * i))) (.literal 0)
+
+/-- The `elementType` tag of an `S[] memory` descriptor: not a Solidity type,
+so scalar conversions and encodings of the element fail rather than treat a
+struct pointer as a value. -/
+private def structMemArrayTag (sid : Nat) : String := s!"memory struct #{sid}"
+
+/-- The element kind of a dynamic memory array node: a scalar `T[]`
+(`scalarArrayElement?`) or `S[]` of a flat scalar struct (`structMemArrayOf?`),
+whose words are struct pointers (`uint256` model words, `elemStructId`). -/
+private def memArrayElementOf? (node : Json) :
+    M (Option (String × ParamType × SolidityAbi.ScalarKind × Option (Nat × List AbiSchema.ScalarField))) := do
+  if let some (elem, pty, kind) := scalarArrayElement? (← mType node) then
+    return some (elem, pty, kind, none)
+  if let some (sid, fields) ← structMemArrayOf? node then
+    return some (structMemArrayTag sid, .uint256, .uint ⟨31, by decide⟩, some (sid, fields))
+  return none
+
+/-- The synthetic ABI root (above every AST id) whose single `structArray`
+member types the element views `.abiElement root 0 ptr true` of an `S[]
+memory` descriptor: element member reads and writes use its fields, and
+`abiElementStructId` its `rootArrayStructId`. Nothing lowers to the root itself. -/
+private def structMemArrayElementRoot (sid : Nat) (fields : List AbiSchema.ScalarField) : M Nat := do
+  let some decl := (← get).structs.find? sid | throwError "unknown struct declaration {sid}"
+  let sName ← mStr (← mField decl "name")
+  let rootId := 1000000000 + (← get).next
+  let desc : MemParam :=
+    { structId := sid, param := "", structName := sName, members := #[],
+      schema := some [.structArray "" fields], rootArrayWord := some 0, rootArrayStructId := some sid }
+  modify fun e => { e with next := e.next + 1, mems := e.mems.insert rootId desc }
+  return rootId
+
 set_option maxHeartbeats 1600000 in
 mutual
 
@@ -3399,6 +3479,12 @@ private partial def lowerRef (j : Json) : M Ref := do
           else
             let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding)) [] [.panicCode (.literal 0x32)])
             let value := Expr.mload (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32)))
+            if let some sid := arr.elemStructId then
+              -- `a[i]` of `S[] memory`: a view of the element struct at the
+              -- pointer word (read after the bounds check, never copied).
+              let elemPtr ← fresh
+              let rootId ← structMemArrayElementRoot sid arr.elemFields
+              return .abiElement rootId 0 (.localVar elemPtr) true (pre.push (.letVar elemPtr value))
             return .expr { pre, expr := value }
       | .expr baseVal =>
           let baseTy ← mType baseExpression
@@ -3603,9 +3689,25 @@ private partial def lowerRef (j : Json) : M Ref := do
             pure (.expr { pre := #[], expr := .literal elements.size })
         | .flatStruct id =>
             let some flat := (← get).flatStructs.find? id | failAt j "unknown flat struct local"
-            let some (_, _, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
-              | failAt j s!"{member} is not a member of {flat.structName}"
-            pure (.expr { pre := #[], expr := .localVar binding })
+            if let some (_, _, binding) := flat.members.find? (fun (mName, _, _) => mName == member) then
+              pure (.expr { pre := #[], expr := .localVar binding })
+            else
+              -- A static nested struct member: a view over its leaves'
+              -- bindings (under a synthetic id), so reads and writes through
+              -- `s.m.x` reach the same bindings as the whole struct.
+              let pfx := s!"{member}."
+              let sub := flat.members.filterMap fun (mName, mTy, binding) =>
+                if mName.startsWith pfx then some ((mName.drop pfx.length).toString, mTy, binding) else none
+              if sub.isEmpty then failAt j s!"{member} is not a member of {flat.structName}"
+              let (subSid, subDecl) ← resolveStructDeclFromType j
+              let subId := 1000000000 + (← get).next
+              modify fun e =>
+                { e with next := e.next + 1,
+                         flatStructs := e.flatStructs.insert subId
+                           { structId := subSid, structName := optStr subDecl "name" |>.getD "", members := sub },
+                         byRefFlatStructs := if e.byRefFlatStructs.contains id then subId :: e.byRefFlatStructs
+                           else e.byRefFlatStructs }
+              pure (.flatStruct subId)
         | .mem id pre =>
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
             if let some schema := mem.schema then
@@ -6609,6 +6711,10 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
           vals := vals.push (.storagePath valSid (.rawSlot valSid (.localVar binding))
             ((pre ++ slotPre).push (.letVar binding mapSlotExpr)))
       | _ => failAt arg "only struct mapping storage arguments are supported"
+    else if let some (sid, _) ← structMemArrayOf? arg then
+      -- `S[] memory`: the array pointer is passed (no copy), as solc does.
+      let (arrPre, desc) ← lowerDynArrayValue arg (structMemArrayTag sid)
+      vals := vals.push (.scalarArray desc arrPre)
     else if argTy.startsWith "struct " && argTy.contains "[]" then
       let ref ← lowerRef arg
       if let some (pre, fieldName, slotExpr, elemTy, _, _, some elemSid) ← resolveStorageDynamicArrayTarget ref arg then
@@ -7544,7 +7650,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         if pname != "" then
           yul := yul.erase pname
     | .scalarArray descriptor effects =>
-        let some (elemStr, _, _) := scalarArrayElement? pty
+        let some (elemStr, _, _, _) ← memArrayElementOf? p
           | failAt p "scalar array argument requires a scalar array parameter"
         unless elemStr == descriptor.elementType do
           failAt p "scalar array element type differs"
@@ -8423,6 +8529,9 @@ private partial def lowerArrayHelperStmts (expectedElemTy : String) (stmts : Lis
               failAt retExpr "returned scalar array type or location mismatch"
             return (decodePre, desc)
           if (← mKind retExpr) == "FunctionCall" && optStr retExpr "kind" == some "functionCall" then
+            -- `return new T[](n)`: a fresh array value, not a helper call.
+            if (← mKind (← mField retExpr "expression")) == "NewExpression" then
+              return ← lowerDynArrayValue retExpr expectedElemTy
             let (fnId, vals) ← resolveCallTargetAndArgs retExpr
             return ← inlineArrayFn fnId vals expectedElemTy retExpr
           let ref ← lowerRef retExpr
@@ -8464,7 +8573,8 @@ private partial def ownDynArray (hint : String) (template : ScalarArrayParam) (p
 /-- `new T[](len)`: solc's `allocate_and_zero_memory_array` for a dynamic
 scalar memory array (length word, zeroed elements, `Panic(0x41)` guards). -/
 private partial def allocateNewScalarArray (name : String) (init : Json)
-    (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind) :
+    (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind)
+    (elemStruct? : Option (Nat × List AbiSchema.ScalarField) := none) :
     M (Array Stmt × ScalarArrayParam) := do
   let args ← mArr (← mField init "arguments")
   unless args.size == 1 do
@@ -8479,6 +8589,8 @@ private partial def allocateNewScalarArray (name : String) (init : Json)
   let arrayPtr ← if name == "" then fresh else freshFor name
   let nextFree ← fresh
   let zeroIdx ← fresh
+  let elemPtr ← fresh
+  let elemEnd ← fresh
   let allocStmts : Array Stmt := lenVal.pre ++ #[
       .letVar lenBinding lenVal.expr,
     .ite (.le (.localVar lenBinding) (.literal (2^64 - 1))) [] [.panicCode (.literal 0x41)],
@@ -8488,9 +8600,14 @@ private partial def allocateNewScalarArray (name : String) (init : Json)
     .ite (.ge (.localVar nextFree) (.localVar arrayPtr)) [] [.panicCode (.literal 0x41)],
     .mstore (.localVar arrayPtr) (.localVar lenBinding),
     .mstore (.literal 64) (.localVar nextFree),
-    .forEach zeroIdx (.localVar lenBinding) [
-      .mstore (.add (.add (.localVar arrayPtr) (.literal 32)) (.mul (.localVar zeroIdx) (.literal 32))) (.literal 0)
-    ]
+    .forEach zeroIdx (.localVar lenBinding) (
+      match elemStruct? with
+      | none => [.mstore (.add (.add (.localVar arrayPtr) (.literal 32)) (.mul (.localVar zeroIdx) (.literal 32))) (.literal 0)]
+      | some (_, fields) =>
+          -- solc's `zero_complex_memory_array`: every element points to its own
+          -- freshly allocated, zeroed struct, allocated in element order.
+          zeroedStructAlloc elemPtr elemEnd fields.length ++
+            [.mstore (.add (.add (.localVar arrayPtr) (.literal 32)) (.mul (.localVar zeroIdx) (.literal 32))) (.localVar elemPtr)])
   ]
   let desc : ScalarArrayParam :=
     { param := name
@@ -8504,7 +8621,9 @@ private partial def allocateNewScalarArray (name : String) (init : Json)
       dataBinding := ""
       memoryPointer := arrayPtr
       nextFreeBinding := nextFree
-      namePrefix := zeroIdx }
+      namePrefix := zeroIdx
+      elemStructId := elemStruct?.map (·.1)
+      elemFields := (elemStruct?.map (·.2)).getD [] }
   modify fun e => { e with encodingMemory := true }
   pure (allocStmts, desc)
 
@@ -8563,13 +8682,26 @@ callee's pointer, no copy). -/
 private partial def lowerDynArrayValue (j : Json) (elemStr : String) :
     M (Array Stmt × ScalarArrayParam) := do
   let j ← stripParens j
-  let some (elem, elemPty, abiKind) := scalarArrayElement? (← mType j)
+  let some (elem, elemPty, abiKind, elemStruct?) ← memArrayElementOf? j
     | failAt j s!"expected a dynamic memory array value, found {← mType j}"
   unless elem == elemStr do failAt j "dynamic memory array element type differs"
   match ← mKind j with
   | "Identifier" =>
       let id ← refInt j
       let env ← get
+      if let some (sid, fields) := elemStruct? then
+        if let some mem := (if id ≥ 0 then env.mems.find? id.toNat else none) then
+          -- A root `S[] memory` parameter: the pointer its entry decoder left
+          -- (`MemParam.memoryMemberWord`), snapshotted with its length.
+          let some w := mem.rootArrayWord
+            | failAt j "dynamic memory array value must be a memory array binding"
+          unless !mem.calldataLocation && mem.rootArrayStructId == some sid do
+            failAt j "calldata-to-memory array assignment is outside this slice"
+          let ptr ← fresh
+          let len ← fresh
+          return (#[.letVar ptr (mem.memoryMemberWord w), .letVar len (.mload (.localVar ptr))],
+            { param := "", elementType := elem, modelElementType := elemPty, abiKind, inMemory := true,
+              lengthBinding := len, memoryPointer := ptr, elemStructId := some sid, elemFields := fields })
       let some desc := (if id ≥ 0 then env.scalarArrays.find? id.toNat else none)
         | failAt j "dynamic memory array value must be a memory array binding"
       unless desc.inMemory do
@@ -8579,7 +8711,7 @@ private partial def lowerDynArrayValue (j : Json) (elemStr : String) :
       unless optStr j "kind" == some "functionCall" && !(← isAbiDecodeCall j) do
         failAt j "unsupported dynamic memory array call"
       if (← mKind (← mField j "expression")) == "NewExpression" then
-        allocateNewScalarArray "" j elem elemPty abiKind
+        allocateNewScalarArray "" j elem elemPty abiKind elemStruct?
       else
         let (fnId, vals) ← resolveCallTargetAndArgs j
         inlineArrayFn fnId vals elem j
@@ -8607,13 +8739,14 @@ private partial def inlineArrayFnGeneral (saved : Env) (fn : Json) (body : Json)
     (args : Array CallArg) (r : Json) (retElemTy : String) (at_ : Json) :
     M (Array Stmt × ScalarArrayParam) := do
   let (boundPre, yul) ← bindHelperParams params args body at_ saved.yulNames
-  let some (_, elemPty, abiKind) := scalarArrayElement? (← mType r)
+  let some (_, elemPty, abiKind, elemStruct?) ← memArrayElementOf? r
     | failAt r "array helper return must be a supported scalar array"
   let rname ← mStr (← mField r "name")
   let rid ← mNat (← mField r "id")
   let template : ScalarArrayParam :=
     { param := rname, elementType := retElemTy, modelElementType := elemPty, abiKind,
-      inMemory := true, lengthBinding := "" }
+      inMemory := true, lengthBinding := "", elemStructId := elemStruct?.map (·.1),
+      elemFields := (elemStruct?.map (·.2)).getD [] }
   let (initPre, result) ← ownDynArray rname template (.literal 96)
   modify fun e =>
     { e with yulNames := (if rname == "" then yul else yul.erase rname),
@@ -8658,8 +8791,7 @@ private partial def inlineArrayFn (fnId : Nat) (args : Array CallArg) (expectedE
   let r := rets[0]!
   let rname ← mStr (← mField r "name")
   let rloc := optStr r "storageLocation" |>.getD "default"
-  let rty ← mType r
-  let some (retElemTy, _, _) := scalarArrayElement? rty
+  let some (retElemTy, _, _, _) ← memArrayElementOf? r
     | failAt r "array helper return must be a supported scalar array"
   unless rloc == "memory" && retElemTy == expectedElemTy do
     failAt r "array helper return type or location mismatch"
@@ -9046,7 +9178,7 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
   for mNode in retMembers do
     let mName ← mStr (← mField mNode "name")
     let mTy ← mType mNode
-    unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+    unless (paramType mTy).isSome do
       failAt mNode s!"unsupported flat struct return member {mName} of type {mTy}"
     let binding ← freshFor s!"{if rname == "" then "ret_struct" else rname}_{mName}"
     pre := pre.push (.letVar binding (.literal 0))
@@ -11450,6 +11582,8 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
               if cTy.startsWith "struct " && !cTy.contains "[" && (← get).stateVars.size > 1 then
                 if ← refersToByRefStruct c then
                   failAt c "returning a memory struct parameter (an alias) is outside this slice"
+                if ← refersToMemoryStructElement c then
+                  failAt c "returning a memory struct array element (an alias) is outside this slice"
                 let (_, _, valPre, memberVals) ← lowerFlatStructValue c none true
                 pre := pre ++ valPre
                 for (_, _, mExpr) in memberVals do
@@ -11526,6 +11660,8 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
             else
               if ← refersToByRefStruct expression then
                 failAt expression "returning a memory struct parameter (an alias) is outside this slice"
+              if ← refersToMemoryStructElement expression then
+                failAt expression "returning a memory struct array element (an alias) is outside this slice"
               let (exprSid, _, valPre, memberVals) ← lowerFlatStructValue expression (some retSid) true
               unless exprSid == retSid && memberVals.size == memberBindings.size do
                 failAt expression "returned struct value does not match helper return type"
@@ -11632,15 +11768,16 @@ private partial def isStorageStructBytesMember (j : Json) : M Bool := do
     (baseTy.endsWith " storage pointer" || baseTy.endsWith " storage ref")
 
 /-- The solc memory layout of a struct whose members are ABI scalars and at
-least one `bytes` member: one word per member, a `bytes` word pointing to a
-length-prefixed buffer. Returns its name, members, and schema. -/
+least one `bytes` or scalar `T[]` member: one word per member, a `bytes` word
+pointing to a length-prefixed buffer, a `T[]` word to a length-prefixed array.
+Returns its name, members, and schema. -/
 private partial def bytesStructSchema? (sid : Nat) :
     M (Option (String × Array (String × String) × List AbiSchema.Member)) := do
   let structs := (← get).structs
   let some decl := structs.find? sid | return none
   let .ok schema := AbiSchema.root (fun id => structs.find? id) decl | return none
-  unless schema.any (fun | .bytesField _ _ => true | _ => false) do return none
-  unless schema.all (fun | .bytesField _ _ | .scalar _ => true | _ => false) do return none
+  unless schema.any (fun | .bytesField _ _ | .scalarArray _ => true | _ => false) do return none
+  unless schema.all (fun | .bytesField _ _ | .scalarArray _ | .scalar _ => true | _ => false) do return none
   let sName ← mStr (← mField decl "name")
   let sMembers ← mArr (← mField decl "members")
   let members ← sMembers.mapM fun mNode => do
@@ -11759,6 +11896,15 @@ private partial def lowerBytesStructPointer (j : Json) (sid : Nat) : M (Array St
           let w ← atom { pre := wPre, expr := word }
           pre := pre ++ w.pre
           words := words.push (mName, w.expr)
+      | some (.scalarArray _) =>
+          -- solc stores the array's pointer: the member and every other
+          -- binding of the array share it (no copy).
+          let some (elemStr, _, _) := scalarArrayElement? mTy
+            | failAt arg s!"unsupported struct array member type {mTy}"
+          let (aPre, desc) ← lowerDynArrayValue arg elemStr
+          let snap ← fresh
+          pre := pre ++ aPre |>.push (.letVar snap (.localVar desc.memoryPointer))
+          words := words.push (mName, .localVar snap)
       | _ =>
           let v ← atom (← lowerConverted mTy arg)
           let normExpr := if mTy == "bool" then Expr.logicalNot (.logicalNot v.expr) else v.expr
@@ -11862,7 +12008,17 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
       for (mNode, arg) in sMembers.zip args do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        if mTy.startsWith "struct " && !mTy.contains "[" then
+          -- A static nested struct member: its value's leaves (a fresh
+          -- constructor or helper result; a memory struct local would be shared).
+          let subSid ← refInt (← mField mNode "typeName")
+          let (_, _, subPre, subVals) ← lowerFlatStructValue arg (some subSid.toNat) false
+          pre := pre ++ subPre
+          memberVals := memberVals ++ subVals.map fun (n, t, e) => (s!"{mName}.{n}", t, e)
+          continue
+        -- An `enum` member holds its `uint8` index; every way to build one
+        -- (`E(x)`, `E.m`, another enum value) is already range-checked.
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
@@ -11890,7 +12046,15 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
         let some mNode := matchedMember?
           | failAt j s!"unknown struct constructor member {argName}"
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        if mTy.startsWith "struct " && !mTy.contains "[" then
+          let subSid ← refInt (← mField mNode "typeName")
+          let (_, _, subPre, subVals) ← lowerFlatStructValue arg (some subSid.toNat) false
+          pre := pre ++ subPre
+          evaluatedByName := evaluatedByName ++ subVals.map fun (n, t, e) => (s!"{argName}.{n}", t, e)
+          continue
+        -- An `enum` member holds its `uint8` index; every way to build one
+        -- (`E(x)`, `E.m`, another enum value) is already range-checked.
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
@@ -11901,9 +12065,10 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
       let mut memberVals : Array (String × String × Expr) := #[]
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
-        let some (_, mTy, expr) := evaluatedByName.find? (fun (n, _, _) => n == mName)
-          | failAt j s!"missing struct constructor member {mName}"
-        memberVals := memberVals.push (mName, mTy, expr)
+        let leaves := evaluatedByName.filter (fun (n, _, _) => n == mName || n.startsWith s!"{mName}.")
+        if leaves.isEmpty then
+          failAt j s!"missing struct constructor member {mName}"
+        memberVals := memberVals ++ leaves
       return (sid.toNat, sName, pre, memberVals)
   if (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" &&
       (← mType j).startsWith "struct " && !(← mType j).contains "[" &&
@@ -12084,6 +12249,44 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
         memberVals := memberVals.push (mName, mTy, readVal.expr)
       return (sid, sName, pre, memberVals)
   | _ => failAt j "unsupported struct value expression"
+
+/-- A fresh zeroed struct of `words` members (`delete a[i]`, solc's zero value
+of a memory struct): its pointer. -/
+private partial def structMemZeroPointer (words : Nat) : M (Array Stmt × Expr) := do
+  let ptr ← fresh
+  let finish ← fresh
+  modify fun e => { e with encodingMemory := true }
+  return ((zeroedStructAlloc ptr finish words).toArray, .localVar ptr)
+
+/-- The pointer stored by `a[i] = rhs` into an `S[] memory` element. Another
+memory element of the same struct is shared (solc copies the pointer). A
+constructor, a struct helper result or a storage struct is a fresh struct in
+solc: its members are evaluated, then one word per member is allocated and
+written. A memory struct local or parameter would be shared by solc but has no
+memory of its own here, so it is rejected (`lowerFlatStructValue`). -/
+private partial def structMemElementPointer (rhs : Json) (sid : Nat)
+    (fields : List AbiSchema.ScalarField) : M (Array Stmt × Expr) := do
+  let rhs ← stripParens rhs
+  if (← mKind rhs) == "Identifier" || (← mKind rhs) == "IndexAccess" then
+    if let .abiElement id memberIndex pointer true pre ← lowerRef rhs then
+      let some mem := (← get).mems.find? id | failAt rhs "unknown ABI root"
+      let elemSid ← abiElementStructId mem memberIndex rhs
+      unless elemSid ≥ 0 && elemSid.toNat == sid do
+        failAt rhs "memory struct array element type mismatch"
+      let p ← atom { pre, expr := pointer }
+      return (p.pre, p.expr)
+  let (valSid, _, valPre, memberVals) ← lowerFlatStructValue rhs (some sid) false
+  unless valSid == sid && memberVals.size == fields.length do
+    failAt rhs "memory struct array element type mismatch"
+  let ptr ← fresh
+  let finish ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let mut out := valPre ++ (AbiEncoding.reserve ptr finish (.literal (32 * fields.length))).toArray
+  for (field, i) in fields.zipIdx do
+    let some (_, _, mExpr) := memberVals.find? (fun (n, _, _) => n == field.name)
+      | failAt rhs s!"missing struct member {field.name}"
+    out := out.push (.mstore (.add (.localVar ptr) (.literal (32 * i))) mExpr)
+  return (out, .localVar ptr)
 
 private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (deleting : Bool)
     (target expression : Json) : M (Array Stmt) := do
@@ -12649,6 +12852,24 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         rejectByRefStructWrite structLocalId target
         let some flat := (← get).flatStructs.find? structLocalId
           | failAt target "unknown flat struct local"
+        let pfx := s!"{member}."
+        let sub := flat.members.filter fun (mName, _, _) => mName.startsWith pfx
+        if !sub.isEmpty then
+          -- `s.m = v` for a static nested struct member: every leaf. solc
+          -- would share a memory struct local's pointer, so only fresh values
+          -- (constructors, helper results, storage reads) are admitted.
+          if deleting then
+            return sub.map fun (_, _, binding) => Stmt.assignVar binding (.literal 0)
+          let (subSid, _) ← resolveStructDeclFromType target
+          let (_, _, rhsPre, memberVals) ← lowerFlatStructValue (← mField expression "rightHandSide") (some subSid) false
+          unless memberVals.size == sub.size do
+            failAt expression "nested struct assignment member count mismatch"
+          let mut out := rhsPre
+          for ((mName, _, binding), (rhsName, _, mExpr)) in sub.zip memberVals do
+            unless mName == s!"{pfx}{rhsName}" do
+              failAt expression s!"nested struct member mismatch {mName} != {pfx}{rhsName}"
+            out := out.push (.assignVar binding mExpr)
+          return out
         let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
           | failAt target s!"unknown flat struct member {member}"
         if deleting then
@@ -12657,6 +12878,22 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let value ← atom (← lowerConverted mTy right)
         let stored := if mTy == "bool" then Expr.logicalNot (.logicalNot value.expr) else value.expr
         return value.pre.push (.assignVar binding stored)
+    | .abiElement id memberIndex pointer inMemory pre =>
+        -- A struct element in memory (`a[i].m = v`, or through a local or
+        -- parameter bound to it): solc writes the member word in place, so
+        -- every view of the element sees it. Right-hand side first, as solc.
+        unless inMemory do failAt target "calldata struct members are read-only"
+        let some mem := (← get).mems.find? id | failAt target "unknown ABI root"
+        let some (.structArray _ fields) := mem.schema.bind (·[memberIndex]?)
+          | failAt target "expected a struct-array element"
+        let some i := fields.findIdx? (fun f => f.name == member)
+          | failAt target s!"unknown struct-array member {member}"
+        let ty ← mType target
+        let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
+          atom (← lowerConverted ty (← mField expression "rightHandSide"))
+        let stored := if ty == "bool" && !deleting then Expr.logicalNot (.logicalNot value.expr) else value.expr
+        let ptr ← atom { pre, expr := pointer }
+        return (value.pre ++ ptr.pre).push (.mstore (.add ptr.expr (.literal (32 * i))) stored)
     | .path pre path =>
         if let .rawSlot structId baseSlot := path then
           let rawInfo ← resolveRawStructInfo structId target
@@ -12811,6 +13048,13 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let indexTy ← mType indexExpression
           unless indexTy.startsWith "uint" || indexTy.startsWith "int_const" do
             failAt target "scalar array index must be unsigned"
+          if let some sid := arr.elemStructId then
+            let (valPre, ptr) ← if deleting then structMemZeroPointer arr.elemFields.length
+              else structMemElementPointer (← mField expression "rightHandSide") sid arr.elemFields
+            let key ← atom (← lowerExpr indexExpression)
+            return (valPre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))
+              [] [.panicCode (.literal 0x32)]) |>.push
+              (.mstore (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))) ptr)
           let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
             let right ← mField expression "rightHandSide"
             atom (← lowerConverted arr.elementType right)
@@ -14576,8 +14820,14 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       modify fun e => { e with initcodeTemplates := e.initcodeTemplates.push id }
     return effects
   if loc == "memory" && (← mType d).contains "[]" then
-    let some (elemStr, elemPty, abiKind) := scalarArrayElement? (← mType d)
+    let some (elemStr, elemPty, abiKind, elemStruct?) ← memArrayElementOf? d
       | failAt d s!"unsupported dynamic memory array local type {← mType d}"
+    -- The initializer has the declared array type (`S[]` by its element struct id).
+    let initHasDeclType : M Bool := do
+      if elemStruct?.isSome then
+        return ((← memArrayElementOf? init).map (·.1)) == some elemStr
+      let initTy ← mType init
+      return initTy == (← mType d) || initTy == elemStr ++ "[] memory"
     if (← get).bodyAssigned.contains id then
       -- A reassigned local owns mutable pointer/length bindings.
       let (valPre, value) ← lowerDynArrayValue init elemStr
@@ -14606,8 +14856,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     else
       pure false
     if isArrayHelperInit then
-      let initTy ← mType init
-      unless initTy == (← mType d) || initTy == elemStr ++ "[] memory" do
+      unless ← initHasDeclType do
         failAt init "dynamic memory array initializer type differs from declaration"
       let (fnId, vals) ← resolveCallTargetAndArgs init
       let (arrPre, rawDesc) ← inlineArrayFn fnId vals elemStr init
@@ -14646,10 +14895,9 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     let callee ← mField init "expression"
     unless (← mKind callee) == "NewExpression" do
       failAt init "dynamic memory array local requires a new T[](length) initializer"
-    let initTy ← mType init
-    unless initTy == (← mType d) || initTy == elemStr ++ "[] memory" do
+    unless ← initHasDeclType do
       failAt init "dynamic memory array initializer type differs from declaration"
-    let (allocStmts, desc) ← allocateNewScalarArray name init elemStr elemPty abiKind
+    let (allocStmts, desc) ← allocateNewScalarArray name init elemStr elemPty abiKind elemStruct?
     modify fun e =>
       { e with scalarArrays := e.scalarArrays.insert id desc,
                encodingMemory := true,
@@ -15023,6 +15271,33 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
       return some .string
   | _ => return none
 
+/-- The flat leaves of memory struct `sid`: its members in declaration order,
+with each member of a static struct type replaced by that struct's leaves,
+named `member.leaf` (solc ABI-encodes a static nested struct inline, so the
+leaves are the encoded words in order). `none` when a member is neither an ABI
+scalar (`enum` included) nor such a struct. -/
+private partial def flatStructLeaves? (sid : Nat) (fuel : Nat := 8) :
+    M (Option (Array (String × String))) := do
+  if fuel == 0 then return none
+  let some decl := (← get).structs.find? sid | return none
+  let members ← mArr (← mField decl "members")
+  if members.isEmpty then return none
+  let mut out : Array (String × String) := #[]
+  for m in members do
+    let name ← mStr (← mField m "name")
+    let ty ← mType m
+    if (paramType ty).isSome then
+      out := out.push (name, ty)
+    else if ty.startsWith "struct " && !ty.contains "[" then
+      let subId ← refInt (← mField m "typeName")
+      if subId < 0 then return none
+      let some subLeaves ← flatStructLeaves? subId.toNat (fuel - 1) | return none
+      for (leaf, leafTy) in subLeaves do
+        out := out.push (s!"{name}.{leaf}", leafTy)
+    else
+      return none
+  return some out
+
 private def functionFlatStructReturnType? (fn : Json) :
     M (Option (Nat × String × String × Nat × Array (String × String × ParamType))) := do
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
@@ -15037,10 +15312,8 @@ private def functionFlatStructReturnType? (fn : Json) :
   let retMembers ← mArr (← mField retDecl "members")
   unless !retMembers.isEmpty do return none
   let mut memberSpecs : Array (String × String × ParamType) := #[]
-  for mNode in retMembers do
-    let mName ← mStr (← mField mNode "name")
-    let mTy ← mType mNode
-    unless !mTy.startsWith "enum " do return none
+  let some leaves ← flatStructLeaves? retSid | return none
+  for (mName, mTy) in leaves do
     let some mPty := paramType mTy | return none
     memberSpecs := memberSpecs.push (mName, mTy, mPty)
   let rname ← mStr (← mField r "name")
