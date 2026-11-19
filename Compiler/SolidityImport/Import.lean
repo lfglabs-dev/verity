@@ -3513,11 +3513,9 @@ private partial def lowerRef (j : Json) : M Ref := do
         convert "bytes4" (← mType indexExpression) rawKey indexExpression
       else
         pure rawKey
-      -- Enum-containing storage paths use the canonical ABI word, not the raw
-      -- stack representation of a narrow Solidity value assigned from assembly.
-      -- Clean the source width as well when it implicitly widens to the key type.
-      let convKey ← if baseTy.startsWith "mapping(" &&
-          (baseTy.contains "=> enum " || baseTy.contains "=> struct ") then do
+      -- Mapping hashes consume a canonical key regardless of the value type.
+      -- Clean a narrow source even when it implicitly widens to the key type.
+      let convKey ← if baseTy.startsWith "mapping(" then do
         let src ← mType indexExpression
         pure { convKey with expr := cleanHelperResultExpr src convKey }
       else pure convKey
