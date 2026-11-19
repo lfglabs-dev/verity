@@ -71,7 +71,7 @@ solidity_import whole from "Contracts/SolidityImportSmoke" entry "StorageStructE
   function clearWhole(bytes32)
 
 /--
-error: StorageStructEnum.sol:42:28: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
+error: StorageStructEnum.sol:40:28: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
 closure: StorageStructEnum.dirtyPacked
 x
 -/
@@ -79,10 +79,10 @@ x
 solidity_import dirtyPacked from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
   using enumProfile
   contract StorageStructEnum
-  function dirtyPacked(bytes32)
+  function dirtyPacked(bytes32,Mode)
 
 /--
-error: StorageStructEnum.sol:47:33: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
+error: StorageStructEnum.sol:43:33: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
 closure: StorageStructEnum.dirtyMapped
 x
 -/
@@ -90,6 +90,28 @@ x
 solidity_import dirtyMapped from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
   using enumProfile
   contract StorageStructEnum
-  function dirtyMapped(bytes32,address)
+  function dirtyMapped(bytes32,address,Mode)
+
+/--
+error: StorageStructEnum.sol:48:9: MemberAccess: [solidity-import:unsupported] member modes is opaque in this slice
+closure: StorageStructEnum.enumKeyedMapping
+indexedEntries[id].modes
+-/
+#guard_msgs in
+solidity_import enumKeyedMapping from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
+  using enumProfile
+  contract StorageStructEnum
+  function enumKeyedMapping(bytes32)
+
+/--
+error: StorageStructEnum.sol:53:9: InlineAssembly: [solidity-import:unsupported] Yul assignment to an enum variable is unsupported
+closure: StorageStructEnum.dirtyKey
+assembly { k := 3 }
+-/
+#guard_msgs in
+solidity_import dirtyKey from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
+  using enumProfile
+  contract StorageStructEnum
+  function dirtyKey()
 
 end SolidityImportSmoke.StorageStructEnumChecks

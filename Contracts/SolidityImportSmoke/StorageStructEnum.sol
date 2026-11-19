@@ -36,14 +36,21 @@ contract StorageStructEnum {
     struct Packed { uint16 left; Mode mode; uint8 right; }
     mapping(bytes32 => Packed) internal packed;
     function clearWhole(bytes32 id) external { delete packed[id]; }
-    function dirtyPacked(bytes32 id) external {
-        Mode x = Mode.None;
-        assembly { x := 3 }
+    function dirtyPacked(bytes32 id, Mode x) external {
         entries[id].mode = x;
     }
-    function dirtyMapped(bytes32 id, address k) external {
-        Mode x = Mode.None;
-        assembly { x := 3 }
+    function dirtyMapped(bytes32 id, address k, Mode x) external {
         entries[id].levels[k] = x;
+    }
+    struct Indexed { mapping(Mode => Mode) modes; }
+    mapping(bytes32 => Indexed) internal indexedEntries;
+    function enumKeyedMapping(bytes32 id) external {
+        indexedEntries[id].modes[Mode.None] = Mode.First;
+    }
+    mapping(Mode => Entry) internal byMode;
+    function dirtyKey() external {
+        Mode k = Mode.None;
+        assembly { k := 3 }
+        byMode[k].mode = Mode.First;
     }
 }
