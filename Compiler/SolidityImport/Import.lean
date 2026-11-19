@@ -3525,6 +3525,9 @@ private partial def lowerRef (j : Json) : M Ref := do
           | .literal _ => true
           | .caller | .contractAddress | .txOrigin => bitsOf src == some 160
           | .param p => (paramType src).isSome && rootParamType? env p == paramType src
+          | .localVar b =>
+              (paramType src).isSome && env.rawBindings.toList.any fun (id, rb) =>
+                rb == b && env.scalarTy.find? id == paramType src
           | _ => false
         if canonical then pure convKey else pure { convKey with expr := cleanHelperResultExpr src convKey }
       else pure convKey
