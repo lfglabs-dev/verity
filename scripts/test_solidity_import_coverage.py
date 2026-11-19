@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 
 from solidity_import_coverage import classify, position, spelling, summarize, checkout, MeasurementError, inventory, dependencies, probe, refresh_report, main, milestone_summary, excluded_functions, markdown, MANIFEST
-from solidity_import_coverage import IMPORTER_SOLC, IMPORTER_DEFAULT_SOLC, importer_compiler, pragma_at, matrix_entry, compiler_matrix, measure
+from solidity_import_coverage import IMPORTER_SOLC, IMPORTER_DEFAULT_SOLC, ast_request, importer_compiler, pragma_at, matrix_entry, compiler_matrix, measure
 
 REPO = Path(__file__).resolve().parents[1]
 V76 = '0.7.6+commit.7338295f'
@@ -238,6 +238,41 @@ def pragma_log(file, line, release=V34):
 
 
 class CompilerMatrixTests(unittest.TestCase):
+    def test_legacy_matrix_compiles_only_the_requested_entry_and_its_imports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'src').mkdir()
+            (root / 'contracts').mkdir()
+            entry = 'src/T.sol'
+            source = 'pragma solidity 0.7.6; import "./Base.sol"; contract T is Base {}'
+            (root / entry).write_text(source)
+            (root / 'src/Base.sol').write_text('pragma solidity 0.7.6; contract Base {}')
+            (root / 'contracts/Unrelated.sol').write_text('pragma solidity 0.8.34; contract U {}')
+            target = {'entry': entry, 'contract': 'T'}
+            command, request = ast_request('0.7.6', target, root, 'solc')
+            self.assertEqual(command, ['solc', '--base-path', root, '--standard-json'])
+            self.assertEqual(request['sources'], {entry: {'content': source}})
+            # Exercise the real matrix row when the repository's pinned compiler is installed.
+            solc = REPO / '.lake/solidity-import/solc-0.7.6'
+            if solc.is_file():
+                with patch('solidity_import_coverage.IMPORTER_SOLC', {'0.7.6': V76}), \
+                        patch('solidity_import_coverage.compiler', return_value=solc):
+                    rows = compiler_matrix(target, root, {}, root, False, root)
+                self.assertEqual(rows[0]['status'], 'accepted')
+                compiled = json.loads((root / 'matrix-0.7.6.json').read_text())
+                self.assertEqual(set(compiled['sources']), {entry, 'src/Base.sol'})
+
+    def test_omitted_entry_is_a_measurement_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = {'entry': 'src/T.sol'}
+            with self.assertRaisesRegex(MeasurementError, 'missing target entry'):
+                ast_request('0.7.6', target, root, 'solc')
+            (root / 'src').mkdir()
+            (root / target['entry']).write_text('contract T {}')
+            with self.assertRaisesRegex(MeasurementError, 'target entry omitted'):
+                ast_request('0.5.16', target, root, 'solc')
+
     def test_pinned_releases_match_importer_and_manifest(self):
         imported = (REPO / 'Compiler/SolidityImport/Import.lean').read_text()
         block = imported[imported.index('private def solcReleases'):imported.index('private def resolveSolcRelease')]

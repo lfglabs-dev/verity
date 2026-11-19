@@ -90,9 +90,12 @@ state and mapping reads, conditionals, local assignments, and the admitted inter
 forms. Function boundaries restore wrapping for 0.7.6 and checked arithmetic
 for 0.8; an explicit 0.8 `unchecked` block does not leak into a helper. In
 particular a wrap-then-`require` idiom must evaluate the wrapped result before
-its explicit guard. The additional declaration gate is conservative and runs
-on roots and reached helpers; existing construct checks still apply. Functions
-must be declared `pure` or `view`; state-changing calls need separate evidence.
+its explicit guard. Explicit integer-literal casts to unsigned types use the
+destination width, so widening `uint8(-1)` to `uint256` yields 255. The declaration
+gate checks roots, reached helpers, and the initializers of referenced constants,
+including references through other constants. A rejected initializer is reported
+at its source location. Functions must be declared `pure` or `view`. State-changing
+calls need separate evidence.
 
 ABI coder v1 is the 0.7.6 default. Scalar calldata words are cleaned to their
 type rather than rejected for noncanonical upper bits; boolean words normalize

@@ -8,11 +8,9 @@ from being silently applied to a legacy declaration. -/
 open Lean
 namespace Compiler.CompilationModel.SolidityImport
 
-/-- Check every reached declaration, including helper bodies. Rejected constructs
-need separate legacy semantics and differential evidence before admission. -/
-partial def validateLegacyDeclaration (node : Json) : M Unit := do
+private partial def validateLegacySyntax (node : Json) : M Unit := do
   match node with
-  | .arr children => children.forM validateLegacyDeclaration
+  | .arr children => children.forM validateLegacySyntax
   | .obj fields =>
     if let some kind := optStr node "nodeType" then
       unless #["FunctionDefinition", "ParameterList", "VariableDeclaration", "Block",
@@ -59,8 +57,23 @@ partial def validateLegacyDeclaration (node : Json) : M Unit := do
               failAt node ("Solidity 0.7.6 builtin call is outside the scalar slice " ++
                 "(assert/INVALID is not modeled)")
     for (_, child) in fields do
-      validateLegacyDeclaration child
+      validateLegacySyntax child
   | _ => pure ()
+
+/-- Check a reached declaration and the initializers of all constants it uses.
+Solc links both identifiers and qualified members to their declaration IDs. -/
+partial def validateLegacyDeclaration (root : Json) : M Unit := do
+  let constants := (← get).numericConstants
+  let mut seen : Std.HashSet Nat := {}
+  let mut pending := [root]
+  while let decl :: rest := pending do
+    pending := rest
+    validateLegacySyntax decl
+    for id in referencedDecls decl do
+      if let some constant := constants.find? id then
+        unless seen.contains id do
+          seen := seen.insert id
+          pending := constant :: pending
 
 /-- Validate each legacy declaration on first reach, inside its lowering recovery point. -/
 def noteProfiledFn (fn : Json) : M Unit := do

@@ -5264,6 +5264,11 @@ private partial def lowerCast (j : Json) : M Val := do
     else
       failAt j s!"unsupported cast target {tname} from bytes20"
   let some bits := bitsOf tname | failAt j s!"unsupported cast target {tname}"
+  -- Legacy solc accepts out-of-range integer constants at explicit casts.
+  if (← get).legacyWrapping && src.startsWith "int_const" && bits < 256 then
+    if let .literal n := v.expr then
+      return { v with expr := .literal (n % 2 ^ bits) }
+    return { v with expr := .bitAnd v.expr (.literal (2 ^ bits - 1)) }
   let narrow : Bool :=
     match bitsOf src with
     | some sb => decide (sb > bits)
