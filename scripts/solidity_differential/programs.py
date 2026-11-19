@@ -1139,6 +1139,72 @@ def stateful_signed_struct_member_read_source(fixture: str, variant: str) -> str
     raise ValueError(f'unknown signed-struct-member-read variant: {variant}')
 
 
+def stateful_signed_compound_assignment_source(fixture: str, variant: str) -> str:
+    """Narrow signed `+=` / `-=` / `++` / `--` agree with renamed variables and the explicit
+    binary form (`x = x + y` is checked exactly like `x += y`)."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        out = fixture
+        for old, new in (('acc', 'total'), ('wrapped', 'ring'), ('small', 'tiny'), ('a', 'sum'), ('w', 'wrap')):
+            if len(re.findall(rf'\b{old}\b', out)) < 3:
+                raise ValueError(f'missing signed-compound-assignment anchor {old}')
+            out = re.sub(rf'\b{old}\b', new, out)
+        return out
+    if variant == 'explicit':
+        out = fixture
+        for old, new, n in (('a += d;', 'a = a + d;', 1),
+                            ('w += d;', 'w = w + d;', 1),
+                            ('w -= int24(int256(x >> 248));', 'w = w - int24(int256(x >> 248));', 1),
+                            ('w++;', 'w = w + 1;', 1),
+                            ('small--;', 'small = small - 1;', 1),
+                            ('small += 1;', 'small = small + 1;', 1),
+                            ('a++;', 'a = a + 1;', 2)):
+            # `dirty += 1` stays compound: the binary `+` does not yet clean a Yul-assigned
+            # narrow signed local (a separate gap), so the explicit form is not equivalent here.
+            if out.count(old) != n:
+                raise ValueError(f'missing signed-compound-assignment anchor {old}')
+            out = out.replace(old, new)
+        return out
+    raise ValueError(f'unknown signed-compound-assignment variant: {variant}')
+
+
+def stateful_signed_struct_compound_source(fixture: str, variant: str) -> str:
+    """Narrow signed compound assignment and postfix increment on packed storage struct
+    members agree with renamed identifiers and with the explicit binary form."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        out = fixture
+        for old, new in (('cells', 'slots'), ('Cell', 'Slot'), ('m', 'copy'), ('c', 'ref'),
+                         ('d', 'delta'), ('k', 'key'), ('old', 'before')):
+            if len(re.findall(rf'\b{old}\b', out)) < 2:
+                raise ValueError(f'missing signed-struct-compound anchor {old}')
+            out = re.sub(rf'\b{old}\b', new, out)
+        return out
+    if variant == 'explicit':
+        out = fixture
+        for old, new in (
+                ('        cells[k].t += d;\n', '        cells[k].t = cells[k].t + d;\n'),
+                ('        int24 old = cells[k].t++;\n',
+                 '        int24 old = cells[k].t;\n        cells[k].t = cells[k].t + 1;\n'),
+                ('        cells[k].t += cells[k].s;\n', '        cells[k].t = cells[k].t + cells[k].s;\n'),
+                ('        cells[k].u -= int16(int256((x >> 24) & 0x7f));\n',
+                 '        cells[k].u = cells[k].u - int16(int256((x >> 24) & 0x7f));\n'),
+                ('        cells[k].u--;\n', '        cells[k].u = cells[k].u - 1;\n'),
+                ('        c.t -= d;\n', '        c.t = c.t - d;\n'),
+                ('        c.u++;\n', '        c.u = c.u + 1;\n'),
+                ('        m.t -= 1;\n', '        m.t = m.t - 1;\n'),
+                ('        int24 pre = ++m.t;\n', '        m.t = m.t + 1;\n        int24 pre = m.t;\n'),
+                ('        int24 copyOld = m.t--;\n', '        int24 copyOld = m.t;\n        m.t = m.t - 1;\n'),
+                ('        m.u += 2;\n', '        m.u = m.u + 2;\n')):
+            if out.count(old) != 1:
+                raise ValueError(f'missing signed-struct-compound anchor {old!r}')
+            out = out.replace(old, new)
+        return out
+    raise ValueError(f'unknown signed-struct-compound variant: {variant}')
+
+
 def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     """Compare signed remainder with its truncated-quotient identity."""
     if variant == 'baseline':

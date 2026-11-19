@@ -20,6 +20,8 @@ STORAGE_FIXTURES = (
     'constant-arrays',
     'modulo',
     'signed-modulo',
+    'signed-compound-assignment',
+    'signed-struct-compound',
     'byte-constant-conversions',
     'narrow-for-counters',
     'fixed-bytes-conversions',

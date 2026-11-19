@@ -124,6 +124,18 @@ MUTANTS.update({
     'import-signed-modulo-value': ('Stmt.assignVar dest (.smod a.expr b.expr)', 'Stmt.assignVar dest (.mod a.expr b.expr)'),
     'import-signed-modulo-zero': ('let check := iteStmt (.eq b.expr (.literal 0)) divPanic ok', 'let check := iteStmt (.eq b.expr (.literal 1)) divPanic ok'),
     'import-signed-modulo-dispatch': ('        signedModulo left right', '        checkedModulo left right'),
+    'import-signed-compound-operator': (
+        '      else Expr.sub (extend lhs) (extend rhs)',
+        '      else Expr.add (extend lhs) (extend rhs)'),
+    'import-signed-compound-extend': (
+        '    let raw := if operator == "+=" then Expr.add (extend lhs) (extend rhs)',
+        '    let raw := if operator == "+=" then Expr.add lhs rhs'),
+    'import-signed-compound-overflow': (
+        '      let check := iteStmt (.eq (.localVar rawVar) (extend (.localVar rawVar)))',
+        '      let check := iteStmt (.eq (.localVar rawVar) (.localVar rawVar))'),
+    'import-signed-compound-unchecked': (
+        '      pure { pre := #[], expr := extend raw }',
+        '      pure { pre := #[], expr := raw }'),
     'import-yul-empty-revert-drop': ('          out := out ++ offVal.pre |>.push .revertEmpty\n',
                                      '          out := out ++ offVal.pre\n'),
     'import-signed-struct-member-raw-read': ('      | some bits => if bits < 256 then Expr.signextend (.literal (bits / 8 - 1)) masked else masked',
@@ -729,6 +741,8 @@ def run(directory, output, name):
         fixture = "DynamicArrayRootReturnStatelessSequence"
     if name.startswith("import-yul-empty-revert-"):
         fixture = "YulEmptyRevertSequence"
+    if name.startswith("import-signed-compound-"):
+        fixture = "SignedCompoundAssignmentSequence"
     if name.startswith("import-signed-modulo-"):
         fixture = "SignedModuloSequence"
     if name.startswith("import-signed-struct-member-"):
@@ -855,6 +869,11 @@ def run(directory, output, name):
         from solidity_differential.check_storage import INLINE_ARRAY_LITERAL_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, INLINE_ARRAY_LITERAL_PREFIX)])
+    if fixture in {'SignedCompoundAssignmentSequence', 'SignedStructCompoundSequence'}:
+        from solidity_differential.check_storage import SIGNED_COMPOUND_PREFIX, SIGNED_STRUCT_COMPOUND_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, SIGNED_COMPOUND_PREFIX if fixture == 'SignedCompoundAssignmentSequence'
+                                                   else SIGNED_STRUCT_COMPOUND_PREFIX)])
     if fixture == 'SignedStructMemberReadSequence':
         from solidity_differential.check_storage import SIGNED_STRUCT_MEMBER_READ_PREFIX
         argv[argv.index('--transactions') + 1] = '24'

@@ -68,7 +68,9 @@ from .programs import (
     stateful_public_getters_and_builtins_source,
     stateful_root_param_source,
     stateful_short_circuit_source,
+    stateful_signed_compound_assignment_source,
     stateful_signed_modulo_source,
+    stateful_signed_struct_compound_source,
     stateful_signed_struct_member_read_source,
     stateful_solc_0810_source,
     stateful_storage_source,
@@ -113,6 +115,23 @@ FIXED_MEMORY_ARRAY_PREFIX = [0, 1, 2, 3, 6, 7, 11, 13, 34, 41, 0x5a00000003,
 # the largest positive inputs into it (x % 3 == 2); the third writes -5 / -5 / 5 - 2^31 into
 # cell 1 (x % 3 == 1), so the state-variable struct also holds negative values. Both have an
 # unsigned tag >= 128. Bit 64 skips the writes, so the next calls only read cells 0, 1, 2.
+# int24 accumulator at both ends of its range (checked overflow panics), int8 `+= 1` at 127 and
+# `--` at -128, `acc++` at the maximum, high words; the unchecked wraps of `w += d` (0x80000000),
+# `w++` (0x808000f2) and `w -= ..` (the 1 << 248 value), each in a call that does not revert; and
+# dirty high bits in the Yul-assigned int24 local (`shr(64, x)` is dirty for the 255 << 248 value,
+# the 1 << 248 value and the last value; also for 2^256 - 1, which reverts earlier at `a += d`).
+SIGNED_COMPOUND_PREFIX = [0x800000, 0, 0xffffff, (1 << 40) | 0xffffff, (1 << 40) | 0x800000,
+                          (255 << 24) | 0x800000, (1 << 32) | 0x800000, (255 << 248) | 0x800000,
+                          (1 << 256) - 1, 0x80000000, 0x800000fa, 0x808000f2,
+                          (1 << 248) | 0x80800000, (0x123 << 88) | (5 << 64) | (128 << 24) | 0x800000]
+# After change(7), fail(), read(): bit 16 stores t = -5, s = -5, u = -300 (negative members, a
+# narrower signed right-hand side); bit 17 puts t near type(int24).max, so `+= d` overflows for
+# d > 100 (Panic(0x11)); bit 18 wraps u in an unchecked block; k = x % length visits every cell.
+SIGNED_STRUCT_COMPOUND_PREFIX = [(1 << 16) | (128 << 8) | 1, (1 << 16) | (128 << 8) | 2,
+                                 (1 << 16) | (127 << 24) | (130 << 8) | 3,
+                                 (1 << 16) | (1 << 18) | (128 << 8) | 4, (1 << 17) | (127 << 8) | 5,
+                                 (1 << 17) | (255 << 8) | 6, (1 << 16) | (1 << 17) | (128 << 8) | 7,
+                                 (255 << 8) | 8, (1 << 16) | 9, (1 << 256) - 1]
 SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 128 | (0xffff << 8) | (0xff << 24) | (0xffffffff << 32),
                                     128 | (32763 << 8) | (123 << 24) | (5 << 32),
                                     (1 << 64) | 2, 1 << 64, (1 << 64) | 1, (1 << 256) - 1]
@@ -198,7 +217,9 @@ FIXTURE_CONTRACTS = {
     'packed-struct-mapping-ternary-tuple': 'PackedStructMappingAndTernaryTupleSequence',
     'public-getters-and-builtins': 'PublicGettersAndBuiltinsSequence',
     'short-circuit': 'ShortCircuitSequence',
+    'signed-compound-assignment': 'SignedCompoundAssignmentSequence',
     'signed-modulo': 'SignedModuloSequence',
+    'signed-struct-compound': 'SignedStructCompoundSequence',
     'signed-struct-member-read': 'SignedStructMemberReadSequence',
     'solc-0810': 'Solc0810Sequence',
     'string-bytes-mappings-uri-storage-strings': 'StringBytesMappingsUriStorageStringsSequence',
@@ -391,6 +412,8 @@ def main():
         variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'signed-modulo':
         variants = ('baseline', 'renamed', 'truncated-quotient')
+    if args.fixture in ('signed-compound-assignment', 'signed-struct-compound'):
+        variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'byte-constant-conversions':
         variants = ('baseline', 'renamed', 'literal-initializers')
     if args.fixture == 'yul-empty-revert':
@@ -486,6 +509,8 @@ def main():
                           else stateful_helper_name_independence_source(fixture, variant) if args.fixture == "helper-name-independence"
                           else stateful_dynamic_memory_array_source(fixture, variant) if args.fixture == "dynamic-memory-arrays"
                           else stateful_signed_modulo_source(fixture, variant) if args.fixture == "signed-modulo"
+                          else stateful_signed_compound_assignment_source(fixture, variant) if args.fixture == "signed-compound-assignment"
+                          else stateful_signed_struct_compound_source(fixture, variant) if args.fixture == "signed-struct-compound"
                           else stateful_byte_constant_conversions_source(fixture, variant) if args.fixture == "byte-constant-conversions"
                           else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
                           else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
@@ -520,6 +545,10 @@ def main():
         if args.fixture == 'signed-struct-member-read':
             # Negative, positive-extreme and read-only calls on every cell and both struct paths.
             extra = ['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)]
+        if args.fixture == 'signed-compound-assignment':
+            extra = ['--change-prefix', *map(str, SIGNED_COMPOUND_PREFIX)]
+        if args.fixture == 'signed-struct-compound':
+            extra = ['--change-prefix', *map(str, SIGNED_STRUCT_COMPOUND_PREFIX)]
         if args.fixture == 'signed-modulo':
             # Centered-reduction boundaries (ALPHA / 2, ALPHA, the 8380417
             # reduction), the narrow int8 range, and both min % -1 parities.
