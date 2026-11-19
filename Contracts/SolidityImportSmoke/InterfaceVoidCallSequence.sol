@@ -43,7 +43,7 @@ contract InterfaceVoidCallFixture {
 
     function fund(address target, uint128 amount) external {
         lastAmount = amount;
-        INotified(target).fund(target, amount, amount % 2 == 1);
+        INotified(target).fund({flag: amount % 2 == 1, amount: amount, to: target});
     }
 
     function signal(address target, address to, uint8 raw) external {

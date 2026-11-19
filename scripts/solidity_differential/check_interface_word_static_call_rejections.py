@@ -80,15 +80,16 @@ CASES = [
     ('checked-argument', WORD, '',
      'uint256 v = IWord(oracle).quote(x + 1, bytes32(0)); return v;',
      ('x + 1', 0, 'BinaryOperation', 'effects')),
-    # Named arguments in declaration order lower as the positional call; any other order
-    # keeps its located rejection.
+    # Declaration-order and commuting reordered scalars share positional lowering.
     ('named-arguments', WORD, '',
      'bool b = IWord(oracle).allowed({account: oracle}); return b ? 1 : 0;', None),
     ('named-arguments-declared-order', WORD, '',
      'uint256 v = IWord(oracle).quote({amount: x, tag: bytes32(x)}); return v;', None),
     ('named-arguments-reordered', WORD, '',
-     'uint256 v = IWord(oracle).quote({tag: bytes32(x), amount: x}); return v;',
-     ('IWord(oracle).quote({tag: bytes32(x), amount: x})', 0, 'FunctionCall', 'named')),
+     'uint256 v = IWord(oracle).quote({tag: bytes32(x), amount: x}); return v;', None),
+    ('named-statement-competing-panics', WORD, '',
+     'IWord(oracle).quote({tag: bytes32(1 / x), amount: x - 1}); return x;',
+     ('IWord(oracle).quote', 0, 'FunctionCall', 'named')),
     ('nested-argument', WORD, '',
      'uint256 v = IWord(oracle).quote(IWord(oracle).quote(1, bytes32(0)), bytes32(0)); return v;',
      ('IWord(oracle).quote(1, bytes32(0))', 0, 'FunctionCall', 'placement')),

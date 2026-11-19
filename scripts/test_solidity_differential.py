@@ -53,6 +53,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "mocks",
     "multiple-dynamic-abi",
     "mutations",
+    "named-arguments",
     "narrow-event-16",
     "narrow-event-248",
     "narrow-event-8",

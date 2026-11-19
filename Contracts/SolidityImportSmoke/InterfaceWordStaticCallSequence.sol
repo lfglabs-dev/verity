@@ -37,7 +37,7 @@ contract InterfaceWordStaticCallFixture {
     function price(address oracle, uint256 amount, bytes32 tag) external returns (uint256) {
         saved = amount;
         uint256 value;
-        value = IWordOracle(oracle).quote(amount, tag);
+        value = IWordOracle(oracle).quote({tag: tag, amount: amount});
         IWordOracle(oracle).quote(7, tag);
         return value;
     }

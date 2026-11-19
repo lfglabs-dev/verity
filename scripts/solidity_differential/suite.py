@@ -213,6 +213,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('selector-responder', ['-m', 'solidity_differential.check_selector_responder',
         '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
         '--output', str(output / 'selector-responder')]))
+    checks.append(('named-arguments', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/NamedArgumentsSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/NamedArgumentsSequenceModel.lean',
+        '--transactions', str(max(16, transactions)), '--seed', str(seed),
+        '--change-prefix', '0', '1', '2', '7', '12', str(2**128 - 1), str(2**128),
+        '--output', str(output / 'named-arguments')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',
