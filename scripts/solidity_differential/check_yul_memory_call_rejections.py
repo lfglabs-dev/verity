@@ -28,6 +28,8 @@ MESSAGES = {
     'mload': 'Yul mload below 0x80 must read a scratch word this block wrote or the zero slot',
     'free-pointer': 'Yul reads of the free-memory pointer may only restore it or place a bubbled revert',
     'unbound-data': 'unbound Yul identifier data',
+    'returndatacopy': 'unsupported Yul expression statement returndatacopy '
+                      '(unsupported statement InlineAssembly)',
 }
 
 CALL = 'call(gas(), token, 0, 0x00, 0x20, 0x00, 0x20)'
@@ -78,6 +80,13 @@ BLOCK_CASES = [
                                  'ok := call(gas(), token, 0, 0x00, 0x20, 0x00, 0x20)',
                                  'if iszero(ok) { revert(fmp, returndatasize()) }'],
      ('mload(0x40)', 'free-pointer', 'YulFunctionCall')),
+    # The bubble's destination must be a saved free-memory pointer: a caller-chosen huge
+    # pointer is an out-of-gas halt on the EVM.
+    ('bubble-foreign-pointer', '', ['mstore(0x00, amount)',
+                                    'ok := call(gas(), token, 0, 0x00, 0x20, 0x00, 0x20)',
+                                    'if iszero(ok) { returndatacopy(amount, 0, returndatasize()) '
+                                    'revert(amount, returndatasize()) }'],
+     ('returndatacopy(amount', 'returndatacopy', 'YulExpressionStatement')),
     ('bubbled-revert', '', ['let fmp := mload(0x40)', 'mstore(0x00, amount)',
                             'ok := call(gas(), token, 0, 0x00, 0x20, 0x00, 0x20)',
                             'if iszero(ok) { returndatacopy(fmp, 0, returndatasize()) '
