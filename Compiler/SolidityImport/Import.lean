@@ -2160,9 +2160,20 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
       continue
     if i + 1 < stmts.size then
       if ← isYulReturndataBubble stmt stmts[i+1]! then
-        out := out.push .revertReturndata
-        skipNext := true
-        continue
+        -- The copy writes the return data at `p`; a `p` far beyond the frame's memory is an
+        -- out-of-gas halt on the EVM, while the model reverts with the data. A saved
+        -- free-memory pointer is a small heap address on every route.
+        let dest := ((field? stmt "expression").bind (field? · "arguments")).bind fun
+          | .arr args => args[0]?.bind (optStr · "name")
+          | _ => none
+        let env ← get
+        let savedDest := match dest.bind env.yulNames.find? with
+          | some (.localVar binding) => env.yulFreePointerBindings.contains binding
+          | _ => false
+        if savedDest then
+          out := out.push .revertReturndata
+          skipNext := true
+          continue
     match ← mKind stmt with
     | "YulVariableDeclaration" =>
         let vars ← mArr (← mField stmt "variables")
@@ -2183,6 +2194,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         let binding ← freshFor vname
         if savesFreePointer then
           freePointerSaves := freePointerSaves.push binding
+          modify fun e => { e with yulFreePointerBindings := e.yulFreePointerBindings.push binding }
         let expr := Expr.localVar binding
         modify fun e => { e with yulNames := e.yulNames.insert vname expr }
         yulLocals := yulLocals.insert vname binding
@@ -17519,7 +17531,7 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[] }
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], yulFreePointerBindings := #[] }
       let ((body, srcParams), env2) ← (lowerRoot fn).run env
       env := env2
       let mut modelParams : Array Param := #[]
