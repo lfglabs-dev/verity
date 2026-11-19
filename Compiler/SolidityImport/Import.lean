@@ -1826,8 +1826,6 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
         let mask := (2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)
         return .assignVar binding (.bitAnd rhsVal.expr (.literal mask))
     if env.stateVars.size > 1 then
-      unless isFullWordYulScalar scalarType || env.yulNarrowBindings.contains binding do
-        modify fun e => { e with yulNarrowBindings := e.yulNarrowBindings.push binding }
       return .assignVar binding rhsVal.expr
     unless isFullWordYulScalar scalarType do
       failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"
@@ -3516,12 +3514,18 @@ private partial def lowerRef (j : Json) : M Ref := do
       else
         pure rawKey
       -- Mapping hashes consume a canonical key regardless of the value type.
-      -- Clean narrow keys that may carry uncleaned inline-assembly bits without
-      -- perturbing already-canonical keys such as parameters or `msg.sender`.
-      noteYulNarrowStmts convKey.pre
-      let convKey ← if baseTy.startsWith "mapping(" && (← mayBeYulNarrow convKey.expr) then do
+      -- Clean a narrow source even when it implicitly widens to the key type.
+      let convKey ← if baseTy.startsWith "mapping(" then do
         let src ← mType indexExpression
-        pure { convKey with expr := cleanHelperResultExpr src convKey }
+        -- Only skip a mask when the word itself proves it redundant. In
+        -- particular, a local's most recent syntactic assignment need not be
+        -- its reaching definition on a loop back-edge.
+        let canonical := match convKey.expr with
+          | .literal _ => true
+          | .caller | .contractAddress | .txOrigin => bitsOf src == some 160
+          | .param p => (paramType src).isSome && rootParamType? (← get) p == paramType src
+          | _ => false
+        if canonical then pure convKey else pure { convKey with expr := cleanHelperResultExpr src convKey }
       else pure convKey
       let key ← atom convKey
       match base with
@@ -7996,14 +8000,10 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             { e with values := e.values.insert pid expr,
                      writableLocals := e.writableLocals.insert pid binding,
                      scalarTy := e.scalarTy.insert pid scalar }
-          markYulNarrowDecl pid binding scalar
-          noteYulNarrowStmts converted.pre
-          noteYulNarrow binding converted.expr
           if pname != "" then
             yul := yul.insert pname expr
         else
           let bound ← atom converted
-          noteYulNarrowStmts bound.pre
           pre := pre ++ bound.pre
           modify fun e => { e with values := e.values.insert pid bound.expr }
           if pname != "" then
@@ -10331,14 +10331,10 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
         { e with values := e.values.insert pid expr,
                  writableLocals := e.writableLocals.insert pid binding,
                  scalarTy := e.scalarTy.insert pid scalar }
-      markYulNarrowDecl pid binding scalar
-      noteYulNarrowStmts converted.pre
-      noteYulNarrow binding converted.expr
       if pname != "" then
         yul := yul.insert pname expr
     else
       let bound ← atom converted
-      noteYulNarrowStmts bound.pre
       pre := pre ++ bound.pre
       modify fun e => { e with values := e.values.insert pid bound.expr }
       if pname != "" then
@@ -13117,8 +13113,6 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             failAt c "only declaration-bound scalar locals are writable"
           unless (localParamType cty).isSome do
             failAt c s!"unsupported scalar local assignment type {cty}"
-          noteYulNarrowStmts converted.pre
-          noteYulNarrow binding converted.expr
           assigns := assigns ++ converted.pre |>.push (.assignVar binding converted.expr)
         else
           let .state name pre ← lowerRef c
@@ -13191,8 +13185,6 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
           atom (← lowerConverted ty right)
-        noteYulNarrowStmts value.pre
-        noteYulNarrow binding value.expr
         return value.pre.push (.assignVar binding value.expr)
       if let some buf := (← get).byteBuffers.find? id.toNat then
         if !deleting then
@@ -14839,9 +14831,6 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                        yulMemoryStructs := e.yulMemoryStructs.erase name,
                        writableLocals := e.writableLocals.insert id binding,
                        zeroInitLocals := e.zeroInitLocals.filter (· != id) }
-            markYulNarrowDecl id binding scalarType
-            noteYulNarrowStmts converted.pre
-            noteYulNarrow binding converted.expr
         | .flatStruct sid sName memberVals =>
             unless loc == "memory" && dTy.startsWith "struct " && !dTy.contains "[" do
               failAt d "struct abi.decode component requires a memory struct local"
@@ -14991,9 +14980,6 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                  yulMemoryStructs := e.yulMemoryStructs.erase name,
                  writableLocals := e.writableLocals.insert id binding,
                  zeroInitLocals := if isZero then (if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id) else e.zeroInitLocals.filter (· != id) }
-      markYulNarrowDecl id binding scalarType
-      noteYulNarrowStmts converted.pre
-      noteYulNarrow binding converted.expr
     return out
   unless decls.size == 1 do failAt s "only a single declaration is supported"
   if decls[0]!.isNull then failAt s "empty declaration"
@@ -15101,7 +15087,6 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                yulNames := e.yulNames.insert name expr,
                writableLocals := e.writableLocals.insert id binding,
                zeroInitLocals := if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id }
-    markYulNarrowDecl id binding scalarType
     return #[.letVar binding (.literal 0)]
   if loc == "memory" && ((← mType d) == "bytes" || (← mType d) == "string") then
     let isString := (← mType d) == "string"
@@ -15566,9 +15551,6 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       { e with values := e.values.insert id expr, scalarTy := e.scalarTy.insert id scalarType,
                yulNames := e.yulNames.insert name expr, writableLocals := e.writableLocals.insert id binding,
                zeroInitLocals := if isZero then (if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id) else e.zeroInitLocals.filter (· != id) }
-    markYulNarrowDecl id binding scalarType
-    noteYulNarrowStmts converted.pre
-    noteYulNarrow binding converted.expr
     pure (converted.pre.push (.letVar binding converted.expr))
 
 end
@@ -17048,8 +17030,6 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
           { e with values := e.values.insert p.id pexpr,
                    writableLocals := e.writableLocals.insert p.id pbinding,
                    yulNames := if p.name == "" then e.yulNames else e.yulNames.insert p.name pexpr }
-        if let some scalar := (← get).scalarTy.find? p.id then
-          markYulNarrowDecl p.id pbinding scalar
   let stmts ← mArr (← mField body "statements")
   let emptyBodyArrayRet? ← functionEmptyBodyArrayReturnType? fn
   let fixedArrayRet? ← functionFixedArrayReturnType? fn
@@ -17120,7 +17100,6 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
                    writableLocals := e.writableLocals.insert rid rbinding,
                    scalarTy := e.scalarTy.insert rid scalar,
                    yulNames := e.yulNames.insert rname rexpr }
-        markYulNarrowDecl rid rbinding scalar
   modify fun e =>
     { e with bodyAssigned := bodyAssignedIds body,
              rootIsVoid := returns.isEmpty,
@@ -17852,7 +17831,7 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[], yulNarrowBindings := #[] }
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[] }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       let mut modelParams : Array Param := #[]

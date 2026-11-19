@@ -21,6 +21,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "StorageStru
   function setNeighbors(bytes32,uint16,uint8)
   function narrowKey()
   function siblingKey()
+  function loopKey()
+  function conditionKey()
 
 private def oracle := SolidityImport.Differential.oracle
 private def packedSlot := oracle.mappingSlot 0 7
@@ -37,6 +39,8 @@ private def observe (name : String) (args : List Nat) (packed leaf : Nat) :
 -- A dirty uint8 key 257 hashes as 1, including on an enum literal write.
 #guard observe "narrowKey" [] 0 0 == some (true, none, [1], 0, 0)
 #guard observe "siblingKey" [] 0 0 == some (true, none, [7], 0, 0)
+#guard observe "loopKey" [] 0 0 == some (true, none, [1], 0, 0)
+#guard observe "conditionKey" [] 0 0 == some (true, none, [1], 0, 0)
 
 -- The out-of-range byte is 3 (the first invalid ordinal), not an oversized ABI word.
 #guard observe "mode" [7] 0xab031234 0xcd03 ==

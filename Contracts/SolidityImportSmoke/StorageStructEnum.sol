@@ -73,4 +73,22 @@ contract StorageStructEnum {
     function helperWrite(bytes32 id, address k) external {
         writeLeaf(entries[id].levels, k);
     }
+    function loopKey() external returns (Mode) {
+        uint8 k = 0;
+        assembly { k := 257 }
+        uint8 next = 0;
+        for (uint256 i; i < 2; ++i) {
+            narrow[0].levels[next] = Mode.First;
+            next = k;
+        }
+        return narrow[0].levels[1];
+    }
+    function conditionKey() external returns (Mode) {
+        uint8 k = 0;
+        assembly { k := 257 }
+        uint8 next = 0;
+        if ((next = k) != 0) {}
+        narrow[0].levels[next] = Mode.First;
+        return narrow[0].levels[1];
+    }
 }
