@@ -444,6 +444,8 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
         let keyStr := normalizeSolcLayoutType (← get) (← mStr (← mField mapTy "key"))
         let keyType ← try liftM (mappingKey keyStr) catch _ => return none
         let valKey ← mStr (← mField mapTy "value")
+        -- An enum key may be dirty in assembly; hashing it requires validation.
+        if valKey.startsWith "t_enum(" && keyStr.startsWith "t_enum(" then return none
         let some leafTy := field? types valKey | return none
         if (normalizeSolcLayoutType (← get) valKey).startsWith "t_struct(" then
           let some valSid := resolveStructIdFromSolcType? (← get) valKey | return none
