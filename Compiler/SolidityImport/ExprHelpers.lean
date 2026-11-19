@@ -219,6 +219,9 @@ structure Env where
   /-- Bytes below `0x80` that the current inline-assembly block wrote unconditionally
       (bit `i` is byte `i`), by fixed-address `mstore`s outside any `if` body. -/
   yulWrittenBytes : Nat := 0
+  /-- Bindings of `let p := mload(0x40)` saves admitted by `yulFreePointerSave?` in the
+      current root: the only destinations a bubbled revert may copy the return data to. -/
+  yulFreePointerBindings : Array String := #[]
   /-- AST ids of the typed-interface staticcalls the current statement may
       lower (`admittedInterfaceCallIds` of its whole initializer, right-hand
       side or expression statement). Each id is consumed when lowered. -/
