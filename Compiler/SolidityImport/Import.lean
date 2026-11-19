@@ -3520,10 +3520,11 @@ private partial def lowerRef (j : Json) : M Ref := do
         -- Only skip a mask when the word itself proves it redundant. In
         -- particular, a local's most recent syntactic assignment need not be
         -- its reaching definition on a loop back-edge.
+        let env ← get
         let canonical := match convKey.expr with
           | .literal _ => true
           | .caller | .contractAddress | .txOrigin => bitsOf src == some 160
-          | .param p => (paramType src).isSome && rootParamType? (← get) p == paramType src
+          | .param p => (paramType src).isSome && rootParamType? env p == paramType src
           | _ => false
         if canonical then pure convKey else pure { convKey with expr := cleanHelperResultExpr src convKey }
       else pure convKey
