@@ -9,7 +9,7 @@ solidity_profile profile where
   optimizerRuns := some 466
   bytecodeHash := "none"
 
-solidity_import imported from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import imported from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructSingleVar
   function fromMemory(address, Part)
@@ -40,78 +40,89 @@ private def roundTrip (writer : String) : Bool := Id.run do
 #guard roundTrip "fromCalldata"
 
 /--
-error: NestedStorageStructSequence.sol:78:9: MemberAccess: [solidity-import:unsupported] whole struct storage assignment requires a scalar-member struct layout
+error: NestedStorageStructChecks.sol:78:9: MemberAccess: [solidity-import:unsupported] whole struct storage assignment requires a scalar-member struct layout
 closure: NestedStorageStructUnsupported.assignDynamicSubStruct
 holders[k].dynPart
 -/
 #guard_msgs in
-solidity_import dynWrite from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import dynWrite from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructUnsupported
   function assignDynamicSubStruct(address, DynamicPart)
 
 /--
-error: NestedStorageStructSequence.sol:82:9: MemberAccess: [solidity-import:unsupported] whole struct storage assignment requires a scalar-member struct layout
+error: NestedStorageStructChecks.sol:82:9: MemberAccess: [solidity-import:unsupported] whole struct storage assignment requires a scalar-member struct layout
 closure: NestedStorageStructUnsupported.assignOpaqueSubStruct
 holders[k].opaquePart
 -/
 #guard_msgs in
-solidity_import opaqueWrite from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import opaqueWrite from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructUnsupported
-  function assignOpaqueSubStruct(address, OpaquePart)
+  function assignOpaqueSubStruct(address, uint128)
 
 /--
-error: NestedStorageStructSequence.sol:86:16: MemberAccess: [solidity-import:unsupported] dynamic struct returns require abi.decode or a memory struct variable
+error: NestedStorageStructChecks.sol:86:9: MemberAccess: [solidity-import:unsupported] whole struct storage assignment requires a scalar-member struct layout
+closure: NestedStorageStructUnsupported.assignNestedSubStruct
+holders[k].nestedPart
+-/
+#guard_msgs in
+solidity_import nestedWrite from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
+  using profile
+  contract NestedStorageStructUnsupported
+  function assignNestedSubStruct(address, uint128)
+
+/--
+error: NestedStorageStructChecks.sol:90:16: MemberAccess: [solidity-import:unsupported] dynamic struct returns require abi.decode or a memory struct variable
 closure: NestedStorageStructUnsupported.returnDynamicSubStruct
 holders[k].dynPart
 -/
 #guard_msgs in
-solidity_import dynRead from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import dynRead from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructUnsupported
   function returnDynamicSubStruct(address)
 
 /--
-error: NestedStorageStructSequence.sol:90:38: MemberAccess: [solidity-import:unsupported] struct storage read requires a scalar-member struct layout
+error: NestedStorageStructChecks.sol:94:38: MemberAccess: [solidity-import:unsupported] struct storage read requires a scalar-member struct layout
 closure: NestedStorageStructUnsupported.readFixedArraySubStruct
 holders[k].fixedPart
 -/
 #guard_msgs in
-solidity_import arrayRead from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import arrayRead from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructUnsupported
   function readFixedArraySubStruct(address)
 
 /--
-error: NestedStorageStructSequence.sol:95:33: MemberAccess: [solidity-import:unsupported] nested struct assignment requires a memory or calldata source
+error: NestedStorageStructChecks.sol:99:33: MemberAccess: [solidity-import:unsupported] nested struct assignment requires a memory or calldata source
 closure: NestedStorageStructUnsupported.assignStorageToStorageSubStruct
 holders[b].scalarPart
 -/
 #guard_msgs in
-solidity_import storageCopy from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import storageCopy from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructUnsupported
   function assignStorageToStorageSubStruct(address, address)
 
 /--
-error: NestedStorageStructSequence.sol:99:16: MemberAccess: [solidity-import:unsupported] member assignment requires a supported layout member
+error: NestedStorageStructChecks.sol:103:16: MemberAccess: [solidity-import:unsupported] member assignment requires a supported layout member
 closure: NestedStorageStructUnsupported.deleteSubStruct
 holders[k].scalarPart
 -/
 #guard_msgs in
-solidity_import subDelete from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import subDelete from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructUnsupported
   function deleteSubStruct(address)
 
 /--
-error: NestedStorageStructSequence.sol:103:16: MemberAccess: [solidity-import:unsupported] nested storage struct return requires a flat memory result
+error: NestedStorageStructChecks.sol:107:16: MemberAccess: [solidity-import:unsupported] nested storage struct return requires a flat memory result
 closure: NestedStorageStructUnsupported.returnSubStructStoragePtr
 holders[k].scalarPart
 -/
 #guard_msgs in
-solidity_import storagePtrRet from "Contracts/SolidityImportSmoke" entry "NestedStorageStructSequence.sol"
+solidity_import storagePtrRet from "Contracts/SolidityImportSmoke" entry "NestedStorageStructChecks.sol"
   using profile
   contract NestedStorageStructUnsupported
   function returnSubStructStoragePtr(address)
