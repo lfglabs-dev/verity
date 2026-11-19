@@ -16,6 +16,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "InterfaceWo
   function both(address,address,uint256)
   function price(address,uint256,bytes32)
   function stamp(address,address,bool)
+  function route(address,uint256,uint8)
   function either(address,address)
   function stored()
 def model : CompilationModel := imported.model

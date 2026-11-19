@@ -7437,9 +7437,13 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     (scalarArrayElement? pty).isSome
   let hasExtendedScalarParam := env.stateVars.size > 1 &&
     !paramTypes.all (["address", "uint256", "bytes32", "bool"].contains ·) &&
-    paramTypes.all fun pty => (paramType pty).isSome && !pty.startsWith "enum "
+    paramTypes.all fun pty => (paramType pty).isSome
   -- Each parameter is one ABI head word; solc cleans `address` to 160 bits and
-  -- `bool` to `0`/`1` before encoding.
+  -- `bool` to `0`/`1` before encoding. An `enum` argument is its ordinal word:
+  -- solc's encoder asserts it is below the member count, and every enum value the
+  -- importer admits already is (root parameters are guarded at entry, `Enum(x)`
+  -- casts panic with 0x21 out of range, fallible casts in an argument fail closed in
+  -- `checkEncodingScalar`, and enum storage fields and Yul writes are rejected).
   unless isNonpayableCallback || isStateVarGetter || hasDynamicOrStructParam || hasExtendedScalarParam do
     unless paramTypes.all (["address", "uint256", "bytes32", "bool"].contains ·) do
       failAt j "typed interface staticcall parameters must be address, uint256, bytes32 or bool"
@@ -7538,7 +7542,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
           | .error _ =>
               failAt j "typed interface staticcall arguments are outside this slice"
       else
-        unless (paramType pty).isSome && !pty.startsWith "enum " do
+        unless (paramType pty).isSome do
           failAt j "typed interface staticcall arguments are outside this slice"
     if isNonpayableCallback || hasDynamicArg then
       let payload ← lowerAbiEncodeArgs args (some params)

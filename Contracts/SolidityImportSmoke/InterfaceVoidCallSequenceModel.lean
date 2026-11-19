@@ -16,6 +16,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "InterfaceVo
   function relayData(address,bytes)
   function poke(address)
   function fund(address,uint128)
+  function guard(address,address,uint8)
+  function guardModule(address,address,uint8)
   function read()
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

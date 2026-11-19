@@ -1,6 +1,6 @@
 """Imported typed-interface word staticcalls through source EVM, Denote and compiled model.
 
-Covers static word arguments (`address`, `uint256`, `bytes32`, `bool`), `bool` and
+Covers static word arguments (`address`, `uint256`, `bytes32`, `bool`, `enum`), `bool` and
 `bytes32` returns, and calls placed in short-circuit operands and `require`
 conditions. Every variant of the fixture is imported independently; its A/B/C
 sequence uses calldata-folding oracle mocks (`InterfaceWordStaticCallOracle.sol`
@@ -97,12 +97,16 @@ def transactions_for(count, seed, caller, oracles):
             [target, len(calls), bytes([len(calls)]) * 32])
         add('stamp(address,address,bool)', ['address', 'address', 'bool'],
             [target, SENDER, len(calls) % 2 == 0])
+        add('route(address,uint256,uint8)', ['address', 'uint256', 'uint8'],
+            [target, len(calls), len(calls) % 3])
+    # An out-of-range ordinal panics (0x21) before the call.
+    add('route(address,uint256,uint8)', ['address', 'uint256', 'uint8'], [targets[2], 9, 3])
     add('gated(address,uint256)', ['address', 'uint256'], ['0x' + '00' * 20, 5])
     for first, second in [(0, 1), (1, 0), (1, 2), (2, 1), (4, 8), (8, 4), (1, 11), (11, 1), (6, 9)]:
         add('either(address,address)', ['address', 'address'], [targets[first], targets[second]])
     add('stored()', [], [])
     while len(calls) < count:
-        choice = rng.randrange(7)
+        choice = rng.randrange(8)
         target = rng.choice(targets)
         if choice == 0:
             add('check(address,address)', ['address', 'address'], [target, account()])
@@ -118,6 +122,9 @@ def transactions_for(count, seed, caller, oracles):
         elif choice == 4:
             add('stamp(address,address,bool)', ['address', 'address', 'bool'],
                 [target, account(), rng.randrange(2) == 1])
+        elif choice == 6:
+            add('route(address,uint256,uint8)', ['address', 'uint256', 'uint8'],
+                [target, rng.getrandbits(256), rng.choice([0, 1, 2, 2, 3, 255])])
         elif choice == 5:
             add('either(address,address)', ['address', 'address'], [target, rng.choice(targets)])
         else:
@@ -209,7 +216,7 @@ def canonical(observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--transactions', type=int, default=96)
+    parser.add_argument('--transactions', type=int, default=104)
     parser.add_argument('--seed', type=int, default=2549)
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--variant', action='append', choices=('baseline', 'renamed', 'expanded'))
@@ -217,7 +224,7 @@ def main():
                         help='one unmodified-source campaign into --output; exit 1 on divergence')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = 6 * (len(ORACLES) + 1) + 11
+    minimum = 7 * (len(ORACLES) + 1) + 12
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every target and helper order')
     output = (args.output.resolve() if args.output else
