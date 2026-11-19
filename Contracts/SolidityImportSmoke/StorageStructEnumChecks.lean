@@ -59,4 +59,37 @@ solidity_import comparison from "Contracts/SolidityImportSmoke" entry "StorageSt
   contract StorageStructEnum
   function compare(bytes32)
 
+/--
+error: StorageStructEnum.sol:38:55: IndexAccess: [solidity-import:unsupported] whole-struct delete with packed enum members is outside this slice
+closure: StorageStructEnum.clearWhole
+packed[id]
+-/
+#guard_msgs in
+solidity_import whole from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
+  using enumProfile
+  contract StorageStructEnum
+  function clearWhole(bytes32)
+
+/--
+error: StorageStructEnum.sol:42:28: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
+closure: StorageStructEnum.dirtyPacked
+x
+-/
+#guard_msgs in
+solidity_import dirtyPacked from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
+  using enumProfile
+  contract StorageStructEnum
+  function dirtyPacked(bytes32)
+
+/--
+error: StorageStructEnum.sol:47:33: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
+closure: StorageStructEnum.dirtyMapped
+x
+-/
+#guard_msgs in
+solidity_import dirtyMapped from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
+  using enumProfile
+  contract StorageStructEnum
+  function dirtyMapped(bytes32,address)
+
 end SolidityImportSmoke.StorageStructEnumChecks

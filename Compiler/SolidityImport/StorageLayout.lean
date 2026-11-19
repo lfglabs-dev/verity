@@ -501,6 +501,8 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
           let some b := (solcType.drop 5).toNat? | throwError "bad int {solcType}"
           unless b > 0 && b ≤ 256 && b % 8 == 0 do throwError "bad int {solcType}"
           pure b
+      if solcType.startsWith "t_enum(" then
+        modify fun e => { e with enumStructFields := name :: e.enumStructFields }
       let bitOff := byteOff * 8
       unless bitOff + bits ≤ 256 do throwError "packed field {qualLabel} does not fit in a word"
       let packed : Option PackedBits :=

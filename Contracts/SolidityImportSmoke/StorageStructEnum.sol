@@ -33,4 +33,17 @@ contract StorageStructEnum {
     function compare(bytes32 id) external view returns (bool) {
         return entries[id].mode == Mode.First;
     }
+    struct Packed { uint16 left; Mode mode; uint8 right; }
+    mapping(bytes32 => Packed) internal packed;
+    function clearWhole(bytes32 id) external { delete packed[id]; }
+    function dirtyPacked(bytes32 id) external {
+        Mode x = Mode.None;
+        assembly { x := 3 }
+        entries[id].mode = x;
+    }
+    function dirtyMapped(bytes32 id, address k) external {
+        Mode x = Mode.None;
+        assembly { x := 3 }
+        entries[id].levels[k] = x;
+    }
 }
