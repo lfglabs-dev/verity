@@ -565,6 +565,18 @@ MUTANTS.update({
 })
 
 
+# Loop forms (#2712, #2726, #2710): the exit store of a pre-declared counter, the
+# once-read storage length, and `break` versus `continue` in helper loops.
+MUTANTS.update({
+    'import-predeclared-for-exit-store': ('pure (loopStmts ++ exitValue.pre |>.push (.assignVar binding exitValue.expr))',
+        'pure (loopStmts ++ exitValue.pre |>.push (.assignVar binding (.literal 0)))'),
+    'import-storage-array-length-bound-skip': ('    out := out.push (.forEach binding limit bodyOut.toList)\n  pure out',
+        '    out := out.push (.forEach binding (if storageLength then .literal 0 else limit) bodyOut.toList)\n  pure out'),
+    'import-helper-loop-break-as-continue': ('let code := if kind == "Break" then 2 else 1',
+        'let code := if kind == "Break" then 1 else 1'),
+})
+
+
 # Root ABI parameters (#2711, #2708, #2701): byte buffers of `string` struct
 # members, from memory (payload pointer) and from calldata (member word); the
 # root argument tuple pointer, the `bytes[]` element bound, the calldata tail
@@ -681,6 +693,12 @@ def run(directory, output, name):
         fixture = "FixedBytesConversionSequence"
     if name.startswith("import-narrow-for-"):
         fixture = "NarrowForCounterSequence"
+    if name.startswith("import-predeclared-for-"):
+        fixture = "PredeclaredForCounterSequence"
+    if name.startswith("import-storage-array-length-bound-"):
+        fixture = "StorageArrayLengthBoundSequence"
+    if name.startswith("import-helper-loop-break-"):
+        fixture = "HelperLoopBreakSequence"
     if name.startswith("import-msg-data-and-enum-"):
         fixture = "MsgDataAndEnumSequence"
     if name.startswith("import-struct-fixed-array-"):

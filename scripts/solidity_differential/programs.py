@@ -1358,6 +1358,121 @@ def stateful_narrow_for_counters_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown narrow-for-counters variant: {variant}')
 
 
+def _rename_identifiers(fixture: str, names) -> str:
+    import re
+    return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                  lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                  fixture)
+
+
+def _replace_anchors(fixture: str, replacements, label: str) -> str:
+    for before, after in replacements:
+        if fixture.count(before) != 1:
+            raise ValueError(f'missing {label} fixture anchor: {before}')
+        fixture = fixture.replace(before, after)
+    return fixture
+
+
+def stateful_predeclared_for_counters_source(fixture: str, variant: str) -> str:
+    """Compare `for (i = 0; ...)` over a pre-declared counter with a loop-scoped counter
+    followed by the explicit store of the exit value."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return _rename_identifiers(fixture, {'acc', 'i', 'j', 'k', 'n', 's', 'last', 'total', 'x'})
+    if variant == 'declared':
+        return _replace_anchors(fixture, [
+            ('for (j = 0; j < n; j++) {\n            acc += uint256(j) * 3 + 1;\n        }\n',
+             'for (uint8 c = 0; c < n; c++) {\n            acc += uint256(c) * 3 + 1;\n        }\n'
+             '        j = uint8(n);\n'),
+            ('for (k = 0; k < n; ++k) {\n            if (k % 3 == 2) {\n                continue;\n'
+             '            }\n            acc += k;\n        }\n',
+             'for (uint256 c = 0; c < n; ++c) {\n            if (c % 3 == 2) {\n                continue;\n'
+             '            }\n            acc += c;\n        }\n        k = n;\n'),
+            ('for (i = 0; i < n; ++i) {\n            s += i * i;\n        }\n',
+             'for (uint256 c = 0; c < n; ++c) {\n            s += c * c;\n        }\n        i = n;\n'),
+            ('for (i = 0; i < 4; i++) {\n                s += i;\n            }\n',
+             'for (uint256 c = 0; c < 4; c++) {\n                s += c;\n            }\n            i = 4;\n'),
+        ], 'predeclared-for-counters')
+    raise ValueError(f'unknown predeclared-for-counters variant: {variant}')
+
+
+def stateful_storage_array_length_bound_source(fixture: str, variant: str) -> str:
+    """Compare `i < values.length` loop bounds with the length cached in a local first."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return _rename_identifiers(fixture, {'acc', 'i', 'sum', 'seen', 'total', 'values', 'v', 'x'})
+    if variant == 'cached':
+        return _replace_anchors(fixture, [
+            ('        for (uint256 i = 0; i < values.length; i++) {\n            acc +=',
+             '        uint256 len = values.length;\n'
+             '        for (uint256 i = 0; i < len; i++) {\n            acc +='),
+            ('        for (uint256 i = 0; i < values.length; ++i) {\n',
+             '        uint256 len = values.length;\n'
+             '        for (uint256 i = 0; i < len; ++i) {\n'),
+            ('        for (uint256 i = 0; i < values.length; i++) {\n            total +=',
+             '        uint256 len = values.length;\n'
+             '        for (uint256 i = 0; i < len; i++) {\n            total +='),
+        ], 'storage-array-length-bound')
+    raise ValueError(f'unknown storage-array-length-bound variant: {variant}')
+
+
+HELPER_LOOP_BREAK_GRID = (
+    '        for (uint256 i = 0; i < n; i++) {\n'
+    '            if (i % 4 == 1) {\n'
+    '                continue;\n'
+    '            }\n'
+    '            for (uint256 j = 0; j < 10; j++) {\n'
+    '                if (j > i) {\n'
+    '                    break;\n'
+    '                }\n'
+    '                if (j % 2 == 0) {\n'
+    '                    continue;\n'
+    '                }\n'
+    '                acc += i * j;\n'
+    '            }\n'
+    '            if (acc > 500) {\n'
+    '                break;\n'
+    '            }\n'
+    '            acc += 1;\n'
+    '        }\n')
+
+HELPER_LOOP_BREAK_GRID_STRUCTURED = (
+    '        uint256 stopped;\n'
+    '        for (uint256 i = 0; i < n; i++) {\n'
+    '            if (stopped == 0 && i % 4 != 1) {\n'
+    '                for (uint256 j = 0; j < 10; j++) {\n'
+    '                    if (j <= i && j % 2 == 1) {\n'
+    '                        acc += i * j;\n'
+    '                    }\n'
+    '                }\n'
+    '                if (acc > 500) {\n'
+    '                    stopped = 1;\n'
+    '                } else {\n'
+    '                    acc += 1;\n'
+    '                }\n'
+    '            }\n'
+    '        }\n')
+
+
+def stateful_helper_loop_break_source(fixture: str, variant: str) -> str:
+    """Compare `break` / `continue` in inlined helper loops with structured guards."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return _rename_identifiers(fixture, {'acc', 'cap', 'count', 'hits', 'i', 'j', 'n', 'total', 'v', 'x'})
+    if variant == 'structured':
+        return _replace_anchors(fixture, [
+            ('            acc += i;\n            if (acc >= cap) {\n                break;\n            }\n',
+             '            if (acc < cap || i == 0) {\n                acc += i;\n            }\n'),
+            (HELPER_LOOP_BREAK_GRID, HELPER_LOOP_BREAK_GRID_STRUCTURED),
+            ('            if (i == 6) {\n                break;\n            }\n            hits += 1;\n',
+             '            if (i < 6) {\n                hits += 1;\n            }\n'),
+        ], 'helper-loop-break')
+    raise ValueError(f'unknown helper-loop-break variant: {variant}')
+
+
 def stateful_byte_constant_conversions_source(fixture: str, variant: str) -> str:
     """Compare bytes(...) / string(...) byte-constant initializers with their literal forms."""
     if variant == 'baseline':
