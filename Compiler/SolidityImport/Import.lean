@@ -815,8 +815,10 @@ private def storageEnumRead (node : Json) (v : Val) : M Val := do
     admitted: assembly may leave even an enum-typed local out of range. -/
 private def checkStoredEnumSource (target rhs : Json) : M Unit := do
   if (← mType target).startsWith "enum " then
+    let baseTy := (field? rhs "expression").bind (field? · "typeDescriptions")
+      |>.bind (optStr · "typeString")
     unless optStr rhs "nodeType" == some "MemberAccess" &&
-        (← mType (← mField rhs "expression")).startsWith "type(enum " do
+        baseTy.any (·.startsWith "type(enum ") do
       failAt rhs "storage enum assignment requires an enum literal"
 
 private def readStructMappingElement (pre : Array Stmt) (path : SPath) (mapInfo : StructMappingInfo)
