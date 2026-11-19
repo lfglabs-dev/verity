@@ -1087,7 +1087,7 @@ own address. Such an immutable is now `Expr.immutable NAME`, declared in
 `model.immutables` and installed by a synthesized constructor from its
 argument; only an exactly-once, top-level `x = address(this)` keeps the
 `address(this)` binding (Uniswap v4's `NoDelegateCall.original`, whose
-PoolManager coverage stays 38/38). `check_immutable_lowering.py` pins the
+PoolManager import this rule leaves unchanged). `check_immutable_lowering.py` pins the
 lowering of eight cases, including conditional, repeated, indirect and
 inherited assignments.
 

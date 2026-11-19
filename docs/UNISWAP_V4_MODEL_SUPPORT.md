@@ -1,6 +1,6 @@
-# Uniswap v4 (`v4-core`) Model Support (`37/38` Functions)
+# Uniswap v4 (`v4-core`) Model Support (`35/38` Functions)
 
-Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) supports **`37/38` functions** of Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`).
+Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) supports **`35/38` functions** of Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`).
 
 ## 1. Modular Inline-Assembly Shim Architecture (`InlineAssemblyShims.lean`)
 
@@ -47,16 +47,16 @@ Alongside the shims in `InlineAssemblyShims.lean`, `Compiler/SolidityImport/Impo
 6. **`msg.value` Support in `Coverage.lean` and `Quote.lean`**:
    - `exprCovered` covers `Expr.msgValue` (`evalExpr_msgValue_arm`), and `Quote.lean` quotes `Expr.msgValue`.
 
-## 3. `PoolManager.sol` Function Inventory (`37/38` Imported)
+## 3. `PoolManager.sol` Function Inventory (`35/38` Imported)
 
-Every function in `src/PoolManager.sol` except `modifyLiquidity` (row 3, a located rejection) elaborates via `solidity_import` with `modelImportCovered model = true`:
+Every probed function below except `modifyLiquidity` and `swap` (rows 3 and 4, located rejections) elaborates via `solidity_import` with `modelImportCovered model = true`. The `35/38` count is over the coverage tool's 38 probes, which differ from this table: they also probe `_swap`, `_burn`, `checkNotDelegateCall` and `_updateProtocolFees` (of these, only `_swap` rejects, at the same site as `swap`), and they do not probe rows 19, 20, 24, 25, 27, 28 and 29:
 
 | # | Function Signature | Category |
 | --- | --- | --- |
 | 1 | `unlock(bytes)` | Core Lock / Callback (`IUnlockCallback.unlockCallback`) |
 | 2 | `initialize(PoolKey, uint160)` | Pool Lifecycle + Hooks (`beforeInitialize`, `afterInitialize`) |
-| 3 | `modifyLiquidity(PoolKey, ModifyLiquidityParams, bytes)` | **Rejected** at `src/libraries/Position.sol:55:24` (`mload(0x40)` in `Position.calculatePositionKey`'s inline assembly). It previously imported through a name-keyed shim that hashed `abi.encode` of four words (128 bytes) instead of the helper's 58-byte packed key. |
-| 4 | `swap(PoolKey, SwapParams, bytes)` | AMM Swap Loop + `SwapMath` + `TickBitmap` + Hooks |
+| 3 | `modifyLiquidity(PoolKey, ModifyLiquidityParams, bytes)` | **Rejected**. The first blocker is now `src/libraries/LiquidityMath.sol:16:17` (`LiquidityMath.addDelta`'s `mstore(0, 0x93dafdf1) revert(0x1c, 0x04)`, see the note below); `Position.calculatePositionKey`'s `mload(0x40)` at `src/libraries/Position.sol:55:24` rejects as well. It previously imported through a name-keyed shim that hashed `abi.encode` of four words (128 bytes) instead of the helper's 58-byte packed key. |
+| 4 | `swap(PoolKey, SwapParams, bytes)` | **Rejected** at `src/libraries/SqrtPriceMath.sol:200:21` (`SqrtPriceMath.getAmount0Delta`'s `InvalidPrice()` revert, `mstore(0, 0x00bfc921) revert(0x1c, 0x04)`, reached through `SwapMath.computeSwapStep`; see the note below). The private helper `_swap` rejects at the same site. |
 | 5 | `donate(PoolKey, uint256, uint256, bytes)` | Pool Donation + Hooks |
 | 6 | `sync(Currency)` | Transient Reserve Sync (`Reserves.setSyncedReserves`) |
 | 7 | `take(Currency, address, uint256)` | Currency Accounting + `CurrencyLibrary.transfer` |
@@ -95,4 +95,6 @@ Every function in `src/PoolManager.sol` except `modifyLiquidity` (row 3, a locat
 | 40* | `exttload(bytes32)` | `Exttload` Single-Slot Transient Introspection |
 | 41* | `exttload(bytes32[])` | `Exttload` Batch-Array Transient Introspection |
 
-*(Note: `extsload` has 3 overloads and `exttload` has 2 overloads; 37 of the 38 distinct function/overload probes in `PoolManager` pass with `modelImportCovered = true`; `modifyLiquidity` is rejected (row 3).)*
+*(Note: `extsload` has 3 overloads and `exttload` has 2 overloads; 35 of the 38 distinct function/overload probes in `PoolManager` (which include the private helper `_swap`) pass with `modelImportCovered = true`; `modifyLiquidity`, `swap` and `_swap` are rejected (rows 3 and 4).)*
+
+*(Note on rows 3 and 4: a Yul `revert(off, size)` whose size is anything other than a literal `0` that reaches the generic inline-assembly lowering used to lower to an empty revert, dropping the payload the EVM returns (here a custom-error selector). It now fails closed with a located rejection. The exact lowering, a revert of the memory slice, is planned as a new `CompilationModel` statement with proofs; until then these two entry points stay rejected. The name-keyed `CustomRevert.revertWith` / `bubbleUpAndRevertWith` shims in the table above are not affected by this rule: calls that `lowerSelectorRevertCall?` does not take (selectors with error arguments, and every `bubbleUpAndRevertWith`) still lower to `.revertEmpty` and drop the payload, a known approximation.)*
