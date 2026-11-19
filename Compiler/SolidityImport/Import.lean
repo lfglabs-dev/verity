@@ -12507,20 +12507,28 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
         | .two field _ _ => pure (field, 2)
         | .outer _ _ => failAt j "struct storage read requires all mapping keys"
         | .rawSlot _ _ | .bytesSlot _ _ => failAt j "whole raw-slot struct storage read is outside this slice"
+      let (fieldName, subPrefix) := splitSPathField fieldName
       let info ← resolveField fieldName j
+      let underSub (m : String) : Bool :=
+        if subPrefix.isEmpty then true else m == subPrefix || m.startsWith (subPrefix ++ ".")
       unless !info.scalarMapping && info.fixedArrayLength.isNone && info.keyCount == count &&
-          info.structMappings.isEmpty && info.opaqueNames.isEmpty &&
-          info.structFixedArrays.isEmpty && info.structDynamicArrays.isEmpty &&
-          !info.memberNames.isEmpty do
+          !sMembers.isEmpty &&
+          !info.structMappings.any (underSub ·.member) && !info.opaqueNames.any underSub &&
+          !info.structFixedArrays.any (underSub ·.member) &&
+          !info.structDynamicArrays.any (underSub ·.member) &&
+          (if subPrefix.isEmpty then info.subStructs.isEmpty
+           else info.subStructs.contains (subPrefix, sid) &&
+             !info.subStructs.any (·.1.startsWith (subPrefix ++ "."))) do
         failAt j "struct storage read requires a scalar-member struct layout"
-      unless sMembers.size == info.memberNames.size do
+      unless sMembers.size == (info.memberNames.filter underSub).size do
         failAt j "struct declaration member count does not match storage layout"
       let mut pre : Array Stmt := pathPre
       let mut memberVals : Array (String × String × Expr) := #[]
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome && info.memberNames.contains mName do
+        unless !mTy.startsWith "enum " && (paramType mTy).isSome &&
+            info.memberNames.contains (qualifySPathMember subPrefix mName) do
           failAt mNode s!"unsupported flat struct storage member {mName}"
         let readVal ← atom (← memberRead #[] path mName j)
         pre := pre ++ readVal.pre
@@ -12630,7 +12638,7 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
         out := out.push (.setStorageArrayElement rawStorageFieldName (rawStructMemberSlot baseSlot w) (.literal 0))
       return out
     unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty &&
-        rawInfo.subStructs.isEmpty && !rawInfo.scalars.isEmpty do
+        rawInfo.subStructs.isEmpty && rawInfo.opaqueMemberNames.isEmpty && !rawInfo.scalars.isEmpty do
       failAt target "whole struct storage assignment requires a scalar-member struct layout"
     let (targetSid, sDecl) ← resolveStructDeclFromType target
     unless targetSid == rawSid do
@@ -13194,6 +13202,15 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             if deleting then
               return ← deleteStorageDynamicArray pre "" (rawStructMemberSlot baseSlot dynInfo.wordOffset) dynInfo.elemType dynInfo.elemStructId
             failAt target s!"struct dynamic array member {member} requires an element index"
+          if let some subInfo := rawInfo.subStructs.find? (·.member == member) then
+            if !deleting && pre.all isStorageKeyCaptureStmt then
+              let right ← mField expression "rightHandSide"
+              let rhsTy ← mType right
+              unless rhsTy.endsWith " memory" || rhsTy.endsWith " calldata" do
+                failAt right "nested struct assignment requires a memory or calldata source"
+              return ← writeWholeStorageStruct pre
+                (.rawSlot subInfo.structId (rawStructMemberSlot baseSlot subInfo.wordOffset))
+                false target expression
           let some mInfo := rawInfo.scalars.find? (·.member == member)
             | failAt target s!"member {member} is unsupported in raw-slot struct"
           if deleting then
@@ -13254,6 +13271,36 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             let right ← mField expression "rightHandSide"
             pure (assignmentIn right || statefulCallIn right (← get))
         if hasInvalidKeyPrelude then failAt target "member write key prelude is unsupported"
+        if !deleting && !info.scalarMapping && info.fixedArrayLength.isNone && info.keyCount == count then
+          if let some (_, sid) := info.subStructs.find? (·.1 == qualMember) then
+            let underSub (m : String) : Bool := m == qualMember || m.startsWith (qualMember ++ ".")
+            unless !info.structMappings.any (underSub ·.member) && !info.opaqueNames.any underSub &&
+                !info.structFixedArrays.any (underSub ·.member) &&
+                !info.structDynamicArrays.any (underSub ·.member) &&
+                !info.subStructs.any (·.1.startsWith (qualMember ++ ".")) do
+              failAt target "whole struct storage assignment requires a scalar-member struct layout"
+            let right ← mField expression "rightHandSide"
+            let rhsTy ← mType right
+            unless rhsTy.endsWith " memory" || rhsTy.endsWith " calldata" do
+              failAt right "nested struct assignment requires a memory or calldata source"
+            let (_, _, rhsPre, members) ← lowerFlatStructValue right (some sid) true
+            unless members.size == (info.memberNames.filter underSub).size && !members.isEmpty do
+              failAt target "struct assignment member count mismatch"
+            let writeSubMember : String → Expr → Stmt ← match path with
+              | .zero _ => pure fun m v => Stmt.setStorage (topStructMemberFieldName name m) v
+              | .one _ key => pure (Stmt.setStructMember name key)
+              | .two _ key1 key2 => pure (Stmt.setStructMember2 name key1 key2)
+              | _ => failAt target "member assignment requires a mapping struct storage path"
+            markField name
+            let mut out := pre ++ rhsPre
+            for (leaf, _, v) in members do
+              let qualified := qualifySPathMember qualMember leaf
+              unless info.memberNames.contains qualified do
+                failAt target s!"unsupported flat struct storage member {qualified}"
+              let stored := if info.booleanMembers.contains qualified then
+                Expr.logicalNot (.logicalNot v) else v
+              out := out.push (writeSubMember qualified stored)
+            return out
         unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
           failAt target "member assignment requires a supported layout member"
         let ty ← mType target
@@ -16538,7 +16585,9 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 let (slotPre, slotExpr) ← match rpath with
                   | .rawSlot _ sl => pure (#[], sl)
                   | .zero rawField | .one rawField _ | .two rawField _ _ => do
-                      let (f, _) := splitSPathField rawField
+                      let (f, subPrefix) := splitSPathField rawField
+                      unless subPrefix.isEmpty do
+                        failAt expr "nested storage struct return requires a flat memory result"
                       let info ← resolveField f s
                       markField f
                       computeSPathBaseSlot rpath info 0 s
