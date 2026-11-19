@@ -231,6 +231,8 @@ structure Env where
   storageEnumUse : Option (Nat × Bool) := none
   /-- Layouts with a packed enum anywhere in the flattened member list. -/
   enumStructFields : List String := []
+  /-- Narrow local bindings that may hold uncleaned words from inline assembly. -/
+  yulNarrowBindings : Array String := #[]
   /-- `bytes memory` locals whose initializer begins with a checked CREATE2
       initcode template literal (`DenoteCreate2.templateCost`). -/
   initcodeTemplates : Array Nat := #[]
@@ -675,6 +677,15 @@ partial def bodyAssignedIds (j : Json) : List Nat :=
 
 def isCompoundAssignOp (operator : String) : Bool :=
   ["+=", "-=", "*=", "<<=", ">>=", "&=", "|=", "^=", "/=", "%="].contains operator
+
+/-- Declarations modified by inline assembly in `j`. -/
+partial def bodyYulAssignedIds (j : Json) : List Nat :=
+  match j with
+  | .arr xs => xs.toList.flatMap bodyYulAssignedIds
+  | .obj o =>
+      let own := if optStr j "nodeType" == some "InlineAssembly" then inlineAssemblyAssignedIds j else []
+      o.foldl (fun acc _ v => acc ++ bodyYulAssignedIds v) own
+  | _ => []
 
 /-- Declarations modified by compound assignment (`+=`, `-=`, `*=`, `<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`), `++`/`--`, or Yul assignment in `j`. -/
 partial def bodyCompoundAssignedIds (j : Json) : List Nat :=
@@ -1143,6 +1154,40 @@ def isProvablyBoundedYulExpr (scalarType : ParamType) (expr : Expr) : Bool :=
       | .shr (.literal shift) _ => shift ≥ 256 - bits
       | .mod _ (.literal m) => 0 < m && m ≤ 2 ^ bits
       | _ => false
+
+/-- Whether `expr` mentions a narrow local binding that inline assembly may leave uncleaned. -/
+def mayBeYulNarrow (expr : Expr) : M Bool := do
+  let bindings := (← get).yulNarrowBindings
+  if bindings.isEmpty then return false
+  return expr.anyDeep fun
+    | .localVar name => bindings.contains name
+    | _ => false
+
+/-- Propagate uncleaned narrow-local taint when `value` mentions a tainted binding. -/
+def noteYulNarrow (binding : String) (value : Expr) : M Unit := do
+  if ← mayBeYulNarrow value then
+    modify fun e =>
+      if e.yulNarrowBindings.contains binding then e
+      else { e with yulNarrowBindings := e.yulNarrowBindings.push binding }
+
+/-- Propagate uncleaned narrow-local taint across the bindings in `pre`. -/
+def noteYulNarrowStmts (pre : Array Stmt) : M Unit := do
+  if (← get).yulNarrowBindings.isEmpty then return
+  let bindings := pre.toList.flatMap stmtBindings
+  for _ in [0:bindings.length + 1] do
+    let before := (← get).yulNarrowBindings.size
+    for (binding, value) in bindings do
+      noteYulNarrow binding value
+    if (← get).yulNarrowBindings.size == before then return
+
+/-- Mark a narrow local binding if inline assembly in the current scope assigns `id`. -/
+def markYulNarrowDecl (id : Nat) (binding : String) (scalarType : ParamType) : M Unit := do
+  if isFullWordYulScalar scalarType then return
+  let env ← get
+  let scope? := env.stack.head?.bind fun fid => env.funs.find? fid <|> env.modifiers.find? fid
+  if scope?.any fun scope => (bodyYulAssignedIds scope).contains id then
+    if !env.yulNarrowBindings.contains binding then
+      modify fun e => { e with yulNarrowBindings := e.yulNarrowBindings.push binding }
 
 /-! ## Layer I: Universal Expression & Type Helper MetaSpec -/
 
