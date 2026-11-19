@@ -89,7 +89,8 @@ def main():
         ('byte-local-alias', '', 'bytes memory b = abi.encode(x); bytes memory c = b; return uint256(keccak256(c));', 'uint256', None),
         ('byte-local-packed', '', 'bytes memory b = abi.encodePacked(hex"01", abi.encode(x)); return uint256(keccak256(b));', 'uint256', None),
         ('byte-local-uninitialized', '', 'bytes memory b; return uint256(keccak256(b));', 'uint256', 'uninitialized reference locals'),
-        ('byte-local-reassign', '', 'bytes memory b = abi.encode(x); b = abi.encode(uint256(0)); return uint256(keccak256(b));', 'uint256', 'encoded byte locals are limited to hash and packed encoding operands'),
+        # A writable `bytes memory` local is rebound to the right-hand buffer (2b63b08f1).
+        ('byte-local-reassign', '', 'bytes memory b = abi.encode(x); b = abi.encode(uint256(0)); return uint256(keccak256(b));', 'uint256', None),
         ('byte-local-index-write', '', 'bytes memory b = abi.encode(x); b[0] = bytes1(0); return uint256(keccak256(b));', 'uint256', 'encoded byte locals are limited to hash and packed encoding operands'),
         ('byte-local-length', '', 'bytes memory b = abi.encode(x); return b.length;', 'uint256', None),
         ('byte-local-new', '', 'bytes memory b = new bytes(x); return uint256(keccak256(b));', 'uint256', 'hash input must be a supported ABI encoding'),
