@@ -6889,8 +6889,12 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
     (optStr e "nodeType" == some "Assignment" && optStr e "operator" == some "=" &&
       ((field? e "leftHandSide").bind (optStr · "nodeType")) == some "Identifier" &&
       (field? e "rightHandSide").any scalarLeaf)
-  let sequence := directHelper && nodes.size > 1 && receiver?.isNone &&
+  let sequence := directHelper && field? j "reorderedScalarArguments" != some (.bool true) &&
+    nodes.size > 1 && receiver?.isNone &&
     nodes.any assignmentIn && nodes.all (fun n => scalarLeaf n || scalarUpdate n)
+  let singleEffect := field? j "reorderedScalarArguments" == some (.bool true) &&
+    (nodes.filter (fun n => optStr n "nodeType" != some "Literal")).size == 1 &&
+    receiver?.isNone
   let mut vals : Array CallArg := #[]
   for arg in nodes do
     let argTy ← mType arg
@@ -6898,7 +6902,7 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
       argTy.startsWith "struct " && (argTy.endsWith " storage pointer" || argTy.endsWith " storage ref") &&
       nodes.all (fun n => n == arg || (scalarLeaf n && (optStr n "nodeType" == some "Literal" ||
         ((field? n "referencedDeclaration").bind (·.getNat?.toOption)).any env.values.contains)))
-    if statefulCallIn arg (← get) then
+    if !singleEffect && statefulCallIn arg (← get) then
       if pointerCall then
         let callee ← mField arg "expression"
         let id ← refInt callee
@@ -12738,6 +12742,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       failAt callee "external contract calls are outside this slice"
     if isLibraryDelegateCall callee then
       failAt callee "external library calls are outside this slice"
+    unless (← mArr (← mField expression "names")).isEmpty do
+      failAt expression "named call arguments are outside this slice"
     if ← isInterfaceExternalCall expression then
       if let some decl ← interfaceVoidCallDecl? expression then
         return ← lowerInterfaceVoidCall expression decl
@@ -14400,7 +14406,10 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
       | .ite _ [] [.revertEmpty] => true
       | .ite _ [] [.panicCode (.literal 0x32)] => true
       | _ => false
-    unless value.pre.all (fun
+    -- Normalization certified these scalar expressions read-only, with at most one
+    -- potential panic. Its prelude cannot compete with another argument's revert.
+    let reorderedReadOnly := field? call "reorderedReadOnlyArguments" == some (.bool true)
+    unless reorderedReadOnly || value.pre.all (fun
         | .letVar _ _ => true
         | .assignVar _ _ => multiSlot
         | s => isScratch s || isGuard s) do
@@ -17083,20 +17092,26 @@ private def lowerRootChecked (fn : Json) : M (Array Stmt × Array SrcParam) := d
   checkCodeReadTargets lowered.1
   return lowered
 
-/-! ### Named call arguments in declaration order
+/-! ### Named call arguments
 
-A call `f({a: x, b: y})` whose names are the referenced declaration's parameters in their
-declared order is the positional call `f(x, y)`: Solidity evaluates the arguments in source
-order and binds them by name, and here both orders coincide. An attached (`using for`) call
-names every parameter but the receiver, so its names are the parameters after the first.
-Calls whose names follow any other order keep their located rejection: the legacy and
-via-IR code generators evaluate such arguments in different orders, and the importer does
-not choose one. The rewrite only clears `names`; every node keeps its `id` and `src`. -/
+Bind against the statically referenced declaration, not the virtual dispatch target. Legacy
+codegen evaluates internal arguments in parameter order (attached receiver last), and event
+arguments indexed last-to-first then data; via-IR visits written operands left-to-right.
+Only turn a permutation into a positional call when evaluating in either order is equivalent. -/
+
+private structure NamedDeclarations where
+  params : Std.HashMap Nat (Array String) := {}
+  scalarTargets : Std.HashSet Nat := {}
+  scalarReads : Std.HashSet Nat := {}
+  deriving Inhabited
+
+private def namedWord (j : Json) : Bool :=
+  let ty := ((field? j "typeDescriptions").bind (optStr · "typeString")).getD ""
+  (!ty.startsWith "enum " && (paramType ty).isSome) || (fixedBytesWidth? ty).isSome
 
 /-- Parameter names of every function, event and error declaration, and member names of
 every struct, keyed by AST id, across all source units. -/
-private partial def declaredArgumentNames (acc : Std.HashMap Nat (Array String)) :
-    Json → Std.HashMap Nat (Array String)
+private partial def declaredArgumentNames (acc : NamedDeclarations) : Json → NamedDeclarations
   | j@(.obj kvs) =>
       let names (list? : Option Json) : Option (Array String) := do
         let .arr items ← list? | none
@@ -17108,7 +17123,19 @@ private partial def declaredArgumentNames (acc : Std.HashMap Nat (Array String))
             names ((field? j "parameters").bind (field? · "parameters"))
         | _ => none
       let acc := match id?, declared? with
-        | some id, some ns => acc.insert id ns
+        | some id, some ns =>
+            let ps := (field? j "parameters").bind (field? · "parameters")
+            let scalar := [some "EventDefinition", some "FunctionDefinition"].contains
+                (optStr j "nodeType") && (ps.bind (·.getArr?.toOption)).any (·.all namedWord)
+            { acc with
+              params := acc.params.insert id ns
+              scalarTargets := if scalar then acc.scalarTargets.insert id else acc.scalarTargets }
+        | some id, none =>
+            let computedConst := optStr j "mutability" == some "constant" &&
+              ((field? j "value").bind (optStr · "nodeType")) != some "Literal"
+            if optStr j "nodeType" == some "VariableDeclaration" && namedWord j && !computedConst then
+              { acc with scalarReads := acc.scalarReads.insert id }
+            else acc
         | _, _ => acc
       kvs.foldl (fun acc _ v => declaredArgumentNames acc v) acc
   | .arr items => items.foldl declaredArgumentNames acc
@@ -17120,8 +17147,76 @@ def namedArgumentsInDeclaredOrder (declared written : Array String) : Bool :=
   !written.isEmpty && written.size ≤ declared.size &&
     written == declared.extract (declared.size - written.size) declared.size
 
-/-- Clears `names` on every call whose named arguments are in declaration order. -/
-private partial def positionalNamedArguments (declared : Std.HashMap Nat (Array String)) :
+/-- `(read-only, total)` for builtin scalar expressions. Unknown or deeply nested operands
+are conservatively effectful; a single such operand can still commute with literal siblings. -/
+private def namedOperand (declared : NamedDeclarations) : Nat → Json → Bool × Bool
+  | 0, _ => (false, false)
+  | fuel + 1, j =>
+  match optStr j "nodeType" with
+  | some "Literal" => (true, true)
+  | some "Identifier" =>
+      let read := ((field? j "referencedDeclaration").bind (·.getNat?.toOption)).any
+        declared.scalarReads.contains
+      (read, read)
+  | some "MemberAccess" =>
+      let base := (field? j "expression").getD .null
+      let magic := (field? base "typeDescriptions").bind (optStr · "typeIdentifier")
+      let total := namedWord j && ["t_magic_message", "t_magic_block", "t_magic_transaction"].any
+        (fun ty => magic == some ty)
+      (total, total)
+  | some "FunctionCall" =>
+      if optStr j "kind" == some "typeConversion" && namedWord j then
+        match (field? j "arguments").bind (·.getArr?.toOption) with
+        | some #[arg] => namedOperand declared fuel arg
+        | _ => (false, false)
+      else (false, false)
+  | some "UnaryOperation" =>
+      let op := optStr j "operator"
+      let builtin := (field? j "function").isNone && namedWord j
+      let (sr, st) := namedOperand declared fuel ((field? j "subExpression").getD .null)
+      (builtin && sr && ["!", "~", "-"].any (some · == op),
+        builtin && st && ["!", "~"].any (some · == op))
+  | some "TupleExpression" =>
+      if (field? j "isInlineArray") == some (.bool true) then (false, false)
+      else match (field? j "components").bind (·.getArr?.toOption) with
+        | some #[inner] => namedOperand declared fuel inner
+        | _ => (false, false)
+  | some "BinaryOperation" =>
+      let op := optStr j "operator"
+      let builtin := (field? j "function").isNone && namedWord j
+      let (lr, lt) := namedOperand declared fuel ((field? j "leftExpression").getD .null)
+      let (rr, rt) := namedOperand declared fuel ((field? j "rightExpression").getD .null)
+      let total := ["&", "|", "^", "<<", ">>", "==", "!=", "<", ">", "<=", ">="].any (some · == op)
+      (builtin && lr && rr && (lt || rt), builtin && lt && rt && total)
+  | _ => (false, false)
+
+private def reorderedArgs? (declared : NamedDeclarations) (call : Json) (params names : Array String) :
+    Option Json := do
+  let args ← (field? call "arguments").bind (·.getArr?.toOption)
+  guard (args.size == names.size && names.size > 0 && names.size ≤ params.size)
+  let mut operands := args
+  let callee ← field? call "expression"
+  if params.size != names.size then
+    guard (params.size == names.size + 1)
+    operands := operands.push (← field? callee "expression")
+  let summaries := operands.map (namedOperand declared 256)
+  -- A single possibly effectful operand commutes with literals. For reads, at most one
+  -- may panic. A receiver on an external call is evaluated first by both pipelines.
+  let nonLiterals := operands.filter (fun j => optStr j "nodeType" != some "Literal")
+  let singleCall := nonLiterals.size == 1 && nonLiterals.all fun n =>
+    optStr n "kind" == some "functionCall" &&
+    ((field? n "arguments").bind (·.getArr?.toOption)).any (·.isEmpty) &&
+    ((field? n "expression").bind (optStr · "nodeType")) == some "Identifier"
+  let readOnly := summaries.all Prod.fst && (summaries.filter (!·.2)).size ≤ 1
+  guard (singleCall || readOnly)
+  let byName : Std.HashMap String Json := Std.HashMap.ofList (names.zip args).toList
+  let sorted ← (params.extract (params.size - names.size) params.size).mapM byName.get?
+  return (((call.setObjVal! "arguments" (.arr sorted)).setObjVal! "names" (.arr #[])).setObjVal!
+    "reorderedScalarArguments" (.bool true)).setObjVal!
+    "reorderedReadOnlyArguments" (.bool readOnly)
+
+/-- Normalize before indexing so every lowering path sees the same argument bindings. -/
+private partial def positionalNamedArguments (declared : NamedDeclarations) :
     Json → Json
   | .obj kvs =>
       let j := Json.mkObj (kvs.toList.map fun (k, v) => (k, positionalNamedArguments declared v))
@@ -17130,13 +17225,15 @@ private partial def positionalNamedArguments (declared : Std.HashMap Nat (Array 
         let written? : Option (Array String) := do
           let .arr ns ← field? j "names" | none
           ns.mapM (·.getStr?.toOption)
-        let target? := ((field? j "expression").bind (field? · "referencedDeclaration")
-          |>.bind (·.getNat?.toOption)).bind declared.get?
-        match written?, target? with
-        | some written, some params =>
+        let id? := (field? j "expression").bind (field? · "referencedDeclaration")
+          |>.bind (·.getNat?.toOption)
+        match written?, id?.bind declared.params.get?, id? with
+        | some written, some params, some id =>
             if namedArgumentsInDeclaredOrder params written then j.setObjVal! "names" (.arr #[])
+            else if declared.scalarTargets.contains id then
+              reorderedArgs? declared j params written |>.getD j
             else j
-        | _, _ => j
+        | _, _, _ => j
   | .arr items => .arr (items.map (positionalNamedArguments declared))
   | other => other
 

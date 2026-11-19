@@ -341,7 +341,7 @@ def prefix_checks(update_golden: bool) -> None:
     expect_success("helper-local-hygiene", write_project("helper-local", helper_local_collision), witness=True)
     expect_success("generated-name-hygiene", write_project("generated-name", generated_name_collision), witness=True)
     expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
-    expect_failure("named-arguments", write_project("named-arguments", named_arguments), "named call arguments")
+    expect_success("named-arguments", write_project("named-arguments", named_arguments), witness=True)
     expect_failure("implicit-return", write_project("implicit-return", implicit_return), "explicit root return")
     expect_success("named-implicit-return", write_project("named-implicit-return", named_implicit_return), witness=True)
     # Scalar defaults are now supported; retain the original execution witness.

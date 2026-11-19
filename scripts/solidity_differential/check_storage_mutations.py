@@ -136,16 +136,14 @@ MUTANTS.update({
     'import-dividing-while-guard': (
         'return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]',
         'return some #[.forEach loopVar (.literal bits) bodyOut.toList]')})
-# Named call arguments in declaration order lower as positional; any other order rejects.
+# Corrupt positional bindings, or admit a permutation with two distinct panic paths.
 MUTANTS.update({
     'import-named-arguments-binding': (
-        'if namedArgumentsInDeclaredOrder params written then j.setObjVal! "names" (.arr #[])',
-        'if namedArgumentsInDeclaredOrder params written then (match field? j "arguments" with\n'
-        '              | some (.arr #[a, b]) => (j.setObjVal! "names" (.arr #[])).setObjVal! "arguments" (.arr #[b, a])\n'
-        '              | _ => j.setObjVal! "names" (.arr #[]))'),
+        'call.setObjVal! "arguments" (.arr sorted)',
+        'call.setObjVal! "arguments" (.arr (if args.size == 2 then args else sorted))'),
     'import-named-arguments-order-guard': (
-        'if namedArgumentsInDeclaredOrder params written then',
-        'if written.size ≤ params.size then')})
+        '(summaries.filter (!·.2)).size ≤ 1',
+        '(summaries.filter (!·.2)).size ≤ operands.size')})
 # A storage array push panics with 0x41 once the length reaches 2^64, as solc's does, for
 # value and struct elements; and not one element earlier or later.
 MUTANTS.update({
@@ -363,7 +361,7 @@ MUTANTS.update({
 
 MUTANTS.update({
     'import-helper-effect-binary-guard': ('if statefulCallIn leftNode env ||\n        statefulCallIn rightNode env then', 'if false then'),
-    'import-helper-effect-argument-guard': ('if statefulCallIn arg (← get) then', 'if false then'),
+    'import-helper-effect-argument-guard': ('if !singleEffect && statefulCallIn arg (← get) then', 'if false then'),
     'import-helper-effect-classifier': ('| some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")', '| some _ => false'),
     'import-helper-effect-drop': ('-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre ← lowerEffect s', '-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre : Array Stmt := #[]'),
     'import-packed-member-delete': ('        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)\n        return (pre ++ value.pre).push (write value.expr)', '        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)\n        return (pre ++ value.pre).push (write value.expr)'),
@@ -1647,7 +1645,7 @@ contract C {
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
  function diff(uint256 a, uint256 b) internal pure returns (uint256) { return a - b; }
- function checked(uint256 x) external pure returns (uint256) { return diff({b: 1, a: x}); }
+ function checked(uint256 x) external pure returns (uint256) { return diff({b: 1 / x, a: x - 1}); }
 }
 ''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':

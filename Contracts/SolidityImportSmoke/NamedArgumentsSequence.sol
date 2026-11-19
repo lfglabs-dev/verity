@@ -7,10 +7,9 @@ library Scale {
     }
 }
 
-/// Named call arguments written in declaration order: an internal call, an attached
-/// (`using for`) call, which names every parameter but the receiver, a struct constructor,
-/// an event and a custom error. Two-argument calls take operands of one type, so binding by
-/// position in any other order would still type-check and give other values.
+/// In-order and reordered internal and attached calls, a single panicking operand,
+/// and reordered event topics/data. The struct constructor and custom error keep their
+/// declaration-order controls; swapping the helper's same-typed operands changes its result.
 contract SequenceFixture {
     using Scale for uint256;
 
@@ -33,14 +32,21 @@ contract SequenceFixture {
         return base * 2 + extra;
     }
 
+    function _advance() internal returns (uint256) {
+        value += 1;
+        return value;
+    }
+
     function change(uint256 x) external returns (uint256) {
         require(x < LIMIT, TooLarge({value: x, limit: LIMIT}));
         uint256 previous = value;
         value = _combine({base: x, extra: previous % 7});
-        value = x.scaled({factor: 3, offset: value % 5});
+        value = x.scaled({offset: value % 5, factor: 3});
+        value = _combine({extra: 12 / x, base: value});
+        uint256 observed = _combine({extra: _advance(), base: 3});
         last = Entry({amount: uint128(x), stamp: uint64(block.timestamp), flag: x % 2 == 1});
-        emit Changed({by: msg.sender, previous: previous, next: value});
-        return value;
+        emit Changed({next: value, previous: previous, by: msg.sender});
+        return observed;
     }
 
     function fail() external view {
