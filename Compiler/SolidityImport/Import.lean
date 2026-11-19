@@ -13044,18 +13044,25 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
       pure { pre := #[], expr := .bitXor lhs rhs }
     else
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
-  else if ty.startsWith "int" && (signedBitsOf ty).isSome && (← get).stateVars.size > 1 then
-    let some sbits := signedBitsOf ty | failAt at_ s!"unsupported signed type {ty}"
-    if operator == "+=" then
-      let sum := Expr.add lhs rhs
-      let masked := if sbits < 256 then Expr.signextend (.literal (sbits / 8 - 1)) sum else sum
-      pure { pre := #[], expr := masked }
-    else if operator == "-=" then
-      let diff := Expr.sub lhs rhs
-      let masked := if sbits < 256 then Expr.signextend (.literal (sbits / 8 - 1)) diff else diff
-      pure { pre := #[], expr := masked }
-    else
+  else if let some sbits := (if ty.startsWith "int" then signedBitsOf ty else none) then
+    -- `int256`/`int` are handled above, so `sbits < 256`. solc cleans both operands
+    -- (`cleanup_t_intN`, a sign extension) before the arithmetic; an operand can be dirty, e.g. a
+    -- narrow signed local assigned in Yul. The raw word sum/difference of the cleaned operands is
+    -- exact; it fits `intN` iff it equals its own sign extension. Checked code panics with 0x11
+    -- otherwise, as solc does.
+    unless sbits < 256 && (operator == "+=" || operator == "-=") do
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
+    let extend (e : Expr) : Expr := .signextend (.literal (sbits / 8 - 1)) e
+    let raw := if operator == "+=" then Expr.add (extend lhs) (extend rhs)
+      else Expr.sub (extend lhs) (extend rhs)
+    if isUnchecked then
+      pure { pre := #[], expr := extend raw }
+    else
+      let rawVar ← fresh
+      let dest ← fresh
+      let check := iteStmt (.eq (.localVar rawVar) (extend (.localVar rawVar)))
+        (.assignVar dest (.localVar rawVar)) overflowPanic
+      pure { pre := #[.letVar rawVar raw, .letVar dest (.literal 0), check], expr := .localVar dest }
   else
     let some bits := bitsOf ty
       | failAt at_ s!"compound assignment requires an integer type, found {ty}"
@@ -13100,10 +13107,9 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
 private partial def lowerCompoundAssignment (expression : Json) (operator : String) : M (Array Stmt) := do
   let target ← mField expression "leftHandSide"
   let right ← mField expression "rightHandSide"
-  let multiSlot := (← get).stateVars.size > 1
   let isSupportedCompoundTy (ty : String) : Bool :=
     (ty.startsWith "uint" && (bitsOf ty).isSome) || ty == "int256" || ty == "int" ||
-      (multiSlot && ty.startsWith "int" && (signedBitsOf ty).isSome) ||
+      (ty.startsWith "int" && (signedBitsOf ty).isSome) ||
       (ty == "bytes32" && ["&=", "|=", "^=", "<<=", ">>="].contains operator) ||
       (ty == "bytes4" && ["&=", "|=", "^="].contains operator)
   let lowerRhs (ty : String) : M Val := do
