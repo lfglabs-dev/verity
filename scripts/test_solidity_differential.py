@@ -59,6 +59,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "narrow-event-8",
     "nested-dynamic-struct-abi",
     "nested-dynamic-struct-abi-rejections",
+    "nested-storage-struct",
     "pinned-sequence",
     "protocol",
     "reference-arguments",

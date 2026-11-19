@@ -135,6 +135,11 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
             '--output', str(output / ('storage-' + fixture))]))
+    checks.append(('nested-storage-struct', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/NestedStorageStructSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/NestedStorageStructSequenceModel.lean',
+        '--transactions', str(max(16, transactions)), '--seed', str(seed),
+        '--output', str(output / 'nested-storage-struct')]))
     checks.append(('mapping-dirty', ['-m', 'solidity_differential.check_stateful',
         '--dirty-mappings', '--transactions', str(max(5, transactions)), '--seed', str(seed),
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingDirtySequence.sol',
