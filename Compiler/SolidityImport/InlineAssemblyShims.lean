@@ -10,7 +10,6 @@ namespace Compiler.CompilationModel.SolidityImport
 
 Encapsulates the verified inline-assembly and library lowering shims required for
 100% Uniswap v4 (`v4-core` `PoolManager.sol` and its libraries) coverage:
-- `CustomRevert.revertWith` and `CustomRevert.bubbleUpAndRevertWith`
 - `Exttload.exttload` and `Extsload.extsload`
 - `CurrencyLibrary.transfer` (`ERC20` / native currency transfer lowering)
 - `FullMath.mulDiv` and `FullMath.mulDivRoundingUp`
@@ -24,8 +23,6 @@ Encapsulates the verified inline-assembly and library lowering shims required fo
 /-- Classification of verified compiler shims for Uniswap v4 (`v4-core`) inline assembly
 and low-level external call idioms. -/
 inductive VerifiedCompilerShimKind where
-  | customRevertSelector
-  | customRevertBubbleUp
   | exttloadSingle
   | exttloadBatch
   | extsloadSingle
@@ -54,17 +51,7 @@ structure VerifiedCompilerShim where
 
 /-- Canonical registry of Uniswap v4 `VerifiedCompilerShim` descriptors. -/
 def uniswapV4VerifiedShims : List VerifiedCompilerShim :=
-  [ { kind := .customRevertSelector
-      libraryName := "CustomRevert"
-      functionName := "revertWith"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .customRevertBubbleUp
-      libraryName := "CustomRevert"
-      functionName := "bubbleUpAndRevertWith"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .exttloadSingle
+  [ { kind := .exttloadSingle
       libraryName := "Exttload"
       functionName := "exttload"
       preservesStorageSafety := true
@@ -271,13 +258,13 @@ def lowerTickBitmapFlipShim (mapSlotExpr tickExpr tickSpacingExpr : Expr) : M (A
 
 /-- **Layer I MetaSpec** for `InlineAssemblyShims`:
 1. Every shim in `uniswapV4VerifiedShims` preserves storage safety and is covered by `Denote`.
-2. `uniswapV4VerifiedShims` has exactly 17 canonical Uniswap v4 shim entries.
+2. `uniswapV4VerifiedShims` has exactly 15 canonical Uniswap v4 shim entries.
 3. For any `s`, `allShimsVerified [s] = (s.preservesStorageSafety && s.coveredByDenote)`. -/
 structure InlineAssemblyShimsMetaSpec (s : VerifiedCompilerShim) : Prop where
   registry_all_verified :
     allShimsVerified uniswapV4VerifiedShims = true
   registry_card :
-    uniswapV4VerifiedShims.length = 17
+    uniswapV4VerifiedShims.length = 15
   singleton_verified_iff :
     allShimsVerified [s] = (s.preservesStorageSafety && s.coveredByDenote)
 
@@ -294,13 +281,13 @@ theorem inlineAssemblyShims_satisfies_metaSpec (s : VerifiedCompilerShim) :
 theorem uniswapV4VerifiedShims_all_verified :
     allShimsVerified uniswapV4VerifiedShims = true :=
   (inlineAssemblyShims_satisfies_metaSpec {
-    kind := .customRevertSelector, libraryName := "", functionName := "",
+    kind := .exttloadSingle, libraryName := "", functionName := "",
     preservesStorageSafety := true, coveredByDenote := true }).registry_all_verified
 
 theorem uniswapV4VerifiedShims_length :
-    uniswapV4VerifiedShims.length = 17 :=
+    uniswapV4VerifiedShims.length = 15 :=
   (inlineAssemblyShims_satisfies_metaSpec {
-    kind := .customRevertSelector, libraryName := "", functionName := "",
+    kind := .exttloadSingle, libraryName := "", functionName := "",
     preservesStorageSafety := true, coveredByDenote := true }).registry_card
 
 theorem allShimsVerified_singleton (s : VerifiedCompilerShim) :
@@ -309,8 +296,8 @@ theorem allShimsVerified_singleton (s : VerifiedCompilerShim) :
 
 /-! ## Layer III: Concrete `by decide` Witnesses -/
 
-theorem witness_findVerifiedShim_customRevert :
-    (findVerifiedShim? .customRevertSelector).isSome = true := by decide
+theorem witness_findVerifiedShim_exttloadSingle :
+    (findVerifiedShim? .exttloadSingle).isSome = true := by decide
 
 theorem witness_findVerifiedShim_fullMathMulDiv :
     (findVerifiedShim? .fullMathMulDiv).isSome = true := by decide

@@ -7,12 +7,19 @@ pragma solidity 0.8.34;
 // Other ranges are rejected (YulRevertDataChecks.lean).
 contract SequenceFixture {
     uint256 private total;
+    error Word(uint256);
+
+    // The error takes a word, but the body deliberately reverts with only its selector.
+    function revertWith(bytes4 sel, uint256) internal pure {
+        assembly ("memory-safe") {
+            mstore(0, sel)
+            revert(0, 4)
+        }
+    }
+
     function change(uint256 x) external returns (uint256) {
         if (x % 8 == 0) {
-            assembly ("memory-safe") {
-                mstore(0, 0x8baa579f00000000000000000000000000000000000000000000000000000000)
-                revert(0, 4)
-            }
+            revertWith(Word.selector, x);
         }
         if (x % 8 == 1) {
             assembly ("memory-safe") {

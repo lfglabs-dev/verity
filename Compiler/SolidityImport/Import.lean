@@ -9818,13 +9818,6 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
       { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
                values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
     return pre ++ shimStmts
-  if (← get).stateVars.size > 1 &&
-      (optStr fn "name" == some "revertWith" || optStr fn "name" == some "bubbleUpAndRevertWith") &&
-      (← get).funContract.find? fnId == some "CustomRevert" then
-    modify fun e =>
-      { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-    return pre.push .revertEmpty
   let (modStmts, modPost) ← lowerModifiers mods
   let condModExpr? : Option Expr := match modPost.toList with
     | [.ite condExpr [] []] => some condExpr
@@ -12901,8 +12894,6 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           failAt callee "discarded helper calls require an internal or private declaration"
         let rets ← mArr (← mField (← mField declaration "returnParameters") "parameters")
         if rets.isEmpty then
-          if let some revStmts ← lowerSelectorRevertCall? expression declaration then
-            return revStmts
           let (fnId, vals) ← resolveCallTargetAndArgs expression
           return ← inlineVoidFn fnId vals expression
         if rets.size == 1 then
@@ -14668,48 +14659,6 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
     | failAt callee "custom error does not resolve to an error declaration"
   let arguments ← mArr (← mField call "arguments")
   lowerErrorArgumentsForDecl callee declaration arguments
-
-private partial def lowerSelectorRevertCall? (call declaration : Json) : M (Option (Array Stmt)) := do
-  unless optStr declaration "name" == some "revertWith" &&
-      optStr declaration "stateMutability" == some "pure" do
-    return none
-  unless (← mArr (← mField call "names")).isEmpty do
-    return none
-  let some body := (field? declaration "body").filter (!·.isNull)
-    | return none
-  unless ← stmtAlwaysReverts [] body do
-    return none
-  let fnParams ← mArr (← mField (← mField declaration "parameters") "parameters")
-  if fnParams.isEmpty then return none
-  unless (← mType fnParams[0]!) == "bytes4" do return none
-  let selArg ← stripParens (← argumentAt call 0)
-  unless (← mKind selArg) == "MemberAccess" && optStr selArg "memberName" == some "selector" do
-    return none
-  let selBase ← mField selArg "expression"
-  if (← mKind selBase) == "MemberAccess" then
-    let receiver ← mField selBase "expression"
-    unless ← isPureSelectorReceiver receiver do
-      return none
-  else unless (← mKind selBase) == "Identifier" do
-    return none
-  let errId ← refInt selBase
-  unless errId ≥ 0 do return none
-  let some errDecl := (← get).errorDecls.find? errId.toNat
-    | return none
-  let errParams ← mArr (← mField (← mField errDecl "parameters") "parameters")
-  unless errParams.size + 1 == fnParams.size do return none
-  if (← get).stateVars.size > 1 && (← get).funContract.find? (← mNat (← mField declaration "id")) == some "CustomRevert" && !errParams.isEmpty then
-    return none
-  let mut errArgs : Array Json := #[]
-  for i in [:errParams.size] do
-    let eTy ← mType errParams[i]!
-    unless eTy == (← mType fnParams[i + 1]!) do
-      return none
-    if (← get).stateVars.size > 1 && ((paramType eTy).bind Denote.errorScalarType).isNone then
-      return none
-    errArgs := errArgs.push (← argumentAt call (i + 1))
-  let (pre, name, values) ← lowerErrorArgumentsForDecl selBase errDecl errArgs
-  return some (pre.push (.requireError (.literal 0) name values))
 
 /-- A single-variable declaration may admit its whole initializer as a
 typed-interface call; tuple declarations admit none. -/
