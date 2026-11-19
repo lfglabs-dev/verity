@@ -6867,19 +6867,58 @@ private partial def resolveStorageDynamicArrayTarget (ref : Ref) (at_ : Json) :
         return some (pre ++ slotStmts, "", slotExpr, dynInfo.elemType, dynInfo.modelElemType, dynInfo.abiKind, dynInfo.elemStructId)
   | _ => return none
 
-private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Array CallArg) := do
+private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
+    (directHelper : Bool := false) : M (Array CallArg) := do
   let args ← mArr (← mField j "arguments")
   let nodes := match receiver? with
     | some recv => #[recv] ++ args
     | none => args
+  -- Both 0.8.34 pipelines evaluate positional scalar arguments left to right. A
+  -- using-for receiver, however, runs last on legacy and first on via-IR. Admit
+  -- a pointer-producing receiver only beside effect-free scalar bindings/literals.
+  let env ← get
+  let scalarLeaf := fun (n : Json) =>
+    optStr n "nodeType" == some "Literal" ||
+      (optStr n "nodeType" == some "Identifier" &&
+        ((field? n "typeDescriptions").bind (optStr · "typeString")).any
+          (fun ty => (paramType ty).isSome))
+  let scalarUpdate := fun (n : Json) =>
+    let e := unparenJson n
+    (optStr e "nodeType" == some "UnaryOperation" && optStr e "operator" == some "++" &&
+      ((field? e "subExpression").bind (optStr · "nodeType")) == some "Identifier") ||
+    (optStr e "nodeType" == some "Assignment" && optStr e "operator" == some "=" &&
+      ((field? e "leftHandSide").bind (optStr · "nodeType")) == some "Identifier" &&
+      (field? e "rightHandSide").any scalarLeaf)
+  let sequence := directHelper && nodes.size > 1 && receiver?.isNone &&
+    nodes.any assignmentIn && nodes.all (fun n => scalarLeaf n || scalarUpdate n)
   let mut vals : Array CallArg := #[]
   for arg in nodes do
-    if statefulCallIn arg (← get) then
-      unless nodes.size == 1 && (← get).stateVars.size > 1 do
-        failAt arg "stateful helper call arguments require explicit evaluation-order support"
-    if nodes.size > 1 && assignmentIn arg then
-      failAt arg "assignment expression in multi-argument call requires explicit evaluation-order support"
     let argTy ← mType arg
+    let pointerCall := directHelper && nodes.size > 1 && (← mKind arg) == "FunctionCall" &&
+      argTy.startsWith "struct " && (argTy.endsWith " storage pointer" || argTy.endsWith " storage ref") &&
+      nodes.all (fun n => n == arg || (scalarLeaf n && (optStr n "nodeType" == some "Literal" ||
+        ((field? n "referencedDeclaration").bind (·.getNat?.toOption)).any env.values.contains)))
+    if statefulCallIn arg (← get) then
+      if pointerCall then
+        let callee ← mField arg "expression"
+        let id ← refInt callee
+        let fnId := (resolveInContracts env env.linearizedBases.toList id.toNat).getD id.toNat
+        let some fn := env.funs.find? fnId | failAt arg "unresolved storage pointer helper"
+        let body ← mArr (← mField (← mField fn "body") "statements")
+        let simplePath := fun (e : Json) => optStr e "nodeType" == some "Identifier" ||
+          (optStr e "nodeType" == some "IndexAccess" &&
+           ((field? e "baseExpression").bind (optStr · "nodeType")) == some "Identifier" &&
+           (field? e "indexExpression").any scalarLeaf)
+        unless (← mKind callee) == "Identifier" && body.size == 1 &&
+            optStr body[0]! "nodeType" == some "Return" &&
+            (field? body[0]! "expression").any simplePath &&
+            (← mArr (← mField arg "arguments")).all scalarLeaf do
+          failAt arg "expected a helper returning only a storage path"
+      else
+        unless nodes.size == 1 && (← get).stateVars.size > 1 do
+          failAt arg "stateful helper call arguments require explicit evaluation-order support"
+    if nodes.size > 1 && assignmentIn arg && !sequence then
+      failAt arg "assignment expression in multi-argument call requires explicit evaluation-order support"
     if argTy.startsWith "struct " && !argTy.contains "[" then
       if (← mKind arg) == "FunctionCall" && argTy.endsWith " memory" &&
           (optStr arg "kind" == some "structConstructorCall" || optStr arg "kind" == some "functionCall") &&
@@ -7078,7 +7117,14 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
       let (fpre, ptr) ← lowerFnPtrInit arg
       vals := vals.push (.fnPtr ptr fpre)
     else
-      vals := vals.push (.scalar (← lowerExpr arg))
+      let val ← lowerExpr arg
+      if sequence then
+        -- Even a bare local must capture its current value before a later write.
+        let binding ← fresh
+        vals := vals.push (.scalar { pre := val.pre.push (.letVar binding val.expr),
+                                     expr := .localVar binding })
+      else
+        vals := vals.push (.scalar val)
   pure vals
 
 private partial def atomizeCallArgs (vals : Array CallArg) : M (Array Stmt × Array CallArg) := do
@@ -7312,7 +7358,7 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
       | none => false
     unless isLibrary do
       failAt callee "external contract calls are outside this slice"
-  let vals ← lowerCallArgs j receiver?
+  let vals ← lowerCallArgs j receiver? true
   pure (fnId, vals)
 
 /-- `I(a).f(args...)` as a whole expression statement, for a `nonpayable` or

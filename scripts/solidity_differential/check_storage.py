@@ -6,6 +6,7 @@ import sys
 import tempfile
 
 from .engine import command, write_json
+from .programs import call_arg_source
 from .programs import (
     ROOT_PARAM_RENAMES,
     stateful_abi_decode_and_verifier_source,
@@ -223,6 +224,7 @@ FIXTURE_CONTRACTS = {
     'named-string-return': 'NamedStringReturnSequence',
     'narrow-event': 'NarrowEventSequence',
     'narrow-for-counters': 'NarrowForCounterSequence',
+    'call-arg-side-effects': 'CallArgSideEffectSequence',
     'numeric-literals': 'NumericLiteralSequence',
     'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
     'packed': 'StorageSequence',
@@ -423,6 +425,8 @@ def main():
         variants = ('baseline', 'renamed', 'inlined')
     if args.fixture == 'fixed-bytes-conversions':
         variants = ('baseline', 'renamed', 'hex-literals')
+    if args.fixture == 'call-arg-side-effects':
+        variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'dynamic-memory-arrays':
         variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'signed-modulo':
@@ -514,6 +518,7 @@ def main():
                           else stateful_named_helper_return_source(fixture, variant) if args.fixture == "named-helper-returns"
                           else stateful_encoded_byte_local_source(fixture, variant) if args.fixture == "encoded-byte-locals"
                           else stateful_discarded_helper_source(fixture, variant) if args.fixture == "discarded-helper"
+                          else call_arg_source(fixture, variant) if args.fixture == 'call-arg-side-effects'
                           else stateful_array_write_order_source(fixture, variant) if args.fixture == "array-write-order"
                           else stateful_fixed_array_source(fixture, variant) if args.fixture == "fixed-arrays"
                           else stateful_helper_effect_source(fixture, variant) if args.fixture == "helper-effects"

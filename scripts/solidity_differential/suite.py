@@ -33,6 +33,7 @@ STORAGE_FIXTURES = (
     'fixed-memory-arrays',
     'inline-array-literals',
     'helper-name-independence',
+    'call-arg-side-effects',
     'dynamic-memory-arrays',
     'unchecked-blocks',
     'tuple-destructuring',

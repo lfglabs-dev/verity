@@ -1112,6 +1112,18 @@ def stateful_yul_empty_revert_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown yul-empty-revert variant: {variant}')
 
 
+def call_arg_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return re.sub(r'\b(locate|pack|store|counter|cells)\b', r'\1Renamed', fixture)
+    if variant == 'explicit':
+        return fixture.replace('pack(y, y++, y = 9)', 'pack(y, y, 9)').replace(
+            'uint256 afterWrite = pack(counter++, y, counter);',
+            'y = 9; uint256 prior = counter++; uint256 afterWrite = pack(prior, y, counter);')
+    raise ValueError(f'unknown call-arg variant: {variant}')
+
+
 def stateful_yul_revert_memory_source(fixture: str, variant: str) -> str:
     """Yul `revert(offset, size)` over scratch words written in the same block: renamed
     identifiers and the two-word revert with its `mstore`s in the other order agree."""

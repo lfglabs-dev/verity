@@ -81,6 +81,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-fixed-bytes-conversions",
     "storage-fixed-memory-arrays",
     "storage-helper-name-independence",
+    "storage-call-arg-side-effects",
     "storage-if-else",
     "storage-imported-event",
     "storage-inline-array-literals",

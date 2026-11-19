@@ -539,11 +539,32 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Fixture.sol:4:67: BinaryOperation: [solidity-import:unsupported] assignment operand with non-atomic sibling requires explicit evaluation-order support'),
-        ('assignment-expr-multi-arg-call-rejected',
+        ('assignment-expr-multi-arg-call',
          "pragma solidity 0.8.34;\ncontract C {\n  uint256 private v;\n  function add(uint256 a, uint256 b) internal pure returns (uint256) { return a + b; }\n  function checked(uint256 x) external returns (uint256) { return add(v = x, 1); }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'Fixture.sol:5:71: Assignment: [solidity-import:unsupported] assignment expression in multi-argument call requires explicit evaluation-order support'),
+         None),
+        ('storage-pointer-helper-argument',
+         'pragma solidity 0.8.34;\ncontract C { struct S { uint n; } mapping(uint => S) slots;\n'
+         'function ptr(uint k) internal returns (S storage) { return slots[k]; }\n'
+         'function put(S storage p, uint n) internal { p.n = n; }\n'
+         'function checked(uint x) external returns (uint) { put(ptr(x), x); return slots[x].n; }}',
+         None, '{ evmVersion := "osaka", viaIR := true }', None),
+        ('storage-pointer-helper-receiver',
+         'pragma solidity 0.8.34;\nstruct S { uint n; } library L {\n'
+         'function put(S storage p, uint n) internal { p.n = n; }}\n'
+         'contract C { using L for S; mapping(uint => S) slots;\n'
+         'function ptr(uint k) internal returns (S storage) { return slots[k]; }\n'
+         'function checked(uint x) external returns (uint) { ptr(x).put(x); return slots[x].n; }}',
+         None, '{ evmVersion := "osaka", viaIR := true }', None),
+        ('storage-pointer-receiver-competing-write',
+         'pragma solidity 0.8.34;\nstruct S { uint n; } library L {\n'
+         'function put(S storage p, uint n) internal { p.n = n; }}\n'
+         'contract C { using L for S; mapping(uint => S) slots;\n'
+         'function ptr(uint k) internal returns (S storage) { return slots[k]; }\n'
+         'function checked(uint x) external returns (uint) { ptr(x).put(x++); return slots[x].n; }}',
+         None, '{ evmVersion := "osaka", viaIR := true }',
+         'Fixture.sol:6:52: FunctionCall: [solidity-import:unsupported] stateful helper call arguments'),
         ('assignment-expr-mapping-target-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  mapping(uint256 => uint256) private m;\n  function checked(uint256 x) external returns (uint256) { return (m[0] = x) + 1; }\n}\n",
          None,
