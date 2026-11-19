@@ -701,6 +701,10 @@ def main():
         *ROOT_PARAM_SIGNATURES,
         'snapshot()',
         'firstMembers()',
+        'writePartMemory(address,(uint128,bool,int24,uint64,uint256))',
+        'writePartCalldata(address,(uint128,bool,int24,uint64,uint256))',
+        'readPart(address)',
+        'readNamedPart(address)',
         'labelled()',
         'echoNarrow(uint8[])',
         'isGuard()',
@@ -807,6 +811,14 @@ def main():
     rng = random.Random(args.seed)
     calls = [(names[0], [7]), ('fail()', []), ('read()', [])]
     calls.extend((names[0], [value]) for value in args.change_prefix)
+    if 'readNamedPart(address)' in source['methodIdentifiers']:
+        key = int(senders[0], 16)
+        for writer, enabled in [('writePartMemory', 1), ('writePartCalldata', 0)]:
+            sig = writer + '(address,(uint128,bool,int24,uint64,uint256))'
+            words = [key, (1 << 127) + enabled, enabled, (1 << 256) - 3, (1 << 63) + 7, 19]
+            part_calls = [(sig, words), ('readPart(address)', [key]),
+                          (sig, [key, 0, 2, 0, 0, 0]), ('readNamedPart(address)', [key])]
+            calls.extend(part_calls[:max(0, args.transactions - len(calls))])
     if 'spend(address,uint256)' in source['methodIdentifiers']:
         # A two-key mapping member of a namespaced struct: approvals to every sender, reads
         # across owners, then spends that succeed, exhaust and exceed the allowance.
