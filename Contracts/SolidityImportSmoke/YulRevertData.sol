@@ -5,7 +5,21 @@ pragma solidity 0.8.34;
 // (YulRevertMemorySequence); every other shape is rejected
 // with a location. It used to import as a revert with no data when the sources declared more
 // than one state variable.
+
+library SelectorRevertHelpers {
+    function revertWith(bytes4 sel, uint256 x) internal pure {
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, sel)
+            mstore(add(ptr, 0x04), x)
+            revert(ptr, 0x24)
+        }
+    }
+}
+
 contract YulRevertData {
+    using SelectorRevertHelpers for bytes4;
+    error Bad(uint256);
     uint256 private a;
     uint256 private b;
     function unwrittenRevert(uint256 x) external {
@@ -44,5 +58,8 @@ contract YulRevertData {
             mstore(0x40, p)
             revert(0x40, 0x20)
         }
+    }
+    function helperFreePointerRevert(uint256 x) external pure {
+        Bad.selector.revertWith(x);
     }
 }

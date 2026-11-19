@@ -1,6 +1,6 @@
-# Uniswap v4 (`v4-core`) Model Support (`35/38` Functions)
+# Uniswap v4 (`v4-core`) Model Support
 
-Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) last measured support for **`35/38` functions** of Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`).
+Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) last measured support (#2694) for **35 of 38 probes** on Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`). This is a historical baseline, not a measurement after the negated-loop rejection and selector-revert shim removal.
 
 ## 1. Modular Inline-Assembly Shim Architecture (`InlineAssemblyShims.lean`)
 
@@ -8,8 +8,6 @@ To keep `Compiler/SolidityImport/Import.lean` modular and verifiable, Uniswap v4
 
 | Verified Compiler Shim | Library / Contract | `VerifiedCompilerShimKind` | Lowered `CompilationModel` Representation |
 | --- | --- | --- | --- |
-| `CustomRevert.revertWith` | `CustomRevert` | `.customRevert` | `.requireError (.literal 0) ...` / scratch `mstore` + `.revertEmpty` |
-| `CustomRevert.bubbleUpAndRevertWith` | `CustomRevert` | `.bubbleUpRevert` | Argument evaluation + `.revertEmpty` |
 | `Exttload.exttload(bytes32)` | `Exttload` | `.exttloadSingle` | Scratch `mstore(0, tload(slot))` + `.returnValues [.mload (.literal 0)]` |
 | `Exttload.exttload(bytes32[])` | `Exttload` | `.exttloadBatch` | `lowerBatchArrayLoadShim` (`Stmt.forEach` + `Expr.tload` + `Stmt.returnBytes`) |
 | `Extsload.extsload(bytes32)` | `Extsload` | `.extsloadSingle` | Scratch `mstore(0, sload(slot))` + `.returnValues [.mload (.literal 0)]` |
@@ -26,9 +24,9 @@ To keep `Compiler/SolidityImport/Import.lean` modular and verifiable, Uniswap v4
 ### 3-Layer Meta-Specification Bundle
 
 `Compiler/SolidityImport/InlineAssemblyShims.lean` exports a 3-layer specification bundle:
-- **Layer I (`InlineAssemblyShimsMetaSpec`)**: Conjunction of `allShimsVerified = true` and `uniswapV4VerifiedShims.length = 17`, proved in `inlineAssemblyShims_satisfies_metaSpec`.
-- **Layer II (`metaSpec_allShimsVerified`, `metaSpec_shimCount`)**: 1-line projection corollaries derived from Layer I.
-- **Layer III (`findVerifiedShim_customRevert_witness`, `findVerifiedShim_hooksCall_witness`, `findVerifiedShim_tickBitmapFlip_witness`)**: Concrete `by decide` witnesses.
+- **Layer I (`InlineAssemblyShimsMetaSpec`)**: Conjunction of `allShimsVerified = true` and `uniswapV4VerifiedShims.length = 15`, proved in `inlineAssemblyShims_satisfies_metaSpec`.
+- **Layer II (`uniswapV4VerifiedShims_all_verified`, `uniswapV4VerifiedShims_length`)**: 1–3 line projection corollaries derived from Layer I.
+- **Layer III (`witness_findVerifiedShim_exttloadSingle`, `witness_findVerifiedShim_fullMathMulDiv`, `witness_findVerifiedShim_unlockCallback`)**: Concrete `by decide` witnesses.
 
 ## 2. General Importer Enhancements Supporting `v4-core`
 
@@ -47,9 +45,9 @@ Alongside the shims in `InlineAssemblyShims.lean`, `Compiler/SolidityImport/Impo
 6. **`msg.value` Support in `Coverage.lean` and `Quote.lean`**:
    - `exprCovered` covers `Expr.msgValue` (`evalExpr_msgValue_arm`), and `Quote.lean` quotes `Expr.msgValue`.
 
-## 3. `PoolManager.sol` Function Inventory (`35/38` Imported)
+## 3. `PoolManager.sol` Function Inventory (historical baseline)
 
-In the last run (#2694), every probed function below except `modifyLiquidity` and `swap` elaborated via `solidity_import` with `modelImportCovered model = true`. The coverage tool also probed `_swap`, `_burn`, `checkNotDelegateCall` and `_updateProtocolFees`; only `_swap` rejected, at the same site as `swap`. It did not probe rows 19, 20, 24, 25, 27, 28 and 29:
+In the last measured run (#2694), every probed function below except `modifyLiquidity` and `swap` elaborated via `solidity_import` with `modelImportCovered model = true`. The `35/38` count is over the coverage tool's 38 probes, which differ from this table: they also probe `_swap`, `_burn`, `checkNotDelegateCall` and `_updateProtocolFees` (only `_swap` rejected there, at the same site as `swap`), and they do not probe rows 19, 20, 24, 25, 27, 28 and 29:
 
 | # | Function Signature | Category |
 | --- | --- | --- |
@@ -97,4 +95,4 @@ In the last run (#2694), every probed function below except `modifyLiquidity` an
 
 *(The count includes distinct overloads: `extsload` has three and `exttload` has two.)*
 
-*(Note on rows 3 and 4: a Yul `revert(off, size)` whose size is anything other than a literal `0` that reaches the generic inline-assembly lowering used to lower to an empty revert, dropping the payload the EVM returns (here a custom-error selector). At the `35/38` measurement (#2694), these reverts failed closed. Since #2806, the exact lowering is `Stmt.revertMemory` (a revert with the memory slice as its data, with proofs), admitted only when the offset and size are literals and every byte of the range lies in the scratch words below 0x40 and was written by the same Yul block on every path; any other shape keeps the located rejection. These two entry points were not re-measured with it (coverage is CI-only) and are listed as rejected until a coverage run says otherwise. The name-keyed `CustomRevert.revertWith` / `bubbleUpAndRevertWith` shims in the table above are not affected by this rule: calls that `lowerSelectorRevertCall?` does not take (selectors with error arguments, and every `bubbleUpAndRevertWith`) still lower to `.revertEmpty` and drop the payload, a known approximation.)*
+Revert helpers now inline through their bodies. A nonempty literal range below `0x40` lowers to `Stmt.revertMemory` when the same Yul block wrote every byte on every path. The body determines whether a selector revert returns four bytes or a selector plus a 32-byte argument; the error declaration does not. Helpers that use `mload(0x40)` to allocate a wrapped error, including `CustomRevert.bubbleUpAndRevertWith`, reject at the unsupported assembly rather than importing as empty reverts.

@@ -20,7 +20,7 @@ solidity_profile yulRevert where
 
 -- No `mstore` in the block: the scratch words hold whatever the Solidity code left there.
 /--
-error: YulRevertData.sol:15:17: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+error: YulRevertData.sol:29:17: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
 closure: YulRevertData.unwrittenRevert
 revert(0, 4)
 -/
@@ -32,7 +32,7 @@ solidity_import unwrittenForm from "Contracts/SolidityImportSmoke" entry "YulRev
 
 -- A size only known at run time.
 /--
-error: YulRevertData.sol:23:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+error: YulRevertData.sol:37:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
 closure: YulRevertData.sizedRevert
 revert(0, n)
 -/
@@ -44,7 +44,7 @@ solidity_import sizedForm from "Contracts/SolidityImportSmoke" entry "YulRevertD
 
 -- The scratch word is written only when the Yul `if` is taken.
 /--
-error: YulRevertData.sol:31:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+error: YulRevertData.sol:45:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
 closure: YulRevertData.conditionalWriteRevert
 revert(0, 4)
 -/
@@ -56,7 +56,7 @@ solidity_import conditionalForm from "Contracts/SolidityImportSmoke" entry "YulR
 
 -- The range runs past the written scratch words into the unwritten free-memory pointer slot.
 /--
-error: YulRevertData.sol:38:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+error: YulRevertData.sol:52:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
 closure: YulRevertData.beyondScratchRevert
 revert(0, 0x60)
 -/
@@ -68,7 +68,7 @@ solidity_import beyondScratchForm from "Contracts/SolidityImportSmoke" entry "Yu
 
 -- The free-memory pointer word, written back from `mload(0x40)`: solc's pointer, not the model's.
 /--
-error: YulRevertData.sol:45:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
+error: YulRevertData.sol:59:13: YulFunctionCall: [solidity-import:unsupported] Yul revert with revert data is supported only for a literal range below 0x40 that this Yul block wrote on every path
 closure: YulRevertData.freePointerRevert
 revert(0x40, 0x20)
 -/
@@ -77,5 +77,18 @@ solidity_import freePointerForm from "Contracts/SolidityImportSmoke" entry "YulR
   using yulRevert
   contract YulRevertData
   function freePointerRevert(uint256)
+
+-- A `revertWith(bytes4, ...)` helper whose assembly allocates revert data via `mload(0x40)`
+-- inlines and rejects at the free-memory pointer read instead of matching a name-keyed shortcut.
+/--
+error: YulRevertData.sol:12:24: YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert
+closure: YulRevertData.helperFreePointerRevert -> SelectorRevertHelpers.revertWith
+mload(0x40)
+-/
+#guard_msgs in
+solidity_import helperFreePointerForm from "Contracts/SolidityImportSmoke" entry "YulRevertData.sol"
+  using yulRevert
+  contract YulRevertData
+  function helperFreePointerRevert(uint256)
 
 end SolidityImportSmoke.YulRevertDataChecks
