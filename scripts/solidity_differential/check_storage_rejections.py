@@ -557,6 +557,14 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          'function ptr(uint k) internal returns (S storage) { return slots[k]; }\n'
          'function checked(uint x) external returns (uint) { ptr(x).put(x); return slots[x].n; }}',
          None, '{ evmVersion := "osaka", viaIR := true }', None),
+        ('storage-pointer-abstract-receiver',
+         'pragma solidity 0.8.34;\nstruct S { uint n; } library L {\n'
+         'function put(S storage p, uint n) internal { p.n = n; }}\n'
+         'abstract contract C { using L for S;\n'
+         'function ptr(uint k) internal virtual returns (S storage);\n'
+         'function checked(uint x) external returns (uint) { ptr(x).put(x); return x; }}',
+         None, '{ evmVersion := "osaka", viaIR := true }',
+         'Fixture.sol:6:52: FunctionCall: [solidity-import:unsupported] storage pointer helper has no implementation'),
         ('storage-pointer-receiver-competing-write',
          'pragma solidity 0.8.34;\nstruct S { uint n; } library L {\n'
          'function put(S storage p, uint n) internal { p.n = n; }}\n'

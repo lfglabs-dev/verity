@@ -6904,7 +6904,9 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
         let id ← refInt callee
         let fnId := (resolveInContracts env env.linearizedBases.toList id.toNat).getD id.toNat
         let some fn := env.funs.find? fnId | failAt arg "unresolved storage pointer helper"
-        let body ← mArr (← mField (← mField fn "body") "statements")
+        let some fnBody := (field? fn "body").filter (!·.isNull)
+          | failAt arg "storage pointer helper has no implementation"
+        let body ← mArr (← mField fnBody "statements")
         let simplePath := fun (e : Json) => optStr e "nodeType" == some "Identifier" ||
           (optStr e "nodeType" == some "IndexAccess" &&
            ((field? e "baseExpression").bind (optStr · "nodeType")) == some "Identifier" &&
