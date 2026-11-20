@@ -48,6 +48,7 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function tryBytesLiteral()
   function prefixInc(uint8)
   function prefixDec(uint8)
+  function finalBoolWord(uint256)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -93,6 +94,7 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function tryBytesLiteral()
   function prefixInc(uint8)
   function prefixDec(uint8)
+  function finalBoolWord(uint256)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -295,5 +297,19 @@ solidity_import dirtyMsbLoopIr from "Contracts/SolidityImportSmoke" entry "Narro
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract NarrowStackWords
   function dirtyMsbLoop()
+
+#guard [legacy.model, ir.model].all fun m =>
+  observesWords m "finalBoolWord" [0] [0, 7] && observesWords m "finalBoolWord" [256] [1, 7]
+
+/--
+error: NarrowStackWords.sol:318:33: YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local result is unsupported
+closure: NarrowStackWords.observedBoolWord
+result := mload(0)
+-/
+#guard_msgs in
+solidity_import observedBool from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function observedBoolWord(uint256)
 
 end SolidityImportSmoke.NarrowStackWordsChecks
