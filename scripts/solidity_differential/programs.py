@@ -1602,6 +1602,20 @@ def stateful_named_string_return_source(fixture: str, variant: str) -> str:
 
 DYNAMIC_ARRAY_ROOT_RETURN_UNNAMED = {
     'dynamic-array-root-returns': {
+        'function passBytes(': 'function callHook(',
+        'mid = passBytes(': 'mid = callHook(',
+        'library LocalGuard {': 'library CurrencyLibrary {',
+        'function validate(': 'function transfer(',
+        'LocalGuard.validate(': 'CurrencyLibrary.transfer(',
+        'function checkLocal(': 'function _callOptionalReturn(',
+        '        checkLocal(': '        _callOptionalReturn(',
+        'function run(uint256 v) external returns (bool ok, bytes memory data) {':
+            'function run(uint256 v) external returns (bool, bytes memory) {',
+        """returns (bool ok, bytes memory data) {
+        ok = true;
+        data = abi.encodePacked(uint16(0xdead));
+        return _run(v);""": """returns (bool, bytes memory) {
+        return _run(v);""",
         """returns (address[] memory added, uint256[] memory amounts) {
         uint256 n = x % 4;
         added = new address[](n);

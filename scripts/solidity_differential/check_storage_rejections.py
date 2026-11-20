@@ -598,6 +598,116 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
+        # A local alias of the forwarded bytes result cannot write through to it.
+        ('forwarded-bytes-alias-element-write-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; uint256 b; '
+         'function pair(uint256 x) private pure returns (bool ok, bytes memory data) { '
+         'ok = true; data = abi.encode(x); bytes memory al = data; al[31] = 0x01; } '
+         'function checked(uint256 x) external pure returns (bool ok, bytes memory data) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] encoded byte locals are limited to hash and packed encoding operands'),
+        ('forwarded-bytes-interface-result-rejected',
+         'pragma solidity 0.8.34;\ninterface Source { function get() external returns (bytes memory); }\n'
+         'contract C { uint256 a; uint256 b; function pair(uint256 x) private returns (bool ok, bytes memory data) '
+         '{ ok = true; data = Source(address(uint160(x))).get(); }\n'
+         'function checked(uint256 x) external returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Assignment: [solidity-import:unsupported] forwarded bytes result requires assignment from abi.encode or abi.encodePacked'),
+        ('forwarded-bytes-intermediate-interface-result-rejected',
+         'pragma solidity 0.8.34;\ninterface Source { function get() external returns (bytes memory); }\n'
+         'contract C { uint256 a; uint256 b; function pair(uint256 x) private returns (bool ok, bytes memory data) '
+         '{ ok = true; bytes memory temp = abi.encode(x); temp = Source(address(uint160(x))).get(); '
+         'data = abi.encodePacked(temp); }\n'
+         'function checked(uint256 x) external returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] external bytes assignment in a forwarded tuple requires dynamic return decoding'),
+        ('forwarded-bytes-root-local-interface-result-rejected',
+         'pragma solidity 0.8.34;\ninterface Source { function get() external returns (bytes memory); }\n'
+         'contract C { uint256 a; uint256 b; function pair(uint256 n) private pure returns (bool ok, bytes memory data) '
+         '{ ok = true; data = abi.encode(n); }\n'
+         'function checked(uint256 x) external returns (bool, bytes memory) { bytes memory temp = abi.encode(x); '
+         'temp = Source(address(uint160(x))).get(); return pair(temp.length); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] external bytes assignment in a forwarded tuple requires dynamic return decoding'),
+        ('forwarded-bytes-interface-initializer-rejected',
+         'pragma solidity 0.8.34;\ninterface Source { function get() external view returns (bytes memory); }\n'
+         'contract C { uint256 a; uint256 b; function pair(uint256 x) private view returns (bool ok, bytes memory data) '
+         '{ bytes memory temp = Source(address(uint160(x))).get(); ok = true; data = abi.encodePacked(temp); }\n'
+         'function checked(uint256 x) external view returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] external byte buffer in a forwarded tuple requires dynamic return decoding'),
+        ('forwarded-bytes-contract-creation-rejected',
+         'pragma solidity 0.8.34;\ncontract Child {}\ncontract C { uint256 a; uint256 b; '
+         'function pair() private returns (address deployed, bytes memory data) { '
+         'deployed = address(new Child()); data = abi.encode(deployed); } '
+         'function checked(uint256) external returns (address, bytes memory) { return pair(); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] contract creation in a forwarded tuple requires CREATE semantics'),
+        ('forwarded-bytes-nested-conditional-modifier-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; uint256 b; '
+         'modifier enabled(uint256 x) { if (x != 0) { _; } } '
+         'function gated(uint256 x) private pure enabled(x) returns (uint256 value) { value = 7; } '
+         'function pair(uint256 x) private pure returns (uint256 value, bytes memory data) { '
+         'value = gated(x); data = abi.encode(value); } '
+         'function checked(uint256 x) external pure returns (uint256, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'ModifierInvocation: [solidity-import:unsupported] modifiers in a forwarded tuple call tree are unsupported'),
+        ('forwarded-bytes-dynamic-encode-call-rejected',
+         'pragma solidity 0.8.34;\ninterface Sink { function put(bytes calldata payload) external; }\n'
+         'contract C { uint256 a; uint256 b; function pair(uint256 x) private pure returns (bool ok, bytes memory data) '
+         '{ bytes memory mid = abi.encodeCall(Sink.put, (abi.encode(x))); ok = true; data = abi.encodePacked(mid); } '
+         'function checked(uint256 x) external pure returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] abi.encodeCall with a bytes parameter in a forwarded tuple requires dynamic ABI encoding'),
+        ('forwarded-bytes-narrow-external-result-rejected',
+         'pragma solidity 0.8.34;\ninterface Narrow { function get() external view returns (uint8); }\n'
+         'contract C { uint256 a; uint256 b; function pair(uint256 x) private view returns (bool ok, bytes memory data) '
+         '{ uint8 v = Narrow(address(uint160(x))).get(); ok = true; data = abi.encode(v); } '
+         'function checked(uint256 x) external view returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] typed external call results are unsupported in a forwarded tuple call tree'),
+        ('forwarded-bytes-nested-assembly-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; uint256 b; '
+         'function narrow(uint256 x) private pure returns (uint8 r) { assembly { r := x } assembly { r := gt(r, 255) } } '
+         'function pair(uint256 x) private pure returns (uint256 v, bytes memory data) { v = narrow(x); data = abi.encode(v); } '
+         'function checked(uint256 x) external pure returns (uint256, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'InlineAssembly: [solidity-import:unsupported] inline assembly in a forwarded tuple call tree is unsupported'),
+        ('forwarded-bytes-packed-order-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; uint256 b; '
+         'function part(uint256 x) private returns (bytes memory) { a = a * 10 + x; return abi.encodePacked(uint8(a)); } '
+         'function pair() private returns (uint256 v, bytes memory data) { data = abi.encodePacked(part(1), part(2)); } '
+         'function checked(uint256) external returns (uint256, bytes memory) { return pair(); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] effectful packed arguments in a forwarded tuple require explicit evaluation-order support'),
+        ('forwarded-bytes-scalar-order-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; uint256 b; '
+         'function bump() private returns (uint256) { a = 7; return 1; } '
+         'function pair() private returns (uint256 v, bytes memory data) { v = a + bump(); data = abi.encode(v); } '
+         'function checked(uint256) external returns (uint256, bytes memory) { return pair(); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'BinaryOperation: [solidity-import:unsupported] stateful helper operands require explicit evaluation-order support'),
+        ('forwarded-bytes-self-try-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; uint256 b; '
+         'function probe(uint256 x) external pure returns (bool) { require(x != 0); return false; } '
+         'function pair(uint256 x) internal returns (bool ok, bytes memory data) { '
+         'try this.probe(x) { ok = true; } catch { ok = false; } data = abi.encode(x); } '
+         'function checked(uint256 x) external returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'TryStatement: [solidity-import:unsupported] try/catch in a forwarded tuple requires call-success semantics'),
         ('tuple-assignment-literal-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 a;\n    uint256 b;\n    (a, b) = (x, x + 1);\n    return a + b;\n  }\n}\n",
          None,

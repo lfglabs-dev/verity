@@ -4413,7 +4413,7 @@ private partial def lowerBinary (j : Json) : M Val := do
       !statefulCallIn leftNode env && !assignmentIn leftNode))) ||
     (op == "+" && (← mKind leftNode) == "Identifier" &&
       !statefulCallIn leftNode env && !assignmentIn leftNode && env.stateVars.size > 1)
-  unless op == "&&" || op == "||" || admittedCall do
+  unless op == "&&" || op == "||" || (admittedCall && !env.forwardingBytesTuple) do
     if statefulCallIn leftNode env ||
         statefulCallIn rightNode env then
       failAt j "stateful helper operands require explicit evaluation-order support"
@@ -5458,6 +5458,15 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
   lowerEncodedBytes j
 
 private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false) : M EncodedBytes := do
+  let env ← get
+  if env.forwardingBytesTuple && args.size > 1 then
+    for i in [:args.size] do
+      let arg := args[i]!
+      if statefulCallIn arg env || assignmentIn arg then
+        failAt arg "effectful packed arguments in a forwarded tuple require explicit evaluation-order support"
+      for k in [i + 1:args.size] do
+        if memoryWriteOrderHazard arg args[k]! env then
+          failAt arg "memory-writing packed arguments in a forwarded tuple require explicit evaluation-order support"
   let mut buffers : Array EncodedBytes := #[]
   let mut pre := #[]
   -- For abi.encodePacked the first argument's panic takes precedence in both solc
@@ -6741,6 +6750,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           let base ← mField callee "expression"
           let callArgs ← mArr (← mField j "arguments")
           if (← mType base).startsWith "contract " && callArgs.isEmpty then
+            if (← get).forwardingBytesTuple then
+              failAt j "external byte buffer in a forwarded tuple requires dynamic return decoding"
             let target ← atom (← convert "address" (← mType base) (← lowerExpr base) base)
             let wordVar ← fresh
             let ptr ← fresh
@@ -6866,6 +6877,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         pre := pre ++ sPre
         words := words ++ sWords
       else if pty == "bytes" && (← get).stateVars.size > 1 then
+        if (← get).forwardingBytesTuple then
+          failAt j "abi.encodeCall with a bytes parameter in a forwarded tuple requires dynamic ABI encoding"
         let buf ← lowerEncodedBytes arg
         let ptrVal ← atom { pre := buf.pre, expr := buf.pointer }
         let sizeVal ← atom { pre := #[], expr := buf.size }
@@ -7746,6 +7759,8 @@ omitted, so an account without code takes the short-return revert. The closed
 compiled Yul. Placement is restricted to admitted statement positions so the
 call's position among other effects and reverts is the source order. -/
 private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
+  if (← get).forwardingBytesTuple then
+    failAt j "typed external call results are unsupported in a forwarded tuple call tree"
   let callee ← mField j "expression"
   let id ← refInt callee
   let env ← get
@@ -8183,6 +8198,8 @@ private partial def lowerCall (j : Json) : M Val := do
       return { pre := decodePre, expr }
     if (← mKind callee) == "NewExpression" && (← mType j).startsWith "contract " &&
         (← get).stateVars.size > 1 then
+      if (← get).forwardingBytesTuple then
+        failAt j "contract creation in a forwarded tuple requires CREATE semantics"
       let args ← mArr (← mField j "arguments")
       let mut pre : Array Stmt := #[]
       for arg in args do
@@ -9069,7 +9086,7 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
   unless rets.size == 1 do failAt fn "string helper must have one return parameter"
   let r := rets[0]!
   let rname ← mStr (← mField r "name")
-  if (← get).stateVars.size > 1 && optStr fn "name" == some "callHook" && args.size == 2 then
+  if !(← get).forwardingBytesTuple && (← get).stateVars.size > 1 && optStr fn "name" == some "callHook" && args.size == 2 then
     let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
     modify fun e => { e with yulNames := yul }
     noteFn fn
@@ -10099,7 +10116,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let (pre, yul) ← bindHelperParams params args body at_ savedYul
   modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none }
   noteFn fn
-  if (← get).stateVars.size > 1 && optStr fn "name" == some "transfer" && args.size == 3 &&
+  if !saved.forwardingBytesTuple && (← get).stateVars.size > 1 && optStr fn "name" == some "transfer" && args.size == 3 &&
       (← get).funContract.find? fnId == some "CurrencyLibrary" then
     let p0Id ← mNat (← mField params[0]! "id")
     let p1Id ← mNat (← mField params[1]! "id")
@@ -10112,7 +10129,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
       { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
                values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
     return pre ++ shimStmts
-  if (← get).stateVars.size > 1 && optStr fn "name" == some "flipTick" && args.size == 3 &&
+  if !saved.forwardingBytesTuple && (← get).stateVars.size > 1 && optStr fn "name" == some "flipTick" && args.size == 3 &&
       (← get).funContract.find? fnId == some "TickBitmap" then
     let p0Id ← mNat (← mField params[0]! "id")
     let p1Id ← mNat (← mField params[1]! "id")
@@ -10281,7 +10298,8 @@ private partial def inlineCalldataBytesFn (fnId : Nat) (args : Array CallArg) (a
              helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (boundPre ++ resPre, resCb)
 
-private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Array Stmt × Array (Expr × String)) := do
+private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Json)
+    (forwardNamedBytes : Bool := false) : M (Array Stmt × Array (Expr × String)) := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   let visibility := optStr fn "visibility" |>.getD ""
@@ -10303,6 +10321,11 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
     failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
   unless rets.size > 1 do failAt fn "expected multi-return helper"
+  if forwardNamedBytes then
+    -- The supported helper assigns its two named results and falls through.
+    -- Do not let the general tuple-return path treat a buffer as a scalar.
+    unless mods.isEmpty && !(← stmtContainsReturn body) do
+      failAt fn "forwarded bytes tuple requires an unmodified helper with fallthrough results"
   let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
   let mut pre := boundPre
   modify fun e => { e with yulNames := yul }
@@ -10313,7 +10336,17 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
     let rid ← mNat (← mField r "id")
     let rty ← mType r
     let rloc := optStr r "storageLocation" |>.getD "default"
-    if rloc == "memory" && rty.startsWith "struct " && !rty.contains "[" && (← get).stateVars.size > 1 then
+    if forwardNamedBytes && rloc == "memory" && rty == "bytes" then
+      let ptr ← fresh
+      let len ← fresh
+      let buf : EncodedBytes := { pre := #[], pointer := .localVar ptr, size := .localVar len }
+      pre := pre ++ #[.letVar ptr (.literal 0), .letVar len (.literal 0)]
+      modify fun e => { e with byteBuffers := e.byteBuffers.insert rid buf,
+                               nonLiteralByteLocals := e.nonLiteralByteLocals.push rid,
+                               yulNames := e.yulNames.erase rname }
+      results := results.push (ptr, rty, true)
+      retExprs := retExprs ++ #[(buf.pointer, rty), (buf.size, "uint256")]
+    else if rloc == "memory" && rty.startsWith "struct " && !rty.contains "[" && (← get).stateVars.size > 1 then
       let (retSid, retDecl) ← resolveStructDeclFromType r
       let retStructName ← mStr (← mField retDecl "name")
       let retMembers ← mArr (← mField retDecl "members")
@@ -10699,6 +10732,8 @@ private partial def lowerModifiers (mods : Array Json) : M (Array Stmt × Array 
   let mut outPre : Array Stmt := #[]
   let mut outPost : Array Stmt := #[]
   for modInv in mods do
+    if (← get).forwardingBytesTuple then
+      failAt modInv "modifiers in a forwarded tuple call tree are unsupported"
     let (preStmts, postStmts) ← lowerModifier modInv
     outPre := outPre ++ preStmts
     outPost := postStmts ++ outPost
@@ -12247,6 +12282,8 @@ private partial def lowerThisTryCall? (s : Json) :
     M (Option (Val × Array Json × Array Json)) := do
   unless (← mKind s) == "TryStatement" && (← get).stateVars.size > 1 do
     return none
+  if (← get).forwardingBytesTuple then
+    failAt s "try/catch in a forwarded tuple requires call-success semantics"
   let extCall ← mField s "externalCall"
   unless (← mKind extCall) == "FunctionCall" && optStr extCall "kind" == some "functionCall" do
     return none
@@ -13189,7 +13226,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       if let some decl ← interfaceVoidCallDecl? expression then
         return ← lowerInterfaceVoidCall expression decl
       return (← lowerInterfaceStaticCall expression).pre
-    if (← mKind callee) == "Identifier" && optStr callee "name" == some "_callOptionalReturn" then
+    if !(← get).forwardingBytesTuple && (← mKind callee) == "Identifier" && optStr callee "name" == some "_callOptionalReturn" then
       let callRef ← refInt callee
       let callArgs ← mArr (← mField expression "arguments")
       if callRef ≥ 0 && callArgs.size == 2 then
@@ -13584,6 +13621,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               let rhsBuf ← lowerEncodedBytes right
               return rhsBuf.pre ++ #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
           if (← get).stateVars.size > 1 && (← isInterfaceExternalCall right) && (← mType right) == "bytes memory" then
+            if (← get).forwardingBytesTuple then
+              failAt right "external bytes assignment in a forwarded tuple requires dynamic return decoding"
             if let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) then
               let callee ← mField right "expression"
               let base ← mField callee "expression"
@@ -16809,6 +16848,50 @@ private def lowerDynamicTupleReturn (components retDecls : Array Json) (at_ : Js
   return pointer.pre ++ size.pre ++ (← get).rootPost ++
     #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, size.expr], .revertEmpty]
 
+/-- Inline a direct internal call once, then feed its captured scalar and bytes
+buffer to the ordinary root ABI encoder. Helper result declaration IDs are
+unique and serve only as temporary handles for that encoder. -/
+private def lowerForwardedBytesTuple (call : Json) (rets : Array Json) : M (Array Stmt) := do
+  let callee ← mField call "expression"
+  unless optStr call "kind" == some "functionCall" && (← mKind callee) == "Identifier" do
+    failAt call "expected a direct internal helper for a forwarded bytes tuple"
+  let (id, args) ← resolveCallTargetAndArgs call
+  let env ← get
+  let some fn := env.funs.find? id | failAt callee "expected an internal helper declaration"
+  let results ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  let types ← results.mapM mType
+  unless [some "internal", some "private"].contains (optStr fn "visibility") &&
+      types.size == 2 && types == (← rets.mapM mType) && (paramType types[0]!).isSome &&
+      types[1]! == "bytes" && optStr results[1]! "storageLocation" == some "memory" &&
+      results.all (fun r => (optStr r "name").getD "" != "") &&
+      !containsNodeKind "InlineAssembly" ((field? fn "body").getD .null) && env.rootPost.isEmpty do
+    failAt call "expected a matching named (scalar, bytes memory) internal helper without assembly or a root epilogue"
+  let bytesId ← mNat (← mField results[1]! "id")
+  -- Do not admit the external-call-to-bytes assignment transport here: its
+  -- result is a word, not the callee's ABI-decoded dynamic buffer.
+  for write in stateVarWrites bytesId (← mField fn "body") do
+    let dst := (field? write "leftHandSide").getD .null
+    let rhs := (field? write "rightHandSide").getD .null
+    let member := (field? rhs "expression").getD .null
+    let base := (field? member "expression").getD .null
+    unless optStr dst "nodeType" == some "Identifier" && optStr write "operator" == some "=" &&
+        optStr rhs "kind" == some "functionCall" && optStr member "nodeType" == some "MemberAccess" &&
+        [some "encode", some "encodePacked"].contains (optStr member "memberName") &&
+        optStr base "nodeType" == some "Identifier" && optStr base "name" == some "abi" &&
+        ((field? base "referencedDeclaration").bind (·.getInt?.toOption)) == some (-1) do
+      failAt write "forwarded bytes result requires assignment from abi.encode or abi.encodePacked"
+  let (pre, words) ← inlineMultiFn id args call true
+  let scalarId ← mNat (← mField results[0]! "id")
+  let [(scalar, _), (ptr, _), (size, _)] := words.toList
+    | failAt call "invalid forwarded bytes result bindings"
+  let buffer : EncodedBytes := { pre := #[], pointer := ptr, size }
+  modify fun e => { e with values := e.values.insert scalarId scalar,
+                           byteBuffers := e.byteBuffers.insert bytesId buffer }
+  let ret ← lowerDynamicTupleReturn (← results.mapM returnParamIdentifier) rets call
+  modify fun e => { e with values := env.values, byteBuffers := env.byteBuffers,
+                           nonLiteralByteLocals := env.nonLiteralByteLocals }
+  return pre ++ ret
+
 private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := false) : M (Array Stmt × Bool) := do
   let mut out : Array Stmt := #[]
   let mut returned := false
@@ -16944,7 +17027,13 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               else pure false
             let components ← if isTuple then mArr (← mField expr "components") else pure #[expr]
             if components.any (·.isNull) then failAt expr "empty return component"
-            out := out ++ (← lowerDynamicTupleReturn components retDecls expr)
+            let forward ← if let #[_, last] := retDecls then
+                pure ((← mType last) == "bytes" && (← mKind expr) == "FunctionCall")
+              else pure false
+            if forward then
+              out := out ++ (← lowerForwardedBytesTuple expr retDecls)
+            else
+              out := out ++ (← lowerDynamicTupleReturn components retDecls expr)
           else if let some (elemTy, _, length) := env.rootFixedArrayReturn then
             let isInlineArr ← if (← mKind expr) == "TupleExpression" then
               mBool (← mField expr "isInlineArray")
@@ -17461,6 +17550,16 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
   else
     failAt varDecl s!"unsupported public state variable getter arity {paramSpecs.size} for {name}"
 
+/-- Detect the root-return shape before lowering any modifier or statement: an
+unsafe buffer created earlier in the root could feed a later forwarded call. -/
+private partial def containsForwardedReturn : Json → Bool
+  | j@(.obj fields) =>
+      (optStr j "nodeType" == some "Return" &&
+        optStr ((field? j "expression").getD .null) "nodeType" == some "FunctionCall") ||
+      fields.foldl (fun found _ v => found || containsForwardedReturn v) false
+  | .arr xs => xs.any containsForwardedReturn
+  | _ => false
+
 private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   if (← mKind fn) == "VariableDeclaration" then
     return ← lowerPublicVarGetter fn
@@ -17567,7 +17666,10 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
              rootMsgDataReturn := msgDataRet,
              rootDynamicBytesReturn := dynamicBytesRet?,
              rootDynamicStructReturn := dynamicStructRet?,
+             forwardingBytesTuple := dynamicTupleRet?.isSome && rootReturnTypes.size == 2 &&
+               rootReturnTypes[1]? == some "bytes" && containsForwardedReturn body,
              rootDynamicTupleReturn := dynamicTupleRet?.map fun _ => returns }
+  rejectForwardedAssembly body
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with rootPost := modPost }
   let (bodyOut, returned) ← lowerRootStatements stmts true
