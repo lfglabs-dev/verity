@@ -1,11 +1,11 @@
 ---
-title: Adding Your First Contract
-description: Step-by-step tutorial for creating a verified smart contract in Verity
+title: Write contracts in Verity
+description: Step-by-step tutorial for creating a verified smart contract directly in Verity — storage, function, spec, proof — then compiling it to EVM bytecode
 ---
 
 import { CanonicalSurface } from '../components/CanonicalSurface'
 
-# Adding Your First Contract to Verity
+# Write contracts in Verity
 
 **Time Required**: 2-3 hours for first contract
 **Prerequisites**: Basic familiarity with Lean 4 syntax and smart contract concepts
@@ -118,7 +118,7 @@ python3 scripts/generate_contract.py TipJar \
 This creates all required files:
 - `Contracts/TipJar/Spec.lean`, formal specification
 - `Contracts/TipJar/Invariants.lean`, state invariants
-- `Contracts/TipJar/SpecProofs.lean`, compilation correctness re-export
+- `Contracts/TipJar/Proofs.lean`, compilation correctness re-export
 - `Contracts/TipJar/TipJar.lean`, EDSL implementation
 - `Contracts/TipJar/Proofs/Basic.lean`, basic correctness proofs
 - `Contracts/TipJar/Proofs/Correctness.lean`, advanced correctness proofs

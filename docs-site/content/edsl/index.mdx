@@ -6,10 +6,12 @@ description: Canonical reference for the verity_contract authoring surface — s
 # EDSL API Reference
 
 The complete surface for writing Verity contracts. Every primitive is a
-`Contract α = ContractState → ContractResult α`; read-only primitives never
-revert, write primitives return `success ()`, and only `require`,
-`requireSomeUint`, `requireSomeUintError`, and explicit error reverts such as
-`revertError` may emit `ContractResult.revert`. Proof lemmas for every
+`Contract α = ContractState → ContractResult α`; write primitives return
+`success ()`, and `ContractResult.revert` is emitted only by `require`,
+`requireSomeUint`, `requireSomeUintError`, explicit error reverts such as
+`revertError`, the bounds-checked storage-array primitives
+(`getStorageArrayElement`, `popStorageArray`, …), and the `nonReentrant`
+guards. Proof lemmas for every
 primitive live in [`Verity/Core.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Core.lean)
 (one `_run` lemma per primitive) and `Verity/Proofs/Stdlib/`. See
 [Core Model](/core) for the type layer.

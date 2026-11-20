@@ -72,9 +72,7 @@ multiplication, so conservation proofs use explicit
 which doesn't reduce. Pre-proven `countOcc_cons_eq` / `countOcc_cons_ne` helpers
 avoid this.
 
-**No Mathlib**: tactics such as `push_neg`, `set`, `ring`, and `linarith` are
-unavailable. Use `by_cases`, explicit witnesses, and manual `Nat.*` lemma
-chains.
+**No Mathlib in the core**: the runtime and compiler modules (`Verity/`, `Compiler/`) avoid Mathlib tactics. In contract proofs you may use Mathlib tactics (`push_neg`, `set`, `ring`, `linarith`) via the `Verity.Proofs.Stdlib` modules — `Verity/Proofs/Stdlib/Math.lean` imports Mathlib — but proof files that must stay dependency-light use `by_cases`, explicit witnesses, and manual `Nat.*` lemma chains.
 
 ## Arithmetic semantics
 
@@ -92,7 +90,7 @@ Two approaches coexist for overflow safety:
 
 ## Known limitations
 
-No gas modeling. Reentrancy is enforced by a mandatory fail-closed [disposition gate](/edsl/functions#reentrancy-disposition) — every non-`view` function that opens a reentrancy window must declare a `nonreentrant(lock)` runtime guard or an explicit `reentrancy_trusted` assertion — and, for functions that deliberately allow reentry, invariant preservation under arbitrary reentrant schedules can be proven with the rely-guarantee framework (see [Reentrancy Model](/reentrancy)); the framework's cross-contract layer covers multi-contract reentry schedules, but general multi-contract interaction semantics remain unmodeled. The CompilationModel supports events and double mappings, but EDSL-level proofs for those are still limited. Conservation is proven as exact `countOcc`-based sum equations, not as a global invariant over all addresses; transfer theorems treat self-transfer as a no-op. `ContractResult.fst` returns `default` on revert (requires `[Inhabited α]`), so proofs using `.fst` show `success` first. Mathlib tactics (`set`, `ring`, `linarith`) are unavailable.
+No gas modeling. Reentrancy is enforced by a mandatory fail-closed [disposition gate](/edsl/functions#reentrancy-disposition) — every non-`view` function that opens a reentrancy window must declare a `nonreentrant(lock)` runtime guard or an explicit `reentrancy_trusted` assertion — and, for functions that deliberately allow reentry, invariant preservation under arbitrary reentrant schedules can be proven with the rely-guarantee framework (see [Reentrancy Model](/reentrancy)); the framework's cross-contract layer covers multi-contract reentry schedules, but general multi-contract interaction semantics remain unmodeled. The CompilationModel supports events and double mappings, but EDSL-level proofs for those are still limited. Conservation is proven as exact `countOcc`-based sum equations, not as a global invariant over all addresses; transfer theorems treat self-transfer as a no-op. `ContractResult.fst` returns `default` on revert (requires `[Inhabited α]`), so proofs using `.fst` show `success` first. Mathlib tactics (`set`, `ring`, `linarith`) are available in proof modules that import `Verity.Proofs.Stdlib` (which pulls in Mathlib); the runtime and compiler modules themselves avoid Mathlib.
 
 ## See also
 

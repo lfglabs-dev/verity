@@ -1,6 +1,6 @@
 ---
 title: Core Architecture
-description: How the 400-line core works
+description: How the core works
 ---
 
 # Core Architecture
@@ -10,7 +10,11 @@ The core is intentionally small. It provides types for contract state, storage o
 ## Types
 
 ```verity
-abbrev Address := String
+-- 160-bit bounded EVM address (re-exported as Verity.Core.Address)
+structure Address where
+  val  : Nat
+  isLt : val < ADDRESS_MODULUS   -- ADDRESS_MODULUS = 2^160
+
 abbrev Uint256 := Verity.Core.Uint256
 
 structure StorageSlot (α : Type) where
@@ -21,21 +25,17 @@ structure StorageSlot (α : Type) where
 
 `Uint256` is a dedicated 256-bit modular integer type, so `+`, `-`, `*`, `/`, and `%` wrap exactly like the EVM.
 
-> **Note**: This matches EVM wrapping semantics, not Solidity's default checked arithmetic (^0.8). Use `require` guards to match Solidity behavior. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md#8-arithmetic-semantics-wrapping-vs-checked) for details.
+> **Note**: This matches EVM wrapping semantics, not Solidity's default checked arithmetic (^0.8). Use `require` guards (or the `safeAdd`/`requireSomeUint` helpers from [Computation](/edsl/computation#checked-arithmetic)) to match Solidity behavior; `unchecked := false` modifier blocks opt back into checked arithmetic. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) for details.
 
 ## ContractState
 
 ```verity
 structure ContractState where
-  -- Persistent storage spaces, indexed by slot
-  storage         : Nat → Uint256                          -- uint256 slots
-  storageAddr     : Nat → Address                          -- address slots
-  storageMap      : Nat → Address → Uint256                -- address-keyed mapping
-  storageMapUint  : Nat → Uint256 → Uint256                -- uint-keyed mapping
-  storageMap2     : Nat → Address → Address → Uint256      -- double mapping
-  storageArray    : Nat → List Uint256                     -- dynamic in-storage arrays
-  -- EIP-1153 transient storage
-  transientStorage : Nat → Uint256
+  -- Sole word-valued storage backing map. `StorageKey` keeps the
+  -- source-level channel/layout distinction injective.
+  storageWords    : StorageKey → Uint256
+  -- Dynamic in-storage arrays, grouped by base slot
+  storageArray    : Nat → List Uint256
   -- EVM context
   sender, thisAddress, txOrigin : Address
   msgValue, selfBalance : Uint256
@@ -49,7 +49,7 @@ structure ContractState where
   events         : List Event                              -- append-only log
 ```
 
-Six persistent storage spaces plus transient storage. `storage` for Uint256 values, `storageAddr` for addresses, `storageMap` / `storageMapUint` / `storageMap2` for the three mapping shapes, `storageArray` for dynamic arrays. Each is indexed by a natural number (the slot).
+Six persistent storage spaces plus transient storage. `storage` for Uint256 values, `storageAddr` for addresses, `storageMap` / `storageMapUint` / `storageMap2` for the three mapping shapes, `storageArray` for dynamic arrays — each indexed by a natural number (the slot). The first five are stable lens views over the single `storageWords` backing map (same names and call signatures user code has always used), and `transientStorage` is the EIP-1153 view over the same map; you write `s.storageMap 0 addr` in specs and proofs, not raw `storageWords` lookups.
 
 `knownAddresses` tracks which addresses have been seen per slot and is used by conservation proofs. EVM context fields (`msgValue`, `txOrigin`, `blockTimestamp`, `blockNumber`, `chainId`, `blobBaseFee`, `selfBalance`) and calldata/memory are modeled so EDSL proofs can reason about them; the `verity_contract` macro routes context accessors and `tstore`/`tload` through these fields.
 
@@ -63,7 +63,7 @@ inductive ContractResult (α : Type) where
 
 Every contract operation returns either `success` with a value and updated state, or `revert` with an error message and the state at the point of failure.
 
-> **Important**: On revert, the returned state may include mutations from operations that executed *before* the revert. This differs from EVM semantics where REVERT discards all state changes. Contracts must follow the **checks-before-effects pattern**, all `require` guards before any `setStorage`/`setMapping` calls, to ensure the revert state equals the original input state. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) and [#254](https://github.com/lfglabs-dev/verity/issues/254) for details.
+> **Important**: `Contract.run` (and therefore `.snd` on its results) normalizes any revert to the **pre-call snapshot** — rollback-by-construction ([#254](https://github.com/lfglabs-dev/verity/issues/254)). Raw `bind` chains that bypass `Contract.run` still carry the intermediate state in the returned `ContractResult.revert`, so in hand-rolled proofs follow the **checks-before-effects pattern** (all `require` guards before `setStorage`/`setMapping` calls) unless you go through `Contract.run`. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) for details.
 
 ## Contract monad
 
@@ -86,7 +86,7 @@ This gives do-notation with automatic failure propagation. A failed `require` st
 
 The core types above are operated on by a small surface of EDSL primitives, storage get/set, mapping get/set, context accessors (`msgSender`, `txOrigin`, `msgValue`, `selfBalance`, `blockTimestamp`, `blockNumber`, `chainid`, `contractAddress`), event emission, and the `require` guard. Those are documented in the [EDSL Reference](/edsl); the prose here only covers the *type layer* and the monad, not the operation catalogue.
 
-The shape of every primitive is the same: it's a `Contract α` value, which is `ContractState → ContractResult α`. Read-only primitives like `msgSender` and `getStorage` always emit `ContractResult.success`; write primitives like `setStorage` return `success ()` with a modified `ContractState`. `require` is the one operation that may emit `ContractResult.revert`, preserving the original state.
+The shape of every primitive is the same: it's a `Contract α` value, which is `ContractState → ContractResult α`. Read-only primitives like `msgSender` and `getStorage` always emit `ContractResult.success`; write primitives like `setStorage` return `success ()` with a modified `ContractState`. `require` (plus `requireSomeUint` and explicit `revertError`) may emit `ContractResult.revert` — and so can the bounds-checked storage-array primitives (`getStorageArrayElement`, `popStorageArray`, …) and the `nonReentrant` guards, each preserving the pre-call state.
 
 > `setMapping` (and its keyed variants) also inserts the key into `knownAddresses` for that slot, enabling conservation proofs that sum over all balances.
 
@@ -145,8 +145,8 @@ Three layers, narrowest first:
   - `sameAddrMapContext`, use when only `setStorage` (uint256 slot) writes.
   - `sameStorageMapContext`, use when only `setStorageAddr` writes.
   - `sameStorageAddrContext`, use when only `setMapping` writes.
-- **Composite** (strictest), everything except one storage type: `sameExceptStorage`, `sameExceptStorageAddr`, `sameExceptStorageMap`, `sameExceptStorageMapUint`, `sameExceptStorageMap2`. `sameAllStorage` covers context-only writes. All composites include `sameContext`.
-- **Fine-grained**, for single-entry mapping updates: `storageUnchangedExcept slot`, `storageAddrUnchangedExcept slot`, `storageMapUnchangedExceptKeyAtSlot slot addr`, `storageMapUnchangedExceptKeysAtSlot slot a1 a2` (transfers), `storageMapUintUnchangedExceptSlot`, `storageMapUintUnchangedExceptKey`, `storageMap2UnchangedExceptSlot`.
+- **Composite** (strictest): `unchangedExcept [k₁, k₂, …]` leaves everything unchanged except the listed `SpecStorageKey`s — it covers all six storage channels plus the call context in one frame predicate, with `subset`/`trans` composition lemmas. `sameAllStorage` covers context-only writes (all six storage channels unchanged).
+- **Fine-grained**, for single-entry mapping updates: `storageUnchangedExcept slot`, `storageAddrUnchangedExcept slot`, `storageMapUnchangedExceptSlot slot`, `storageMapUnchangedExceptKey slot addr`, `storageMapUnchangedExceptKeys slot a1 a2` / `…KeyAtSlot` / `…KeysAtSlot` (transfers), and `storageMap2UnchangedExceptKeyPair slot k1 k2` for double mappings.
 
 A counter's `increment` writes only the uint256 count slot, so the unchanged-state predicate is `sameAddrMapContext`. An ERC20 `transfer` (two mapping keys) uses `storageMapUnchangedExceptKeysAtSlot balances.slot from to`.
 

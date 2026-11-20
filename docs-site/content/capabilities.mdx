@@ -88,6 +88,6 @@ The compiler can fail the build when a contract leaves the verified envelope. Pa
 | `--deny-unchecked-dependencies` | dependencies marked `unchecked` |
 | `--deny-assumed-dependencies` | any `assumed` or `unchecked` foreign surface |
 | `--deny-layout-incompatibility` | candidate storage layout breaks a baseline layout report |
-| `--deny-unsafe` | catch-all for unsafe blocks and all deny-gated trust surfaces |
+| `--deny-unsafe` | rejects every `unsafe "reason" do` block (the other deny flags each cover their own category) |
 
 See [Compiler & CLI](/compiler) for the full flag list and the [Trust Model](/trust-model) for how these map to Layer 1/2/3.

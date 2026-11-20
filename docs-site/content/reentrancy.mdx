@@ -169,9 +169,9 @@ in
 - **Hole placement fidelity.** The `adv` hole must sit where the real
   external call happens. Today the rely-guarantee model is written alongside
   the executable contract, so this correspondence is reviewed, not checked.
-  (The `Env.reenter` hook exists in the semantics for exactly this purpose;
-  wiring it into elaboration so call sites and registries are emitted from a
-  single source is tracked in
+  (The adversary hole is currently modeled by `reentrantCall adv` in
+  `Verity/Core/Reentrancy.lean`; wiring hole placement into elaboration so
+  call sites and registries are emitted from a single source is tracked in
   [#2094](https://github.com/lfglabs-dev/verity/issues/2094).)
 - **Invariant adequacy.** The framework proves *your* `Inv` is preserved. If
   `Inv` does not capture what you actually care about, preservation is

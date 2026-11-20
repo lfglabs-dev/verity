@@ -26,7 +26,8 @@ setStorage counterSlot (x + 1)
 ### `Contract.tryCatch`
 
 ```verity
-def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → Contract Unit) : Contract α
+def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → Contract Unit) :
+    Contract Unit
 ```
 
 If `attempt` reverts with message `msg`, `tryCatch` runs `handler msg` on the
@@ -75,9 +76,8 @@ forEach "i" count (do
 zero-bound loops with supported bodies and arbitrary literal-bound empty-body
 loops; positive loops with non-empty bodies compile at the surface but are not
 yet in the generic IR-generation preservation theorem. Accumulator-style loops
-use `Stmt.assignVar` inside `Stmt.forEach`; the macro path rejects mutating
-`let mut` locals from nested `forEach` bodies, so macro-authored contracts use
-explicit memory scratch space for accumulators.
+assign outer `let mut` locals inside the `forEach` body (`Stmt.assignVar`), as
+in the checked-in `Contracts/Smoke/LoopSemanticsSmoke.lean`.
 
 ### Bitmap iteration
 

@@ -13,8 +13,9 @@ const fallbackMarkdown = `# Verity
 ## Endpoints
 
 - [Import a Solidity function](https://veritylang.com/solidity-import.md) - Automatic Solidity importer quickstart (Markdown).
+- [Write contracts in Verity](https://veritylang.com/first-contract) - Native authoring tutorial.
+- [Guarantees & limits](https://veritylang.com/guarantees) - What each step establishes and what stays trusted.
 - [Documentation](https://veritylang.com/) - Verity overview and guides.
-- [Getting Started](https://veritylang.com/getting-started) - Local setup and first verification run.
 - [API Docs](https://veritylang.com/api/docs/_index) - Machine-readable documentation index.
 - [llms.txt](https://veritylang.com/llms.txt) - Agent operating manual.
 
@@ -26,6 +27,8 @@ No authentication is required for public documentation.
 const fallbackText = `${description}
 
 Import Solidity quickstart: https://veritylang.com/solidity-import.md
+Write contracts in Verity: https://veritylang.com/first-contract
+Guarantees & limits: https://veritylang.com/guarantees
 Documentation: https://veritylang.com/
 Getting started: https://veritylang.com/getting-started
 Machine-readable docs index: https://veritylang.com/api/docs/_index

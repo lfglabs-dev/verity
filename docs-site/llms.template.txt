@@ -12,6 +12,8 @@ For native authoring:
 - **port an existing Solidity contract** -> https://veritylang.com/guides/solidity-to-verity — manual rewrite into `verity_contract` when you want a native Verity implementation instead of `solidity_import`
 - **prove a contract that already exists** -> https://veritylang.com/proof-techniques — write the `_spec` and the `_meets_spec` theorem
 
+Before quoting a guarantee: what importing, a stated proof, and compiled-code certification each establish -> https://veritylang.com/guarantees
+
 Quick reference: what's expressible vs on a trust boundary -> https://veritylang.com/capabilities · decode a compiler/macro error -> https://veritylang.com/diagnostics
 
 ## What it is
@@ -44,7 +46,7 @@ inductive ContractResult (α : Type) where
   | revert  : String → ContractState → ContractResult α
 ```
 
-`ContractState` carries six persistent storage spaces (`storage`, `storageAddr`, `storageMap`, `storageMapUint`, `storageMap2`, `storageArray`), transient storage, EVM context (`sender`, `thisAddress`, `msgValue`, `blockTimestamp`, `blockNumber`, `chainId`, `blobBaseFee`, `selfBalance`), calldata, memory, `knownAddresses` for conservation proofs, and an append-only `events` log.
+`ContractState` backs all persistent storage with a single `storageWords` map (`StorageKey → Uint256`) that keeps the source-level channel/layout distinction injective; the six persistent storage views (`storage`, `storageAddr`, `storageMap`, `storageMapUint`, `storageMap2` as lenses over it, plus `storageArray` for dynamic arrays), transient storage, EVM context (`sender`, `thisAddress`, `msgValue`, `blockTimestamp`, `blockNumber`, `chainId`, `blobBaseFee`, `selfBalance`), calldata, memory, `knownAddresses` for conservation proofs, and an append-only `events` log.
 
 Every primitive is a `Contract α`. Read-only primitives never revert; write primitives return `success ()`; only `require` (and `requireSomeUint`, `revertError`) may emit `revert`. The custom `bind` short-circuits on revert.
 
@@ -56,7 +58,7 @@ The dominant pattern is `_meets_spec`: each EDSL operation has a `_spec` predica
 
 - **Verified**: EDSL semantics, CompilationModel→IR, IR→Yul (three layers, zero `sorry`, zero active project-level Lean axioms per AXIOMS.md).
 - **Trusted**: Lean 4 kernel, solc, EVM spec alignment, deployment toolchain, and the ECM/local-obligation **assumptions** surfaced by `--trust-report` (e.g., `erc20_balanceOf_interface`, `evm_ecrecover_precompile`, `keccak256_memory_slice_matches_evm`).
-- Each build emits machine-readable `--trust-report`, `--assumption-report`, `--layout-report`, `--layout-compat-report`. Deny flags fail-closed on a specific assumption category: `--deny-unchecked-dependencies`, `--deny-assumed-dependencies`, `--deny-axiomatized-primitives`, `--deny-local-obligations`, `--deny-linear-memory-mechanics`, `--deny-event-emission`, `--deny-low-level-mechanics`, `--deny-runtime-introspection`, `--deny-proxy-upgradeability`, `--deny-layout-incompatibility`. `--deny-unsafe` is the catch-all that trips on any of those.
+- Each build emits machine-readable `--trust-report`, `--assumption-report`, `--layout-report`, `--layout-compat-report`. Deny flags fail-closed on a specific assumption category: `--deny-unchecked-dependencies`, `--deny-assumed-dependencies`, `--deny-axiomatized-primitives`, `--deny-local-obligations`, `--deny-linear-memory-mechanics`, `--deny-event-emission`, `--deny-low-level-mechanics`, `--deny-runtime-introspection`, `--deny-proxy-upgradeability`, `--deny-layout-incompatibility`. `--deny-unsafe` rejects every `unsafe "reason" do` block (the escape hatch that suppresses restricted-op gating).
 
 ## Agent benchmark
 
@@ -72,24 +74,20 @@ Agent endpoints:
 - https://veritylang.com/api/docs/_index, JSON docs index
 - https://veritylang.com/api/docs/_all, all docs concatenated through the API
 
-Introduction:
-- https://veritylang.com/architecture, single-page system map
-- https://veritylang.com/trust-model, what is verified vs trusted
+Journeys:
+- https://veritylang.com/solidity-import, automatic Solidity importer quickstart (`solidity_import`), with the runnable 7/8 boundary fixture
+- https://veritylang.com/first-contract, write a contract in Verity: guided spec→proof walkthrough (TipJar) ending in EVM compilation
+- https://veritylang.com/guarantees, what importing, a stated proof under assumptions, and compiled-code certification each establish — and what stays trusted
 
-Tutorials:
-- https://veritylang.com/solidity-import, automatic Solidity importer quickstart (`solidity_import`)
+Reference & agent access:
+- https://veritylang.com/agents, machine-readable surfaces: `.md` per page, llms.txt, skill.md, JSON API
+- https://veritylang.com/solidity-import-reference, `solidity_import` directive, `solidity_profile`, generated accessors, limits, trust boundary, and diagnostics
 - https://veritylang.com/getting-started, local setup
-- https://veritylang.com/first-contract, guided spec→proof walkthrough (TipJar)
-
-How-to:
 - https://veritylang.com/guides/add-contract
 - https://veritylang.com/guides/solidity-to-verity
 - https://veritylang.com/guides/production-solidity-patterns, modifiers, ERC-7201 namespaces, ECMs, oracle patterns
 - https://veritylang.com/guides/linking-libraries, `--link` for external Yul (Poseidon, etc.)
 - https://veritylang.com/guides/debugging-proofs
-
-Reference:
-- https://veritylang.com/solidity-import-reference, `solidity_import` directive, `solidity_profile`, generated accessors, limits, trust boundary, and diagnostics
 - https://veritylang.com/examples, SimpleStorage / Counter / SafeCounter / Owned / OwnedCounter / Ledger / SimpleToken / Vault / ERC721 / ReentrancyExample / CryptoHash / ERC20
 - https://veritylang.com/core, ContractState, Contract monad, spec helpers (`sameAddrMapContext` etc.)
 - https://veritylang.com/edsl, EDSL reference hub; subpages: /edsl/storage, /edsl/computation, /edsl/control-flow, /edsl/functions, /edsl/external-calls — every primitive plus `verity_contract` macro features
@@ -99,8 +97,9 @@ Reference:
 - https://veritylang.com/diagnostics, compiler / macro / linker error -> cause -> fix index
 - https://veritylang.com/verification, per-contract theorem inventory
 - https://veritylang.com/glossary
-
-Explanation:
+- https://veritylang.com/architecture, single-page system map
+- https://veritylang.com/trust-model, Layer 1/2/3 framing, axioms and assumptions
+- https://veritylang.com/reentrancy, reentrancy model and rely-guarantee proofs
 - https://veritylang.com/proof-techniques, guard modeling, unfolding, list-sum reasoning
 - https://veritylang.com/faq
 

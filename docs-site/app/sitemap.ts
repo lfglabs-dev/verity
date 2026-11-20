@@ -2,13 +2,17 @@ import type { MetadataRoute } from 'next'
 
 const ROUTES = [
   '',
+  // Journeys
+  '/solidity-import',
+  '/first-contract',
+  '/guarantees',
+  // Reference & agent access
+  '/agents',
   // Introduction
   '/architecture',
   '/trust-model',
-  // Tutorials
-  '/solidity-import',
+  // Setup
   '/getting-started',
-  '/first-contract',
   // How-To Guides
   '/guides/add-contract',
   '/guides/solidity-to-verity',

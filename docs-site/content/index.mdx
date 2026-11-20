@@ -1,18 +1,35 @@
 ---
-title: Verity — prove properties of Solidity functions in Lean
-description: Import a selected Solidity function, state what it should do, and check a proof against the imported model in Lean 4.
+title: Verity — formal verification for EVM smart contracts
+description: Import supported Solidity functions and prove properties of the resulting model in Lean 4, or write contracts directly in Verity and compile them to EVM bytecode.
 ---
 
 import { VerityHero } from '../components/VerityHero'
 
 <VerityHero />
 
-## What gets checked?
+## One property, checked at a boundary
 
-Take a function with `require(value > 7)`. Does it revert for seven and return eight for eight? The [Solidity quickstart](/solidity-import) starts with the original source, imports just that function and shows where to write the theorem. If a function or a helper it calls uses a construct the importer cannot model, the import stops.
+Take a function that guards its input: `require(value > 7)`. What happens at seven, and at eight? Import `checked` from the repository's runnable fixture, [Require.sol](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.sol), and state both answers in Lean:
 
-**A successful import is not a proof.** Lean checks the property you state about the model, not equivalence to deployed bytecode. Starting from scratch instead? The [native authoring tutorial](/first-contract) takes you from a new contract to its first proof.
+```lean
+example : callChecked 7 = none := by decide   -- the guard rejects 7
+example : callChecked 8 = some 8 := by decide -- 8 returns 8
+```
 
-For compiler guarantees, see the [trust model](/trust-model) and `Compiler/Proofs/IRGeneration/Contract.lean` (generic whole-contract `CompilationModel -> IR` theorem for the current supported fragment).
+Lean rejects the file unless both hold. The exact command sequence — pinned `solc`, the import directive, the report, the proof — is the [Import Solidity quickstart](/solidity-import). The same fixture is checked in as [Require.lean](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.lean).
 
-[Quickstart in Markdown](/solidity-import.md) · [Agent index](/llms.txt) · [Research paper](https://lfglabs.dev/papers/verity.pdf)
+## Three claims, kept apart
+
+1. **Imported.** A successful `solidity_import` means the importer modeled the selected function without hitting an unsupported construct, and its instructions have explicit cases in Verity's execution semantics (the report's `denoteCovered true`). It states no property and proves nothing yet.
+2. **Proven, under stated assumptions.** A theorem you write about the model is checked by the Lean kernel. Its scope is exactly what you stated — the inputs you quantified, the fragment Verity models, the oracle and initial state you supplied. The translation into the model trusts `solc`'s syntax tree, storage layout and the importer's lowering.
+3. **Certified compiled code.** For contracts written in Verity, `Compiler/Proofs/IRGeneration/Contract.lean` (generic whole-contract `CompilationModel -> IR` theorem for the current supported fragment) and the `IR → Yul` preservation proofs cover the compiler's two inner transitions; the final Yul-to-bytecode step is delegated to `solc`, and the EVM runtime sits outside the proof envelope. An imported function carries no compiler-correctness witness (`compilerProof unavailable` in its report is expected, not an error).
+
+[Guarantees & limits](/guarantees) keeps this accounting in one place for both journeys.
+
+## Which path fits?
+
+- **Existing Solidity you must not rewrite** — [import a function](/solidity-import) and prove a property of the imported model.
+- **A new contract** — [write it in Verity](/first-contract), prove it, compile to EVM artifacts.
+- **An existing contract you want as a native Verity implementation** — that is a [manual port](/guides/solidity-to-verity): a separate rewrite with its own proofs, not an automatic import.
+
+Agents and automation: raw Markdown on every page (add `.md` to any URL), the [agent index](/llms.txt) and [agent access endpoints](/agents). Research paper: [verity.pdf](https://lfglabs.dev/papers/verity.pdf).

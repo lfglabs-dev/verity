@@ -173,15 +173,15 @@ Pass the guard hypothesis to `simp` so it can resolve the boolean check.
 ```verity
 theorem transfer_sum_preservation (s : ContractState) (to : Address) (amount : Uint256)
   (addrs : List Address) (h_guard : ...) :
-  let s' := ((transfer to amount).run s).snd
-  balanceSum s' addrs + countOccU s.sender addrs * amount
-    = balanceSum s addrs + countOccU to addrs * amount := by
-  have h_sender := point_update_sum_eq ...
-  have h_recipient := point_update_sum_eq ...
+  let s' := ((transfer toAddr amount).run s).snd
+  sumBalances s' addrs + countOccU s.sender addrs * amount
+    = sumBalances s addrs + countOccU toAddr addrs * amount := by
+  have h_sender := map_sum_point_update ...
+  have h_recipient := map_sum_point_update ...
   omega
 ```
 
-Conservation uses `countOcc` for duplicate-safe sums; helper lemmas stage the equation, omega finishes.
+Conservation uses `countOcc` for duplicate-safe sums; the helpers `sumBalances` / `sumBalancesNat` (`Verity/Specs/Common/Sum.lean`) and `map_sum_point_update` / `map_sum_transfer_eq` (`Verity/Proofs/Stdlib/ListSum.lean`) stage the equation, omega finishes.
 
 ### Pattern summary
 
