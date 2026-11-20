@@ -86,6 +86,20 @@ private def solcReleases : Array SolcRelease := #[
       "istanbul", "petersburg", "constantinople", "byzantium",
       "spuriousDragon", "tangerineWhistle", "homestead"],
     supportsViaIR := true },
+  { longVersion := "0.8.28+commit.7893614a",
+    binaryName := "solc-0.8.28",
+    sha256s := #[
+      "9a0fb7e0db2c0641dbae1c5cc645dc686820c83af516226abb1c0a2f76636f25",
+      "81515b0e53deaa266d549545ccaac0a5a96e6d4e8201c77f673b2c710976d9ea"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.28+commit.7893614a.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.28+commit.7893614a.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    supportedEvmVersions := #[
+      "cancun", "shanghai", "paris", "london", "berlin", "istanbul",
+      "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true },
   { longVersion := "0.8.26+commit.8a97fa7a",
     binaryName := "solc-0.8.26",
     sha256s := #[

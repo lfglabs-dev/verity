@@ -14,10 +14,12 @@ import re
 
 from solidity_import_coverage import classify, position, spelling, summarize, checkout, MeasurementError, inventory, dependencies, probe, refresh_report, main, milestone_summary, excluded_functions, markdown, MANIFEST
 from solidity_import_coverage import IMPORTER_SOLC, IMPORTER_DEFAULT_SOLC, ast_request, importer_compiler, pragma_at, matrix_entry, compiler_matrix, measure
+from solidity_import_coverage import foundry_toml_remappings
 
 REPO = Path(__file__).resolve().parents[1]
 V76 = '0.7.6+commit.7338295f'
-V34, V26, V10 = '0.8.34+commit.80d5c536', '0.8.26+commit.8a97fa7a', '0.8.10+commit.fc410830'
+V34, V28, V26, V10 = ('0.8.34+commit.80d5c536', '0.8.28+commit.7893614a', '0.8.26+commit.8a97fa7a',
+                      '0.8.10+commit.fc410830')
 
 
 class CoverageTests(unittest.TestCase):
@@ -443,7 +445,7 @@ class CompilerMatrixTests(unittest.TestCase):
         text = markdown(report)
         self.assertIn(f'| p:C | 0.5.16 | {V34} (importer default) | {V10} |', text)
         self.assertIn('| p:D | unavailable | unavailable | unavailable |', text)
-        self.assertIn(f'Importer-pinned solc releases: {V76}, {V34}, {V26}, {V10}.', text)
+        self.assertIn(f'Importer-pinned solc releases: {V76}, {V34}, {V28}, {V26}, {V10}.', text)
 
     def test_submodule_checkout_rejects_unpinned_or_unsafe_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -461,6 +463,50 @@ class CompilerMatrixTests(unittest.TestCase):
             with patch('solidity_import_coverage.checked', return_value=project['commit'] + '\n'):
                 with self.assertRaisesRegex(MeasurementError, 'unsafe submodule path'):
                     checkout(project, root, False)
+
+
+
+class SourceResolutionTests(unittest.TestCase):
+    def test_foundry_toml_remappings_follow_the_importer_parser(self):
+        text = ('[profile.default]\n# remappings = ["commented/=out/"]\n'
+                'remappings = [\n  "forge-std/=lib/forge-std/src/", # trailing\n'
+                "  'oz/=lib/oz/contracts',\n  \"no-target\",\n  \"a=b=c\"\n]\n"
+                'other = ["x/=y/"]\n')
+        self.assertEqual(foundry_toml_remappings(text),
+                         ['forge-std/=lib/forge-std/src/', 'oz/=lib/oz/contracts'])
+        self.assertEqual(foundry_toml_remappings('remappings = ["a/=b/", "c/=d/"]'),
+                         ['a/=b/', 'c/=d/'])
+        self.assertEqual(foundry_toml_remappings('remappings = []'), [])
+
+    def test_inventory_request_merges_remappings_txt_then_foundry_toml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'C.sol').write_text('contract C {}\n')
+            (root / 'remappings.txt').write_text('# c\nsolmate/=lib/solmate/src/\nbad\n\n')
+            (root / 'foundry.toml').write_text(
+                'remappings = ["solmate/=lib/solmate/src/", "oz/=lib/oz/"]\n')
+            _, request = ast_request('0.8.34', {'entry': 'C.sol'}, root, 'solc')
+        self.assertEqual(request['settings']['remappings'],
+                         ['solmate/=lib/solmate/src/', 'oz/=lib/oz/'])
+
+    def test_parallel_probes_keep_inventory_order(self):
+        fns = [{'kind': 'function', 'name': f'f{i}', 'types': [], 'declaring_contract': 'C',
+                'file': 'C.sol', 'line': 1, 'column': 1} for i in range(6)]
+        matrix = [{'version': '0.8.34', 'release': V34, 'status': 'accepted'}]
+
+        def fake_probe(fn, target, source_root, attempt, workspace, timeout):
+            return {'status': 'importable', 'attempt': attempt.name}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch('solidity_import_coverage.probe', side_effect=fake_probe):
+                serial = measure(fns, {'entry': 'C.sol', 'contract': 'C'}, root, root, root, 10,
+                                 importer_compiler({}), matrix)
+                parallel = measure(fns, {'entry': 'C.sol', 'contract': 'C'}, root, root, root, 10,
+                                   importer_compiler({}), matrix, jobs=4)
+        self.assertEqual(serial, parallel)
+        self.assertEqual([r['name'] for r in parallel], [f'f{i}' for i in range(6)])
+        self.assertEqual([r['attempt'] for r in parallel], [str(i) for i in range(6)])
 
 
 if __name__ == '__main__':
