@@ -118,16 +118,15 @@ private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
         | none => false
       let own := if optStr j "nodeType" == some "FunctionCall" &&
           optStr j "kind" == some "functionCall" then
-        match (field? j "expression").bind (fun callee =>
-            (field? callee "referencedDeclaration").bind (fun id => id.getNat?.toOption)) with
+        let callee := (field? j "expression").getD Json.null
+        match (field? callee "referencedDeclaration").bind (·.getNat?.toOption) with
         | some id =>
           let ptrStateful : Bool :=
             match env.fnPtrs.find? id with
             | some (.direct fid) => isStateful fid
             | some (.branch _ tFid fFid) => isStateful tFid || isStateful fFid
             | none => false
-          let targetId := resolveInContracts env env.linearizedBases.toList id |>.getD id
-          ptrStateful || isStateful targetId
+          ptrStateful || ((effectCallTarget? env [] callee id).map isStateful).getD true
         | none => false
       else if optStr j "nodeType" == some "BinaryOperation" ||
           optStr j "nodeType" == some "UnaryOperation" then
@@ -200,16 +199,18 @@ private partial def memoryWriteIn (j : Json) (env : Env) (seen : List Nat := [])
             | some id =>
               if env.fnPtrs.contains id then true
               else
-                let targetId := resolveInContracts env env.linearizedBases.toList id |>.getD id
-                if seen.contains targetId then false
-                else match env.funs.find? targetId with
-                  | none => true
-                  | some fn =>
-                    let hasModifiers := match field? fn "modifiers" with
-                      | some (.arr ms) => !ms.isEmpty
-                      | _ => false
-                    hasModifiers ||
-                      memoryWriteIn ((field? fn "body").getD Json.null) env (targetId :: seen)
+                match effectCallTarget? env seen callee id with
+                | none => true
+                | some targetId =>
+                  if seen.contains targetId then false
+                  else match env.funs.find? targetId with
+                    | none => true
+                    | some fn =>
+                      let hasModifiers := match field? fn "modifiers" with
+                        | some (.arr ms) => !ms.isEmpty
+                        | _ => false
+                      hasModifiers ||
+                        memoryWriteIn ((field? fn "body").getD Json.null) env (targetId :: seen)
         else false
       own || o.foldl (fun found _ child => found || memoryWriteIn child env seen) false
   | _ => false
@@ -2577,14 +2578,7 @@ private partial def stmtAlwaysReverts (visited : List Nat) (s : Json) : M Bool :
           if baseTy.startsWith "type(library " then
             pure (some refId.toNat)
           else if baseTy.startsWith "type(contract super " then
-            match env.stack.head?.bind env.funContractId.find? with
-            | some callerCid =>
-                match env.linearizedBases.findIdx? (· == callerCid) with
-                | some idx =>
-                    let superBases := (env.linearizedBases.extract (idx + 1) env.linearizedBases.size).toList
-                    pure (resolveInContracts env superBases refId.toNat)
-                | none => pure none
-            | none => pure none
+            pure (effectCallTarget? env visited callee refId.toNat)
           else if baseTy.startsWith "type(contract " then
             pure (some refId.toNat)
           else
@@ -5065,7 +5059,8 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
               failAt j "effectful ABI encoding argument is unsupported"
             let env ← get
             let natId := id.toNat
-            let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
+            let some targetId := effectCallTarget? env [] callee natId
+              | failAt j "effectful ABI encoding argument is unsupported"
             if fnHasCustomRevert env targetId then
               failAt j "effectful ABI encoding argument is unsupported"
             if (← mKind callee) == "MemberAccess" then

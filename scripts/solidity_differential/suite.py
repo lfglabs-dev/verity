@@ -218,6 +218,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('selector-responder', ['-m', 'solidity_differential.check_selector_responder',
         '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
         '--output', str(output / 'selector-responder')]))
+    checks.append(('encoding-arg-super-override', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/EncodingArgSuperOverrideSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/EncodingArgSuperOverrideSequenceModel.lean',
+        '--transactions', str(max(16, transactions)), '--seed', str(seed),
+        '--change-prefix', '0', '1', '2', '3', str(2**256 - 1),
+        '--output', str(output / 'encoding-arg-super-override')]))
     checks.append(('named-arguments', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/NamedArgumentsSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/NamedArgumentsSequenceModel.lean',
