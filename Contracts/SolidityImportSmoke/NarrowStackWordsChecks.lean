@@ -26,6 +26,8 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function literalKey()
   function narrowCount(uint256)
   function narrowSlice(bytes,uint256)
+  function descending(uint256)
+  function descendingWords(uint256)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -49,6 +51,8 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function literalKey()
   function narrowCount(uint256)
   function narrowSlice(bytes,uint256)
+  function descending(uint256)
+  function descendingWords(uint256)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -99,6 +103,12 @@ private def observesWords (model : CompilationModel) (name : String) (args words
       { sender := 1, functionSelector := 0, args } Verity.defaultState
     r.success && r.returnWords == words
 
+#guard observes legacy.model "descending" [256] 0
+#guard observes ir.model "descending" [256] 0
+#guard observes legacy.model "descending" [257] 1
+#guard observes ir.model "descending" [257] 1
+#guard observesWords legacy.model "descendingWords" [258] [258, 257, 2]
+#guard observesWords ir.model "descendingWords" [258] [258, 1, 2]
 #guard observesWords legacy.model "storeAndCopy" [257] [257, 1]
 #guard observesWords ir.model "storeAndCopy" [257] [257, 1]
 private def sliceArgs := [64, 257, 2, 0xaabb * 2 ^ 240]

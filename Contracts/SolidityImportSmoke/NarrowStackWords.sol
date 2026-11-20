@@ -131,6 +131,24 @@ contract NarrowStackWords {
         for (uint256 i = 0; i < limit; ++i) n += 1;
     }
 
+    function descending(uint256 x) external pure returns (uint256 n) {
+        uint8 start;
+        assembly { start := x }
+        for (uint8 i = start; i > 0; --i) ++n;
+    }
+
+    function descendingWords(uint256 x) external pure returns (uint256 a, uint256 b, uint256 n) {
+        uint8 start;
+        assembly { start := x }
+        unchecked {
+            for (uint8 i = start; i > 0; --i) {
+                if (n == 0) { assembly { a := i } }
+                if (n == 1) { assembly { b := i } }
+                ++n;
+            }
+        }
+    }
+
     function narrowSlice(bytes calldata input, uint256 x) external pure returns (bytes32) {
         uint8 start;
         assembly { start := x }

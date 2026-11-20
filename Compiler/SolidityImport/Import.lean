@@ -11085,7 +11085,10 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
             (← mType (← mField step "rightHandSide")) == "int_const 1")
       | _ => pure false
     unless stepOk do failAt step "a decrementing for loop must decrement its counter by one"
-    let startVal ← atom (← lowerConverted counterTy startNode)
+    let initVal ← lowerConverted counterTy startNode
+    let initial ← fresh
+    let startVal : Val := { pre := initVal.pre.push (.letVar initial initVal.expr), expr := .localVar initial }
+    let cleanStart ← atom { pre := #[], expr := cleanHelperResultExpr counterTy startVal }
     let lowerNode ← mField cond "rightExpression"
     let lowerVal ← lowerExpr lowerNode
     let lowerInvariant ← match lowerVal.expr with
@@ -11102,6 +11105,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     let iterIdx ← fresh
     let decBinding ← freshFor counterName
     let saved ← get
+    let rawDecrement := !saved.viaIR && saved.unchecked
     modify fun e =>
       { e with values := e.values.insert counter (.localVar decBinding),
                yulNames := e.yulNames.insert counterName (.localVar decBinding) }
@@ -11110,12 +11114,18 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
       { e with values := saved.values, paths := saved.paths,
                snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
                writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
-    let loopBodyStmts : List Stmt :=
-      [.letVar decBinding (.sub startVal.expr (.localVar iterIdx))] ++ bodyOut.toList
-    return startVal.pre ++ #[
+    let bindCounter : List Stmt :=
+      if rawDecrement then
+        [.letVar decBinding (.sub startVal.expr (.localVar iterIdx))]
+      else
+        [.letVar decBinding startVal.expr,
+         .ite (.eq (.localVar iterIdx) (.literal 0)) []
+           [.assignVar decBinding (.sub cleanStart.expr (.localVar iterIdx))]]
+    let loopBodyStmts : List Stmt := bindCounter ++ bodyOut.toList
+    return startVal.pre ++ cleanStart.pre ++ #[
       .letVar countBinding (.literal 0),
-      .ite (.gt startVal.expr lowerVal.expr)
-        [.assignVar countBinding (.sub startVal.expr lowerVal.expr)] [],
+      .ite (.gt cleanStart.expr lowerVal.expr)
+        [.assignVar countBinding (.sub cleanStart.expr lowerVal.expr)] [],
       .forEach iterIdx (.localVar countBinding) loopBodyStmts
     ]
   let isTailWindowStart ← match (field? init "initialValue").filter (!·.isNull) with
@@ -11184,11 +11194,15 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
   if isTailWindowStart then
     let some startNode := (field? init "initialValue").filter (!·.isNull)
       | failAt init "missing for loop counter initializer"
-    let startVal ← atom (← lowerConverted counterTy startNode)
+    let initVal ← lowerConverted counterTy startNode
+    let initial ← fresh
+    let startVal : Val := { pre := initVal.pre.push (.letVar initial initVal.expr), expr := .localVar initial }
+    let cleanStart ← atom { pre := #[], expr := cleanHelperResultExpr counterTy startVal }
     let countBinding ← fresh
     let iterIdx ← fresh
     let counterBinding ← freshFor counterName
     let saved ← get
+    let rawIncrement := !saved.viaIR && saved.unchecked
     modify fun e =>
       { e with values := e.values.insert counter (.localVar counterBinding),
                yulNames := e.yulNames.insert counterName (.localVar counterBinding) }
@@ -11197,12 +11211,18 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
       { e with values := saved.values, paths := saved.paths,
                snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
                writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
-    let loopBodyStmts : List Stmt :=
-      [.letVar counterBinding (.add startVal.expr (.localVar iterIdx))] ++ bodyOut.toList
-    return startVal.pre ++ bound.pre ++ #[
+    let bindCounter : List Stmt :=
+      if rawIncrement then
+        [.letVar counterBinding (.add startVal.expr (.localVar iterIdx))]
+      else
+        [.letVar counterBinding startVal.expr,
+         .ite (.eq (.localVar iterIdx) (.literal 0)) []
+           [.assignVar counterBinding (.add cleanStart.expr (.localVar iterIdx))]]
+    let loopBodyStmts : List Stmt := bindCounter ++ bodyOut.toList
+    return startVal.pre ++ cleanStart.pre ++ bound.pre ++ #[
       .letVar countBinding (.literal 0),
-      .ite (.lt startVal.expr bound.expr)
-        [.assignVar countBinding (.sub bound.expr startVal.expr)] [],
+      .ite (.lt cleanStart.expr bound.expr)
+        [.assignVar countBinding (.sub bound.expr cleanStart.expr)] [],
       .forEach iterIdx (.localVar countBinding) loopBodyStmts
     ]
   let binding ← freshFor counterName
