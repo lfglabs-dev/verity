@@ -133,6 +133,10 @@ contract SequenceFixture {
         nextMap |= uint128(1 << (input % 16));
         nextMap &= uint128(0x7fffffffffffffffffffffffffffffff);
         nextMap ^= ~uint128(input & 0xff);
+        // Observe the upper half before the shift consumes the uint128 value.
+        uint256 upper;
+        assembly { upper := shr(128, nextMap) }
+        accum ^= upper;
         nextMap >>= uint8((input % 2) + 1);
         nextMap <<= uint8(input % 3);
         bitmap = nextMap;

@@ -5,6 +5,13 @@ contract NarrowStackWords {
     uint256 private first;
     uint256 private second;
 
+    uint8 public constant narrowConstant = uint8(uint256(257));
+
+    function constantCopy() external pure returns (uint256 word) {
+        uint8 a = narrowConstant;
+        assembly { word := a }
+    }
+
     function checkedValue(uint256 x, uint256 n) external pure returns (uint256) {
         uint8 a; uint8 count;
         assembly { a := x count := n }
