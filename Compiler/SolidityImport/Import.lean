@@ -5315,15 +5315,16 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
     return { pre, pointer := .localVar pointer, size := .literal size }
   lowerEncodedBytes j
 
-private partial def lowerPacked (args : Array Json) : M EncodedBytes := do
-  let mut buffers : List EncodedBytes := []
+private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false) : M EncodedBytes := do
+  let mut buffers : Array EncodedBytes := #[]
   let mut pre := #[]
-  -- Pinned solc via-IR evaluates nested ABI arguments from right to left.
-  -- Bind every input buffer before allocating or writing the output buffer.
-  for arg in args.reverse do
+  -- For abi.encodePacked the first argument's panic takes precedence in both solc
+  -- pipelines. Keep the existing traversal for the separate bytes/string.concat builtins.
+  for arg in (if sourceOrder then args else args.reverse) do
     let buffer ← lowerPackedArgument arg
     pre := pre ++ buffer.pre
-    buffers := buffer :: buffers
+    buffers := buffers.push buffer
+  if !sourceOrder then buffers := buffers.reverse
   let sizeName ← fresh
   let size := Expr.localVar sizeName
   let length := buffers.foldl (fun total buffer => Expr.add total buffer.size) (.literal 0)
@@ -6561,7 +6562,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       | failAt j "abi.decode byte buffer expression requires a bytes or string target type"
     return { pre := decodePre ++ buf.pre, pointer := buf.pointer, size := buf.size }
   if optStr callee "memberName" == some "encodePacked" then
-    return ← lowerPacked args
+    return ← lowerPacked args (sourceOrder := true)
   if optStr callee "memberName" == some "encodeWithSelector" then
     unless args.size ≥ 1 do
       failAt j "abi.encodeWithSelector requires a selector argument"

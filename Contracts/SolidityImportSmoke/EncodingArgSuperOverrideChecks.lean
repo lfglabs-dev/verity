@@ -1,4 +1,5 @@
 import Compiler.SolidityImport.Import
+import Compiler.SolidityImport.Differential
 
 /-!
 `super.f(...)` and `Base.f(...)` inside `abi.encode*` arguments
@@ -97,5 +98,20 @@ solidity_import statefulSuperForm from "Contracts/SolidityImportSmoke"
   using superEncoding
   contract StatefulSuperDerived
   function encodeDynamic(bytes)
+
+solidity_import competing from "Contracts/SolidityImportSmoke"
+  entry "EncodingArgSuperOverrideRejections.sol"
+  using superEncoding
+  contract CompetingPackedPanics
+  function digest(uint256)
+
+open Compiler.CompilationModel Denote in
+private def packedPanic := competing.model.functions.head?.map fun fn =>
+  let r := denoteFunction SolidityImport.Differential.oracle competing.model fn
+    { sender := 0, functionSelector := 0, args := [0] } Verity.defaultState
+  (r.success, r.revertData)
+
+-- Division by zero is evaluated before the underflow in the second argument.
+#guard packedPanic == some (false, some (Compiler.CompilationModel.Denote.panicBytes 0x12))
 
 end SolidityImportSmoke.EncodingArgSuperOverrideChecks
