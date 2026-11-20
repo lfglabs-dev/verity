@@ -1490,8 +1490,10 @@ private partial def lowerYul (j : Json) : M Val := do
         checkYulCallRange operands[3]! operands[4]! (x 3) (x 4) 0x40
           s!"Yul {fname} output must be a bytes memory payload or scratch bytes this block wrote below 0x40"
         let result ← fresh
+        -- CALL and STATICCALL produce a success bit, not the first returndata word.
+        -- Expose that bound to the ordinary narrow-assignment checker.
         return { pre := #[.ecm (Compiler.ECM.YulMemoryCall.module isStatic result) xs.toList],
-                 expr := .localVar result }
+                 expr := .bitAnd (.localVar result) (.literal 1) }
       if fname == "extcodesize" then
         unless args.size == 1 do failAt j "Yul extcodesize expects one argument"
         let target ← lowerYul args[0]!
@@ -1802,7 +1804,7 @@ private def yulStringPrefixLit? (node : Json) : M (Option (Nat × Nat)) := do
     return some (byteLen, word * 2 ^ ((32 - byteLen) * 8))
   return none
 
-private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array Json) (retName : String) (rhsVal : Val) : M Stmt := do
+private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array Json) (retName : String) (rhsVal : Val) (atRootAbiExit := false) : M Stmt := do
   let vname ← mStr (← mField varNode "name")
   if retName != "" && vname == retName && (← get).helperResult.isSome then
     checkYulReturnTarget j stmt varNode vname retName
@@ -1837,6 +1839,15 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
       else failAt stmt s!"Yul assignment target {vname} is shadowed"
     let some scalarType := env.scalarTy.find? targetId
       | failAt stmt s!"unknown scalar type for Yul assignment target {vname}"
+    -- A scratch load is not necessarily a success bit. Only canonicalize it
+    -- early when this named bool is write-only in the final assembly block
+    -- and its next consumer is the root ABI encoder (no modifier epilogue).
+    if atRootAbiExit && scalarType == .bool && yulOnlyAssignsDecl j targetId then
+      if let .mload _ := rhsVal.expr then
+        if env.rootReturns.any (fun e => match e with
+            | .logicalNot (.logicalNot (.localVar b)) => b == binding
+            | _ => false) then
+          return .assignVar binding (cleanHelperResultExpr "bool" rhsVal)
     if isProvablyBoundedYulExpr scalarType rhsVal.expr then
       return .assignVar binding rhsVal.expr
     if let .bytesN byteW := scalarType then
@@ -2218,7 +2229,7 @@ private def isYulReturndataBubble (copy rev : Json) : M Bool := do
   let some payload ← identName rargs[0]! | return false
   return dest == payload && zeroSource && (← isSize cargs[2]!) && (← isSize rargs[1]!)
 
-private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retName : String) : M (Array Stmt) := do
+private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retName : String) (atRootAbiExit := false) : M (Array Stmt) := do
   let mut yulLocals : RBMap String String compare := RBMap.empty
   let mut out : Array Stmt := #[]
   -- The zero slot must hold zero again when the block ends if the block wrote it, and the
@@ -2283,7 +2294,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           out := out ++ v.pre |>.push (.assignVar yulBinding v.expr)
         else
           let v ← lowerYulValue (← mField stmt "value")
-          let assignStmt ← lowerYulDirectAssignmentTarget j stmt varNode refs retName v
+          let assignStmt ← lowerYulDirectAssignmentTarget j stmt varNode refs retName v atRootAbiExit
           out := out ++ v.pre |>.push assignStmt
     | "YulExpressionStatement" =>
         let expr ← mField stmt "expression"
@@ -2372,7 +2383,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           let bodyNode ← mField stmt "body"
           let bodyStmts ← mArr (← mField bodyNode "statements")
           let before ← get
-          let bodyOut ← lowerYulStmtSlice j bodyStmts refs retName
+          let bodyOut ← lowerYulStmtSlice j bodyStmts refs retName atRootAbiExit
           modify fun e => { e with yulScratch0 := before.yulScratch0, yulScratch32 := before.yulScratch32,
                                    yulWrittenBytes := before.yulWrittenBytes }
           out := out ++ condVal.pre |>.push (.ite (.logicalNot (.eq condVal.expr (.literal 0))) bodyOut.toList [])
@@ -2385,7 +2396,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
     failAt j "inline assembly must restore the free-memory pointer at 0x40 before it ends"
   pure out
 
-private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array Stmt) := do
+private partial def lowerAssemblyStmts (j : Json) (retName : String) (atRootAbiExit := false) : M (Array Stmt) := do
   let assignedInAsm := bodyAssignedIds j
   if !assignedInAsm.isEmpty then
     modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedInAsm.contains ·) }
@@ -2401,7 +2412,7 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array 
   if let some prefixStmts ← lowerYulPrefixKeccakBlock? j stmts refs retName then
     modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
     return prefixStmts
-  let out ← lowerYulStmtSlice j stmts refs retName
+  let out ← lowerYulStmtSlice j stmts refs retName atRootAbiExit
   modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
   pure out
 
@@ -16883,7 +16894,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 if yulOnlyAssignsDecl s rid then
                   asmRetName := rname
                   modify fun e => { e with helperResult := some (rbinding, rty), helperReturnId := some rid }
-            let asmStmts ← lowerAssemblyStmts s asmRetName
+            let asmStmts ← lowerAssemblyStmts s asmRetName (stmtIsTail && env.rootPost.isEmpty)
             modify fun e => { e with helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, yulNames := savedAsmYul }
             out := out ++ extPre ++ asmStmts
       | "ForStatement" =>

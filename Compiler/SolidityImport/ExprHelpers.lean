@@ -1160,7 +1160,7 @@ def isFullWordYulScalar : ParamType → Bool
   | .uint256 | .int256 | .bytes32 => true
   | _ => false
 
-def isProvablyBoundedYulExpr (scalarType : ParamType) (expr : Expr) : Bool :=
+partial def isProvablyBoundedYulExpr (scalarType : ParamType) (expr : Expr) : Bool :=
   let bits? : Option Nat := match scalarType with
     | .bool => some 1
     | .uint8 => some 8
@@ -1175,6 +1175,7 @@ def isProvablyBoundedYulExpr (scalarType : ParamType) (expr : Expr) : Bool :=
       | .byte _ _ => bits ≥ 8
       | .lt _ _ | .gt _ _ | .slt _ _ | .sgt _ _ | .eq _ _ | .logicalNot _ => bits ≥ 1
       | .bitAnd (.literal mask) _ | .bitAnd _ (.literal mask) => mask < 2 ^ bits
+      | .bitAnd lhs rhs => isProvablyBoundedYulExpr scalarType lhs || isProvablyBoundedYulExpr scalarType rhs
       | .shr (.literal shift) _ => shift ≥ 256 - bits
       | .mod _ (.literal m) => 0 < m && m ≤ 2 ^ bits
       | _ => false

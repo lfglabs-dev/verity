@@ -309,4 +309,12 @@ contract NarrowStackWords {
             b &= ~(uint8(1) << bit);
         }
     }
+
+    function finalBoolWord(uint256 x) external pure returns (bool result, uint256 other) {
+        assembly { mstore(0, x) result := mload(0) other := 7 }
+    }
+
+    function observedBoolWord(uint256 x) external pure returns (bool result, uint256 raw) {
+        assembly { mstore(0, x) result := mload(0) raw := result }
+    }
 }
