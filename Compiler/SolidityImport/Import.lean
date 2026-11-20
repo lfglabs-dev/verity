@@ -1426,7 +1426,7 @@ private partial def lowerYul (j : Json) : M Val := do
       let name ← mStr (← mField j "name")
       let env ← get
       if let some (binding, ty) := env.helperResult then
-        if !(env.stateVars.size > 1) && (ty == "bool" || (bitsOf ty).getD 256 < 256) then
+        if ty == "bool" || (bitsOf ty).getD 256 < 256 || (signedBitsOf ty).getD 256 < 256 then
           if let some (.localVar foundBinding) := env.yulNames.find? name then
             if foundBinding == binding then
               failAt j "Yul reads of narrow named results are unsupported"
@@ -1826,8 +1826,10 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
       if 1 ≤ byteW && byteW < 32 then
         let mask := (2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)
         return .assignVar binding (.bitAnd rhsVal.expr (.literal mask))
-    if env.stateVars.size > 1 then
-      return .assignVar binding rhsVal.expr
+    -- Integer stack bindings retain the full word until a typed consumer.
+    match scalarType with
+    | .uint8 | .uintN _ | .intN _ => return .assignVar binding rhsVal.expr
+    | _ => pure ()
     unless isFullWordYulScalar scalarType do
       failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"
     return .assignVar binding rhsVal.expr
@@ -2453,6 +2455,7 @@ private def argumentAt (call : Json) (i : Nat) : M Json := do
 private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := do
   let argTy := if argTy.endsWith " storage ref" then (argTy.dropEnd 12).toString else argTy
   if argTy == paramTy then return v
+  let v := { v with expr := cleanHelperResultExpr argTy v }
   -- A string literal reaches here already lowered to its left-aligned word by
   -- `fixedBytesStringLiteral?` (`lowerExpr` rejects string literals).
   if argTy.startsWith "literal_string " && (fixedBytesWidth? paramTy).isSome then
@@ -3165,7 +3168,9 @@ private partial def lowerExpr (j : Json) : M Val := do
           else if let some bits := signedBitsOf jTy then
             unless signedBitsOf subTy == some bits do
               failAt j s!"unary negation requires an {jTy} operand, found {subTy}"
-            let a ← atom v
+            if (← get).unchecked && !(← get).viaIR then
+              return { v with expr := .sub (.literal 0) v.expr }
+            let a ← atom { v with expr := cleanHelperResultExpr subTy v }
             let negExpr :=
               if bits < 256 then Expr.signextend (.literal (bits / 8 - 1)) (.sub (.literal 0) a.expr)
               else .sub (.literal 0) a.expr
@@ -3186,14 +3191,14 @@ private partial def lowerExpr (j : Json) : M Val := do
             failAt j s!"bitwise negation operand type {subTy} does not match {jTy}"
           let v ← lowerExpr sub
           let a ← atom v
-          if (signedBitsOf jTy).isSome || jTy == "bytes32" then
+          if (signedBitsOf jTy).isSome || jTy.startsWith "uint" then
+            let inverted := { a with expr := Expr.bitNot a.expr }
+            return if (← get).viaIR then { inverted with expr := cleanHelperResultExpr jTy inverted }
+              else inverted
+          if jTy == "bytes32" then
             pure { pre := a.pre, expr := .bitNot a.expr }
           else if jTy == "bytes4" then
             pure { pre := a.pre, expr := .bitAnd (.bitNot a.expr) (.literal ((2 ^ 32 - 1) * 16 ^ 56)) }
-          else if jTy.startsWith "uint" then
-            let some bits := bitsOf jTy | failAt j s!"unsupported bitwise negation type {jTy}"
-            let inverted := if bits < 256 then Expr.bitAnd (.bitNot a.expr) (.literal (2 ^ bits - 1)) else .bitNot a.expr
-            pure { pre := a.pre, expr := inverted }
           else
             failAt j s!"unsupported bitwise negation type {jTy}"
         else
@@ -3233,14 +3238,14 @@ private partial def lowerExpr (j : Json) : M Val := do
               if id ≥ 0 then
                 if let some cb := (← get).calldataBytes.find? id.toNat then
                   if !cb.inMemory then
-                    let key ← atom (← lowerExpr indexExpression)
+                    let key ← atom (← lowerConverted "uint256" indexExpression)
                     let pre := key.pre.push (.ite (.lt key.expr (.localVar cb.lengthBinding)) [] [.panicCode (.literal 0x32)])
                     let wordOff := AbiEncoding.byteWordOffset key.expr
                     let lane := AbiEncoding.byteLane key.expr
                     let word := Expr.calldataload (.add (.localVar cb.dataBinding) wordOff)
                     return { pre, expr := .shl (.literal 248) (.byte lane word) }
             if let some (slicePre, offExpr, lenExpr, true, false) ← lowerCalldataSlice? innerBase then
-              let key ← atom (← lowerExpr indexExpression)
+              let key ← atom (← lowerConverted "uint256" indexExpression)
               let pre := slicePre ++ key.pre ++ #[
                 .ite (.lt key.expr lenExpr) [] [.panicCode (.literal 0x32)]
               ]
@@ -3251,7 +3256,7 @@ private partial def lowerExpr (j : Json) : M Val := do
             if ← isParameterizedCalldataBytesCall innerBase then
               let (fnId, vals) ← resolveCallTargetAndArgs innerBase
               let (cpre, cb) ← inlineCalldataBytesFn fnId vals innerBase
-              let key ← atom (← lowerExpr indexExpression)
+              let key ← atom (← lowerConverted "uint256" indexExpression)
               let pre := cpre ++ key.pre ++ #[
                 .ite (.lt key.expr (.localVar cb.lengthBinding)) [] [.panicCode (.literal 0x32)]
               ]
@@ -3259,7 +3264,7 @@ private partial def lowerExpr (j : Json) : M Val := do
               let lane := AbiEncoding.byteLane key.expr
               let word := Expr.calldataload (.add (.localVar cb.dataBinding) wordOff)
               return { pre, expr := .shl (.literal 248) (.byte lane word) }
-            let key ← atom (← lowerExpr indexExpression)
+            let key ← atom (← lowerConverted "uint256" indexExpression)
             let buf ← lowerEncodedBytes baseExpression
             let ptrVar ← fresh
             let lenVar ← fresh
@@ -3531,7 +3536,7 @@ private partial def lowerRef (j : Json) : M Ref := do
           let indexType ← mType indexExpression
           unless indexType.startsWith "uint" || indexType.startsWith "int_const" do
             failAt indexExpression "inline constant array index must be unsigned"
-          let key ← atom (← lowerExpr indexExpression)
+          let key ← atom (← lowerConverted "uint256" indexExpression)
           let dest ← fresh
           let mut pre := key.pre.push (.ite (.lt key.expr (.literal constants.size))
             [] [.panicCode (.literal 0x32)]) |>.push (.letVar dest (.literal 0))
@@ -3571,7 +3576,7 @@ private partial def lowerRef (j : Json) : M Ref := do
                 rb == b && env.scalarTy.find? id == paramType src
           | _ => false
         if canonical then pure convKey else pure { convKey with expr := cleanHelperResultExpr src convKey }
-      else pure convKey
+      else pure { convKey with expr := cleanHelperResultExpr (← mType indexExpression) convKey }
       let key ← atom convKey
       match base with
       | .state name pre =>
@@ -4467,6 +4472,21 @@ private partial def lowerBinary (j : Json) : M Val := do
           let shifted := if b >= 256 then 0 else a / 2 ^ b
           if shifted < 2 ^ 256 then return { pre := #[], expr := .literal shifted }
     failAt j s!"unsupported operand type {common}"
+  -- Legacy wrapping add/sub/mul leave the full EVM result on the stack. A
+  -- same-width Yul read observes it; the next Solidity value consumer cleans it.
+  let rawArithmetic := !env.viaIR && env.unchecked && ["+", "-", "*"].contains op
+  let operand (node : Json) (v : Val) : M Val := do
+    let ty ← mType node
+    if ["&&", "||"].contains op then return v
+    if ty != "bool" && (bitsOf ty).isNone && (signedBitsOf ty).isNone &&
+        (fixedBytesWidth? ty).isNone then return v
+    if (rawArithmetic || ["&", "|", "^"].contains op) && ty == common then return v
+    return { v with expr := cleanHelperResultExpr ty v }
+  left ← operand leftNode left
+  right ← operand rightNode right
+  if rawArithmetic && (common.startsWith "uint" || (signedBitsOf common).isSome) then
+    let bin := if op == "+" then Expr.add else if op == "-" then Expr.sub else Expr.mul
+    return ← cmp bin left right
   let signedBits? := signedBitsOf common
   let isSigned := signedBits?.isSome
   let isSigned256 := signedBits? == some 256
@@ -4587,7 +4607,10 @@ private partial def lowerBinary (j : Json) : M Val := do
           if (← get).unchecked then
             pure { pre := a.pre ++ b.pre, expr := ext }
           else
-            checkedSignedMul left right
+            let product ← checkedSignedMul left right
+            let ext := Expr.signextend (.literal (bits / 8 - 1)) product.expr
+            let guard := Stmt.ite (.eq product.expr ext) [] [overflowPanic]
+            pure { product with pre := product.pre.push guard }
       else
         unless common.startsWith "uint" do failAt j s!"unsupported mul type {common}"
         let some bits := bitsOf common | failAt j s!"unsupported mul type {common}"
@@ -4610,7 +4633,7 @@ private partial def lowerBinary (j : Json) : M Val := do
         let a ← atom left
         let b ← atom right
         let raw := Expr.externalCall builtinExpName [a.expr, b.expr]
-        let wrapped := if bits < 256 then Expr.bitAnd raw (.literal (2 ^ bits - 1)) else raw
+        let wrapped := if env.viaIR && bits < 256 then Expr.bitAnd raw (.literal (2 ^ bits - 1)) else raw
         pure { pre := a.pre ++ b.pre, expr := wrapped }
       else
         checkedExp bits left right j
@@ -4620,7 +4643,8 @@ private partial def lowerBinary (j : Json) : M Val := do
         failAt j s!"shift amount must be unsigned, found {rightTy}"
       let a ← atom left
       let b ← atom right
-      if isSigned256 || common == "bytes32" then
+      if isSigned256 || common == "bytes32" ||
+          (!env.viaIR && (isSigned || common.startsWith "uint")) then
         pure { pre := a.pre ++ b.pre, expr := .shl b.expr a.expr }
       else if let some bits := signedBits? then
         let shifted := Expr.signextend (.literal (bits / 8 - 1)) (.shl b.expr a.expr)
@@ -4652,8 +4676,12 @@ private partial def lowerBinary (j : Json) : M Val := do
       pure { pre := a.pre ++ b.pre, expr := bitOp a.expr b.expr }
   | "/" =>
       if let some bits := signedBits? then
-        let v ← signedDiv (← get).unchecked left right
-        if bits < 256 then
+        let v ← signedDiv env.unchecked left right
+        if bits < 256 && !env.unchecked then
+          let ext := Expr.signextend (.literal (bits / 8 - 1)) v.expr
+          let guard := Stmt.ite (.eq v.expr ext) [] [overflowPanic]
+          return { v with pre := v.pre.push guard }
+        if bits < 256 && env.viaIR then
           pure { v with expr := .signextend (.literal (bits / 8 - 1)) v.expr }
         else
           pure v
@@ -4853,8 +4881,14 @@ private partial def cmp (op : Expr → Expr → Expr) (left right : Val) : M Val
 
 private partial def lowerConditional (j : Json) : M Val := do
   let cond ← atom (← lowerExpr (← mField j "condition"))
-  let yes ← lowerExpr (← mField j "trueExpression")
-  let no ← lowerExpr (← mField j "falseExpression")
+  let ty ← mType j
+  let lowerArm (node : Json) : M Val := do
+    let raw ← lowerExpr node
+    if ty.startsWith "uint" || (signedBitsOf ty).isSome then
+      convert ty (← mType node) raw node
+    else pure raw
+  let yes ← lowerArm (← mField j "trueExpression")
+  let no ← lowerArm (← mField j "falseExpression")
   let dest ← fresh
   let thenB := yes.pre.push (.assignVar dest yes.expr)
   let elseB := no.pre.push (.assignVar dest no.expr)
@@ -4881,7 +4915,7 @@ private partial def lowerCast (j : Json) : M Val := do
     unless (src.startsWith "uint" && (bitsOf src).isSome) ||
         src == "int256" || src == "int" || src.startsWith "int_const" do
       failAt j s!"unsupported enum cast source {src} for {callTy}"
-    let a ← atom v
+    let a ← atom { v with expr := cleanHelperResultExpr src v }
     let dest ← fresh
     let check := Stmt.ite (.lt a.expr (.literal members.size))
       [.assignVar dest a.expr] [.panicCode (.literal 0x21)]
@@ -4897,7 +4931,8 @@ private partial def lowerCast (j : Json) : M Val := do
       return ← lowerBytesToFixedBytes args[0]! byteW j
     if let some word ← fixedBytesStringLiteral? tname args[0]! then
       return word
-  let v ← lowerExpr args[0]!
+  let raw ← lowerExpr args[0]!
+  let v := if tname == src then raw else { raw with expr := cleanHelperResultExpr src raw }
   if src.startsWith "int" && !src.startsWith "int_const" && (signedBitsOf src).isNone then
     failAt j s!"unsupported cast source {src}"
   if let some pb := signedBitsOf tname then
@@ -9161,7 +9196,7 @@ private partial def allocateNewScalarArray (name : String) (init : Json)
   unless (lenTy.startsWith "uint" && (bitsOf lenTy).isSome) ||
       (lenTy.startsWith "int_const" && !lenTy.startsWith "int_const -") do
     failAt lenArg s!"dynamic memory array length must be unsigned, found {lenTy}"
-  let lenVal ← atom (← lowerExpr lenArg)
+  let lenVal ← atom (← lowerConverted "uint256" lenArg)
   let lenBinding ← if name == "" then fresh else freshFor (name ++ "_len")
   let arrayPtr ← if name == "" then fresh else freshFor name
   let nextFree ← fresh
@@ -9226,7 +9261,7 @@ private partial def lowerNestedMemArrayValue (j : Json) : M (Array Stmt × Neste
       unless (lenTy.startsWith "uint" && (bitsOf lenTy).isSome) ||
           (lenTy.startsWith "int_const" && !lenTy.startsWith "int_const -") do
         failAt lenArg s!"nested memory array length must be unsigned, found {lenTy}"
-      let lenVal ← atom (← lowerExpr lenArg)
+      let lenVal ← atom (← lowerConverted "uint256" lenArg)
       let next ← fresh
       let index ← fresh
       modify fun e => { e with encodingMemory := true }
@@ -12606,7 +12641,7 @@ private partial def lowerBytesStructPointer (j : Json) (sid : Nat) : M (Array St
           words := words.push (mName, w.expr)
       | _ =>
           let v ← atom (← lowerConverted mTy arg)
-          let normExpr := if mTy == "bool" then Expr.logicalNot (.logicalNot v.expr) else v.expr
+          let normExpr := cleanHelperResultExpr mTy v
           let w ← atom { pre := v.pre, expr := normExpr }
           pre := pre ++ w.pre
           words := words.push (mName, w.expr)
@@ -12711,7 +12746,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
-        let normExpr := if mTy == "bool" then Expr.logicalNot (.logicalNot convVal.expr) else convVal.expr
+        let normExpr := cleanHelperResultExpr mTy convVal
         let normVal ← atom { pre := convVal.pre, expr := normExpr }
         pre := pre ++ normVal.pre
         memberVals := memberVals.push (mName, mTy, normVal.expr)
@@ -12739,7 +12774,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
-        let normExpr := if mTy == "bool" then Expr.logicalNot (.logicalNot convVal.expr) else convVal.expr
+        let normExpr := cleanHelperResultExpr mTy convVal
         let normVal ← atom { pre := convVal.pre, expr := normExpr }
         pre := pre ++ normVal.pre
         evaluatedByName := evaluatedByName.push (argName, mTy, normVal.expr)
@@ -13311,7 +13346,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               | failAt c "unknown flat struct local"
             let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
               | failAt c s!"unknown flat struct member {member}"
-            let stored := if mTy == "bool" then Expr.logicalNot (.logicalNot converted.expr) else converted.expr
+            let stored := cleanHelperResultExpr mTy converted
             assigns := assigns ++ converted.pre |>.push (.assignVar binding stored)
         | .path pre path =>
             if let .rawSlot structId baseSlot := path then
@@ -13515,7 +13550,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           return #[.assignVar binding (.literal 0)]
         let right ← mField expression "rightHandSide"
         let value ← atom (← lowerConverted mTy right)
-        let stored := if mTy == "bool" then Expr.logicalNot (.logicalNot value.expr) else value.expr
+        let stored := cleanHelperResultExpr mTy value
         return value.pre.push (.assignVar binding stored)
     | .path pre path =>
         if let .rawSlot structId baseSlot := path then
@@ -13661,9 +13696,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let .scalarArray innerId basePre ← lowerRef baseNode
           | failAt target "unsupported nested memory array element"
         let some inner := (← get).scalarArrays.find? innerId | failAt target "unknown nested array element"
-        let key ← atom (← lowerExpr indexExpression)
-        let stored := if inner.elementType == "bool" && !deleting then
-          Expr.logicalNot (.logicalNot value.expr) else value.expr
+        let key ← atom (← lowerConverted "uint256" indexExpression)
+        let stored := cleanHelperResultExpr inner.elementType value
         return (value.pre ++ basePre ++ key.pre).push (.ite (.lt key.expr (.localVar inner.lengthBinding))
           [] [.panicCode (.literal 0x32)]) |>.push
           (.mstore (.add (.add (.localVar inner.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))) stored)
@@ -13682,7 +13716,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             let (vpre, v) ← lowerDynArrayValue (← mField expression "rightHandSide") arr.elementType
             let snap ← fresh
             pure (vpre.push (.letVar snap (.localVar v.memoryPointer)), Expr.localVar snap)
-          let key ← atom (← lowerExpr indexExpression)
+          let key ← atom (← lowerConverted "uint256" indexExpression)
           return (valPre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))
             [] [.panicCode (.literal 0x32)]) |>.push
             (.mstore (.add (.add (.localVar arr.pointer) (.literal 32)) (.mul key.expr (.literal 32))) stored)
@@ -13696,10 +13730,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
             let right ← mField expression "rightHandSide"
             atom (← lowerConverted arr.elementType right)
-          let key ← atom (← lowerExpr indexExpression)
-          let stored := if arr.elementType == "bool" && !deleting then
-            Expr.logicalNot (.logicalNot value.expr)
-          else value.expr
+          let key ← atom (← lowerConverted "uint256" indexExpression)
+          let stored := cleanHelperResultExpr arr.elementType value
           return (value.pre ++ key.pre ++ fixedMemBoundsGuard arr key.expr).push
             (.mstore (fixedMemElementAddr arr key.expr) stored)
         if let some arr := (← get).scalarArrays.find? baseId.toNat then
@@ -13714,10 +13746,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
             let right ← mField expression "rightHandSide"
             atom (← lowerConverted arr.elementType right)
-          let key ← atom (← lowerExpr indexExpression)
-          let stored := if arr.elementType == "bool" && !deleting then
-            Expr.logicalNot (.logicalNot value.expr)
-          else value.expr
+          let key ← atom (← lowerConverted "uint256" indexExpression)
+          let stored := cleanHelperResultExpr arr.elementType value
           return (value.pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))
             [] [.panicCode (.literal 0x32)]) |>.push
             (.mstore (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))) stored)
@@ -13751,7 +13781,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
                 unless rTy == "bytes1" do
                   failAt right s!"byte buffer element assignment requires a bytes1 value, found {rTy}"
                 atom (← lowerExpr right)
-            let key ← atom (← lowerExpr indexExpression)
+            let key ← atom (← lowerConverted "uint256" indexExpression)
             let addr := Expr.add buf.pointer key.expr
             let wordAddr := AbiEncoding.byteWordOffset addr
             let shiftBits := Expr.mul (.sub (.literal 31) (AbiEncoding.byteLane addr)) (.literal 8)
@@ -13999,6 +14029,9 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
       | failAt at_ s!"compound assignment requires an integer type, found {ty}"
     unless ty.startsWith "uint" do
       failAt at_ s!"compound assignment requires an integer type, found {ty}"
+    let canonical (word : Expr) := if bits < 256 then Expr.bitAnd word (.literal (2 ^ bits - 1)) else word
+    let lhs := canonical lhs
+    let rhs := if ["<<=", ">>="].contains operator then rhs else canonical rhs
     if operator == "+=" then
       if isUnchecked then
         let wrapped := if bits < 256 then Expr.bitAnd (.add lhs rhs) (.literal (2 ^ bits - 1)) else .add lhs rhs
@@ -14035,6 +14068,28 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
     else
       failAt at_ s!"unsupported compound assignment operator {operator}"
 
+/-- A stack update, unlike a memory or storage update, need not store a
+canonical word. Keep the actual result rather than tracking its provenance. -/
+private partial def combineStackCompound (operator ty : String) (lhs rhs : Expr)
+    (node : Json) : M Val := do
+  let env ← get
+  let narrow := (bitsOf ty).getD 256 < 256 || (signedBitsOf ty).getD 256 < 256
+  if narrow && (ty.startsWith "uint" || (signedBitsOf ty).isSome) then
+    if !env.viaIR && env.unchecked then
+      match operator with
+      | "+=" => return { pre := #[], expr := .add lhs rhs }
+      | "-=" => return { pre := #[], expr := .sub lhs rhs }
+      | "*=" => return { pre := #[], expr := .mul lhs rhs }
+      | _ => pure ()
+    match operator with
+    | "|=" => return { pre := #[], expr := .bitOr lhs rhs }
+    | "^=" => return { pre := #[], expr := .bitXor lhs rhs }
+    | "&=" => return { pre := #[], expr := .bitAnd lhs rhs }
+    | "<<=" => if !env.viaIR then
+        return { pre := #[], expr := .shl rhs (cleanHelperResultExpr ty { pre := #[], expr := lhs }) }
+    | _ => pure ()
+  combineCompound operator ty lhs rhs node
+
 private partial def lowerCompoundAssignment (expression : Json) (operator : String) : M (Array Stmt) := do
   let target ← mField expression "leftHandSide"
   let right ← mField expression "rightHandSide"
@@ -14049,7 +14104,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
     if operator == "<<=" || operator == ">>=" then
       unless rightTy.startsWith "uint" || (rightTy.startsWith "int_const" && !rightTy.startsWith "int_const -") do
         failAt right s!"shift amount must be unsigned, found {rightTy}"
-      atom raw
+      atom { raw with expr := cleanHelperResultExpr rightTy raw }
     else
       atom (← convert ty rightTy raw right)
   if (← mKind target) == "Identifier" then
@@ -14064,7 +14119,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
         unless isSupportedCompoundTy ty do
           failAt target s!"unsupported scalar local compound assignment type {ty}"
         let rhsVal ← lowerRhs ty
-        let combined ← combineCompound operator ty (.localVar binding) rhsVal.expr expression
+        let combined ← combineStackCompound operator ty (.localVar binding) rhsVal.expr expression
         return rhsVal.pre ++ combined.pre |>.push (.assignVar binding combined.expr)
   if (← mKind target) == "IndexAccess" then
     let baseNode ← mField target "baseExpression"
@@ -14082,7 +14137,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
             failAt target s!"unsupported fixed-size memory array compound assignment type {arr.elementType}"
           -- Right-hand side, then the indexed target, then the current value.
           let rhsVal ← lowerRhs arr.elementType
-          let key ← atom (← lowerExpr indexExpression)
+          let key ← atom (← lowerConverted "uint256" indexExpression)
           let addr := fixedMemElementAddr arr key.expr
           let combined ← combineCompound operator arr.elementType (.mload addr) rhsVal.expr expression
           return rhsVal.pre ++ key.pre ++ fixedMemBoundsGuard arr key.expr ++ combined.pre |>.push
@@ -14100,7 +14155,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
             -- Right-hand side, then the index and its bounds check, then the
             -- current element.
             let rhsVal ← lowerRhs arr.elementType
-            let key ← atom (← lowerExpr indexExpression)
+            let key ← atom (← lowerConverted "uint256" indexExpression)
             let addr := Expr.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))
             let combined ← combineCompound operator arr.elementType (.mload addr) rhsVal.expr expression
             return (rhsVal.pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))
@@ -14314,7 +14369,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
         unless isSupportedIncDecTy ty do
           failAt target s!"unsupported scalar local increment/decrement type {ty}"
         let oldVar ← fresh
-        let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+        let combined ← combineStackCompound compoundOp ty (.localVar oldVar) (.literal 1) j
         let stmts := #[Stmt.letVar oldVar (.localVar binding)] ++ combined.pre |>.push (.assignVar binding combined.expr)
         return { pre := stmts, expr := if isPrefix then .localVar binding else .localVar oldVar }
   if (← mKind target) == "MemberAccess" then
@@ -15395,7 +15450,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       unless (lenTy.startsWith "uint" && (bitsOf lenTy).isSome) ||
           (lenTy.startsWith "int_const" && !lenTy.startsWith "int_const -") do
         failAt lenArg s!"dynamic memory {expectedBase} length must be unsigned, found {lenTy}"
-      let lenVal ← atom (← lowerExpr lenArg)
+      let lenVal ← atom (← lowerConverted "uint256" lenArg)
       let byteLenBinding ← freshFor (name ++ "_len")
       let headerPtr ← freshFor name
       let dataPtr ← fresh
@@ -16956,8 +17011,9 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             let action := match ← selectorComparisonCall? expr with
               | some call => withAdmittedInterfaceCall (some call) (lowerExprAs ty expr)
               | none => lowerExprAs ty expr
-            let v ← atom (← if ty.startsWith "enum " && env.rootPost.isEmpty then
-              withStorageEnumUse expr true action else action)
+            let raw ← if ty.startsWith "enum " && env.rootPost.isEmpty then
+              withStorageEnumUse expr true action else action
+            let v ← atom { raw with expr := cleanHelperResultExpr (← mType expr) raw }
             if env.rootPost.isEmpty then
               out := out ++ v.pre |>.push (.returnValues [v.expr])
             else
@@ -17375,7 +17431,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
         let rbinding ← freshFor rname
         let rexpr := Expr.localVar rbinding
         rootInit := rootInit ++ #[.letVar rbinding (.literal 0)]
-        rootRetExprs := rootRetExprs.push rexpr
+        rootRetExprs := rootRetExprs.push (cleanHelperResultExpr rty { pre := #[], expr := rexpr })
         if returns.size == 1 && !rty.startsWith "enum " then
           rootNamedReturn? := some (rid, rname, rty, rbinding)
         modify fun e =>

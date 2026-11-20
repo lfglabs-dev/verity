@@ -499,7 +499,7 @@ MUTANTS.update({
     'import-merkle-and-nonces-scratch-keccak-zero': ('          pure { pre, expr := .keccak256 (.literal off) (.literal size) }', '          pure { pre, expr := .literal 0 }'),
     'import-merkle-and-nonces-mstore-drop': ('          out := out ++ valVal.pre |>.push (.mstore (.literal off) valVal.expr)', '          out := out ++ valVal.pre'),
     'import-merkle-and-nonces-incdec-op-flip': ('  let compoundOp := if operator == "++" then "+=" else "-="', '  let compoundOp := if operator == "++" then "-=" else "+="'),
-    'import-merkle-and-nonces-incdec-prefix-flip': ('unless isSupportedIncDecTy ty do\n          failAt target s!"unsupported scalar local increment/decrement type {ty}"\n        let oldVar ← fresh\n        let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j\n        let stmts := #[Stmt.letVar oldVar (.localVar binding)] ++ combined.pre |>.push (.assignVar binding combined.expr)\n        return { pre := stmts, expr := if isPrefix then .localVar binding else .localVar oldVar }', 'unless isSupportedIncDecTy ty do\n          failAt target s!"unsupported scalar local increment/decrement type {ty}"\n        let oldVar ← fresh\n        let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j\n        let stmts := #[Stmt.letVar oldVar (.localVar binding)] ++ combined.pre |>.push (.assignVar binding combined.expr)\n        return { pre := stmts, expr := if isPrefix then .localVar oldVar else .localVar binding }'),
+    'import-merkle-and-nonces-incdec-prefix-flip': ('unless isSupportedIncDecTy ty do\n          failAt target s!"unsupported scalar local increment/decrement type {ty}"\n        let oldVar ← fresh\n        let combined ← combineStackCompound compoundOp ty (.localVar oldVar) (.literal 1) j\n        let stmts := #[Stmt.letVar oldVar (.localVar binding)] ++ combined.pre |>.push (.assignVar binding combined.expr)\n        return { pre := stmts, expr := if isPrefix then .localVar binding else .localVar oldVar }', 'unless isSupportedIncDecTy ty do\n          failAt target s!"unsupported scalar local increment/decrement type {ty}"\n        let oldVar ← fresh\n        let combined ← combineStackCompound compoundOp ty (.localVar oldVar) (.literal 1) j\n        let stmts := #[Stmt.letVar oldVar (.localVar binding)] ++ combined.pre |>.push (.assignVar binding combined.expr)\n        return { pre := stmts, expr := if isPrefix then .localVar oldVar else .localVar binding }'),
     'import-merkle-and-nonces-unwritten-scratch-guard': ('          unless validScratch do\n            failAt j "keccak256 requires scratch-space words 0x00..0x3f to be written in the same Yul block"', '          unless true do\n            failAt j "keccak256 requires scratch-space words 0x00..0x3f to be written in the same Yul block"'),
     'import-multiproof-verifiers-alloc-length-zero': ('      .letVar lenBinding lenVal.expr,', '      .letVar lenBinding (.literal 0),'),
     'import-multiproof-verifiers-array-write-zero': ('            (.mstore (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))) stored)', '            (.mstore (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))) (.literal 0))'),
@@ -1292,9 +1292,9 @@ contract C is Base {
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
  function checked(uint256 x) external pure returns (uint256) {
-  uint128 narrow = uint128(x);
-  assembly { narrow := add(narrow, 1) }
-  return uint256(narrow);
+  address narrow;
+  assembly { narrow := x }
+  return uint160(narrow);
  }
 }
 ''')
