@@ -43,7 +43,7 @@ contract CalldataBytesHelperModifier {
         trace = trace * 100 + identity(data).length;
         trace = trace * 100 + window(data, start, end).length;
         trace = trace * 100 + uint8(window(data, start, end)[0]);
-        return hashPart(window(data, start, end)) ^ copyDigest(window(data, start, end), uint8(cut));
+        return hashPart((window(data, start, end))) ^ copyDigest(window(data, start, end), uint8(cut));
     }
 
     function subSliceInfo(bytes calldata data, uint256 start, uint256 end, uint256 index)
