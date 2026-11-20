@@ -45,6 +45,7 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function widenedError(uint8)
   function explicitWideError(uint8)
   function constantError()
+  function tryBytesLiteral()
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -87,6 +88,7 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function widenedError(uint8)
   function explicitWideError(uint8)
   function constantError()
+  function tryBytesLiteral()
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -171,6 +173,15 @@ private def revertsWith (m : CompilationModel) (name : String) (args : List Nat)
     let r := Denote.denoteFunction SolidityImport.Differential.oracle m f
       { sender := 1, functionSelector := 0, args } Verity.defaultState
     !r.success && r.revertData == some payload
+
+private def isSelfCallWithWord (expected : Nat) : Stmt → Bool
+  | .ecm _ [.contractAddress, .literal word] => word == expected
+  | _ => false
+
+#guard [legacy.model, ir.model].all fun m =>
+  match m.functions.find? (·.name == "tryBytesLiteral") with
+  | none => false
+  | some f => f.body.any (isSelfCallWithWord (0x11223344 * 2 ^ 224))
 
 #guard [legacy.model, ir.model].all fun m => revertsWith m "widenedError" [17]
   ([0x40, 0x61, 0x3a, 0x9f] ++ List.replicate 31 0 ++ [17])
