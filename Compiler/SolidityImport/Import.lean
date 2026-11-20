@@ -12238,6 +12238,8 @@ private partial def lowerThisTryCall? (s : Json) :
   unless (← mKind callee) == "MemberAccess" do return none
   let base ← mField callee "expression"
   unless (← mKind base) == "Identifier" && optStr base "name" == some "this" do return none
+  unless (← mArr (← mField extCall "names")).isEmpty do
+    failAt extCall "named arguments in a try self-call are unsupported"
   let refId ← refInt callee
   unless refId ≥ 0 do return none
   let env ← get
@@ -14423,6 +14425,17 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
   let operator ← mStr (← mField j "operator")
   let isPrefix := (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true
   let compoundOp := if operator == "++" then "+=" else "-="
+  let env ← get
+  -- The write stores the width-limited result on either pipeline. Only the
+  -- legacy unchecked prefix expression exposes the unmasked sum/difference.
+  let storageResult (ty oldVar newVar : String) : Expr := Id.run do
+    let old := Expr.localVar oldVar
+    if !isPrefix then return old
+    if env.unchecked && !env.viaIR &&
+        ((bitsOf ty).getD 256 < 256 || (signedBitsOf ty).getD 256 < 256) then
+      let lhs := cleanHelperResultExpr ty { pre := #[], expr := old }
+      return if operator == "++" then .add lhs (.literal 1) else .sub lhs (.literal 1)
+    return .localVar newVar
   let target ← mField j "subExpression"
   let isSupportedIncDecTy (ty : String) : Bool :=
     (ty.startsWith "uint" && (bitsOf ty).isSome) || ty == "int256" || ty == "int" ||
@@ -14476,7 +14489,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo (.localVar newVar) false
           let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
             combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
-          return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+          return { pre := stmts, expr := storageResult ty oldVar newVar }
         unless pre.all isStorageKeyCaptureStmt do failAt target "member write key prelude is unsupported"
         let (rawField, count, read, write) ← match path with
           | .zero rawField =>
@@ -14513,7 +14526,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
         let newVar ← fresh
         let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
         let stmts := (pre.push (.letVar oldVar read)) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
-        return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+        return { pre := stmts, expr := storageResult ty oldVar newVar }
     | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
     let reference ← lowerRef target
@@ -14533,7 +14546,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
       let writeStmts ← writeStorageDynamicArrayElement #[] "" arrSlot dynInfo.elemType index (.localVar newVar) false
       let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
         combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
-      return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+      return { pre := stmts, expr := storageResult ty oldVar newVar }
     if let .storageDynamicElement pre fieldName slotExpr elemTy index := reference then
       let ty ← mType target
       unless isSupportedIncDecTy ty do
@@ -14545,7 +14558,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
       let writeStmts ← writeStorageDynamicArrayElement #[] fieldName slotExpr elemTy index (.localVar newVar) false
       let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
         combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
-      return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+      return { pre := stmts, expr := storageResult ty oldVar newVar }
     if let .structMappingElement pre path mapInfo key := reference then
       let ty ← mType target
       unless isSupportedIncDecTy ty do
@@ -14557,7 +14570,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
       let writeStmts ← writeStructMappingElement #[] path mapInfo key (.localVar newVar) false target
       let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
         combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
-      return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+      return { pre := stmts, expr := storageResult ty oldVar newVar }
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     let (name, count, read, write) ← match path with
@@ -14579,7 +14592,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
     let newVar ← fresh
     let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
     let stmts := pre.push (.letVar oldVar read) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
-    return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+    return { pre := stmts, expr := storageResult ty oldVar newVar }
   unless (← mKind target) == "Identifier" do
     failAt target "only a resolved scalar storage identifier is writable"
   let .state name pre ← lowerRef target
@@ -14594,7 +14607,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
   let newVar ← fresh
   let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
   let stmts := pre.push (.letVar oldVar (.storage name)) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (.setStorage name (.localVar newVar))
-  return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+  return { pre := stmts, expr := storageResult ty oldVar newVar }
 
 /-- Whether a `revert`/`require` message is a string literal or a literal string
 constant, the static `Error(string)` form. -/

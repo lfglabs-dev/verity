@@ -46,6 +46,8 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function explicitWideError(uint8)
   function constantError()
   function tryBytesLiteral()
+  function prefixInc(uint8)
+  function prefixDec(uint8)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -89,6 +91,8 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function explicitWideError(uint8)
   function constantError()
   function tryBytesLiteral()
+  function prefixInc(uint8)
+  function prefixDec(uint8)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -242,5 +246,32 @@ solidity_import badEmitIr from "Contracts/SolidityImportSmoke" entry "NarrowStac
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract NarrowStackWords
   function badEmit(uint8)
+
+#guard observesWords legacy.model "prefixInc" [255] [256, 0]
+#guard observesWords ir.model "prefixInc" [255] [0, 0]
+#guard observesWords legacy.model "prefixDec" [0] [2 ^ 256 - 1, 255]
+#guard observesWords ir.model "prefixDec" [0] [255, 255]
+
+/--
+error: NarrowStackWords.sol:296:13: FunctionCall: [solidity-import:unsupported] named arguments in a try self-call are unsupported
+closure: NarrowStackWords.namedTry
+this.receivePair({second: 2, first: 1})
+-/
+#guard_msgs in
+solidity_import namedTryLegacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function namedTry()
+
+/--
+error: NarrowStackWords.sol:296:13: FunctionCall: [solidity-import:unsupported] named arguments in a try self-call are unsupported
+closure: NarrowStackWords.namedTry
+this.receivePair({second: 2, first: 1})
+-/
+#guard_msgs in
+solidity_import namedTryIr from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function namedTry()
 
 end SolidityImportSmoke.NarrowStackWordsChecks
