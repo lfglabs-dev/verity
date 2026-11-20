@@ -14057,12 +14057,13 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
     else
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
   else if ty == "bytes4" then
+    let clean (e : Expr) := cleanHelperResultExpr ty { pre := #[], expr := e }
     if operator == "&=" then
-      pure { pre := #[], expr := .bitAnd lhs rhs }
+      pure { pre := #[], expr := clean (.bitAnd lhs rhs) }
     else if operator == "|=" then
-      pure { pre := #[], expr := .bitOr lhs rhs }
+      pure { pre := #[], expr := clean (.bitOr lhs rhs) }
     else if operator == "^=" then
-      pure { pre := #[], expr := .bitXor lhs rhs }
+      pure { pre := #[], expr := clean (.bitXor lhs rhs) }
     else
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
   else if let some sbits := (if ty.startsWith "int" then signedBitsOf ty else none) then
@@ -14134,8 +14135,8 @@ private partial def combineStackCompound (operator ty : String) (lhs rhs : Expr)
     (node : Json) : M Val := do
   let env ← get
   let narrow := (bitsOf ty).getD 256 < 256 || (signedBitsOf ty).getD 256 < 256
-  if narrow && (ty.startsWith "uint" || (signedBitsOf ty).isSome) then
-    if !env.viaIR && env.unchecked then
+  if (narrow && (ty.startsWith "uint" || (signedBitsOf ty).isSome)) || ty == "bytes4" then
+    if ty != "bytes4" && !env.viaIR && env.unchecked then
       match operator with
       | "+=" => return { pre := #[], expr := .add lhs rhs }
       | "-=" => return { pre := #[], expr := .sub lhs rhs }
@@ -17029,10 +17030,11 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             let cs ← mArr (← mField expr "components")
             let mut pres : Array Stmt := #[]
             let mut exprs : Array Expr := #[]
-            for c in cs do
+            unless cs.size == env.rootReturnTypes.size do failAt expr "root return arity mismatch"
+            for (c, ty) in cs.zip env.rootReturnTypes do
               if c.isNull then failAt expr "empty return component"
-              let raw ← lowerExpr c
-              let v ← atom { raw with expr := cleanHelperResultExpr (← mType c) raw }
+              let raw ← lowerConverted ty c
+              let v ← atom { raw with expr := cleanHelperResultExpr ty raw }
               pres := pres ++ v.pre
               if env.rootPost.isEmpty then
                 exprs := exprs.push v.expr
@@ -17082,7 +17084,11 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               | none => lowerExprAs ty expr
             let raw ← if ty.startsWith "enum " && env.rootPost.isEmpty then
               withStorageEnumUse expr true action else action
-            let v ← atom { raw with expr := cleanHelperResultExpr (← mType expr) raw }
+            let exprTy ← mType expr
+            let converted ← if ty == "" || ty.startsWith "enum " then pure raw
+              else convert ty exprTy raw expr
+            let cleanTy := if ty == "" then exprTy else ty
+            let v ← atom { converted with expr := cleanHelperResultExpr cleanTy converted }
             if env.rootPost.isEmpty then
               out := out ++ v.pre |>.push (.returnValues [v.expr])
             else

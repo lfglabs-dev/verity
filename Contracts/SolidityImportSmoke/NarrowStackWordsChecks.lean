@@ -30,6 +30,10 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function descendingWords(uint256)
   function narrowConstant()
   function constantCopy()
+  function bytesArrayOr(uint256)
+  function returnedBytesLiteral()
+  function returnedBytesTuple()
+  function signedWidening(uint256)
   function bytesCast(bytes32)
   function bytesLocal(uint256)
   function bytesChoice(uint256)
@@ -64,6 +68,10 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function descendingWords(uint256)
   function narrowConstant()
   function constantCopy()
+  function bytesArrayOr(uint256)
+  function returnedBytesLiteral()
+  function returnedBytesTuple()
+  function signedWidening(uint256)
   function bytesCast(bytes32)
   function bytesLocal(uint256)
   function bytesChoice(uint256)
@@ -123,6 +131,16 @@ private def observesWords (model : CompilationModel) (name : String) (args words
 
 #guard observes legacy.model "payableCopy" [2 ^ 160 + 257] (2 ^ 160 + 257)
 #guard observes ir.model "payableCopy" [2 ^ 160 + 257] 257
+#guard observesWords legacy.model "bytesArrayOr" [257] [0, 2 ^ 224 + 257]
+#guard observesWords ir.model "bytesArrayOr" [257] [0, 2 ^ 224 + 257]
+#guard observes legacy.model "returnedBytesLiteral" [] (0x11223344 * 2 ^ 224)
+#guard observes ir.model "returnedBytesLiteral" [] (0x11223344 * 2 ^ 224)
+#guard observesWords legacy.model "returnedBytesTuple" [] [0x11223344 * 2 ^ 224, 1]
+#guard observesWords ir.model "returnedBytesTuple" [] [0x11223344 * 2 ^ 224, 1]
+#guard observesWords legacy.model "signedWidening" [257] [1, 257]
+#guard observesWords ir.model "signedWidening" [257] [1, 257]
+#guard observesWords legacy.model "signedWidening" [511] [2 ^ 256 - 1, 511]
+#guard observesWords ir.model "signedWidening" [511] [2 ^ 256 - 1, 511]
 #guard observes legacy.model "bytesChoice" [0] (0xffffffff * 2 ^ 224)
 #guard observes ir.model "bytesChoice" [0] (0xffffffff * 2 ^ 224)
 #guard observes legacy.model "bytesCast" [1] 1
