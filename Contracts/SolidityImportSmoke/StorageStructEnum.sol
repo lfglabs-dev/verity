@@ -91,4 +91,11 @@ contract StorageStructEnum {
         narrow[0].levels[next] = Mode.First;
         return narrow[0].levels[1];
     }
+    struct Bucket { mapping(uint256 => Mode) values; }
+    mapping(uint256 => Bucket) internal buckets;
+    function changingKey(uint256 k) external returns (Mode) {
+        uint256 i = k;
+        buckets[i].values[i++] = Mode.First;
+        return buckets[k].values[k];
+    }
 }

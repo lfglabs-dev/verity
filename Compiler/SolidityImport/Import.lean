@@ -3508,6 +3508,13 @@ private partial def lowerRef (j : Json) : M Ref := do
       let base ← lowerRef baseExpression
       let indexExpression ← mField j "indexExpression"
       let baseTy ← mType baseExpression
+      -- An outer mapping key can still be a reference to a writable local.
+      -- Do not defer its read across an inner key that can change it.
+      match base with
+      | .structMapping .. | .path _ (.outer ..) =>
+          if assignmentIn indexExpression || statefulCallIn indexExpression (← get) then
+            failAt indexExpression "effectful inner mapping key requires outer key capture"
+      | _ => pure ()
       let rawKey ← lowerExpr indexExpression
       let convKey ← if baseTy.startsWith "mapping(bytes4 =>" then
         convert "bytes4" (← mType indexExpression) rawKey indexExpression
@@ -13586,6 +13593,10 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let right ← mField expression "rightHandSide"
         if assignmentIn right || statefulCallIn right (← get) then
           failAt target "struct mapping write key prelude with stateful RHS is unsupported"
+      if !deleting && (assignmentIn target || statefulCallIn target (← get)) then
+        let capturedValue ← fresh
+        let valuePre := value.pre.push (.letVar capturedValue value.expr)
+        return ← writeStructMappingElement (valuePre ++ pre) path mapInfo key (.localVar capturedValue) false target
       return ← writeStructMappingElement (pre ++ value.pre) path mapInfo key value.expr deleting target
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
