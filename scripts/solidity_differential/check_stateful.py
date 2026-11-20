@@ -701,6 +701,9 @@ def main():
         *ROOT_PARAM_SIGNATURES,
         'snapshot()',
         'firstMembers()',
+        'forwardBytes(uint256)',
+        'run(uint256)',
+        'runShadow(uint256)',
         'writePartMemory(address,(uint128,bool,int24,uint64,uint256))',
         'writePartCalldata(address,(uint128,bool,int24,uint64,uint256))',
         'readPart(address)',
@@ -900,6 +903,16 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(array_str_prefix[:remaining_budget])
+    if 'forwardBytes(uint256)' in source['methodIdentifiers']:
+        # Empty tail, 33-byte padded tail, revert after a write; observe storage.
+        prefix = [('forwardBytes(uint256)', [x]) for x in (0, 1, 2, 3)] + [('snapshot()', [])]
+        calls.extend(prefix[:max(0, args.transactions - len(calls))])
+    if 'run(uint256)' in source['methodIdentifiers']:
+        # #2803 named root: empty tail (0), 32-byte tail, require revert (3) and
+        # Panic(0x11) after the `total` write (2^256 - 1); then observe storage.
+        prefix = [(f'{name}(uint256)', [x]) for name in ('run', 'runShadow')
+                  for x in (0, 5, 3, (1 << 256) - 1)] + [('snapshot()', [])]
+        calls.extend(prefix[:max(0, args.transactions - len(calls))])
     if 'echoNarrow(uint8[])' in source['methodIdentifiers']:
         # Empty, in-range and out-of-range `uint8` elements (the last two revert).
         echo_prefix = [
@@ -1516,6 +1529,10 @@ def main():
                 [128, 192, 256, 29, 1, 100, 1, 1 << 160, 0],
                 [128, 192, 256, 31, 1, 100, 1, 0x1234, 33, 1],
             ])
+        elif name == 'forwardBytes(uint256)':
+            call_args = [rng.choice((0, 1, 2, 255, (1 << 256) - 1))]
+        elif name in ('run(uint256)', 'runShadow(uint256)'):
+            call_args = [rng.choice((0, 1, 3, 255, (1 << 256) - 1))]
         elif name == 'echoNarrow(uint8[])':
             call_args = rng.choice([
                 [32, 0],

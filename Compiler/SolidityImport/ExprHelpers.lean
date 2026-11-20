@@ -151,6 +151,8 @@ structure Env where
   byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   stringBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   nonLiteralByteLocals : Array Nat := #[]
+  /-- Reject word-only external bytes transports throughout a forwarded tuple's call tree. -/
+  forwardingBytesTuple : Bool := false
   storageBytesVars : RBMap Nat (String × Expr × Bool) compare := RBMap.empty
   storageDynamicArrayVars : RBMap Nat (String × Expr × String × Option Nat) compare := RBMap.empty
   fnPtrs : RBMap Nat FnPtr compare := RBMap.empty
@@ -1104,7 +1106,21 @@ partial def publicVarGetterParamTypes (typeName : Json) : M (Array (String × Js
   | _ =>
       return (#[], typeName)
 
+private partial def firstInlineAssembly? : Json → Option Json
+  | j@(.obj fields) =>
+      if optStr j "nodeType" == some "InlineAssembly" then some j
+      else fields.foldl (fun found _ v => found <|> firstInlineAssembly? v) none
+  | .arr xs => xs.findSome? firstInlineAssembly?
+  | _ => none
+
+/-- Forwarded tuples do not model raw assembly words across Solidity bindings. -/
+def rejectForwardedAssembly (body : Json) : M Unit := do
+  if (← get).forwardingBytesTuple then
+    if let some asmNode := firstInlineAssembly? body then
+      failAt asmNode "inline assembly in a forwarded tuple call tree is unsupported"
+
 def noteFn (fn : Json) : M Unit := do
+  rejectForwardedAssembly ((field? fn "body").getD .null)
   let id ← mNat (← mField fn "id")
   let env ← get
   unless env.included.any (·.declId == id) do
