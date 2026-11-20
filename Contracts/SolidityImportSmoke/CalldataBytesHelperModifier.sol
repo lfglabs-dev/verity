@@ -134,7 +134,7 @@ contract CalldataBytesHelperModifierUnsupported {
         return v;
     }
 
-    function useMsgDataSliceInMod(uint256 v) external pure calldataMod(msg.data[4:]) returns (uint256) {
+    function useMsgDataSliceInMod(uint256 v) external pure calldataMod(msg.data[1:5]) returns (uint256) {
         return v;
     }
 
@@ -147,6 +147,10 @@ contract CalldataBytesHelperModifierUnsupported {
     function probeCast(uint256) external pure returns (bytes4) {
         return bytes4(ident(bytes(msg.data[1:5])));
     }
+
+    function nestedDecode(uint256) external pure returns (uint256) {
+        return abi.decode(msg.data[:][1:33], (uint256));
+    }
 }
 
 contract CalldataCopyAndCapture {
@@ -156,6 +160,14 @@ contract CalldataCopyAndCapture {
 
     function chainedWindow(bytes calldata x, uint256 a, uint256 b) private pure returns (bytes calldata) {
         return window(x, a, b);
+    }
+
+    function read4(bytes calldata x) private pure returns (bytes4) {
+        return bytes4(x);
+    }
+
+    function ident(bytes calldata x) private pure returns (bytes calldata) {
+        return x;
     }
 
     function readFirstMemWord(bytes memory b) private pure returns (bytes32 w) {
@@ -195,5 +207,22 @@ contract CalldataCopyAndCapture {
     {
         n = 77;
         return n;
+    }
+
+    function safeMsgDataSlice(uint256)
+        external
+        pure
+        checkPostLen(32, msg.data[4:])
+        returns (bytes4, bytes4, uint256)
+    {
+        return (read4(msg.data[4:]), bytes4(ident(msg.data[4:])), abi.decode(msg.data[4:], (uint256)));
+    }
+
+    function competingAdd(bytes calldata x, uint256 s, uint256 e, uint256 z) external pure returns (uint256) {
+        return window(x, s, e).length + (1 / z);
+    }
+
+    function competingAddRev(bytes calldata x, uint256 s, uint256 e, uint256 z) external pure returns (uint256) {
+        return (1 / z) + window(x, s, e).length;
     }
 }

@@ -101,6 +101,10 @@ structure UnsupportedSink where
   skippedDecls : IO.Ref (Array (Nat × String))
 
 structure Env where
+  /-- Legacy and via-IR need not agree on eager binary operand order. -/
+  viaIR : Bool := true
+  /-- Monotone counter; detects a returned calldata descriptor even in an inlined operand. -/
+  calldataResultCount : Nat := 0
   sourceNames : List String
   nodeFile : RBMap Nat String compare
   files : RBMap String ByteArray compare

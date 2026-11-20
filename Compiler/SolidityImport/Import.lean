@@ -4397,12 +4397,18 @@ private partial def lowerBinary (j : Json) : M Val := do
     if memoryWriteOrderHazard leftNode rightNode env then
       failAt j "memory-writing helper operands require explicit evaluation-order support"
   let commonTy := (field? j "commonType").bind (optStr · "typeString") |>.getD ""
+  let calldataCountBefore := (← get).calldataResultCount
   let mut left ← lowerExprAs commonTy leftNode
   let mut right ← lowerExprAs commonTy rightNode
   unless op == "&&" || op == "||" do
     if (assignmentIn leftNode && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
         (assignmentIn rightNode && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
       failAt j "assignment operand with non-atomic sibling requires explicit evaluation-order support"
+    if !(← get).viaIR && (← get).calldataResultCount > calldataCountBefore then
+      let b ← atom right
+      let a ← atom left
+      left := { pre := b.pre ++ a.pre, expr := a.expr }
+      right := { pre := #[], expr := b.expr }
   if let some fnId := (field? j "function").bind (fun v => v.getNat?.toOption) then
     let targetId := resolveInContracts env env.linearizedBases.toList fnId |>.getD fnId
     return ← inlineFn targetId #[.scalar left, .scalar right] j
@@ -5698,10 +5704,15 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
           if statefulCallIn eNode (← get) || assignmentIn eNode then
             failAt eNode "stateful or assignment calldata slice end index is unsupported"
           atom (← lowerExpr eNode)
+  let startAtLeastFour := startVal.pre.isEmpty && match startVal.expr with
+    | .literal n => n ≥ 4
+    | _ => false
+  let sliceIsMsgData := isMsgData && !startAtLeastFour
   let startVar ← fresh
   let endVar ← fresh
   let offVar ← fresh
   let lenVar ← fresh
+  modify fun e => { e with calldataResultCount := e.calldataResultCount + 1 }
   let offExpr := match baseOff with
     | .literal 0 => Expr.localVar startVar
     | _ => Expr.add baseOff (.localVar startVar)
@@ -5713,7 +5724,7 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
     .letVar offVar offExpr,
     .letVar lenVar (.sub (.localVar endVar) (.localVar startVar))
   ]
-  return some (slicePre, .localVar offVar, .localVar lenVar, fromCalldata, isMsgData)
+  return some (slicePre, .localVar offVar, .localVar lenVar, fromCalldata, sliceIsMsgData)
 
 private partial def lowerBytesToFixedBytes (arg : Json) (byteWidth : Nat) (at_ : Json) : M Val := do
   let fullMask : Nat :=
@@ -6143,7 +6154,9 @@ private partial def abiDecodesDynamicStruct (j : Json) : M Bool := do
 
 private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array Stmt × Bool × Expr × Expr) := do
   let inner ← unwrapBytesConversion (← stripParens rawNode)
-  if let some (slicePre, offsetExpr, lenExpr, fromCalldata, _) ← lowerCalldataSlice? inner then
+  if let some (slicePre, offsetExpr, lenExpr, fromCalldata, isMsgData) ← lowerCalldataSlice? inner then
+    if isMsgData then
+      failAt inner "msg.data slice in abi.decode must start at or after offset 4"
     return (slicePre, fromCalldata, offsetExpr, lenExpr)
   if ← isParameterizedCalldataBytesCall inner then
     let (fnId, vals) ← resolveCallTargetAndArgs inner
@@ -10146,7 +10159,8 @@ private partial def inlineCalldataBytesFn (fnId : Nat) (args : Array CallArg) (a
   if retExpr.isNull then failAt stmts[0]! "bytes calldata helper return requires an expression"
   let (resPre, resCb) ← lowerCalldataBytesExpr retExpr
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays,
+    { e with calldataResultCount := e.calldataResultCount + 1,
+             stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays,
              yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile,
              unchecked := saved.unchecked, values := saved.values,
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals,
@@ -12500,8 +12514,10 @@ private partial def lowerBytesMemberWord (arg : Json) : M (Array Stmt × Expr) :
   let arg ← stripParens arg
   let argTy ← mType arg
   if argTy == "bytes calldata slice" then
-    let some (slicePre, off, len, fromCalldata, _) ← lowerCalldataSlice? arg
+    let some (slicePre, off, len, fromCalldata, isMsgData) ← lowerCalldataSlice? arg
       | failAt arg "unsupported calldata slice struct member"
+    if isMsgData then
+      failAt arg "msg.data slice struct member must start at or after offset 4"
     let (copyPre, header) ← copyToLengthPrefixed fromCalldata off len
     return (slicePre ++ copyPre, header)
   if argTy == "bytes calldata" && (← mKind arg) == "Identifier" then
@@ -17988,7 +18004,7 @@ private def importSlice
       if severity == "error" then
         throwError "solc: {optStr err "formattedMessage" |>.getD "error"}"
   let mut env := Env.init
-  env := { env with files := fileBytes }
+  env := { env with files := fileBytes, viaIR := profile.viaIR }
   let sourcesOut ← field parsed "sources"
   let .obj sourceUnits := sourcesOut | throwError "solc sources output is not an object"
   for (logical, _) in sourceUnits do
