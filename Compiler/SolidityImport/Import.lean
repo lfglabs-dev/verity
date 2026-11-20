@@ -1794,6 +1794,24 @@ private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
                 else v.expr
             | none => v.expr
 
+private def cleanScalarWord (ty : String) (word : Expr) : Expr :=
+  if ty == "bool" then Expr.logicalNot (.logicalNot word)
+  else
+    match fixedBytesWidth? ty with
+    | some byteW =>
+        if byteW < 32 then
+          Expr.bitAnd word (.literal ((2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)))
+        else
+          word
+    | none =>
+        match signedBitsOf ty with
+        | some width => if width < 256 then Expr.signextend (.literal (width / 8 - 1)) word else word
+        | none =>
+            match bitsOf ty with
+            | some width => if width < 256 then Expr.bitAnd word (.literal (2^width-1)) else word
+            | none => word
+
+
 private def yulNatLit? (node : Json) : M (Option Nat) := do
   if (← mKind node) != "YulLiteral" then return none
   unless optStr node "kind" == some "number" && optStr node "type" == some "" do return none
@@ -17499,7 +17517,7 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       | _, _ => 1
   -- A `T[N] memory` root parameter has no Denote/compiler parameter loader,
   -- so its function decodes its whole ABI head explicitly.
-  let explicitAbi := (← get).mems.toList.any (fun (_, mem) => mem.schema.isSome) || !(← get).calldataBytes.isEmpty || !(← get).scalarArrays.isEmpty || !(← get).fixedMemArrays.isEmpty
+  let explicitAbi := (← get).explicitAbi || (← get).mems.toList.any (fun (_, mem) => mem.schema.isSome) || !(← get).calldataBytes.isEmpty || !(← get).scalarArrays.isEmpty || !(← get).fixedMemArrays.isEmpty
   modify fun e => { e with explicitAbi }
   if explicitAbi then
     for p in params do
@@ -18040,7 +18058,9 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
     let enumBound? ← validateEnumTypeIfNeeded paramNode resolvedParamTy
     let pid := 100000000 + idx
     let pname ← freshFor s!"arg{idx}"
-    let pexpr := Expr.param pname
+    let explicitAbi := (← get).explicitAbi
+    let binding ← if explicitAbi then fresh else pure pname
+    let pexpr := if explicitAbi then Expr.localVar binding else Expr.param pname
     modify fun e =>
       let values := e.values.insert pid pexpr
       let scalarTy := e.scalarTy.insert pid pty
@@ -18048,7 +18068,8 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
         | some b => e.enumBounds.insert pid b
         | none => e.enumBounds
       let bytes4Params := if resolvedParamTy == "bytes4" then e.bytes4Params.push pid else e.bytes4Params
-      { e with values, scalarTy, enumBounds, bytes4Params }
+      { e with values, scalarTy, enumBounds, bytes4Params,
+               rawBindings := if explicitAbi then e.rawBindings.insert pid binding else e.rawBindings }
     srcParams := srcParams.push { name := pname, id := pid }
     paramExprs := paramExprs.push pexpr
   let readPublicStructGetterMembers (path : SPath) (pre0 : Array Stmt) (allowFixedArrays : Bool := false) :
@@ -19029,8 +19050,8 @@ private def importSlice
         throwError "solc: {optStr err "formattedMessage" |>.getD "error"}"
   let mut env := Env.init
   let legacy := release.longVersion == "0.7.6+commit.7338295f"
-  env := { env with files := fileBytes, viaIR := profile.viaIR,
-    legacyWrapping := legacy, unchecked := legacy }
+  env := { env with files := fileBytes, viaIR := profile.viaIR }
+  env := { env with legacyWrapping := legacy, unchecked := legacy }
   let sourcesOut ← field parsed "sources"
   let .obj sourceUnits := sourcesOut | throwError "solc sources output is not an object"
   for (logical, _) in sourceUnits do
@@ -19101,6 +19122,9 @@ private def importSlice
     env := { env with unsupportedSink := some sink }
   for (functionName, written) in roots do
     let (fn, paramTys) ← (selectFunction contract functionName written).run' env
+    -- ABI coder v1 cleans scalar words instead of the generic loader's v2 validation.
+    let legacyScalarPrelude := !strictAbi && paramTys.any fun ty =>
+      (paramType ty).any (fun p => !isFullWordYulScalar p)
     let rootId ← flexNat (← field fn "id")
     if rootIds.contains rootId then throwError "function {contract}.{functionName} is imported twice"
     -- A collision is an error in the root list, not an unsupported construct:
@@ -19129,7 +19153,7 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[],
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[],
                         rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[] }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
@@ -19186,6 +19210,9 @@ private def importSlice
       -- ordinals).
       let mut abiGuards : Array Stmt := if env.explicitAbi || env.encodingMemory || stmtListRequiresFreePointerInit body.toList then #[.mstore (.literal 64) (.literal 128)] else #[]
       let rootHeadWords := (modelParams.toList.foldl (fun n p => n + paramHeadSize p.ty) 0) / 32
+      if legacyScalarPrelude then
+        let headSize := Expr.literal (4 + 32 * rootHeadWords)
+        abiGuards := abiGuards.push (AbiLowering.guard (.ge .calldatasize headSize))
       for p in srcParams do
         if let some mem := env.mems.find? p.id then
           if let some schema := mem.schema then
@@ -19306,7 +19333,9 @@ private def importSlice
                 (.eq (.bitAnd rawWord (.literal (2 ^ (8 * (32 - byteW)) - 1))) (.literal 0))
                 [] [.revertEmpty])
           if let some binding := env.rawBindings.find? p.id then
-            abiGuards := abiGuards.push (.letVar binding rawWord)
+            let word := if strictAbi then rawWord else
+              cleanScalarWord (paramTypeToSolidityString ty) rawWord
+            abiGuards := abiGuards.push (.letVar binding word)
       let body := abiGuards ++ body
       -- A closed low-level CALL hands control to an arbitrary account, which may re-enter.
       -- It is admitted only where the body is CEI-clean around it and only local computation,
@@ -19366,7 +19395,9 @@ private def importSlice
             onlyTrailingCallReentrancyWindows body.toList,
           localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
             name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
-            obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
+            obligation := if legacyScalarPrelude then
+              "ABI coder v1 requires a complete calldata head and cleans scalar inputs before execution."
+            else "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
             proofStatus := .unchecked }]) ++
             (if onlyStaticCallCEIBarriers body.toList then [{
               name := "solidity_static_call_cei"

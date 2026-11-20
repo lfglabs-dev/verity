@@ -12,7 +12,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .engine import ROOT, HarnessError, campaign, execute, write_json
+from .cases import keccak
+from .engine import ROOT, HarnessError, campaign, execute, parse_evm, prepare, write_json
 
 FIXTURES = ("arithmetic", "helper", "wrapThenCheck", "abi-v1", "abi-v2", "abi-v2-directive",
             "abi-v1-inherits-v2", "abi-v2-inherits-v1")
@@ -141,6 +142,58 @@ def check_constant_expressions(output, config_path):
         raise HarnessError(f"wrong constant initializer survey: {proc.stdout}{proc.stderr}")
 
 
+def check_immutable_initializers(output):
+    """Reject signed casts reached through immutables; keep an unsigned view root."""
+    directory = output / "immutables"
+    directory.mkdir()
+    fixture = ROOT / "Contracts/SolidityImportSmoke/LegacyImmutableInitializers.sol"
+    source = fixture.read_text()
+
+    def driver(contract, survey=False):
+        options = ", collectUnsupported := true" if survey else ""
+        return ('import Compiler.SolidityImport.Import\n'
+                'solidity_import tested from "Contracts/SolidityImportSmoke" '
+                'entry "LegacyImmutableInitializers.sol"\n'
+                '  using { solc := "0.7.6+commit.7338295f", evmVersion := "istanbul", '
+                f'viaIR := false, optimizerRuns := none, bytecodeHash := "ipfs"{options} }}\n'
+                f'  contract {contract}\n  function readI()\n')
+
+    for contract, marker in (
+        ("LegacyDirectImmutable", "uint256 internal immutable I = uint256(int8(200));"),
+        ("LegacyConstantImmutable", "uint256 internal constant VALUE = uint256(int8(200));"),
+    ):
+        before = source[:source.index(marker) + marker.index("uint256(int8(200))")]
+        line = before.count("\n") + 1
+        column = len(before.rsplit("\n", 1)[-1]) + 1
+        at = f"{fixture.name}:{line}:{column}: FunctionCall: [solidity-import:unsupported]"
+        path = directory / f"{contract}.lean"
+        path.write_text(driver(contract))
+        proc = subprocess.run(["lake", "env", "lean", str(path)], cwd=ROOT,
+                              text=True, capture_output=True, timeout=180)
+        log = proc.stdout + proc.stderr
+        if not proc.returncode or at not in log or "admits only unsigned/address conversions" not in log:
+            raise HarnessError(f"{contract}: missing signed initializer rejection: {log}")
+
+        path = directory / f"{contract}Survey.lean"
+        path.write_text(driver(contract, survey=True)
+            + '#guard tested.report.functions.map (fun f => (f.function, f.denoteCovered,\n'
+            + '  f.unsupported.map (fun u => (u.file, u.line, u.column, u.kind)))) ==\n'
+            + f'  [("readI", false, [("{fixture.name}", {line}, {column}, "FunctionCall")])]\n')
+        proc = subprocess.run(["lake", "env", "lean", str(path)], cwd=ROOT,
+                              text=True, capture_output=True, timeout=180)
+        if proc.returncode:
+            raise HarnessError(f"{contract}: wrong initializer survey: {proc.stdout}{proc.stderr}")
+
+    path = directory / "LegacySupportedImmutable.lean"
+    path.write_text(driver("LegacySupportedImmutable")
+        + '#guard tested.report.functions.map (fun f => (f.function, f.denoteCovered,\n'
+        + '  f.unsupported.isEmpty)) == [("readI", true, true)]\n')
+    proc = subprocess.run(["lake", "env", "lean", str(path)], cwd=ROOT,
+                          text=True, capture_output=True, timeout=180)
+    if proc.returncode:
+        raise HarnessError(f"supported immutable view rejected: {proc.stdout}{proc.stderr}")
+
+
 def check_mapping_getter(output, config_path, strict):
     """A generated getter must decode its key before reading the mapping slot."""
     directory = output / ("getter-v2" if strict else "getter-v1")
@@ -219,6 +272,7 @@ def run(output, count=32, fixtures=FIXTURES):
     check_survey(output)
     for name in ("abi-v1", "abi-v2-inherits-v1"):
         check_constant_expressions(output, fixture / f"differential-legacy-{name}.json")
+    check_immutable_initializers(output)
     for strict in (False, True):
         check_mapping_getter(output, fixture / "differential-legacy-abi-v1.json", strict)
     return reports

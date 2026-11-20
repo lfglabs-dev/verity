@@ -510,7 +510,6 @@ KNOWN_ANCHOR_PROBLEMS = {
     ("check_storage_mutations", "import-invariant-for-bound"): 0,
     ("check_storage_mutations", "import-packed-member-delete"): 0,
     ("check_storage_mutations", "import-named-helper-frame"): 0,
-    ("check_storage_mutations", "import-msg-data-and-enum-calldata-guard"): 0,
     ("check_storage_mutations", "import-multiproof-verifiers-bool-member-read-invert"): 0,
     ("check_storage_mutations", "import-votes-checkpoints-arrays-bitmaps-root-struct-return-zero"): 0,
     ("check_storage_mutations", "import-public-getters-and-builtins-revert-reason-empty"): 0,
