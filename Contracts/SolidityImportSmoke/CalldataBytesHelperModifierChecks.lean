@@ -36,6 +36,41 @@ private def observe (name : String) (args : List Nat) :
 #guard (Compiler.CompilationModel.compile imported.model
   (List.range imported.model.functions.length) .cancun).isOk
 
+solidity_import copyCapture from "Contracts/SolidityImportSmoke" entry "CalldataBytesHelperModifier.sol"
+  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 200, bytecodeHash := "none" }
+  contract CalldataCopyAndCapture
+  function memSliceWord(bytes,uint256,uint256)
+  function mutateArgInBody(uint256,bytes)
+  function mutateArgChained(uint256,bytes,uint256)
+
+private def observeCopyCapture (name : String) (args : List Nat) :
+    Option (Bool × Option (List UInt8) × List Nat) := do
+  let fn ← copyCapture.model.functions.find? (·.name == name)
+  let r := denoteFunction SolidityImport.Differential.oracle copyCapture.model fn
+    {sender := 0, functionSelector := 0, args} Verity.defaultState
+  return (r.success, r.revertData, r.returnWords)
+
+-- Partial-word calldata-to-memory copies clear trailing bytes in both parameter and local buffers.
+#guard observeCopyCapture "memSliceWord" [96, 0, 1, 2, 0xaabb * 2^240] ==
+  some (true, none, [0xaa * 2^248, 0xaa * 2^248])
+#guard observeCopyCapture "memSliceWord" [96, 1, 3, 4, 0xaabbccdd * 2^224] ==
+  some (true, none, [0xbbcc * 2^240, 0xbbcc * 2^240])
+#guard observeCopyCapture "memSliceWord" [96, 1, 1, 2, 0xaabb * 2^240] ==
+  some (true, none, [0, 0])
+
+-- Scalar modifier arguments capture their entry value before `_` mutates caller locals.
+#guard observeCopyCapture "mutateArgInBody" [2, 64, 2, 0x1122 * 2^240] ==
+  some (true, none, [99])
+#guard observeCopyCapture "mutateArgInBody" [3, 64, 2, 0x1122 * 2^240] ==
+  some (false, some (errorStringBytes "post_len"), [])
+#guard observeCopyCapture "mutateArgChained" [1, 96, 1, 2, 0x1122 * 2^240] ==
+  some (true, none, [77])
+#guard observeCopyCapture "mutateArgChained" [1, 96, 3, 2, 0x1122 * 2^240] ==
+  some (false, some [], [])
+
+#guard (Compiler.CompilationModel.compile copyCapture.model
+  (List.range copyCapture.model.functions.length) .cancun).isOk
+
 /--
 error: CalldataBytesHelperModifier.sol:75:66: VariableDeclaration: [solidity-import:unsupported] named bytes calldata helper return is unsupported
 closure: CalldataBytesHelperModifierUnsupported.useNamedHelper -> CalldataBytesHelperModifierUnsupported.namedHelper
