@@ -27,6 +27,9 @@ MUTANTS = {
         '    let word ← atom { pre := #[], expr := cleaned }\n    pre := pre ++ word.pre\n'
         '    words := if words.isEmpty then words.push word.expr else words',
         'runtime', None),
+    'import-interface-word-bytes4-validation': (IMPORT,
+        '    let guard := if returnType == "bytes4" then abiDecodeScalarGuard? returnType none word else none',
+        '    let guard : Option Stmt := none', 'runtime', None),
     'import-interface-word-bool-validation': (IMPORT,
         'pre := pre.push (.ite (.gt (.localVar result) (.literal 1)) [.revertEmpty] [])',
         'pre := pre.push (.ite (.gt (.localVar result) (.literal 2)) [.revertEmpty] [])',
