@@ -16,6 +16,11 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function literalArray(uint256)
   function signaturePayload(uint256)
   function errorValue(uint256)
+  function returnedLiteral(uint256)
+  function logSigned(uint256)
+  function copiedResult(uint256)
+  function addressCast(uint256)
+  function square(uint8)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -29,6 +34,11 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function literalArray(uint256)
   function signaturePayload(uint256)
   function errorValue(uint256)
+  function returnedLiteral(uint256)
+  function logSigned(uint256)
+  function copiedResult(uint256)
+  function addressCast(uint256)
+  function square(uint8)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -53,6 +63,21 @@ private def observes (model : CompilationModel) (name : String) (args : List Nat
 private def payloadHash := 0xda4212981b0d0350403585a221f7da4c34d6c3cb29918f45cf5fb21cd8f1eb37
 #guard observes legacy.model "signaturePayload" [257] payloadHash
 #guard observes ir.model "signaturePayload" [257] payloadHash
+#guard observes legacy.model "returnedLiteral" [257] 1
+#guard observes ir.model "returnedLiteral" [257] 1
+#guard observes legacy.model "copiedResult" [257] 257
+#guard observes ir.model "copiedResult" [257] 257
+#guard observes legacy.model "addressCast" [2 ^ 160 + 257] (2 ^ 160 + 257)
+#guard observes ir.model "addressCast" [2 ^ 160 + 257] 257
+#guard observes legacy.model "square" [13] 169
+#guard observes ir.model "square" [13] 169
+#guard [legacy.model, ir.model].all fun m =>
+  match m.functions.find? (·.name == "logSigned") with
+  | none => false
+  | some f =>
+    let r := Denote.denoteFunction SolidityImport.Differential.oracle m f
+      { sender := 1, functionSelector := 0, args := [511] } Verity.defaultState
+    r.success && r.events == [[2 ^ 256 - 1]]
 #guard observes legacy.model "signedCast" [511] 511
 #guard observes ir.model "signedCast" [511] (2 ^ 256 - 1)
 
