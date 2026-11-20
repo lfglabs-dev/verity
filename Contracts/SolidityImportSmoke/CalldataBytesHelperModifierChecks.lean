@@ -253,7 +253,7 @@ private def receiverFailure : Bool := Id.run do
 #guard receiverFailure
 
 /--
-error: CalldataBytesHelperModifier.sol:246:16: FunctionCall: [solidity-import:unsupported] computed calldata receiver with nontrivial arguments requires legacy receiver-last evaluation
+error: CalldataBytesHelperModifier.sol:252:16: FunctionCall: [solidity-import:unsupported] computed calldata receiver with nontrivial arguments requires legacy receiver-last evaluation
 closure: ReceiverOrder.nested
 window(x, e).take(1 / z)
 -/
@@ -262,5 +262,19 @@ solidity_import receiverLegacy from "Contracts/SolidityImportSmoke" entry "Calld
   using { evmVersion := "cancun", viaIR := false, optimizerRuns := some 200, bytecodeHash := "none" }
   contract ReceiverOrder
   function nested(bytes,uint256,uint256)
+
+solidity_import overloadedLegacy from "Contracts/SolidityImportSmoke" entry "CalldataBytesHelperModifier.sol"
+  using { evmVersion := "cancun", viaIR := false, optimizerRuns := some 200, bytecodeHash := "none" }
+  contract ReceiverOrder
+  function overloaded(bytes,uint256,uint256)
+
+-- An overloaded operator is a function call: its first argument fails before division.
+private def overloadFailure : Bool := Id.run do
+  let some fn := overloadedLegacy.model.functions.head? | return false
+  let r := denoteFunction SolidityImport.Differential.oracle overloadedLegacy.model fn
+    {sender := 0, functionSelector := 0, args := [96, 2, 0, 1, 0x11 * 2^248]} Verity.defaultState
+  return !r.success && r.revertData == some []
+
+#guard overloadFailure
 
 end SolidityImportSmoke.CalldataBytesHelperModifierChecks

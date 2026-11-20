@@ -239,10 +239,20 @@ library CalldataReceiver {
     function take(bytes calldata x, uint256) internal pure returns (bytes calldata) { return x; }
 }
 
+type Count is uint256;
+function sumCounts(Count a, Count b) pure returns (Count) {
+    return Count.wrap(Count.unwrap(a) + Count.unwrap(b));
+}
+using {sumCounts as +} for Count global;
+
 contract ReceiverOrder {
     using CalldataReceiver for bytes;
     function window(bytes calldata x, uint256 e) private pure returns (bytes calldata) { return x[:e]; }
     function nested(bytes calldata x, uint256 e, uint256 z) external pure returns (uint256) {
         return window(x, e).take(1 / z).length;
+    }
+
+    function overloaded(bytes calldata x, uint256 e, uint256 z) external pure returns (uint256) {
+        return Count.unwrap(Count.wrap(window(x, e).length) + Count.wrap(1 / z));
     }
 }
