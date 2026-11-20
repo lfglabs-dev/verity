@@ -186,7 +186,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         'solidity_differential.check_interface_static_call_rejections',
         '--output', str(output / 'interface-static-call-rejections')]))
     checks.append(('interface-word-static-call', ['-m', 'solidity_differential.check_interface_word_static_call',
-        '--transactions', str(max(104, transactions)), '--seed', str(seed),
+        '--transactions', str(max(160, transactions)), '--seed', str(seed),
         '--output', str(output / 'interface-word-static-call')]))
     checks.append(('interface-word-static-call-rejections', ['-m',
         'solidity_differential.check_interface_word_static_call_rejections',

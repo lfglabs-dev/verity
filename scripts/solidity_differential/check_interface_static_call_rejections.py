@@ -17,7 +17,7 @@ MESSAGES = {
                  'assignment right-hand side, expression statement, require condition or '
                  'short-circuit operand of one',
     'non-view': 'typed interface calls to non-view functions are outside this slice',
-    'return': 'typed interface staticcall must return exactly one uint256, bytes32 or bool',
+    'return': 'typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool',
     'receiver': 'typed interface call receiver must be an explicit interface conversion of an address',
     'external': 'external contract calls are outside this slice',
     'try': 'unsupported statement TryStatement',

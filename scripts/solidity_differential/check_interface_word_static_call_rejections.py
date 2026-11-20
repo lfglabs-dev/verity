@@ -26,7 +26,7 @@ MESSAGES = {
                  'assignment right-hand side, expression statement, require condition or '
                  'short-circuit operand of one',
     'parameters': 'typed interface staticcall parameters must be address, uint256, bytes32 or bool',
-    'return': 'typed interface staticcall must return exactly one uint256, bytes32 or bool',
+    'return': 'typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool',
     'named': 'named call arguments are outside this slice',
     'effects': 'typed interface staticcall arguments must lower without side effects',
     'non-view': 'typed interface calls to non-view functions are outside this slice',

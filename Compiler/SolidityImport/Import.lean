@@ -7516,7 +7516,7 @@ private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := d
     .ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] []]
 
 /-- `I(a).f(args...)` for a `view` interface function returning a single
-`uint256`, `bytes32` or `bool` over scalar, struct or dynamic `bytes`/`string`
+`uint256`, `int256`, `bytes32`, `bytes4` or `bool` over scalar, struct or dynamic `bytes`/`string`
 arguments. solc 0.8.34 (via-IR) ABI-encodes the selector and arguments at the
 free pointer, emits `staticcall(gas(), a, p, len, p, 32)`, forwards a failed
 call's complete return data as the revert payload, reverts with no data on fewer
@@ -7576,8 +7576,14 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     (returnTypes == #["address"] || returnTypes == #["uint8"])
   let returnType := returnTypes.getD 0 "uint256"
   unless isSupportedExtraReturn do
-    unless returnTypes.size == 1 && ["uint256", "bytes32", "bool"].contains returnType do
-      failAt callee "typed interface staticcall must return exactly one uint256, bytes32 or bool"
+    unless returnTypes.size == 1 && ["uint256", "int256", "bytes32", "bytes4", "bool"].contains returnType do
+      failAt callee "typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool"
+  -- All three transports deliver the first complete return word. Validate bytes4
+  -- even when the value is discarded; on success the raw word is already left-aligned.
+  let decoded (pre : Array Stmt) (result : String) : Val :=
+    let word := Expr.localVar result
+    let guard := if returnType == "bytes4" then abiDecodeScalarGuard? returnType none word else none
+    { pre := pre ++ guard.toList.toArray, expr := word }
   let some hex := optStr decl "functionSelector"
     | failAt callee "interface function has no functionSelector"
   unless hex.length == 8 do
@@ -7683,7 +7689,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
         Compiler.ECM.SolidityStaticCall.bytesUint256Module result selector
       let callPre := (target.pre ++ payloadPtr.pre ++ payloadSize.pre).push
         (.ecm mod [target.expr, payloadPtr.expr, payloadSize.expr])
-      return { pre := callPre, expr := .localVar result }
+      return decoded callPre result
     let mut pre := target.pre
     let mut words : Array Expr := #[]
     for (param, arg) in params.zip args do
@@ -7704,7 +7710,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     else
       Compiler.ECM.SolidityStaticCall.uint256Module result selector words.size
     let callPre := pre.push (.ecm mod (target.expr :: words.toList))
-    return { pre := callPre, expr := .localVar result }
+    return decoded callPre result
   for (arg, ty) in args.zip paramTypes do
     let argTy ← mType arg
     unless argTy == ty ||
@@ -7733,7 +7739,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     (target.expr :: words.toList))
   if returnType == "bool" then
     pre := pre.push (.ite (.gt (.localVar result) (.literal 1)) [.revertEmpty] [])
-  pure { pre, expr := .localVar result }
+  pure (decoded pre result)
 
 /-- `<address>.code.length` of an address-typed account other than the executing
 contract: `EXTCODESIZE` through the closed code-length transport, which Denote
