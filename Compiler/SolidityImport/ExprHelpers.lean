@@ -811,6 +811,9 @@ def isStorageKeyCaptureExpr : Expr → Bool
   | .logicalNot (.logicalNot (.structMember _ _ _))
   | .structMember2 _ _ _ _
   | .logicalNot (.logicalNot (.structMember2 _ _ _ _))
+  | .bitAnd (.storage _) (.literal _)
+  | .bitAnd (.structMember _ _ _) (.literal _)
+  | .bitAnd (.structMember2 _ _ _ _) (.literal _)
   | .bitAnd (.localVar _) (.literal _)
   | .signextend (.literal _) (.localVar _)
   | .logicalNot (.logicalNot (.localVar _)) => true
