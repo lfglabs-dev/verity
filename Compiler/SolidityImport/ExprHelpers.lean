@@ -101,7 +101,7 @@ structure UnsupportedSink where
   skippedDecls : IO.Ref (Array (Nat × String))
 
 structure Env where
-  /-- Legacy and via-IR need not agree on eager binary operand order. -/
+  /-- Selected solc pipeline: eager operand order and raw narrow stack words can differ. -/
   viaIR : Bool := true
   sourceNames : List String
   nodeFile : RBMap Nat String compare
