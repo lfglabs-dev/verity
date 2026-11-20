@@ -13,6 +13,8 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function carried(uint256)
   function boundaries(uint256)
   function signedCast(uint256)
+  function literalArray(uint256)
+  function signaturePayload(uint256)
   function errorValue(uint256)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
@@ -24,6 +26,8 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function carried(uint256)
   function boundaries(uint256)
   function signedCast(uint256)
+  function literalArray(uint256)
+  function signaturePayload(uint256)
   function errorValue(uint256)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
@@ -44,6 +48,11 @@ private def observes (model : CompilationModel) (name : String) (args : List Nat
 #guard observes ir.model "overwrite" [257, 1] 7
 #guard observes legacy.model "carried" [257] 259
 #guard observes ir.model "carried" [257] 3
+#guard observes legacy.model "literalArray" [257] 1
+#guard observes ir.model "literalArray" [257] 1
+private def payloadHash := 0xda4212981b0d0350403585a221f7da4c34d6c3cb29918f45cf5fb21cd8f1eb37
+#guard observes legacy.model "signaturePayload" [257] payloadHash
+#guard observes ir.model "signaturePayload" [257] payloadHash
 #guard observes legacy.model "signedCast" [511] 511
 #guard observes ir.model "signedCast" [511] (2 ^ 256 - 1)
 

@@ -46,6 +46,20 @@ contract NarrowStackWords {
         revert NarrowError(a);
     }
 
+    function literalArray(uint256 x) external pure returns (uint256 word) {
+        uint8 a;
+        assembly { a := x }
+        uint8[1] memory elements = [a];
+        uint8 b = elements[0];
+        assembly { word := b }
+    }
+
+    function signaturePayload(uint256 x) external pure returns (bytes32) {
+        uint8 a;
+        assembly { a := x }
+        return keccak256(abi.encodeWithSignature("f(uint8)", a));
+    }
+
     function signedCast(uint256 x) external pure returns (uint256 word) {
         uint8 a;
         assembly { a := x }
