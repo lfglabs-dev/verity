@@ -7307,6 +7307,7 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
       | _, _, _ => failAt arg "unsupported calldata slice argument"
     else if argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
             argTy == "bytes storage ref" || argTy == "bytes storage pointer" then
+      let arg ← stripParens arg
       if ← isParameterizedCalldataBytesCall arg then
         let (fnId, innerVals) ← resolveCallTargetAndArgs arg
         let (cpre, cb) ← inlineCalldataBytesFn fnId innerVals arg
