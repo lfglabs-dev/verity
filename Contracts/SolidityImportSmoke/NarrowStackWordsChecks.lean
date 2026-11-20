@@ -23,6 +23,9 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function square(uint8)
   function storeAndCopy(uint256)
   function quotient(uint256,uint256)
+  function literalKey()
+  function narrowCount(uint256)
+  function narrowSlice(bytes,uint256)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -43,6 +46,9 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function square(uint8)
   function storeAndCopy(uint256)
   function quotient(uint256,uint256)
+  function literalKey()
+  function narrowCount(uint256)
+  function narrowSlice(bytes,uint256)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -95,6 +101,14 @@ private def observesWords (model : CompilationModel) (name : String) (args words
 
 #guard observesWords legacy.model "storeAndCopy" [257] [257, 1]
 #guard observesWords ir.model "storeAndCopy" [257] [257, 1]
+private def sliceArgs := [64, 257, 2, 0xaabb * 2 ^ 240]
+private def sliceHash := 0x9f1a1ebcae59b0879e9fb23ad9f90461016010b02c4a57af0fab0ee41025b4aa
+#guard observes legacy.model "literalKey" [] 11
+#guard observes ir.model "literalKey" [] 11
+#guard observes legacy.model "narrowCount" [257] 1
+#guard observes ir.model "narrowCount" [257] 1
+#guard observes legacy.model "narrowSlice" sliceArgs sliceHash
+#guard observes ir.model "narrowSlice" sliceArgs sliceHash
 #guard observes legacy.model "quotient" [128, 255] 128
 #guard observes ir.model "quotient" [128, 255] 128
 #guard observesWords legacy.model "boundaries" [511] [255, 255, 255]

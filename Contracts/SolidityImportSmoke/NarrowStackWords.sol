@@ -117,6 +117,26 @@ contract NarrowStackWords {
         }
     }
 
+    mapping(uint256 => uint256) private data;
+
+    function literalKey() external returns (uint256) {
+        data[1] = 11;
+        data[257] = 22;
+        return data[uint8(uint256(257))];
+    }
+
+    function narrowCount(uint256 x) external pure returns (uint256 n) {
+        uint8 limit;
+        assembly { limit := x }
+        for (uint256 i = 0; i < limit; ++i) n += 1;
+    }
+
+    function narrowSlice(bytes calldata input, uint256 x) external pure returns (bytes32) {
+        uint8 start;
+        assembly { start := x }
+        return keccak256(input[start:]);
+    }
+
     function carried(uint256 x) external pure returns (uint256 word) {
         uint8 a; uint8 copy;
         assembly { a := x }
