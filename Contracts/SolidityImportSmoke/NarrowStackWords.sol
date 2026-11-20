@@ -295,4 +295,18 @@ contract NarrowStackWords {
     function namedTry() external returns (uint256) {
         try this.receivePair({second: 2, first: 1}) { return 1; } catch { return 0; }
     }
+
+    function rawMsb(uint8 x) internal pure returns (uint8 r) {
+        assembly ("memory-safe") { r := sub(255, clz(x)) }
+    }
+
+    function dirtyMsbLoop() external pure returns (uint256 n) {
+        uint8 b;
+        assembly { b := 511 }
+        while (b != 0) {
+            uint8 bit = rawMsb(b);
+            ++n;
+            b &= ~(uint8(1) << bit);
+        }
+    }
 }

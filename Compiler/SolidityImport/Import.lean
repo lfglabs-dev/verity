@@ -11870,6 +11870,11 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
         pure false
     else
       pure false
+  -- The MSB helper can inspect all 256 bits in Yul, while the loop
+  -- condition tests only the declared width. Clearing an upper bit need
+  -- not clear any bit counted by a narrow loop's iteration bound.
+  if clearMsbOk && bits < 256 then
+    failAt stepExpr "a narrow MSB-clearing loop has no proven width-sized iteration bound"
   unless rightShiftOk || clearLowestOk || clearMsbOk do
     failAt stepExpr "while loop update is not a recognized bounded bit-clearing or right-shift step"
   let condVal ← lowerExpr cond
