@@ -146,3 +146,23 @@ contract StatefulSuperDerived is StatefulSuperBase {
         return keccak256(abi.encode(payload, super.bump()));
     }
 }
+
+contract DivisionBase {
+    function quotient(uint256 x) internal virtual pure returns (uint256) {
+        return 1 / x;
+    }
+}
+
+contract CompetingPackedPanics is DivisionBase {
+    function quotient(uint256 x) internal override pure returns (uint256) {
+        return super.quotient(x);
+    }
+
+    function previous(uint256 x) internal pure returns (uint256) {
+        return x - 1;
+    }
+
+    function digest(uint256 x) external pure returns (bytes32) {
+        return keccak256(abi.encodePacked(quotient(x), previous(x)));
+    }
+}
