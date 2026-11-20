@@ -2413,7 +2413,7 @@ def stateful_exp_and_bitwise_shift_source(fixture: str, variant: str) -> str:
         import re
         names = {
             'x', 'y', 'z', 'bitmap', 'bit', 'a', 'b', 'value', 'result', 'candidate',
-            'input', 'exp', 'scale', 'sq', 'wrappedPow', 'bitIdx', 'nextMap', 'metric', 's',
+            'input', 'exp', 'scale', 'sq', 'wrappedPow', 'bitIdx', 'nextMap', 'upper', 'metric', 's',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'

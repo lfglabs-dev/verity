@@ -17135,7 +17135,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
     let rawValue ← lowerExpr initializer
     let initTy ← mType initializer
     let value ← convert declared initTy rawValue initializer
-    let a ← atom value
+    let a ← atom { value with expr := cleanHelperResultExpr declared value }
     modify fun e => { e with constantStack := [], publicVarGetterReturns := #[pty] }
     return (a.pre.push (.returnValues [a.expr]), #[])
   let env ← get
