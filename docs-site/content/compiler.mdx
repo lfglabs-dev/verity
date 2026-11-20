@@ -55,7 +55,7 @@ See the [Linking External Libraries](/guides/linking-libraries) guide.
 The CLI emits machine-readable audit artifacts alongside Yul/ABI:
 
 - `--trust-report <path>`, proof-boundary and assumption data.
-- `--assumption-report <path>`, flattened assumption inventory grouped by contract and usage site. Pair it with `--deny-axiomatized-primitives` to fail closed on direct assembly-shaped primitives that carry no `local_obligations [...]`.
+- `--assumption-report <path>`, flattened assumption inventory grouped by contract and usage site. Pair it with `--deny-axiomatized-primitives`, which fails closed on any remaining axiomatized primitive (e.g. `keccak256`) and reports the exact usage site; assembly-shaped mechanics outside an `unsafe "reason" do` block additionally require a `local_obligations [...]` entry at compile time.
 - `--layout-report <path>`, resolved storage-slot metadata, alias writes, reserved-slot policy.
 - `--layout-compat-report <path>`, baseline vs candidate layout compatibility for upgrade reviews. Pair with `--deny-layout-incompatibility` to fail closed on incompatible upgrades.
 
@@ -96,7 +96,8 @@ verity_contract SimpleStorage where
     setStorage storedData value
 
   function retrieve () : Uint256 := do
-    getStorage storedData
+    let current ← getStorage storedData
+    return current
 ```
 
 **CompilationModel** (`Contracts/Specs.lean`): the `verity_contract` macro generates `Contracts.SimpleStorage.spec`, which `allSpecs` registers:

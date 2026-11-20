@@ -48,7 +48,7 @@ inductive ContractResult (α : Type) where
 
 `ContractState` backs all persistent storage with a single `storageWords` map (`StorageKey → Uint256`) that keeps the source-level channel/layout distinction injective; the six persistent storage views (`storage`, `storageAddr`, `storageMap`, `storageMapUint`, `storageMap2` as lenses over it, plus `storageArray` for dynamic arrays), transient storage, EVM context (`sender`, `thisAddress`, `msgValue`, `blockTimestamp`, `blockNumber`, `chainId`, `blobBaseFee`, `selfBalance`), calldata, memory, `knownAddresses` for conservation proofs, and an append-only `events` log.
 
-Every primitive is a `Contract α`. Read-only primitives never revert; write primitives return `success ()`; only `require` (and `requireSomeUint`, `revertError`) may emit `revert`. The custom `bind` short-circuits on revert.
+Every primitive is a `Contract α`. Write primitives return `success ()`; `ContractResult.revert` is emitted only by `require`, `requireSomeUint`, and explicit error reverts such as `revertError`, plus the bounds-checked storage-array primitives and the `nonReentrant` guards. The custom `bind` short-circuits on revert.
 
 ## How proofs are written
 

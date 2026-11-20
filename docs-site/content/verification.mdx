@@ -14,7 +14,7 @@ Counts are theorems in each module. Read the actual statements in [`Contracts/<N
 | Contract | Basic | Correctness | Conservation / Supply | Isolation | Native | Total |
 |----------|-------|-------------|----------------------|-----------|--------|-------|
 | SimpleStorage | 13 | 7 | — | — | — | 20 |
-| Counter | 33 | 9 | — | — | — | 42 |
+| Counter | 33 | 9 | — | — | — | 45 |
 | SafeCounter | 20 | 8 | — | — | — | 28 |
 | Owned | 19 | 4 | — | — | — | 23 |
 | Ownable (mixin) | 7 | — | — | — | — | 7 |
@@ -27,7 +27,7 @@ Counts are theorems in each module. Read the actual statements in [`Contracts/<N
 | Vault (ERC-4626) | placeholder (0) | 6 | 15 | — | 3 | 24 |
 | ReentrancyExample | 5 inline (vulnerability witness + safety proofs) | | | | | 5 |
 
-OwnedCounter's total includes 17 theorems in `Proofs/StorageCoherence.lean` (mapping-key coherence), which has no column above.
+OwnedCounter's total includes 17 theorems in `Proofs/StorageCoherence.lean` (mapping-key coherence), and Counter's includes 3 in `Proofs/Preview.lean`; neither has a column above.
 
 The **Native** column counts theorems that pin the IR / Yul lowering to the EVMYulLean-bridged backend (`Contracts/<Name>/Proofs/Native.lean`).
 
@@ -42,7 +42,7 @@ Reusable proof infrastructure in `Verity/Proofs/Stdlib/`:
 | `Math` | ~212 | `safeAdd/Sub/Mul/Div`, `mulDivDown/Up`, `wMulDown/wDivUp`, full-precision `mulDiv512Down?/Up?`, `SNARK_SCALAR_FIELD` / `modField` |
 | `Automation` | ~124 | Full-result and `runState`/`runValue` lemmas for storage, address storage, context, events, require |
 | `MappingAutomation` | ~48 | Mapping, uint-keyed mapping, double-mapping automation |
-| `ListSum` | ~8 | Sum reasoning for conservation proofs (`countOcc`, `sumBalances`) |
+| `ListSum` | ~8 | Duplicate-safe counting for conservation proofs (`countOcc`, `countOccU`, `map_sum_*`); conservation sums themselves use `sumBalances` from `Verity/Specs/Common/Sum.lean` |
 
 ## Compiler proofs
 
