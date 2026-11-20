@@ -6748,7 +6748,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         checkEncodingScalar arg
         let value ← atom (← lowerExpr arg)
         pre := pre ++ value.pre
-        words := words ++ [value.expr]
+        words := words ++ [cleanHelperResultExpr ty value]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeWithSignature" then
     unless args.size ≥ 1 do
@@ -6782,7 +6782,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         checkEncodingScalar arg
         let value ← atom (← lowerExpr arg)
         pre := pre ++ value.pre
-        words := words ++ [value.expr]
+        words := words ++ [cleanHelperResultExpr ty value]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeCall" then
     unless args.size == 2 do
@@ -6843,7 +6843,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
                 failAt arg s!"literal {n} exceeds width of {pty}"
         let value ← atom converted
         pre := pre ++ value.pre
-        words := words ++ [value.expr]
+        words := words ++ [cleanHelperResultExpr pty value]
     return ← encodeSelectorAndWords selBuffer pre words
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
@@ -9438,7 +9438,7 @@ private partial def lowerInlineArrayLiteral (j : Json) (arr : FixedMemArray) :
     if components.size > 1 && (statefulCallIn component (← get) || assignmentIn component) then
       failAt component "stateful or assignment inline array component requires explicit evaluation-order support"
     let value ← atom (← lowerConverted arr.elementType component)
-    let stored := if arr.elementType == "bool" then Expr.logicalNot (.logicalNot value.expr) else value.expr
+    let stored := cleanHelperResultExpr arr.elementType value
     let slot := fixedMemElementAddr arr (.literal index)
     pre := pre ++ value.pre |>.push (.mstore slot stored)
   pure pre
