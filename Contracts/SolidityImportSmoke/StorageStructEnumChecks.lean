@@ -114,9 +114,9 @@ solidity_import enumKeyedMapping from "Contracts/SolidityImportSmoke" entry "Sto
   function enumKeyedMapping(bytes32)
 
 /--
-error: StorageStructEnum.sol:53:9: InlineAssembly: [solidity-import:unsupported] Yul assignment to an enum variable is unsupported
+error: StorageStructEnum.sol:53:20: YulAssignment: [solidity-import:unsupported] Yul assignment to enum variable k is unsupported
 closure: StorageStructEnum.dirtyKey
-assembly { k := 3 }
+k := 3
 -/
 #guard_msgs in
 solidity_import dirtyKey from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"

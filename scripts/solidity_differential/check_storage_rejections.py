@@ -1069,7 +1069,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          "pragma solidity 0.8.34;\ncontract C {\n  enum Mode { A, B }\n  function checked(uint256 x) external pure returns (uint256) {\n    Mode m = x == 0 ? Mode.A : Mode.B;\n    assembly {\n      m := 1\n    }\n    return uint256(m);\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local m is unsupported'),
+         'YulAssignment: [solidity-import:unsupported] Yul assignment to enum variable m is unsupported'),
         ('yul-sload-sstore-positive',
          "pragma solidity 0.8.34;\ncontract C {\n  struct Slot { uint256 value; }\n  uint256 private v;\n  function _slot(bytes32 s) internal pure returns (Slot storage r) {\n    assembly { r.slot := s }\n  }\n  function checked(uint256 x) external returns (uint256 out) {\n    Slot storage s = _slot(bytes32(uint256(0x77)));\n    assembly {\n      sstore(0, x)\n      sstore(v.slot, add(sload(0), 1))\n      sstore(s.slot, add(sload(v.slot), 2))\n      out := sload(s.slot)\n    }\n  }\n}\n",
          None,
