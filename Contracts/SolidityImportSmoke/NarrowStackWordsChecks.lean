@@ -274,4 +274,26 @@ solidity_import namedTryIr from "Contracts/SolidityImportSmoke" entry "NarrowSta
   contract NarrowStackWords
   function namedTry()
 
+/--
+error: NarrowStackWords.sol:309:13: Assignment: [solidity-import:unsupported] a narrow MSB-clearing loop has no proven width-sized iteration bound
+closure: NarrowStackWords.dirtyMsbLoop
+b &= ~(uint8(1) << bit)
+-/
+#guard_msgs in
+solidity_import dirtyMsbLoopLegacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function dirtyMsbLoop()
+
+/--
+error: NarrowStackWords.sol:309:13: Assignment: [solidity-import:unsupported] a narrow MSB-clearing loop has no proven width-sized iteration bound
+closure: NarrowStackWords.dirtyMsbLoop
+b &= ~(uint8(1) << bit)
+-/
+#guard_msgs in
+solidity_import dirtyMsbLoopIr from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function dirtyMsbLoop()
+
 end SolidityImportSmoke.NarrowStackWordsChecks
