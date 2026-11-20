@@ -19,6 +19,9 @@ MUTANTS = {
     'import-string-event-data-before-indexed-guard': (
         'unless kind == "Identifier" || kind == "Literal" do',
         'unless true do'),
+    'import-encoding-arg-super-revert-guard': (
+        '        resolveSuperFn? env (seen.head? <|> env.stack.head?) id',
+        '        some id'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),
     'import-dynamic-revert-string-selector': ('[.literal (0x08c379a0 * 2 ^ 224)]',
@@ -862,6 +865,8 @@ def run(directory, output, name):
         fixture = "DividingWhileSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
+    if name == "import-encoding-arg-super-revert-guard":
+        fixture = "EncodingArgSuperOverrideSequence"
     if name.startswith("import-push-length-"):
         fixture = "PushLengthBoundSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
@@ -941,6 +946,10 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 7, 12, (1 << 128) - 1, 1 << 128])])
+    if fixture == 'EncodingArgSuperOverrideSequence':
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, (1 << 256) - 1])])
     if fixture == 'DividingWhileSequence':
         # Zero, short, revert-on-remainder, 73-iteration and full-width inputs.
         argv[argv.index('--transactions') + 1] = '20'
@@ -1438,6 +1447,33 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-encoding-arg-super-revert-guard':
+        diagnostic = 'effectful ABI encoding argument is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract Root {
+ function sep(uint256 x) internal virtual pure returns (uint256) { return x ^ 1; }
+}
+contract Left is Root {
+ error Blocked();
+ function sep(uint256 x) internal virtual override pure returns (uint256) {
+  if (x == 0) revert Blocked();
+  return x;
+ }
+}
+contract Right is Root {
+ function sep(uint256 x) internal virtual override pure returns (uint256) {
+  return super.sep(x);
+ }
+}
+contract C is Left, Right {
+ function sep(uint256 x) internal override(Left, Right) pure returns (uint256) {
+  return super.sep(x);
+ }
+ function checked(uint256 x) external pure returns (uint256) {
+  return uint256(keccak256(abi.encodePacked("\\x19\\x01", sep(x))));
+ }
+}
+''')
     elif name == 'import-abi-decode-verifier-struct-enum-member-guard':
         diagnostic = 'unsupported abi.decode struct member type enum C.Mode'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1701,6 +1737,7 @@ def mutation_source(directory, name):
                                   else 'Compiler/SolidityImport/AbiRootLowering.lean' if name.startswith('import-root-param-lowering-')
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                                   else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
+                                  else 'Compiler/SolidityImport/ExprHelpers.lean' if name == 'import-encoding-arg-super-revert-guard'
                                   else 'Compiler/SolidityImport/Import.lean')
 
 def preflight_mutation_anchors(directory, selected=None):
@@ -1773,6 +1810,7 @@ def mutation_campaign(output, selected=None):
                                   'import-access-manager-target-role-narrow-bytes-event-guard',
                                   'import-event-scratch-competing-guard',
                                   'import-string-event-data-before-indexed-guard',
+                                  'import-encoding-arg-super-revert-guard',
                                   'import-named-arguments-order-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)

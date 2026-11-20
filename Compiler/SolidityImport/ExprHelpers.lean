@@ -453,6 +453,33 @@ def resolveInContracts (env : Env) (searchContracts : List Nat) (targetFnId : Na
         return some candId
   return none
 
+/-- `super` continues in the target's C3 order after the contract defining the caller. -/
+def resolveSuperFn? (env : Env) (caller? : Option Nat) (id : Nat) : Option Nat := do
+  let cid ← caller?.bind env.funContractId.find?
+  let idx ← env.linearizedBases.findIdx? (· == cid)
+  resolveInContracts env (env.linearizedBases.extract (idx + 1) env.linearizedBases.size).toList id
+
+/-- Follow the same dispatch as lowering when inspecting a call for effects. The caller
+    is the body currently being inspected, not necessarily the top inlining frame. -/
+def effectCallTarget? (env : Env) (seen : List Nat) (callee : Json) (id : Nat) : Option Nat :=
+  if optStr callee "nodeType" == some "MemberAccess" then
+    let base := (field? callee "expression").getD Json.null
+    let ty := (field? base "typeDescriptions").bind (optStr · "typeString")
+    if ty.any (·.startsWith "type(contract super ") then
+      if optStr base "nodeType" == some "Identifier" && optStr base "name" == some "super" &&
+          (field? base "referencedDeclaration").bind (·.getInt?.toOption) == some (-25) then
+        resolveSuperFn? env (seen.head? <|> env.stack.head?) id
+      else none
+    else if ty.any (·.startsWith "type(contract ") then
+      let baseCid := (field? base "referencedDeclaration").bind (·.getNat?.toOption)
+      if optStr base "nodeType" == some "Identifier" &&
+          baseCid.any env.linearizedBases.contains &&
+          env.funContractId.find? id == baseCid then
+        some id
+      else none
+    else some ((resolveInContracts env env.linearizedBases.toList id).getD id)
+  else some ((resolveInContracts env env.linearizedBases.toList id).getD id)
+
 def refInt (j : Json) : M Int := do
   let some declaration := field? j "referencedDeclaration"
     | failAt j "expression has no supported declaration reference"
@@ -731,9 +758,9 @@ mutual
             | some (-18) | some (-19) | some (-20) | some (-3) => true
             | some id =>
                 if id >= 0 then
-                  let natId := id.toNat
-                  let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
-                  fnHasCustomRevert env targetId seen
+                  match effectCallTarget? env seen callee id.toNat with
+                  | some targetId => fnHasCustomRevert env targetId seen
+                  | none => true
                 else false
             | none => false
           else if kind == some "BinaryOperation" || kind == some "UnaryOperation" then
