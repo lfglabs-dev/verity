@@ -269,4 +269,9 @@ contract NarrowStackWords {
 
     event NarrowEvent(uint128 value);
     function badEmit(uint8 x) external { emit NarrowEvent(x); }
+
+    function receiveWord(bytes4 arg) external pure { require(arg == 0x11223344); }
+    function tryBytesLiteral() external returns (uint256) {
+        try this.receiveWord(0x11223344) { return 1; } catch { return 0; }
+    }
 }

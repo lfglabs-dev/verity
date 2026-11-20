@@ -12255,12 +12255,15 @@ private partial def lowerThisTryCall? (s : Json) :
   let yesStmts ← mArr (← mField yesBlock "statements")
   let noStmts ← mArr (← mField noBlock "statements")
   let args ← mArr (← mField extCall "arguments")
+  let params ← mArr (← mField (← mField fnDecl "parameters") "parameters")
+  unless args.size == params.size do return none
   let mut pre : Array Stmt := #[]
   let mut callWords : Array Expr := #[]
-  for arg in args do
-    let v ← atom (← lowerExpr arg)
+  for (arg, param) in args.zip params do
+    let ty ← mType param
+    let v ← atom (← lowerConverted ty arg)
     pre := pre ++ v.pre
-    callWords := callWords.push (cleanHelperResultExpr (← mType arg) v)
+    callWords := callWords.push (cleanHelperResultExpr ty v)
   let okVar ← fresh
   let mod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule okVar sel callWords.size
   let callStmt := Stmt.ecm mod (Expr.contractAddress :: callWords.toList)
