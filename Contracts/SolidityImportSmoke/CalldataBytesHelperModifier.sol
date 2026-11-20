@@ -138,3 +138,51 @@ contract CalldataBytesHelperModifierUnsupported {
         return v;
     }
 }
+contract CalldataCopyAndCapture {
+    function window(bytes calldata x, uint256 a, uint256 b) private pure returns (bytes calldata) {
+        return x[a:b];
+    }
+
+    function chainedWindow(bytes calldata x, uint256 a, uint256 b) private pure returns (bytes calldata) {
+        return window(x, a, b);
+    }
+
+    function readFirstMemWord(bytes memory b) private pure returns (bytes32 w) {
+        assembly {
+            w := mload(add(b, 32))
+        }
+    }
+
+    function memSliceWord(bytes calldata x, uint256 a, uint256 b) external pure returns (bytes32, bytes32) {
+        uint256 fill = type(uint256).max;
+        bytes memory dirty = abi.encode(fill, fill);
+        require(keccak256(dirty) != bytes32(0), "dirty");
+        bytes memory loc = chainedWindow(x, a, b);
+        return (readFirstMemWord(window(x, a, b)), readFirstMemWord(loc));
+    }
+
+    modifier checkPostLen(uint256 expected, bytes calldata x) {
+        _;
+        require(expected == x.length, "post_len");
+    }
+
+    function mutateArgInBody(uint256 n, bytes calldata x)
+        external
+        pure
+        checkPostLen(n, x)
+        returns (uint256)
+    {
+        n = 99;
+        return n;
+    }
+
+    function mutateArgChained(uint256 n, bytes calldata x, uint256 end)
+        external
+        pure
+        checkPostLen(n, chainedWindow(x, 0, end))
+        returns (uint256)
+    {
+        n = 77;
+        return n;
+    }
+}

@@ -3052,6 +3052,23 @@ private def narrowCounterMayWrap (counterBits : Nat) (bound : Val) (boundNode : 
   match (if boundTy.startsWith "uint" then bitsOf boundTy else none) with
   | some bits => pure (bits > counterBits)
   | none => pure true
+/-- Clears the trailing `(32 - len % 32)` bytes of the last copied word when
+`len` is not word-aligned, matching `solc`'s `calldatacopy` cleanup without
+writing past the reserved `wordCount` words. -/
+private def zeroByteBufferTail (pointer len wordCount : Expr) : M (Array Stmt) := do
+  let rem ← fresh
+  let lastAddr ← fresh
+  let clearBits ← fresh
+  return #[
+    .letVar rem (.bitAnd len (.literal 31)),
+    .ite (.eq (.localVar rem) (.literal 0)) [] [
+      .letVar lastAddr (.add pointer (.mul (.sub wordCount (.literal 1)) (.literal 32))),
+      .letVar clearBits (.mul (.literal 8) (.sub (.literal 32) (.localVar rem))),
+      .mstore (.localVar lastAddr)
+        (.shl (.localVar clearBits) (.shr (.localVar clearBits) (.mload (.localVar lastAddr))))
+    ]
+  ]
+
 /-- The byte buffer of a `bytes` descriptor: its memory payload, or a word
 copy of its calldata payload into fresh memory. -/
 private def calldataBytesBuffer (cb : CalldataBytesParam) : M EncodedBytes := do
@@ -3066,7 +3083,8 @@ private def calldataBytesBuffer (cb : CalldataBytesParam) : M EncodedBytes := do
   let copyStmt := Stmt.forEach copyIdx wordCount
     [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
       (.calldataload (.add (.localVar cb.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
-  return { pre := (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := .localVar cb.lengthBinding }
+  let tailClear ← zeroByteBufferTail (.localVar pointer) (.localVar cb.lengthBinding) wordCount
+  return { pre := (alloc ++ [copyStmt]).toArray ++ tailClear, pointer := .localVar pointer, size := .localVar cb.lengthBinding }
 
 /-- Struct declaration id of the elements of the struct-array member
 `memberIndex` of the ABI root `mem`: recorded for a root `S[]` parameter
@@ -6462,7 +6480,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         [ .mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
             (readAbiDecodeWord fromCalldata (.add offsetExpr (.mul (.localVar copyIdx) (.literal 32)))) ]
     let copyStmt := Stmt.forEach copyIdx wordCount copyBody
-    return { pre := slicePre ++ (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := lenExpr }
+    let tailClear ← zeroByteBufferTail (.localVar pointer) lenExpr wordCount
+    return { pre := slicePre ++ (alloc ++ [copyStmt]).toArray ++ tailClear, pointer := .localVar pointer, size := lenExpr }
   -- The whole of `msg.data`, as a helper returning it already reads it.
   if ← isMsgDataNode j then
     return ← lowerMsgDataBuffer
@@ -8330,7 +8349,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
                 (.calldataload (.add (.localVar descriptor.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
             let sizeStmt := Stmt.letVar size (.localVar descriptor.lengthBinding)
-            pre := pre ++ effects ++ (alloc ++ [copyStmt, sizeStmt]).toArray
+            let tailClear ← zeroByteBufferTail (.localVar pointer) (.localVar size) wordCount
+            pre := pre ++ effects ++ (alloc ++ [copyStmt, sizeStmt]).toArray ++ tailClear
             pure ({ pre := #[], pointer := .localVar pointer, size := .localVar size } : EncodedBytes)
           if descriptor.isString then
             modify fun e =>
@@ -10063,12 +10083,15 @@ private partial def inlineMsgDataFn (fnId : Nat) (args : Array CallArg) (at_ : J
 /-- Keep calldata-backed bytes as an offset and length, including the bounds checks
 of a slice. Memory-backed and computed reference expressions are not interchangeable. -/
 private partial def lowerCalldataBytesExpr (j : Json) : M (Array Stmt × CalldataBytesParam) := do
-  let j ← stripParens j
+  let j ← unwrapBytesConversion (← stripParens j)
   if (← mKind j) == "IndexRangeAccess" then
     let some (effects, .localVar off, .localVar len, true, false) ← lowerCalldataSlice? j
       | failAt j "expected a slice of a calldata parameter"
     return (effects, { param := "", offsetBinding := "", headerBinding := "",
                        dataBinding := off, lengthBinding := len })
+  if ← isParameterizedCalldataBytesCall j then
+    let (fnId, vals) ← resolveCallTargetAndArgs j
+    return ← inlineCalldataBytesFn fnId vals j
   if (← mKind j) == "Identifier" then
     let id ← refInt j
     if id ≥ 0 then
@@ -10117,7 +10140,9 @@ private partial def inlineCalldataBytesFn (fnId : Nat) (args : Array CallArg) (a
   let stmts ← mArr (← mField body "statements")
   unless stmts.size == 1 && optStr stmts[0]! "nodeType" == some "Return" do
     failAt body "calldata helper must directly return a parameter or slice"
-  let (resPre, resCb) ← lowerCalldataBytesExpr (← mField stmts[0]! "expression")
+  let retExpr := field? stmts[0]! "expression" |>.getD Json.null
+  if retExpr.isNull then failAt stmts[0]! "bytes calldata helper return requires an expression"
+  let (resPre, resCb) ← lowerCalldataBytesExpr retExpr
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays,
              yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile,
@@ -10531,22 +10556,18 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
       | failAt p s!"unsupported modifier parameter type {pty}"
     let argTy ← mType argNode
     let converted ← convert pty argTy argVal argNode
+    let binding ← freshFor (if pname == "" then "param" else pname)
+    let expr := Expr.localVar binding
+    pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)
     if (bodyCompoundAssignedIds body).contains pid || (bodyDirectAssignedIds body).contains pid then
-      let binding ← freshFor (if pname == "" then "param" else pname)
-      let expr := Expr.localVar binding
-      pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)
       modify fun e =>
         { e with values := e.values.insert pid expr,
                  writableLocals := e.writableLocals.insert pid binding,
                  scalarTy := e.scalarTy.insert pid scalar }
-      if pname != "" then
-        yul := yul.insert pname expr
     else
-      let bound ← atom converted
-      pre := pre ++ bound.pre
-      modify fun e => { e with values := e.values.insert pid bound.expr }
-      if pname != "" then
-        yul := yul.insert pname bound.expr
+      modify fun e => { e with values := e.values.insert pid expr }
+    if pname != "" then
+      yul := yul.insert pname expr
   modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none, helperPost := #[] }
   noteFn modDecl
   let preBodyStmts ← lowerVoidHelperFrom preStmts.toList (pure #[])
