@@ -225,4 +225,12 @@ contract CalldataCopyAndCapture {
     function competingAddRev(bytes calldata x, uint256 s, uint256 e, uint256 z) external pure returns (uint256) {
         return (1 / z) + window(x, s, e).length;
     }
+
+    function nestedFailures(bytes calldata x, uint256 e, uint256 z) external pure returns (uint256) {
+        return window(x, 0, e).length + ((1 / z) + uint8(x[5]));
+    }
+
+    function power(bytes calldata x, uint256 e) external pure returns (uint256) {
+        return uint256(2) ** window(x, 0, e).length;
+    }
 }

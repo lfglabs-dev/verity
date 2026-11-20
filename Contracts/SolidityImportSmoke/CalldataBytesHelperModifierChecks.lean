@@ -45,6 +45,8 @@ solidity_import copyCapture from "Contracts/SolidityImportSmoke" entry "Calldata
   function safeMsgDataSlice(uint256)
   function competingAdd(bytes,uint256,uint256,uint256)
   function competingAddRev(bytes,uint256,uint256,uint256)
+  function nestedFailures(bytes,uint256,uint256)
+  function power(bytes,uint256)
 
 private def observeCopyCapture (name : String) (args : List Nat) :
     Option (Bool × Option (List UInt8) × List Nat) := do
@@ -90,6 +92,8 @@ solidity_import legacyCompeting from "Contracts/SolidityImportSmoke" entry "Call
   contract CalldataCopyAndCapture
   function competingAdd(bytes,uint256,uint256,uint256)
   function competingAddRev(bytes,uint256,uint256,uint256)
+  function nestedFailures(bytes,uint256,uint256)
+  function power(bytes,uint256)
 
 private def observeLegacyCompeting (name : String) (args : List Nat) :
     Option (Bool × Option (List UInt8) × List Nat) := do
@@ -97,6 +101,13 @@ private def observeLegacyCompeting (name : String) (args : List Nat) :
   let r := denoteFunction SolidityImport.Differential.oracle legacyCompeting.model fn
     {sender := 0, functionSelector := 0, args} Verity.defaultState
   return (r.success, r.revertData, r.returnWords)
+
+#guard observeLegacyCompeting "nestedFailures" [96, 1, 0, 1, 0x11 * 2^248] ==
+  some (false, some (panicBytes 0x32), [])
+#guard observeCopyCapture "nestedFailures" [96, 1, 0, 1, 0x11 * 2^248] ==
+  some (false, some (panicBytes 0x12), [])
+#guard observeLegacyCompeting "power" [64, 2, 2, 0x1122 * 2^240] == some (true, none, [4])
+#guard observeCopyCapture "power" [64, 2, 2, 0x1122 * 2^240] == some (true, none, [4])
 
 #guard observeLegacyCompeting "competingAdd" [128, 2, 1, 0, 2, 0x1122 * 2^240] ==
   some (false, some (panicBytes 0x12), [])

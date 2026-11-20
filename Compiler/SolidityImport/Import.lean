@@ -4397,14 +4397,16 @@ private partial def lowerBinary (j : Json) : M Val := do
     if memoryWriteOrderHazard leftNode rightNode env then
       failAt j "memory-writing helper operands require explicit evaluation-order support"
   let commonTy := (field? j "commonType").bind (optStr · "typeString") |>.getD ""
-  let calldataCountBefore := (← get).calldataResultCount
   let mut left ← lowerExprAs commonTy leftNode
   let mut right ← lowerExprAs commonTy rightNode
   unless op == "&&" || op == "||" do
     if (assignmentIn leftNode && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
         (assignmentIn rightNode && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
       failAt j "assignment operand with non-atomic sibling requires explicit evaluation-order support"
-    if !(← get).viaIR && (← get).calldataResultCount > calldataCountBefore then
+    -- Reorder at each eager binary node, not just the ancestor of a slice.
+    -- A literal has no effects to order; leave its empty prelude intact for
+    -- checked exponentiation and other constant-sensitive lowerings.
+    if !env.viaIR && !right.pre.isEmpty && !isConstLiteralVal left then
       let b ← atom right
       let a ← atom left
       left := { pre := b.pre ++ a.pre, expr := a.expr }
@@ -5712,7 +5714,6 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
   let endVar ← fresh
   let offVar ← fresh
   let lenVar ← fresh
-  modify fun e => { e with calldataResultCount := e.calldataResultCount + 1 }
   let offExpr := match baseOff with
     | .literal 0 => Expr.localVar startVar
     | _ => Expr.add baseOff (.localVar startVar)
@@ -10159,8 +10160,7 @@ private partial def inlineCalldataBytesFn (fnId : Nat) (args : Array CallArg) (a
   if retExpr.isNull then failAt stmts[0]! "bytes calldata helper return requires an expression"
   let (resPre, resCb) ← lowerCalldataBytesExpr retExpr
   modify fun e =>
-    { e with calldataResultCount := e.calldataResultCount + 1,
-             stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays,
              yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile,
              unchecked := saved.unchecked, values := saved.values,
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals,
