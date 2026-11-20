@@ -910,9 +910,10 @@ def main():
         calls.extend(prefix[:max(0, args.transactions - len(calls))])
     if 'run(uint256)' in source['methodIdentifiers']:
         # #2803 named root: empty tail (0), 32-byte tail, require revert (3) and
-        # Panic(0x11) after the `total` write (2^256 - 1); then observe storage.
+        # Panic(0x11) after the `total` write (2^256 - 2 is even, so runBranch
+        # forwards it; 2^256 - 1 takes its fallthrough); then observe storage.
         prefix = [(f'{name}(uint256)', [x]) for name in ('run', 'runShadow', 'runBranch')
-                  for x in (0, 5, 3, 4, (1 << 256) - 1)] + [('snapshot()', [])]
+                  for x in (0, 5, 3, 4, (1 << 256) - 2, (1 << 256) - 1)] + [('snapshot()', [])]
         calls.extend(prefix[:max(0, args.transactions - len(calls))])
     if 'echoNarrow(uint8[])' in source['methodIdentifiers']:
         # Empty, in-range and out-of-range `uint8` elements (the last two revert).
@@ -1533,7 +1534,7 @@ def main():
         elif name == 'forwardBytes(uint256)':
             call_args = [rng.choice((0, 1, 2, 255, (1 << 256) - 1))]
         elif name in ('run(uint256)', 'runShadow(uint256)', 'runBranch(uint256)'):
-            call_args = [rng.choice((0, 1, 3, 255, (1 << 256) - 1))]
+            call_args = [rng.choice((0, 1, 3, 4, 255, (1 << 256) - 2, (1 << 256) - 1))]
         elif name == 'echoNarrow(uint8[])':
             call_args = rng.choice([
                 [32, 0],
