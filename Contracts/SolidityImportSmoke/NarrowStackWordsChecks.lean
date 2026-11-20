@@ -21,6 +21,8 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function copiedResult(uint256)
   function addressCast(uint256)
   function square(uint8)
+  function storeAndCopy(uint256)
+  function quotient(uint256,uint256)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -39,6 +41,8 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function copiedResult(uint256)
   function addressCast(uint256)
   function square(uint8)
+  function storeAndCopy(uint256)
+  function quotient(uint256,uint256)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -89,6 +93,10 @@ private def observesWords (model : CompilationModel) (name : String) (args words
       { sender := 1, functionSelector := 0, args } Verity.defaultState
     r.success && r.returnWords == words
 
+#guard observesWords legacy.model "storeAndCopy" [257] [257, 1]
+#guard observesWords ir.model "storeAndCopy" [257] [257, 1]
+#guard observes legacy.model "quotient" [128, 255] 128
+#guard observes ir.model "quotient" [128, 255] 128
 #guard observesWords legacy.model "boundaries" [511] [255, 255, 255]
 #guard observesWords ir.model "boundaries" [511] [255, 255, 255]
 #guard match ir.model.functions.find? (·.name == "errorValue") with
