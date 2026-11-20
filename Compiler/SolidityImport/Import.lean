@@ -17736,7 +17736,9 @@ private partial def positionalNamedArguments (declared : NamedDeclarations) :
     Json → Json
   | .obj kvs =>
       let j := Json.mkObj (kvs.toList.map fun (k, v) => (k, positionalNamedArguments declared v))
-      if optStr j "nodeType" != some "FunctionCall" then j
+      -- Keep the original names on a try call so its lowering can diagnose
+      -- named arguments at the call site, even when they could be reordered.
+      if optStr j "nodeType" != some "FunctionCall" || field? j "tryCall" == some (.bool true) then j
       else
         let written? : Option (Array String) := do
           let .arr ns ← field? j "names" | none
