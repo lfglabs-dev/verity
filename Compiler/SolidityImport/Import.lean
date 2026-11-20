@@ -3585,7 +3585,7 @@ private partial def lowerRef (j : Json) : M Ref := do
         -- its reaching definition on a loop back-edge.
         let env ← get
         let canonical := match convKey.expr with
-          | .literal _ => true
+          | .literal _ => false -- A legacy narrowing cast may retain a wider literal.
           | .caller | .contractAddress | .txOrigin => bitsOf src == some 160
           | .param p => (paramType src).isSome && rootParamType? env p == paramType src
           | .localVar b =>
@@ -5752,7 +5752,7 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
             failAt sNode s!"calldata slice start index must be unsigned, found {sTy}"
           if statefulCallIn sNode (← get) || assignmentIn sNode then
             failAt sNode "stateful or assignment calldata slice start index is unsupported"
-          atom (← lowerExpr sNode)
+          atom (← lowerConverted "uint256" sNode)
   let endVal ← match field? j "endExpression" with
     | none => pure ({ pre := #[], expr := baseLen } : Val)
     | some eNode =>
@@ -5765,7 +5765,7 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
             failAt eNode s!"calldata slice end index must be unsigned, found {eTy}"
           if statefulCallIn eNode (← get) || assignmentIn eNode then
             failAt eNode "stateful or assignment calldata slice end index is unsupported"
-          atom (← lowerExpr eNode)
+          atom (← lowerConverted "uint256" eNode)
   let startAtLeastFour := startVal.pre.isEmpty && match startVal.expr with
     | .literal n => n ≥ 4
     | _ => false
@@ -11085,7 +11085,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
             (← mType (← mField step "rightHandSide")) == "int_const 1")
       | _ => pure false
     unless stepOk do failAt step "a decrementing for loop must decrement its counter by one"
-    let startVal ← atom (← lowerExpr startNode)
+    let startVal ← atom (← lowerConverted counterTy startNode)
     let lowerNode ← mField cond "rightExpression"
     let lowerVal ← lowerExpr lowerNode
     let lowerInvariant ← match lowerVal.expr with
@@ -11097,6 +11097,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
       | _ => pure false
     unless lowerVal.pre.isEmpty && lowerInvariant do
       failAt lowerNode "a for loop bound must be a literal, a parameter or an unassigned local"
+    let lowerVal := { lowerVal with expr := cleanHelperResultExpr (← mType lowerNode) lowerVal }
     let countBinding ← fresh
     let iterIdx ← fresh
     let decBinding ← freshFor counterName
@@ -11179,10 +11180,11 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     | _ => pure false
   unless abiLength || (bound.pre.isEmpty && invariant) do
     failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
+  let bound := { bound with expr := cleanHelperResultExpr (← mType boundNode) bound }
   if isTailWindowStart then
     let some startNode := (field? init "initialValue").filter (!·.isNull)
       | failAt init "missing for loop counter initializer"
-    let startVal ← atom (← lowerExpr startNode)
+    let startVal ← atom (← lowerConverted counterTy startNode)
     let countBinding ← fresh
     let iterIdx ← fresh
     let counterBinding ← freshFor counterName
