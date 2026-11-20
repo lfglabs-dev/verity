@@ -4903,7 +4903,8 @@ private partial def lowerConditional (j : Json) : M Val := do
   let ty ← mType j
   let lowerArm (node : Json) : M Val := do
     let raw ← lowerExpr node
-    if ty.startsWith "uint" || (signedBitsOf ty).isSome || (fixedBytesWidth? ty).isSome then
+    if ty.startsWith "uint" || (signedBitsOf ty).isSome || (fixedBytesWidth? ty).isSome ||
+        ty == "address" || ty == "address payable" || ty.startsWith "contract " then
       convert ty (← mType node) raw node
     else pure raw
   let yes ← lowerArm (← mField j "trueExpression")
