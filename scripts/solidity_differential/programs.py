@@ -455,6 +455,16 @@ def stateful_interface_word_static_call_source(original, variant):
         return renamed
     if variant == 'expanded':
         replacements = [
+            ("""        bytes4 value = IWordOracle(oracle).prefix();
+        return value;""", """        address target = oracle;
+        bytes4 value;
+        value = IWordOracle(target).prefix();
+        return value;"""),
+            ("""        int256 value = IWordOracle(oracle).signedWord();
+        return value;""", """        address target = oracle;
+        int256 value;
+        value = IWordOracle(target).signedWord();
+        return value;"""),
             ("""        bool ok = IWordOracle(oracle).allowed(account);
         return ok;""", """        address target = oracle;
         bool ok;

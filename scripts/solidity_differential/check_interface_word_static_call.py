@@ -89,7 +89,7 @@ def transactions_for(count, seed, caller, oracles):
 
     # Deterministic prefix: every target through every call shape, the gate
     # short-circuit on the zero address, and the helper pair in both orders.
-    for target in targets:
+    for target_index, target in enumerate(targets):
         add('readPrefix(address)', ['address'], [target])
         add('readSigned(address)', ['address'], [target])
         add('check(address,address)', ['address', 'address'], [target, SENDER])
@@ -103,7 +103,7 @@ def transactions_for(count, seed, caller, oracles):
         add('stamp(address,address,bool)', ['address', 'address', 'bool'],
             [target, SENDER, len(calls) % 2 == 0])
         add('route(address,uint256,uint8)', ['address', 'uint256', 'uint8'],
-            [target, len(calls), len(calls) % 3])
+            [target, len(calls), target_index % 3])
     # An out-of-range ordinal panics (0x21) before the call.
     add('route(address,uint256,uint8)', ['address', 'uint256', 'uint8'], [targets[2], 9, 3])
     add('gated(address,uint256)', ['address', 'uint256'], ['0x' + '00' * 20, 5])
@@ -111,7 +111,7 @@ def transactions_for(count, seed, caller, oracles):
         add('either(address,address)', ['address', 'address'], [targets[first], targets[second]])
     add('stored()', [], [])
     while len(calls) < count:
-        choice = rng.randrange(8)
+        choice = rng.randrange(10)
         target = rng.choice(targets)
         if choice == 0:
             add('check(address,address)', ['address', 'address'], [target, account()])
@@ -132,6 +132,10 @@ def transactions_for(count, seed, caller, oracles):
                 [target, rng.getrandbits(256), rng.choice([0, 1, 2, 2, 3, 255])])
         elif choice == 5:
             add('either(address,address)', ['address', 'address'], [target, rng.choice(targets)])
+        elif choice == 7:
+            add('readPrefix(address)', ['address'], [target])
+        elif choice == 8:
+            add('readSigned(address)', ['address'], [target])
         else:
             add('stored()', [], [])
     return calls
