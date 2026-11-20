@@ -14801,6 +14801,21 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
   let arguments ← mArr (← mField call "arguments")
   lowerErrorArgumentsForDecl callee declaration arguments
 
+/-- In a whole scalar return, a bytes4 call compared with a type-qualified function
+selector has no competing evaluation: the other operand lowers to a literal. -/
+private partial def selectorComparisonCall? (expr : Json) : M (Option Json) := do
+  unless optStr expr "nodeType" == some "BinaryOperation" &&
+      [some "==", some "!="].contains (optStr expr "operator") do return none
+  let lhs ← mField expr "leftExpression"
+  let rhs ← mField expr "rightExpression"
+  for (call, peer) in [(lhs, rhs), (rhs, lhs)] do
+    unless optStr peer "memberName" == some "selector" do continue
+    let some member := field? peer "expression" | continue
+    let some receiver := field? member "expression" | continue
+    if (← mType receiver).startsWith "type(contract " && (← mType call) == "bytes4" &&
+        (← isInterfaceExternalCall call) then return some call
+  return none
+
 /-- A single-variable declaration may admit its whole initializer as a
 typed-interface call; tuple declarations admit none. -/
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
@@ -16693,7 +16708,9 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             | _ => failAt expr "storage struct return requires a storage path"
           else
             let ty := env.rootReturnTypes[0]?.getD ""
-            let action := lowerExprAs ty expr
+            let action := match ← selectorComparisonCall? expr with
+              | some call => withAdmittedInterfaceCall (some call) (lowerExprAs ty expr)
+              | none => lowerExprAs ty expr
             let v ← atom (← if ty.startsWith "enum " && env.rootPost.isEmpty then
               withStorageEnumUse expr true action else action)
             if env.rootPost.isEmpty then
