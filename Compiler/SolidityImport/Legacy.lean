@@ -60,20 +60,24 @@ private partial def validateLegacySyntax (node : Json) : M Unit := do
       validateLegacySyntax child
   | _ => pure ()
 
-/-- Check a reached declaration and the initializers of all constants it uses.
+/-- Check a reached declaration and the initializers of constants and immutables it uses.
 Solc links both identifiers and qualified members to their declaration IDs. -/
 partial def validateLegacyDeclaration (root : Json) : M Unit := do
-  let constants := (← get).numericConstants
+  let env ← get
+  let constants := env.numericConstants
+  let immutables := env.stateVars
   let mut seen : Std.HashSet Nat := {}
   let mut pending := [root]
   while let decl :: rest := pending do
     pending := rest
     validateLegacySyntax decl
     for id in referencedDecls decl do
-      if let some constant := constants.find? id then
+      let referenced := constants.find? id <|>
+        (immutables.find? id).filter (optStr · "mutability" == some "immutable")
+      if let some initializer := referenced then
         unless seen.contains id do
           seen := seen.insert id
-          pending := constant :: pending
+          pending := initializer :: pending
 
 /-- Validate each legacy declaration on first reach, inside its lowering recovery point. -/
 def noteProfiledFn (fn : Json) : M Unit := do
