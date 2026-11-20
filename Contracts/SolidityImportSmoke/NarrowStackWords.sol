@@ -29,6 +29,8 @@ contract NarrowStackWords {
 
     error WideError(uint256 argument);
     function widenedError(uint8 a) external pure { revert WideError(a); }
+    function explicitWideError(uint8 a) external pure { revert WideError(uint256(a)); }
+    function constantError() external pure { revert NarrowError(narrowConstant); }
 
     function bytesCast(bytes32 x) external pure returns (uint256 word) {
         bytes4 b = bytes4(x);
@@ -264,4 +266,7 @@ contract NarrowStackWords {
         }
         assembly { word := copy }
     }
+
+    event NarrowEvent(uint128 value);
+    function badEmit(uint8 x) external { emit NarrowEvent(x); }
 }
