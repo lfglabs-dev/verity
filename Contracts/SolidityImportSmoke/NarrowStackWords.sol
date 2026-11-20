@@ -99,6 +99,24 @@ contract NarrowStackWords {
         return x ** uint8(2);
     }
 
+    uint8 private stored;
+
+    function storeAndCopy(uint256 x) external returns (uint256 word, uint256 slotWord) {
+        uint8 a;
+        assembly { a := x }
+        uint8 b = (stored = a);
+        assembly { word := b slotWord := sload(stored.slot) }
+    }
+
+    function quotient(uint256 x, uint256 y) external pure returns (uint256 word) {
+        int8 a = 0; int8 b = 0;
+        assembly { a := x b := y }
+        unchecked {
+            int8 q = a / b;
+            assembly { word := q }
+        }
+    }
+
     function carried(uint256 x) external pure returns (uint256 word) {
         uint8 a; uint8 copy;
         assembly { a := x }

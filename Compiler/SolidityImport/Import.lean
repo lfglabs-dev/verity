@@ -4698,10 +4698,9 @@ private partial def lowerBinary (j : Json) : M Val := do
           let ext := Expr.signextend (.literal (bits / 8 - 1)) v.expr
           let guard := Stmt.ite (.eq v.expr ext) [] [overflowPanic]
           return { v with pre := v.pre.push guard }
-        if bits < 256 && env.viaIR then
-          pure { v with expr := .signextend (.literal (bits / 8 - 1)) v.expr }
-        else
-          pure v
+        -- Both pipelines clean the operands of SDIV but keep its quotient.
+        -- In unchecked code min / -1 has its sign bit clear at EVM width.
+        pure v
       else
         unless common.startsWith "uint" do failAt j s!"unsupported div type {common}"
         checkedDiv left right
@@ -14376,10 +14375,13 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
   unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
   if info.bytesStorage then failAt target "bytes or string storage assignment expression is outside this slice"
   markField name
-  let value ← atom (← lowerConverted (← mType target) right)
-  let storedExpr := cleanHelperResultExpr (← mType target) value
+  let ty ← mType target
+  let value ← lowerConverted ty right
   let resultVar ← fresh
-  return { pre := (pre ++ value.pre).push (.letVar resultVar storedExpr) |>.push (.setStorage name (.localVar resultVar)), expr := .localVar resultVar }
+  let result := Expr.localVar resultVar
+  let stored := cleanHelperResultExpr ty { pre := #[], expr := result }
+  return { pre := (pre ++ value.pre).push (.letVar resultVar value.expr) |>.push (.setStorage name stored),
+           expr := result }
 
 private partial def lowerIncDecExpr (j : Json) : M Val := do
   let operator ← mStr (← mField j "operator")
