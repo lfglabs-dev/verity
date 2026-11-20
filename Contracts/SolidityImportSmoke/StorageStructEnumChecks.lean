@@ -135,4 +135,15 @@ solidity_import helperWrite from "Contracts/SolidityImportSmoke" entry "StorageS
   contract StorageStructEnum
   function helperWrite(bytes32,address)
 
+/--
+error: StorageStructEnum.sol:98:27: UnaryOperation: [solidity-import:unsupported] effectful inner mapping key requires outer key capture
+closure: StorageStructEnum.changingKey
+i++
+-/
+#guard_msgs in
+solidity_import changingKey from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
+  using enumProfile
+  contract StorageStructEnum
+  function changingKey(uint256)
+
 end SolidityImportSmoke.StorageStructEnumChecks
