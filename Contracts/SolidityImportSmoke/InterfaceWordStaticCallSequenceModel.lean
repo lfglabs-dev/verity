@@ -18,6 +18,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "InterfaceWo
   function stamp(address,address,bool)
   function route(address,uint256,uint8)
   function either(address,address)
+  function readPrefix(address)
+  function readSigned(address)
   function stored()
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

@@ -68,7 +68,7 @@ def environment(directory):
 
 def runtime(directory, output):
     argv = [sys.executable, '-m', 'solidity_differential.check_interface_word_static_call', '--single',
-            '--transactions', '104', '--seed', '2549', '--shrink-attempts', '60', '--output', str(output)]
+            '--transactions', '160', '--seed', '2549', '--shrink-attempts', '60', '--output', str(output)]
     result = subprocess.run(argv, cwd=directory, env=environment(directory), text=True,
                             capture_output=True, timeout=7200)
     output.with_suffix('.log').write_text(result.stdout + result.stderr)

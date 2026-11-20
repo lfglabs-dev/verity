@@ -46,6 +46,9 @@ ORACLES = [
     (11, True, 65, 0),
     (13, True, 0, 0),
     (WORD - 1, False, 96, 1),
+    (0x87654321 << 224, False, 33, 0),  # left-aligned bytes4, negative int256
+    ((0x87654321 << 224) | (1 << 223), False, 32, 0),  # highest dirty padding bit
+    (0, False, 0, 0),  # empty success from code, distinct from EMPTY
 ]
 EMPTY = '0x' + '00' * 19 + '77'
 SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True, 'runs': 466},
@@ -87,6 +90,8 @@ def transactions_for(count, seed, caller, oracles):
     # Deterministic prefix: every target through every call shape, the gate
     # short-circuit on the zero address, and the helper pair in both orders.
     for target in targets:
+        add('readPrefix(address)', ['address'], [target])
+        add('readSigned(address)', ['address'], [target])
         add('check(address,address)', ['address', 'address'], [target, SENDER])
         add('gated(address,uint256)', ['address', 'uint256'], [target, len(calls) + 1])
         add('both(address,address,uint256)', ['address', 'address', 'uint256'],
@@ -102,7 +107,7 @@ def transactions_for(count, seed, caller, oracles):
     # An out-of-range ordinal panics (0x21) before the call.
     add('route(address,uint256,uint8)', ['address', 'uint256', 'uint8'], [targets[2], 9, 3])
     add('gated(address,uint256)', ['address', 'uint256'], ['0x' + '00' * 20, 5])
-    for first, second in [(0, 1), (1, 0), (1, 2), (2, 1), (4, 8), (8, 4), (1, 11), (11, 1), (6, 9)]:
+    for first, second in [(0, 1), (1, 0), (1, 2), (2, 1), (4, 8), (8, 4), (1, -1), (-1, 1), (6, 9)]:
         add('either(address,address)', ['address', 'address'], [targets[first], targets[second]])
     add('stored()', [], [])
     while len(calls) < count:
@@ -216,7 +221,7 @@ def canonical(observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--transactions', type=int, default=104)
+    parser.add_argument('--transactions', type=int, default=160)
     parser.add_argument('--seed', type=int, default=2549)
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--variant', action='append', choices=('baseline', 'renamed', 'expanded'))
@@ -224,7 +229,7 @@ def main():
                         help='one unmodified-source campaign into --output; exit 1 on divergence')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = 7 * (len(ORACLES) + 1) + 12
+    minimum = 9 * (len(ORACLES) + 1) + 12
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every target and helper order')
     output = (args.output.resolve() if args.output else

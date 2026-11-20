@@ -4,6 +4,8 @@ pragma solidity 0.8.34;
 interface IWordOracle {
     enum Mode { Low, Mid, High }
 
+    function prefix() external view returns (bytes4);
+    function signedWord() external view returns (int256);
     function allowed(address account) external view returns (bool);
     function quote(uint256 amount, bytes32 tag) external view returns (uint256);
     function tagOf(address account, bool flag) external view returns (bytes32);
@@ -15,6 +17,16 @@ contract InterfaceWordStaticCallFixture {
 
     uint256 private saved;
     bytes32 private label;
+
+    function readPrefix(address oracle) external view returns (bytes4) {
+        bytes4 value = IWordOracle(oracle).prefix();
+        return value;
+    }
+
+    function readSigned(address oracle) external view returns (int256) {
+        int256 value = IWordOracle(oracle).signedWord();
+        return value;
+    }
 
     function check(address oracle, address account) external view returns (bool) {
         bool ok = IWordOracle(oracle).allowed(account);

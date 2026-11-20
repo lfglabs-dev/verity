@@ -24,8 +24,8 @@ MUTANTS = {
         'pre := pre.push (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result (selector + 1) words.size)',
         'runtime', None),
     'import-interface-static-result': (IMPORT,
-        '  pure { pre, expr := .localVar result }\n',
-        '  pure { pre, expr := .literal 0 }\n', 'runtime', None),
+        '  pure (decoded pre result)\n',
+        '  pure { (decoded pre result) with expr := .literal 0 }\n', 'runtime', None),
     'import-interface-static-drop-discarded': (IMPORT,
         'return (← lowerInterfaceStaticCall expression).pre\n',
         'return (← lowerInterfaceStaticCall expression).pre.pop\n', 'runtime', None),
@@ -47,7 +47,7 @@ MUTANTS = {
         'unless convTypes == #["address"] do',
         'unless convTypes.size == 1 do', 'admission', 'payable-receiver'),
     'import-interface-static-return-guard': (IMPORT,
-        'unless returnTypes.size == 1 && ["uint256", "bytes32", "bool"].contains returnType do',
+        'unless returnTypes.size == 1 && ["uint256", "int256", "bytes32", "bytes4", "bool"].contains returnType do',
         'unless returnTypes.size == 1 do', 'admission', 'narrow-return'),
 }
 
