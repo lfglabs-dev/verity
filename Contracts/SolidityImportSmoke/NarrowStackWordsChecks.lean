@@ -30,6 +30,9 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function descendingWords(uint256)
   function narrowConstant()
   function constantCopy()
+  function bytesCast(bytes32)
+  function bytesLocal(uint256)
+  function bytesChoice(uint256)
   function payableCopy(uint256)
   function invertedBytes(uint256)
   function shiftUntilZero(uint8)
@@ -61,6 +64,9 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function descendingWords(uint256)
   function narrowConstant()
   function constantCopy()
+  function bytesCast(bytes32)
+  function bytesLocal(uint256)
+  function bytesChoice(uint256)
   function payableCopy(uint256)
   function invertedBytes(uint256)
   function shiftUntilZero(uint8)
@@ -117,6 +123,12 @@ private def observesWords (model : CompilationModel) (name : String) (args words
 
 #guard observes legacy.model "payableCopy" [2 ^ 160 + 257] (2 ^ 160 + 257)
 #guard observes ir.model "payableCopy" [2 ^ 160 + 257] 257
+#guard observes legacy.model "bytesChoice" [0] (0xffffffff * 2 ^ 224)
+#guard observes ir.model "bytesChoice" [0] (0xffffffff * 2 ^ 224)
+#guard observes legacy.model "bytesCast" [1] 1
+#guard observes ir.model "bytesCast" [1] 0
+#guard observes legacy.model "bytesLocal" [1] (2 ^ 256 - 2)
+#guard observes ir.model "bytesLocal" [1] (0xffffffff * 2 ^ 224)
 #guard observes legacy.model "invertedBytes" [1] (2 ^ 256 - 2)
 #guard observes ir.model "invertedBytes" [1] (0xffffffff * 2 ^ 224)
 #guard observes legacy.model "shiftUntilZero" [5] 3
