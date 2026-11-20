@@ -1807,7 +1807,7 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
         else failAt stmt s!"unresolved Yul assignment target {vname}"
     let env ← get
     if env.enumBounds.contains targetId then
-      failAt j "Yul assignment to an enum variable is unsupported"
+      failAt stmt s!"Yul assignment to enum variable {vname} is unsupported"
     let some binding := env.writableLocals.find? targetId
       | if retName != "" then failAt stmt s!"Yul assigns {vname}, not the return name {retName}"
         else failAt stmt s!"Yul assignment target {vname} is not a writable scalar local"
