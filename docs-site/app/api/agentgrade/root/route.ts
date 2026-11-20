@@ -4,7 +4,7 @@ import { negotiateContentType } from "@/server/content-negotiation";
 import { readDoc } from "@/server/docs";
 
 const description =
-  "Verity is a Lean-native language and formally verified compiler for Ethereum smart contracts.";
+  "Import selected Solidity functions or author contracts in Verity, state a property, and machine-check the proof in Lean 4.";
 
 const fallbackMarkdown = `# Verity
 
@@ -12,6 +12,7 @@ const fallbackMarkdown = `# Verity
 
 ## Endpoints
 
+- [Import a Solidity function](https://veritylang.com/solidity-import.md) - Automatic Solidity importer quickstart (Markdown).
 - [Documentation](https://veritylang.com/) - Verity overview and guides.
 - [Getting Started](https://veritylang.com/getting-started) - Local setup and first verification run.
 - [API Docs](https://veritylang.com/api/docs/_index) - Machine-readable documentation index.
@@ -24,6 +25,7 @@ No authentication is required for public documentation.
 
 const fallbackText = `${description}
 
+Import Solidity quickstart: https://veritylang.com/solidity-import.md
 Documentation: https://veritylang.com/
 Getting started: https://veritylang.com/getting-started
 Machine-readable docs index: https://veritylang.com/api/docs/_index

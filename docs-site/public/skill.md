@@ -10,6 +10,12 @@ Use this skill when working in the Verity repository or docs. Verity is a Lean 4
 - Prefer existing Verity primitives and proof patterns before adding abstractions.
 - Read `/llms.txt` first for the compact working model, then fetch `/llms-full.txt` when broader context is needed.
 
+## Import an existing Solidity function
+
+1. Fetch [the importer quickstart](/solidity-import.md) for a runnable fixture and [the importer reference](/solidity-import-reference.md) for full `solidity_profile` / `solidity_import` inputs, commands, outputs, limits, and diagnostics.
+2. Review the report, digest, included helpers and exclusions. A located unsupported construct blocks the model; do not substitute a manual rewrite without changing the stated scope.
+3. State and check a theorem about execution of the imported model. `covered` is instruction coverage, not the theorem or a bytecode equivalence certificate.
+
 ## Add A Contract
 
 1. Scaffold with `python3 scripts/generate_contract.py <Name> --fields ... --functions ...` when the contract shape fits the generator.

@@ -7,7 +7,7 @@ import { Callout } from 'nextra/components'
 
 # Capabilities & Limits
 
-This page is the honest map of what you can write in `verity_contract` today: what is **fully expressible and machine-checked**, what is **partially modeled**, and what **compiles but sits on an explicit trust boundary**. It is the curated companion to the per-constructor [Interpreter Feature Matrix](https://github.com/lfglabs-dev/verity/blob/main/docs/INTERPRETER_FEATURE_MATRIX.md) and [`artifacts/feature_ownership.json`](https://github.com/lfglabs-dev/verity/blob/main/artifacts/feature_ownership.json); when the docs and artifacts disagree, the artifacts win.
+This page is the honest map of what you can write in `verity_contract` today: what is **fully expressible and machine-checked**, what is **partially modeled**, and what **compiles but sits on an explicit trust boundary**. (Importing existing Solidity functions with `solidity_import` has its own closure subset and trust boundary — see [Solidity Importer Reference](/solidity-import-reference).) It is the curated companion to the per-constructor [Interpreter Feature Matrix](https://github.com/lfglabs-dev/verity/blob/main/docs/INTERPRETER_FEATURE_MATRIX.md) and [`artifacts/feature_ownership.json`](https://github.com/lfglabs-dev/verity/blob/main/artifacts/feature_ownership.json); when the docs and artifacts disagree, the artifacts win.
 
 For *why* some features are trusted rather than proved, see the [Trust Model](/trust-model) — the Layer 1/2/3 framing lives there. For the live theorem inventory, see [Verification Status](/verification).
 

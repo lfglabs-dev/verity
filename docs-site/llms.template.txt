@@ -1,15 +1,15 @@
 # Verity
 
-> Lean 4 framework for writing smart contracts that compile to EVM bytecode and carry machine-checked correctness proofs.
+> Use Lean to prove properties of selected functions imported from Solidity, or author a contract directly in Verity.
 > Add `.md` to any docs URL on veritylang.com to get raw markdown (saves tokens). Or fetch `/llms-full.txt` for everything concatenated.
 
 ## Common tasks
 
-You author contracts in the `verity_contract { … }` block — that is the canonical surface. The `Contract` monad, `_spec` predicates, and `_meets_spec` theorems are the proof layer beneath it; the compiler lowers `verity_contract` to that model and the proofs run against it.
+- **verify existing Solidity without a rewrite** -> https://veritylang.com/solidity-import.md — install pinned solc, select a function with `solidity_import`, inspect its report, then state a theorem over its model (full reference: https://veritylang.com/solidity-import-reference.md). Import coverage is not a correctness or bytecode proof.
 
-I want to…
+For native authoring:
 - **start a new contract from an idea** -> https://veritylang.com/first-contract — storage → function → spec → proof → register (copy the minimal skeleton: https://veritylang.com/first-contract#minimal-skeleton)
-- **port an existing Solidity contract** -> https://veritylang.com/guides/solidity-to-verity — direct mappings, restructuring patterns, a worked port
+- **port an existing Solidity contract** -> https://veritylang.com/guides/solidity-to-verity — manual rewrite into `verity_contract` when you want a native Verity implementation instead of `solidity_import`
 - **prove a contract that already exists** -> https://veritylang.com/proof-techniques — write the `_spec` and the `_meets_spec` theorem
 
 Quick reference: what's expressible vs on a trust boundary -> https://veritylang.com/capabilities · decode a compiler/macro error -> https://veritylang.com/diagnostics
@@ -77,6 +77,7 @@ Introduction:
 - https://veritylang.com/trust-model, what is verified vs trusted
 
 Tutorials:
+- https://veritylang.com/solidity-import, automatic Solidity importer quickstart (`solidity_import`)
 - https://veritylang.com/getting-started, local setup
 - https://veritylang.com/first-contract, guided spec→proof walkthrough (TipJar)
 
@@ -88,6 +89,7 @@ How-to:
 - https://veritylang.com/guides/debugging-proofs
 
 Reference:
+- https://veritylang.com/solidity-import-reference, `solidity_import` directive, `solidity_profile`, generated accessors, limits, trust boundary, and diagnostics
 - https://veritylang.com/examples, SimpleStorage / Counter / SafeCounter / Owned / OwnedCounter / Ledger / SimpleToken / Vault / ERC721 / ReentrancyExample / CryptoHash / ERC20
 - https://veritylang.com/core, ContractState, Contract monad, spec helpers (`sameAddrMapContext` etc.)
 - https://veritylang.com/edsl, EDSL reference hub; subpages: /edsl/storage, /edsl/computation, /edsl/control-flow, /edsl/functions, /edsl/external-calls — every primitive plus `verity_contract` macro features

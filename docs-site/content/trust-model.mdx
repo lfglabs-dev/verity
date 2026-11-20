@@ -5,11 +5,9 @@ description: The canonical home for the Layer 1/2/3 framing, the trust boundary,
 
 # Trust Model
 
-What you trust when you trust a Verity contract: the Lean kernel, the Yul
-compiler, the deployment toolchain, the EVM specification itself, and the
-short list of axioms documented in `AXIOMS.md`. Everything else, the EDSL
-semantics, the `CompilationModel → IR` transformation, the `IR → Yul`
-preservation, and the per-contract specifications, is machine-checked.
+For an [imported Solidity function](/solidity-import), Lean checks the theorem you state over the model. The translation trusts solc’s syntax tree and storage layout and the importer’s lowering. A successful import does not establish compiler-proof coverage or equivalence to deployed bytecode.
+
+For contracts written in Verity, distinguish the property proved about the contract from the compiler theorems below: each has its own supported fragment and hypotheses.
 
 ## The three layers
 

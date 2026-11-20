@@ -55,22 +55,16 @@ the compiler as given and use symbolic execution, SMT, or rewriting to check
 that the deployed contract refines the spec. Their strength is that they work
 on existing Solidity code with minimal changes.
 
-Verity verifies the *compilation* itself and the *spec ↔ implementation*
-relationship. The compiler from EDSL to Yul is part of the proof tree:
-`Compiler/Proofs/IRGeneration/Contract.lean` proves
-`CompilationModel.compile` is correct for the supported fragment, and
-`Compiler/Proofs/YulGeneration/` proves IR-to-Yul preservation. That means a
-verified Verity contract carries a guarantee about the artifact you deploy,
-not just about a separately-modelled source. The tradeoff: you write contracts
-in the Verity EDSL, not in Solidity.
+Verity separates two workflows with different boundaries:
+
+- **Contracts authored in Verity ([`/first-contract`](/first-contract)):** the compiler from EDSL to Yul is part of the proof tree (`Compiler/Proofs/IRGeneration/Contract.lean` for `CompilationModel.compile` on the supported fragment, and `Compiler/Proofs/YulGeneration/` for `IR → Yul`), while `solc --strict-assembly` compiles Yul to EVM bytecode under explicit trust assumptions.
+- **Existing Solidity imported via [`solidity_import`](/solidity-import):** Lean checks your theorem against the imported `CompilationModel` on Verity's `Denote` semantics. The importer supplies no compiler-correctness witness (`compilerProof` is `unavailable`) and does not prove that deployed bytecode behaves the same way.
 
 ## Can I use existing Solidity?
 
-Not directly, Verity contracts are written in the Lean-embedded EDSL. There
-are translation guides that walk through common Solidity patterns and how to
-express them in Verity: see [`/guides/solidity-to-verity`](/guides/solidity-to-verity)
-and [`/guides/production-solidity-patterns`](/guides/production-solidity-patterns)
-for modifiers, externals, ABI, events, and oracle patterns.
+Yes, for selected functions inside the supported subset. [`solidity_import`](/solidity-import) lowers chosen Solidity entry points and the internal/library helpers they reach into an ordinary `CompilationModel`, using a checksum-pinned `solc` profile. Importing a function is translation, not a proof: you then write and check Lean theorems over the imported model, and unsupported constructs fail closed with `file:line:column` and the closure call path rather than emitting a partial model.
+
+If you want to author a native `verity_contract` implementation instead — or restructure patterns outside the automatic importer's subset — use the manual translation guides: [`/guides/solidity-to-verity`](/guides/solidity-to-verity) and [`/guides/production-solidity-patterns`](/guides/production-solidity-patterns).
 
 ## What's the EVM compatibility story?
 

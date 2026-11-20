@@ -6,6 +6,7 @@ export default {
   'trust-model': 'Trust Model',
 
   '-- tutorials': { type: 'separator', title: 'Tutorials' },
+  'solidity-import': 'Import Solidity',
   'getting-started': 'Getting Started',
   'first-contract': 'Your First Contract',
 
@@ -13,6 +14,7 @@ export default {
   guides: 'Guides',
 
   '-- reference': { type: 'separator', title: 'Reference' },
+  'solidity-import-reference': 'Solidity Importer',
   examples: 'Examples Gallery',
   core: 'Core',
   edsl: 'EDSL Reference',

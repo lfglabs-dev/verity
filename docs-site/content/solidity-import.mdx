@@ -1,0 +1,98 @@
+---
+title: Import a Solidity function
+description: Run the automatic Solidity importer on a checked-in function, read its coverage report, and choose a property to prove in Lean.
+---
+
+# Import a Solidity function
+
+What happens at the boundary of `require(value > 7)`? Start with the Solidity source, not a rewrite. Import `checked(uint256)` from the repository’s [Require.sol](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.sol):
+
+```solidity
+function checked(uint256 value) external pure returns (uint256) {
+    require(value > 7, unicode"échec");
+    return value;
+}
+```
+
+## 1. Prepare the importer
+
+On Linux x86-64 or macOS, install Git, Python 3 and [elan](https://github.com/leanprover/elan) (which provides `lake`). From a terminal:
+
+```bash
+git clone https://github.com/lfglabs-dev/verity.git
+cd verity
+python3 scripts/setup_solc_import.py --version 0.8.34
+lake build Compiler.SolidityImport.Import
+```
+
+The first build fetches Lean dependencies. You don’t need Foundry or a system `solc` for this example. The setup script installs the checksum-pinned `0.8.34+commit.80d5c536` under `.lake/solidity-import/`; the import itself never downloads a compiler.
+
+## 2. Select the function and read the report
+
+Save this as `Quickstart.lean` next to `lakefile.lean`. The Solidity file is already in the checkout. The profile matches the [repository smoke example](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.lean).
+
+```lean
+import Compiler.SolidityImport.Import
+
+solidity_profile requireBuild where
+  evmVersion := "osaka"
+  viaIR := true
+  optimizerRuns := some 466
+  bytecodeHash := "none"
+
+solidity_import requireFixture from "Contracts/SolidityImportSmoke" entry "Require.sol" using requireBuild
+  contract RequireFixture
+  function checked(uint256)
+
+#eval IO.print requireFixture.report.toText
+```
+
+From the repository root, run:
+
+```bash
+lake env lean Quickstart.lean
+```
+
+Expect exit status 0 and a report containing this line:
+
+```text
+status checked importable denoteCovered true compilerProof unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)
+```
+
+`compilerProof unavailable` is **expected** for every imported function — not a setup failure — and it does not block the proofs in step 3. It records that the importer builds no Verity compiler-preservation witness (`SupportedSpec`; "A/B/C" refers to differential tests across original Solidity, `Denote`, and compiled Yul).
+
+`requireFixture.model` is the function as Lean data, and `requireFixture.covered` (`denoteCovered true`) says its instructions have explicit cases in Verity’s execution semantics (*Denote*). Neither is a proof that `checked` returns the right value. The importer trusts `solc`’s syntax tree and storage layout and the translation into the model; it does not certify deployed bytecode.
+
+## 3. State a property and check it
+
+Append these two claims to `Quickstart.lean`. They check the accessor at the boundary in the default state: **7 gives `none`; 8 gives `some 8`**. The Solidity guard rejects seven. The accessor alone cannot distinguish a revert from a malformed return; to prove the exact revert, state a theorem about the underlying `Denote` execution result. The oracle supplies hash operations, neither of which this function uses.
+
+```lean
+open Compiler.CompilationModel.Denote
+
+private def oracle : DenoteOracle := ⟨fun _ _ => 0, fun _ _ _ => 0⟩
+
+private def callChecked (n : Nat) :=
+  requireFixture.checked oracle Verity.defaultState (Verity.Core.Uint256.ofNat n)
+
+example : callChecked 7 = none := by decide
+example : callChecked 8 = some 8 := by decide
+```
+
+Run `lake env lean Quickstart.lean` again. Lean prints the same report and exits successfully only if both proofs check. These are two concrete inputs, not a theorem for all values. The next proof is to quantify over `uint256` inputs and establish the result on each side of the guard.
+
+See a [worked proof on an imported function](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Smoke.lean) and the [import proof guide](https://github.com/lfglabs-dev/verity/blob/main/docs/SOLIDITY_IMPORT.md#proving-properties-of-an-imported-function) for execution and storage lemmas.
+
+## Import your own function
+
+- **Inputs:** Set `from` to your Solidity project directory relative to the Lean package root. Set `entry` to the source file inside it, keep dependencies and `remappings.txt` available, and select the declaring contract and exact parameter types. Match the audited build’s compiler release and settings rather than copying the example profile blindly.
+- **Output:** Review `report.toText` for included helpers, exclusions and storage fields. Keep the report and `sourceDigest` with your proof. Register the Solidity directory as a Lake input so source edits trigger a rebuild ([Lake example](https://github.com/lfglabs-dev/verity/blob/main/docs/SOLIDITY_IMPORT.md#usage)).
+- **Rejection:** If a selected function or a helper it reaches uses an unsupported construct, strict import stops without emitting a partial model and reports the exact location and call path, for example:
+  ```text
+  CollectUnsupportedSurvey.sol:17:9: DoWhileStatement: [solidity-import:unsupported] unsupported statement DoWhileStatement
+  closure: CollectUnsupportedSurvey.first
+  ```
+  This is a modeling boundary, not evidence of a contract bug. Check the [supported constructs](https://github.com/lfglabs-dev/verity/blob/main/docs/SOLIDITY_IMPORT.md#supported-solidity) or select a different function and explicitly narrow your claim.
+- **Survey only:** Set `collectUnsupported := true` in the profile to inventory blockers. If any root is unsupported, you get only a report, not a model or proof. A [manual port](/guides/solidity-to-verity) is a separate implementation, not a successful import.
+
+For full directive syntax, profile options, generated accessors, limits and error messages, see the [Solidity Importer Reference](/solidity-import-reference).

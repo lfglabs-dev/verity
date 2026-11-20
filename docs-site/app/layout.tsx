@@ -8,7 +8,7 @@ import './verity-code.css'
 const SITE_URL = 'https://veritylang.com'
 const SITE_TITLE = 'Verity, Formally Verified Smart Contract Compiler (Lean 4)'
 const SITE_DESCRIPTION =
-  'Verity is a formally verified smart contract compiler for Ethereum, written in Lean 4. Write the spec, write the implementation, and prove they agree. Every claim is machine-checked at compile time, and the compiler itself is proven to preserve semantics from EDSL to EVM bytecode.'
+  'Import selected Solidity functions or author a new contract in Verity. State a property and check its proof in Lean 4.'
 const SITE_KEYWORDS = [
   'Verity',
   'Verity Lang',

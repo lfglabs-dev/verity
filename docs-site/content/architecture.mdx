@@ -17,8 +17,17 @@ either proved in Lean or recorded as an explicit assumption in the trust report.
 ## Pipeline
 
 ```
-EDSL  -->  CompilationModel  -->  IR  -->  Yul  -->  EVM
+Solidity (selected functions) ──┐
+                                v
+EDSL  ------------------>  CompilationModel  -->  IR  -->  Yul  -->  EVM
 ```
+
+**Solidity Import (`solidity_import`).** Selected Solidity entry points and the
+internal/library helpers they reach can be lowered directly into a
+`CompilationModel` (`Compiler/SolidityImport/`), where proofs run against the
+same `Denote` execution semantics. Unsupported constructs fail closed with source
+locations; `solc`'s AST, storage layout and the importer lowering are part of
+that path's trust boundary (see [Import a Solidity function](/solidity-import)).
 
 **EDSL.** The source layer. Contracts are written using `verity_contract` (or
 the lower-level `Contract` monad) against `Verity/Core.lean`. Specs, invariants,
