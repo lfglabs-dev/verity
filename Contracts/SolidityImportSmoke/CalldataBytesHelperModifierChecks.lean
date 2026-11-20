@@ -163,4 +163,26 @@ solidity_import msgDataSliceMod from "Contracts/SolidityImportSmoke" entry "Call
   contract CalldataBytesHelperModifierUnsupported
   function useMsgDataSliceInMod(uint256)
 
+/--
+error: CalldataBytesHelperModifier.sol:144:29: IndexRangeAccess: [solidity-import:unsupported] msg.data slices as helper arguments are unsupported
+closure: CalldataBytesHelperModifierUnsupported.probe
+msg.data[1:5]
+-/
+#guard_msgs in
+solidity_import selectorCrossing from "Contracts/SolidityImportSmoke" entry "CalldataBytesHelperModifier.sol"
+  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 200, bytecodeHash := "none" }
+  contract CalldataBytesHelperModifierUnsupported
+  function probe(uint256)
+
+/--
+error: CalldataBytesHelperModifier.sol:141:85: Identifier: [solidity-import:unsupported] expected a calldata bytes parameter or slice
+closure: CalldataBytesHelperModifierUnsupported.probeCast -> CalldataBytesHelperModifierUnsupported.ident
+x
+-/
+#guard_msgs in
+solidity_import selectorCrossingCast from "Contracts/SolidityImportSmoke" entry "CalldataBytesHelperModifier.sol"
+  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 200, bytecodeHash := "none" }
+  contract CalldataBytesHelperModifierUnsupported
+  function probeCast(uint256)
+
 end SolidityImportSmoke.CalldataBytesHelperModifierChecks
