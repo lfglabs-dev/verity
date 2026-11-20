@@ -7071,6 +7071,13 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
       (optStr n "nodeType" == some "Identifier" &&
         ((field? n "typeDescriptions").bind (optStr · "typeString")).any
           (fun ty => (paramType ty).isSome))
+  if let some recv := receiver? then
+    let recv := unparenJson recv
+    let ty ← mType recv
+    if !env.viaIR && (ty == "bytes calldata" || ty == "bytes calldata slice") &&
+        optStr recv "nodeType" != some "Identifier" &&
+        !args.all (fun arg => optStr (unparenJson arg) "nodeType" == some "Literal") then
+      failAt j "computed calldata receiver with nontrivial arguments requires legacy receiver-last evaluation"
   let scalarUpdate := fun (n : Json) =>
     let e := unparenJson n
     (optStr e "nodeType" == some "UnaryOperation" && optStr e "operator" == some "++" &&

@@ -239,4 +239,28 @@ solidity_import selectorCrossingDecode from "Contracts/SolidityImportSmoke" entr
   contract CalldataBytesHelperModifierUnsupported
   function nestedDecode(uint256)
 
+solidity_import receiverIR from "Contracts/SolidityImportSmoke" entry "CalldataBytesHelperModifier.sol"
+  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 200, bytecodeHash := "none" }
+  contract ReceiverOrder
+  function nested(bytes,uint256,uint256)
+
+private def receiverFailure : Bool := Id.run do
+  let some fn := receiverIR.model.functions.head? | return false
+  let r := denoteFunction SolidityImport.Differential.oracle receiverIR.model fn
+    {sender := 0, functionSelector := 0, args := [96, 2, 0, 1, 0x11 * 2^248]} Verity.defaultState
+  return !r.success && r.revertData == some []
+
+#guard receiverFailure
+
+/--
+error: CalldataBytesHelperModifier.sol:246:16: FunctionCall: [solidity-import:unsupported] computed calldata receiver with nontrivial arguments requires legacy receiver-last evaluation
+closure: ReceiverOrder.nested
+window(x, e).take(1 / z)
+-/
+#guard_msgs in
+solidity_import receiverLegacy from "Contracts/SolidityImportSmoke" entry "CalldataBytesHelperModifier.sol"
+  using { evmVersion := "cancun", viaIR := false, optimizerRuns := some 200, bytecodeHash := "none" }
+  contract ReceiverOrder
+  function nested(bytes,uint256,uint256)
+
 end SolidityImportSmoke.CalldataBytesHelperModifierChecks
