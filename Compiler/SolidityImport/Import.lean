@@ -4400,7 +4400,9 @@ private partial def lowerBinary (j : Json) : M Val := do
     -- Reorder at each eager binary node, not just the ancestor of a slice.
     -- A literal has no effects to order; leave its empty prelude intact for
     -- checked exponentiation and other constant-sensitive lowerings.
-    if !env.viaIR && !right.pre.isEmpty && !isConstLiteralVal left then
+    -- An overloaded operator is a positional function call on both pipelines.
+    if !env.viaIR && ((field? j "function").bind (·.getNat?.toOption)).isNone &&
+        !right.pre.isEmpty && !isConstLiteralVal left then
       let b ← atom right
       let a ← atom left
       left := { pre := b.pre ++ a.pre, expr := a.expr }
