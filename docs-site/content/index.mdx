@@ -7,24 +7,29 @@ import { VerityHero } from '../components/VerityHero'
 
 <VerityHero />
 
-## One property, checked at a boundary
+## Formal verification in Lean: a small example
 
-Take a function that guards its input: `require(value > 7)`. What happens at seven, and at eight? Import `checked` from the repository's runnable fixture, [Require.sol](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.sol), and state both answers in Lean:
+Here is what checking a Solidity function in Lean looks like. The function guards its input with `require(value > 7)`, so it should reject 7 and accept 8. Import `checked` from the repository's runnable fixture, [Require.sol](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.sol), and state both expectations in Lean:
 
 ```lean
 example : callChecked 7 = none := by decide   -- the guard rejects 7
 example : callChecked 8 = some 8 := by decide -- 8 returns 8
 ```
 
-Lean rejects the file unless both hold. The exact command sequence — pinned `solc`, the import directive, the report, the proof — is the [Import Solidity quickstart](/solidity-import). The same fixture is checked in as [Require.lean](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.lean).
+Lean rejects the file unless both hold. **This checks exactly two inputs. It is not a theorem about all values**, and a test would catch the same bug. Proofs that quantify over every input are the part testing cannot give you; [Guarantees & limits](/guarantees) shows what each kind of claim covers. The exact command sequence — pinned `solc`, the import directive, the report, the proof — is the [Import Solidity quickstart](/solidity-import). The same fixture is checked in as [Require.lean](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Require.lean).
 
-## Three claims, kept apart
+## What you're trusting
 
-1. **Imported.** A successful `solidity_import` means the importer modeled the selected function without hitting an unsupported construct, and its instructions have explicit cases in Verity's execution semantics (the report's `denoteCovered true`). It states no property and proves nothing yet.
-2. **Proven, under stated assumptions.** A theorem you write about the model is checked by the Lean kernel. Its scope is exactly what you stated — the inputs you quantified, the fragment Verity models, the oracle and initial state you supplied. The translation into the model trusts `solc`'s syntax tree, storage layout and the importer's lowering.
-3. **Certified compiled code.** For contracts written in Verity, `Compiler/Proofs/IRGeneration/Contract.lean` (generic whole-contract `CompilationModel -> IR` theorem for the current supported fragment) and the `IR → Yul` preservation proofs cover the compiler's two inner transitions; the final Yul-to-bytecode step is delegated to `solc`, and the EVM runtime sits outside the proof envelope. An imported function carries no compiler-correctness witness (`compilerProof unavailable` in its report is expected, not an error).
+A verification result rests on a short, explicit list. From most to least likely to be the problem:
 
-[Guarantees & limits](/guarantees) keeps this accounting in one place for both journeys.
+1. **Your specification** — the main risk. Verity proves the code matches what you wrote, not that what you wrote is right.
+2. **Verity's own pieces** — depends on your path:
+   - **Import Solidity: low risk.** The importer translates your Solidity into a Lean model. It can have bugs or gaps, but they stay local to the construct involved and don't undermine the whole verification. Your deployed bytecode is your normal `solc` build.
+   - **Write in Verity: moderate risk.** Verity's compiler is machine-checked for the supported fragment, with explicit assumptions. Start from `Compiler/Proofs/IRGeneration/Contract.lean` (generic whole-contract `CompilationModel -> IR` theorem for the current supported fragment).
+3. **`solc` and the EVM** — very low risk. Years of production use.
+4. **Lean** — very low risk. Its small kernel rechecks every proof. Bugs have been found before, but they're rare, and rarer still for one to affect a real proof.
+
+Importing, proving and certifying compiled code are three different claims. [Guarantees & limits](/guarantees) shows what each one covers.
 
 ## Which path fits?
 

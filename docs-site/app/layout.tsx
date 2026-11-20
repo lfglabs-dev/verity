@@ -138,6 +138,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           docsRepositoryBase="https://github.com/lfglabs-dev/verity/tree/main/docs-site"
           sidebar={{ defaultMenuCollapseLevel: 1 }}
           toc={{ backToTop: true }}
+          copyPageButton={false}
         >
           {children}
         </Layout>
