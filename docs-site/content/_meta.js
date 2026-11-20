@@ -1,20 +1,15 @@
 export default {
   index: 'Home',
 
-  '-- introduction': { type: 'separator', title: 'Introduction' },
-  architecture: 'Architecture Overview',
-  'trust-model': 'Trust Model',
-
-  '-- tutorials': { type: 'separator', title: 'Tutorials' },
   'solidity-import': 'Import Solidity',
-  'getting-started': 'Getting Started',
-  'first-contract': 'Your First Contract',
+  'first-contract': 'Write in Verity',
+  guarantees: 'Guarantees & limits',
 
-  '-- howto': { type: 'separator', title: 'How-To Guides' },
-  guides: 'Guides',
-
-  '-- reference': { type: 'separator', title: 'Reference' },
+  '-- reference': { type: 'separator', title: 'Reference & agent access' },
+  agents: 'Agent Access',
   'solidity-import-reference': 'Solidity Importer',
+  'getting-started': 'Setup',
+  guides: 'Guides',
   examples: 'Examples Gallery',
   core: 'Core',
   edsl: 'EDSL Reference',
@@ -24,9 +19,9 @@ export default {
   diagnostics: 'Diagnostics',
   verification: 'Verification Status',
   glossary: 'Glossary',
-
-  '-- explanation': { type: 'separator', title: 'Explanation' },
+  architecture: 'Architecture Overview',
+  'trust-model': 'Trust Model',
   reentrancy: 'Reentrancy Model',
   'proof-techniques': 'Proof Techniques',
   faq: 'FAQ',
-};
+}

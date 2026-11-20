@@ -90,17 +90,17 @@ lake exe verity-compiler [options]
 --link <path>           Link external Yul library (repeatable)
 -o, --output <dir>      Output directory (default: artifacts/yul)
 --abi-output <dir>      Output ABI JSON artifacts
---backend-profile <p>   semantic (default) | solidity-parity-ordering
+--backend-profile <p>   semantic (default) | solidity-parity-ordering | solidity-parity
 --mapping-slot-scratch-base <n>   Scratch memory base for mappingSlot
 -v, --verbose
 --help
 ```
 
-Patch-enabled generation lives in `verity-compiler-patched`:
+Patch passes are built into the single `verity-compiler` binary (on by default in the `certifiedOptimized` profile):
 
 ```bash
-lake exe verity-compiler-patched --backend-profile solidity-parity
-lake exe verity-compiler-patched --enable-patches --patch-report artifacts/patch-report.tsv
+lake exe verity-compiler --backend-profile solidity-parity
+lake exe verity-compiler --enable-patches --patch-report artifacts/patch-report.tsv
 ```
 
 ## Common errors

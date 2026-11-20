@@ -1,0 +1,39 @@
+---
+title: Agent access
+description: Every machine-readable surface of the Verity docs — raw Markdown per page, the llms index, the operational skill file and the JSON API — with inputs and expected outputs.
+---
+
+# Agent access
+
+All surfaces below are static or generated from the same MDX sources as the rendered site, so a fetched Markdown page never diverges from the HTML a human sees.
+
+## Raw Markdown per page
+
+Append `.md` to any docs URL: `https://veritylang.com/solidity-import.md` returns the page's raw Markdown (`Content-Type: text/markdown`). LLM user agents and `Accept: text/markdown` or `text/plain` negotiation receive Markdown without the suffix.
+
+## Discovery files
+
+| URL | What it contains |
+|---|---|
+| [`/llms.txt`](/llms.txt) | Compact agent index: common tasks, quick facts generated from the repository at build time, trust-boundary summary and the full documentation index. |
+| [`/llms-full.txt`](/llms-full.txt) | All documentation pages concatenated as Markdown. |
+| [`/skill.md`](/skill.md) | Operational workflow: how to import, author, port, prove specs and audit trust in this repository. |
+| `/verification-status.txt` | The rendered theorem/proof status inventory from `docs/VERIFICATION_STATUS.md`. |
+
+Aliases under `/.well-known/`: [`/.well-known/llms.txt`](/.well-known/llms.txt), `/.well-known/llms-full.txt`, `/.well-known/skill.md`, `/.well-known/agent-skills`.
+
+## JSON API
+
+- `GET /api/docs/_index` — list of every docs page with `path`, `url`, `html_url` and `markdown_url`.
+- `GET /api/docs/_all` — every page concatenated as Markdown.
+- `GET /api/docs/<path>` — one page's raw Markdown (extension optional).
+- `GET /api/agent-skills` — skill discovery index pointing at `/skill.md`.
+- `GET /` with `Accept: application/json` — site descriptor with repository and docs links.
+
+Every response carries `Link` headers (`</llms.txt>; rel="llms-txt"`, `</llms-full.txt>; rel="llms-full-txt"`, `</skill.md>; rel="agent-skill"`), `X-Llms-Txt`, `X-Llms-Full-Txt` and `X-Agent-Skill`.
+
+## Start here
+
+1. Fetch [`/llms.txt`](/llms.txt) for orientation.
+2. For verification work, read the [Solidity importer quickstart](/solidity-import.md) and its [reference](/solidity-import-reference.md), or the [native authoring tutorial](/first-contract.md).
+3. Before quoting a guarantee, check [Guarantees & limits](/guarantees.md) and the [trust model](/trust-model.md).

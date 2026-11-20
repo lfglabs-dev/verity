@@ -55,7 +55,7 @@ See the [Linking External Libraries](/guides/linking-libraries) guide.
 The CLI emits machine-readable audit artifacts alongside Yul/ABI:
 
 - `--trust-report <path>`, proof-boundary and assumption data.
-- `--assumption-report <path>`, flattened assumption inventory grouped by contract and usage site. Direct assembly-shaped primitives without any `local_obligations [...]` fail closed.
+- `--assumption-report <path>`, flattened assumption inventory grouped by contract and usage site. Pair it with `--deny-axiomatized-primitives` to fail closed on direct assembly-shaped primitives that carry no `local_obligations [...]`.
 - `--layout-report <path>`, resolved storage-slot metadata, alias writes, reserved-slot policy.
 - `--layout-compat-report <path>`, baseline vs candidate layout compatibility for upgrade reviews. Pair with `--deny-layout-incompatibility` to fail closed on incompatible upgrades.
 
@@ -73,7 +73,7 @@ For proof-strict builds, deny flags lock down the trust surface. Each one fails 
 | `--deny-runtime-introspection` | Runtime calldata/returndata size and memory introspection |
 | `--deny-proxy-upgradeability` | `delegatecall` and proxy upgrade patterns |
 | `--deny-layout-incompatibility` | Candidate storage layout breaks baseline (paired with `--layout-compat-report`) |
-| `--deny-unsafe` | Catch-all: any of the above categories trips the build |
+| `--deny-unsafe` | Any `unsafe "reason" do` block (the escape hatch that suppresses restricted-op gating); the other categories above need their own flag |
 
 Intrinsic users should also set `--target-fork <cancun|prague|osaka>`.
 `fusaka` is accepted as an alias for Osaka, Ethereum's execution-layer half of
@@ -85,40 +85,27 @@ See [Glossary](/glossary) for one-line definitions of each report.
 
 ## Example: SimpleStorage
 
-**EDSL** (`Contracts/SimpleStorage/SimpleStorage.lean`):
+**EDSL** (`Contracts/SimpleStorage/SimpleStorage.lean`, written in the `verity_contract` surface):
 
 ```verity
-def storedData : StorageSlot Uint256 := ⟨0⟩
+verity_contract SimpleStorage where
+  storage
+    storedData : Uint256 := slot 0
 
-def store (value : Uint256) : Contract Unit := do
-  setStorage storedData value
+  function store (value : Uint256) : Unit := do
+    setStorage storedData value
 
-def retrieve : Contract Uint256 := do
-  getStorage storedData
+  function retrieve () : Uint256 := do
+    getStorage storedData
 ```
 
-**CompilationModel** (`Contracts/Specs.lean`):
+**CompilationModel** (`Contracts/Specs.lean`): the `verity_contract` macro generates `Contracts.SimpleStorage.spec`, which `allSpecs` registers:
 
 ```verity
-def simpleStorageSpec : CompilationModel := {
-  name := "SimpleStorage"
-  fields := [{ name := "storedData", ty := FieldType.uint256 }]
-  functions := [
-    { name := "store"
-      params := [{ name := "value", ty := ParamType.uint256 }]
-      returnType := none
-      body := [
-        Stmt.setStorage "storedData" (Expr.param "value"),
-        Stmt.stop
-      ]
-    },
-    { name := "retrieve"
-      params := []
-      returnType := some FieldType.uint256
-      body := [Stmt.return (Expr.storage "storedData")]
-    }
-  ]
-}
+def allSpecs : List CompilationModel := [
+  Contracts.SimpleStorage.spec,
+  -- …
+]
 ```
 
 **Generated Yul** (`artifacts/yul/SimpleStorage.yul`):

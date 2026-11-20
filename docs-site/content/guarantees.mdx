@@ -1,0 +1,45 @@
+---
+title: Guarantees & limits
+description: What Verity establishes at each step — importing, proving a stated property under assumptions, and certified compiled code — and what stays trusted. Shared by both journeys.
+---
+
+# Guarantees & limits
+
+Verity's rule: nothing is claimed beyond a machine-checked theorem. Both journeys — [importing Solidity](/solidity-import) and [writing contracts in Verity](/first-contract) — produce the same three kinds of claim, and conflating them is the most common reading mistake.
+
+## Claim 1 — "This function is in the model"
+
+**What it means.** `solidity_import` selected the function, lowered it without hitting an unsupported construct, and produced `model`, `covered` and `sourceDigest`. `denoteCovered true` says the model's instructions have explicit cases in the execution semantics (*Denote*).
+
+**What it does not mean.** No property has been stated. Import coverage is not a correctness claim, not a compiler-correctness proof, not gas accuracy and not bytecode equivalence.
+
+**What is trusted.** `solc`'s syntax tree and storage layout, and the importer's translation into the model.
+
+**Failure meaning.** A strict import that meets an unsupported construct stops without emitting a partial model and reports the exact file, line, column and call path. That is a modeling boundary, not evidence of a contract bug.
+
+## Claim 2 — "The model satisfies the stated property, under stated assumptions"
+
+**What it means.** A theorem you write about the model (for example, the [7/8 boundary in the quickstart](/solidity-import#3-state-a-property-and-check-it)) is checked by the Lean kernel. Given the hypotheses — the oracle, the initial state, the modeled fragment — the conclusion holds for exactly the inputs you quantified.
+
+**What it does not mean.** The property of the *original source* beyond the import's trust basis, behavior outside the modeled fragment, or properties you did not state. Concrete-input proofs (like the two `decide` examples) cover two inputs, not all values.
+
+**What is trusted.** The Lean 4 kernel reduces every proof to kernel-checked terms. The oracle and the `Denote` execution semantics frame what "running the model" means.
+
+**Failure meaning.** A failed proof means the stated property, the state shape or the assumed fragment is wrong for the code — or the property is false. See [debugging proofs](/guides/debugging-proofs).
+
+## Claim 3 — "The compiled code matches the source semantics"
+
+**What it means (native path).** For contracts written in Verity, two compiler theorems are proved generically for the supported fragment: `CompilationModel → IR` ([`Compiler/Proofs/IRGeneration/Contract.lean`](https://github.com/lfglabs-dev/verity/blob/main/Compiler/Proofs/IRGeneration/Contract.lean)) and `IR → Yul` preservation (`Compiler/Proofs/YulGeneration/`), with the dispatcher bridge as an explicit hypothesis.
+
+**What it does not mean.** The final Yul-to-bytecode step is delegated to `solc --strict-assembly`, and the EVM runtime sits outside the proof envelope. For *imported* functions there is currently no compiler-correctness witness at all: `compilerProof unavailable` is the expected report line, and agreement between Solidity, model and compiled Yul is only sampled by differential tests.
+
+**What is trusted.** The Lean kernel, `solc`, the EVM specification, and the deployment toolchain — plus named ECM and `local_obligation` assumptions surfaced by `--trust-report`.
+
+## Where the detailed accounting lives
+
+- [Trust model](/trust-model) — the Layer 1/2/3 framing, axioms (currently zero active project-level axioms) and assumptions.
+- [Capabilities & limits](/capabilities) — which Solidity and EDSL constructs are in the verified fragment today.
+- [Verification status](/verification) — the live theorem and proof inventory.
+- [`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/AXIOMS.md) and [`TRUST_ASSUMPTIONS.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) — the authoritative registries.
+
+Every compiler build can export its own view: `--trust-report`, `--assumption-report`, `--layout-report`, `--layout-compat-report`, and the `--deny-*` flags that fail a build closed on a specific assumption category (see the [compiler reference](/compiler)).

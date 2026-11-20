@@ -14,8 +14,10 @@ needs a flattened view rather than the structured proof-boundary report.
 
 ### CompilationModel
 
-The typed-IR layer between the EDSL and Yul, defined in
-`Compiler/CompilationModel.lean`. A `CompilationModel` value carries fields,
+The typed-IR layer between the EDSL and Yul. The structure is declared in
+`Verity/Core/Model/Types.lean` (namespace `Compiler.CompilationModel`) and
+re-exported by the `Compiler/CompilationModel.lean` facade. A
+`CompilationModel` value carries fields,
 events, errors, the constructor, function bodies as `Expr`/`Stmt`, externals,
 and local obligations. It is the declarative input the Verity compiler
 consumes to produce IR, Yul, ABI, and trust artifacts.
@@ -29,13 +31,14 @@ success path and the failure path without introducing axioms.
 
 ### ContractState
 
-The EVM-shaped state model used by EDSL contracts. Carries six persistent
-storage spaces (uint256, address, address-keyed mapping, uint256-keyed
-mapping, double mapping, dynamic arrays), EIP-1153 transient storage, the
-transaction context (`sender`, `thisAddress`, `msgValue`, `selfBalance`,
-`blockTimestamp`, `blockNumber`, `chainId`, `blobBaseFee`), calldata,
-memory, tracked `knownAddresses` per slot for conservation proofs, and
-an append-only `events` log.
+The EVM-shaped state model used by EDSL contracts. Backed by a single
+`storageWords` map with six persistent storage views over it (uint256,
+address, address-keyed mapping, uint256-keyed mapping, double mapping,
+dynamic arrays), EIP-1153 transient storage, the transaction context
+(`sender`, `thisAddress`, `msgValue`, `selfBalance`, `blockTimestamp`,
+`blockNumber`, `chainId`, `blobBaseFee`), calldata, memory, tracked
+`knownAddresses` per slot for conservation proofs, and an append-only
+`events` log.
 
 ### Differential test
 
@@ -96,8 +99,9 @@ A `verity_contract` block declaring external Yul helpers the EDSL can call
 via `externalCall`. Declarations populate `spec.externals` with assumed
 foreign signatures so the compiler's `Expr.externalCall` validation works
 from the macro surface. The bodies are spliced in at compile time via
-`--link`. Currently restricted to single-word arguments and at most one
-return.
+`--link`. Arguments may also forward `Array<wordLike>`/`Bytes` parameters;
+multiple returns are supported through `tryExternalCall`/`callResult`
+(value-position `externalCall` still expects exactly one word).
 
 ### local_obligations
 

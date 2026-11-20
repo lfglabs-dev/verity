@@ -60,7 +60,7 @@ verity_contract SafeCounter where
 
   function increment () : Unit := do
     let current ← getStorage count
-    let newCount ← requireSomeUint (safeAdd current 1) "Overflow"
+    let newCount ← requireSomeUint (safeAdd current 1) "Overflow in increment"
     setStorage count newCount
 ```
 
@@ -68,7 +68,7 @@ Proofs cover overflow/underflow revert and bounds preservation.
 
 ## Owned
 
-Access control with an owner address and a `require` guard. `onlyOwner` is a same-contract helper that any function can call directly.
+Access control with an owner address and a `require` guard. `transferOwnership` inlines the ownership check; `onlyOwner` also exists as a namespace-level Lean helper (`def onlyOwner : Contract Unit` under `namespace Owned`) that Lean-side code can reuse.
 
 ```verity
 verity_contract Owned where
@@ -78,13 +78,10 @@ verity_contract Owned where
   constructor (initialOwner : Address) := do
     setStorageAddr owner initialOwner
 
-  function onlyOwner () : Unit := do
+  function transferOwnership (newOwner : Address) : Unit := do
     let sender       ← msgSender
     let currentOwner ← getStorageAddr owner
     require (sender == currentOwner) "Caller is not the owner"
-
-  function transferOwnership (newOwner : Address) : Unit := do
-    onlyOwner
     setStorageAddr owner newOwner
 ```
 
@@ -101,7 +98,9 @@ verity_contract OwnedCounter where
     count : Uint256 := slot 1
 
   function increment () : Unit := do
-    onlyOwner
+    let sender       ← msgSender
+    let currentOwner ← getStorageAddr owner
+    require (sender == currentOwner) "Caller is not the owner"
     let current ← getStorage count
     setStorage count (add current 1)
 ```
@@ -122,17 +121,16 @@ verity_contract Ledger where
     let currentBalance ← getMapping balances sender
     setMapping balances sender (add currentBalance amount)   -- EVM modular arithmetic
 
-  function transfer (to : Address) (amount : Uint256) : Unit := do
+  function transfer (toAddr : Address, amount : Uint256) : Unit := do
     let sender        ← msgSender
     let senderBalance ← getMapping balances sender
     require (senderBalance >= amount) "Insufficient balance"
-    if sender == to then
+    if sender == toAddr then
       pure ()
     else
-      let recipientBalance    ← getMapping balances to
-      let newRecipientBalance ← requireSomeUint (safeAdd recipientBalance amount) "Recipient balance overflow"
+      let recipientBalance ← getMapping balances toAddr
       setMapping balances sender (sub senderBalance amount)
-      setMapping balances to newRecipientBalance
+      setMapping balances toAddr (add recipientBalance amount)
 ```
 
 Proofs cover balance guards, deposit/withdraw/transfer sum equations, and deposit-withdraw cancellation.
@@ -144,34 +142,36 @@ Composes Owned and Ledger. Adds owner-controlled minting and supply tracking.
 ```verity
 verity_contract SimpleToken where
   storage
-    owner       : Address := slot 0
-    balances    : Address → Uint256 := slot 1
-    totalSupply : Uint256 := slot 2
+    ownerSlot       : Address := slot 0
+    balancesSlot    : Address → Uint256 := slot 1
+    totalSupplySlot : Uint256 := slot 2
 
   constructor (initialOwner : Address) := do
-    setStorageAddr owner initialOwner
-    setStorage totalSupply 0
+    setStorageAddr ownerSlot initialOwner
+    setStorage totalSupplySlot 0
 
-  function mint (to : Address) (amount : Uint256) : Unit := do
-    onlyOwner
-    let currentBalance ← getMapping balances to
+  function mint (toAddr : Address, amount : Uint256) : Unit := do
+    let sender       ← msgSender
+    let currentOwner ← getStorageAddr ownerSlot
+    require (sender == currentOwner) "Caller is not the owner"
+    let currentBalance ← getMapping balancesSlot toAddr
     let newBalance     ← requireSomeUint (safeAdd currentBalance amount) "Balance overflow"
-    let currentSupply  ← getStorage totalSupply
+    let currentSupply  ← getStorage totalSupplySlot
     let newSupply      ← requireSomeUint (safeAdd currentSupply amount) "Supply overflow"
-    setMapping balances to newBalance
-    setStorage totalSupply newSupply
+    setMapping balancesSlot toAddr newBalance
+    setStorage totalSupplySlot newSupply
 
-  function transfer (to : Address) (amount : Uint256) : Unit := do
+  function transfer (toAddr : Address, amount : Uint256) : Unit := do
     let sender        ← msgSender
-    let senderBalance ← getMapping balances sender
+    let senderBalance ← getMapping balancesSlot sender
     require (senderBalance >= amount) "Insufficient balance"
-    if sender == to then
+    if sender == toAddr then
       pure ()
     else
-      let recipientBalance    ← getMapping balances to
+      let recipientBalance    ← getMapping balancesSlot toAddr
       let newRecipientBalance ← requireSomeUint (safeAdd recipientBalance amount) "Recipient balance overflow"
-      setMapping balances sender (sub senderBalance amount)
-      setMapping balances to newRecipientBalance
+      setMapping balancesSlot sender (sub senderBalance amount)
+      setMapping balancesSlot toAddr newRecipientBalance
 ```
 
 Proofs cover mint/transfer correctness, supply conservation equations, and storage isolation across all three slot types.
@@ -214,12 +214,12 @@ Two parallel bank contracts, one vulnerable, one safe, demonstrating that reentr
 -- Vulnerable: external call before state update
 -- Modeled by subtracting totalSupply twice, balance once
 theorem vulnerable_attack_exists :
-  ∃ (s : ContractState),
-    s.storageMap balances.slot "attacker" = (Verity.EVM.MAX_UINT256 : Uint256) ∧
+  ∃ (s : ContractState) (env : Verity.Env),
+    s.storageMap balances.slot 0xA77AC = (Verity.EVM.MAX_UINT256 : Uint256) ∧
     s.storage totalSupply.slot = (Verity.EVM.MAX_UINT256 : Uint256) ∧
-    supplyInvariant s ["attacker"] ∧
-    let s' := (withdraw (Verity.EVM.MAX_UINT256 : Uint256)).runState s;
-    ¬ supplyInvariant s' ["attacker"]
+    supplyInvariant s [0xA77AC] ∧
+    let s' := (withdrawWithEnv env (Verity.EVM.MAX_UINT256 : Uint256)).runState s;
+    ¬ supplyInvariant s' [0xA77AC]
 
 -- Safe: state update before external call
 -- The supply invariant is universally provable
@@ -227,7 +227,8 @@ theorem withdraw_maintains_supply (amount : Uint256) :
   ∀ (s : ContractState),
     supplyInvariant s [s.sender] →
     s.storageMap balances.slot s.sender ≥ amount →
-    supplyInvariant ((withdraw amount).runState s) [s.sender]
+    let s' := (withdraw amount).runState s;
+    supplyInvariant s' [s.sender]
 ```
 
 Proofs cover: existential attack witness (vulnerability is provably exploitable), universal safety proof (safe version preserves invariant), and deposit invariant preservation.
@@ -238,8 +239,8 @@ Unverified example demonstrating external library linking via the [Linker](/comp
 
 ```verity
 -- Placeholder hash for proofs (replaced with real Poseidon at compile time)
-def hashTwo (a b : Uint256) : Contract Uint256 := do
-  return add a b
+def hashTwo (a b : Uint256) : Contract Uint256 := fun s =>
+  ContractResult.success ((Verity.Env.ofWorld s).callOracle "PoseidonT3_hash" [a, b]) s
 
 -- Store hash of two values
 def storeHashTwo (a b : Uint256) : Contract Unit := do
@@ -247,7 +248,7 @@ def storeHashTwo (a b : Uint256) : Contract Unit := do
   setStorage lastHash h
 ```
 
-The EDSL uses a placeholder function (`add`) for the hash. At compile time, the [Linker](/guides/linking-libraries) replaces the compiled output with a call to the real Poseidon library via `Expr.externalCall` in the CompilationModel layer.
+The EDSL uses a placeholder function (an oracle call stub, `callOracle "PoseidonT3_hash"`) for the hash. At compile time, the [Linker](/guides/linking-libraries) replaces the compiled output with a call to the real Poseidon library via `Expr.externalCall` in the CompilationModel layer.
 
 Source: [`Contracts/CryptoHash/Contract.lean`](https://github.com/lfglabs-dev/verity/blob/main/Contracts/CryptoHash/Contract.lean)
 

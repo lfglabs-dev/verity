@@ -13,23 +13,25 @@ Counts are theorems in each module. Read the actual statements in [`Contracts/<N
 
 | Contract | Basic | Correctness | Conservation / Supply | Isolation | Native | Total |
 |----------|-------|-------------|----------------------|-----------|--------|-------|
-| SimpleStorage | 13 | 7 |, |, |, | 20 |
-| Counter | 19 | 9 |, |, |, | 28 |
-| SafeCounter | 20 | 8 |, |, |, | 28 |
-| Owned | 19 | 4 |, |, |, | 23 |
-| Ownable (mixin) | 6 | — |, |, |, | 6 |
-| OwnedCounter | 33 | 6 |, | 14 |, | 53 |
-| OwnedCounterComposed | 6 | — |, |, |, | 6 |
-| Ledger | 24 | 6 | 7 (conservation) |, |, | 37 |
-| SimpleToken | 40 | 10 | 6 (supply) | 12 |, | 68 |
-| ERC20 | 15 | 7 |, |, | 3 | 25 |
-| ERC721 | 6 | 5 |, |, |, | 11 |
-| Vault (ERC-4626) | scaffold | scaffold | scaffold |, | 3 | 3 |
+| SimpleStorage | 13 | 7 | — | — | — | 20 |
+| Counter | 33 | 9 | — | — | — | 42 |
+| SafeCounter | 20 | 8 | — | — | — | 28 |
+| Owned | 19 | 4 | — | — | — | 23 |
+| Ownable (mixin) | 7 | — | — | — | — | 7 |
+| OwnedCounter | 33 | 6 | — | 14 | — | 70 |
+| OwnedCounterComposed | 6 | — | — | — | — | 6 |
+| Ledger | 26 | 6 | 7 (conservation) | — | — | 39 |
+| SimpleToken | 40 | 10 | 6 (supply) | 12 | — | 68 |
+| ERC20 | 19 | 7 | — | — | 3 | 29 |
+| ERC721 | 6 | 5 | — | — | — | 11 |
+| Vault (ERC-4626) | placeholder (0) | 6 | 15 | — | 3 | 24 |
 | ReentrancyExample | 5 inline (vulnerability witness + safety proofs) | | | | | 5 |
+
+OwnedCounter's total includes 17 theorems in `Proofs/StorageCoherence.lean` (mapping-key coherence), which has no column above.
 
 The **Native** column counts theorems that pin the IR / Yul lowering to the EVMYulLean-bridged backend (`Contracts/<Name>/Proofs/Native.lean`).
 
-Vault carries a verified surface spec and full IR-lowering coverage; the spec-level Basic/Correctness/Conservation proofs are intentionally scaffold (issue [#1163](https://github.com/lfglabs-dev/verity/issues/1163)).
+Vault carries a verified surface spec and full IR-lowering coverage; the spec-level Correctness (6 theorems) and Conservation (15 theorems) are proved, while the Basic proof module remains an intentional placeholder (issue [#1163](https://github.com/lfglabs-dev/verity/issues/1163)).
 
 ## Stdlib
 
@@ -37,16 +39,16 @@ Reusable proof infrastructure in `Verity/Proofs/Stdlib/`:
 
 | Module | Theorems | What it covers |
 |--------|----------|----------------|
-| `Math` | ~148 | `safeAdd/Sub/Mul/Div`, `mulDivDown/Up`, `wMulDown/wDivUp`, full-precision `mulDiv512Down?/Up?`, `SNARK_SCALAR_FIELD` / `modField` |
-| `Automation` | ~108 | Full-result and `runState`/`runValue` lemmas for storage, address storage, context, events, require |
+| `Math` | ~212 | `safeAdd/Sub/Mul/Div`, `mulDivDown/Up`, `wMulDown/wDivUp`, full-precision `mulDiv512Down?/Up?`, `SNARK_SCALAR_FIELD` / `modField` |
+| `Automation` | ~124 | Full-result and `runState`/`runValue` lemmas for storage, address storage, context, events, require |
 | `MappingAutomation` | ~48 | Mapping, uint-keyed mapping, double-mapping automation |
-| `ListSum` | ~8 | Sum reasoning for conservation proofs (`countOcc`, `balanceSum`) |
+| `ListSum` | ~8 | Sum reasoning for conservation proofs (`countOcc`, `sumBalances`) |
 
 ## Compiler proofs
 
 - **Generic whole-contract Layer 2 theorem**: `Compiler/Proofs/IRGeneration/Contract.lean`, `CompilationModel.compile` correctness for the supported fragment.
 - **End-to-end**: `Compiler/Proofs/EndToEnd.lean`.
-- **Typed IR**: `Compiler/TypedIRCompilerCorrectness.lean`, 36 supported statement fragments including ABI-head tuples, bytes, fixed/dynamic arrays, and strings as word-typed inputs.
+- **Typed IR**: `Compiler/TypedIRCompilerCorrectness.lean`, the supported statement fragment grammar (ABI-head tuples, bytes, fixed/dynamic arrays, and strings as word-typed inputs).
 - **Yul semantics + preservation**: `Compiler/Proofs/YulGeneration/`, with an EVMYulLean-bridged native backend in `Compiler/Proofs/YulGeneration/Backends/`.
 
 The Layer 2 `forEach` boundary is intentionally narrow: the generic theorem covers `Stmt.forEach varName (.literal 0) body` when `body` is supported, and `Stmt.forEach varName (.literal n) []` for any literal natural bound `n`. It does not yet prove positive loops with non-empty bodies or nonliteral bounds.

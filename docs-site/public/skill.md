@@ -61,7 +61,7 @@ Primary docs:
 - `lake build` verifies Lean proofs.
 - Use compiler report flags for trust-sensitive changes: `--trust-report`, `--assumption-report`, `--layout-report`, and `--layout-compat-report`.
 - Use deny flags to fail closed in CI or release builds. `--deny-unsafe` is the broad catch-all.
-- Cross-check trust reports against `AXIOMS.md` and `/trust-model.md`.
+- Cross-check trust reports against `AXIOMS.md`, `/trust-model.md`, and `/guarantees.md` (what importing, a stated proof, and compiled-code certification each establish).
 
 ## Useful Agent URLs
 

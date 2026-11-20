@@ -77,7 +77,8 @@ dynamic / composite returndata is rejected. Lowers to
 
 Declare contract interfaces in an `interfaces` block, then use an interface name
 as a parameter type. Interface-typed parameters erase to `Address` in the ABI;
-dot calls lower to `Compiler.Modules.Calls.withReturnModule`.
+non-`view` dot calls lower to `Compiler.Modules.Calls.withReturnModule`, `view`
+dot calls to `Compiler.Modules.Oracle.typedReadWordSummaryModule`.
 
 ```verity
 interfaces
@@ -91,8 +92,10 @@ function readBalance (token : IERC20, owner : Address) : Uint256 := do
 ```
 
 Limits: interface function parameters are declared as ABI types (not named);
-declarations use an explicit `end` terminator; exactly one return value is
-supported; `view` calls lower to `staticcall`, non-`view` to `call`.
+declarations use an explicit `end` terminator; `view` calls return exactly one
+static word (oracle summary), non-`view` calls may bind static composite
+returns; dynamic return types are rejected. `view` calls lower to
+`staticcall`, non-`view` to `call`.
 
 ## External Callable Modules (ECMs)
 
@@ -120,11 +123,12 @@ a same-named function with matching arity, the helper form is rejected.
 
 ### ERC-4626 vault helpers
 
-Twelve ECMs share one template (ABI-encode selector + static args, `staticcall`
-or `call`, expect one 32-byte word): `previewDeposit`, `previewMint`,
-`previewWithdraw`, `previewRedeem`, `convertToAssets`, `convertToShares`,
-`totalAssets`, `asset`, `maxDeposit`, `maxMint`, `maxWithdraw`, `maxRedeem`, and
-`deposit`. `asset` masks the returned word to 160 bits; `deposit` uses `call`.
+Thirteen ECM helpers share two templates (ABI-encode selector + static args,
+`staticcall` for reads or `call` for writes, expect one 32-byte word):
+`previewDeposit`, `previewMint`, `previewWithdraw`, `previewRedeem`,
+`convertToAssets`, `convertToShares`, `totalAssets`, `asset`, `maxDeposit`,
+`maxMint`, `maxWithdraw`, `maxRedeem`, and `deposit`. `asset` masks the returned
+word to 160 bits and is special-cased; `deposit` uses `call`.
 Each records an `erc4626_<name>_interface` trust-report assumption.
 
 ### Precompiles and hashing
