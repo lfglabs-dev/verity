@@ -7,6 +7,29 @@ contract NarrowStackWords {
 
     uint8 public constant narrowConstant = uint8(uint256(257));
 
+    function payableCopy(uint256 x) external pure returns (uint256 word) {
+        address payable a = payable(address(uint160(x)));
+        address b = a;
+        assembly { word := b }
+    }
+
+    function rawBytes(uint256 x) internal pure returns (bytes4 b) {
+        assembly { b := x }
+    }
+
+    function invertedBytes(uint256 x) external pure returns (uint256 word) {
+        bytes4 b = ~rawBytes(x);
+        assembly { word := b }
+    }
+
+    function shiftUntilZero(uint8 a) external pure returns (uint256 n) {
+        uint8 b = a;
+        while (b != 0) { ++n; b >>= 1; }
+    }
+
+    error WideError(uint256 argument);
+    function widenedError(uint8 a) external pure { revert WideError(a); }
+
     function constantCopy() external pure returns (uint256 word) {
         uint8 a = narrowConstant;
         assembly { word := a }

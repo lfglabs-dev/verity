@@ -30,6 +30,10 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function descendingWords(uint256)
   function narrowConstant()
   function constantCopy()
+  function payableCopy(uint256)
+  function invertedBytes(uint256)
+  function shiftUntilZero(uint8)
+  function widenedError(uint8)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -57,6 +61,10 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function descendingWords(uint256)
   function narrowConstant()
   function constantCopy()
+  function payableCopy(uint256)
+  function invertedBytes(uint256)
+  function shiftUntilZero(uint8)
+  function widenedError(uint8)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -107,6 +115,20 @@ private def observesWords (model : CompilationModel) (name : String) (args words
       { sender := 1, functionSelector := 0, args } Verity.defaultState
     r.success && r.returnWords == words
 
+#guard observes legacy.model "payableCopy" [2 ^ 160 + 257] (2 ^ 160 + 257)
+#guard observes ir.model "payableCopy" [2 ^ 160 + 257] 257
+#guard observes legacy.model "invertedBytes" [1] (2 ^ 256 - 2)
+#guard observes ir.model "invertedBytes" [1] (0xffffffff * 2 ^ 224)
+#guard observes legacy.model "shiftUntilZero" [5] 3
+#guard observes ir.model "shiftUntilZero" [5] 3
+#guard [legacy.model, ir.model].all fun m =>
+  match m.functions.find? (·.name == "widenedError") with
+  | none => false
+  | some f =>
+    let r := Denote.denoteFunction SolidityImport.Differential.oracle m f
+      { sender := 1, functionSelector := 0, args := [17] } Verity.defaultState
+    !r.success && r.revertData == some
+      ([0x40, 0x61, 0x3a, 0x9f] ++ List.replicate 31 (0 : UInt8) ++ [17])
 #guard observes legacy.model "narrowConstant" [] 1
 #guard observes ir.model "narrowConstant" [] 1
 #guard observes legacy.model "constantCopy" [] 257

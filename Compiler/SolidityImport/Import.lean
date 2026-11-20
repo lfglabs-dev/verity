@@ -2472,6 +2472,8 @@ private def argumentAt (call : Json) (i : Nat) : M Json := do
 private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := do
   let argTy := if argTy.endsWith " storage ref" then (argTy.dropEnd 12).toString else argTy
   if argTy == paramTy then return v
+  let addressLike (ty : String) := ty == "address" || ty == "address payable" || ty.startsWith "contract "
+  if !(← get).viaIR && addressLike argTy && addressLike paramTy then return v
   let v := { v with expr := cleanHelperResultExpr argTy v }
   -- A string literal reaches here already lowered to its left-aligned word by
   -- `fixedBytesStringLiteral?` (`lowerExpr` rejects string literals).
@@ -3208,14 +3210,12 @@ private partial def lowerExpr (j : Json) : M Val := do
             failAt j s!"bitwise negation operand type {subTy} does not match {jTy}"
           let v ← lowerExpr sub
           let a ← atom v
-          if (signedBitsOf jTy).isSome || jTy.startsWith "uint" then
+          if (signedBitsOf jTy).isSome || jTy.startsWith "uint" || jTy == "bytes4" then
             let inverted := { a with expr := Expr.bitNot a.expr }
             return if (← get).viaIR then { inverted with expr := cleanHelperResultExpr jTy inverted }
               else inverted
           if jTy == "bytes32" then
             pure { pre := a.pre, expr := .bitNot a.expr }
-          else if jTy == "bytes4" then
-            pure { pre := a.pre, expr := .bitAnd (.bitNot a.expr) (.literal ((2 ^ 32 - 1) * 16 ^ 56)) }
           else
             failAt j s!"unsupported bitwise negation type {jTy}"
         else
@@ -4891,6 +4891,10 @@ private partial def signedModulo (left right : Val) : M Val := do
          expr := .localVar dest }
 
 private partial def cmp (op : Expr → Expr → Expr) (left right : Val) : M Val := do
+  -- A comparison of pure words (including cleanup masks) is itself pure.
+  -- In particular a while guard must reevaluate these expressions each iteration.
+  if left.pre.isEmpty && right.pre.isEmpty then
+    return { pre := #[], expr := op left.expr right.expr }
   let a ← atom left
   let b ← atom right
   pure { pre := a.pre ++ b.pre, expr := op a.expr b.expr }
@@ -15117,7 +15121,8 @@ private partial def lowerErrorArgumentsForDecl (callee declaration : Json) (argu
               failAt argument "custom-error arguments currently require literals or scalar bindings"
             pure false
       | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
-    let rawConverted ← convert ty (← mType argument) (← lowerExpr argument) argument
+    let source ← lowerExpr argument
+    let rawConverted ← convert ty (← mType argument) source argument
     let converted : Val :=
       if isDirectScalar then
         rawConverted
@@ -15125,9 +15130,9 @@ private partial def lowerErrorArgumentsForDecl (callee declaration : Json) (argu
         | some n => { pre := #[], expr := .literal n }
         | none => rawConverted
     if isDirectScalar then
-      let isScalarBinding := match converted.expr with
+      let isScalarBinding := match source.expr with
         | .localVar _ => true
-        | _ => isOrderIndependentSibling converted.expr
+        | _ => isOrderIndependentSibling source.expr
       unless converted.pre.isEmpty && isScalarBinding do
         failAt argument "custom-error arguments currently require literals or scalar bindings"
     if !isDirectScalar then
