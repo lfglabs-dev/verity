@@ -77,6 +77,16 @@ contract NarrowStackWords {
         widened = uint256(w);
     }
 
+    function rawPayable(uint256 x) internal pure returns (address payable p) {
+        assembly { p := x }
+    }
+
+    function addressChoice(uint256 x, bool flag) external pure returns (uint256 word) {
+        address payable p = rawPayable(x);
+        address a = flag ? p : address(0);
+        assembly { word := a }
+    }
+
     function constantCopy() external pure returns (uint256 word) {
         uint8 a = narrowConstant;
         assembly { word := a }
