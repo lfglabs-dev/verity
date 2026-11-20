@@ -1841,8 +1841,7 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
       return .assignVar binding rhsVal.expr
     if let .bytesN byteW := scalarType then
       if 1 ≤ byteW && byteW < 32 then
-        let mask := (2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)
-        return .assignVar binding (.bitAnd rhsVal.expr (.literal mask))
+        return .assignVar binding rhsVal.expr
     -- Integer stack bindings retain the full word until a typed consumer.
     match scalarType with
     | .uint8 | .uintN _ | .intN _ => return .assignVar binding rhsVal.expr
@@ -4904,7 +4903,7 @@ private partial def lowerConditional (j : Json) : M Val := do
   let ty ← mType j
   let lowerArm (node : Json) : M Val := do
     let raw ← lowerExpr node
-    if ty.startsWith "uint" || (signedBitsOf ty).isSome then
+    if ty.startsWith "uint" || (signedBitsOf ty).isSome || (fixedBytesWidth? ty).isSome then
       convert ty (← mType node) raw node
     else pure raw
   let yes ← lowerArm (← mField j "trueExpression")
@@ -4986,6 +4985,7 @@ private partial def lowerCast (j : Json) : M Val := do
       let shifted := Stmt.letVar dest (.shl (.literal 248) (.bitAnd a.expr (.literal 0xff)))
       return { pre := a.pre.push shifted, expr := .localVar dest }
     else if src == "bytes32" || src == "bytes4" then
+      unless (← get).viaIR do return raw
       let a ← atom v
       let dest ← fresh
       let bound := Stmt.letVar dest (.bitAnd a.expr (.literal (0xff * 2 ^ 248)))
@@ -5016,6 +5016,7 @@ private partial def lowerCast (j : Json) : M Val := do
     if src == "bytes4" then
       return v
     else if src == "bytes32" then
+      unless (← get).viaIR do return raw
       let a ← atom v
       let dest ← fresh
       let bound := Stmt.letVar dest (.bitAnd a.expr (.literal ((2 ^ 32 - 1) * 16 ^ 56)))
@@ -5051,6 +5052,7 @@ private partial def lowerCast (j : Json) : M Val := do
     if src == "bytes12" then
       return v
     else if src == "bytes32" then
+      unless (← get).viaIR do return raw
       let a ← atom v
       let dest ← fresh
       let bound := Stmt.letVar dest (.bitAnd a.expr (.literal ((2 ^ 96 - 1) * 2 ^ 160)))
@@ -5076,6 +5078,7 @@ private partial def lowerCast (j : Json) : M Val := do
     if src == "bytes20" then
       return v
     else if src == "bytes32" then
+      unless (← get).viaIR do return raw
       let a ← atom v
       let dest ← fresh
       let bound := Stmt.letVar dest (.bitAnd a.expr (.literal ((2 ^ 160 - 1) * 2 ^ 96)))

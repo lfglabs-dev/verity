@@ -30,6 +30,23 @@ contract NarrowStackWords {
     error WideError(uint256 argument);
     function widenedError(uint8 a) external pure { revert WideError(a); }
 
+    function bytesCast(bytes32 x) external pure returns (uint256 word) {
+        bytes4 b = bytes4(x);
+        assembly { word := b }
+    }
+
+    function bytesLocal(uint256 x) external pure returns (uint256 word) {
+        bytes4 b;
+        assembly { b := x }
+        bytes4 q = ~b;
+        assembly { word := q }
+    }
+
+    function bytesChoice(uint256 x) external pure returns (bytes32) {
+        bytes4 b = ~bytes4(bytes32(x));
+        return x == 0 ? b : bytes32(x);
+    }
+
     function constantCopy() external pure returns (uint256 word) {
         uint8 a = narrowConstant;
         assembly { word := a }
