@@ -234,3 +234,15 @@ contract CalldataCopyAndCapture {
         return uint256(2) ** window(x, 0, e).length;
     }
 }
+
+library CalldataReceiver {
+    function take(bytes calldata x, uint256) internal pure returns (bytes calldata) { return x; }
+}
+
+contract ReceiverOrder {
+    using CalldataReceiver for bytes;
+    function window(bytes calldata x, uint256 e) private pure returns (bytes calldata) { return x[:e]; }
+    function nested(bytes calldata x, uint256 e, uint256 z) external pure returns (uint256) {
+        return window(x, e).take(1 / z).length;
+    }
+}
