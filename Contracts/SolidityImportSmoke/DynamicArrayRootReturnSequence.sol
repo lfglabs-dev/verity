@@ -77,6 +77,15 @@ contract SequenceFixture {
         return _run(v);
     }
 
+    // A forward in a non-tail branch; the other path falls through with the
+    // root's own named results.
+    function runBranch(uint256 v) external returns (bool ok, bytes memory data) {
+        if (v % 2 == 0) {
+            return _run(v);
+        }
+        data = abi.encodePacked(uint8(v));
+    }
+
     function _run(uint256 v) private returns (bool ok, bytes memory data) {
         total += v;
         require(v != 3, "run");
