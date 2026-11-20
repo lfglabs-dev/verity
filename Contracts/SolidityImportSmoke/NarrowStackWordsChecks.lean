@@ -31,6 +31,7 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function narrowConstant()
   function constantCopy()
   function addressChoice(uint256,bool)
+  function payableCasts(uint256)
   function bytesArrayOr(uint256)
   function returnedBytesLiteral()
   function returnedBytesTuple()
@@ -70,6 +71,7 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function narrowConstant()
   function constantCopy()
   function addressChoice(uint256,bool)
+  function payableCasts(uint256)
   function bytesArrayOr(uint256)
   function returnedBytesLiteral()
   function returnedBytesTuple()
@@ -133,6 +135,8 @@ private def observesWords (model : CompilationModel) (name : String) (args words
 
 #guard observes legacy.model "payableCopy" [2 ^ 160 + 257] (2 ^ 160 + 257)
 #guard observes ir.model "payableCopy" [2 ^ 160 + 257] 257
+#guard observesWords legacy.model "payableCasts" [2 ^ 160 + 257] [2 ^ 160 + 257, 2 ^ 160 + 257]
+#guard observesWords ir.model "payableCasts" [2 ^ 160 + 257] [257, 2 ^ 160 + 257]
 #guard observes legacy.model "addressChoice" [2 ^ 160 + 257, 1] (2 ^ 160 + 257)
 #guard observes ir.model "addressChoice" [2 ^ 160 + 257, 1] 257
 #guard observesWords legacy.model "bytesArrayOr" [257] [0, 2 ^ 224 + 257]
