@@ -47,6 +47,36 @@ contract NarrowStackWords {
         return x == 0 ? b : bytes32(x);
     }
 
+    function bytesArrayOr(uint256 x) external pure returns (uint256 elemWord, uint256 stackWord) {
+        bytes4 v;
+        assembly { v := x }
+        bytes4[] memory s = new bytes4[](1);
+        s[0] |= v;
+        bytes4 elem = s[0];
+        v |= 0x00000001;
+        assembly {
+            elemWord := elem
+            stackWord := v
+        }
+    }
+
+    function returnedBytesLiteral() external pure returns (bytes4) {
+        return 0x11223344;
+    }
+
+    function returnedBytesTuple() external pure returns (bytes4, uint256) {
+        return (0x11223344, 1);
+    }
+
+    function signedWidening(uint256 x) external pure returns (uint256 widened, uint256 rawCopy) {
+        int8 v = 0;
+        assembly { v := x }
+        int256 w = v;
+        int8 copy = v;
+        assembly { rawCopy := copy }
+        widened = uint256(w);
+    }
+
     function constantCopy() external pure returns (uint256 word) {
         uint8 a = narrowConstant;
         assembly { word := a }
