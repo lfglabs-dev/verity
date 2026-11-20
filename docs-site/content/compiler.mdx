@@ -159,7 +159,7 @@ constructor := some {
 
 **Statements** cover local variables, storage and mapping writes, `require`, `return`, memory writes, returndata copy and revert bubbling, `stop`, `ite` branching, event emission, internal calls, and a precisely scoped `forEach` fragment. The proved `forEach` cases are zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops; positive literal loops with non-empty bodies remain future proof work.
 
-Low-level calls, linear-memory primitives, `rawLog`, and `keccak256` compile but remain partially modeled in the proof interpreter. Functions or constructors that use direct assembly-shaped primitives without `localObligations [...]` fail closed under `--deny-axiomatized-primitives`.
+Low-level calls, linear-memory primitives, `rawLog`, and `keccak256` compile but remain partially modeled in the proof interpreter. Functions or constructors that use direct assembly-shaped primitives fail at compile time unless wrapped in `unsafe "reason" do` or given a `local_obligations [...]` entry; use `--deny-axiomatized-primitives` to also fail closed on keccak256-style primitive assumptions.
 
 **Internal functions** via source-level `internal` helpers, `isInternal := true`, and `Stmt.internalCall`; these helpers stay out of selector dispatch and ABI JSON, while helper-summary reuse is still being threaded into the generic body/IR theorem path. **Events** via the `events` block and `Stmt.emit` (topic0 computed from the event signature) are compiler-supported, with raw logs and richer ABI payload mechanics tracked as proof-boundary surfaces. **Double mappings** via `mapping2`/`setMapping2`; **uint256-keyed mappings**; **dynamic, fixed-size, and bytes array parameters** with ABI offset-based decoding.
 
