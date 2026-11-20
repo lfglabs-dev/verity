@@ -137,7 +137,18 @@ contract CalldataBytesHelperModifierUnsupported {
     function useMsgDataSliceInMod(uint256 v) external pure calldataMod(msg.data[4:]) returns (uint256) {
         return v;
     }
+
+    function ident(bytes calldata x) private pure returns (bytes calldata) { return x; }
+
+    function probe(uint256) external pure returns (bytes4) {
+        return bytes4(ident(msg.data[1:5]));
+    }
+
+    function probeCast(uint256) external pure returns (bytes4) {
+        return bytes4(ident(bytes(msg.data[1:5])));
+    }
 }
+
 contract CalldataCopyAndCapture {
     function window(bytes calldata x, uint256 a, uint256 b) private pure returns (bytes calldata) {
         return x[a:b];

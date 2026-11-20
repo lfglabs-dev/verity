@@ -7268,8 +7268,10 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
       -- `data[a:b]` passed to a helper: solc's range checks (plain empty
       -- reverts, not panics), then the `(offset, length)` pair as a calldata
       -- argument; a `bytes memory` parameter copies it at binding time.
-      let some (slicePre, offExpr, lenExpr, fromCalldata, _) ← lowerCalldataSlice? arg
+      let some (slicePre, offExpr, lenExpr, fromCalldata, isMsgData) ← lowerCalldataSlice? arg
         | failAt arg "unsupported calldata slice argument"
+      -- The ordinary bytes descriptor cannot represent reads spanning the selector.
+      if isMsgData then failAt arg "msg.data slices as helper arguments are unsupported"
       match fromCalldata, offExpr, lenExpr with
       | true, .localVar offBinding, .localVar lenBinding =>
           let desc : CalldataBytesParam :=
