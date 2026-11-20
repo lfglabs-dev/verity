@@ -36,6 +36,7 @@ const ROUTES = [
   '/verification',
   '/glossary',
   // Explanation
+  '/reentrancy',
   '/proof-techniques',
   '/faq',
 ]
