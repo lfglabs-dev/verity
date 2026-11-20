@@ -43,6 +43,8 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function invertedBytes(uint256)
   function shiftUntilZero(uint8)
   function widenedError(uint8)
+  function explicitWideError(uint8)
+  function constantError()
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -83,6 +85,8 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function invertedBytes(uint256)
   function shiftUntilZero(uint8)
   function widenedError(uint8)
+  function explicitWideError(uint8)
+  function constantError()
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -159,14 +163,21 @@ private def observesWords (model : CompilationModel) (name : String) (args words
 #guard observes ir.model "invertedBytes" [1] (0xffffffff * 2 ^ 224)
 #guard observes legacy.model "shiftUntilZero" [5] 3
 #guard observes ir.model "shiftUntilZero" [5] 3
-#guard [legacy.model, ir.model].all fun m =>
-  match m.functions.find? (·.name == "widenedError") with
+private def revertsWith (m : CompilationModel) (name : String) (args : List Nat)
+    (payload : List UInt8) : Bool :=
+  match m.functions.find? (·.name == name) with
   | none => false
   | some f =>
     let r := Denote.denoteFunction SolidityImport.Differential.oracle m f
-      { sender := 1, functionSelector := 0, args := [17] } Verity.defaultState
-    !r.success && r.revertData == some
-      ([0x40, 0x61, 0x3a, 0x9f] ++ List.replicate 31 (0 : UInt8) ++ [17])
+      { sender := 1, functionSelector := 0, args } Verity.defaultState
+    !r.success && r.revertData == some payload
+
+#guard [legacy.model, ir.model].all fun m => revertsWith m "widenedError" [17]
+  ([0x40, 0x61, 0x3a, 0x9f] ++ List.replicate 31 0 ++ [17])
+#guard [legacy.model, ir.model].all fun m => revertsWith m "explicitWideError" [17]
+  ([0x40, 0x61, 0x3a, 0x9f] ++ List.replicate 31 0 ++ [17])
+#guard [legacy.model, ir.model].all fun m => revertsWith m "constantError" []
+  ([0xc2, 0x76, 0x39, 0x44] ++ List.replicate 31 0 ++ [1])
 #guard observes legacy.model "narrowConstant" [] 1
 #guard observes ir.model "narrowConstant" [] 1
 #guard observes legacy.model "constantCopy" [] 257
@@ -198,5 +209,27 @@ private def sliceHash := 0x9f1a1ebcae59b0879e9fb23ad9f90461016010b02c4a57af0fab0
       { sender := 1, functionSelector := 0, args := [511] } Verity.defaultState
     !r.success && r.revertData == some
       ([0xc2, 0x76, 0x39, 0x44] ++ List.replicate 31 (0 : UInt8) ++ [255])
+
+/--
+error: NarrowStackWords.sol:271:59: Identifier: [solidity-import:unsupported] event direct parameter type differs from its declaration
+closure: NarrowStackWords.badEmit
+x
+-/
+#guard_msgs in
+solidity_import badEmitLegacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function badEmit(uint8)
+
+/--
+error: NarrowStackWords.sol:271:59: Identifier: [solidity-import:unsupported] event direct parameter type differs from its declaration
+closure: NarrowStackWords.badEmit
+x
+-/
+#guard_msgs in
+solidity_import badEmitIr from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function badEmit(uint8)
 
 end SolidityImportSmoke.NarrowStackWordsChecks

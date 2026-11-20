@@ -14908,8 +14908,13 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
       guardedArguments := guardedArguments.push argument
     if value.pre.any isScratch then
       scratchArgument := true
-    match value.expr with
-    | .param parameterName =>
+    let rec directParam? : Expr → Option String
+      | .param p => some p
+      | .bitAnd e (.literal _) | .signextend (.literal _) e | .logicalNot (.logicalNot e) =>
+          directParam? e
+      | _ => none
+    match directParam? value.expr with
+    | some parameterName =>
         let some actualType := rootParamType? (← get) parameterName
           | failAt argument "unresolved event model parameter type"
         if actualType != modelType then
@@ -14920,7 +14925,7 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
               -- or unsigned widening does not masquerade as a typed parameter.
               let binding ← fresh
               value := { pre := value.pre.push (.letVar binding value.expr), expr := .localVar binding }
-    | _ => pure ()
+    | none => pure ()
     match modelType with
     | .uintN bits =>
         unless (match value.expr with
@@ -15133,14 +15138,16 @@ private partial def lowerErrorArgumentsForDecl (callee declaration : Json) (argu
     let converted : Val :=
       if isDirectScalar then
         rawConverted
-      else match evalConstVal? rawConverted with
+      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with
         | some n => { pre := #[], expr := .literal n }
         | none => rawConverted
     if isDirectScalar then
-      let isScalarBinding := match source.expr with
+      let rec isPureScalarErrorExpr : Expr → Bool
         | .localVar _ => true
-        | _ => isOrderIndependentSibling source.expr
-      unless converted.pre.isEmpty && isScalarBinding do
+        | .bitAnd e (.literal _) | .signextend (.literal _) e | .logicalNot (.logicalNot e) =>
+            isPureScalarErrorExpr e
+        | e => isOrderIndependentSibling e
+      unless converted.pre.isEmpty && isPureScalarErrorExpr source.expr do
         failAt argument "custom-error arguments currently require literals or scalar bindings"
     if !isDirectScalar then
       let isConstLiteral := match converted.expr with
