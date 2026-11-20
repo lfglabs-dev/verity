@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.34;
+
+contract CalldataBytesHelperModifier {
+    uint256 private trace;
+
+    function identity(bytes calldata x) private pure returns (bytes calldata) {
+        return x;
+    }
+
+    function window(bytes calldata x, uint256 start, uint256 end) private pure returns (bytes calldata) {
+        return x[start:end];
+    }
+
+    function hashPart(bytes calldata x) private pure returns (bytes32) {
+        return keccak256(x);
+    }
+
+    function copyDigest(bytes memory copy, uint8 tag) private pure returns (bytes32) {
+        return keccak256(abi.encodePacked(tag, copy));
+    }
+
+    modifier outer(uint256 tag, bytes calldata x, uint256 minLen) {
+        require(x.length >= minLen, "short");
+        trace = trace * 100 + tag + x.length;
+        _;
+        trace = trace * 100 + uint8(x[x.length - 1]);
+    }
+
+    modifier inner(bytes calldata x, uint256 cut) {
+        trace = trace * 100 + uint8(x[0]) + bytes(x[:cut]).length;
+        _;
+        require(uint8(x[0]) != 255, "post");
+        trace = trace * 100 + uint256(uint8(bytes1(bytes4(x[:cut]))));
+    }
+
+    function inspect(uint256 tag, bytes calldata data, uint256 start, uint256 end, uint256 cut)
+        external
+        outer(tag, data, 2)
+        inner(data, cut)
+        returns (bytes32)
+    {
+        trace = trace * 100 + identity(data).length;
+        trace = trace * 100 + window(data, start, end).length;
+        trace = trace * 100 + uint8(window(data, start, end)[0]);
+        return hashPart(window(data, start, end)) ^ copyDigest(window(data, start, end), uint8(cut));
+    }
+
+    function subSliceInfo(bytes calldata data, uint256 start, uint256 end, uint256 index)
+        external
+        pure
+        returns (uint256 subLen, bytes1 elem, bytes4 prefix, bytes32 subDigest)
+    {
+        subLen = bytes(window(data, start, end)[1:]).length;
+        elem = window(data, start, end)[index];
+        prefix = bytes4(window(data, start, end));
+        subDigest = keccak256(window(data, start, end)[1:]);
+    }
+
+    function sliceModifierArg(bytes calldata data, uint256 start, uint256 end)
+        external
+        inner(data[start:end], 1)
+        returns (uint256)
+    {
+        trace = trace * 100 + 7;
+        return trace;
+    }
+
+    function read() external view returns (uint256) {
+        return trace;
+    }
+}
+
+contract CalldataBytesHelperModifierUnsupported {
+    function namedHelper(bytes calldata x) private pure returns (bytes calldata out) {
+        out = x;
+    }
+
+    function useNamedHelper(bytes calldata x) external pure returns (uint256) {
+        return namedHelper(x).length;
+    }
+
+    function multiStmtHelper(bytes calldata x) private pure returns (bytes calldata) {
+        uint256 n = x.length;
+        n;
+        return x;
+    }
+
+    function useMultiStmtHelper(bytes calldata x) external pure returns (uint256) {
+        return multiStmtHelper(x).length;
+    }
+
+    function msgDataSliceHelper(uint256 start) private pure returns (bytes calldata) {
+        return msg.data[start:];
+    }
+
+    function useMsgDataSliceHelper(uint256 start) external pure returns (uint256) {
+        return msgDataSliceHelper(start).length;
+    }
+
+    function reassignHelperParam(bytes calldata x) private pure returns (uint256) {
+        x = x[1:];
+        return x.length;
+    }
+
+    function useReassignHelperParam(bytes calldata x) external pure returns (uint256) {
+        return reassignHelperParam(x);
+    }
+
+    modifier reassignMod(bytes calldata x) {
+        x = x[1:];
+        _;
+    }
+
+    function useReassignMod(bytes calldata x) external pure reassignMod(x) returns (uint256) {
+        return x.length;
+    }
+
+    modifier memoryMod(bytes memory x) {
+        require(x.length > 0, "empty");
+        _;
+    }
+
+    function useMemoryMod(bytes calldata x) external pure memoryMod(x) returns (uint256) {
+        return x.length;
+    }
+
+    modifier calldataMod(bytes calldata x) {
+        require(x.length > 0, "empty");
+        _;
+    }
+
+    function useMsgDataInMod(uint256 v) external pure calldataMod(msg.data) returns (uint256) {
+        return v;
+    }
+
+    function useMsgDataSliceInMod(uint256 v) external pure calldataMod(msg.data[4:]) returns (uint256) {
+        return v;
+    }
+}

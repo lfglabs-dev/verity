@@ -3189,6 +3189,7 @@ private partial def lowerExpr (j : Json) : M Val := do
         let baseExpression ← mField j "baseExpression"
         let baseTy ← mType baseExpression
         if baseTy == "bytes" || baseTy == "bytes memory" || baseTy == "bytes calldata" ||
+           baseTy == "bytes calldata slice" ||
            baseTy == "bytes storage pointer" || baseTy == "bytes storage ref" then
           let indexExpression ← mField j "indexExpression"
           let isWrappedOrNonIdent := (← mKind (← stripParens baseExpression)) != "Identifier"
@@ -3209,17 +3210,38 @@ private partial def lowerExpr (j : Json) : M Val := do
             unless (idxTy.startsWith "uint" && (bitsOf idxTy).isSome) ||
                 (idxTy.startsWith "int_const" && !idxTy.startsWith "int_const -") do
               failAt indexExpression "byte buffer index must be unsigned"
-            let key ← atom (← lowerExpr indexExpression)
             if (← mKind innerBase) == "Identifier" then
               let id ← refInt innerBase
               if id ≥ 0 then
                 if let some cb := (← get).calldataBytes.find? id.toNat then
                   if !cb.inMemory then
+                    let key ← atom (← lowerExpr indexExpression)
                     let pre := key.pre.push (.ite (.lt key.expr (.localVar cb.lengthBinding)) [] [.panicCode (.literal 0x32)])
                     let wordOff := AbiEncoding.byteWordOffset key.expr
                     let lane := AbiEncoding.byteLane key.expr
                     let word := Expr.calldataload (.add (.localVar cb.dataBinding) wordOff)
                     return { pre, expr := .shl (.literal 248) (.byte lane word) }
+            if let some (slicePre, offExpr, lenExpr, true, false) ← lowerCalldataSlice? innerBase then
+              let key ← atom (← lowerExpr indexExpression)
+              let pre := slicePre ++ key.pre ++ #[
+                .ite (.lt key.expr lenExpr) [] [.panicCode (.literal 0x32)]
+              ]
+              let wordOff := AbiEncoding.byteWordOffset key.expr
+              let lane := AbiEncoding.byteLane key.expr
+              let word := Expr.calldataload (.add offExpr wordOff)
+              return { pre, expr := .shl (.literal 248) (.byte lane word) }
+            if ← isParameterizedCalldataBytesCall innerBase then
+              let (fnId, vals) ← resolveCallTargetAndArgs innerBase
+              let (cpre, cb) ← inlineCalldataBytesFn fnId vals innerBase
+              let key ← atom (← lowerExpr indexExpression)
+              let pre := cpre ++ key.pre ++ #[
+                .ite (.lt key.expr (.localVar cb.lengthBinding)) [] [.panicCode (.literal 0x32)]
+              ]
+              let wordOff := AbiEncoding.byteWordOffset key.expr
+              let lane := AbiEncoding.byteLane key.expr
+              let word := Expr.calldataload (.add (.localVar cb.dataBinding) wordOff)
+              return { pre, expr := .shl (.literal 248) (.byte lane word) }
+            let key ← atom (← lowerExpr indexExpression)
             let buf ← lowerEncodedBytes baseExpression
             let ptrVar ← fresh
             let lenVar ← fresh
@@ -3903,7 +3925,11 @@ private partial def lowerRef (j : Json) : M Ref := do
           optStr base "kind" == some "functionCall" &&
           ((← mType base) == "bytes calldata" || (← mType base) == "bytes memory" || (← mType base) == "bytes") then
         let baseArgs ← mArr (← mField base "arguments")
-        if baseArgs.isEmpty then
+        if ← isParameterizedCalldataBytesCall base then
+          let (fnId, vals) ← resolveCallTargetAndArgs base
+          let (pre, cb) ← inlineCalldataBytesFn fnId vals base
+          pure (.expr { pre, expr := .localVar cb.lengthBinding })
+        else if baseArgs.isEmpty then
           let pre ← lowerMsgDataExpr base
           pure (.expr { pre, expr := .calldatasize })
         else
@@ -3916,11 +3942,18 @@ private partial def lowerRef (j : Json) : M Ref := do
         let args ← mArr (← mField base "arguments")
         unless args.size == 1 do failAt base "bytes() conversion expects one argument"
         let arg := args[0]!
-        if (← mKind arg) == "Identifier" then
-          let id ← refInt arg
+        let innerArg ← stripParens arg
+        if (← mKind innerArg) == "Identifier" then
+          let id ← refInt innerArg
           if id ≥ 0 then
             if let some cb := (← get).calldataBytes.find? id.toNat then
               return .expr { pre := #[], expr := .localVar cb.lengthBinding }
+        if let some (slicePre, _, lenExpr, _, _) ← lowerCalldataSlice? innerArg then
+          return .expr { pre := slicePre, expr := lenExpr }
+        if ← isParameterizedCalldataBytesCall innerArg then
+          let (fnId, vals) ← resolveCallTargetAndArgs innerArg
+          let (pre, cb) ← inlineCalldataBytesFn fnId vals innerArg
+          return .expr { pre, expr := .localVar cb.lengthBinding }
         if let some val ← lowerStorageBytesLength? arg then
           return .expr val
         if (← mType base) == "bytes storage pointer" then
@@ -5556,12 +5589,36 @@ private partial def unwrapBytesConversion (j : Json) : M Json := do
         return ← unwrapBytesConversion args[0]!
   return j
 
+private partial def isParameterizedCalldataBytesCall (j : Json) : M Bool := do
+  let j ← stripParens j
+  unless (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" &&
+      (← mType j) == "bytes calldata" do
+    return false
+  let callee ← mField j "expression"
+  let isHelperCall :=
+    ((← mKind callee) == "Identifier" || (← mKind callee) == "MemberAccess") &&
+    ((field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)).any (· ≥ 0)
+  unless isHelperCall do return false
+  let callArgs ← mArr (← mField j "arguments")
+  if !callArgs.isEmpty then return true
+  if (← mKind callee) == "MemberAccess" then
+    let baseTy ← mType (← mField callee "expression")
+    return !(baseTy.startsWith "type(library " || baseTy.startsWith "type(contract " ||
+             baseTy.startsWith "contract " || baseTy.startsWith "interface ")
+  return false
+
 private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Expr × Expr × Bool × Bool)) := do
   let j ← stripParens j
   unless (← mKind j) == "IndexRangeAccess" do return none
-  let base ← stripParens (← mField j "baseExpression")
+  let base ← unwrapBytesConversion (← stripParens (← mField j "baseExpression"))
   let baseInfo? ← if ← isMsgDataNode base then
     pure (some (#[], Expr.literal 0, Expr.calldatasize, true, true))
+  else if (← mKind base) == "IndexRangeAccess" then
+    lowerCalldataSlice? base
+  else if ← isParameterizedCalldataBytesCall base then
+    let (fnId, vals) ← resolveCallTargetAndArgs base
+    let (pre, cb) ← inlineCalldataBytesFn fnId vals base
+    pure (some (pre, Expr.localVar cb.dataBinding, Expr.localVar cb.lengthBinding, true, false))
   else if (← mKind base) == "FunctionCall" && optStr base "kind" == some "functionCall" then
     let names ← mArr (← mField base "names")
     let args ← mArr (← mField base "arguments")
@@ -5603,6 +5660,8 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
           unless (sTy.startsWith "uint" && (bitsOf sTy).isSome) ||
               (sTy.startsWith "int_const" && !sTy.startsWith "int_const -") do
             failAt sNode s!"calldata slice start index must be unsigned, found {sTy}"
+          if statefulCallIn sNode (← get) || assignmentIn sNode then
+            failAt sNode "stateful or assignment calldata slice start index is unsupported"
           atom (← lowerExpr sNode)
   let endVal ← match field? j "endExpression" with
     | none => pure ({ pre := #[], expr := baseLen } : Val)
@@ -5614,6 +5673,8 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
           unless (eTy.startsWith "uint" && (bitsOf eTy).isSome) ||
               (eTy.startsWith "int_const" && !eTy.startsWith "int_const -") do
             failAt eNode s!"calldata slice end index must be unsigned, found {eTy}"
+          if statefulCallIn eNode (← get) || assignmentIn eNode then
+            failAt eNode "stateful or assignment calldata slice end index is unsupported"
           atom (← lowerExpr eNode)
   let startVar ← fresh
   let endVar ← fresh
@@ -5675,6 +5736,20 @@ private partial def lowerBytesToFixedBytes (arg : Json) (byteWidth : Nat) (at_ :
               []
           ]
           return { pre := stmts, expr := .localVar word }
+  if ← isParameterizedCalldataBytesCall inner then
+    let (fnId, vals) ← resolveCallTargetAndArgs inner
+    let (cpre, cb) ← inlineCalldataBytesFn fnId vals inner
+    let word ← fresh
+    let lenExpr := Expr.localVar cb.lengthBinding
+    let rawWord := Expr.bitAnd (.calldataload (.localVar cb.dataBinding)) (.literal fullMask)
+    let maskShift := Expr.shl (.mul (.literal 8) (.sub (.literal byteWidth) lenExpr)) (.literal fullMask)
+    let stmts : Array Stmt := cpre ++ #[
+      .letVar word rawWord,
+      .ite (.lt lenExpr (.literal byteWidth))
+        [.assignVar word (.bitAnd (.localVar word) maskShift)]
+        []
+    ]
+    return { pre := stmts, expr := .localVar word }
   if let some (pre, storageName, slotExpr, _) ← resolveStorageBytesTarget? inner then
     let (rawRead, arrField) ← if storageName != "" then do
       let info ← resolveField storageName at_
@@ -6048,6 +6123,15 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
   let inner ← unwrapBytesConversion (← stripParens rawNode)
   if let some (slicePre, offsetExpr, lenExpr, fromCalldata, _) ← lowerCalldataSlice? inner then
     return (slicePre, fromCalldata, offsetExpr, lenExpr)
+  if ← isParameterizedCalldataBytesCall inner then
+    let (fnId, vals) ← resolveCallTargetAndArgs inner
+    let (cpre, cb) ← inlineCalldataBytesFn fnId vals inner
+    let ptrVar ← fresh
+    let lenVar ← fresh
+    return (cpre ++ #[
+      .letVar ptrVar (.localVar cb.dataBinding),
+      .letVar lenVar (.localVar cb.lengthBinding)
+    ], true, .localVar ptrVar, .localVar lenVar)
   if (← mKind inner) == "Identifier" then
     let id ← refInt inner
     if id ≥ 0 then
@@ -6520,6 +6604,11 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     if isHelperCall then
       let ty ← mType j
       if ty == "bytes calldata" then
+        if ← isParameterizedCalldataBytesCall j then
+          let (fnId, vals) ← resolveCallTargetAndArgs j
+          let (cpre, cb) ← inlineCalldataBytesFn fnId vals j
+          let buf ← calldataBytesBuffer cb
+          return { buf with pre := cpre ++ buf.pre }
         let names ← mArr (← mField j "names")
         unless names.isEmpty do failAt j "named call arguments are outside this slice"
         let callArgs ← mArr (← mField j "arguments")
@@ -7174,6 +7263,11 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
       | _, _, _ => failAt arg "unsupported calldata slice argument"
     else if argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
             argTy == "bytes storage ref" || argTy == "bytes storage pointer" then
+      if ← isParameterizedCalldataBytesCall arg then
+        let (fnId, innerVals) ← resolveCallTargetAndArgs arg
+        let (cpre, cb) ← inlineCalldataBytesFn fnId innerVals arg
+        vals := vals.push (.calldataBytes cb cpre)
+        continue
       if (← mKind arg) == "Identifier" then
         let id ← refInt arg
         if id ≥ 0 then
@@ -8216,6 +8310,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         unless pty == expectedTy do
           failAt p s!"calldata {expectedTy} argument requires a {expectedTy} parameter"
         if location == "calldata" && !descriptor.inMemory then
+          if (bodyAssignedIds body).contains pid then
+            failAt p "reassigned calldata parameter is outside this slice"
           pre := pre ++ effects
           modify fun e => { e with calldataBytes := e.calldataBytes.insert pid descriptor }
         else if location == "memory" then
@@ -9966,6 +10062,86 @@ private partial def inlineMsgDataFn (fnId : Nat) (args : Array CallArg) (at_ : J
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (modStmts ++ bodyPre ++ modPost)
 
+/-- Keep calldata-backed bytes as an offset and length, including the bounds checks
+of a slice. Memory-backed and computed reference expressions are not interchangeable. -/
+private partial def lowerCalldataBytesExpr (j : Json) : M (Array Stmt × CalldataBytesParam) := do
+  let j ← stripParens j
+  if (← mKind j) == "IndexRangeAccess" then
+    let some (effects, .localVar off, .localVar len, true, false) ← lowerCalldataSlice? j
+      | failAt j "expected a slice of a calldata parameter"
+    return (effects, { param := "", offsetBinding := "", headerBinding := "",
+                       dataBinding := off, lengthBinding := len })
+  if (← mKind j) == "Identifier" then
+    let id ← refInt j
+    if id ≥ 0 then
+      if let some cb := (← get).calldataBytes.find? id.toNat then
+        if !cb.inMemory && !cb.isString then return (#[], cb)
+  failAt j "expected a calldata bytes parameter or slice"
+
+private partial def inlineCalldataBytesFn (fnId : Nat) (args : Array CallArg) (at_ : Json) :
+    M (Array Stmt × CalldataBytesParam) := do
+  if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
+  let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  let visibility := optStr fn "visibility" |>.getD ""
+  unless visibility == "internal" || visibility == "private" || visibility == "public" do
+    failAt at_ "bytes calldata helper calls require an internal, private, or public declaration"
+  let saved ← get
+  let savedYul := saved.yulNames
+  let savedFile := saved.currentFile
+  let frameFile := saved.nodeFile.find? fnId |>.getD saved.currentFile
+  let frame := fnId :: saved.stack
+  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? fn "body").filter (!·.isNull)
+    | failAt fn "function has no body"
+  unless implemented do failAt fn "function has no body"
+  modify fun e =>
+    { e with stack := frame, currentFile := frameFile, unchecked := false,
+             bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
+  let mods ← mArr (← mField fn "modifiers")
+  unless mods.isEmpty do failAt fn "modifiers on bytes calldata helpers are outside this slice"
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  unless params.size == args.size do
+    failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do failAt fn "bytes calldata helper must have one return parameter"
+  let r := rets[0]!
+  let rname ← mStr (← mField r "name")
+  unless rname == "" do failAt r "named bytes calldata helper return is unsupported"
+  let rloc := optStr r "storageLocation" |>.getD "default"
+  unless rloc == "calldata" && (← mType r) == "bytes" do
+    failAt r "bytes calldata helper return must be bytes calldata"
+  let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
+  modify fun e =>
+    { e with yulNames := yul, helperResult := none, helperReturnId := none,
+             multiHelperResults := none, flatStructHelperResult := none,
+             fixedArrayHelperResult := none, dynArrayHelperResult := none, helperPost := #[] }
+  noteFn fn
+  let stmts ← mArr (← mField body "statements")
+  unless stmts.size == 1 && optStr stmts[0]! "nodeType" == some "Return" do
+    failAt body "calldata helper must directly return a parameter or slice"
+  let (resPre, resCb) ← lowerCalldataBytesExpr (← mField stmts[0]! "expression")
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays,
+             yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile,
+             unchecked := saved.unchecked, values := saved.values,
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals,
+             paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
+             abiElements := saved.abiElements, flatStructs := saved.flatStructs,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays,
+             fixedMemArrays := saved.fixedMemArrays, nestedMemArrays := saved.nestedMemArrays,
+             byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers,
+             storageBytesVars := saved.storageBytesVars,
+             storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs,
+             bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult,
+             helperBytesSize := saved.helperBytesSize, helperStructSid := saved.helperStructSid,
+             helperReturnId := saved.helperReturnId,
+             multiHelperResults := saved.multiHelperResults,
+             flatStructHelperResult := saved.flatStructHelperResult,
+             fixedArrayHelperResult := saved.fixedArrayHelperResult,
+             dynArrayHelperResult := saved.dynArrayHelperResult,
+             helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+  return (boundPre ++ resPre, resCb)
+
 private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Array Stmt × Array (Expr × String)) := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
@@ -10306,14 +10482,23 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
     | none => pure #[]
   unless params.size == args.size do
     failAt modInv s!"modifier arity {args.size} does not match declaration {params.size}"
-  let mut argVals : Array Val := #[]
+  let mut argVals : Array CallArg := #[]
   for i in [:args.size] do
     let argNode := args[i]!
     if statefulCallIn argNode (← get) then
       failAt argNode "stateful modifier arguments require explicit evaluation-order support"
     if args.size > 1 && assignmentIn argNode then
       failAt argNode "assignment expression in multi-argument modifier requires explicit evaluation-order support"
-    argVals := argVals.push (← lowerExpr argNode)
+    let p := params[i]!
+    let pty ← mType p
+    if pty == "bytes" && optStr p "storageLocation" == some "calldata" then
+      let (cpre, cb) ← lowerCalldataBytesExpr argNode
+      argVals := argVals.push (.calldataBytes cb cpre)
+    else
+      discard (validateEnumTypeIfNeeded p pty)
+      unless (paramType pty).isSome do
+        failAt p s!"unsupported modifier parameter type {pty}"
+      argVals := argVals.push (.scalar (← lowerExpr argNode))
   let saved ← get
   let savedYul := saved.yulNames
   let savedFile := saved.currentFile
@@ -10330,11 +10515,23 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
     let pid ← mNat (← mField p "id")
     let pty ← mType p
     discard (validateEnumTypeIfNeeded p pty)
+    let argNode := args[i]!
+    let some arg := argVals[i]? | failAt argNode s!"missing modifier argument {i}"
+    if let .calldataBytes cb cpre := arg then
+      if (bodyAssignedIds body).contains pid then
+        failAt p "reassigned calldata modifier parameter is outside this slice"
+      pre := pre ++ cpre
+      modify fun e =>
+        { e with calldataBytes := e.calldataBytes.insert pid { cb with param := pname },
+                 yulMemoryArrays := if pname == "" then e.yulMemoryArrays else e.yulMemoryArrays.erase pname,
+                 yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.erase pname }
+      if pname != "" then
+        yul := yul.erase pname
+      continue
+    let .scalar argVal := arg | failAt p s!"unsupported modifier parameter type {pty}"
     let some scalar := paramType pty
       | failAt p s!"unsupported modifier parameter type {pty}"
-    let argNode := args[i]!
     let argTy ← mType argNode
-    let some argVal := argVals[i]? | failAt argNode s!"missing modifier argument {i}"
     let converted ← convert pty argTy argVal argNode
     if (bodyCompoundAssignedIds body).contains pid || (bodyDirectAssignedIds body).contains pid then
       let binding ← freshFor (if pname == "" then "param" else pname)
