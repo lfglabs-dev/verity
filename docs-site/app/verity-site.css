@@ -551,6 +551,32 @@ header kbd {
   }
 }
 
+/* Wide screens (MacBook and up): the Home title gets the full hero width at a size close
+   to other pages' H1, and the control moves up onto the kicker row so it does not
+   squeeze the title. Its right edge still matches the 46rem text measure. */
+@media (min-width: 1200px) {
+  .verity-hero__head {
+    position: relative;
+  }
+
+  .verity-hero__head > .verity-hero__titlerow {
+    max-width: none;
+  }
+
+  .verity-hero__titlerow > .verity-copyllm {
+    position: absolute;
+    top: -0.9rem;
+    right: max(0px, calc(100% - 46rem));
+    margin: 0;
+  }
+
+  /* Extra class so this beats the later, equal-specificity !important hero size above. */
+  article main .verity-hero .verity-hero__titlerow > h1 {
+    font-size: clamp(2.4rem, 4vw, 3.6rem) !important;
+    line-height: 1.1 !important;
+  }
+}
+
 aside.nextra-sidebar-container,
 .nextra-sidebar-container,
 .nextra-sidebar {
