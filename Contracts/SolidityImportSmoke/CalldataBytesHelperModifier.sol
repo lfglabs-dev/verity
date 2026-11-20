@@ -53,7 +53,7 @@ contract CalldataBytesHelperModifier {
     {
         subLen = bytes(window(data, start, end)[1:]).length;
         elem = window(data, start, end)[index];
-        prefix = bytes4(window(data, start, end));
+        prefix = bytes4((window(data, start, end)));
         subDigest = keccak256(window(data, start, end)[1:]);
     }
 

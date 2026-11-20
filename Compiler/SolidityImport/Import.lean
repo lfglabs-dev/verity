@@ -3873,7 +3873,7 @@ private partial def lowerRef (j : Json) : M Ref := do
   | "MemberAccess" =>
       let env ← get
       let member ← mStr (← mField j "memberName")
-      let base ← mField j "expression"
+      let base ← stripParens (← mField j "expression")
       if (← mKind base) == "Identifier" &&
           optStr base "name" == some "block" &&
           optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_block" then
@@ -5609,6 +5609,7 @@ private partial def lowerStorageBytesLength? (j : Json) : M (Option Val) := do
   some <$> lowerStorageBytesLength pre fieldName slotExpr
 
 private partial def unwrapBytesConversion (j : Json) : M Json := do
+  let j ← stripParens j
   if (← mKind j) == "FunctionCall" && optStr j "kind" == some "typeConversion" then
     let ty ← mType j
     if ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" || ty == "bytes storage pointer" then
@@ -5617,8 +5618,9 @@ private partial def unwrapBytesConversion (j : Json) : M Json := do
         return ← unwrapBytesConversion args[0]!
   return j
 
+/-- Recognize the actual call node. Callers normalize grouping before recognition so
+resolution and parameter binding always inspect the same node. -/
 private partial def isParameterizedCalldataBytesCall (j : Json) : M Bool := do
-  let j ← stripParens j
   unless (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" &&
       (← mType j) == "bytes calldata" do
     return false
@@ -6465,6 +6467,7 @@ private partial def rootBytesElement? (j : Json) : M (Option (Array Stmt × Call
 
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
+  let j ← stripParens j
   if let some (elemPre, cb) ← rootBytesElement? j then
     let buffer ← calldataBytesBuffer cb
     return { buffer with pre := elemPre ++ buffer.pre }
