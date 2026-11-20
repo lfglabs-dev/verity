@@ -1737,20 +1737,38 @@ private def lowerAssembly (j : Json) (retName : String) : M Val := do
   lowerYulValue (← mField asg "value")
 
 private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
-  if ty == "bool" then Expr.logicalNot (.logicalNot v.expr)
+  if ty == "bool" then
+    match v.expr with
+    | .literal n => .literal (if n == 0 then 0 else 1)
+    | _ => Expr.logicalNot (.logicalNot v.expr)
   else
     match fixedBytesWidth? ty with
     | some byteW =>
         if byteW < 32 then
-          Expr.bitAnd v.expr (.literal ((2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)))
+          let mask := (2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)
+          match v.expr with
+          | .literal n => .literal (n &&& mask)
+          | _ => Expr.bitAnd v.expr (.literal mask)
         else
           v.expr
     | none =>
         match signedBitsOf ty with
-        | some width => if width < 256 then Expr.signextend (.literal (width / 8 - 1)) v.expr else v.expr
+        | some width =>
+            if width < 256 then
+              match v.expr with
+              | .literal n =>
+                  let low := n % 2 ^ width
+                  .literal (if low ≥ 2 ^ (width - 1) then low + (2 ^ 256 - 2 ^ width) else low)
+              | _ => Expr.signextend (.literal (width / 8 - 1)) v.expr
+            else v.expr
         | none =>
             match bitsOf ty with
-            | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
+            | some width =>
+                if width < 256 then
+                  match v.expr with
+                  | .literal n => .literal (n % 2 ^ width)
+                  | _ => Expr.bitAnd v.expr (.literal (2^width-1))
+                else v.expr
             | none => v.expr
 
 private def yulNatLit? (node : Json) : M (Option Nat) := do
@@ -1792,8 +1810,7 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
       | failAt stmt s!"Yul assigns {vname}, not the return declaration {retName}"
     if ty.startsWith "enum " then
       failAt j "Yul assignment to an enum result is unsupported"
-    let cleaned := cleanHelperResultExpr ty rhsVal
-    return .assignVar binding cleaned
+    return .assignVar binding rhsVal.expr
   else
     let targetSrc ← mStr (← mField varNode "src")
     let mut targetId? : Option Nat := none
@@ -4905,7 +4922,8 @@ private partial def lowerCast (j : Json) : M Val := do
     let src ← mType args[0]!
     unless src == "address" || src == "address payable" || src.startsWith "contract " do
       failAt j s!"unsupported contract cast source {src}"
-    return v
+    return if !(← get).viaIR || src == callTy then v
+      else { v with expr := cleanHelperResultExpr src v }
   if callTy.startsWith "enum " then
     let members ← resolveEnumMembers targetExpr callTy
     let v ← lowerExpr args[0]!
@@ -4932,7 +4950,9 @@ private partial def lowerCast (j : Json) : M Val := do
     if let some word ← fixedBytesStringLiteral? tname args[0]! then
       return word
   let raw ← lowerExpr args[0]!
-  let integerWidth (ty : String) := if ty.startsWith "uint" then bitsOf ty else signedBitsOf ty
+  let integerWidth (ty : String) :=
+    if ty.startsWith "uint" || ty == "address" || ty == "address payable" ||
+        ty.startsWith "contract " then bitsOf ty else signedBitsOf ty
   if !(← get).viaIR then
     if let some srcBits := integerWidth src then
       if let some dstBits := integerWidth tname then
@@ -5411,7 +5431,8 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
     let pointer ← fresh
     let finish ← fresh
     modify fun env => { env with encodingMemory := true }
-    let padded := if ty == "bytes4" || ty == "bytes1" then value.expr else Expr.mul value.expr (.literal (2^(8*(32-size))))
+    let cleaned := cleanHelperResultExpr ty value
+    let padded := if ty == "bytes4" || ty == "bytes1" then cleaned else Expr.mul cleaned (.literal (2^(8*(32-size))))
     let pre := value.pre ++ (AbiEncoding.staticWords pointer finish [padded]).toArray
     return { pre, pointer := .localVar pointer, size := .literal size }
   lowerEncodedBytes j
@@ -7798,7 +7819,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
         k == "BinaryOperation" || k == "FunctionCall")
   else pure false
   if isNonpayableCallback || hasDynamicOrStructParam || hasExtendedScalarParam || hasExtendedArg then
-    let target ← atom (← lowerExpr convArgs[0]!)
+    let rawTarget ← lowerExpr convArgs[0]!
+    let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
     let result ← fresh
     let isDynBytesOrString (ty : String) : Bool :=
       ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
@@ -7879,7 +7901,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
         words := words ++ sWords.toArray
       else
         checkEncodingScalar arg
-        let word ← atom (← convert pty argTy (← lowerExpr arg) arg)
+        let converted ← convert pty argTy (← lowerExpr arg) arg
+        let word ← atom { converted with expr := cleanHelperResultExpr pty converted }
         pre := pre ++ word.pre
         words := words.push word.expr
     modify fun env => { env with encodingMemory := true }
@@ -7894,17 +7917,15 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     unless argTy == ty ||
         (ty == "uint256" && argTy.startsWith "int_const " && !argTy.startsWith "int_const -") do
       failAt arg s!"typed interface staticcall argument type {argTy} differs from parameter type {ty}"
-  let target ← atom (← lowerExpr convArgs[0]!)
+  let rawTarget ← lowerExpr convArgs[0]!
+  let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
   let mut words : Array Expr := #[]
   let mut pre := target.pre
   for (arg, ty) in args.zip paramTypes do
     let value ← lowerExpr arg
     unless value.pre.isEmpty do
       failAt arg "typed interface staticcall arguments must lower without side effects"
-    let cleaned := match ty with
-      | "address" => Expr.bitAnd value.expr (.literal (2 ^ 160 - 1))
-      | "bool" => Expr.logicalNot (.logicalNot value.expr)
-      | _ => value.expr
+    let cleaned := cleanHelperResultExpr ty value
     let word ← atom { pre := #[], expr := cleaned }
     pre := pre ++ word.pre
     words := words.push word.expr
@@ -8020,11 +8041,14 @@ private partial def lowerLowLevelCallSequence? (s : Json) (following : List Json
     if statefulCallIn operand (← get) || assignmentIn operand then
       failAt operand "low-level call operands require explicit evaluation-order support"
   -- solc evaluates the receiver, then the encoded arguments in source order.
-  let target ← atom (← lowerExpr base)
+  let rawTarget ← lowerExpr base
+  let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
   let mut pre := target.pre
   let mut words : Array Expr := #[]
   for (param, component) in params.zip components do
-    let word ← atom (← lowerConverted (← mType param) component)
+    let pty ← mType param
+    let conv ← lowerConverted pty component
+    let word ← atom { conv with expr := cleanHelperResultExpr pty conv }
     pre := pre ++ word.pre
     words := words.push word.expr
   let result ← fresh
@@ -8126,7 +8150,8 @@ private partial def lowerCall (j : Json) : M Val := do
             unless args.size == 1 do
               failAt j s!"{mname} requires one argument"
             let arg := args[0]!
-            return ← convert uTy (← mType arg) (← lowerExpr arg) arg
+            let conv ← convert uTy (← mType arg) (← lowerExpr arg) arg
+            return if (← get).viaIR then { conv with expr := cleanHelperResultExpr uTy conv } else conv
     if ← isInterfaceExternalCall j then
       return ← lowerInterfaceStaticCall j
     if ← isAbiDecodeCall j then
@@ -12101,9 +12126,8 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
             let extPre ← bindYulExternalConstants s
             let v ← lowerAssembly s retName
             modify fun e => { e with yulNames := savedAsmYul }
-            let cleaned := cleanHelperResultExpr ty v
             let (tail, result) ← lowerHelperFrom rest retName
-            pure ((extPre ++ v.pre).push (.assignVar binding cleaned) ++ tail, result)
+            pure ((extPre ++ v.pre).push (.assignVar binding v.expr) ++ tail, result)
           else
             if let some next := rest.head? then failAt next "statement after helper result"
             let savedAsmYul := (← get).yulNames
@@ -12205,7 +12229,7 @@ private partial def lowerThisTryCall? (s : Json) :
   for arg in args do
     let v ← atom (← lowerExpr arg)
     pre := pre ++ v.pre
-    callWords := callWords.push v.expr
+    callWords := callWords.push (cleanHelperResultExpr (← mType arg) v)
   let okVar ← fresh
   let mod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule okVar sel callWords.size
   let callStmt := Stmt.ecm mod (Expr.contractAddress :: callWords.toList)
@@ -13146,13 +13170,15 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
                         if fnParams.size == valArgs.size then
                           if let some callOptDecl := (← get).funs.find? callRef.toNat then
                             noteFn callOptDecl
-                          let target ← atom (← lowerExpr tokenNode)
+                          let rawTarget ← lowerExpr tokenNode
+                          let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
                           let mut pre := target.pre
                           let mut callWords : Array Expr := #[]
                           for (param, arg) in fnParams.zip valArgs do
-                            let convVal ← convert (← mType param) (← mType arg)
+                            let pty ← mType param
+                            let convVal ← convert pty (← mType arg)
                               (← lowerExpr arg) arg
-                            let word ← atom convVal
+                            let word ← atom { convVal with expr := cleanHelperResultExpr pty convVal }
                             pre := pre ++ word.pre
                             callWords := callWords.push word.expr
                           let resVar ← fresh
@@ -13392,9 +13418,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
                 failAt c "member assignment requires a supported layout member"
               unless (paramType cty).isSome && !cty.startsWith "enum " do
                 failAt c "member assignment requires a supported scalar member"
-              let write := if info.booleanMembers.contains qualMember then
-                fun (value : Expr) => write (.logicalNot (.logicalNot value))
-              else write
+              let write := fun (value : Expr) =>
+                write (cleanHelperResultExpr cty { pre := #[], expr := value })
               markField name
               assigns := assigns ++ pre ++ converted.pre |>.push (write converted.expr)
         | _ => failAt c "member assignment requires a mapping struct storage path"
@@ -13423,7 +13448,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           unless info.keyCount == 0 do failAt c "whole mapping assignment is unsupported"
           if info.bytesStorage then failAt c "bytes or string storage tuple assignment is outside this slice"
           markField name
-          let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot converted.expr) else converted.expr
+          let storedExpr := cleanHelperResultExpr cty converted
           assigns := assigns ++ pre ++ converted.pre |>.push (.setStorage name storedExpr)
     return callPre ++ assigns
   if (← mKind target) == "Identifier" then
@@ -13512,7 +13537,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               let base ← mField callee "expression"
               let convArgs ← mArr (← mField base "arguments")
               let callArgs ← mArr (← mField right "arguments")
-              let target ← atom (← lowerExpr convArgs[0]!)
+              let rawTarget ← lowerExpr convArgs[0]!
+              let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
               let payload ← lowerAbiEncodeArgs callArgs
               let payloadPtr ← atom { pre := payload.pre, expr := payload.pointer }
               let payloadSize ← atom { pre := #[], expr := payload.size }
@@ -13670,8 +13696,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let ty ← mType target
         unless (paramType ty).isSome do
           failAt target "member assignment requires a supported scalar member"
-        let write := if info.booleanMembers.contains qualMember && !deleting then
-          fun (value : Expr) => write (.logicalNot (.logicalNot value))
+        let write := if !deleting then
+          fun (value : Expr) => write (cleanHelperResultExpr ty { pre := #[], expr := value })
         else write
         markField name
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
@@ -13912,7 +13938,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
       let right ← mField expression "rightHandSide"
       atom (← lowerConverted (← mType target) right)
-    let expr := if info.booleanMapping then Expr.logicalNot (.logicalNot value.expr) else value.expr
+    let targetTy ← mType target
+    let expr := if deleting then value.expr else cleanHelperResultExpr targetTy value
     return (pre ++ value.pre).push (write expr)
   unless (← mKind target) == "Identifier" || (← mKind target) == "FunctionCall" do
     failAt target "only a resolved scalar storage identifier is writable"
@@ -13949,9 +13976,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
         let right ← mField expression "rightHandSide"
         atom (← lowerConverted (← mType target) right)
-      if info.booleanScalar && !deleting then
-        return (pre ++ value.pre).push (.setStorage name (.logicalNot (.logicalNot value.expr)))
-      return (pre ++ value.pre).push (.setStorage name value.expr)
+      let targetTy ← mType target
+      let stored := if deleting then value.expr else cleanHelperResultExpr targetTy value
+      return (pre ++ value.pre).push (.setStorage name stored)
   | _ => failAt target "assignment target is not scalar storage"
 
 private partial def combineCompound (operator : String) (ty : String) (lhs rhs : Expr) (at_ : Json) : M Val := do
@@ -14350,7 +14377,7 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
   if info.bytesStorage then failAt target "bytes or string storage assignment expression is outside this slice"
   markField name
   let value ← atom (← lowerConverted (← mType target) right)
-  let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot value.expr) else value.expr
+  let storedExpr := cleanHelperResultExpr (← mType target) value
   let resultVar ← fresh
   return { pre := (pre ++ value.pre).push (.letVar resultVar storedExpr) |>.push (.setStorage name (.localVar resultVar)), expr := .localVar resultVar }
 
@@ -14871,6 +14898,8 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
                 | .param _ => true
                 | _ => false) && value.pre.isEmpty do
           value := { value with expr := cleanHelperResultExpr ty value }
+    | .intN _ | .address | .bool =>
+        value := { value with expr := cleanHelperResultExpr ty value }
     | _ => pure ()
     let boundValue ← atom value
     params := params ++ [{ name := parameterName, ty := modelType, kind := if indexed then .indexed else .unindexed }]
@@ -16856,7 +16885,8 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 if c.isNull then failAt expr "empty return component"
                 if cs.size > 1 && (statefulCallIn c (← get) || assignmentIn c) then
                   failAt c "stateful or assignment expression in inline return array requires explicit evaluation-order support"
-                let v ← atom (← lowerConverted elemTy c)
+                let raw ← lowerConverted elemTy c
+                let v ← atom { raw with expr := cleanHelperResultExpr elemTy raw }
                 pres := pres ++ v.pre
                 if env.rootPost.isEmpty then
                   exprs := exprs.push v.expr

@@ -67,6 +67,38 @@ contract NarrowStackWords {
         assembly { word := b }
     }
 
+    function returnedLiteral(uint256 x) external pure returns (uint8[1] memory) {
+        uint8 a;
+        assembly { a := x }
+        return [a];
+    }
+
+    event Signed(int8 argument);
+
+    function logSigned(uint256 x) external {
+        int8 a = 0;
+        assembly { a := x }
+        emit Signed(a);
+    }
+
+    function fromAssembly(uint256 x) internal pure returns (uint8 a) {
+        assembly { a := x }
+    }
+
+    function copiedResult(uint256 x) external pure returns (uint256 word) {
+        uint8 a = fromAssembly(x);
+        assembly { word := a }
+    }
+
+    function addressCast(uint256 x) external pure returns (uint256 word) {
+        address a = address(uint160(x));
+        assembly { word := a }
+    }
+
+    function square(uint8 x) external pure returns (uint8) {
+        return x ** uint8(2);
+    }
+
     function carried(uint256 x) external pure returns (uint256 word) {
         uint8 a; uint8 copy;
         assembly { a := x }
