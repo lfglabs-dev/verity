@@ -4960,7 +4960,9 @@ private partial def lowerCast (j : Json) : M Val := do
     if let some srcBits := integerWidth src then
       if let some dstBits := integerWidth tname then
         if dstBits ≤ srcBits then return raw
-  let v := if tname == src then raw else { raw with expr := cleanHelperResultExpr src raw }
+  -- `typeName.name` is `address` even for payable(...); use the resolved type
+  -- to distinguish an identity cast from a change in payability.
+  let v := if callTy == src then raw else { raw with expr := cleanHelperResultExpr src raw }
   if src.startsWith "int" && !src.startsWith "int_const" && (signedBitsOf src).isNone then
     failAt j s!"unsupported cast source {src}"
   if let some pb := signedBitsOf tname then

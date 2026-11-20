@@ -81,6 +81,19 @@ contract NarrowStackWords {
         assembly { p := x }
     }
 
+    function rawAddress(uint256 x) internal pure returns (address a) {
+        assembly { a := x }
+    }
+
+    function payableCasts(uint256 x) external pure returns (uint256 fromAddress, uint256 fromPayable) {
+        address payable firstCast = payable(rawAddress(x));
+        address payable secondCast = payable(rawPayable(x));
+        assembly {
+            fromAddress := firstCast
+            fromPayable := secondCast
+        }
+    }
+
     function addressChoice(uint256 x, bool flag) external pure returns (uint256 word) {
         address payable p = rawPayable(x);
         address a = flag ? p : address(0);
