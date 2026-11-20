@@ -70,7 +70,7 @@ contract SequenceFixture is EncodingSuperLeft, EncodingSuperRight {
         } else if (next % 4 == 1) {
             digest = keccak256(abi.encode(prefix(), super.step(next), EncodingSuperRoot.step(next)));
         } else if (next % 4 == 2) {
-            digest = keccak256(abi.encodeWithSelector(bytes4(0x12345678), prefix(), super.step(next)));
+            digest = keccak256(abi.encodeWithSelector(IEncodingArgTarget.accept.selector, prefix(), super.step(next)));
         } else {
             digest = keccak256(abi.encodeCall(IEncodingArgTarget.accept, (prefix(), super.step(next))));
         }
