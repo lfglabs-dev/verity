@@ -4932,6 +4932,11 @@ private partial def lowerCast (j : Json) : M Val := do
     if let some word ← fixedBytesStringLiteral? tname args[0]! then
       return word
   let raw ← lowerExpr args[0]!
+  let integerWidth (ty : String) := if ty.startsWith "uint" then bitsOf ty else signedBitsOf ty
+  if !(← get).viaIR then
+    if let some srcBits := integerWidth src then
+      if let some dstBits := integerWidth tname then
+        if dstBits ≤ srcBits then return raw
   let v := if tname == src then raw else { raw with expr := cleanHelperResultExpr src raw }
   if src.startsWith "int" && !src.startsWith "int_const" && (signedBitsOf src).isNone then
     failAt j s!"unsupported cast source {src}"
@@ -6973,7 +6978,7 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         let raw ← convert targetTy ty (← lowerExpr arg) arg
         let value ← if raw.pre.isEmpty then pure raw else atom raw
         pre := pre ++ value.pre
-        headWords := headWords.push (some value.expr)
+        headWords := headWords.push (some (cleanHelperResultExpr targetTy value))
     let pointer ← fresh
     let headFinish ← fresh
     let base := Expr.localVar pointer
@@ -7060,7 +7065,7 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       let raw ← convert targetTy ty (← lowerExpr arg) arg
       let value ← if raw.pre.isEmpty then pure raw else atom raw
       pre := pre ++ value.pre
-      words := words ++ [value.expr]
+      words := words ++ [cleanHelperResultExpr targetTy value]
   let pointer ← fresh
   let finish ← fresh
   modify fun env => { env with encodingMemory := true }
@@ -11942,7 +11947,7 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
               else
                 failAt statement "bare helper returns are unsupported"
             else
-              let v ← lowerExprAs ((← returnTargetType? statement).getD "") expression
+              let v ← lowerConverted ((← returnTargetType? statement).getD (← mType expression)) expression
               pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])
         | kind => failAt statement s!"unsupported helper loop statement {kind}"
       if rest.isEmpty then
@@ -12065,10 +12070,10 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
             let (valPre, structPtr) ← lowerBytesStructPointer expression (← get).helperStructSid
             pure (valPre.push (.assignVar ptrBinding structPtr), some (.localVar ptrBinding))
           else
-            let v ← lowerExprAs ((← returnTargetType? s).getD "") expression
+            let v ← lowerConverted ((← returnTargetType? s).getD (← mType expression)) expression
             pure (v.pre, some v.expr)
         else
-          let v ← lowerExprAs ((← returnTargetType? s).getD "") expression
+          let v ← lowerConverted ((← returnTargetType? s).getD (← mType expression)) expression
           pure (v.pre, some v.expr)
     | "InlineAssembly" =>
         if let some (_, ty) := (← get).helperResult then
@@ -15078,7 +15083,7 @@ private partial def lowerErrorArgumentsForDecl (callee declaration : Json) (argu
         | _ => false
       unless isConstLiteral do
         failAt argument "custom-error arguments currently require literals or scalar bindings"
-    let value ← atom converted
+    let value ← atom { converted with expr := cleanHelperResultExpr ty converted }
     types := types ++ [modelType]
     values := values ++ [value.expr]
     pre := pre ++ value.pre
@@ -16964,7 +16969,8 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             let mut exprs : Array Expr := #[]
             for c in cs do
               if c.isNull then failAt expr "empty return component"
-              let v ← atom (← lowerExpr c)
+              let raw ← lowerExpr c
+              let v ← atom { raw with expr := cleanHelperResultExpr (← mType c) raw }
               pres := pres ++ v.pre
               if env.rootPost.isEmpty then
                 exprs := exprs.push v.expr
@@ -16980,7 +16986,8 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               failAt expr s!"root multi-return arity {retExprs.size} does not match {env.rootReturnTypes.size}"
             let mut pres := branchPre
             let mut exprs : Array Expr := #[]
-            for (valExpr, _) in retExprs do
+            for (valExpr, valTy) in retExprs do
+              let valExpr := cleanHelperResultExpr valTy { pre := #[], expr := valExpr }
               if env.rootPost.isEmpty then
                 exprs := exprs.push valExpr
               else

@@ -27,6 +27,32 @@ contract NarrowStackWords {
         assembly { word := a }
     }
 
+    error NarrowError(uint8 argument);
+
+    function widen(uint8 a) internal pure returns (uint256) { return a; }
+
+    function boundaries(uint256 x) external pure returns (uint8, uint256, uint256) {
+        uint8 a;
+        assembly { a := x }
+        bytes memory payload = abi.encode(a);
+        uint256 encoded;
+        assembly { encoded := mload(add(payload, 32)) }
+        return (a, widen(a), encoded);
+    }
+
+    function errorValue(uint256 x) external pure {
+        uint8 a;
+        assembly { a := x }
+        revert NarrowError(a);
+    }
+
+    function signedCast(uint256 x) external pure returns (uint256 word) {
+        uint8 a;
+        assembly { a := x }
+        int8 b = int8(a);
+        assembly { word := b }
+    }
+
     function carried(uint256 x) external pure returns (uint256 word) {
         uint8 a; uint8 copy;
         assembly { a := x }
