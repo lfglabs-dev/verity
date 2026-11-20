@@ -274,4 +274,25 @@ contract NarrowStackWords {
     function tryBytesLiteral() external returns (uint256) {
         try this.receiveWord(0x11223344) { return 1; } catch { return 0; }
     }
+
+    function prefixInc(uint8 x) external returns (uint256 word, uint256 slotWord) {
+        stored = x;
+        unchecked {
+            uint8 r = ++stored;
+            assembly { word := r slotWord := sload(stored.slot) }
+        }
+    }
+
+    function prefixDec(uint8 x) external returns (uint256 word, uint256 slotWord) {
+        stored = x;
+        unchecked {
+            uint8 r = --stored;
+            assembly { word := r slotWord := sload(stored.slot) }
+        }
+    }
+
+    function receivePair(uint8 first, uint8 second) external pure { require(first < second); }
+    function namedTry() external returns (uint256) {
+        try this.receivePair({second: 2, first: 1}) { return 1; } catch { return 0; }
+    }
 }
