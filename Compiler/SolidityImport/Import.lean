@@ -96,7 +96,7 @@ private def solcReleases : Array SolcRelease := #[
       "solc, the solidity compiler commandline interface\nVersion: 0.8.28+commit.7893614a.Darwin.appleclang"],
     hasNoImportCallbackFlag := true,
     supportedEvmVersions := #[
-      "cancun", "shanghai", "paris", "london", "berlin", "istanbul",
+      "prague", "cancun", "shanghai", "paris", "london", "berlin", "istanbul",
       "petersburg", "constantinople", "byzantium",
       "spuriousDragon", "tangerineWhistle", "homestead"],
     supportsViaIR := true },

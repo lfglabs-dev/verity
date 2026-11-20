@@ -249,8 +249,8 @@ def ast_request(version, target, source_root, solc):
 
 def foundry_toml_remappings(text):
     """`remappings = [...]` entries of a foundry.toml, as the importer's
-    `parseFoundryTomlRemappings` reads them: quoted `prefix=target` items of the
-    first such array, single- or multi-line, `#` comments dropped."""
+    `parseFoundryTomlRemappings` reads them: quoted `prefix=target` items of every
+    such array, single- or multi-line, `#` comments dropped."""
     pairs, collecting, buffer = [], False, ''
     for line in text.split('\n'):
         trimmed = line.strip()

@@ -28,9 +28,6 @@
     "scripts/solidity_import_mutations.py",
     "scripts/test_solidity_stateful*.py",
     "scripts/setup_solc_import.py",
-    "scripts/solidity_import_coverage.py",
-    "scripts/solidity_import_corpus/**",
-    "scripts/test_solidity_import_coverage.py",
     "lean-toolchain"
   ],
   "compiler_paths": [
@@ -62,9 +59,6 @@
     "scripts/solidity_import_mutations.py",
     "scripts/test_solidity_stateful*.py",
     "scripts/setup_solc_import.py",
-    "scripts/solidity_import_coverage.py",
-    "scripts/solidity_import_corpus/**",
-    "scripts/test_solidity_import_coverage.py",
     "lean-toolchain",
     "foundry.toml"
   ],
