@@ -6,6 +6,7 @@ const ROUTES = [
   '/architecture',
   '/trust-model',
   // Tutorials
+  '/solidity-import',
   '/getting-started',
   '/first-contract',
   // How-To Guides
@@ -15,6 +16,7 @@ const ROUTES = [
   '/guides/linking-libraries',
   '/guides/debugging-proofs',
   // Reference
+  '/solidity-import-reference',
   '/examples',
   '/core',
   '/edsl',

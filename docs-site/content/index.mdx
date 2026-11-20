@@ -1,96 +1,18 @@
 ---
-title: Verity, Formally Verified Smart Contract Compiler (Lean 4)
-description: Verity is a Lean-native language for verified smart contracts. Write the spec, write the implementation, and prove they agree, every claim is machine-checked at compile time, with the compiler itself proven to preserve semantics from EDSL to EVM bytecode.
+title: Verity — prove properties of Solidity functions in Lean
+description: Import a selected Solidity function, state what it should do, and check a proof against the imported model in Lean 4.
 ---
 
-import { Callout } from 'nextra/components'
 import { VerityHero } from '../components/VerityHero'
-import { CodeCompare } from '../components/CodeCompare'
-import { ReportCallout } from '../components/ReportCallout'
-import { CanonicalSurface } from '../components/CanonicalSurface'
-import { TaskRouter } from '../components/TaskRouter'
 
 <VerityHero />
 
-<CodeCompare />
+## What gets checked?
 
-## Start here
+Take a function with `require(value > 7)`. Does it revert for seven and return eight for eight? The [Solidity quickstart](/solidity-import) starts with the original source, imports just that function and shows where to write the theorem. If a function or a helper it calls uses a construct the importer cannot model, the import stops.
 
-<TaskRouter />
+**A successful import is not a proof.** Lean checks the property you state about the model, not equivalence to deployed bytecode. Starting from scratch instead? The [native authoring tutorial](/first-contract) takes you from a new contract to its first proof.
 
-<ReportCallout title="Where the trust comes from">
-A small, audited Lean EDSL with example contracts that compile to EVM artifacts.
-Every claim is machine-checked and every assumption is documented. Compilation
-correctness rides on `Compiler/Proofs/IRGeneration/Contract.lean` (generic
-whole-contract `CompilationModel -> IR` theorem for the current supported
-fragment), no per-contract bridge axioms. The full three-layer breakdown lives
-on the [Trust Model](/trust-model) page; the live theorem inventory is on
-[Verification Status](/verification).
-</ReportCallout>
+For compiler guarantees, see the [trust model](/trust-model) and `Compiler/Proofs/IRGeneration/Contract.lean` (generic whole-contract `CompilationModel -> IR` theorem for the current supported fragment).
 
-## The Three-Layer Structure
-
-Every contract is three things at once: a **specification** of what it should do,
-an **implementation** that runs, and a **proof** that ties them together.
-
-<CanonicalSurface>
-The spec/implementation/proof below are exactly that proof layer.
-</CanonicalSurface>
-
-### Specification &nbsp;·&nbsp; *what should be true*
-
-```verity
-def mint_spec (to : Address) (amount : Uint256) (s s' : ContractState) : Prop :=
-  s'.storageMap 1 to = add (s.storageMap 1 to) amount ∧
-  s'.storage 2 = add (s.storage 2) amount ∧
-  storageMapUnchangedExceptKeyAtSlot 1 to s s' ∧
-  sameContext s s'
-```
-
-### Implementation &nbsp;·&nbsp; *what runs on chain*
-
-```verity
-def mint (to : Address) (amount : Uint256) : Contract Unit := do
-  onlyOwner
-  let currentBalance ← getMapping balances to
-  let newBalance ← requireSomeUint (safeAdd currentBalance amount) "Balance overflow"
-  let currentSupply ← getStorage totalSupply
-  let newSupply ← requireSomeUint (safeAdd currentSupply amount) "Supply overflow"
-  setMapping balances to newBalance
-  setStorage totalSupply newSupply
-```
-
-### Proof &nbsp;·&nbsp; *they agree*
-
-```verity
-theorem mint_meets_spec (s : ContractState) (to : Address) (amount : Uint256)
-  (h_owner : s.sender = s.storageAddr 0) :
-  let s' := ((mint to amount).run s).snd
-  mint_spec to amount s s' := by
-  simp only [mint, onlyOwner, getMapping, setMapping]
-  simp [h_owner]
-```
-
-Lean checks every proof at compile time. A broken proof is a broken build.
-
-## Read next
-
-import { ReadingList } from '../components/ReadingList'
-
-<ReadingList items={[
-  { href: '/architecture', title: 'Architecture Overview', note: 'One screen: EDSL → CompilationModel → IR → Yul → EVM.' },
-  { href: '/getting-started', title: 'Getting Started', note: 'Local setup and your first verification run.' },
-  { href: '/first-contract', title: 'Your First Contract', note: 'A guided spec-to-proof walkthrough.' },
-  { href: '/guides/solidity-to-verity', title: 'Solidity to Verity', note: 'Porting an existing Solidity contract into the verity_contract surface.' },
-  { href: '/capabilities', title: 'Capabilities & Limits', note: 'What the verified fragment expresses today, and what is partial or unsupported.' },
-  { href: '/trust-model', title: 'Trust Model', note: 'What is verified, what is trusted, and the Layer 1/2/3 framing.' },
-  { href: '/verification', title: 'Verification Status', note: 'Theorem inventory and proof status.' },
-  { href: '/faq', title: 'FAQ', note: 'Why Lean, why an EDSL, how Verity compares to other formal-methods tools.' },
-]} />
-
-<Callout type="info">
-**For agents and tooling:** see [/llms.txt](/llms.txt), or add `.md` to any
-page URL for raw markdown.
-</Callout>
-
-Verity is a research project by [LFG Labs](https://lfglabs.dev).
+[Quickstart in Markdown](/solidity-import.md) · [Agent index](/llms.txt) · [Research paper](https://lfglabs.dev/papers/verity.pdf)

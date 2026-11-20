@@ -1,13 +1,18 @@
 ---
-title: Solidity to Verity
-description: Practical mappings for porting a Solidity contract into the verity_contract surface, first-pass syntax, restructuring patterns, and a worked walkthrough.
+title: Manual Port from Solidity to Verity
+description: Hand-translation mappings and restructuring patterns for rewriting Solidity into a native verity_contract implementation when you are not using automatic solidity_import.
 ---
 
+import { Callout } from 'nextra/components'
 import { CanonicalSurface } from '../../components/CanonicalSurface'
 
-# Solidity-to-Verity Translation Guide
+# Manual Solidity-to-Verity Port Guide
 
-This guide is the practical path for converting a Solidity contract into the
+<Callout type="info">
+**Want to verify existing Solidity without rewriting it by hand?** Start with [Import a Solidity function](/solidity-import) (`solidity_import`). Use this manual port guide only when you intentionally want a new native `verity_contract` implementation or need to restructure code outside the automatic importer’s supported subset. A manual port proves properties of the rewritten Verity contract, not the original Solidity source.
+</Callout>
+
+This guide is the practical path for hand-translating a Solidity contract into the
 `verity_contract` surface. Add proofs once the source shape and generated model
 are stable.
 

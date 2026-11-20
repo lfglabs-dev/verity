@@ -5,10 +5,29 @@ description: Compiler, macro, and linker error messages mapped to their cause an
 
 # Diagnostics: error → fix
 
-Hit a compiler, macro, or linker error? Search this page for the literal text of
+Hit a compiler, macro, importer, or linker error? Search this page for the literal text of
 the message (the parts outside `{…}` placeholders are verbatim). Each entry gives
 the **cause** and the **fix**. Messages tagged `#NNNN` link to the tracking issue,
-and most map to a boundary explained on [Capabilities & Limits](/capabilities).
+and most map to a boundary explained on [Capabilities & Limits](/capabilities) or [Solidity Importer Reference](/solidity-import-reference).
+
+## Solidity importer (`[solidity-import:unsupported]`)
+
+```text
+{File.sol}:{line}:{col}: {NodeType}: [solidity-import:unsupported] {reason}
+closure: {Contract.root -> Helper}
+```
+
+**Cause** — `solidity_import` reached a Solidity or inline-assembly construct inside the selected function’s call closure that the automatic importer cannot lower into a `CompilationModel`. Strict mode fails closed instead of producing a partial model.
+
+**Fix** — inspect the reported `{File.sol}:{line}:{col}` and `closure:` path. Check the [Solidity Importer Reference](/solidity-import-reference#diagnostics) to see whether another root slice avoids the unsupported helper, or use `collectUnsupported := true` in `solidity_profile` to survey the selected functions and their helpers. Skipped statements can hide or cause later failures. If any selected root is unsupported, only the report is emitted; otherwise the import produces its normal model and coverage theorem. Do not silently replace an automatic import with a [manual port](/guides/solidity-to-verity) without updating the stated verification scope.
+
+```text
+solc binary {binaryName} is not installed at {path}; run `python3 scripts/setup_solc_import.py --all` from the Verity root (Lake never downloads the compiler)
+```
+
+**Cause** — the checksum-pinned `solc` binary required by `solidity_profile` is missing from `.lake/solidity-import/`.
+
+**Fix** — run `python3 scripts/setup_solc_import.py --version 0.8.34` (or `--all`) from the repository root before elaborating the Lean file.
 
 ## Selector mismatch
 

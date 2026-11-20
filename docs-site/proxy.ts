@@ -54,6 +54,7 @@ export function proxy(request: NextRequest) {
   if (
     pathname.startsWith("/api/") ||
     pathname.startsWith("/.well-known/") ||
+    pathname === "/skill.md" || // Static agent instructions, not an MDX page
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/static/") ||
     pathname.startsWith("/_pagefind/") ||

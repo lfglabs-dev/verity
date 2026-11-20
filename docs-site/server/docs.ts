@@ -102,7 +102,7 @@ export async function buildAllDocsMarkdown(): Promise<string> {
   const contents: string[] = [
     "# Verity - Complete Documentation",
     "",
-    "> Minimal Lean EDSL for Smart Contracts - All documentation concatenated for AI agent consumption.",
+    "> Existing Solidity? Start with [Import a Solidity function](/solidity-import.md). For native authoring, see [Your first contract](/first-contract.md).",
     "",
     "---",
     "",

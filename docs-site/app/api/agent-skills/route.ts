@@ -10,7 +10,7 @@ export function GET() {
           name: "verity",
           url: "/skill.md",
           description:
-            "Operational guidance for agents adding, porting, proving, and auditing Verity contracts.",
+            "Operational guidance for agents importing Solidity functions, authoring or porting Verity contracts, proving specs, and auditing trust boundaries.",
         },
       ],
     },

@@ -1,35 +1,31 @@
 ---
 title: Getting Started with Verity
-description: Set up a Lean 4 + Foundry development environment for Verity and run your first verified smart contract build.
+description: Set up Lean 4 to import and prove properties of existing Solidity functions, or install Foundry to author and test native Verity contracts.
 ---
 
 import { CanonicalSurface } from '../components/CanonicalSurface'
 
 # Getting Started
 
-This guide walks you through setting up a development environment for Verity, building the project, and running your first verification.
+This guide sets up Verity for two workflows:
+
+1. **Existing Solidity (fastest start):** import a selected Solidity function into Lean and prove a property about it — see [Import a Solidity function](/solidity-import).
+2. **Author in Verity:** write a contract directly in `verity_contract`, prove its specification and compile to EVM artifacts — see [Your First Contract](/first-contract#minimal-skeleton).
 
 <CanonicalSurface>
-Setup comes first; once you build, jump to the [minimal skeleton](/first-contract#minimal-skeleton).
+Have existing Solidity? You only need Git, Python 3, `elan` and the pinned importer `solc` — start with [Import a Solidity function](/solidity-import). Continue below for the full native-authoring and Foundry test setup.
 </CanonicalSurface>
 
 ## Prerequisites
 
 | Tool | Purpose | Required for |
 |------|---------|-------------|
-| [elan](https://github.com/leanprover/elan) | Lean toolchain manager | Building everything |
-| [Foundry](https://book.getfoundry.sh/getting-started/installation) | Solidity testing framework | Running property tests |
-| Python 3.8+ | Scripts | Scaffold generator, CI scripts |
-| [`solc`](https://docs.soliditylang.org/en/latest/installing-solidity.html) 0.8.33+ | Solidity compiler | Differential tests only |
+| [elan](https://github.com/leanprover/elan) | Lean toolchain manager | All Lean proofs and Solidity imports |
+| Python 3.8+ | Setup and repo scripts | Installing pinned importer `solc`, scaffold generator, CI scripts |
+| [Foundry](https://book.getfoundry.sh/getting-started/installation) | Solidity/EVM test runner | Differential and Foundry property tests |
+| [`solc`](https://docs.soliditylang.org/en/latest/installing-solidity.html) 0.8.33+ | System Solidity compiler | Native compiler differential tests (separate from `solidity_import`) |
 
-> **Installing `solc`**: Foundry does not ship `solc`. Install it separately via [`solc-select`](https://github.com/crytic/solc-select):
-> ```bash
-> pip3 install solc-select
-> solc-select install 0.8.33
-> solc-select use 0.8.33
-> solc --version
-> ```
-> On macOS you can also use `brew install solidity`. The project requires version 0.8.33+.
+> **Pinned `solc` for `solidity_import` vs system `solc`:** The automatic Solidity importer uses its own checksum-verified binaries under `.lake/solidity-import/` (installed via `python3 scripts/setup_solc_import.py --version 0.8.34`, or `--all` to also fetch legacy `0.8.26` and `0.8.10` on Linux/macOS x86-64). For Foundry differential tests on native Verity contracts, install a system `solc` 0.8.33+ separately (for example via [`solc-select`](https://github.com/crytic/solc-select) or `brew install solidity`).
 
 ## 1. Install Lean 4
 
@@ -43,7 +39,7 @@ Follow the prompts, then **reload your shell**:
 
 ```bash
 source ~/.elan/env    # or open a new terminal
-lean --version        # should print leanprover/lean4:v4.15.0 (or whatever lean-toolchain pins)
+lean --version        # should print leanprover/lean4:v4.31.0 (or whatever lean-toolchain pins)
 ```
 
 > **Tip**: If `source ~/.elan/env` does not work, check `~/.profile` or `~/.bashrc` for the elan path entry.
@@ -60,13 +56,29 @@ forge --version
 
 ## 3. Clone and build
 
+First clone the repository:
+
 ```bash
 git clone https://github.com/lfglabs-dev/verity.git
 cd verity
+```
+
+If you only want to import and prove properties of an existing Solidity function, install the pinned importer `solc` and build just the importer target:
+
+```bash
+python3 scripts/setup_solc_import.py --version 0.8.34
+lake build Compiler.SolidityImport.Import
+```
+
+Then follow [Import a Solidity function](/solidity-import).
+
+To build every example contract, compiler pass and proof in the repository (for native `verity_contract` authoring and Foundry tests):
+
+```bash
 lake build                # Downloads dependencies and verifies the current proof set
 ```
 
-The first build downloads Mathlib and compiles everything, expect **20–45 minutes** on first run (Mathlib is large). Subsequent builds are incremental and much faster (seconds to minutes).
+The first full `lake build` downloads Mathlib and compiles everything; expect **20–45 minutes** on first run (Mathlib is large). Subsequent builds are incremental and much faster (seconds to minutes).
 
 ## Explore a proof
 
@@ -122,9 +134,10 @@ See the [Linking Libraries guide](/guides/linking-libraries) for details.
 
 ## What to read next
 
-1. **[First Contract tutorial](/first-contract)**, Hands-on guide building a TipJar from scratch; starts with the [minimal skeleton](/first-contract#minimal-skeleton)
-2. **[Solidity to Verity](/guides/solidity-to-verity)**, Porting an existing Solidity contract into the `verity_contract` surface
-3. **[Example Contracts](/examples)**, Progressive examples from single-slot storage to token transfers
-4. **[Core Architecture](/core)**, The Contract monad, state model, and design decisions
-5. **[Capabilities & Limits](/capabilities)**, What the verified fragment expresses today, and what is partial or unsupported
-6. **[Compiler reference](/compiler)**, Full CompilationModel DSL documentation
+1. **[Import a Solidity function](/solidity-import)**, Automatic Solidity importer quickstart: select a function, inspect its report and prove a property
+2. **[First Contract tutorial](/first-contract)**, Author a native Verity contract from scratch; starts with the [minimal skeleton](/first-contract#minimal-skeleton)
+3. **[Manual Port from Solidity](/guides/solidity-to-verity)**, Hand-porting patterns into the `verity_contract` surface when automatic import does not fit
+4. **[Example Contracts](/examples)**, Progressive examples from single-slot storage to token transfers
+5. **[Core Architecture](/core)**, The Contract monad, state model, and design decisions
+6. **[Capabilities & Limits](/capabilities)**, What the verified fragment expresses today, and what is partial or unsupported
+7. **[Compiler reference](/compiler)**, Full CompilationModel DSL documentation

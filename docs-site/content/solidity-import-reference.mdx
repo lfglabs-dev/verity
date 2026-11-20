@@ -1,0 +1,57 @@
+---
+title: Solidity importer reference
+description: Select a Solidity root, reproduce its build profile, inspect the generated model and diagnose a rejected import.
+---
+
+# Import a function from your project
+
+Use this page to adapt the [working quickstart](/solidity-import) to a different source tree. Run commands from the Lean package root, beside `lakefile.lean`.
+
+## Match the audited build
+
+Install the compiler with `python3 scripts/setup_solc_import.py --version 0.8.34` from the Verity checkout. A downstream package can pass `--output /path/to/package/.lake/solidity-import/solc-0.8.34`. Do not substitute the system `solc`. The importer checks the binary before and after use.
+
+Select the exact release in `solidity_profile` (default: `0.8.34+commit.80d5c536`). The other pins are `0.8.26+commit.8a97fa7a` (up to Cancun) and `0.8.10+commit.fc410830` (up to London, `viaIR := false`). Match the EVM fork, optimizer runs (`none` disables optimization), `viaIR` and metadata hash to the build you intend to study.
+
+## Select the source and roots
+
+```lean
+import Compiler.SolidityImport.Import
+
+solidity_profile build where
+  evmVersion := "osaka"
+  viaIR := true
+  optimizerRuns := some 466
+  bytecodeHash := "none"
+
+solidity_import slice from "Contracts/SolidityImportSmoke" entry "Slice.sol" using build
+  contract C
+  function f(Mkt, bytes32, address)
+  function lossOf(bytes32)
+```
+
+`from` names the project directory relative to the Lean package root. `entry` is the file inside it that declares the contract; supply the project’s dependencies and `remappings.txt`. Each `function` clause selects a root by name and Solidity parameter types. Reached helpers are included; sibling functions need not be importable. Import overloads with the same name in separate declarations.
+
+After `lake build Compiler.SolidityImport.Import`, run `lake env lean YourImport.lean` (replace the filename with yours). For a reusable library, [declare the Solidity source directory as a Lake input](https://github.com/lfglabs-dev/verity/blob/main/docs/SOLIDITY_IMPORT.md#usage) so changing a source file invalidates the stored model.
+
+## Inspect the result before writing a theorem
+
+| Declaration | What to do with it |
+|---|---|
+| `slice.report.toText` | Review the compiler, settings, included helpers, exclusions and storage fields used by the import. Save the inventory alongside the proof. |
+| `slice.sourceDigest` | Record which inputs, roots, compiler and importer produced the model. A digest is provenance, not a proof. |
+| `slice.model` | State properties about execution under `Denote`. Use generated scalar accessors where available; use the full model and matching calldata for composite ABI inputs. |
+| `slice.covered` | Evidence that the imported instructions have explicit execution semantics. It does **not** establish a user property, compiler correctness, gas behavior or bytecode equivalence. |
+
+`compilerProof unavailable` is expected. A separate compile attempt can establish `compilable`, and differential tests can sample agreement between Solidity, the model and compiled Yul. Neither provides a compiler-correctness proof for the imported root.
+
+## Diagnostics
+
+| Symptom | Next action |
+|---|---|
+| Missing pinned `solc`, or checksum mismatch | Install the profile’s release under the importing package’s `.lake/solidity-import/`; installing a global compiler won’t fix this. |
+| Root not found or name collision | Check `entry`, the declaring contract and the Solidity parameter types; split same-name overloads into separate imports. |
+| `[solidity-import:unsupported]` | Follow the reported file, line, column and call path to the construct. Compare it with the [supported subset](https://github.com/lfglabs-dev/verity/blob/main/docs/SOLIDITY_IMPORT.md#supported-solidity). A rejection does not show a Solidity bug. |
+| `collectUnsupported` warning | Survey mode can report several blockers, some consequences of earlier failures. If **any** root is unsupported, only the report exists: no model, theorem or accessor for any root in that import. Re-import the supported roots separately. |
+
+For proofs about the original function, keep the original source and state the scope of the accepted import. A [manual port](/guides/solidity-to-verity) instead proves properties of a new implementation. See the [trust boundary](https://github.com/lfglabs-dev/verity/blob/main/docs/SOLIDITY_IMPORT.md#trust-boundary) and [worked proof](https://github.com/lfglabs-dev/verity/blob/main/Contracts/SolidityImportSmoke/Smoke.lean).
