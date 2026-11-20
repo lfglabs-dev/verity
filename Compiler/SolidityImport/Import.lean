@@ -10340,6 +10340,8 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
       let ptr ← fresh
       let len ← fresh
       let buf : EncodedBytes := { pre := #[], pointer := .localVar ptr, size := .localVar len }
+      -- solc's empty `bytes` is 0x60; with length 0 and no assembly in the call
+      -- tree only the length is observable, so the pointer starts at 0.
       pre := pre ++ #[.letVar ptr (.literal 0), .letVar len (.literal 0)]
       modify fun e => { e with byteBuffers := e.byteBuffers.insert rid buf,
                                nonLiteralByteLocals := e.nonLiteralByteLocals.push rid,

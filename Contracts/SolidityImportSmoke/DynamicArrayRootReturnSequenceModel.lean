@@ -18,6 +18,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "DynamicArra
   function forwardBytes(uint256)
   function run(uint256)
   function runShadow(uint256)
+  function runBranch(uint256)
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

@@ -1616,6 +1616,15 @@ DYNAMIC_ARRAY_ROOT_RETURN_UNNAMED = {
         data = abi.encodePacked(uint16(0xdead));
         return _run(v);""": """returns (bool, bytes memory) {
         return _run(v);""",
+        """returns (bool ok, bytes memory data) {
+        if (v % 2 == 0) {
+            return _run(v);
+        }
+        data = abi.encodePacked(uint8(v));""": """returns (bool, bytes memory) {
+        if (v % 2 == 0) {
+            return _run(v);
+        }
+        return (false, abi.encodePacked(uint8(v)));""",
         """returns (address[] memory added, uint256[] memory amounts) {
         uint256 n = x % 4;
         added = new address[](n);

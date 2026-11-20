@@ -704,6 +704,7 @@ def main():
         'forwardBytes(uint256)',
         'run(uint256)',
         'runShadow(uint256)',
+        'runBranch(uint256)',
         'writePartMemory(address,(uint128,bool,int24,uint64,uint256))',
         'writePartCalldata(address,(uint128,bool,int24,uint64,uint256))',
         'readPart(address)',
@@ -910,8 +911,8 @@ def main():
     if 'run(uint256)' in source['methodIdentifiers']:
         # #2803 named root: empty tail (0), 32-byte tail, require revert (3) and
         # Panic(0x11) after the `total` write (2^256 - 1); then observe storage.
-        prefix = [(f'{name}(uint256)', [x]) for name in ('run', 'runShadow')
-                  for x in (0, 5, 3, (1 << 256) - 1)] + [('snapshot()', [])]
+        prefix = [(f'{name}(uint256)', [x]) for name in ('run', 'runShadow', 'runBranch')
+                  for x in (0, 5, 3, 4, (1 << 256) - 1)] + [('snapshot()', [])]
         calls.extend(prefix[:max(0, args.transactions - len(calls))])
     if 'echoNarrow(uint8[])' in source['methodIdentifiers']:
         # Empty, in-range and out-of-range `uint8` elements (the last two revert).
@@ -1531,7 +1532,7 @@ def main():
             ])
         elif name == 'forwardBytes(uint256)':
             call_args = [rng.choice((0, 1, 2, 255, (1 << 256) - 1))]
-        elif name in ('run(uint256)', 'runShadow(uint256)'):
+        elif name in ('run(uint256)', 'runShadow(uint256)', 'runBranch(uint256)'):
             call_args = [rng.choice((0, 1, 3, 255, (1 << 256) - 1))]
         elif name == 'echoNarrow(uint8[])':
             call_args = rng.choice([
