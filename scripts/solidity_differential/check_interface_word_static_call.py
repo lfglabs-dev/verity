@@ -1,7 +1,7 @@
 """Imported typed-interface word staticcalls through source EVM, Denote and compiled model.
 
-Covers static word arguments (`address`, `uint256`, `bytes32`, `bool`, `enum`), `bool` and
-`bytes32` returns, and calls placed in short-circuit operands and `require`
+Covers static word arguments (`address`, `uint256`, `bytes32`, `bool`, `enum`), `bool`,
+`bytes32`, `bytes4` and `int256` returns, and calls placed in short-circuit operands and `require`
 conditions. Every variant of the fixture is imported independently; its A/B/C
 sequence uses calldata-folding oracle mocks (`InterfaceWordStaticCallOracle.sol`
 on the EVM side, `word-static-oracle-v1` in Denote) plus one account without

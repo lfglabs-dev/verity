@@ -26,6 +26,8 @@ MESSAGES = {
 # name, interface/contract declarations, contract members, body, expected
 # expected: None (positive control) or (marker, occurrence, construct, message key)
 CASES = [
+    ('selector-comparison', ORACLE.replace('uint256', 'bytes4'), '',
+     'return IPriceOracle(oracle).price() == IPriceOracle.price.selector;', None, 'bool'),
     ('declaration', ORACLE, '', 'uint256 v = IPriceOracle(oracle).price(); return v;', None),
     ('assignment', ORACLE, '', 'uint256 v; v = IPriceOracle(oracle).price(); return v;', None),
     ('discarded', ORACLE, '', 'IPriceOracle(oracle).price(); return 1;', None),
@@ -99,9 +101,9 @@ CASES = [
 ]
 
 
-def source(declarations, members, body):
+def source(declarations, members, body, result_type='uint256'):
     return (f'// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n{declarations}\n'
-            f'contract C {{\n    {members}\n    function checked(address oracle) external returns (uint256) {{\n'
+            f'contract C {{\n    {members}\n    function checked(address oracle) external returns ({result_type}) {{\n'
             f'        {body}\n    }}\n}}\n')
 
 
@@ -125,12 +127,12 @@ def main():
               Path(tempfile.mkdtemp(prefix='interface-static-call-rejections-', dir=root / '.lake')))
     output.mkdir(parents=True, exist_ok=True)
     results = []
-    for name, declarations, members, body, expected in CASES:
+    for name, declarations, members, body, expected, *result_type in CASES:
         if args.only and args.only not in name:
             continue
         directory = output / name
         directory.mkdir()
-        text = source(declarations, members, body)
+        text = source(declarations, members, body, *result_type)
         (directory / 'Fixture.sol').write_text(text)
         driver = directory / 'Check.lean'
         driver.write_text(f'''import Compiler.SolidityImport.Import
