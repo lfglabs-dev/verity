@@ -307,8 +307,8 @@
           "profile": {
             "solc": "0.8.28+commit.7893614a",
             "evmVersion": "cancun",
-            "viaIR": true,
-            "optimizerRuns": 750,
+            "viaIR": false,
+            "optimizerRuns": 44444444,
             "bytecodeHash": "none"
           }
         },

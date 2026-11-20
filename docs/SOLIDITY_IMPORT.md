@@ -30,9 +30,10 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
   digest; they should match how the audited bytecode is built. `solc` defaults
-  to `0.8.34+commit.80d5c536`. It also accepts `0.8.28+commit.7893614a` and
-  `0.8.26+commit.8a97fa7a` (`evmVersion` up to `"cancun"`) for sources whose
-  pragma pins those releases, and `0.8.10+commit.fc410830` for legacy
+  to `0.8.34+commit.80d5c536`. It also accepts `0.8.28+commit.7893614a`
+  (`evmVersion` up to `"prague"`) and `0.8.26+commit.8a97fa7a` (up to
+  `"cancun"`) for sources whose pragma pins those releases, and
+  `0.8.10+commit.fc410830` for legacy
   London-era targets (`viaIR := false`, `evmVersion` up to `"london"`).
 - Each `function` clause selects one root by name and Solidity parameter types.
   A struct may be qualified (`IMidnight.Market`). Roots are lowered
