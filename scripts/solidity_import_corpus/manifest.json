@@ -42,6 +42,16 @@
         "sha256": "d5f23436f443edb85d8e76906d12f0a86ce0490e7663a9e608efeb7a93f149ef"
       }
     },
+    "0.8.28": {
+      "macosx-amd64": {
+        "path": "solc-macosx-amd64-v0.8.28+commit.7893614a",
+        "sha256": "81515b0e53deaa266d549545ccaac0a5a96e6d4e8201c77f673b2c710976d9ea"
+      },
+      "linux-amd64": {
+        "path": "solc-linux-amd64-v0.8.28+commit.7893614a",
+        "sha256": "9a0fb7e0db2c0641dbae1c5cc645dc686820c83af516226abb1c0a2f76636f25"
+      }
+    },
     "0.8.34": {
       "macosx-amd64": {
         "path": "solc-macosx-amd64-v0.8.34+commit.80d5c536",
@@ -200,6 +210,625 @@
         {
           "entry": "contracts/token/ERC20/extensions/ERC4626.sol",
           "contract": "ERC4626"
+        },
+        {
+          "entry": "contracts/token/ERC20/extensions/ERC20Votes.sol",
+          "contract": "ERC20Votes"
+        },
+        {
+          "entry": "contracts/token/ERC20/extensions/ERC20Permit.sol",
+          "contract": "ERC20Permit"
+        },
+        {
+          "entry": "contracts/token/ERC20/extensions/ERC20FlashMint.sol",
+          "contract": "ERC20FlashMint"
+        },
+        {
+          "entry": "contracts/token/ERC20/extensions/ERC20Wrapper.sol",
+          "contract": "ERC20Wrapper"
+        },
+        {
+          "entry": "contracts/token/ERC721/ERC721.sol",
+          "contract": "ERC721"
+        },
+        {
+          "entry": "contracts/token/ERC721/extensions/ERC721Votes.sol",
+          "contract": "ERC721Votes"
+        },
+        {
+          "entry": "contracts/token/ERC1155/ERC1155.sol",
+          "contract": "ERC1155"
+        },
+        {
+          "entry": "contracts/governance/utils/Votes.sol",
+          "contract": "Votes"
+        },
+        {
+          "entry": "contracts/mocks/governance/GovernorTimelockControlMock.sol",
+          "contract": "GovernorTimelockControlMock"
+        },
+        {
+          "entry": "contracts/mocks/governance/GovernorVoteMock.sol",
+          "contract": "GovernorVoteMocks"
+        },
+        {
+          "entry": "contracts/mocks/governance/GovernorWithParamsMock.sol",
+          "contract": "GovernorWithParamsMock"
+        },
+        {
+          "entry": "contracts/governance/TimelockController.sol",
+          "contract": "TimelockController"
+        },
+        {
+          "entry": "contracts/access/manager/AccessManager.sol",
+          "contract": "AccessManager"
+        },
+        {
+          "entry": "contracts/access/AccessControl.sol",
+          "contract": "AccessControl"
+        },
+        {
+          "entry": "contracts/finance/VestingWallet.sol",
+          "contract": "VestingWallet"
+        }
+      ]
+    },
+    {
+      "id": "aave-v4",
+      "repository": "https://github.com/aave/aave-v4.git",
+      "commit": "4885a7ad44391eb6635954ea3b353fa7f12222f5",
+      "inventory_solc": "0.8.28",
+      "contracts": [
+        {
+          "entry": "src/hub/instances/HubInstance.sol",
+          "contract": "HubInstance",
+          "profile": {
+            "solc": "0.8.28+commit.7893614a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 22300,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/spoke/instances/SpokeInstance.sol",
+          "contract": "SpokeInstance",
+          "profile": {
+            "solc": "0.8.28+commit.7893614a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 750,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/spoke/instances/TokenizationSpokeInstance.sol",
+          "contract": "TokenizationSpokeInstance",
+          "profile": {
+            "solc": "0.8.28+commit.7893614a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 750,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/hub/AssetInterestRateStrategy.sol",
+          "contract": "AssetInterestRateStrategy",
+          "profile": {
+            "solc": "0.8.28+commit.7893614a",
+            "evmVersion": "cancun",
+            "viaIR": false,
+            "optimizerRuns": 44444444,
+            "bytecodeHash": "none"
+          }
+        }
+      ]
+    },
+    {
+      "id": "aave-v3",
+      "repository": "https://github.com/aave-dao/aave-v3-origin.git",
+      "commit": "8305565ae342f1773c42cd2e4593f175fe5968a0",
+      "inventory_solc": "0.8.34",
+      "submodules": [
+        {
+          "path": "lib/solidity-utils",
+          "repository": "https://github.com/aave-dao/solidity-utils.git",
+          "commit": "21dafc37b032aafac64fefb1a54d8be2ce137429"
+        },
+        {
+          "path": "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable.git",
+          "commit": "fa525310e45f91eb20a6d3baa2644be8e0adba31"
+        },
+        {
+          "path": "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+          "commit": "69c8def5f222ff96f2b5beff05dfba996368aa79"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/contracts/instances/PoolInstance.sol",
+          "contract": "PoolInstance"
+        },
+        {
+          "entry": "src/contracts/instances/ATokenInstance.sol",
+          "contract": "ATokenInstance"
+        },
+        {
+          "entry": "src/contracts/instances/VariableDebtTokenInstance.sol",
+          "contract": "VariableDebtTokenInstance"
+        }
+      ]
+    },
+    {
+      "id": "aave-governance-v3",
+      "repository": "https://github.com/aave-dao/aave-governance-v3.git",
+      "commit": "497226efad1ca3723074034c8341fb90931fc2b2",
+      "inventory_solc": "0.8.34",
+      "submodules": [
+        {
+          "path": "lib/aave-delivery-infrastructure",
+          "repository": "https://github.com/aave-dao/aave-delivery-infrastructure.git",
+          "commit": "e4e2500c58fa1eeaa3ffd8f352bdc55c576c1148"
+        },
+        {
+          "path": "lib/aave-delivery-infrastructure/lib/solidity-utils",
+          "repository": "https://github.com/aave-dao/solidity-utils.git",
+          "commit": "7127aa8b7b3dd339157e94a8f159533ebd2c969d"
+        },
+        {
+          "path": "lib/aave-delivery-infrastructure/lib/solidity-utils/lib/openzeppelin-contracts-upgradeable",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable.git",
+          "commit": "fa525310e45f91eb20a6d3baa2644be8e0adba31"
+        },
+        {
+          "path": "lib/aave-delivery-infrastructure/lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+          "commit": "69c8def5f222ff96f2b5beff05dfba996368aa79"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/contracts/Governance.sol",
+          "contract": "Governance"
+        },
+        {
+          "entry": "src/contracts/voting/VotingMachine.sol",
+          "contract": "VotingMachine"
+        },
+        {
+          "entry": "src/contracts/GovernancePowerStrategy.sol",
+          "contract": "GovernancePowerStrategy"
+        }
+      ]
+    },
+    {
+      "id": "gho",
+      "repository": "https://github.com/aave/gho-core.git",
+      "commit": "c6335a0bb9cba099960c5378b1ff0db190b8da8f",
+      "inventory_solc": "0.8.10",
+      "submodules": [
+        {
+          "path": "lib/aave-v3-core",
+          "repository": "https://github.com/aave/aave-v3-core.git",
+          "commit": "a00f28e3ad7c0e4a369d8e06e0ac9fd0acabcab7"
+        },
+        {
+          "path": "lib/openzeppelin-contracts",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+          "commit": "0457042d93d9dfd760dbaa06a4d2f1216fdbe297"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/contracts/gho/GhoToken.sol",
+          "contract": "GhoToken"
+        },
+        {
+          "entry": "src/contracts/facilitators/gsm/Gsm.sol",
+          "contract": "Gsm",
+          "profile": {
+            "solc": "0.8.10+commit.fc410830",
+            "evmVersion": "london",
+            "viaIR": false,
+            "optimizerRuns": 200,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/contracts/facilitators/flashMinter/GhoFlashMinter.sol",
+          "contract": "GhoFlashMinter"
+        }
+      ]
+    },
+    {
+      "id": "compound-v2",
+      "repository": "https://github.com/compound-finance/compound-protocol.git",
+      "commit": "a3214f67b73310d547e00fc578e8355911c9d376",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "contracts/Comptroller.sol",
+          "contract": "Comptroller"
+        },
+        {
+          "entry": "contracts/CErc20Delegate.sol",
+          "contract": "CErc20Delegate"
+        },
+        {
+          "entry": "contracts/CEther.sol",
+          "contract": "CEther"
+        },
+        {
+          "entry": "contracts/JumpRateModelV2.sol",
+          "contract": "JumpRateModelV2"
+        },
+        {
+          "entry": "contracts/Governance/Comp.sol",
+          "contract": "Comp"
+        },
+        {
+          "entry": "contracts/Governance/GovernorBravoDelegate.sol",
+          "contract": "GovernorBravoDelegate"
+        },
+        {
+          "entry": "contracts/Timelock.sol",
+          "contract": "Timelock"
+        }
+      ]
+    },
+    {
+      "id": "morpho-vault-v2",
+      "repository": "https://github.com/morpho-org/vault-v2.git",
+      "commit": "916a358244699d774a4821d10f1da3223273ca64",
+      "inventory_solc": "0.8.28",
+      "contracts": [
+        {
+          "entry": "src/VaultV2.sol",
+          "contract": "VaultV2",
+          "profile": {
+            "solc": "0.8.28+commit.7893614a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 100000,
+            "bytecodeHash": "none"
+          }
+        }
+      ]
+    },
+    {
+      "id": "metamorpho-v1.1",
+      "repository": "https://github.com/morpho-org/metamorpho-v1.1.git",
+      "commit": "0f9b82723d804b78bd4b76c0fe81a14722aa2550",
+      "inventory_solc": "0.8.26",
+      "submodules": [
+        {
+          "path": "lib/morpho-blue",
+          "repository": "https://github.com/morpho-org/morpho-blue.git",
+          "commit": "78a059bd7318418465b06b8da96dc133e31ed3d9"
+        },
+        {
+          "path": "lib/openzeppelin-contracts",
+          "repository": "https://github.com/openzeppelin/openzeppelin-contracts.git",
+          "commit": "932fddf69a699a9a80fd2396fd1a2ab91cdda123"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/MetaMorphoV1_1.sol",
+          "contract": "MetaMorphoV1_1",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 200,
+            "bytecodeHash": "none"
+          }
+        }
+      ]
+    },
+    {
+      "id": "euler-vault-kit",
+      "repository": "https://github.com/euler-xyz/euler-vault-kit.git",
+      "commit": "93a1de491531e54cbbcf0e5c8cacfe558f924867",
+      "inventory_solc": "0.8.34",
+      "submodules": [
+        {
+          "path": "lib/ethereum-vault-connector",
+          "repository": "https://github.com/euler-xyz/ethereum-vault-connector.git",
+          "commit": "4e5b8c56a13809165b8b4b3f01ac2f93f7c0ecb5"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/EVault/EVault.sol",
+          "contract": "EVault"
+        },
+        {
+          "entry": "src/EVault/modules/Vault.sol",
+          "contract": "Vault"
+        },
+        {
+          "entry": "src/EVault/modules/Borrowing.sol",
+          "contract": "Borrowing"
+        },
+        {
+          "entry": "src/EVault/modules/Liquidation.sol",
+          "contract": "Liquidation"
+        }
+      ]
+    },
+    {
+      "id": "euler-evc",
+      "repository": "https://github.com/euler-xyz/ethereum-vault-connector.git",
+      "commit": "20e22a97b91a003d0dfa455823e588586b97e96c",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "src/EthereumVaultConnector.sol",
+          "contract": "EthereumVaultConnector"
+        }
+      ]
+    },
+    {
+      "id": "uniswap-v4-periphery",
+      "repository": "https://github.com/Uniswap/v4-periphery.git",
+      "commit": "c6e4754dab11bd38c6f08ac51c3c868569e93d64",
+      "inventory_solc": "0.8.26",
+      "submodules": [
+        {
+          "path": "lib/v4-core",
+          "repository": "https://github.com/Uniswap/v4-core.git",
+          "commit": "59d3ecf53afa9264a16bba0e38f4c5d2231f80bc"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/V4Router.sol",
+          "contract": "V4Router",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 44444444,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/lens/StateView.sol",
+          "contract": "StateView",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 44444444,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/lens/V4Quoter.sol",
+          "contract": "V4Quoter",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 44444444,
+            "bytecodeHash": "none"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pancakeswap-infinity",
+      "repository": "https://github.com/pancakeswap/infinity-core.git",
+      "commit": "3c5ef1be1f71442d8bc60cc6fd11f9c677b714df",
+      "inventory_solc": "0.8.26",
+      "submodules": [
+        {
+          "path": "lib/openzeppelin-contracts",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+          "commit": "659f3063f82422cef820de746444e6f6cba6ca7c"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/pool-cl/CLPoolManager.sol",
+          "contract": "CLPoolManager",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 25666,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/pool-bin/BinPoolManager.sol",
+          "contract": "BinPoolManager",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 25666,
+            "bytecodeHash": "none"
+          }
+        },
+        {
+          "entry": "src/Vault.sol",
+          "contract": "Vault",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 25666,
+            "bytecodeHash": "none"
+          }
+        }
+      ]
+    },
+    {
+      "id": "trader-joe-v2",
+      "repository": "https://github.com/lfj-gg/joe-v2.git",
+      "commit": "067c6ccf5b8ff1526d03fa3e4c65ec45d01c1f73",
+      "inventory_solc": "0.8.34",
+      "submodules": [
+        {
+          "path": "lib/openzeppelin-contracts",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+          "commit": "4e7e6e54daedf091d91f2f2df024cbb8f253e2ef"
+        },
+        {
+          "path": "lib/openzeppelin-contracts-upgradeable",
+          "repository": "https://github.com/openzeppelin/openzeppelin-contracts-upgradeable.git",
+          "commit": "b40cdf32072c3e375ed76304a8155b75a9918387"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/LBPair.sol",
+          "contract": "LBPair"
+        },
+        {
+          "entry": "src/LBRouter.sol",
+          "contract": "LBRouter"
+        },
+        {
+          "entry": "src/LBFactory.sol",
+          "contract": "LBFactory"
+        }
+      ]
+    },
+    {
+      "id": "sky-usds",
+      "repository": "https://github.com/sky-ecosystem/usds.git",
+      "commit": "d65551dbc11cfe1afcc4718ab790663b99d766af",
+      "inventory_solc": "0.8.34",
+      "submodules": [
+        {
+          "path": "lib/openzeppelin-contracts-upgradeable",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable.git",
+          "commit": "723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1"
+        },
+        {
+          "path": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+          "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/Usds.sol",
+          "contract": "Usds"
+        },
+        {
+          "entry": "src/DaiUsds.sol",
+          "contract": "DaiUsds"
+        }
+      ]
+    },
+    {
+      "id": "sky-sdai",
+      "repository": "https://github.com/sky-ecosystem/sdai.git",
+      "commit": "2b7acb95289a9eb3a8844206d5712eabfa206efc",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "src/SavingsDai.sol",
+          "contract": "SavingsDai"
+        }
+      ]
+    },
+    {
+      "id": "sky-stusds",
+      "repository": "https://github.com/sky-ecosystem/stusds.git",
+      "commit": "486bfe342c01afab7387a920dfcd7eeaaf91f4b7",
+      "inventory_solc": "0.8.34",
+      "submodules": [
+        {
+          "path": "lib/openzeppelin-contracts-upgradeable",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable.git",
+          "commit": "723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1"
+        },
+        {
+          "path": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts",
+          "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+          "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/StUsds.sol",
+          "contract": "StUsds"
+        }
+      ]
+    },
+    {
+      "id": "solmate",
+      "repository": "https://github.com/transmissions11/solmate.git",
+      "commit": "89365b880c4f3c786bdd453d4b8e8fe410344a69",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "src/tokens/ERC20.sol",
+          "contract": "ERC20"
+        },
+        {
+          "entry": "src/tokens/ERC4626.sol",
+          "contract": "ERC4626"
+        },
+        {
+          "entry": "src/tokens/WETH.sol",
+          "contract": "WETH"
+        },
+        {
+          "entry": "src/tokens/ERC721.sol",
+          "contract": "ERC721"
+        },
+        {
+          "entry": "src/auth/authorities/RolesAuthority.sol",
+          "contract": "RolesAuthority"
+        }
+      ]
+    },
+    {
+      "id": "solady",
+      "repository": "https://github.com/Vectorized/solady.git",
+      "commit": "258f67cc71e39cff307b726939ade17e9d8bcf5c",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "src/tokens/ERC20.sol",
+          "contract": "ERC20"
+        },
+        {
+          "entry": "src/tokens/ERC4626.sol",
+          "contract": "ERC4626"
+        },
+        {
+          "entry": "src/tokens/WETH.sol",
+          "contract": "WETH"
+        },
+        {
+          "entry": "src/tokens/ERC721.sol",
+          "contract": "ERC721"
+        },
+        {
+          "entry": "src/auth/OwnableRoles.sol",
+          "contract": "OwnableRoles"
+        }
+      ]
+    },
+    {
+      "id": "safe",
+      "repository": "https://github.com/safe-fndn/safe-smart-account.git",
+      "commit": "247b8ce3bdbf204a120e77f5b369d137424ddc58",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "contracts/Safe.sol",
+          "contract": "Safe"
         }
       ]
     }

@@ -20,7 +20,8 @@ namespace Compiler.CompilationModel.SolidityImport
 
 structure Profile where
   /-- Exact solc release. The importer accepts only its pinned releases
-      (`0.8.34+commit.80d5c536` and `0.8.10+commit.fc410830`). -/
+      (`0.8.34+commit.80d5c536`, `0.8.28+commit.7893614a`,
+      `0.8.26+commit.8a97fa7a` and `0.8.10+commit.fc410830`). -/
   solc : String := "0.8.34+commit.80d5c536"
   evmVersion : String
   viaIR : Bool

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Install pinned solc 0.8.34 or 0.8.10 for the Solidity importer (`solidity_import`).
+"""Install the pinned solc releases for the Solidity importer (`solidity_import`).
 
-The binaries are written to `.lake/solidity-import/solc-0.8.34` and
-`.lake/solidity-import/solc-0.8.10`. Lake elaboration never downloads the compiler.
+Each binary is written to `.lake/solidity-import/solc-<version>`
+(for example `.lake/solidity-import/solc-0.8.34`). Lake elaboration never downloads the compiler.
 """
 
 from __future__ import annotations
@@ -23,6 +23,14 @@ RELEASES = {
         "sha256": {
             "linux-amd64": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
             "macosx-amd64": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
+        },
+    },
+    "0.8.28": {
+        "binary_name": "solc-0.8.28",
+        "long_version": "0.8.28+commit.7893614a",
+        "sha256": {
+            "linux-amd64": "9a0fb7e0db2c0641dbae1c5cc645dc686820c83af516226abb1c0a2f76636f25",
+            "macosx-amd64": "81515b0e53deaa266d549545ccaac0a5a96e6d4e8201c77f673b2c710976d9ea",
         },
     },
     "0.8.26": {
