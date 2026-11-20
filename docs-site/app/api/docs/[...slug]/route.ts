@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { agentDiscoveryHeaderRecord } from "@/server/agent-discovery";
 import { buildAllDocsMarkdown, docIndex, readDoc } from "@/server/docs";
 
+/** HTTP header values must be Latin-1; titles contain em dashes. */
+function headerSafe(value: string): string {
+  return value.replace(/[\u2013\u2014]/g, "-").replace(/[^\x20-\x7e]/g, "?");
+}
+
 /**
  * GET /api/docs/[...slug]
  *
@@ -90,7 +95,7 @@ export async function GET(
       "Content-Type": "text/markdown; charset=utf-8",
       "Cache-Control": "public, max-age=3600",
       "X-Content-Type-Options": "nosniff",
-      "X-Doc-Title": doc.metadata.title || normalizedPath,
+      "X-Doc-Title": headerSafe(doc.metadata.title || normalizedPath),
       "X-Doc-Path": normalizedPath,
     },
   });

@@ -1,11 +1,17 @@
+import { CopyForLLMs } from './CopyForLLMs'
+
 export function VerityHero() {
   return (
     <section className="verity-hero" aria-labelledby="verity-hero-title">
       <header className="verity-hero__head">
         <p className="verity-kicker">Verity · Machine-checked proofs in Lean 4</p>
-        <h1 id="verity-hero-title">Verity — formal verification for EVM smart contracts.</h1>
+        <div className="verity-hero__titlerow">
+          <h1 id="verity-hero-title">Verity — formal verification for EVM smart contracts.</h1>
+          <CopyForLLMs />
+        </div>
         <p className="verity-hero__dek">
-          State what a contract should do, and let Lean check the proof.
+          Verity lets you prove your smart contract is correct. You write down what it must do,
+          and Lean, a proof checker, confirms it holds for all the inputs you specify.
         </p>
         <nav className="verity-hero__cards" aria-label="Two ways to verify with Verity">
           <a className="verity-hero__card" href="/solidity-import">

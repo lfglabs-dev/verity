@@ -354,25 +354,201 @@ header kbd {
   padding: 0 0.12em;
 }
 
-/* "Copy page" widget at the top of each article */
-[class*="x:rounded-md"]:has(> button),
-[class*="x:rounded-md"]:has(> button) * {
-  border-radius: 0 !important;
+/* "Copy for LLMs" split button (components/CopyForLLMs.tsx).
+   On content pages it is rendered right before the H1 and floats to the end of
+   the title's line; on Home it lives in the hero's own title row. */
+.verity-copyllm {
+  position: relative;
+  float: inline-end;
+  /* Right edge matches the 46rem text measure instead of the full article width. */
+  margin: 0.35rem max(0px, calc(100% - 46rem)) 0.75rem 1rem;
+  z-index: 20;
 }
 
-article [class*="x:rounded-md"]:has(button) {
-  border-color: var(--verity-rule) !important;
-  background: var(--verity-surface) !important;
+.verity-hero__titlerow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+  max-width: 46rem;
 }
 
-article [class*="x:rounded-md"]:has(button) button {
-  font-family: var(--verity-font-ui) !important;
+.verity-hero__head > .verity-hero__titlerow {
+  margin-bottom: 1.25rem;
+}
+
+.verity-hero__titlerow > h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
+
+.verity-hero__titlerow > .verity-copyllm {
+  float: none;
+  flex: none;
+  margin: 0.2rem 0 0;
+}
+
+.verity-copyllm__group {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--verity-rule);
+  background: var(--verity-surface);
+}
+
+.verity-copyllm__button,
+.verity-copyllm__toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--verity-ink);
+  font-family: var(--verity-font-ui);
+  font-size: 0.85rem;
+  font-weight: 560;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.verity-copyllm__button {
+  gap: 0.65rem;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.85rem;
+}
+
+.verity-copyllm__toggle {
+  justify-content: center;
+  padding: 0 0.7rem;
+  border-inline-start: 1px solid var(--verity-rule);
+}
+
+.verity-copyllm__button:hover,
+.verity-copyllm__toggle:hover,
+.verity-copyllm__toggle[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--verity-sidebar) 30%, var(--verity-surface));
+}
+
+.verity-copyllm__group:has([data-state="copied"], [data-state="copied-gemini"]) {
+  border-color: var(--verity-accent);
+}
+
+.verity-copyllm__group:has([data-state="failed"]) {
+  border-color: #c0392b;
+}
+
+.verity-copyllm__button:focus-visible,
+.verity-copyllm__toggle:focus-visible,
+.verity-copyllm__item:focus-visible {
+  outline: 2px solid var(--verity-accent);
+  outline-offset: -2px;
+}
+
+.verity-copyllm__logos {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.verity-copyllm__logos svg {
+  display: block;
+  flex: none;
+}
+
+.verity-copyllm__label {
+  white-space: nowrap;
+}
+
+.verity-copyllm__menu {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + 0.4rem);
+  width: min(23rem, calc(100vw - 2rem));
+  padding: 0.35rem;
+  border: 1px solid var(--verity-rule);
+  background: var(--verity-surface);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--verity-ink) 18%, transparent);
+  text-align: start;
+  hyphens: manual;
+}
+
+.verity-copyllm__item {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.6rem 0.65rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--verity-ink) !important;
-  font-size: 0.85rem !important;
+  font-family: var(--verity-font-ui);
+  text-align: start;
+  text-decoration: none !important;
+  cursor: pointer;
 }
 
-article [class*="x:rounded-md"]:has(button) button:hover {
-  background: color-mix(in srgb, var(--verity-sidebar) 30%, var(--verity-surface)) !important;
+.verity-copyllm__item:hover {
+  background: color-mix(in srgb, var(--verity-sidebar) 30%, var(--verity-surface));
+}
+
+.verity-copyllm__item-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--verity-rule);
+}
+
+.verity-copyllm__md {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.verity-copyllm__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.verity-copyllm__item-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.verity-copyllm__item-desc {
+  font-size: 0.76rem;
+  font-weight: 400;
+  line-height: 1.35;
+  opacity: 0.75;
+}
+
+/* Narrow content column (sidebar visible but little room): the hero title would be
+   squeezed beside the control, so stack them with the control above the title. */
+@media (max-width: 900px) {
+  .verity-hero__titlerow {
+    flex-direction: column-reverse;
+    gap: 0.9rem;
+  }
+
+  .verity-hero__titlerow > .verity-copyllm {
+    align-self: flex-start;
+    margin: 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .verity-hero__titlerow > .verity-copyllm {
+    align-self: stretch;
+  }
 }
 
 aside.nextra-sidebar-container,
@@ -1274,20 +1450,13 @@ input:focus-visible,
   .verity-hero .verity-kicker span {
     margin: 0 0.3em;
   }
-
-  /* On these very narrow screens the Copy-page widget can drop to
-     about 100px so the kicker doesn't stack into four lines. The
-     !important is necessary because the broader (max-width: 767px)
-     media query later in the file targets the same selector with
-     equal specificity, and the later-source rule would otherwise
-     win at ≤360px. */
-  .verity-hero__head > .verity-kicker {
-    padding-right: 6rem !important;
-  }
 }
 
 .verity-hero {
   display: grid;
+  /* minmax(0, 1fr): without it the single column grows to the cards' min-content
+     and overflows narrow viewports. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto;
   gap: clamp(2rem, 4vw, 3.25rem);
   padding: clamp(1.75rem, 4vw, 3.25rem) 0 clamp(0.5rem, 1vw, 1rem);
@@ -1305,11 +1474,11 @@ input:focus-visible,
   margin: 0;
 }
 
-.verity-hero__head > .verity-kicker + h1 {
+.verity-hero__head > .verity-kicker + .verity-hero__titlerow {
   margin-top: 0.6rem;
 }
 
-.verity-hero__head > h1 + .verity-hero__dek {
+.verity-hero__head > .verity-hero__titlerow + .verity-hero__dek {
   margin-top: 1.4rem;
 }
 
@@ -1321,13 +1490,18 @@ input:focus-visible,
   margin: 0;
   color: var(--verity-heading);
   font-family: var(--verity-font-display);
-  font-size: clamp(3.6rem, 9vw, 6.4rem);
-  font-weight: 760;
-  letter-spacing: -0.014em;
-  line-height: 0.92;
+  font-weight: 720;
+  letter-spacing: -0.012em;
   overflow-wrap: normal;
   word-break: normal;
   font-feature-settings: "kern", "liga", "calt";
+}
+
+/* Beats the generic `article main h1` size (which is !important). Sized so the
+   55-character title wraps to two lines at the content column width. */
+article main .verity-hero h1 {
+  font-size: clamp(1.6rem, 3vw, 2.4rem) !important;
+  line-height: 1.14 !important;
 }
 
 .verity-hero__terminal {
@@ -1356,7 +1530,7 @@ input:focus-visible,
   border-bottom: 1px solid var(--verity-accent);
 }
 
-.verity-hero__head > .verity-kicker + h1 {
+.verity-hero__head > .verity-kicker + .verity-hero__titlerow {
   margin-top: 0 !important;
 }
 
@@ -2225,46 +2399,34 @@ input:focus-visible,
     max-width: 100%;
   }
 
-  /* The "Copy page" widget hugs the right side and the section-number
+  /* The section-number
      "§ N" marker hugs the right side too — drop both on phones so
      headings can use the full width without a collision. */
   article main h2::after {
     display: none !important;
   }
 
-  /* The Nextra "Copy page" widget is a `float: inline-end` element
-     at the top of <article>. Its float scope extends down the entire
-     page, squeezing the hero, dek, CTAs, and facts strip into a
-     narrow ~70% column with 30% of dead space on the right.
-     Take it out of the flow on phones and pin it to the top-right
-     so only the kicker has to wrap around it. */
-  article {
-    position: relative;
+  /* Phones: not enough width for button + title on one line, so the control gets
+     its own full-width row (above the title) and the menu spans it. */
+  .verity-copyllm {
+    float: none;
+    margin: 0 0 0.75rem;
   }
 
-  article > [class*="x:rounded-md"]:has(> button) {
-    position: absolute !important;
-    top: 0.25rem !important;
-    right: 0.5rem !important;
-    z-index: 5;
-    float: none !important;
-    margin: 0 !important;
+  .verity-copyllm__group {
+    display: flex;
   }
 
-  /* On the very narrowest viewports (fold-style phones, ~280-360px)
-     shrink the Copy-page widget so the kicker has enough horizontal
-     space to fit on two lines instead of four. */
-  article > [class*="x:rounded-md"]:has(> button) button {
-    font-size: 0.78rem !important;
-    padding: 0.35rem 0.55rem !important;
+  .verity-copyllm__button {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 2.75rem;
   }
 
-  /* The kicker is the only line that sits at the same Y as the widget
-     and needs to keep clear of it. Pad its right side so its last item
-     doesn't slide under the widget. */
-  .verity-hero__head > .verity-kicker {
-    padding-right: 8rem;
+  .verity-copyllm__menu {
+    width: 100%;
   }
+
 
   .verity-hero {
     padding-top: 1.25rem;
@@ -2272,7 +2434,7 @@ input:focus-visible,
     gap: 1.25rem;
   }
 
-  .verity-hero__head > h1 + .verity-hero__dek {
+  .verity-hero__head > .verity-hero__titlerow + .verity-hero__dek {
     margin-top: 1rem;
   }
 
@@ -2284,9 +2446,10 @@ input:focus-visible,
     max-width: 100%;
   }
 
-  .verity-hero h1 {
-    font-size: clamp(3.2rem, 16vw, 4.2rem);
-    line-height: 0.95;
+
+  article main .verity-hero h1 {
+    font-size: clamp(1.5rem, 6.6vw, 2rem) !important;
+    line-height: 1.16 !important;
   }
 
   .verity-hero__dek {
