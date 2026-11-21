@@ -7,6 +7,7 @@ import tempfile
 
 from .engine import command, write_json
 from .programs import call_arg_source
+from .programs import storage_struct_param_slot_source
 from .programs import (
     ROOT_PARAM_RENAMES,
     stateful_abi_decode_and_verifier_source,
@@ -244,6 +245,7 @@ FIXTURE_CONTRACTS = {
     'predeclared-for-counters': 'PredeclaredForCounterSequence',
     'storage-array-length-bound': 'StorageArrayLengthBoundSequence',
     'helper-loop-break': 'HelperLoopBreakSequence',
+    'struct-param-slot': 'StorageStructParamSlotSequence',
     'numeric-literals': 'NumericLiteralSequence',
     'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
     'packed': 'StorageSequence',
@@ -455,6 +457,8 @@ def main():
         variants = ('baseline', 'renamed', 'hex-literals')
     if args.fixture == 'call-arg-side-effects':
         variants = ('baseline', 'renamed', 'explicit')
+    if args.fixture == 'struct-param-slot':
+        variants = ('baseline', 'renamed', 'direct-library-calls')
     if args.fixture == 'dynamic-memory-arrays':
         variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'signed-modulo':
@@ -554,6 +558,7 @@ def main():
                           else stateful_encoded_byte_local_source(fixture, variant) if args.fixture == "encoded-byte-locals"
                           else stateful_discarded_helper_source(fixture, variant) if args.fixture == "discarded-helper"
                           else call_arg_source(fixture, variant) if args.fixture == 'call-arg-side-effects'
+                          else storage_struct_param_slot_source(fixture, variant) if args.fixture == 'struct-param-slot'
                           else stateful_array_write_order_source(fixture, variant) if args.fixture == "array-write-order"
                           else stateful_fixed_array_source(fixture, variant) if args.fixture == "fixed-arrays"
                           else stateful_helper_effect_source(fixture, variant) if args.fixture == "helper-effects"
@@ -669,6 +674,10 @@ def main():
         if args.fixture == 'msg-sig':
             # change(2^256 - 1) fills the 28 argument bytes that the msg.sig mask clears.
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 10, 17, 999, 1000, (1 << 256) - 1])]
+        if args.fixture == 'struct-param-slot':
+            # Every mapping key (x % 3), the x == 20 rollback, and high words
+            # that reach both packed halves of the struct's first slot.
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 20, 21, (1 << 130) + 5, (1 << 256) - 1])]
         if args.fixture == 'timelock-and-bytes4-cast':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 20, 21, 22])]
         if args.fixture == 'string-bytes-mappings-uri-storage-strings':

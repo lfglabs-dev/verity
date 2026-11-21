@@ -19,6 +19,14 @@ MUTANTS = {
     'import-string-event-data-before-indexed-guard': (
         'unless kind == "Identifier" || kind == "Literal" do',
         'unless true do'),
+    # `<param>.slot` of a top-level struct one slot off, and of a mapping-indexed
+    # struct without its keys: both read and write the wrong storage word.
+    'import-storage-struct-param-slot-top': (
+        '    return (#[], .literal info.slot)',
+        '    return (#[], .literal (info.slot + 1))'),
+    'import-storage-struct-param-slot-keyed': (
+        '  computeSPathBaseSlot path info 0 at_\n\nprivate def scalarMappingRead',
+        '  return (#[], .literal info.slot)\n\nprivate def scalarMappingRead'),
     'import-encoding-arg-super-revert-guard': (
         '        resolveSuperFn? env (seen.head? <|> env.stack.head?) id',
         '        some id'),
@@ -896,6 +904,8 @@ def run(directory, output, name):
         fixture = "DividingWhileSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
+    if name.startswith("import-storage-struct-param-slot-"):
+        fixture = "StorageStructParamSlotSequence"
     if name == "import-encoding-arg-super-revert-guard":
         fixture = "EncodingArgSuperOverrideSequence"
     if name.startswith("import-push-length-"):
@@ -977,6 +987,10 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 7, 12, (1 << 128) - 1, 1 << 128])])
+    if fixture == 'StorageStructParamSlotSequence':
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, (1 << 130) + 5, (1 << 256) - 1])])
     if fixture == 'EncodingArgSuperOverrideSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'

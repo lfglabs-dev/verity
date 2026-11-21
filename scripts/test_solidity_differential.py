@@ -86,6 +86,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-helper-loop-break",
     "storage-helper-name-independence",
     "storage-call-arg-side-effects",
+    "storage-struct-param-slot",
     "storage-if-else",
     "storage-imported-event",
     "storage-inline-array-literals",

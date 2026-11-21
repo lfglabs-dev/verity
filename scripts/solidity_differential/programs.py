@@ -1134,6 +1134,23 @@ def call_arg_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown call-arg variant: {variant}')
 
 
+def storage_struct_param_slot_source(fixture: str, variant: str) -> str:
+    """`<param>.slot` of storage struct helper parameters: renamed helpers, state
+    variables and the `self` parameter, and library calls written without `using for`."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return re.sub(r'\b(_slotOf|_rawWord|_rawStore|_fill|top|cells|grid|lock|locks|self|tget|tset)\b',
+                      r'\1Renamed', fixture)
+    if variant == 'direct-library-calls':
+        out = re.sub(r'\b(lock|locks\[[^\]]+\])\.(tget|tset)\(\)', r'TransientWordAccess.\2(\1)', fixture)
+        out = re.sub(r'\b(lock|locks\[[^\]]+\])\.(tget|tset)\(', r'TransientWordAccess.\2(\1, ', out)
+        if out.count('TransientWordAccess.t') != 6:
+            raise ValueError('struct-param-slot library call anchors changed')
+        return out
+    raise ValueError(f'unknown struct-param-slot variant: {variant}')
+
+
 def stateful_yul_revert_memory_source(fixture: str, variant: str) -> str:
     """Yul `revert(offset, size)` over scratch words written in the same block: renamed
     identifiers and the two-word revert with its `mstore`s in the other order agree."""
