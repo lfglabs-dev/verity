@@ -229,9 +229,6 @@ jobs:
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
-              - 'scripts/solidity_import_coverage.py'
-              - 'scripts/solidity_import_corpus/**'
-              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
               # Every path is_compiler_path accepts must also start this job: the
               # compiler and Foundry jobs need its workspace.
@@ -276,9 +273,6 @@ jobs:
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
-              - 'scripts/solidity_import_coverage.py'
-              - 'scripts/solidity_import_corpus/**'
-              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
               - 'foundry.toml'
             importer:
@@ -294,9 +288,6 @@ jobs:
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
-              - 'scripts/solidity_import_coverage.py'
-              - 'scripts/solidity_import_corpus/**'
-              - 'scripts/test_solidity_import_coverage.py'
             changed:
               - '**'
       - name: Resolve effective change flags
@@ -323,7 +314,7 @@ jobs:
           # A lakefile.lean change counts as importer-only when every changed line
           # names a SolidityImportSmoke target (pull requests only; pushes stay strict).
           # On the full tier an importer change still counts as a compiler change, so
-          # compiler-regressions (stateful checks, import coverage) keeps running there.
+          # compiler-regressions (stateful checks) keeps running there.
           lakefile_only_smoke() {
             [ "$EVENT_NAME" = "pull_request" ] || return 1
             git rev-parse --verify -q HEAD^1 >/dev/null || return 1
@@ -1654,32 +1645,6 @@ jobs:
             .lake/denote-rejections-*/**
             !.lake/import-differential/**/.lake/build/**
             !.lake/import-differential/**/.lake/packages/**
-          include-hidden-files: true
-          retention-days: 14
-
-      - name: Measure pinned Solidity import coverage
-        continue-on-error: true
-        timeout-minutes: 25
-        run: |
-          python3 scripts/solidity_import_coverage.py --fetch
-
-      - name: Publish Solidity import coverage
-        if: always()
-        continue-on-error: true
-        run: |
-          if [ -f .lake/solidity-import-coverage/coverage.md ]; then
-            cat .lake/solidity-import-coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Solidity import coverage unavailable: inspect measurement logs.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Archive Solidity import coverage
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: solidity-import-coverage
-          path: .lake/solidity-import-coverage/**
           include-hidden-files: true
           retention-days: 14
 

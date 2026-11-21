@@ -6,12 +6,14 @@ lowering, and it never changes what the importer accepts.
 
 ## Pinned releases
 
-The importer pins two solc releases (`solcReleases` in
+The importer pins four solc releases (`solcReleases` in
 `Compiler/SolidityImport/Import.lean`). `Profile.solc` defaults to the first:
 
 | Release | Linux sha256 | macOS sha256 |
 | --- | --- | --- |
 | `0.8.34+commit.80d5c536` | `d40adc6f…726b39` | `0a282929…fa7746` |
+| `0.8.28+commit.7893614a` | `9a0fb7e0…636f25` | `81515b0e…76d9ea` |
+| `0.8.26+commit.8a97fa7a` | `d5f23436…f149ef` | `0ff016ae…c30ab9` |
 | `0.8.10+commit.fc410830` | `c7effacf…dd06d89` | `a79fff23…dd2a4cc` |
 
 `IMPORTER_SOLC` and `IMPORTER_DEFAULT_SOLC` in the script mirror these values.

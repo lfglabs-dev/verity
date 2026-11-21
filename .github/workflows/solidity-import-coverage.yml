@@ -1,0 +1,100 @@
+name: Solidity import coverage
+
+# Measures which functions of the pinned corpus
+# (`scripts/solidity_import_corpus/manifest.json`) the importer accepts, one
+# real `solidity_import` probe per function. The report is data, not a gate:
+# a rejection is a finding, and an incomplete measurement is reported as
+# such. It runs nightly, on demand, and on pull requests that change the
+# corpus, the measurement script or this workflow. Verify's
+# `compiler-regressions` job no longer measures it: that step ran only when
+# every earlier step of the job passed, so it was skipped whenever they failed.
+
+on:
+  schedule:
+    # 04:41 UTC, after Verify's nightly (03:17) has refreshed the Lake cache.
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+    inputs:
+      projects:
+        description: 'Space-separated manifest project ids to measure (empty: all)'
+        required: false
+        default: ''
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/solidity-import-coverage.yml'
+      - 'scripts/solidity_import_corpus/**'
+      - 'scripts/solidity_import_coverage.py'
+      - 'scripts/test_solidity_import_coverage.py'
+      - 'scripts/setup_solc_import.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solidity-import-coverage-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  measure:
+    runs-on: lean-16vcpu-ubuntu-2604
+    timeout-minutes: 360
+    env:
+      # Concurrent probes: each is one `lake env lean` process over the importer
+      # cone, run with 2 Lean threads, so 8 probes fill the 16 vCPUs.
+      COVERAGE_JOBS: 8
+      # Seconds per probe before it is recorded as an error (script default 120).
+      COVERAGE_PROBE_TIMEOUT: 300
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: recursive
+
+      - name: Setup Lean
+        uses: ./.github/actions/setup-lean
+        with:
+          cache-key-prefix: lake
+
+      - name: Coverage script unit tests
+        run: PYTHONPATH=scripts python3 -m unittest scripts/test_solidity_import_coverage.py
+
+      - name: Build the importer
+        env:
+          LEAN_NUM_THREADS: 16
+        run: lake build Compiler.SolidityImport.Import
+
+      - name: Setup pinned solc releases for Solidity import
+        run: python3 scripts/setup_solc_import.py --all
+
+      - name: Measure pinned Solidity import coverage
+        id: measure
+        continue-on-error: true
+        env:
+          LEAN_NUM_THREADS: 2
+          PROJECTS: ${{ inputs.projects }}
+        run: |
+          selection=()
+          for project in $PROJECTS; do selection+=(--project "$project"); done
+          python3 scripts/solidity_import_coverage.py --fetch --jobs "$COVERAGE_JOBS" \
+            --timeout "$COVERAGE_PROBE_TIMEOUT" "${selection[@]}"
+
+      - name: Publish Solidity import coverage
+        if: always()
+        run: |
+          if [ -f .lake/solidity-import-coverage/coverage.md ]; then
+            cat .lake/solidity-import-coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Solidity import coverage unavailable: inspect measurement logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.measure.outcome }}" != "success" ]; then
+            echo "::warning::The coverage measurement is incomplete (some probes errored or a target could not be measured); see coverage.md."
+          fi
+
+      - name: Archive Solidity import coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: solidity-import-coverage
+          path: .lake/solidity-import-coverage/**
+          include-hidden-files: true
+          retention-days: 30

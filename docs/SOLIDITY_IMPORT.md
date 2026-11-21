@@ -30,8 +30,11 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
   digest; they should match how the audited bytecode is built. `solc` defaults
-  to `0.8.34+commit.80d5c536`, and also accepts `0.8.10+commit.fc410830` for
-  legacy London-era targets (`viaIR := false`, `evmVersion` up to `"london"`).
+  to `0.8.34+commit.80d5c536`. It also accepts `0.8.28+commit.7893614a`
+  (`evmVersion` up to `"prague"`) and `0.8.26+commit.8a97fa7a` (up to
+  `"cancun"`) for sources whose pragma pins those releases, and
+  `0.8.10+commit.fc410830` for legacy
+  London-era targets (`viaIR := false`, `evmVersion` up to `"london"`).
 - Each `function` clause selects one root by name and Solidity parameter types.
   A struct may be qualified (`IMidnight.Market`). Roots are lowered
   independently and share one field list.
@@ -371,13 +374,23 @@ independent result decoding, and must not replace Foundry.
 ## Pinned-corpus import coverage
 
 `python3 scripts/solidity_import_coverage.py --fetch` checks the immutable
-corpus in `scripts/solidity_import_corpus/manifest.json`: Midnight, Uniswap
-v2/v3 core contracts, Pareto credit vaults, and OpenZeppelin ERC20/ERC4626.
-`--fetch` permits downloading pinned source commits and checksum-verified
-inventory compilers and dependency archives. No npm lifecycle scripts run.
-Subsequent runs can omit it. Artifacts go to `.lake/solidity-import-coverage`;
-CI publishes JSON, Markdown, per-function import logs, and the inventory
-compiler input/output without making coverage a build gate.
+corpus in `scripts/solidity_import_corpus/manifest.json`: DeFi protocols
+(money markets, AMMs, stablecoins, vaults, governance) and the token, access
+and governance templates they build on (OpenZeppelin, Solmate, Solady), each
+at a pinned commit. The manifest is the list; `--project <id>` (repeatable)
+measures a subset, and `--jobs N` runs N probes at once (each is one Lean
+process over the importer cone). `--fetch` permits downloading pinned source
+commits, the git submodules a target actually imports (each at its pinned
+commit) and checksum-verified inventory compilers and dependency archives.
+No npm lifecycle scripts run. Sources resolve as the importer resolves them:
+relative paths and the remappings of `remappings.txt` and `foundry.toml`;
+Foundry's inferred remappings are not applied, so a target that relies on them
+cannot be listed. Subsequent runs can omit `--fetch`. Artifacts go to
+`.lake/solidity-import-coverage`; the `Solidity import coverage` workflow
+(`.github/workflows/solidity-import-coverage.yml`: nightly, manual, and on pull
+requests that change the corpus or the script) publishes JSON, Markdown,
+per-function import logs, and the inventory compiler input/output without
+making coverage a build gate.
 
 The current denominator is **implemented functions in the selected
 contract and its solc C3 inheritance chain**, including internal/private helpers.
