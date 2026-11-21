@@ -31,7 +31,9 @@ A comparison that saw no model or no report fails: an empty dump is not
 evidence of equivalence. So does a dump that was not built first, a probe that
 could not load a module, an error at a line of the smoke module itself, an
 import not pinned by ``#guard_msgs`` that produced no value, a ``--module``
-subset (unless ``--allow-subset``), and a base and candidate at the same clean
+subset (unless ``--allow-subset``), a probe that did not reach its final
+``complete`` marker or exited other than 0 or 1 (1 is normal: a rejected
+import's absent value is an error in the probe), and a base and candidate at the same clean
 revision. Dumps go inside their checkout (e.g. ``.lake/importer-equivalence``),
 because the importer resolves source paths from the probe's package root.
 
@@ -188,6 +190,8 @@ def probe_text(source: str, names: list[str], dumps: Path) -> str:
         for kind in ("model", "report"):
             target = lean_string(dumps / f"{name}.{kind}")
             lines.append(f'#eval IO.FS.writeFile {target} (toString (repr {name}.{kind}) ++ "\\n")')
+    # Last: proves Lean reached the end of the probe (not killed, timed out or aborted).
+    lines.append(f'#eval IO.FS.writeFile {lean_string(dumps / "complete")} ""')
     return "\n".join(lines) + "\n"
 
 
@@ -311,13 +315,17 @@ def compare(base: Path, candidate: Path, allow_subset: bool = False) -> dict:
         mismatches.append(f"only in base: {name}")
     for name in sorted(candidate_files - base_files):
         mismatches.append(f"only in candidate: {name}")
-    counts = {"model": 0, "report": 0, "diagnostics": 0, "exit": 0}
+    for label, manifest, files in (("base", manifests[0], base_files), ("candidate", manifests[1], candidate_files)):
+        for module in manifest["targets"]:
+            if f"{module}/complete" not in files:
+                mismatches.append(f"{label} probe of {module} did not run to completion")
+    counts = {"model": 0, "report": 0, "diagnostics": 0, "exit": 0, "complete": 0}
     digest_changed = 0
     for name in sorted(base_files & candidate_files):
         before = (base / name).read_text(encoding="utf-8")
         after = (candidate / name).read_text(encoding="utf-8")
         kind = name.rsplit("/", 1)[-1]
-        kind = "diagnostics" if kind == "diagnostics.txt" else kind if kind == "exit" else kind.rsplit(".", 1)[-1]
+        kind = "diagnostics" if kind == "diagnostics.txt" else kind if kind in ("exit", "complete") else kind.rsplit(".", 1)[-1]
         if kind not in counts:
             raise HarnessError(f"unexpected dump file {name}")
         counts[kind] += 1
@@ -326,6 +334,11 @@ def compare(base: Path, candidate: Path, allow_subset: bool = False) -> dict:
                 digest_changed += 1
             before = normalize_report(before, f"base {name}")
             after = normalize_report(after, f"candidate {name}")
+        if kind == "exit":
+            for label, text in (("base", before), ("candidate", after)):
+                # 1 is normal: a rejected import's absent value is an error in the probe.
+                if text.strip() not in ("0", "1"):
+                    mismatches.append(f"abnormal exit {text.strip()} in {label} {name}")
         if kind == "diagnostics":
             for label, text, manifest in (("base", before, manifests[0]), ("candidate", after, manifests[1])):
                 if MISSING_BUILD_RE.search(text):
