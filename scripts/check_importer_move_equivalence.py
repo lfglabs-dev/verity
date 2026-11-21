@@ -29,7 +29,11 @@ and ``<out>`` when a dump is written, so two checkouts can be compared.
 
 A comparison that saw no model or no report fails: an empty dump is not
 evidence of equivalence. So does a dump that was not built first, a probe that
-could not load a module, and a base and candidate at the same clean revision.
+could not load a module, an error at a line of the smoke module itself, an
+import not pinned by ``#guard_msgs`` that produced no value, a ``--module``
+subset (unless ``--allow-subset``), and a base and candidate at the same clean
+revision. Dumps go inside their checkout (e.g. ``.lake/importer-equivalence``),
+because the importer resolves source paths from the probe's package root.
 
 Not dumped: the accessors and the `covered` theorem an import also defines.
 Smoke modules that use them still fail to elaborate if they break, and that
@@ -115,12 +119,23 @@ def strip_comments(text: str) -> list[str]:
     return out
 
 
-def import_names(text: str) -> list[str]:
-    """Fully qualified names of the top-level `solidity_import` commands."""
+GUARD_RE = re.compile(r"^#guard_msgs\b.*\bin\s*$")
+
+
+def import_targets(text: str) -> list[tuple[str, bool]]:
+    """Fully qualified names of the top-level `solidity_import` commands, each
+    with whether `#guard_msgs` pins its messages (such an import may
+    legitimately define no value: its evidence is the pinned messages)."""
     scopes: list[tuple[str, str | None]] = []  # (kind, name)
-    names: list[str] = []
+    found: list[tuple[str, bool]] = []
+    guard = False
     for raw in strip_comments(text):
         line = raw.strip()
+        if not line:
+            continue
+        guarded, guard = guard, bool(GUARD_RE.match(line))
+        if guard:
+            continue
         if m := NAMESPACE_RE.match(line):
             scopes.append(("namespace", m.group(1)))
         elif m := SECTION_RE.match(line):
@@ -133,10 +148,15 @@ def import_names(text: str) -> list[str]:
                 raise HarnessError(f"`{line}` closes {kind} {name}")
         elif raw[:1] not in (" ", "\t") and (m := IMPORT_RE.match(line)):
             prefix = [n for kind, n in scopes if kind == "namespace"]
-            names.append(".".join(prefix + [m.group(1)]))
+            found.append((".".join(prefix + [m.group(1)]), guarded or line.startswith("#guard_msgs")))
+    names = [name for name, _ in found]
     if len(set(names)) != len(names):
         raise HarnessError(f"duplicate solidity_import names: {names}")
-    return names
+    return found
+
+
+def import_names(text: str) -> list[str]:
+    return [name for name, _ in import_targets(text)]
 
 
 def targets(root: Path, modules: list[str] | None = None) -> dict[str, list[str]]:
@@ -198,6 +218,10 @@ def git(root: Path, *args: str) -> str:
 def dump(root: Path, out: Path, modules: list[str] | None, runner: list[str], probe_only: bool,
          build: bool = True) -> dict:
     root, out = root.resolve(), out.resolve()
+    # The importer resolves `from "..."` against the package root it finds above
+    # the probe file, so probes must live inside the checkout (e.g. under .lake/).
+    if not out.is_relative_to(root):
+        raise HarnessError(f"--out must be inside the checkout {root} (e.g. {root / '.lake/importer-equivalence'})")
     if out.exists() and any(out.iterdir()):
         raise HarnessError(f"{out} is not empty")
     found = targets(root, modules)
@@ -216,7 +240,10 @@ def dump(root: Path, out: Path, modules: list[str] | None, runner: list[str], pr
             raise HarnessError(f"lake build of the smoke imports failed (exit {result.returncode}); see {out / 'build.log'}")
     manifest = {"revision": git(root, "rev-parse", "HEAD"),
                 "dirty": bool(git(root, "status", "--porcelain", "--untracked-files=no")),
-                "built": built, "imports": imports, "targets": found}
+                "built": built, "subset": bool(modules), "imports": imports, "targets": found,
+                "guarded": {module: [name for name, guarded in import_targets(sources[module]) if guarded]
+                            for module in found},
+                "source_lines": {module: len(sources[module].rstrip("\n").splitlines()) for module in found}}
     for module, names in found.items():
         directory = out / module
         directory.mkdir(parents=True)
@@ -252,10 +279,15 @@ def dump_files(directory: Path) -> set[str]:
 
 
 # A probe that could not load a module proves nothing, even when both sides agree.
-MISSING_BUILD_RE = re.compile(r"object file \S+ of module \S+ does not exist|unknown module prefix|unknown package")
+MISSING_BUILD_RE = re.compile(r"object file \S+ of module \S+ does not exist|unknown module prefix|unknown package"
+                              r"|package root not found")
+# An error at a line of the module itself. Smoke modules elaborate cleanly (expected
+# failures are pinned by `#guard_msgs`), so such an error means the environment (a
+# missing solc, a bad checksum, ...) or the importer broke, even if both sides agree.
+SOURCE_ERROR_RE = re.compile(r"^<out>/probes/([^/:]+)\.lean:(\d+):\d+: error", re.MULTILINE)
 
 
-def compare(base: Path, candidate: Path) -> dict:
+def compare(base: Path, candidate: Path, allow_subset: bool = False) -> dict:
     """Byte comparison of two dumps. Returns a summary; `mismatches` must be empty."""
     mismatches: list[str] = []
     manifests = []
@@ -267,6 +299,8 @@ def compare(base: Path, candidate: Path) -> dict:
     for label, manifest in zip(("base", "candidate"), manifests):
         if not manifest.get("built"):
             mismatches.append(f"{label} dump was not built before probing")
+        if manifest.get("subset") and not allow_subset:
+            mismatches.append(f"{label} dump covers only some modules (pass --allow-subset)")
     if (manifests[0].get("revision") == manifests[1].get("revision")
             and not manifests[0].get("dirty") and not manifests[1].get("dirty")):
         mismatches.append("base and candidate are the same clean revision")
@@ -293,9 +327,13 @@ def compare(base: Path, candidate: Path) -> dict:
             before = normalize_report(before, f"base {name}")
             after = normalize_report(after, f"candidate {name}")
         if kind == "diagnostics":
-            for label, text in (("base", before), ("candidate", after)):
+            for label, text, manifest in (("base", before, manifests[0]), ("candidate", after, manifests[1])):
                 if MISSING_BUILD_RE.search(text):
                     mismatches.append(f"missing build output in {label} {name}")
+                lines = manifest.get("source_lines", {})
+                for module, line in SOURCE_ERROR_RE.findall(text):
+                    if int(line) <= lines.get(module, 0):
+                        mismatches.append(f"error in module source in {label} {name}: line {line}")
         if before != after:
             mismatches.append(f"differs: {name}")
     for kind in ("model", "report", "diagnostics"):
@@ -306,6 +344,10 @@ def compare(base: Path, candidate: Path) -> dict:
     without_output = sorted(f"{module}: {name}" for module, names in manifests[0]["targets"].items()
                             for name in names
                             if not {f"{module}/{name}.model", f"{module}/{name}.report"} & base_files)
+    guarded = {f"{module}: {name}" for module, names in manifests[0].get("guarded", {}).items() for name in names}
+    for target in without_output:
+        if target not in guarded:
+            mismatches.append(f"no value for an import not pinned by #guard_msgs: {target}")
     return {"compared": counts, "reports_with_changed_digest": digest_changed,
             "targets_without_value": without_output,
             "base_revision": manifests[0].get("revision"),
@@ -501,7 +543,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--module", action="append")
     p = sub.add_parser("dump", help="dump models, reports and diagnostics (a Lean job)")
     p.add_argument("--root", type=Path, default=ROOT)
-    p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--out", type=Path, required=True, help="inside the checkout, e.g. .lake/importer-equivalence/base")
     p.add_argument("--module", action="append", help="smoke module stem (default: all)")
     p.add_argument("--runner", default="", help='command prefix, e.g. "lean-job lane-equiv --"')
     p.add_argument("--probe-only", action="store_true", help="write probes, do not run Lean")
@@ -510,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("compare", help="compare two dumps")
     p.add_argument("base", type=Path)
     p.add_argument("candidate", type=Path)
+    p.add_argument("--allow-subset", action="store_true", help="accept dumps made with --module")
     p = sub.add_parser("anchors", help="check that every mutation anchor occurs exactly once")
     args = parser.parse_args(argv)
     try:
@@ -520,7 +563,7 @@ def main(argv: list[str] | None = None) -> int:
                             build=not args.no_build)
             print(f"{sum(map(len, manifest['targets'].values()))} imports in {len(manifest['targets'])} modules")
         elif args.command == "compare":
-            summary = compare(args.base, args.candidate)
+            summary = compare(args.base, args.candidate, args.allow_subset)
             print(json.dumps(summary, indent=2))
             return 1 if summary["mismatches"] else 0
         else:
