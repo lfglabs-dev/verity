@@ -9004,11 +9004,11 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
           let tailBuf ← lowerStringHelperStmts (asmStmt :: rest)
           return { tailBuf with pre := extPre ++ asmStmts ++ tailBuf.pre }
       | "WhileStatement" =>
-          let wPre ← lowerWhile declStmt lowerHelperLoopBody
+          let wPre ← lowerHelperLoop declStmt lowerHelperLoopBody
           let tailBuf ← lowerStringHelperStmts (asmStmt :: rest)
           return { tailBuf with pre := wPre ++ tailBuf.pre }
       | "ForStatement" =>
-          let fPre ← lowerFor declStmt lowerHelperLoopBody
+          let fPre ← lowerHelperLoop declStmt lowerHelperLoopBody
           let tailBuf ← lowerStringHelperStmts (asmStmt :: rest)
           return { tailBuf with pre := fPre ++ tailBuf.pre }
       | "UncheckedBlock" =>
@@ -10922,6 +10922,96 @@ private partial def stmtContainsBreakOrContinue (s : Json) : M Bool := do
       pure (yes || no)
   | _ => pure false
 
+/-- Whether `s` contains a `kind` statement (`"Break"` or `"Continue"`) that targets
+    the loop enclosing `s` (nested loops excluded). -/
+private partial def stmtContainsLoopJump (kind : String) (s : Json) : M Bool := do
+  let k ← mKind s
+  if k == kind then return true
+  match k with
+  | "Block" | "UncheckedBlock" =>
+      (← mArr (← mField s "statements")).anyM (stmtContainsLoopJump kind)
+  | "IfStatement" =>
+      let yes ← stmtContainsLoopJump kind (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else stmtContainsLoopJump kind j
+        | none => pure false
+      pure (yes || no)
+  | _ => pure false
+
+/-- Whether `j` names a variable through identifiers and member accesses only. -/
+private partial def isIdentifierMemberChain (j : Json) : M Bool := do
+  let j ← stripParens j
+  match ← mKind j with
+  | "Identifier" => pure true
+  | "MemberAccess" => isIdentifierMemberChain (← mField j "expression")
+  | _ => pure false
+
+/-- Whether a loop body provably leaves every storage array length unchanged, so a
+    `<storage array>.length` bound read once equals solc's per-iteration re-read: no
+    inline assembly or user-defined operator, no external or state-changing call (only
+    built-in `pure`/`view` functions, non-virtual modifier-free internal `pure`/`view`
+    helpers checked recursively, events, type conversions and struct constructors) and
+    only scalar writes to identifiers or elements of declared state variables
+    (never storage references, member writes on storage pointers, or tuple targets). -/
+private partial def storageLengthPreservingBody (env : Env) (j : Json)
+    (seen : List Nat := []) : Bool :=
+  match j with
+  | .arr xs => xs.all (storageLengthPreservingBody env · seen)
+  | .obj o =>
+      let kind := optStr j "nodeType"
+      let storageRef (n : Option Json) : Bool :=
+        match (n.bind (field? · "typeDescriptions")).bind (optStr · "typeString") with
+        | some ty => (ty.splitOn " storage").length > 1
+        | none => true
+      -- A scalar field of an arbitrary storage pointer can name an array header, and
+      -- a tuple assignment can write through one. Only accept scalar identifier writes,
+      -- or elements of a declared state variable.
+      let safeTarget (target : Option Json) : Bool := Id.run do
+        if storageRef target then return false
+        let some t := target | return false
+        let some ty := (field? t "typeDescriptions").bind (optStr · "typeString")
+          | return false
+        if ty.startsWith "tuple(" then return false
+        if optStr t "nodeType" == some "Identifier" then return true
+        if optStr t "nodeType" != some "IndexAccess" then return false
+        let some base := field? t "baseExpression" | return false
+        if optStr base "nodeType" != some "Identifier" then return false
+        let some id := (field? base "referencedDeclaration").bind (·.getNat?.toOption)
+          | return false
+        return (env.stateVars.find? id).isSome
+      let ownOk :=
+        if kind == some "InlineAssembly" || (field? j "function").isSome then false
+        else if kind == some "Assignment" then safeTarget (field? j "leftHandSide")
+        else if kind == some "UnaryOperation" &&
+            [some "delete", some "++", some "--"].contains (optStr j "operator") then
+          safeTarget (field? j "subExpression")
+        else if kind == some "FunctionCall" && optStr j "kind" == some "functionCall" then
+          match ((field? j "expression").bind (field? · "typeDescriptions")).bind
+              (optStr · "typeIdentifier") with
+          | some tid =>
+              let head := (tid.splitOn "$").headD ""
+              if head == "t_function_internal_pure" || head == "t_function_internal_view" then
+                let id := ((field? j "expression").bind (field? · "referencedDeclaration")).bind
+                  (·.getNat?.toOption)
+                match id with
+                | none => false
+                | some id =>
+                    match env.funs.find? id with
+                    | none => false
+                    | some fn => !seen.contains id &&
+                        (field? fn "virtual") != some (.bool true) &&
+                        field? fn "modifiers" == some (.arr #[]) &&
+                        ((field? fn "body").any fun b => !b.isNull &&
+                          storageLengthPreservingBody env b (id :: seen))
+              else head != "t_function_external_view" && head != "t_function_external_pure" &&
+                head != "t_function_delegatecall_view" && head != "t_function_delegatecall_pure" &&
+                head != "t_function_barestaticcall_view" &&
+                (head.endsWith "_pure" || head.endsWith "_view" || head.startsWith "t_function_event_")
+          | none => false
+        else true
+      o.foldl (fun acc _ v => acc && storageLengthPreservingBody env v seen) ownOk
+  | _ => true
+
 private partial def callTargetAndArity? (call : Json) : M (Option (Nat × Nat)) := do
   let call ← stripParens call
   unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
@@ -11202,11 +11292,14 @@ private partial def accessRootDecl? (j : Json) : M (Option Int) := do
   | _ => pure none
 
 /-- Shared exact loop checks; the caller supplies its own return semantics. -/
-private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
+private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
+    (existingCounter : Option String := none) : M (Array Stmt) := do
   -- Only `for (uint256 i = 0; i < n; i++)` with an invariant `n` and a
   -- counter the body never assigns: then solc's per-iteration `i < n`
   -- test is exactly `forEach i n`, and `i++` cannot overflow.
   let init ← mField s "initializationExpression"
+  if optStr init "nodeType" == some "ExpressionStatement" then
+    return ← lowerPredeclaredFor s init lowerBody
   unless (← mKind init) == "VariableDeclarationStatement" do
     failAt s "a for loop must declare its counter"
   let decls ← mArr (← mField init "declarations")
@@ -11343,7 +11436,29 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
           | none => pure false
         else pure false
     | _ => pure false
-  unless abiLength || (bound.pre.isEmpty && invariant) do
+  -- `i < arr.length` over a dynamic storage array named by an identifier/member chain
+  -- (no index the body could move): `forEach` reads the length once, which equals
+  -- solc's per-test re-read only when the body cannot change it. The read's prelude
+  -- (slot and length `letVar`s) is hoisted before the loop.
+  let storageLengthBound ← if (← mKind boundNode) == "MemberAccess" &&
+      optStr boundNode "memberName" == some "length" then do
+    let base ← mField boundNode "expression"
+    let baseTy ← mType base
+    pure ((baseTy.endsWith "[] storage ref" || baseTy.endsWith "[] storage pointer") &&
+      (← isIdentifierMemberChain base))
+  else pure false
+  let letOnlyPre := bound.pre.all fun st => match st with
+    | .letVar _ _ => true
+    | _ => false
+  let storageRoot ← if storageLengthBound then accessRootDecl? (← mField boundNode "expression")
+    else pure none
+  let env ← get
+  let knownRoot := storageRoot.any fun id => id ≥ 0 && (env.stateVars.find? id.toNat).isSome
+  let storageLength := storageLengthBound && knownRoot && letOnlyPre &&
+    storageLengthPreservingBody (← get) body
+  if storageLengthBound && !storageLength then
+    failAt boundNode "a storage array length loop bound requires a body without state-changing calls, inline assembly or storage reference writes"
+  unless abiLength || storageLength || (bound.pre.isEmpty && invariant) do
     failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
   let bound := { bound with expr := cleanHelperResultExpr (← mType boundNode) bound }
   if isTailWindowStart then
@@ -11385,7 +11500,11 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
   modify fun e =>
     { e with values := e.values.insert counter (.localVar binding),
              yulNames := e.yulNames.insert counterName (.localVar binding) }
-  let bodyOut ← lowerBody body
+  let lowered ← lowerBody body
+  -- A bare return (and modifier postlude) can read the original local directly.
+  let bodyOut := match existingCounter with
+    | some dest => #[Stmt.assignVar dest (.localVar binding)] ++ lowered
+    | none => lowered
   if abiLength && !abiHeaderPreservingList bodyOut.toList then
     if ← stmtContainsInlineAssembly body then
       failAt body "ABI-length loop body may write memory or call external code (unsupported statement InlineAssembly)"
@@ -11395,9 +11514,11 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     { e with values := saved.values, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
-  let mut out : Array Stmt := #[]
+  let mut out : Array Stmt := match existingCounter with
+    | some dest => #[.assignVar dest (.literal 0)]
+    | none => #[]
   let mut limit := bound.expr
-  if abiLength then
+  if abiLength || storageLength || existingCounter.isSome then
     let captured ← fresh
     out := out ++ bound.pre |>.push (.letVar captured bound.expr)
     limit := .localVar captured
@@ -11416,7 +11537,44 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     out := out.push (.ite (.lt limit cap) [] [.panicCode (.literal 0x11)])
   else
     out := out.push (.forEach binding limit bodyOut.toList)
+  if let some dest := existingCounter then
+    out := out.push (.assignVar dest limit)
   pure out
+
+/-- `for (i = 0; i < n; i++)` over a counter `i` declared before the loop. The loop
+    lowers exactly as `for (uintN i = 0; …)` with the counter scoped to the loop; the
+    local then receives the counter's exit value `n` (the bound is invariant, and a
+    narrow counter whose bound reaches `2^N` panics before the store). A `break`
+    would exit with another value and is rejected. -/
+private partial def lowerPredeclaredFor (s init : Json) (lowerBody : Json → M (Array Stmt)) :
+    M (Array Stmt) := do
+  let assign ← mField init "expression"
+  unless (← mKind assign) == "Assignment" && optStr assign "operator" == some "=" do
+    failAt init "a for loop initializer must declare or assign its counter"
+  let lhs ← mField assign "leftHandSide"
+  let rhs ← mField assign "rightHandSide"
+  unless (← mKind lhs) == "Identifier" do
+    failAt lhs "a pre-declared for loop counter must be a local variable"
+  let counterId ← refInt lhs
+  let locals := (← get).writableLocals
+  let some binding := if counterId < 0 then none else locals.find? counterId.toNat
+    | failAt lhs "a pre-declared for loop counter must be a writable local variable"
+  unless (← mType rhs) == "int_const 0" do
+    failAt rhs "a pre-declared for loop counter must start at 0"
+  let cond := (field? s "condition").getD Json.null
+  unless optStr cond "nodeType" == some "BinaryOperation" && optStr cond "operator" == some "<" do
+    failAt s "a for loop over a pre-declared counter must test counter < bound"
+  if ← stmtContainsLoopJump "Break" (← mField s "body") then
+    failAt s "a for loop over a pre-declared counter must not break"
+  let decl := Json.mkObj [("nodeType", Json.str "VariableDeclaration"), ("id", toJson counterId),
+    ("name", ← mField lhs "name"), ("typeDescriptions", ← mField lhs "typeDescriptions"),
+    ("src", ← mField lhs "src")]
+  let declStmt := Json.mkObj [("nodeType", Json.str "VariableDeclarationStatement"),
+    ("declarations", Json.arr #[decl]), ("initialValue", rhs), ("src", ← mField init "src")]
+  let loopStmts ← lowerFor (s.setObjVal! "initializationExpression" declStmt) lowerBody
+    (some binding)
+  modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (· != counterId.toNat) }
+  pure loopStmts
 
 private partial def unwrapLoopBodyStmts (j : Json) : M (Array Json) := do
   let kind ← mKind j
@@ -12036,10 +12194,89 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   pure #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
 
+/-- Lowers an inlined helper `for`/`while` loop. When its body may `break` or
+    `continue` (#2710), a fresh exit flag declared before the loop models them: each
+    iteration runs only while the flag is below `2` and first resets it to `0`;
+    `continue` sets `1` and `break` sets `2`, and the statements after one that may
+    set it run only while it is `0`. A `for` loop's `forEach` still advances the
+    counter after `continue`, as solc's loop expression does. `continue` in a `while`
+    loop would skip its final progress step (solc never terminates) and is rejected;
+    a `while (true)` loop keeps its own break guard. -/
+private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array Stmt)) :
+    M (Array Stmt) := do
+  let isFor := (← mKind s) == "ForStatement"
+  let lowerLoop (b : Json → M (Array Stmt)) : M (Array Stmt) :=
+    if isFor then lowerFor s b else lowerWhile s b
+  let cond := (field? s "condition").getD Json.null
+  let whileTrue := !isFor && optStr cond "nodeType" == some "Literal" &&
+    optStr cond "value" == some "true"
+  let outer := (← get).loopExit
+  let body ← mField s "body"
+  let exits ← stmtContainsBreakOrContinue body
+  -- `continue` in a `while` skips the final progress step, so solc would not terminate.
+  if !isFor && (← stmtContainsLoopJump "Continue" body) then
+    failAt s "continue inside an inlined helper while loop is unsupported"
+  if !isFor && !whileTrue && exits then
+    unless optStr cond "nodeType" == some "BinaryOperation" do
+      failAt cond "helper loop jumps require a proven while iteration bound"
+    let lhs := (field? cond "leftExpression").getD .null
+    let rhs := (field? cond "rightExpression").getD .null
+    let lhsTy := ((field? lhs "typeDescriptions").bind (optStr · "typeString")).getD ""
+    let rhsTy := ((field? rhs "typeDescriptions").bind (optStr · "typeString")).getD ""
+    unless (lhsTy == "uint256" || lhsTy == "int_const 0") &&
+           (rhsTy == "uint256" || rhsTy == "int_const 0") do
+      failAt cond "helper while loop jumps require a uint256 loop variable"
+  if isFor && (← stmtContainsLoopJump "Break" body) then
+    let init ← mField s "initializationExpression"
+    if optStr init "nodeType" == some "ExpressionStatement" then
+      failAt s "a for loop over a pre-declared counter must not break"
+    let bound := (field? cond "rightExpression").getD .null
+    let ty := ((field? bound "typeDescriptions").bind (optStr · "typeString")).getD ""
+    let smallLiteral := (ty.drop 10).toString.toNat?.any (· ≤ 256)
+    unless optStr cond "operator" == some "<" &&
+        (ty == "uint8" || (ty.startsWith "int_const " && smallLiteral)) do
+      failAt s "break in a helper for loop requires an upper bound of at most 256 iterations"
+  if whileTrue || !exits then
+    let unwrapped (b : Json) : M (Array Stmt) := do
+      modify fun e => { e with loopExit := none }
+      let out ← lowerBody b
+      modify fun e => { e with loopExit := outer }
+      pure out
+    return ← lowerLoop unwrapped
+  let flag ← fresh
+  let wrapped (b : Json) : M (Array Stmt) := do
+    modify fun e => { e with loopExit := some flag }
+    let inner ← lowerBody b
+    modify fun e => { e with loopExit := outer }
+    pure #[.ite (.lt (.localVar flag) (.literal 2))
+      (.assignVar flag (.literal 0) :: inner.toList) []]
+  let loopStmts ← lowerLoop wrapped
+  pure (#[.letVar flag (.literal 0)] ++ loopStmts)
+
+/-- `break` / `continue` inside an inlined helper loop: set the loop's exit flag. -/
+private partial def lowerLoopExit (statement : Json) : M (Array Stmt) := do
+  let kind ← mKind statement
+  let some flag := (← get).loopExit
+    | failAt statement s!"unsupported helper loop statement {kind}"
+  let code := if kind == "Break" then 2 else 1
+  pure #[.assignVar flag (.literal code)]
+
+/-- Guards `rest` behind the loop exit flag when `statement` may `break` or `continue`. -/
+private partial def guardAfterLoopExit (statement : Json) (rest : Array Stmt) : M (Array Stmt) := do
+  unless ← stmtContainsBreakOrContinue statement do return rest
+  let some flag := (← get).loopExit
+    | failAt statement "break or continue outside a supported helper loop"
+  pure #[.ite (.eq (.localVar flag) (.literal 0)) rest.toList []]
+
 private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
   let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
-  let mut out : Array Stmt := #[]
-  for statement in statements do
+  lowerHelperLoopStmts statements.toList
+
+private partial def lowerHelperLoopStmts (stmts : List Json) : M (Array Stmt) := do
+  match stmts with
+  | [] => pure #[]
+  | statement :: rest =>
+    let mut out : Array Stmt := #[]
     match ← mKind statement with
     | "Block" =>
         let saved ← get
@@ -12049,9 +12286,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
         let saved ← get
         modify fun e => { e with unchecked := true }
         let subStmts ← mArr (← mField statement "statements")
-        for sub in subStmts do
-          let subOut ← lowerHelperLoopBody sub
-          out := out ++ subOut
+        out := out ++ (← lowerHelperLoopStmts subStmts.toList)
         modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
     | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
@@ -12063,8 +12298,8 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
         let asmStmts ← lowerAssemblyStmts statement ""
         modify fun e => { e with yulNames := savedAsmYul }
         out := out ++ extPre ++ asmStmts
-    | "ForStatement" => out := out ++ (← lowerFor statement lowerHelperLoopBody)
-    | "WhileStatement" => out := out ++ (← lowerWhile statement lowerHelperLoopBody)
+    | "ForStatement" | "WhileStatement" => out := out ++ (← lowerHelperLoop statement lowerHelperLoopBody)
+    | "Break" | "Continue" => out := out ++ (← lowerLoopExit statement)
     | "IfStatement" =>
         let (condition, _yes, no) ← ifParts statement
         let saved ← get
@@ -12076,7 +12311,9 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
         out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)
     | "Return" => failAt statement "return inside an inlined helper loop is unsupported"
     | kind => failAt statement s!"unsupported helper loop statement {kind}"
-  pure out
+    if rest.isEmpty then return out
+    let restOut ← lowerHelperLoopStmts rest
+    pure (out ++ (← guardAfterLoopExit statement restOut))
 
 private partial def isTailWindowFor (s : Json) : M Bool := do
   unless (← mKind s) == "ForStatement" do return false
@@ -12155,11 +12392,13 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
             else
               let v ← lowerConverted ((← returnTargetType? statement).getD (← mType expression)) expression
               pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])
+        | "Break" | "Continue" => lowerLoopExit statement
         | kind => failAt statement s!"unsupported helper loop statement {kind}"
       if rest.isEmpty then
         pure stmtOut
       else
-        let restOut ← lowerHelperLoopStmtsWithReturn retFlag retVal rest
+        let restOut ← guardAfterLoopExit statement
+          (← lowerHelperLoopStmtsWithReturn retFlag retVal rest)
         if ← stmtContainsReturn statement then
           pure (stmtOut.push (.ite (.eq (.localVar retFlag) (.literal 0)) restOut.toList []))
         else
@@ -12242,7 +12481,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         if (← isTailWindowFor s) && (← stmtContainsReturn s) then
           let retFlag ← fresh
           let retVal ← fresh
-          let loopPre ← lowerFor s (lowerHelperLoopBodyWithReturn retFlag retVal)
+          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal)
           let (tail, result) ← lowerHelperFrom rest retName
           let some tailExpr := result
             | failAt s "inlined helper does not return on every path"
@@ -12251,11 +12490,11 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
             loopPre ++ #[.ite (.eq (.localVar retFlag) (.literal 0)) tailBranch.toList []]
           pure (stmts, some (.localVar retVal))
         else
-          let pre ← lowerFor s lowerHelperLoopBody
+          let pre ← lowerHelperLoop s lowerHelperLoopBody
           let (tail, result) ← lowerHelperFrom rest retName
           pure (pre ++ tail, result)
     | "WhileStatement" =>
-        let pre ← lowerWhile s lowerHelperLoopBody
+        let pre ← lowerHelperLoop s lowerHelperLoopBody
         let (tail, result) ← lowerHelperFrom rest retName
         pure (pre ++ tail, result)
     | "Return" =>
@@ -12514,11 +12753,11 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
         let tailStmts ← kRest
         pure (extPre ++ asmStmts ++ tailStmts)
     | "ForStatement" =>
-        let loopStmts ← lowerFor s lowerHelperLoopBody
+        let loopStmts ← lowerHelperLoop s lowerHelperLoopBody
         let tailStmts ← kRest
         pure (loopStmts ++ tailStmts)
     | "WhileStatement" =>
-        let loopStmts ← lowerWhile s lowerHelperLoopBody
+        let loopStmts ← lowerHelperLoop s lowerHelperLoopBody
         let tailStmts ← kRest
         pure (loopStmts ++ tailStmts)
     | "Return" =>

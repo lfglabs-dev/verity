@@ -160,6 +160,10 @@ structure Env where
   fnPtrs : RBMap Nat FnPtr compare := RBMap.empty
   bodyAssigned : List Nat := []
   helperResult : Option (String × String) := none
+  /-- Exit flag of the innermost inlined helper loop whose body may `break` or
+      `continue`: `0` runs the body, `1` skips the rest of this iteration, `2`
+      skips every remaining iteration. -/
+  loopExit : Option String := none
   helperReturnId : Option Nat := none
   /-- Size binding of a named `bytes memory` helper result. It is consulted
       only while `helperResult` carries the `bytes memory` marker type, whose
