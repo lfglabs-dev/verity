@@ -25,6 +25,9 @@ contract YulMcopy {
     function freePointerSource(uint256 x) external pure returns (uint256 y) {
         assembly ("memory-safe") {
             mstore(0x00, x)
+            mstore(0x20, x)
+            let p := mload(0x40)
+            mstore(0x40, p)
             mcopy(0x00, 0x20, 0x40)
             y := mload(0x00)
         }

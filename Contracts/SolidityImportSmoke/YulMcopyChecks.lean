@@ -52,9 +52,10 @@ solidity_import freePointerDestinationForm from "Contracts/SolidityImportSmoke" 
   contract YulMcopy
   function freePointerDestination(uint256)
 
--- The source runs past the scratch words into the free-memory pointer, solc's and not the model's.
+-- Every source byte was written, but the range runs past the scratch words into the restored
+-- free-memory pointer: solc's pointer, not the model's.
 /--
-error: YulMcopy.sol:28:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
+error: YulMcopy.sol:31:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
 closure: YulMcopy.freePointerSource
 mcopy(0x00, 0x20, 0x40)
 -/
@@ -66,7 +67,7 @@ solidity_import freePointerSourceForm from "Contracts/SolidityImportSmoke" entry
 
 -- The source runs from written scratch bytes into the unwritten second scratch word.
 /--
-error: YulMcopy.sol:35:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
+error: YulMcopy.sol:38:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
 closure: YulMcopy.partlyWrittenSource
 mcopy(0x00, 0x10, 0x20)
 -/
@@ -78,7 +79,7 @@ solidity_import partlyWrittenForm from "Contracts/SolidityImportSmoke" entry "Yu
 
 -- A copy between `bytes memory` payloads: heap addresses the model allocates differently (#2620).
 /--
-error: YulMcopy.sol:41:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
+error: YulMcopy.sol:44:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
 closure: YulMcopy.bufferCopy
 mcopy(add(target, 0x20), add(source, 0x20), mload(source))
 -/
