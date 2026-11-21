@@ -1800,6 +1800,7 @@ def mutation_source(directory, name):
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                                   else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
                                   else 'Compiler/SolidityImport/ExprHelpers.lean' if name == 'import-encoding-arg-super-revert-guard'
+                                  else 'Compiler/SolidityImport/Lowering/EvalOrderHazards.lean' if name == 'import-helper-effect-classifier'
                                   else 'Compiler/SolidityImport/Import.lean')
 
 def preflight_mutation_anchors(directory, selected=None):
