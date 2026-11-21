@@ -38,6 +38,7 @@ STORAGE_FIXTURES = (
     'unchecked-blocks',
     'tuple-destructuring',
     'event-nested-mapping-read',
+    'storage-string-members',
 )
 
 def stateful_campaign(output, transactions, seed, jobs=1):
