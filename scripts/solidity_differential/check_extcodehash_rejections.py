@@ -17,6 +17,7 @@ MESSAGES = {
     'self-alias': 'code hash of an account that may be the executing contract is unsupported',
     'self-alias-length': 'code length of an account that may be the executing contract is unsupported',
     'after-call': 'code hash read after an external call or create2 is unsupported',
+    'post-call': 'storage reads, storage writes, logs and other interactions after an external CALL are unsupported: the call may re-enter this contract',
 }
 
 # A validated low-level call (the optional-bool return-data shape the importer admits).
@@ -86,7 +87,11 @@ CASES = [
     ('call-then-code-hash', SAFE_CALL + '        last = account.codehash;',
      ('account.codehash;', 0, 'MemberAccess', 'after-call')),
     ('code-hash-then-call', 'last = account.codehash;\n        ' + SAFE_CALL, None),
-    ('call-then-code-length', SAFE_CALL + '        counter = account.code.length;', None),
+    # The call may re-enter, so a storage write after it rejects; a local read does not.
+    ('call-then-code-length', SAFE_CALL + '        counter = account.code.length;',
+     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+    ('call-then-local-code-length',
+     SAFE_CALL + '        uint256 size = account.code.length;\n        require(size != 0, Unbound());', None),
     # A self alias in one root does not reject a foreign alias of the same name in the next.
     ('second-root-name-reuse', 'address self = account;\n        last = self.codehash;', None),
 ]

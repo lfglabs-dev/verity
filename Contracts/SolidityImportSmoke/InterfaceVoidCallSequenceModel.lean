@@ -20,7 +20,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "InterfaceVo
   function signalWord(address,address,uint8)
   function tryPing(address,uint256)
   function tryRelay(address,bytes)
-  function tryPoke(address)
+  function tryPoke(address,bool)
   function read()
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
