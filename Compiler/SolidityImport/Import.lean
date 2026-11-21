@@ -1503,10 +1503,15 @@ private def yulScratchWordAfterMcopy (word : Nat → Expr) (dst src size w : Nat
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
-      if optStr j "kind" == some "bool" && (← get).stateVars.size > 1 then
+      -- solc's inline assembly gives `true` the word 1 and `false` the word 0, whatever
+      -- the contract declares (#2830).
+      if optStr j "kind" == some "bool" then
+        unless optStr j "type" == some "" do
+          failAt j "typed Yul literals are unsupported"
         let raw ← mStr (← mField j "value")
-        let value := if raw == "true" then 1 else 0
-        return { pre := #[], expr := .literal value }
+        unless raw == "true" || raw == "false" do
+          failAt j "invalid boolean Yul literal"
+        return { pre := #[], expr := .literal (if raw == "true" then 1 else 0) }
       unless optStr j "kind" == some "number" do
         failAt j "only numeric Yul literals are supported"
       unless optStr j "type" == some "" do
