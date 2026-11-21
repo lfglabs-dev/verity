@@ -117,6 +117,8 @@ def uniswapV4VerifiedShims : List VerifiedCompilerShim :=
       functionName := "updateTick"
       preservesStorageSafety := true
       coveredByDenote := true }
+  -- Inert: no lowering uses this entry since helpers named `callHook` are lowered through their
+  -- body (#2828); its flags are not backed by any lowering. Left for the registry work of #2828.
   , { kind := .hooksCall
       libraryName := "Hooks"
       functionName := "callHook"

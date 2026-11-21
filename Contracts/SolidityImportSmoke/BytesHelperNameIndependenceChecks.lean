@@ -11,7 +11,8 @@ body did. `viaHookName` below, whose helper only packs its arguments, was then r
 external CALL while the same body under another name (`viaOtherName`) imported. Both now take
 the ordinary helper lowering and return what solc returns. A helper of that name that does
 perform a CALL and copies the return data from the free-memory pointer (the structure of
-Uniswap v4's `Hooks.callHook`) is a located rejection of the ordinary lowering.
+Uniswap v4's `Hooks.callHook`) is a located rejection: the ordinary lowering does not admit
+inline assembly in a helper with a `bytes memory` result, and the first block is the CALL.
 -/
 namespace SolidityImportSmoke.BytesHelperNameIndependenceChecks
 open Compiler.CompilationModel Denote Verity.Core

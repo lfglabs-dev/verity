@@ -1,6 +1,6 @@
 # Uniswap v4 (`v4-core`) Model Support
 
-Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) last measured support (#2694) for **35 of 38 probes** on Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`). This is a historical baseline, not a measurement after the negated-loop rejection and selector-revert shim removal. Since #2847 a closed low-level CALL (hook calls through `Hooks.callHook`, `CurrencyLibrary.transfer`) must be the last state interaction of its function, so probes that read or write storage or transient storage after one, such as `initialize` and `donate` (pool state written between their before- and after-hooks), are expected to reject at the function definition; `take` and `collectProtocolFees`, which transfer last, should be unaffected. This has not been re-measured.
+Verity's Solidity importer (`Compiler/SolidityImport/Import.lean` + `Compiler/SolidityImport/InlineAssemblyShims.lean`) last measured support (#2694) for **35 of 38 probes** on Uniswap v4's `PoolManager.sol` (`Uniswap/v4-core` commit `3779387e5ef296f39df54cd2bb1dca9a6eff46f8`, `solc 0.8.26`, Cancun EVM, `viaIR := true`). This is a historical baseline, not a measurement after the negated-loop rejection and selector-revert shim removal. Since #2847 a closed low-level CALL (such as `CurrencyLibrary.transfer`) must be the last state interaction of its function; `take` and `collectProtocolFees`, which transfer last, should be unaffected. `Hooks.callHook` is no longer replaced by a CALL shortcut: its body is lowered like any other helper and rejected at its first `assembly` block (`src/libraries/Hooks.sol:133:9`), so `initialize`, `donate`, `modifyLiquidity` and `swap`, which reach it, are expected to reject there. This has not been re-measured.
 
 ## 1. Modular Inline-Assembly Shim Architecture (`InlineAssemblyShims.lean`)
 
@@ -22,7 +22,7 @@ To keep `Compiler/SolidityImport/Import.lean` modular and verifiable, Uniswap v4
 
 `lowerBatchArrayLoadShim` is applied only to a tail `assembly` block whose `yulBlockFingerprint` (sha256 of its solc Yul AST without source positions) is `extsloadBatchYulFingerprint` or `exttloadBatchYulFingerprint`, taken from `v4-core` `46c6834`, and whose Solidity references all resolve to the bound calldata array. Any other tail block of a `bytes32[]`-returning function with one array parameter is rejected with `shortcut fingerprint mismatch` (`Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean`).
 
-`Hooks.callHook` has no shortcut: a helper of that name is lowered through its own body like any other helper (`Contracts/SolidityImportSmoke/BytesHelperNameIndependenceChecks.lean`). It used to be replaced by a fixed low-level CALL (`lowerHooksCallShim`, removed) whenever a two-argument string/bytes helper was named `callHook`, whatever its body. v4's body allocates its result from the free-memory pointer, which the ordinary lowering rejects, so `initialize`, `donate`, `modifyLiquidity` and `swap` cannot import through it. The `.hooksCall` entry of `uniswapV4VerifiedShims` is left for the registry work of #2828; the importer does not consult it.
+`Hooks.callHook` has no shortcut: a helper of that name is lowered through its own body like any other helper (`Contracts/SolidityImportSmoke/BytesHelperNameIndependenceChecks.lean`). It used to be replaced by a fixed low-level CALL (`lowerHooksCallShim`, removed) whenever a two-argument string/bytes helper was named `callHook`, whatever its body. v4's body has a named `bytes memory` result and inline assembly, which the ordinary helper lowering does not admit (it rejects at the first `assembly` block, the CALL), so `initialize`, `donate`, `modifyLiquidity` and `swap` cannot import through it. The `.hooksCall` entry of `uniswapV4VerifiedShims` is left for the registry work of #2828; the importer does not consult it.
 
 ### 3-Layer Meta-Specification Bundle
 
@@ -43,7 +43,7 @@ Alongside the shims in `InlineAssemblyShims.lean`, `Compiler/SolidityImport/Impo
    - `bindRoot` and `lowerRootStatements` lower internal functions taking or returning `Pool.State storage` as raw base-slot `uint256` words without shadowing `SPath.rawSlot` in `env.values`.
 4. **Conditional Placeholder Modifiers (`Hooks.noSelfCall`)**:
    - `lowerModifier` and `inlineVoidFn` lower `modifier noSelfCall() { if (msg.sender != address(this)) _; }` into a conditional statement wrapping the modified helper body.
-5. **Dynamic `bytes` Arguments in `abi.encodeCall` (`Hooks.callHook`)**:
+5. **Dynamic `bytes` Arguments in `abi.encodeCall` (the hook calldata built for `Hooks.callHook`)**:
    - `lowerEncodedBytes` encodes `abi.encodeCall(IHooks.beforeInitialize, (...))` and dynamic `bytes calldata hookData` arguments using `AbiEncoding.Spec` (`AbiEncoding.Field.word` + `AbiEncoding.Field.bytes`).
 6. **`msg.value` Support in `Coverage.lean` and `Quote.lean`**:
    - `exprCovered` covers `Expr.msgValue` (`evalExpr_msgValue_arm`), and `Quote.lean` quotes `Expr.msgValue`.
