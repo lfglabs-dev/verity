@@ -39,7 +39,7 @@ def model(body: str = "x") -> str:
 
 def write_dump(directory: Path, imports: dict[str, dict[str, str]], diagnostics: dict[str, str] | None = None,
                exits: dict[str, str] | None = None, targets: dict | None = None,
-               **manifest_fields) -> Path:
+               incomplete: tuple[str, ...] = (), **manifest_fields) -> Path:
     """A dump laid out as `dump` writes it. `imports` maps module -> {file name: text}."""
     directory.mkdir(parents=True)
     manifest_targets = {}
@@ -49,6 +49,8 @@ def write_dump(directory: Path, imports: dict[str, dict[str, str]], diagnostics:
             (directory / module / name).write_text(text)
         (directory / module / "diagnostics.txt").write_text((diagnostics or {}).get(module, ""))
         (directory / module / "exit").write_text((exits or {}).get(module, "0\n"))
+        if module not in (incomplete or ()):
+            (directory / module / "complete").write_text("")
         manifest_targets[module] = sorted({name.rsplit(".", 1)[0] for name in files})
     (directory / "probes").mkdir()
     (directory / "probes" / "ignored.lean").write_text("-- probes are not compared\n")
@@ -81,7 +83,7 @@ class CompareTests(unittest.TestCase):
     def test_identical_dumps_match_and_count_every_kind(self) -> None:
         summary = self.compare(two_imports(), two_imports())
         self.assertEqual(summary["mismatches"], [])
-        self.assertEqual(summary["compared"], {"model": 2, "report": 3, "diagnostics": 2, "exit": 2})
+        self.assertEqual(summary["compared"], {"model": 2, "report": 3, "diagnostics": 2, "exit": 2, "complete": 2})
         self.assertEqual(summary["reports_with_changed_digest"], 0)
 
     def test_digest_only_difference_is_allowed_and_counted(self) -> None:
@@ -127,6 +129,19 @@ class CompareTests(unittest.TestCase):
     def test_exit_code_difference_fails(self) -> None:
         summary = self.compare(two_imports(), two_imports(), cand_exits={"ModuleB": "1\n"})
         self.assertEqual(summary["mismatches"], ["differs: ModuleB/exit"])
+
+    def test_identical_kill_of_all_guarded_module_fails(self) -> None:
+        imports = {"ModuleA": two_imports()["ModuleA"], "Guarded": {}}
+        targets = {"ModuleA": ["N.one", "N.two"], "Guarded": ["N.rejected"]}
+        guarded = {"Guarded": ["N.rejected"]}
+        summary = self.compare(imports, imports, base_targets=targets, cand_targets=targets,
+                               base_guarded=guarded, cand_guarded=guarded,
+                               base_exits={"Guarded": "137\n"}, cand_exits={"Guarded": "137\n"},
+                               base_incomplete=("Guarded",), cand_incomplete=("Guarded",))
+        self.assertEqual(summary["mismatches"], ["base probe of Guarded did not run to completion",
+                                                 "candidate probe of Guarded did not run to completion",
+                                                 "abnormal exit 137 in base Guarded/exit",
+                                                 "abnormal exit 137 in candidate Guarded/exit"])
 
     def test_missing_and_extra_dumps_fail(self) -> None:
         candidate = two_imports()
@@ -271,7 +286,8 @@ solidity_import top from "d"
         self.assertTrue(text.startswith("import X\n\nsolidity_import a"))
         self.assertIn('#eval IO.FS.writeFile "/tmp/o \\"q\\"/N.a.model" (toString (repr N.a.model) ++ "\\n")', text)
         self.assertIn('(toString (repr N.a.report) ++ "\\n")', text)
-        self.assertEqual(text.count("#eval"), 2)
+        self.assertEqual(text.count("#eval"), 3)
+        self.assertTrue(text.endswith('#eval IO.FS.writeFile "/tmp/o \\"q\\"/complete" ""\n'))
 
     def test_probe_only_dump_of_in_tree_module(self) -> None:
         module = next(iter(harness.targets(harness.ROOT)))
@@ -288,7 +304,7 @@ solidity_import top from "d"
             self.assertEqual(manifest["source_lines"][module], len(source.rstrip("\n").splitlines()))
             probe = (out / "probes" / f"{module}.lean").read_text()
             self.assertEqual(list(manifest["targets"]), [module])
-            self.assertEqual(probe.count("#eval IO.FS.writeFile"), 2 * len(manifest["targets"][module]))
+            self.assertEqual(probe.count("#eval IO.FS.writeFile"), 2 * len(manifest["targets"][module]) + 1)
             self.assertFalse(json.loads((out / "manifest.json").read_text())["built"])
             self.assertIn("Compiler.SolidityImport.Import", manifest["imports"])
             with self.assertRaises(HarnessError):
