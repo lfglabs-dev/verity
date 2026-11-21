@@ -108,6 +108,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-unchecked-blocks",
     "storage-void",
     "storage-yul-empty-revert",
+    "storage-yul-mcopy",
     "storage-yul-revert-memory",
     "storage-yul-numeric",
     "struct-abi",

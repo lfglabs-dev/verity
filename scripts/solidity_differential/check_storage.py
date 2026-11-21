@@ -98,6 +98,7 @@ from .programs import (
     stateful_yul_builtins_and_encode_selector_source,
     stateful_yul_empty_revert_source,
     stateful_yul_revert_memory_source,
+    stateful_yul_mcopy_source,
     stateful_yul_numeric_source,
 )
 
@@ -165,6 +166,14 @@ def canonical_observations(observations):
 # One call per Yul revert shape (x % 8 in 0..5) with small arguments, the argument shapes with
 # high-bit payload words (selector + argument, two words with `add(x, 1)` near 2^256,
 # `mul(x, 3)` wrapping), and calls that store (x % 8 in 6, 7).
+# Every `x % 8` arm of YulMcopySequence (0-5 copy, 6-7 store only), with small words and
+# high-bit words whose bytes differ across each copy boundary.
+YUL_MCOPY_PREFIX = [8, 9, 10, 11, 12, 13, 14, 15, 2 ** 255 + 8, 2 ** 255 + 1, 2 ** 256 - 6,
+                    2 ** 255 + 3, 2 ** 256 - 4, 2 ** 255 + 5, 2 ** 256 - 1,
+                    0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 1,
+                    0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 2,
+                    0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 5]
+
 YUL_REVERT_MEMORY_PREFIX = [16, 17, 18, 19, 20, 21, 22, 23, 2 ** 255 + 2, 2 ** 255 + 3,
                             2 ** 256 - 5, 2 ** 255 + 4, 2 ** 255 + 5, 2 ** 256 - 1, 2 ** 255 + 6]
 
@@ -265,6 +274,7 @@ FIXTURE_CONTRACTS = {
     'yul-block-mulmod-tstore': 'YulBlockMulmodTstoreSequence',
     'yul-builtins-and-encode-selector': 'YulBuiltinsAndEncodeSelectorSequence',
     'yul-empty-revert': 'YulEmptyRevertSequence',
+    'yul-mcopy': 'YulMcopySequence',
     'yul-revert-memory': 'YulRevertMemorySequence',
     'yul-numeric': 'YulNumericSequence',
 }
@@ -444,6 +454,8 @@ def main():
         variants = ('baseline', 'renamed', 'offsets')
     if args.fixture == 'yul-revert-memory':
         variants = ('baseline', 'renamed', 'reordered')
+    if args.fixture == 'yul-mcopy':
+        variants = ('baseline', 'renamed', 'reordered')
     if args.fixture == 'signed-struct-member-read':
         variants = ('baseline', 'renamed', 'local-reads')
     if args.fixture == 'storage-string-members':
@@ -545,6 +557,7 @@ def main():
                           else stateful_byte_constant_conversions_source(fixture, variant) if args.fixture == "byte-constant-conversions"
                           else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
                           else stateful_yul_revert_memory_source(fixture, variant) if args.fixture == "yul-revert-memory"
+                          else stateful_yul_mcopy_source(fixture, variant) if args.fixture == "yul-mcopy"
                           else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
                           else stateful_storage_string_member_source(fixture, variant) if args.fixture == "storage-string-members"
                           else stateful_packed_signed_int_source(fixture, variant) if args.fixture == "packed-signed-int"
@@ -580,6 +593,9 @@ def main():
             # Every revert shape (x % 8 in 0..5), with small and high-bit payload words, and
             # calls that store (x % 8 in 6, 7).
             extra = ['--change-prefix', *map(str, YUL_REVERT_MEMORY_PREFIX)]
+        if args.fixture == 'yul-mcopy':
+            # Every copy shape (x % 8 in 0..5) and calls that only store (x % 8 in 6, 7).
+            extra = ['--change-prefix', *map(str, YUL_MCOPY_PREFIX)]
         if args.fixture == 'signed-struct-member-read':
             # Negative, positive-extreme and read-only calls on every cell and both struct paths.
             extra = ['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)]

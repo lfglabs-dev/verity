@@ -28,6 +28,7 @@ STORAGE_FIXTURES = (
     'msg-sig',
     'yul-empty-revert',
     'yul-revert-memory',
+    'yul-mcopy',
     'signed-struct-member-read',
     'packed-signed-int',
     'fixed-memory-arrays',
