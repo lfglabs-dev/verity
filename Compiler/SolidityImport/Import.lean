@@ -669,8 +669,13 @@ keeps every element index below `2^64`. -/
 private def pushLengthGuard (oldLen : Expr) : Stmt :=
   .ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]
 
+/-- `arr.push(v)` writes `v` into the new element's lane. An empty `arr.push()` writes nothing,
+as solc's `array_push_zero_*` helpers: storage past the length keeps whatever it held, which
+inline assembly can leave non-zero by lowering a length over written elements. With
+`readPushed`, the result is the element's current value (`x = arr.push()` reads it); otherwise
+it is never read and stays `0`. -/
 private def pushStorageDynamicArray (pre : Array Stmt) (fieldName : String) (slotExpr : Expr)
-    (elemTy : String) (valExpr? : Option Expr) : M Val := do
+    (elemTy : String) (valExpr? : Option Expr) (readPushed : Bool := false) : M Val := do
   modify fun e => { e with encodingMemory := true, usedRawStorage := true }
   if fieldName != "" then
     markField fieldName
@@ -680,8 +685,24 @@ private def pushStorageDynamicArray (pre : Array Stmt) (fieldName : String) (slo
   let writeLenStmt : Stmt :=
     if fieldName != "" then .setStorage fieldName (.localVar newLen)
     else .setStorageArrayElement rawStorageFieldName slotExpr (.localVar newLen)
-  let elemVal := valExpr?.getD (.literal 0)
-  let writeStmts ← writeStorageDynamicArrayElementAtUnchecked baseDataSlot elemTy lenVal.expr elemVal valExpr?.isNone
+  let mut writeStmts : Array Stmt := #[]
+  let mut elemVal : Expr := .literal 0
+  if let some valExpr := valExpr? then
+    writeStmts ← writeStorageDynamicArrayElementAtUnchecked baseDataSlot elemTy lenVal.expr valExpr false
+    elemVal := valExpr
+  else if readPushed then
+    let (bits, perWord, isBool) := dynamicStorageArrayElemLayout elemTy
+    let elemSlot ← fresh
+    let dest ← fresh
+    let wordOff := if perWord == 1 then lenVal.expr else Expr.div lenVal.expr (.literal perWord)
+    let rawWord := Expr.storageArrayElement rawStorageFieldName (.localVar elemSlot)
+    let shifted :=
+      if perWord == 1 then rawWord
+      else Expr.shr (.mul (.mod lenVal.expr (.literal perWord)) (.literal bits)) rawWord
+    let masked := if bits < 256 then Expr.bitAnd shifted (.literal (2 ^ bits - 1)) else shifted
+    let cleaned := if isBool then Expr.logicalNot (.logicalNot masked) else masked
+    writeStmts := #[.letVar elemSlot (.add (.localVar baseDataSlot) wordOff), .letVar dest cleaned]
+    elemVal := .localVar dest
   let stmts : Array Stmt := #[
     pushLengthGuard lenVal.expr,
     .letVar newLen (.add lenVal.expr (.literal 1)),
@@ -714,8 +735,8 @@ private def pushStorageDynamicStructArray (pre : Array Stmt) (fieldName : String
     .letVar baseDataSlot (.keccak256 (.literal 0) (.literal 32)),
     .letVar elemSlot (.add (.localVar baseDataSlot) wordOff)
   ]
-  for w in [:rawInfo.wordCount] do
-    stmts := stmts.push (.setStorageArrayElement rawStorageFieldName (rawStructMemberSlot (.localVar elemSlot) w) (.literal 0))
+  -- No zero fill: solc's empty `push()` writes nothing, and `push(v)` writes each member into
+  -- its lane, keeping the bits between members (`pushStorageDynamicArray`).
   if let some memberVals := memberVals? then
     unless memberVals.size == rawInfo.scalars.size do
       failAt at_ "struct array push member count mismatch"
@@ -8394,7 +8415,7 @@ private partial def lowerCall (j : Json) : M Val := do
           let args ← mArr (← mField j "arguments")
           if mname == "push" then
             if args.isEmpty then
-              return ← pushStorageDynamicArray pre fieldName slotExpr elemTy none
+              return ← pushStorageDynamicArray pre fieldName slotExpr elemTy none (readPushed := true)
             else if args.size == 1 then
               let arg := args[0]!
               if !pre.isEmpty && (statefulCallIn arg (← get) || assignmentIn arg) then
