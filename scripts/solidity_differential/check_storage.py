@@ -74,6 +74,7 @@ from .programs import (
     stateful_signed_modulo_source,
     stateful_signed_struct_compound_source,
     stateful_signed_struct_member_read_source,
+    stateful_storage_string_member_source,
     stateful_solc_0810_source,
     stateful_storage_source,
     stateful_storage_word_source,
@@ -143,6 +144,9 @@ SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 128 | (0xffff << 8) | (0xff << 24) | (0xf
 PACKED_SIGNED_INT_PREFIX = [0, (1 << 256) - 1,
                             127 | (8388603 << 8) | ((2 ** 127 - 2) << 32) | (0xdead << 160),
                             129 | (8388609 << 8) | ((2 ** 127 + 1) << 32), 1 << 255]
+
+STORAGE_STRING_MEMBER_PREFIX = [0, 1, 2, 255, 256, 257, (0xab << 200) | (0x1234 << 136) | (0xff << 8) | 3,
+                                (1 << 255) | (1 << 136) | 4, (1 << 256) - 1, (1 << 256) - 2]
 
 
 def canonical_observations(observations):
@@ -238,6 +242,7 @@ FIXTURE_CONTRACTS = {
     'signed-struct-compound': 'SignedStructCompoundSequence',
     'signed-struct-member-read': 'SignedStructMemberReadSequence',
     'solc-0810': 'Solc0810Sequence',
+    'storage-string-members': 'StorageStringMemberSequence',
     'string-bytes-mappings-uri-storage-strings': 'StringBytesMappingsUriStorageStringsSequence',
     'string-event-param': 'StringEventParamSequence',
     'strings-hex-arrays-bitmaps': 'StringsHexArraysBitmapsSequence',
@@ -441,6 +446,8 @@ def main():
         variants = ('baseline', 'renamed', 'reordered')
     if args.fixture == 'signed-struct-member-read':
         variants = ('baseline', 'renamed', 'local-reads')
+    if args.fixture == 'storage-string-members':
+        variants = ('baseline', 'renamed', 'direct-members')
     if args.fixture == 'packed-signed-int':
         variants = ('baseline', 'renamed', 'split-buffer')
     if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return',
@@ -539,6 +546,7 @@ def main():
                           else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
                           else stateful_yul_revert_memory_source(fixture, variant) if args.fixture == "yul-revert-memory"
                           else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
+                          else stateful_storage_string_member_source(fixture, variant) if args.fixture == "storage-string-members"
                           else stateful_packed_signed_int_source(fixture, variant) if args.fixture == "packed-signed-int"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
@@ -575,6 +583,10 @@ def main():
         if args.fixture == 'signed-struct-member-read':
             # Negative, positive-extreme and read-only calls on every cell and both struct paths.
             extra = ['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)]
+        if args.fixture == 'storage-string-members':
+            # Ids 0/1/255 (uint8 truncation, both `active` parities), high-word bitmap, tail and
+            # flag bytes, the two-key mapping's three outer keys, and the all-ones word.
+            extra = ['--change-prefix', *map(str, STORAGE_STRING_MEMBER_PREFIX)]
         if args.fixture == 'signed-compound-assignment':
             extra = ['--change-prefix', *map(str, SIGNED_COMPOUND_PREFIX)]
         if args.fixture == 'signed-struct-compound':

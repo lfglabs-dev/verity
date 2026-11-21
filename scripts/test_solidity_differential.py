@@ -103,6 +103,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-struct-array-param",
     "storage-struct-string-member-param",
     "storage-signed-struct-member-read",
+    "storage-storage-string-members",
     "storage-tuple-destructuring",
     "storage-unchecked-blocks",
     "storage-void",

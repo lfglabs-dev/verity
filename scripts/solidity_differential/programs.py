@@ -1186,6 +1186,40 @@ def stateful_signed_struct_member_read_source(fixture: str, variant: str) -> str
     raise ValueError(f'unknown signed-struct-member-read variant: {variant}')
 
 
+def stateful_storage_string_member_source(fixture: str, variant: str) -> str:
+    """Scalar siblings of an untouched `string` / `bytes` struct member agree with renamed
+    identifiers (struct, members, mappings, locals) and with the storage reference replaced by
+    direct mapping member accesses."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        out = fixture
+        for old, new in (('categories', 'groups'), ('blobs', 'records'), ('top', 'single'),
+                         ('Category', 'Group'), ('Blob', 'Record'), ('label', 'title'),
+                         ('data', 'payload'), ('bitmap', 'mask'), ('tail', 'counter'),
+                         ('c', 'ref'), ('acc', 'total'), ('id', 'key'), ('other', 'second'),
+                         ('outer', 'bucket'), ('last', 'previous')):
+            if not re.search(rf'\b{old}\b', out):
+                raise ValueError(f'missing storage-string-members anchor {old}')
+            out = re.sub(rf'\b{old}\b', new, out)
+        return out
+    if variant == 'direct-members':
+        out = fixture
+        for old, new in (
+                ('        Category storage c = categories[other];\n', ''),
+                ('        c.tail = uint64(x >> 136);\n',
+                 '        categories[other].tail = uint64(x >> 136);\n'),
+                ('        c.active = (x & 1) == 1;\n',
+                 '        categories[other].active = (x & 1) == 1;\n'),
+                ('uint256(categories[id].bitmap) + uint256(c.tail);',
+                 'uint256(categories[id].bitmap) + uint256(categories[other].tail);')):
+            if out.count(old) != 1:
+                raise ValueError(f'missing storage-string-members anchor {old!r}')
+            out = out.replace(old, new)
+        return out
+    raise ValueError(f'unknown storage-string-members variant: {variant}')
+
+
 def stateful_signed_compound_assignment_source(fixture: str, variant: str) -> str:
     """Narrow signed `+=` / `-=` / `++` / `--` agree with renamed variables and the explicit
     binary form (`x = x + y` is checked exactly like `x += y`)."""

@@ -488,6 +488,19 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
       match mapInfo? with
       | some mapInfo => structMappings := structMappings.push mapInfo
       | none => skipped := skipped.push qualLabel
+    else if solcType == "t_string_storage" || solcType == "t_bytes_storage" then
+      -- A `string` / `bytes` member owns one whole slot (length or short-string word); its
+      -- contents live at keccak256 of that slot. The member stays opaque: reading, writing or
+      -- deleting it, and whole-struct operations, fail closed; sibling members keep solc's
+      -- slot and offset from the layout.
+      let some bytesTy := field? types rawSolcType
+        | throwError "missing storage layout type {rawSolcType}"
+      unless byteOff == 0 && (← mStr (← mField bytesTy "encoding")) == "bytes" &&
+          (← mNat (← mField bytesTy "numberOfBytes")) == 32 do
+        throwError "unsupported layout member {qualLabel} : {rawSolcType}"
+      let item : OpaqRec := ⟨name, qualLabel, rawSolcType, word, byteOff⟩
+      modify fun e => { e with opaqueMembers := e.opaqueMembers.push item }
+      skipped := skipped.push qualLabel
     else if solcType == "t_bool" || solcType == "t_address" || solcType == "t_address_payable" ||
         solcType.startsWith "t_contract(" || solcType == "t_bytes32" || solcType == "t_int256" ||
         solcType.startsWith "t_uint" || solcType.startsWith "t_int" || solcType.startsWith "t_enum(" then

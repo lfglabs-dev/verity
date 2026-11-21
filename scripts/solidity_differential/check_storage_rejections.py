@@ -31,6 +31,10 @@ STORAGE_WORD_STRING_BUMP = (
     'function _bump() internal returns (uint256) { total = 2; _name = "new"; return 9; }')
 
 
+# A one-key mapping of structs whose `string` member sits between two scalars.
+STRING_MEMBER_BOX = 'struct Box { uint128 bitmap; string label; uint64 tail; } mapping(uint8 => Box) private boxes;'
+
+
 # Root ABI parameter controls: the `function` line of each case's import.
 ROOT_PARAM_SIGNATURES = {
     'root-param-string-member-accepted': 'checked(S)',
@@ -149,6 +153,23 @@ def main():
         ('member-address', 'struct Box { address owner; } mapping(uint256 => Box) private boxes;', 'boxes[1].owner = address(0); return x;', 'uint256', None),
         ('member-bytes16', 'struct Box { bytes16 tag; } mapping(uint256 => Box) private boxes;', 'boxes[1].tag = bytes16(0); return x;', 'uint256', 'unsupported layout member'),
         ('member-signed', 'struct Box { int128 low; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = 1; return x;', 'uint256', 'unsupported layout member'),
+        # A `string` / `bytes` struct member is opaque: its scalar siblings import at
+        # solc's offsets; the member itself and whole-struct operations reject.
+        ('member-string-sibling', STRING_MEMBER_BOX, 'uint8 id = uint8(x); boxes[id].bitmap = uint128(x); boxes[id].tail += 1; return uint256(boxes[id].bitmap) + boxes[id].tail;', 'uint256', None),
+        ('member-string-sibling-ref', STRING_MEMBER_BOX, 'uint8 id = uint8(x); Box storage b = boxes[id]; b.tail = uint64(x); return b.tail;', 'uint256', None),
+        ('member-string-sibling-two-key', 'struct Box { string label; uint8 flag; } mapping(uint256 => mapping(address => Box)) private boxes;', 'boxes[x][msg.sender].flag = 7; return boxes[x][msg.sender].flag;', 'uint256', None),
+        ('member-string-sibling-top', 'struct Box { bytes data; uint64 tail; } Box private box;', 'box.tail = uint64(x); return box.tail;', 'uint256', None),
+        ('member-string-read', STRING_MEMBER_BOX, 'return bytes(boxes[1].label).length;', 'uint256', 'bytes() storage conversion requires a resolved storage identifier'),
+        ('member-string-memory-local', STRING_MEMBER_BOX, 'string memory s = boxes[1].label; return bytes(s).length;', 'uint256', 'hash input must be a supported ABI encoding'),
+        ('member-string-write', STRING_MEMBER_BOX, 'boxes[1].label = "a"; return x;', 'uint256', 'member label is opaque'),
+        ('member-string-delete', STRING_MEMBER_BOX, 'delete boxes[1].label; return x;', 'uint256', 'member label is opaque'),
+        ('member-string-ref-read', STRING_MEMBER_BOX, 'Box storage b = boxes[1]; return bytes(b.label).length;', 'uint256', 'bytes() storage conversion requires a resolved storage identifier'),
+        ('member-string-return', STRING_MEMBER_BOX, 'uint8 id = uint8(x); return boxes[id].label;', 'string memory', 'hash input must be a supported ABI encoding'),
+        ('member-bytes-push', 'struct Box { uint8 flag; bytes data; } mapping(uint256 => Box) private boxes;', 'boxes[1].data.push(0x01); return x;', 'uint256', 'member data is opaque'),
+        ('member-bytes-top-write', 'struct Box { bytes data; uint64 tail; } Box private box;', 'box.data = hex"01"; return x;', 'uint256', 'member data is opaque'),
+        ('member-string-whole-delete', STRING_MEMBER_BOX, 'delete boxes[1]; return x;', 'uint256', 'cannot delete mapping struct with opaque members'),
+        ('member-string-whole-assign', STRING_MEMBER_BOX, 'boxes[1] = Box(1, "a", 2); return x;', 'uint256', 'requires a scalar-member struct layout'),
+        ('member-string-memory-copy', STRING_MEMBER_BOX, 'Box memory b = boxes[1]; return b.tail;', 'uint256', 'scalar-member struct layout'),
         ('helper-for', 'function helper(uint256 n) internal pure returns (uint256) { uint256 total; for (uint256 i = 0; i < n; i++) { total = total + i; } return total; }', 'return helper(x);', 'uint256', None),
         ('helper-for-return', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { return i; } return 0; }', 'return helper(x);', 'uint256', 'return inside an inlined helper loop'),
         ('helper-for-conditional-return', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { if (i == 1) return i; } return 0; }', 'return helper(x);', 'uint256', 'return inside an inlined helper loop'),
