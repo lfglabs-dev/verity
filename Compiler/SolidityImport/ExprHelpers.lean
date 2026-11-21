@@ -197,6 +197,8 @@ structure Env where
   publicVarGetterReturns : Array ParamType := #[]
   rootPost : Array Stmt := #[]
   modifiers : RBMap Nat Json compare := RBMap.empty
+  /-- Function boundaries restore the selected compiler's arithmetic default. -/
+  legacyWrapping : Bool := false
   unchecked : Bool := false
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
