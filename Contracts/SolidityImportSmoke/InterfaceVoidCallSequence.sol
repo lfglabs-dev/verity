@@ -73,14 +73,18 @@ contract InterfaceVoidCallFixture {
         try INotified(target).ping(amount) {} catch {}
     }
 
-    /// Clauses that return different values; calldata-bytes arguments.
-    function tryRelay(address target, bytes calldata data) external returns (bool) {
+    /// A `return` in the catch clause skips the continuation, which runs only after a
+    /// successful call and computes with checked arithmetic on locals; calldata-bytes
+    /// arguments.
+    function tryRelay(address target, bytes calldata data) external returns (uint256) {
         calls += 1;
+        uint256 code = 1;
         try INotified(target).relay(msg.sender, data) {
-            return true;
+            code = 2;
         } catch {
-            return false;
+            return 0;
         }
+        return code + data.length;
     }
 
     /// Inlined `void` helpers as the last statement: empty clauses, and a `return` in the

@@ -107,6 +107,13 @@ CASES = [
     ('try-void-continuation-read', HOOK, 'uint256 s;',
      'try IHook(oracle).hook() {} catch {} return s;',
      ('function checked', 0, 'FunctionDefinition', 'post-call')),
+    ('try-void-checked-arithmetic', HOOK, 'uint256 s;',
+     's = 1; uint256 n = 1; try IHook(oracle).hook() { n = n + 1; } catch { return 0; } '
+     'return n * 3;', None),
+    # The self-call form (contracts with more than one state variable) follows the same rule.
+    ('try-self-success-write', HOOK, 'uint256 s;\n    uint256 t;\n    function hook() external {}',
+     'try this.hook() { s = 1; } catch {} return 1;',
+     ('function checked', 0, 'FunctionDefinition', 'post-call')),
     ('void-call-then-write', HOOK, 'uint256 s;', 'IHook(oracle).hook(); s = 1; return 1;',
      ('function checked', 0, 'FunctionDefinition', 'post-call')),
     ('void-call-then-read', HOOK, 'uint256 s;', 'IHook(oracle).hook(); return s;',

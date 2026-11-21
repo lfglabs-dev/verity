@@ -233,11 +233,12 @@ def exprStorageFree (expression : Expr) : Bool :=
 abbrev purePostCallExpr := exprStorageFree
 
 /-- Statements allowed after a closed low-level call in a trailing-call body:
-local bindings, memory writes, checks, returns, reverts (including forwarding the
-call's return data) and further closed low-level calls, none of which reads or
-writes storage or logs. A code-hash read is not admitted: the call can change the
-account world it observes (a value transfer makes an empty account exist, moving
-its hash from `0` to `keccak256("")`). -/
+local bindings, memory writes, checks, returns, reverts (including panics of checked
+arithmetic and forwarding the call's return data) and further closed low-level calls,
+none of which reads or writes storage or logs. (A second CALL after the first still
+fails the separate CEI check, since the first CALL is not erased.) A code-hash read is
+not admitted: the call can change the account world it observes (a value transfer
+makes an empty account exist, moving its hash from `0` to `keccak256("")`). -/
 partial def stmtAfterTrailingCall : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .require value _ => exprStorageFree value
   | .mstore offset value => exprStorageFree offset && exprStorageFree value
@@ -247,7 +248,8 @@ partial def stmtAfterTrailingCall : Stmt → Bool
   | .ecm mod args => (isClosedLowLevelCall mod || isClosedExtCodeSize mod) && args.all exprStorageFree
   | .return value => exprStorageFree value
   | .returnValues values => values.all exprStorageFree
-  | .revertEmpty | .revertReturndata | .stop => true
+  | .panicCode code => exprStorageFree code
+  | .revertEmpty | .revertReturndata | .panic _ | .stop => true
   | _ => false
 
 abbrev allowedPostCallStmt := stmtAfterTrailingCall
