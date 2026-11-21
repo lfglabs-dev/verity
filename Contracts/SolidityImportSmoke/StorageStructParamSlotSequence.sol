@@ -58,6 +58,22 @@ contract SequenceFixture {
         }
     }
 
+    function _stateTopSlot() internal pure returns (uint256 s) {
+        assembly {
+            s := top.slot
+        }
+    }
+
+    // The parameter shadows the state variable `top`: the callee's `top.slot`
+    // is the state variable's slot, not the caller's parameter slot.
+    function _shadowedSlots(Cell storage top) internal pure returns (uint256) {
+        uint256 own;
+        assembly {
+            own := top.slot
+        }
+        return own ^ (_stateTopSlot() << 1);
+    }
+
     function _fill(Cell storage self, uint256 x) internal returns (uint256) {
         self.lo = uint128(x);
         self.hi = uint128(x >> 130);
@@ -71,6 +87,7 @@ contract SequenceFixture {
         acc ^= _fill(cells[key], x ^ 1);
         acc ^= _fill(grid[msg.sender][key], x ^ 2);
         acc ^= _slotOf(top) ^ _slotOf(cells[key]) ^ _slotOf(grid[msg.sender][key]);
+        acc ^= _shadowedSlots(cells[key]);
         uint256 small = x & 0xffffffff;
         lock.tset(small);
         locks[key].tset(small + 5);
