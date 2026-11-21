@@ -12855,8 +12855,8 @@ is zero (that revert is in the caller and is not caught), and issues the same ca
 statement form (`lowerInterfaceVoidCallStatus`). A successful call runs `A` whatever its
 return data (nothing is decoded); a failed call, whose own effects the EVM rolls back, runs
 `B`. Returns the success bit as the condition with the two clause bodies, or `none` when
-the statement is not an external try on a contract-typed receiver other than `this` or
-`super`; other external try forms fail closed. -/
+the statement is not an external try of an interface member (`isInterfaceExternalCall`);
+other external try forms fail closed. -/
 private partial def lowerInterfaceTryCall? (s : Json) :
     M (Option (Val × Array Json × Array Json)) := do
   unless (← mKind s) == "TryStatement" do return none
@@ -12869,7 +12869,8 @@ private partial def lowerInterfaceTryCall? (s : Json) :
   if (← mKind base) == "Identifier" &&
       (optStr base "name" == some "this" || optStr base "name" == some "super") then
     return none
-  unless (← mType base).startsWith "contract " do return none
+  -- The receivers and members the statement form admits (`isInterfaceExternalCall`).
+  unless ← isInterfaceExternalCall extCall do return none
   if (← get).forwardingBytesTuple then
     failAt s "try/catch in a forwarded tuple requires call-success semantics"
   unless (← mArr (← mField extCall "names")).isEmpty do

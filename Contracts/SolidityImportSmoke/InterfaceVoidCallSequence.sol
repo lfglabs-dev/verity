@@ -86,14 +86,25 @@ contract InterfaceVoidCallFixture {
         lastAmount = data.length;
     }
 
-    /// Empty clauses inside an inlined `void` helper.
+    /// Inlined `void` helpers: empty clauses, and a `return` in the success clause that
+    /// skips the helper's continuation (the caller's continuation still runs).
     function tryPoke(address target) external {
         pokeQuietly(target);
+        pokeOrCount(target);
         calls += 7;
     }
 
     function pokeQuietly(address target) private {
         try INotified(target).poke() {} catch {}
+    }
+
+    function pokeOrCount(address target) private {
+        try INotified(target).poke() {
+            return;
+        } catch {
+            calls += 3;
+        }
+        lastAmount += 1;
     }
 
     function read() external view returns (uint256, uint256) {
