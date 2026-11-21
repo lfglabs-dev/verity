@@ -179,6 +179,23 @@ private def climb : List (String × String) := [("lib/x/src/X.sol", ""), ("lib/x
 #guard (infer [("lib/src/F.sol", ""), ("lib/src/node_modules/c/C.sol", ""),
   ("lib/src/node_modules/@s/x/S.sol", "")]).globalIssue.isSome
 
+-- An entry with an issue may really win its slot, so the issue carries over to the winner.
+-- Listed in one order Foundry printed `x/=lib/x/src/`, in the other `x/=lib/x/`.
+#guard (infer [("lib/x/foundry.toml", "[profile.default]\n"), ("lib/x/a/c/contracts/F.sol", ""),
+  ("lib/a/lib/x/c/src/F.sol", "")]).remappings.any fun r => r.name == "x/" && r.issue.isSome
+-- An absolute target (an issue) competing with a clean auto-detected entry.
+#guard (infer [("lib/n/foundry.toml", "[profile.default]\nremappings = [\"z/=/abs/zz/\"]\n"),
+  ("lib/z/src/Z.sol", "")]).remappings.any fun r => r.name == "z/" && r.issue.isSome
+
+-- A hidden directory in a library's `libs`: Foundry scans it (as here, where the tree holds
+-- it, giving what `forge remappings` printed), but the reader drops hidden directories
+-- without a `foundry.toml`, so a missing one is an issue.
+#guard lines [("lib/x/foundry.toml", "[profile.default]\nlibs = ['.deps']\n"),
+  ("lib/x/.deps/foo/src/F.sol", ""), ("lib/y/lib/foo/src/F.sol", "")] ==
+  ["foo/=lib/x/.deps/foo/src/", "x/=lib/x/src/"]
+#guard (infer [("lib/x/foundry.toml", "[profile.default]\nlibs = ['.deps']\n"),
+  ("lib/y/lib/foo/src/F.sol", "")]).globalIssue.isSome
+
 -- A symlink anywhere in a scanned library leaves the inferred set unknown: an import that
 -- needs an inferred remapping fails, and so does a written path no remapping matches (Foundry
 -- may infer one). Explicit remappings and relative imports resolve as before.

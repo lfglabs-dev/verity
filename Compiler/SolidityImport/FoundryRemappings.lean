@@ -185,9 +185,10 @@ def orderIndependentWinner {α : Type} [BEq α] (replace : α → α → Bool) (
     | none => some (first, true)
 
 /-- `Remapping::find_many` over the library directory `lib` (at `libPath`): the keys with
-their value and whether it is ambiguous, and whether the key set itself is uncertain. -/
+their value, whether it is ambiguous, and its possible values when they are known (a pure
+listing-order tie), and whether the key set itself is uncertain. -/
 def findMany (lib : RemapDir) (libPath : Path) (aboveRootSource : Bool) :
-    List (String × Path × Bool) × Bool :=
+    List (String × Path × Bool × Option (List Path)) × Bool :=
   let insideNodeModules := lastName libPath == some "node_modules"
   let subs := (lib.children.toList.filter (!·.hidden)).map fun c =>
     let p := libPath ++ [c.name]
@@ -200,8 +201,10 @@ def findMany (lib : RemapDir) (libPath : Path) (aboveRootSource : Bool) :
   (keys.toList.filterMap fun k =>
     let group := cands.filter (keyOf · == some k)
     let ambiguousInput := group.any (·.ambiguous)
-    (orderIndependentWinner replace (group.map (·.sourceDir))).map fun (p, amb) =>
-      (k, p, amb || ambiguousInput), subs.any (·.2))
+    let values := group.map (·.sourceDir)
+    (orderIndependentWinner replace values).map fun (p, amb) =>
+      let alts := if amb && !ambiguousInput then some values.eraseDups else none
+      (k, p, amb || ambiguousInput, alts), subs.any (·.2))
 
 /-! ### Remapping strings and `foundry.toml` -/
 
@@ -493,12 +496,14 @@ structure LibEntry where
   /-- `some i`: from the `i`-th nested `foundry.toml` directory (listing order unknown);
   `none`: auto-detected (sequence order known). -/
   nestedDir : Option Nat
+  /-- For an entry with an issue: every value it may really have, when known. -/
+  alts : Option (List Path) := none
   deriving Inhabited
 
 /-- `insert_closest` for one `(context, name)` slot. Nested entries come first in an unknown
 directory order; within one directory, and among auto-detected entries, order is known.
 The fewest components win; on a tie the first inserted stays. -/
-def insertClosest (entries : List LibEntry) : Option LibEntry := do
+def insertClosestValue (entries : List LibEntry) : Option LibEntry := do
   let first ← entries.head?
   let best := entries.foldl (fun m e => min m (componentCount e.remap.path))
     (componentCount first.remap.path)
@@ -515,6 +520,20 @@ def insertClosest (entries : List LibEntry) : Option LibEntry := do
     if paths.length > 1 || issues.length > 1 then
       return { pick with remap := { pick.remap with issue := orderIssue pick.remap.name } }
     return pick
+
+/-- `insertClosestValue`, carrying over the issue of an entry in the slot whose real value
+the port does not know for sure (a listing-order alternative, an absolute target counted on
+another basis) when that value may win: fewer components than the winner, or as many with
+a different path. -/
+def insertClosest (entries : List LibEntry) : Option LibEntry := do
+  let winner ← insertClosestValue entries
+  if winner.remap.issue.isSome then return winner
+  let n := componentCount winner.remap.path
+  let mayWin (p : Path) : Bool :=
+    componentCount p < n || (componentCount p == n && p != winner.remap.path)
+  match entries.find? fun e => e.remap.issue.isSome && (e.alts.map (·.any mayWin)).getD true with
+  | some e => return { winner with remap := { winner.remap with issue := e.remap.issue } }
+  | none => return winner
 
 /-- The output of the remappings provider for one project root. -/
 structure Provided where
@@ -558,7 +577,11 @@ partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array
     let mut dirIdx := 0
     -- `find_nested_foundry_remappings`: each lib directory itself, then its children.
     for lib in libs do
-      let some libDir := d.child? lib | continue
+      let some libDir := d.child? lib |
+        -- The reader keeps a hidden directory only when it holds a `foundry.toml`.
+        if lib.startsWith "." then
+          issue := mergeIssue issue (some s!"hidden libs directory {lib} is not read")
+        continue
       issue := mergeIssue issue (treeIssue libDir (root ++ [lib]))
       let tomlDirs := (if libDir.foundryToml.isSome then [(libDir, root ++ [lib])] else []) ++
         (libDir.children.toList.filter (·.foundryToml.isSome)).map fun c => (c, root ++ [lib, c.name])
@@ -575,13 +598,13 @@ partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array
       if uncertain then
         issue := mergeIssue issue (some s!"Foundry's scan of {String.intercalate "/" (root ++ [lib])} \
           depends on directory listing order or on directories above the project root")
-      for (name, path, amb) in found do
+      for (name, path, amb, alts) in found do
         if ["lib/", "src/", "contracts/"].contains name then continue
         let text := String.intercalate "/" path ++ "/"
         entries := entries.push
           { remap := { context := none, name, path, pathText := text,
                        issue := if amb then orderIssue name else none },
-            nestedDir := none }
+            nestedDir := none, alts }
     let slotKey (e : LibEntry) := (e.remap.context, e.remap.name)
     let slots := (entries.toList.map slotKey).eraseDups.toArray.qsort fun a b =>
       match a.1, b.1 with
