@@ -222,7 +222,7 @@ private partial def memoryWriteIn (j : Json) (env : Env) (seen : List Nat := [])
 private def memoryWriteOrderHazard (a b : Json) (env : Env) : Bool :=
   (memoryWriteIn a env && memoryReferenceIn b) || (memoryWriteIn b env && memoryReferenceIn a)
 
-private def buildField (types item : Json) : M FieldInfo := do
+private def buildField (types item : Json) (isTransient : Bool := false) : M FieldInfo := do
   let name ← mStr (← mField item "label")
   if name == rawStorageFieldName || name.startsWith "_verity_struct_" then
     throwError "state variable name {name} is reserved"
@@ -231,6 +231,11 @@ private def buildField (types item : Json) : M FieldInfo := do
   let top ← liftM (layoutType types rawTypeId)
   let typeId := normalizeSolcLayoutType (← get) rawTypeId
   let encoding ← mStr (← mField top "encoding")
+  -- Transient variables admit exactly the persistent scalar layouts below; reference
+  -- types never reach here (solc rejects them).
+  if isTransient && (encoding != "inplace" || (field? top "members").isSome ||
+      (field? top "base").isSome) then
+    throwError "unsupported transient storage type {rawTypeId}"
   if encoding == "inplace" then
     if (field? top "members").isSome then
       unless (← mNat (← mField item "offset")) == 0 do
@@ -286,7 +291,7 @@ private def buildField (types item : Json) : M FieldInfo := do
         unless bits > 0 && bits ≤ 256 && bits % 8 == 0 do
           throwError "invalid scalar uint width {bits}"
         pure bits
-      else throwError "unsupported scalar storage type {rawTypeId}"
+      else throwError "unsupported {if isTransient then "transient " else ""}scalar storage type {rawTypeId}"
     let bytes ← mNat (← mField top "numberOfBytes")
     unless bytes * 8 == width do
       throwError "scalar storage size disagrees with type {rawTypeId}"
@@ -295,7 +300,7 @@ private def buildField (types item : Json) : M FieldInfo := do
     let packedBits : Option PackedBits :=
       if offset == 0 && width == 256 then none else some { offset, width }
     -- Exact physical words; source types still govern conversions and ABI.
-    let field : Field := { name, ty := .uint256, slot := some slot, packedBits }
+    let field : Field := { name, ty := .uint256, slot := some slot, packedBits, isTransient }
     return { slot, field, keyCount := 0, memberNames := #[], opaqueNames := #[],
              booleanScalar := typeId == "t_bool" }
   if encoding == "bytes" then
@@ -506,17 +511,29 @@ private def buildField (types item : Json) : M FieldInfo := do
          memberNames := names, opaqueNames := skipped, booleanMembers, structFixedArrays, structMappings,
          structDynamicArrays, subStructs, signedMembers, structMembers := members' }
 
+/-- Record a transient state variable in the current root's closure. -/
+private def noteTransientField (info : FieldInfo) : M Unit := do
+  let name := info.field.name
+  if info.field.isTransient && !(← get).rootTransientFields.contains name then
+    modify fun e => { e with rootTransientFields := e.rootTransientFields.push name }
+
 /-- Resolve only reached fields: an unrelated unsupported layout must not
 prevent importing a supported function closure. -/
 private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
   if name == rawStorageFieldName || name.startsWith "_verity_struct_" then
     failAt at_ s!"reserved storage field name {name}"
-  if let some info := (← get).fieldsByName.find? name then return info
+  if let some info := (← get).fieldsByName.find? name then
+    noteTransientField info
+    return info
   let env ← get
   let some item := env.layoutItems.find? name | failAt at_ s!"no storage layout for {name}"
-  let info ← try buildField env.layoutTypes item catch ex =>
+  let id ← mNat (← mField item "astId")
+  let isTransient := (env.stateVars.find? id >>= (optStr · "storageLocation")) == some "transient"
+  let types := if isTransient then env.transientLayoutTypes else env.layoutTypes
+  let info ← try buildField types item isTransient catch ex =>
     failAt at_ (← ex.toMessageData.toString)
   modify fun e => { e with fieldsByName := e.fieldsByName.insert name info }
+  noteTransientField info
   return info
 
 /-- A member write through a memory struct parameter bound from the caller's own struct would
@@ -18743,7 +18760,7 @@ private def importSlice
       ("runs", profile.optimizerRuns.getD 200)]),
     ("outputSelection", Json.mkObj [("*", Json.mkObj [
       ("", Json.arr #[Json.str "ast"]),
-      ("*", Json.arr #[Json.str "storageLayout"])])]),
+      ("*", Json.arr #[Json.str "storageLayout", Json.str "transientStorageLayout"])])]),
     ("remappings", Json.arr (remaps.map fun p => Json.str s!"{p.1}={p.2}"))]
   let settings := Json.mkObj (if release.supportsViaIR then
     baseSettings ++ [("viaIR", Json.bool profile.viaIR)]
@@ -18797,8 +18814,12 @@ private def importSlice
   let layout ← field chosen "storageLayout"
   let types ← field layout "types"
   let items ← arr (← field layout "storage")
-  env := { env with layoutTypes := types }
-  for item in items do
+  -- solc reports `transient` state variables only here; older releases omit it.
+  let (transientTypes, transientItems) ← match field? chosen "transientStorageLayout" with
+    | some tl => pure (← field tl "types", ← arr (← field tl "storage"))
+    | none => pure (Json.null, #[])
+  env := { env with layoutTypes := types, transientLayoutTypes := transientTypes }
+  for item in items ++ transientItems do
     let label ← str (← field item "label")
     if env.layoutItems.contains label && !env.duplicateLayoutLabels.contains label then
       env := { env with duplicateLayoutLabels := env.duplicateLayoutLabels.push label }
@@ -18848,9 +18869,15 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[] }
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[],
+                        rootTransientFields := #[], rootAssembly := none }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
+      -- Inline assembly can observe uncleaned stack words and write uncleaned transient
+      -- words; transient lowering is admitted only in closures without assembly.
+      if let (some asmNode, some tname) := (env.rootAssembly, env.rootTransientFields[0]?) then
+        (failAt asmNode
+          s!"inline assembly in a closure that accesses transient state variable {tname} is unsupported").run' env
       let mut modelParams : Array Param := #[]
       let mut modelParamNames : Array String := #[]
       for p in srcParams do

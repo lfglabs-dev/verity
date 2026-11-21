@@ -40,7 +40,7 @@ MUTANTS = {
     'import-void-fallthrough': ('out := out.push .stop', 'out := out.push (.require (.literal 0) "mutated void return") |>.push .stop'),
     'denote-scalar-sibling-mask': ('let cleared := Verity.Core.Uint256.and current (Verity.Core.Uint256.not shiftedMaskNat)', 'let cleared := Verity.Core.Uint256.and current 0'),
     'import-scalar-read': ('pure { pre, expr := .storage name }', 'pure { pre, expr := .literal 0 }'),
-    'import-scalar-slot': ('slot := some slot, packedBits }', 'slot := some (slot + 1), packedBits }'),
+    'import-scalar-slot': ('slot := some slot, packedBits, isTransient }', 'slot := some (slot + 1), packedBits, isTransient }'),
     'import-scalar-offset': ('some { offset, width }', 'some { offset := if width == 128 then 128 - offset else offset, width }'),
     'import-scalar-write': ('return (pre ++ value.pre).push (.setStorage name stored)', 'return (pre ++ value.pre).push (.setStorage name (.literal 0))'),
     'import-scalar-delete': ('          return ← lowerStorageBytesWrite name pre target right\n      markField name\n      let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do', '          return ← lowerStorageBytesWrite name pre target right\n      markField name\n      let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do'),

@@ -201,6 +201,12 @@ structure Env where
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
   layoutTypes : Json
+  /-- solc `transientStorageLayout.types`, for `transient` state variables. -/
+  transientLayoutTypes : Json := .null
+  /-- Transient state variables the current root's closure accesses. -/
+  rootTransientFields : Array String := #[]
+  /-- First inline-assembly block in a body the current root's closure lowers. -/
+  rootAssembly : Option Json := none
   included : Array FnRec
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec
@@ -1161,6 +1167,9 @@ def rejectForwardedAssembly (body : Json) : M Unit := do
 
 def noteFn (fn : Json) : M Unit := do
   rejectForwardedAssembly ((field? fn "body").getD .null)
+  if (← get).rootAssembly.isNone then
+    if let some asmNode := firstInlineAssembly? ((field? fn "body").getD .null) then
+      modify fun e => { e with rootAssembly := some asmNode }
   let id ← mNat (← mField fn "id")
   let env ← get
   unless env.included.any (·.declId == id) do
