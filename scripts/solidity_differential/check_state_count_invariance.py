@@ -16,6 +16,12 @@ everything else (functions, events, errors, externals, constructor, remaining fi
 render identically. If the probe would move or overlap an original variable, the case fails
 as unsound instead of being compared.
 
+Every non-control case must declare exactly one state variable in its base (counted from
+solc's AST the way the importer counts them, constants and immutables included), so the probe
+moves the count from 1 to 2. Lean prints each normalized model with its length, and a model
+that does not arrive whole on one line is a harness error, as is a failing side without a
+`[solidity-import]` diagnostic.
+
 A case passes when both sides import with identical normalized models, or both sides reject
 with the same diagnostic. It fails when only one side imports (an admission discrepancy) or
 when both import with different models (a model discrepancy).
@@ -67,7 +73,9 @@ def solidity_only(directory, names):
     return [n for n in names if not n.endswith('.sol') and not (Path(directory) / n).is_dir()]
 
 
-# Minimal controls: each construct imports on main in one-slot contracts on both profiles.
+# Minimal controls: each construct imports on main on both profiles. Every non-control case
+# declares exactly one state variable (the importer's count includes constants and immutables),
+# so the probe moves the count from 1 to 2 and crosses the `stateVars.size > 1` gates.
 CASES = [
     inline('scalar-storage', '''contract C {
     uint256 private total;
@@ -78,19 +86,6 @@ CASES = [
     }
 }
 ''', ['bump(uint256)']),
-    inline('packed-storage', '''contract C {
-    uint64 private low;
-    uint128 private mid;
-    bool private flag;
-
-    function set(uint64 a, uint128 b) external returns (uint256) {
-        low = a;
-        mid = b;
-        flag = a > 3;
-        return uint256(low) + uint256(mid) + (flag ? 1 : 0);
-    }
-}
-''', ['set(uint64,uint128)']),
     inline('mapping-and-event', '''contract C {
     mapping(address => uint256) private balances;
     event Moved(address indexed who, uint256 amount);
@@ -118,12 +113,6 @@ CASES = [
     }
 }
 ''', ['run(uint256)']),
-    inline('no-state', '''contract C {
-    function pureMath(uint256 a, uint256 b) external pure returns (uint256) {
-        unchecked { return a * b + (a ^ b); }
-    }
-}
-''', ['pureMath(uint256,uint256)']),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-yul-bool-literal', '''contract C {
     uint256 private total;
@@ -235,7 +224,18 @@ def solc_layout(directory, entry, contract):
                 definition = (source_name, node)
     if definition is None:
         raise CaseFailure(f'contract definition {contract} not found')
-    return layout, definition
+    return layout, definition, sum(state_variables(source['ast']) for source in output['sources'].values())
+
+
+def state_variables(node):
+    """State variable declarations under `node`, as the importer counts them (constants and
+    immutables included)."""
+    if isinstance(node, list):
+        return sum(state_variables(child) for child in node)
+    if not isinstance(node, dict):
+        return 0
+    own = 1 if node.get('nodeType') == 'VariableDeclaration' and node.get('stateVariable') else 0
+    return own + sum(state_variables(value) for value in node.values() if isinstance(value, (dict, list)))
 
 
 def layout_entries(layout):
@@ -282,7 +282,8 @@ def driver(directory, entry, contract, functions, profiles):
         listed = ''.join(f'  function {f}\n' for f in functions)
         blocks.append(f'solidity_import {profile}Import from "{directory}" entry "{entry}"\n'
                       f'  using {PROFILES[profile]}\n  contract {contract}\n{listed}')
-        blocks.append(f'#eval IO.println ("@@{profile}@@" ++ normalizedModel {profile}Import.model)\n')
+        blocks.append(f'#eval IO.println (let s := normalizedModel {profile}Import.model\n'
+                      f'  "@@{profile}@@" ++ toString s.length ++ "@@" ++ s)\n')
     return ('import Compiler.SolidityImport.Import\nopen Compiler.CompilationModel\n\n'
             '/-- The model with the probe storage field removed (see the harness docstring). -/\n'
             'def normalizedModel (m : CompilationModel) : String :=\n'
@@ -304,7 +305,14 @@ def import_side(directory, entry, contract, functions, profiles, timeout):
     for profile in profiles:
         marker = f'@@{profile}@@'
         line = next((l for l in log.splitlines() if l.startswith(marker)), None)
-        models[profile] = line[len(marker):] if line is not None else None
+        if line is None:
+            models[profile] = None
+            continue
+        length, _, model = line[len(marker):].partition('@@')
+        if not length.isdigit() or int(length) != len(model):
+            raise CaseFailure(f'{directory.name} {profile}: model output truncated '
+                              f'({len(model)} of {length} characters on the marker line)')
+        models[profile] = model
     diagnostics = sorted(set(DIAGNOSTIC.findall(log)))
     return models, diagnostics, log
 
@@ -319,7 +327,10 @@ def run_case(case, output, timeout):
             side.mkdir(parents=True)
             for name, text in case['files'].items():
                 (side / name).write_text(text)
-    base_layout, (source_name, node) = solc_layout(base_dir, case['entry'], case['contract'])
+    base_layout, (source_name, node), base_count = solc_layout(base_dir, case['entry'], case['contract'])
+    if 'expect' not in case and base_count != 1:
+        raise CaseFailure(f'base declares {base_count} state variables; the probe must move the count '
+                          'from 1 to 2 to cross the state-count gates')
     target = variant_dir / source_name
     text = insert_probe(target.read_text(), node, case.get('probe_at', 'end'))
     if 'variant_edit' in case:
@@ -328,7 +339,7 @@ def run_case(case, output, timeout):
             raise CaseFailure(f'variant edit anchor {old!r} is not unique')
         text = text.replace(old, new)
     target.write_text(text)
-    variant_layout, _ = solc_layout(variant_dir, case['entry'], case['contract'])
+    variant_layout, _, _ = solc_layout(variant_dir, case['entry'], case['contract'])
     unsound = check_layout(base_layout, variant_layout)
     if unsound:
         return {'kind': 'unsound-layout', 'detail': unsound}
@@ -338,6 +349,10 @@ def run_case(case, output, timeout):
     outcome = {}
     for profile in profiles:
         base_model, variant_model = base[0][profile], variant[0][profile]
+        for side, (models, diagnostics, _) in (('base', base), ('variant', variant)):
+            if models[profile] is None and not diagnostics:
+                raise CaseFailure(f'{side} {profile}: no model and no [solidity-import] diagnostic; '
+                                  f'see {side}/check.log')
         if base_model is None and variant_model is None:
             if base[1] != [d.replace(str(variant_dir), str(base_dir)) for d in variant[1]]:
                 outcome[profile] = 'diagnostic'
@@ -393,7 +408,7 @@ def main():
             continue
         try:
             result = run_case(case, output, args.timeout)
-        except CaseFailure as error:
+        except (CaseFailure, subprocess.TimeoutExpired, OSError) as error:
             result = {'kind': 'error', 'detail': str(error)}
         reason = (f"harness error: {result['detail']}" if result['kind'] == 'error'
                   else judge(case, result))
