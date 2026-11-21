@@ -257,8 +257,8 @@ memory buffer loop and `SolidityReturnMemory.module` transport.
 The block's byte length `shl(5, nSlots)` wraps, so it reads `m := nSlots mod 2^251` words and
 returns `(0x40 + 32 * m) mod 2^256` bytes, keeping the full `nSlots` as the length word. When
 `m` is `2^251 - 2` or `2^251 - 1` that is 0 or 32 bytes and no returned word is read. Gas is not
-modeled: where the EVM runs out of gas (already at about 10^5 words under common block gas
-limits), this lowering still returns the words, or reverts with `Panic(0x41)` from
+modeled: where the EVM runs out of gas (from about 7,600 cold reads under the Osaka 2^24
+transaction gas cap), this lowering still returns the words, or reverts with `Panic(0x41)` from
 `AbiEncoding.reserve` once the result exceeds the 2^64-byte memory bound. -/
 def lowerBatchRangeSloadShim (startSlotExpr nSlotsExpr : Expr) : M (Array Stmt) := do
   let startVar ← fresh
