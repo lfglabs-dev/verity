@@ -9074,8 +9074,8 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
   let frame := fnId :: saved.stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers on string-returning helpers are outside this slice"
@@ -9434,8 +9434,8 @@ private partial def inlineArrayFn (fnId : Nat) (args : Array CallArg) (expectedE
   let frame := fnId :: saved.stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers on array-returning helpers are outside this slice"
@@ -9555,8 +9555,8 @@ private partial def inlineFixedArrayFn (fnId : Nat) (args : Array CallArg) (at_ 
   let frameFile := saved.nodeFile.find? fnId |>.getD saved.currentFile
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := fnId :: saved.stack, currentFile := frameFile, unchecked := false,
                            bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
   let mods ← mArr (← mField fn "modifiers")
@@ -9603,8 +9603,8 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
   let frame := fnId :: saved.stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers on storage pointer helpers are outside this slice"
@@ -9807,8 +9807,8 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
   let frame := fnId :: saved.stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
   let mods ← mArr (← mField fn "modifiers")
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
@@ -10019,8 +10019,8 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let frame := fnId :: (← get).stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
   let mods ← mArr (← mField fn "modifiers")
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
@@ -10104,8 +10104,8 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let frame := fnId :: (← get).stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
   let mods ← mArr (← mField fn "modifiers")
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
@@ -10183,8 +10183,8 @@ private partial def inlineMsgDataFn (fnId : Nat) (args : Array CallArg) (at_ : J
   let frame := fnId :: saved.stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
   let mods ← mArr (← mField fn "modifiers")
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
@@ -10246,8 +10246,8 @@ private partial def inlineCalldataBytesFn (fnId : Nat) (args : Array CallArg) (a
   let frame := fnId :: saved.stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e =>
     { e with stack := frame, currentFile := frameFile, unchecked := false,
              bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
@@ -10312,8 +10312,8 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
   let frame := fnId :: (← get).stack
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
   let mods ← mArr (← mField fn "modifiers")
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
@@ -12798,8 +12798,8 @@ private partial def inlineBytesStructFn (fnId : Nat) (args : Array CallArg) (at_
   let frameFile := saved.nodeFile.find? fnId |>.getD saved.currentFile
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
-    | failAt fn "function has no body"
-  unless implemented do failAt fn "function has no body"
+    | failNoBody fn at_
+  unless implemented do failNoBody fn at_
   modify fun e => { e with stack := fnId :: saved.stack, currentFile := frameFile, unchecked := false,
                            bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
   unless (← mArr (← mField fn "modifiers")).isEmpty do
@@ -17895,9 +17895,11 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
               let cnodes ← match field? j "nodes" with
                 | some ns => mArr ns
                 | none => pure #[]
+              let isAbstract := (field? j "abstract").bind (fun v => v.getBool?.toOption) |>.getD false
               modify fun e =>
                 { e with contractNames := e.contractNames.insert id n,
                          contractKinds := e.contractKinds.insert id kind,
+                         abstractContracts := if isAbstract then e.abstractContracts.push id else e.abstractContracts,
                          contractBases := e.contractBases.insert id bases,
                          contractNodes := e.contractNodes.insert id cnodes,
                          contractBaseSpecifiers :=

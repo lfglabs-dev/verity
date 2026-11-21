@@ -447,6 +447,20 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Fixture.sol:4:103: BinaryOperation: [solidity-import:unsupported] memory-writing helper operands require explicit evaluation-order support'),
+        # An abstract target leaves the virtual `totalAssets` unimplemented: the
+        # call is rejected where it is made; a concrete child that overrides it imports.
+        ('inheritance-abstract-unimplemented-virtual-call-rejected',
+         "pragma solidity 0.8.34;\nabstract contract C {\n  uint256 public totalSupply;\n  function totalAssets() public view virtual returns (uint256);\n  function convertToShares(uint256 assets) public view virtual returns (uint256) {\n    uint256 supply = totalSupply;\n    return supply == 0 ? assets : (assets * supply) / totalAssets();\n  }\n  function checked(uint256 x) external view returns (uint256) { return convertToShares(x); }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         ('Fixture.sol:7:55: FunctionCall: [solidity-import:unsupported] call to unimplemented virtual function '
+          'C.totalAssets (declared at Fixture.sol:4:3): abstract target contract C does not implement it in its '
+          'inheritance chain; import a concrete contract that overrides totalAssets')),
+        ('inheritance-concrete-child-implements-virtual-positive',
+         "pragma solidity 0.8.34;\nimport './Dep.sol';\ncontract C is Vault {\n  function totalAssets() public view override returns (uint256) { return totalSupply + 7; }\n  function checked(uint256 x) external view returns (uint256) { return convertToShares(x); }\n}\n",
+         "pragma solidity 0.8.34;\nabstract contract Vault {\n  uint256 public totalSupply;\n  function totalAssets() public view virtual returns (uint256);\n  function convertToShares(uint256 assets) public view virtual returns (uint256) {\n    uint256 supply = totalSupply;\n    return supply == 0 ? assets : (assets * supply) / totalAssets();\n  }\n}\n",
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
         ('inheritance-interface-unimplemented-rejected',
          "pragma solidity 0.8.34;\ninterface IBase { function checked(uint256 x) external view returns (uint256); }\nabstract contract C is IBase { }\n",
          None,
