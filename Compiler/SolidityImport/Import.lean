@@ -7904,8 +7904,9 @@ forwards a failed call's complete return data as the revert payload; and ignores
 the return data of a successful call. Here the calldata is assembled in a fresh
 allocation (solc writes it above the free pointer without advancing it, so only
 unallocated memory differs) and sent through the closed memory-call transport.
-`decl` is the called function's declaration. -/
-private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := do
+`decl` is the called function's declaration. The statements end with the call;
+the returned name is bound to its success bit (`1` or `0`). -/
+private partial def lowerInterfaceVoidCallStatus (j decl : Json) : M (Array Stmt × String) := do
   let callee ← mField j "expression"
   let params ← mArr (← mField (← mField decl "parameters") "parameters")
   let args ← mArr (← mField j "arguments")
@@ -7965,12 +7966,17 @@ private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := d
     .letVar dataSize (.add payloadSize (.literal 4))]
   let codeSize ← fresh
   let success ← fresh
-  return pre ++ #[
+  return (pre ++ #[
     .ecm (Compiler.ECM.SolidityExtCodeSize.module codeSize) [target.expr],
     .ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] [],
     .ecm (Compiler.ECM.YulMemoryCall.module false success)
-      [target.expr, .localVar dataPtr, .localVar dataSize, .literal 0, .literal 0],
-    .ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] []]
+      [target.expr, .localVar dataPtr, .localVar dataSize, .literal 0, .literal 0]], success)
+
+/-- `I(a).f(args...)` as a whole expression statement (see `lowerInterfaceVoidCallStatus`):
+a failed call forwards its complete return data as the revert payload. -/
+private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := do
+  let (pre, success) ← lowerInterfaceVoidCallStatus j decl
+  return pre.push (.ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [])
 
 /-- `I(a).f(args...)` for a `view` interface function returning a single
 `uint256`, `int256`, `bytes32`, `bytes4` or `bool` over scalar, struct or dynamic `bytes`/`string`
@@ -12841,6 +12847,48 @@ private partial def lowerThisTryCall? (s : Json) :
   let callStmt := Stmt.ecm mod (Expr.contractAddress :: callWords.toList)
   return some ({ pre := pre.push callStmt, expr := .localVar okVar }, yesStmts, noStmts)
 
+/-- `try I(a).f(args...) { A } catch { B }` for a `nonpayable` or `payable` external
+function without return values, called without options, with a success clause that
+declares no return variables and a single catch-all `catch { }` clause. solc 0.8.34
+(via-IR) evaluates the receiver and arguments, reverts with no data when `extcodesize(a)`
+is zero (that revert is in the caller and is not caught), and issues the same call as the
+statement form (`lowerInterfaceVoidCallStatus`). A successful call runs `A` whatever its
+return data (nothing is decoded); a failed call, whose own effects the EVM rolls back, runs
+`B`. Returns the success bit as the condition with the two clause bodies, or `none` when
+the statement is not an external try on a contract-typed receiver other than `this` or
+`super`; other external try forms fail closed. -/
+private partial def lowerInterfaceTryCall? (s : Json) :
+    M (Option (Val × Array Json × Array Json)) := do
+  unless (← mKind s) == "TryStatement" do return none
+  let extCall ← mField s "externalCall"
+  unless (← mKind extCall) == "FunctionCall" && optStr extCall "kind" == some "functionCall" do
+    return none
+  let callee ← mField extCall "expression"
+  unless (← mKind callee) == "MemberAccess" do return none
+  let base ← mField callee "expression"
+  if (← mKind base) == "Identifier" &&
+      (optStr base "name" == some "this" || optStr base "name" == some "super") then
+    return none
+  unless (← mType base).startsWith "contract " do return none
+  if (← get).forwardingBytesTuple then
+    failAt s "try/catch in a forwarded tuple requires call-success semantics"
+  unless (← mArr (← mField extCall "names")).isEmpty do
+    failAt extCall "named arguments in an external try call are unsupported"
+  let some decl ← interfaceVoidCallDecl? extCall
+    | failAt s "external try/catch of a view, pure or value-returning function is unsupported"
+  let clauses ← mArr (← mField s "clauses")
+  let noParams (clause : Json) : Bool := match field? clause "parameters" with
+    | some j => j.isNull
+    | none => true
+  let #[yes, no] := clauses
+    | failAt s "external try/catch supports exactly one catch-all `catch { }` clause"
+  unless noParams yes && optStr no "errorName" == some "" && noParams no do
+    failAt s "external try/catch supports exactly one catch-all `catch { }` clause"
+  let (pre, success) ← lowerInterfaceVoidCallStatus extCall decl
+  let yesStmts ← mArr (← mField (← mField yes "block") "statements")
+  let noStmts ← mArr (← mField (← mField no "block") "statements")
+  return some ({ pre, expr := .localVar success }, yesStmts, noStmts)
+
 private partial def voidHelperReturns (s : Json) : M Bool := do
   match ← mKind s with
   | "Return" | "RevertStatement" => pure true
@@ -13073,7 +13121,9 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
           if (← mKind s) == "IfStatement" then
             ifParts s
           else do
-            let some parts ← lowerThisTryCall? s
+            let some parts ← (do
+                if let some parts ← lowerThisTryCall? s then pure (some parts)
+                else lowerInterfaceTryCall? s)
               | failAt s "unsupported void helper statement TryStatement"
             pure parts
         let yesAll ← match yes.back? with | some b => voidHelperReturns b | none => pure false
@@ -17662,7 +17712,9 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             if (← mKind s) == "IfStatement" then
               ifParts s
             else do
-              let some parts ← lowerThisTryCall? s
+              let some parts ← (do
+                  if let some parts ← lowerThisTryCall? s then pure (some parts)
+                  else lowerInterfaceTryCall? s)
                 | failAt s "unsupported statement TryStatement"
               pure parts
           let saved ← get

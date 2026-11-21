@@ -39,7 +39,7 @@ status first unsupported constructs 4 denoteCovered false compilerProof unavaila
   CollectUnsupportedSurvey.sol:19:18 MemberAccess: unsupported block context member prevrandao (closure CollectUnsupportedSurvey.first)
 status second unsupported constructs 2 denoteCovered false compilerProof unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)
   CollectUnsupportedSurvey.sol:23:25 YulFunctionCall: unsupported Yul builtin gas (closure CollectUnsupportedSurvey.second)
-  CollectUnsupportedSurvey.sol:24:9 TryStatement: unsupported statement TryStatement (closure CollectUnsupportedSurvey.second)
+  CollectUnsupportedSurvey.sol:24:9 TryStatement: external try/catch of a view, pure or value-returning function is unsupported (closure CollectUnsupportedSurvey.second)
 -/
 #guard_msgs in
 solidity_import collected from "Contracts/SolidityImportSmoke" entry "CollectUnsupportedSurvey.sol"
@@ -63,7 +63,7 @@ def expectedStatusBlock : String :=
   "  CollectUnsupportedSurvey.sol:19:18 MemberAccess: unsupported block context member prevrandao (closure CollectUnsupportedSurvey.first)\n" ++
   "status second unsupported constructs 2 denoteCovered false compilerProof unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)\n" ++
   "  CollectUnsupportedSurvey.sol:23:25 YulFunctionCall: unsupported Yul builtin gas (closure CollectUnsupportedSurvey.second)\n" ++
-  "  CollectUnsupportedSurvey.sol:24:9 TryStatement: unsupported statement TryStatement (closure CollectUnsupportedSurvey.second)\n" ++
+  "  CollectUnsupportedSurvey.sol:24:9 TryStatement: external try/catch of a view, pure or value-returning function is unsupported (closure CollectUnsupportedSurvey.second)\n" ++
   "status read importable denoteCovered true compilerProof unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)"
 
 #guard statusBlock collected.report == expectedStatusBlock
