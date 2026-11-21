@@ -318,10 +318,10 @@ contract NarrowStackWords {
         assembly { mstore(0, x) result := mload(0) raw := result }
     }
 
-    function bytesWidthCasts(uint256 x) external pure returns (uint256 narrow, uint256 nested, uint256 dedicated) {
+    function bytesWidthCasts(uint256 x) external pure returns (uint256 narrow, uint256 nested, uint256 toBytes4) {
         bytes19 b = bytes19(bytes32(x));
         bytes7 t = bytes7(bytes31(bytes32(x)));
         bytes4 f = bytes4(bytes19(bytes32(x)));
-        assembly { narrow := b nested := t dedicated := f }
+        assembly { narrow := b nested := t toBytes4 := f }
     }
 }

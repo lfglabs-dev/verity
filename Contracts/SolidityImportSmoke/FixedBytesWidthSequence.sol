@@ -19,8 +19,16 @@ contract SequenceFixture {
         uint152 u = uint152(p);
         uint248 w = uint248(bytes31(bytes32(x)));
         bool same = bytes19(r) == p;
-        acc = bytes32(r) ^ bytes32(s) ^ bytes32(t) ^ bytes32(f) ^ bytes32(q) ^
-            bytes32(uint256(u) + uint256(w) + (same ? 1 : 0));
+        bytes20 g = bytes20(f);
+        bytes12 m = bytes12(bytes20(bytes32(x)));
+        uint256 rawS;
+        uint256 rawT;
+        assembly {
+            rawS := s
+            rawT := t
+        }
+        acc = bytes32(r) ^ bytes32(s) ^ bytes32(t) ^ bytes32(f) ^ bytes32(q) ^ bytes32(g) ^ bytes32(m) ^
+            bytes32(uint256(u) + uint256(w) + (same ? 1 : 0)) ^ bytes32(rawS) ^ bytes32(rawT >> 1);
         return acc;
     }
 
