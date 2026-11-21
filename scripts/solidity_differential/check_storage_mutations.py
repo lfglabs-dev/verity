@@ -698,6 +698,18 @@ MUTANTS.update({
 
 
 MUTANTS.update({
+    # #2832: the dirty-padding ABI guard for bytes2..bytes31 parameters, the narrowing
+    # mask of `bytesN(bytesM)` and the alignment shift of `bytesN(uint{8N})`.
+    'import-fixed-bytes-width-guard': ('            if 0 < byteW && byteW < 32 && byteW != 4 then\n',
+        '            if 0 < byteW && byteW < 2 then\n'),
+    'import-fixed-bytes-width-narrow': ('        if sw ≤ tw then return v\n',
+        '        if true then return v\n'),
+    'import-fixed-bytes-width-shift': ('(.shl (.literal (8 * (32 - tw)))',
+        '(.shl (.literal (8 * (31 - tw)))'),
+})
+
+
+MUTANTS.update({
     'import-narrow-for-panic': ('out := out.push (.ite (.lt limit cap) [] [.panicCode (.literal 0x11)])',
         'out := out.push (.ite (.lt limit cap) [] [])'),
     'import-narrow-for-cap': ('let cap := Expr.literal (2 ^ counterBits)',
@@ -835,6 +847,8 @@ def run(directory, output, name):
         fixture = "MsgSigSequence"
     if name.startswith("import-fixed-bytes-"):
         fixture = "FixedBytesConversionSequence"
+    if name.startswith("import-fixed-bytes-width-"):
+        fixture = "FixedBytesWidthSequence"
     if name.startswith("import-narrow-for-"):
         fixture = "NarrowForCounterSequence"
     if name.startswith("import-predeclared-for-"):
@@ -1064,6 +1078,12 @@ def run(directory, output, name):
     if fixture == 'HelperLoopBreakSequence':
         argv[argv.index('--transactions') + 1] = '20'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])])
+    if fixture == 'FixedBytesWidthSequence':
+        # The same boundaries as `check_storage --fixture fixed-bytes-widths`, then the
+        # clean and dirty `bytes1` / `bytes19` / `bytes31` root calls.
+        argv[argv.index('--transactions') + 1] = '25'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 7, 255, 256, (1 << 160) - 1, 1 << 255, (1 << 256) - 1])])
     if fixture == 'MsgSigSequence':
         # The same boundaries as `check_storage --fixture msg-sig`: change(2^256 - 1)
         # fills the 28 argument bytes of calldata word 0 that the msg.sig mask clears.

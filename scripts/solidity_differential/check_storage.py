@@ -40,6 +40,7 @@ from .programs import (
     stateful_exp_and_bitwise_shift_source,
     stateful_fixed_array_source,
     stateful_fixed_bytes_conversions_source,
+    stateful_fixed_bytes_widths_source,
     stateful_fixed_memory_array_source,
     stateful_fn_ptr_struct_delete_modifier_source,
     stateful_governor_slice_proposer_delay_source,
@@ -217,6 +218,7 @@ FIXTURE_CONTRACTS = {
     'exp-and-bitwise-shifts': 'ExpAndBitwiseShiftSequence',
     'fixed-arrays': 'MappingFixedArraySequence',
     'fixed-bytes-conversions': 'FixedBytesConversionSequence',
+    'fixed-bytes-widths': 'FixedBytesWidthSequence',
     'fixed-memory-arrays': 'FixedMemoryArraySequence',
     'fn-ptr-struct-delete-modifier': 'FnPtrStructDeleteModifierSequence',
     'governor-slice-proposer-delay': 'GovernorSliceProposerDelaySequence',
@@ -456,6 +458,8 @@ def main():
         variants = ('baseline', 'renamed', 'inlined')
     if args.fixture == 'fixed-bytes-conversions':
         variants = ('baseline', 'renamed', 'hex-literals')
+    if args.fixture == 'fixed-bytes-widths':
+        variants = ('baseline', 'renamed', 'word-arithmetic')
     if args.fixture == 'call-arg-side-effects':
         variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'struct-param-slot':
@@ -520,6 +524,7 @@ def main():
                           else stateful_string_bytes_mappings_uri_storage_strings_source(fixture, variant) if args.fixture == "string-bytes-mappings-uri-storage-strings"
                           else stateful_timelock_and_bytes4_cast_source(fixture, variant) if args.fixture == "timelock-and-bytes4-cast"
                           else stateful_fixed_bytes_conversions_source(fixture, variant) if args.fixture == "fixed-bytes-conversions"
+                          else stateful_fixed_bytes_widths_source(fixture, variant) if args.fixture == "fixed-bytes-widths"
                           else stateful_packed_struct_mapping_ternary_tuple_source(fixture, variant) if args.fixture == "packed-struct-mapping-ternary-tuple"
                           else stateful_struct_params_and_balances_source(fixture, variant) if args.fixture == "struct-params-and-balances"
                           else stateful_ecrecover_authorizer_arrays_map_source(fixture, variant) if args.fixture == "ecrecover-authorizer-arrays-map"
@@ -721,6 +726,9 @@ def main():
             extra = ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
         if args.fixture == 'fixed-bytes-conversions':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 13, 4294967295, 4294967296, (1 << 256) - 1])]
+        if args.fixture == 'fixed-bytes-widths':
+            # Low byte only, one past it, a full address word, bit 255 alone and all ones.
+            extra = ['--change-prefix', *map(str, [0, 7, 255, 256, (1 << 160) - 1, 1 << 255, (1 << 256) - 1])]
         if args.fixture == 'yul-numeric':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
         if args.fixture == 'named-helper-returns':

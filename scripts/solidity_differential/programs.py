@@ -1453,6 +1453,43 @@ def stateful_fixed_bytes_conversions_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown fixed-bytes-conversions variant: {variant}')
 
 
+def stateful_fixed_bytes_widths_source(fixture: str, variant: str) -> str:
+    """Compare bytes1 / bytes19 / bytes31 casts (#2832) with the same values computed on
+    whole words: left alignment as shifts and narrowing as masks of the high bytes."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = set(['a', 'acc', 'b', 'c', 'ch', 'f', 'p', 'q', 'r', 's', 'same', 'seen', 't', 'u', 'v', 'w', 'x'])
+        return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+                      lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
+                      fixture)
+    if variant == 'word-arithmetic':
+        high = lambda n: f'(((1 << {8 * n}) - 1) << {8 * (32 - n)})'
+        replacements = {
+            'return bytes19(uint152(uint160(x) >> 8));':
+            f'return bytes19(bytes32((uint256(uint160(x)) >> 8) << 104));',
+            'bytes31 r = bytes31(p);':
+            'bytes31 r = bytes31(bytes32(p));',
+            'bytes19 s = bytes19(bytes32(x));':
+            f'bytes19 s = bytes19(bytes32(x & {high(19)}));',
+            'bytes7 t = bytes7(r);':
+            f'bytes7 t = bytes7(bytes32(uint256(bytes32(r)) & {high(7)}));',
+            'uint152 u = uint152(p);':
+            'uint152 u = uint152(uint256(bytes32(p)) >> 104);',
+            'uint248 w = uint248(bytes31(bytes32(x)));':
+            'uint248 w = uint248(x >> 8);',
+            'return (a, bytes19(c), bytes31(b));':
+            f'return (a, bytes19(bytes32(uint256(bytes32(c)) & {high(19)})), bytes31(bytes32(b)));',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError(f'missing fixed-bytes-widths fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown fixed-bytes-widths variant: {variant}')
+
+
 def stateful_narrow_for_counters_source(fixture: str, variant: str) -> str:
     """Compare narrow uintN for loop counters with a uint256 counter whose last iteration performs the checked uint8 increment."""
     if variant == 'baseline':
