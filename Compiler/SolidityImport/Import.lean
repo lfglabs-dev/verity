@@ -17366,6 +17366,30 @@ private def lowerForwardedBytesTuple (call : Json) (rets : Array Json) : M (Arra
                            nonLiteralByteLocals := env.nonLiteralByteLocals }
   return pre ++ ret
 
+/-- Whether two expressions read the same variable binding. -/
+private def sameVariableRead : Expr → Expr → Bool
+  | .localVar a, .localVar b => a == b
+  | .param a, .param b => a == b
+  | _, _ => false
+
+/-- The start slot and slot count that `lowerBatchRangeSloadShim` reads, when `asm` is the
+contiguous-range read block it replaces (`extsloadRangeYulFingerprint`). The block's Yul
+identifiers `startSlot` and `nSlots` must each resolve, through `externalReferences`, to one
+distinct unshadowed `bytes32` / `uint256` Solidity variable, and the block must reference no
+other declaration. `none` otherwise: the block then takes the ordinary assembly lowering. -/
+private def rangeReadBindings? (env : Env) (asm : Json) : Option (Expr × Expr) := do
+  guard (yulBlockFingerprint asm == extsloadRangeYulFingerprint)
+  let startId ← inlineAssemblyIdentDecl? asm "startSlot"
+  let countId ← inlineAssemblyIdentDecl? asm "nSlots"
+  guard (startId != countId && inlineAssemblyRefsWithin asm [startId, countId])
+  guard (env.scalarTy.find? startId == some .bytes32 && env.scalarTy.find? countId == some .uint256)
+  let startExpr ← env.values.find? startId
+  let countExpr ← env.values.find? countId
+  let startYul ← env.yulNames.find? "startSlot"
+  let countYul ← env.yulNames.find? "nSlots"
+  guard (sameVariableRead startExpr startYul && sameVariableRead countExpr countYul)
+  pure (startExpr, countExpr)
+
 private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := false) : M (Array Stmt × Bool) := do
   let mut out : Array Stmt := #[]
   let mut returned := false
@@ -17443,7 +17467,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               out := out ++ extPre ++ shimStmts
               returned := true
               handledScratchReturn := true
-            else if let (some startExpr, some nSlotsExpr) := (env.yulNames.find? "startSlot", env.yulNames.find? "nSlots") then
+            else if let some (startExpr, nSlotsExpr) := rangeReadBindings? env s then
               let shimStmts ← lowerBatchRangeSloadShim startExpr nSlotsExpr
               modify fun e => { e with yulNames := savedAsmYul }
               out := out ++ extPre ++ shimStmts

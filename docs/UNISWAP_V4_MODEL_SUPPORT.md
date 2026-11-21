@@ -23,6 +23,8 @@ To keep `Compiler/SolidityImport/Import.lean` modular and verifiable, Uniswap v4
 
 `lowerBatchArrayLoadShim` is applied only to a tail `assembly` block whose `yulBlockFingerprint` (sha256 of its solc Yul AST without source positions) is `extsloadBatchYulFingerprint` or `exttloadBatchYulFingerprint`, taken from `v4-core` `46c6834`, and whose Solidity references all resolve to the bound calldata array. Any other tail block of a `bytes32[]`-returning function with one array parameter is rejected with `shortcut fingerprint mismatch` (`Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean`).
 
+`lowerBatchRangeSloadShim` is applied only to a tail `assembly` block whose `yulBlockFingerprint` is `extsloadRangeYulFingerprint` (same `v4-core` commit) and whose Yul identifiers `startSlot` and `nSlots` resolve, through `externalReferences`, to one unshadowed `bytes32` and one `uint256` variable that the block alone references (`rangeReadBindings?`). It used to apply whenever Solidity variables with those two names were in scope. Any other block takes the ordinary assembly lowering (`Contracts/SolidityImportSmoke/TailAssemblyRangeReadChecks.lean`). The fingerprint selects the block; it does not by itself show that the lowering agrees with it.
+
 ### 3-Layer Meta-Specification Bundle
 
 `Compiler/SolidityImport/InlineAssemblyShims.lean` exports a 3-layer specification bundle:
