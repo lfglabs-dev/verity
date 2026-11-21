@@ -62,6 +62,9 @@ from .programs import (
     stateful_named_helper_return_source,
     stateful_named_string_return_source,
     stateful_narrow_for_counters_source,
+    stateful_predeclared_for_counters_source,
+    stateful_storage_array_length_bound_source,
+    stateful_helper_loop_break_source,
     stateful_numeric_literal_source,
     stateful_overload_const_error_cond_tuple_tload_source,
     stateful_packed_member_write_source,
@@ -229,6 +232,9 @@ FIXTURE_CONTRACTS = {
     'narrow-event': 'NarrowEventSequence',
     'narrow-for-counters': 'NarrowForCounterSequence',
     'call-arg-side-effects': 'CallArgSideEffectSequence',
+    'predeclared-for-counters': 'PredeclaredForCounterSequence',
+    'storage-array-length-bound': 'StorageArrayLengthBoundSequence',
+    'helper-loop-break': 'HelperLoopBreakSequence',
     'numeric-literals': 'NumericLiteralSequence',
     'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
     'packed': 'StorageSequence',
@@ -424,6 +430,12 @@ def main():
         variants = ('baseline', 'renamed', 'unrolled')
     if args.fixture == 'narrow-for-counters':
         variants = ('baseline', 'renamed', 'checked-increment')
+    if args.fixture == 'predeclared-for-counters':
+        variants = ('baseline', 'renamed', 'declared')
+    if args.fixture == 'storage-array-length-bound':
+        variants = ('baseline', 'renamed', 'cached')
+    if args.fixture == 'helper-loop-break':
+        variants = ('baseline', 'renamed', 'structured')
     if args.fixture == 'inline-array-literals':
         variants = ('baseline', 'renamed', 'element-writes')
     if args.fixture == 'helper-name-independence':
@@ -482,6 +494,9 @@ def main():
                           else stateful_tuple_destructuring_source(fixture, variant) if args.fixture == "tuple-destructuring"
                           else stateful_create2_clones_msgdata_deque_source(fixture, variant) if args.fixture == "create2-clones-msgdata-deque"
                           else stateful_narrow_for_counters_source(fixture, variant) if args.fixture == "narrow-for-counters"
+                          else stateful_predeclared_for_counters_source(fixture, variant) if args.fixture == "predeclared-for-counters"
+                          else stateful_storage_array_length_bound_source(fixture, variant) if args.fixture == "storage-array-length-bound"
+                          else stateful_helper_loop_break_source(fixture, variant) if args.fixture == "helper-loop-break"
                           else stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture, variant) if args.fixture == "ecdsa-merkle-checkpoints-storage-slot"
                           else stateful_strings_hex_arrays_bitmaps_source(fixture, variant) if args.fixture == "strings-hex-arrays-bitmaps"
                           else stateful_string_bytes_mappings_uri_storage_strings_source(fixture, variant) if args.fixture == "string-bytes-mappings-uri-storage-strings"
@@ -649,6 +664,18 @@ def main():
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'narrow-for-counters':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 19, 20, 255, 256, 257, 299, 300, 555, 556, 999, 255000, 256000, (1 << 256) - 1])]
+        if args.fixture == 'predeclared-for-counters':
+            # Zero and odd/even bounds, the last uint8 bound (255) and the first that
+            # panics (256, 556), helper bounds 0, 2 and 16 for x % 17, a parameter counter (19)
+            # and dirty narrow / sign-widened bounds (257).
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 17, 19, 39, 40, 41, 255, 256, 257, 299, 300, 555, 556, (1 << 256) - 1])]
+        if args.fixture == 'storage-array-length-bound':
+            # Pushes, a pop back to an empty array (x % 5 == 0), then growth again.
+            extra = ['--change-prefix', *map(str, [1, 5, 10, 0, 2, 3, 4, 6, 7, 999, 1000, (1 << 256) - 1])]
+        if args.fixture == 'helper-loop-break':
+            # The early `return` (x % 4096 == 0), caps reached early and never, a
+            # breaking void helper (x % 9 >= 7), and grid sums past 500.
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])]
         if args.fixture == 'governor-slice-proposer-delay':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'access-manager-target-role':

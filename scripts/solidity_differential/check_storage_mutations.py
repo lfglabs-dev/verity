@@ -356,8 +356,8 @@ MUTANTS.update({'import-invariant-for-counter':
 MUTANTS.update({
     'import-helper-loop-block': ('out := out ++ (← lowerHelperLoopBody statement)', 'out := out ++ #[]'),
     'import-helper-loop-branch': ('let yesOut ← lowerHelperLoopBody (← mField statement "trueBody")', 'let yesOut : Array Stmt := #[]'),
-    'import-helper-loop-nested': ('| "ForStatement" => out := out ++ (← lowerFor statement lowerHelperLoopBody)', '| "ForStatement" => pure ()'),
-    'import-helper-loop-drop': ('let pre ← lowerFor s lowerHelperLoopBody', 'let pre : Array Stmt := #[]'),
+    'import-helper-loop-nested': ('| "ForStatement" | "WhileStatement" => out := out ++ (← lowerHelperLoop statement lowerHelperLoopBody)', '| "ForStatement" => pure ()\n    | "WhileStatement" => out := out ++ (← lowerHelperLoop statement lowerHelperLoopBody)'),
+    'import-helper-loop-drop': ('else\n          let pre ← lowerHelperLoop s lowerHelperLoopBody', 'else\n          let pre : Array Stmt := #[]'),
     'import-helper-loop-effect': ('| "ExpressionStatement" => out := out ++ (← lowerEffect statement)', '| "ExpressionStatement" => pure ()'),
     'import-helper-loop-emit': ('| "EmitStatement" => out := out ++ (← lowerEmit statement)', '| "EmitStatement" => pure ()'),
 })
@@ -663,6 +663,18 @@ MUTANTS.update({
 })
 
 
+# Loop forms (#2712, #2726, #2710): the exit store of a pre-declared counter, the
+# once-read storage length, and `break` versus `continue` in helper loops.
+MUTANTS.update({
+    'import-predeclared-for-exit-store': ('out := out.push (.assignVar dest limit)',
+        'out := out.push (.assignVar dest (.literal 0))'),
+    'import-storage-array-length-bound-skip': ('    out := out.push (.forEach binding limit bodyOut.toList)',
+        '    out := out.push (.forEach binding (if storageLength then .literal 0 else limit) bodyOut.toList)'),
+    'import-helper-loop-break-as-continue': ('let code := if kind == "Break" then 2 else 1',
+        'let code := if kind == "Break" then 1 else 1'),
+})
+
+
 # Root ABI parameters (#2711, #2708, #2701): byte buffers of `string` struct
 # members, from memory (payload pointer) and from calldata (member word); the
 # root argument tuple pointer, the `bytes[]` element bound, the calldata tail
@@ -779,6 +791,10 @@ def run(directory, output, name):
         fixture = "FixedBytesConversionSequence"
     if name.startswith("import-narrow-for-"):
         fixture = "NarrowForCounterSequence"
+    if name.startswith("import-predeclared-for-"):
+        fixture = "PredeclaredForCounterSequence"
+    if name.startswith("import-storage-array-length-bound-"):
+        fixture = "StorageArrayLengthBoundSequence"
     if name.startswith("import-msg-data-and-enum-"):
         fixture = "MsgDataAndEnumSequence"
     if name.startswith("import-struct-fixed-array-"):
@@ -823,6 +839,8 @@ def run(directory, output, name):
         fixture = "PackedMemberWriteSequence"
     if name.startswith("import-helper-loop-"):
         fixture = "HelperLoopSequence"
+    if name.startswith("import-helper-loop-break-"):
+        fixture = "HelperLoopBreakSequence"
     if name.startswith("import-invariant-for-"):
         fixture = "InvariantForSequence"
     if name.startswith("import-local-write-"):
@@ -970,6 +988,15 @@ def run(directory, output, name):
         # literal 256 bound and 255000 / 256000 the uint16 bound w = 255 / 256.
         argv[argv.index('--transactions') + 1] = '20'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 19, 20, 255, 256, 257, 299, 300, 555, 556, 999, 255000, 256000, (1 << 256) - 1])])
+    if fixture == 'PredeclaredForCounterSequence':
+        argv[argv.index('--transactions') + 1] = '20'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 17, 19, 39, 40, 41, 255, 256, 257, 299, 300, 555, 556, (1 << 256) - 1])])
+    if fixture == 'StorageArrayLengthBoundSequence':
+        argv[argv.index('--transactions') + 1] = '20'
+        argv.extend(['--change-prefix', *map(str, [1, 5, 10, 0, 2, 3, 4, 6, 7, 999, 1000, (1 << 256) - 1])])
+    if fixture == 'HelperLoopBreakSequence':
+        argv[argv.index('--transactions') + 1] = '20'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])])
     if fixture == 'MsgSigSequence':
         # The same boundaries as `check_storage --fixture msg-sig`: change(2^256 - 1)
         # fills the 28 argument bytes of calldata word 0 that the msg.sig mask clears.
