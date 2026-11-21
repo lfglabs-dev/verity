@@ -20,7 +20,7 @@ private partial def insertFile (d : RemapDir) : List String → String → Remap
     else if file == "remappings.txt" then { d with remappingsTxt := some content }
     else d
   | dir :: rest, content =>
-    let child := (d.child? dir).getD { name := dir }
+    let child := (d.child? dir).getD { name := dir, hidden := dir.startsWith "." }
     let others := d.children.filter (·.name != dir)
     { d with children := (others.push (insertFile child rest content)).qsort (·.name < ·.name) }
 
@@ -112,27 +112,50 @@ private def nestedConfig : List (String × String) :=
   "scope-lib/=lib/core/lib/scope-lib/contracts/", "tool/=lib/tool/src/"]
 #guard clean nestedConfig
 
--- The shape of #2835 (a periphery project importing `@openzeppelin/…` and `<dep>/src/…`
--- through its dependencies' configs) resolves with no change to `remappings.txt`.
-private def peripheryShape : List (String × String) :=
-  [("remappings.txt", "@uniswap/core/=lib/core/\n"), ("src/Manager.sol", ""),
+-- A consumer importing `@vendor/…` and `<dep>/…` through its dependencies' own configs
+-- resolves with no change to its `remappings.txt`.
+private def consumerShape : List (String × String) :=
+  [("remappings.txt", "@scope/core/=lib/core/\n"), ("src/Manager.sol", ""),
    ("lib/core/foundry.toml", "[profile.default]\n"),
-   ("lib/core/remappings.txt", "@openzeppelin/=lib/openzeppelin-contracts/\nsolmate/=lib/solmate/\n"),
+   ("lib/core/remappings.txt", "@vendor/=lib/vendor-lib/\nauth-lib/=lib/auth-lib/\n"),
    ("lib/core/src/Pool.sol", ""),
-   ("lib/core/lib/openzeppelin-contracts/foundry.toml", "[profile.default]\nsrc = 'contracts'\n"),
-   ("lib/core/lib/openzeppelin-contracts/remappings.txt", "@openzeppelin/contracts/=contracts/\n"),
-   ("lib/core/lib/openzeppelin-contracts/contracts/token/Token.sol", ""),
-   ("lib/core/lib/solmate/src/Auth.sol", ""),
-   ("lib/permit/foundry.toml", "[profile.default]\n"), ("lib/permit/src/Permit.sol", ""),
-   ("lib/permit/lib/solmate/src/Auth.sol", "")]
-#guard lines peripheryShape == ["@openzeppelin/=lib/core/lib/openzeppelin-contracts/",
-  "core/=lib/core/src/", "openzeppelin-contracts/=lib/core/lib/openzeppelin-contracts/contracts/",
-  "permit/=lib/permit/src/", "solmate/=lib/core/lib/solmate/"]
-#guard clean peripheryShape
-#guard resolve peripheryShape "@openzeppelin/contracts/token/Token.sol" ==
-  some ("lib/core/lib/openzeppelin-contracts/contracts/token/Token.sol", some "@openzeppelin/")
-#guard resolve peripheryShape "permit/Permit.sol" == some ("lib/permit/src/Permit.sol", some "permit/")
-#guard resolve peripheryShape "@uniswap/core/src/Pool.sol" == some ("lib/core/src/Pool.sol", none)
+   ("lib/core/lib/vendor-lib/foundry.toml", "[profile.default]\nsrc = 'contracts'\n"),
+   ("lib/core/lib/vendor-lib/remappings.txt", "@vendor/contracts/=contracts/\n"),
+   ("lib/core/lib/vendor-lib/contracts/token/Token.sol", ""),
+   ("lib/core/lib/auth-lib/src/Auth.sol", ""),
+   ("lib/approvals/foundry.toml", "[profile.default]\n"), ("lib/approvals/src/Approve.sol", ""),
+   ("lib/approvals/lib/auth-lib/src/Auth.sol", "")]
+#guard lines consumerShape == ["@vendor/=lib/core/lib/vendor-lib/", "approvals/=lib/approvals/src/",
+  "auth-lib/=lib/core/lib/auth-lib/", "core/=lib/core/src/",
+  "vendor-lib/=lib/core/lib/vendor-lib/contracts/"]
+#guard clean consumerShape
+#guard resolve consumerShape "@vendor/contracts/token/Token.sol" ==
+  some ("lib/core/lib/vendor-lib/contracts/token/Token.sol", some "@vendor/")
+#guard resolve consumerShape "approvals/Approve.sol" ==
+  some ("lib/approvals/src/Approve.sol", some "approvals/")
+#guard resolve consumerShape "@scope/core/src/Pool.sol" == some ("lib/core/src/Pool.sol", none)
+
+-- A hidden library directory is not scanned for sources, but its `foundry.toml` counts.
+#guard lines [("lib/.cfg/foundry.toml", "[profile.default]\nremappings = ['dep/=foo/']\n"),
+  ("lib/dep/src/A.sol", "")] == [".cfg/=lib/.cfg/src/", "dep/=lib/.cfg/foo/"]
+
+-- A nested `foundry.toml` this reader cannot check: Foundry would skip that library's config,
+-- so the inferred set is unknown and inferred resolution is refused.
+private def badToml : List (String × String) :=
+  [("lib/core/foundry.toml", "[profile.default]\nthis is not toml\n"),
+   ("lib/core/remappings.txt", "@oz/=lib/oz/\n"), ("lib/core/src/A.sol", "")]
+#guard (infer badToml).globalIssue.isSome
+#guard resolve badToml "@oz/T.sol" == none
+
+-- Relative imports resolve first, then remap, as in solc (`./x` from `a/B.sol` is `a/x`).
+private def resolveFrom (origin spec : String) (explicit : Array (String × String)) :
+    Option String :=
+  (resolveImport origin spec explicit {}).toOption.map (·.1)
+#guard resolveFrom "a/B.sol" "./C.sol" #[("a/", "x/")] == some "x/C.sol"
+#guard resolveFrom "a/b/B.sol" "../C.sol" #[] == some "a/C.sol"
+#guard resolveFrom "a/B.sol" "../../C.sol" #[] == none
+#guard (resolveImport "src/E.sol" "other/O.sol" (explicitOf explicitSame) (infer explicitSame)).toOption ==
+  some ("lib/other/src/O.sol", (infer explicitSame).remappings[0]?)
 
 -- Order dependent: `lib/a/` and `lib/b/lib/a/src/` both claim `a/`, and each replaces the
 -- other, so Foundry keeps whichever it lists last. The entry is kept (it still drops
@@ -145,7 +168,8 @@ private def orderDependent : List (String × String) :=
 #guard (errorOf orderDependent "a/A.sol" |>.splitOn "depends on directory listing order").length > 1
 
 -- A symlink anywhere in a scanned library leaves the inferred set unknown: an import that
--- needs an inferred remapping fails, explicit and plain paths resolve as before.
+-- needs an inferred remapping fails, and so does a written path no remapping matches (Foundry
+-- may infer one). Explicit remappings and relative imports resolve as before.
 private def withSymlink : InferredRemappings :=
   let d := layout dapptools
   let lib := (d.child? "lib").get!
@@ -156,7 +180,9 @@ private def withSymlink : InferredRemappings :=
   | .error e => (e.splitOn "symlink in lib").length > 1
   | .ok _ => false
 #guard resolveWith #[("x/", "y/")] withSymlink "x/A.sol" == some ("y/A.sol", none)
-#guard resolveWith #[("x/", "y/")] withSymlink "src/A.sol" == some ("src/A.sol", none)
+#guard resolveWith #[("x/", "y/")] withSymlink "src/A.sol" == none
+#guard (resolveImport "src/E.sol" "./A.sol" #[("x/", "y/")] withSymlink).toOption.map (·.1) ==
+  some "src/A.sol"
 
 -- `foundry.toml` reading: only `[profile.default]` counts; other profiles are ignored; a
 -- modeled key outside any profile, or an unreadable value, is an issue.
@@ -167,5 +193,9 @@ private def withSymlink : InferredRemappings :=
   some ["lib", "node_modules"]
 #guard (FoundryRemap.parseFoundryToml "src = 'x'\n").issue.isSome
 #guard (FoundryRemap.parseFoundryToml "[profile.default]\nremappings = [x]\n").issue.isSome
+-- Other keys pass when they are well-formed TOML lines, including multi-line inline tables.
+#guard (FoundryRemap.parseFoundryToml
+  "[profile.default]\nfs_permissions = [\n  { access = \"read\", path = \"./a\" },\n]\nruns = 10_000\n[fuzz]\nseed = '0x1'\n").issue.isNone
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nkey = \"\"\"\nx\n\"\"\"\n").issue.isSome
 
 end Compiler.CompilationModel.SolidityImport.FoundryRemappingsTest

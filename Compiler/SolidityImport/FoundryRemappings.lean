@@ -21,6 +21,9 @@ namespace Compiler.CompilationModel.SolidityImport
 non-hidden subdirectories, sorted by name. -/
 structure RemapDir where
   name : String
+  /-- A hidden directory. Only kept when it holds a `foundry.toml`: Foundry's library scan
+  skips hidden entries, but its search for nested configs does not. -/
+  hidden : Bool := false
   /-- A non-hidden `*.sol` file lies directly in this directory. -/
   hasSol : Bool := false
   /-- Some non-hidden entry directly in this directory is a symlink (not followed). -/
@@ -131,7 +134,7 @@ def adjustSingleNested (cands : List Candidate) (open_ windowStart : Path) (leve
 /-- `find_remapping_candidates`. Symlinks never reach here: they set the global issue. -/
 partial def findCandidates (d : RemapDir) (current open_ : Path) (level : Nat)
     (insideNodeModules : Bool) : List Candidate :=
-  let search := d.children.toList.filter (!noRecurse ·.name)
+  let search := d.children.toList.filter fun c => !c.hidden && !noRecurse c.name
   let cands := search.flatMap fun c =>
     let sub := current ++ [c.name]
     if isLibDir sub then findCandidates c sub sub (level + 1) insideNodeModules
@@ -159,7 +162,7 @@ def orderIndependentWinner {α : Type} [BEq α] (replace : α → α → Bool) (
 /-- `Remapping::find_many` over the library directory `lib` (at `libPath`). -/
 def findMany (lib : RemapDir) (libPath : Path) : List (String × Path × Bool) :=
   let insideNodeModules := lastName libPath == some "node_modules"
-  let cands := lib.children.toList.flatMap fun c =>
+  let cands := (lib.children.toList.filter (!·.hidden)).flatMap fun c =>
     let p := libPath ++ [c.name]
     findCandidates c p p 0 insideNodeModules
   let keyOf (c : Candidate) := (lastName c.windowStart).map (· ++ "/")
@@ -279,59 +282,85 @@ def stripComment (line : String) : String := Id.run do
 
 def modeledKeys : List String := ["remappings", "src", "libs", "auto_detect_remappings"]
 
-/-- Read the modeled keys of `[profile.default]`. A modeled key anywhere this reader cannot
-place (outside a `[profile.*]` table, or a value it cannot read) is an issue. -/
+/-- Net `[`/`{` nesting a TOML line opens, outside quoted strings. -/
+def bracketDepth (s : String) : Int := Id.run do
+  let mut depth : Int := 0
+  let mut inQuote : Option Char := none
+  for c in s.toList do
+    match inQuote with
+    | none =>
+      if c == '"' || c == '\'' then inQuote := some c
+      else if c == '[' || c == '{' then depth := depth + 1
+      else if c == ']' || c == '}' then depth := depth - 1
+    | some q => if c == q then inQuote := none
+  return depth
+
+/-- A bare or quoted TOML key, possibly dotted. -/
+def isTomlKey (k : String) : Bool :=
+  !k.isEmpty && (k.startsWith "\"" || k.startsWith "'" ||
+    k.all fun c => c.isAlphanum || c == '_' || c == '-' || c == '.')
+
+/-- Record one `key = value` of table `sect`, when the key steers inference. -/
+def TomlKeys.record (keys : TomlKeys) (sect key value : String) : TomlKeys :=
+  let key := if key.startsWith "\"" || key.startsWith "'" then
+    ((key.drop 1).dropEnd 1).toString else key
+  if !modeledKeys.contains key then keys
+  else if sect != "profile.default" then
+    if sect.startsWith "profile." then keys
+    else { keys with issue := some s!"foundry.toml sets {key} outside a [profile.*] table" }
+  else if key == "src" then
+    match quotedStrings value with
+    | some [v] => { keys with src := some v }
+    | _ => { keys with issue := some "cannot read foundry.toml key src" }
+  else if key == "auto_detect_remappings" then
+    if value == "true" then { keys with autoDetect := some true }
+    else if value == "false" then { keys with autoDetect := some false }
+    else { keys with issue := some "cannot read foundry.toml key auto_detect_remappings" }
+  else
+    match quotedStrings value with
+    | none => { keys with issue := some s!"cannot read foundry.toml key {key}" }
+    | some xs => if key == "remappings" then { keys with remappings := some xs }
+      else { keys with libs := some xs }
+
+/-- Read the modeled keys of `[profile.default]`. A modeled key this reader cannot place
+(outside a `[profile.*]` table, or with a value it cannot read) is an issue, and so is a line
+that is not a table header, a `key = value`, or the continuation of a bracketed value: Foundry
+would fail to load such a file and skip the library, which this reader cannot rule out. -/
 def parseFoundryToml (text : String) : TomlKeys := Id.run do
   let mut keys : TomlKeys := {}
   let mut sect := ""
-  let mut pendingKey : Option String := none
-  let mut buf := ""
+  let mut pending : Option (String × String × Int) := none
+  let mut lineNo := 0
   for raw in text.splitOn "\n" do
+    lineNo := lineNo + 1
     let line := (stripComment raw).trimAscii.toString
-    if let some key := pendingKey then
-      buf := buf ++ " " ++ line
-      if line.contains ']' then
-        pendingKey := none
-        match quotedStrings buf with
-        | none => keys := { keys with issue := some s!"cannot read foundry.toml key {key}" }
-        | some xs =>
-          keys := if key == "remappings" then { keys with remappings := some xs }
-            else { keys with libs := some xs }
+    if let some (key, buf, depth) := pending then
+      let buf := buf ++ " " ++ line
+      let depth := depth + bracketDepth line
+      if depth > 0 then
+        pending := some (key, buf, depth)
+      else
+        pending := none
+        keys := keys.record sect key buf
       continue
     if line.isEmpty then continue
     if line.startsWith "[" then
-      sect := ((line.drop 1).takeWhile (· != ']')).trimAscii.toString
+      if !line.endsWith "]" then
+        keys := { keys with issue := some s!"foundry.toml line {lineNo} is not a table header" }
+      sect := ((line.dropWhile (· == '[')).takeWhile (· != ']')).trimAscii.toString
       continue
     let parts := line.splitOn "="
-    let some key := parts.head? | continue
-    let key := key.trimAscii.toString
-    let key := if key.startsWith "\"" || key.startsWith "'" then
-      ((key.drop 1).dropEnd 1).toString else key
-    unless modeledKeys.contains key do continue
-    if sect != "profile.default" then
-      if !sect.startsWith "profile." then
-        keys := { keys with issue := some s!"foundry.toml sets {key} outside a [profile.*] table" }
-      continue
+    let key := (parts.headD "").trimAscii.toString
     let value := (String.intercalate "=" (parts.drop 1)).trimAscii.toString
-    if key == "src" then
-      match quotedStrings value with
-      | some [v] => keys := { keys with src := some v }
-      | _ => keys := { keys with issue := some "cannot read foundry.toml key src" }
-    else if key == "auto_detect_remappings" then
-      if value == "true" then keys := { keys with autoDetect := some true }
-      else if value == "false" then keys := { keys with autoDetect := some false }
-      else keys := { keys with issue := some "cannot read foundry.toml key auto_detect_remappings" }
-    else if value.startsWith "[" && !value.contains ']' then
-      pendingKey := some key
-      buf := value
-    else
-      match quotedStrings value with
-      | none => keys := { keys with issue := some s!"cannot read foundry.toml key {key}" }
-      | some xs =>
-        keys := if key == "remappings" then { keys with remappings := some xs }
-          else { keys with libs := some xs }
-  if pendingKey.isSome then
-    keys := { keys with issue := some "unterminated array in foundry.toml" }
+    if parts.length < 2 || !isTomlKey key || value.isEmpty ||
+        value.startsWith "\"\"\"" || value.startsWith "'''" then
+      keys := { keys with issue := some s!"foundry.toml line {lineNo} is not TOML this reader checks" }
+      continue
+    let depth := bracketDepth value
+    if depth > 0 then pending := some (key, value, depth)
+    else keys := keys.record sect key value
+  if pending.isSome then
+    keys := { keys with issue := some "unterminated value in foundry.toml" }
   return keys
 
 /-! ### The provider -/
@@ -519,7 +548,8 @@ inferred entry can only win where no explicit prefix matches. Returns the remapp
 the inferred entry used, if any. Using an entry with an issue, or any inferred entry while
 the inferred set is unknown, is an error. -/
 def remapImportPath (name : String) (explicit : Array (String × String))
-    (inferred : InferredRemappings) : Except String (String × Option InferredRemapping) := do
+    (inferred : InferredRemappings) (relative : Bool := false) :
+    Except String (String × Option InferredRemapping) := do
   let mut best : Option (String × String) := none
   for pair in explicit do
     if name.startsWith pair.1 then
@@ -541,7 +571,41 @@ def remapImportPath (name : String) (explicit : Array (String × String))
         write the remapping in remappings.txt"
     return (r.path ++ (name.drop r.name.length).toString, some r)
   | none, some (pre, tgt) => return (tgt ++ (name.drop pre.length).toString, none)
-  | none, none => return (name, none)
+  | none, none =>
+    -- Foundry might hold an inferred remapping for this path that the port cannot see.
+    -- A written non-relative path is refused; a relative one, already inside the project
+    -- tree, resolves as written.
+    if let some g := inferred.globalIssue then
+      if !relative then
+        throw s!"import {name} matches no remapping, but Foundry's inferred remappings are \
+          unknown here ({g}); write the remapping in remappings.txt"
+    return (name, none)
+
+/-- Normalize a `/`-separated source unit name: drop `.` and empty parts, apply `..`. -/
+def normalizeSourcePath (path : String) : Except String String := Id.run do
+  let mut out : Array String := #[]
+  for part in path.splitOn "/" do
+    if part == "" || part == "." then
+      pure ()
+    else if part == ".." then
+      if out.isEmpty then return .error s!"path escapes the project: {path}"
+      out := out.pop
+    else
+      out := out.push part
+  return .ok (String.intercalate "/" out.toList)
+
+/-- The source unit that `spec`, imported from `origin`, names, as solc resolves it: a
+relative path is joined to `origin`'s directory first, then remappings apply to every import
+path. Also returns the inferred remapping used, if any. -/
+def resolveImport (origin spec : String) (explicit : Array (String × String))
+    (inferred : InferredRemappings) : Except String (String × Option InferredRemapping) := do
+  let relative := spec.startsWith "."
+  let path ← if relative then
+      let parent := String.intercalate "/" (origin.splitOn "/").dropLast
+      normalizeSourcePath (parent ++ "/" ++ spec)
+    else pure spec
+  let (target, used) ← remapImportPath path explicit inferred relative
+  return (← normalizeSourcePath target, used)
 
 /-- Read the parts of `dir` that remapping inference looks at. Hidden entries are skipped,
 symlinks are recorded and not followed, children are sorted. -/
@@ -550,8 +614,13 @@ partial def readRemapDir (dir : System.FilePath) (name : String) : IO RemapDir :
   let entries := entries.qsort (·.fileName < ·.fileName)
   let mut d : RemapDir := { name }
   for e in entries do
-    if e.fileName.startsWith "." then continue
     let md ← try e.path.symlinkMetadata catch _ => return { d with unreadable := true }
+    if e.fileName.startsWith "." then
+      -- Only a hidden directory holding a `foundry.toml` can matter (a nested config).
+      if md.type == .dir && (← (e.path / "foundry.toml").pathExists) then
+        let child ← readRemapDir e.path e.fileName
+        d := { d with children := d.children.push { child with hidden := true } }
+      continue
     match md.type with
     | .symlink => d := { d with hasSymlink := true }
     | .dir => d := { d with children := d.children.push (← readRemapDir e.path e.fileName) }
