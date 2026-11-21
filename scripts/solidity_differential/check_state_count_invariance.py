@@ -1,0 +1,413 @@
+"""Paired re-import check: an unrelated state variable must not change an imported model (#2830).
+
+For each case the harness imports the target functions twice, on each listed profile:
+
+* **base**: the fixture as written;
+* **variant**: the same fixture with one unrelated `uint256` state variable and one unused
+  external function appended at the end of the target contract's body.
+
+Normalization. Appending after every existing declaration of the most-derived contract
+leaves solc's storage layout of the original variables unchanged, and solc's own
+`storageLayout` output is checked to prove it for every case: each original variable keeps
+its slot, offset and type, and the probe takes a fresh slot after all of them. The unused
+function is not in the import list. The only expected difference in the generated
+`CompilationModel` is therefore the probe's storage field, which is removed before comparing;
+everything else (functions, events, errors, externals, constructor, remaining fields) must
+render identically. If the probe would move or overlap an original variable, the case fails
+as unsound instead of being compared.
+
+A case passes when both sides import with identical normalized models, or both sides reject
+with the same diagnostic. It fails when only one side imports (an admission discrepancy) or
+when both import with different models (a model discrepancy).
+
+Negative controls run with every invocation (unless `--only` filters them out):
+
+* `control-probe-first` inserts the probe *before* the original variables. The layout check
+  must refuse it, so a slot-shifting normalization can never be compared as if it were sound.
+* `control-model-change` additionally changes a literal in the variant's function body. The
+  comparison must report a model discrepancy, proving that differences are detected.
+
+Cases on `EXPECTED_DISCREPANCIES` are importer behaviour known to depend on the state-variable
+count on `main`. They are not required to pass: the harness requires the listed discrepancy
+kind to be observed, and fails when it disappears so the entry is removed with its fix.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
+
+ROOT = Path.cwd().resolve()
+SOLC = ROOT / '.lake/solidity-import/solc-0.8.34'
+PROBE = 'verityStateCountProbe'
+PROBE_FUNCTION = 'verityStateCountProbeUnused'
+PROFILES = {
+    'legacy': '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+    'ir': '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+}
+HEADER = '// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n'
+
+
+def inline(name, body, functions, contract='C', **options):
+    """A one-file case whose contract text is given inline."""
+    return {'name': name, 'files': {'Fixture.sol': HEADER + body}, 'entry': 'Fixture.sol',
+            'contract': contract, 'functions': functions, **options}
+
+
+def fixture(name, path, contract, functions, **options):
+    """A case importing a checked-in fixture; the `.sol` files of its directory are copied."""
+    return {'name': name, 'directory': str(Path(path).parent), 'entry': Path(path).name,
+            'contract': contract, 'functions': functions, **options}
+
+
+def solidity_only(directory, names):
+    return [n for n in names if not n.endswith('.sol') and not (Path(directory) / n).is_dir()]
+
+
+# Minimal controls: each construct imports on main in one-slot contracts on both profiles.
+CASES = [
+    inline('scalar-storage', '''contract C {
+    uint256 private total;
+
+    function bump(uint256 x) external returns (uint256) {
+        total = total + x;
+        return total;
+    }
+}
+''', ['bump(uint256)']),
+    inline('packed-storage', '''contract C {
+    uint64 private low;
+    uint128 private mid;
+    bool private flag;
+
+    function set(uint64 a, uint128 b) external returns (uint256) {
+        low = a;
+        mid = b;
+        flag = a > 3;
+        return uint256(low) + uint256(mid) + (flag ? 1 : 0);
+    }
+}
+''', ['set(uint64,uint128)']),
+    inline('mapping-and-event', '''contract C {
+    mapping(address => uint256) private balances;
+    event Moved(address indexed who, uint256 amount);
+
+    function credit(address who, uint256 amount) external returns (uint256) {
+        balances[who] += amount;
+        emit Moved(who, amount);
+        return balances[who];
+    }
+}
+''', ['credit(address,uint256)']),
+    inline('require-message-helper', '''contract C {
+    uint256 private stored;
+    error TooLarge(uint256 value);
+
+    function check(uint256 n) internal pure returns (uint256) {
+        require(n != 7, "seven");
+        return n * 2;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        if (x > 1000) revert TooLarge(x);
+        stored = check(x);
+        return stored;
+    }
+}
+''', ['run(uint256)']),
+    inline('no-state', '''contract C {
+    function pureMath(uint256 a, uint256 b) external pure returns (uint256) {
+        unchecked { return a * b + (a ^ b); }
+    }
+}
+''', ['pureMath(uint256,uint256)']),
+    # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
+    inline('known-yul-bool-literal', '''contract C {
+    uint256 private total;
+
+    function flag(uint256 x) external returns (bool r) {
+        total = x;
+        assembly { r := true }
+    }
+}
+''', ['flag(uint256)']),
+    inline('known-encode-conditional', '''contract C {
+    uint256 private total;
+
+    function hashChoice(uint256 x, bool c) external returns (bytes32) {
+        total = x;
+        return keccak256(abi.encode(c ? x : total));
+    }
+}
+''', ['hashChoice(uint256,bool)']),
+    inline('root-array-return', '''contract C {
+    uint256 private total;
+
+    function pair(uint256 x) external returns (uint256[] memory r) {
+        total = x;
+        r = new uint256[](2);
+        r[0] = x;
+        r[1] = total;
+    }
+}
+''', ['pair(uint256)']),
+    inline('known-yul-if', '''contract C {
+    uint256 private total;
+
+    function clamp(uint256 x) external returns (uint256 r) {
+        total = x;
+        assembly { r := x if gt(x, 10) { r := 10 } }
+    }
+}
+''', ['clamp(uint256)']),
+    fixture('fixture-storage-void-sequence', 'Contracts/SolidityImportSmoke/StorageVoidSequence.sol',
+            'SequenceFixture', ['change(uint256)', 'fail()', 'read()']),
+    fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
+            'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
+]
+
+# Importer behaviour on main that still depends on the state-variable count. Each entry
+# names the discrepancy kind the harness must observe on every listed profile.
+EXPECTED_DISCREPANCIES = {
+    # lowerYul: Yul `true`/`false` literals.
+    'known-yul-bool-literal': 'admission',
+    # checkEncodingScalar: a conditional ABI encoding argument.
+    'known-encode-conditional': 'admission',
+    # lowerYulStmtSlice: Yul `if`.
+    'known-yul-if': 'admission',
+}
+
+# Self-tests of the harness itself; see the module docstring.
+CONTROLS = [
+    inline('control-probe-first', '''contract C {
+    uint256 private total;
+
+    function bump(uint256 x) external returns (uint256) {
+        total = total + x;
+        return total;
+    }
+}
+''', ['bump(uint256)'], probe_at='start', expect='unsound-layout'),
+    inline('control-model-change', '''contract C {
+    uint256 private total;
+
+    function bump(uint256 x) external returns (uint256) {
+        total = total + x + 1;
+        return total;
+    }
+}
+''', ['bump(uint256)'], variant_edit=('x + 1;', 'x + 2;'), expect='model'),
+]
+
+
+class CaseFailure(Exception):
+    pass
+
+
+def solc_layout(directory, entry, contract):
+    """solc's AST and storage layout for `contract`, plus the file that defines it."""
+    request = {
+        'language': 'Solidity',
+        'sources': {entry: {'urls': [entry]}},
+        'settings': {'evmVersion': 'osaka', 'outputSelection': {'*': {'': ['ast'], '*': ['storageLayout']}}},
+    }
+    result = subprocess.run([str(SOLC), '--base-path', str(directory), '--allow-paths', str(directory),
+                             '--standard-json'], input=json.dumps(request), text=True,
+                            capture_output=True, timeout=180, cwd=directory)
+    output = json.loads(result.stdout)
+    errors = [e.get('formattedMessage', e['message']) for e in output.get('errors', [])
+              if e['severity'] == 'error']
+    if errors:
+        raise CaseFailure('solc: ' + '\n'.join(errors))
+    for source_name, contracts in output.get('contracts', {}).items():
+        if contract in contracts:
+            layout = contracts[contract]['storageLayout']
+            break
+    else:
+        raise CaseFailure(f'contract {contract} not found')
+    definition = None
+    for source_name, source in output['sources'].items():
+        for node in source['ast'].get('nodes', []):
+            if node.get('nodeType') == 'ContractDefinition' and node.get('name') == contract:
+                definition = (source_name, node)
+    if definition is None:
+        raise CaseFailure(f'contract definition {contract} not found')
+    return layout, definition
+
+
+def layout_entries(layout):
+    types = layout.get('types') or {}
+    return [(entry['label'], int(entry['slot']), entry['offset'],
+             types.get(entry['type'], {}).get('label', entry['type']))
+            for entry in layout.get('storage', [])]
+
+
+def insert_probe(text, node, at):
+    """Insert the probe into the contract whose AST node is `node` (byte offsets)."""
+    data = text.encode()
+    start, length, _ = (int(part) for part in node['src'].split(':'))
+    probe = (f'\n    uint256 private {PROBE};\n'
+             f'    function {PROBE_FUNCTION}() external {{ {PROBE} = 1; }}\n').encode()
+    if at == 'start':
+        position = data.index(b'{', start) + 1
+    else:
+        position = start + length - 1
+        if data[position:position + 1] != b'}':
+            raise CaseFailure('contract body does not end with }')
+    return (data[:position] + probe + data[position:]).decode()
+
+
+def check_layout(base, variant):
+    """The variant's layout must be the base layout plus one fresh-slot probe at the end."""
+    base_entries = layout_entries(base)
+    variant_entries = layout_entries(variant)
+    originals = [entry for entry in variant_entries if entry[0] != PROBE]
+    probes = [entry for entry in variant_entries if entry[0] == PROBE]
+    if originals != base_entries or len(probes) != 1:
+        return 'original storage variables moved'
+    types = base.get('types') or {}
+    end = max((int(entry['slot']) + -(-(entry['offset'] + int(types[entry['type']]['numberOfBytes'])) // 32)
+               for entry in base.get('storage', [])), default=0)
+    if probes[0][1] < end or probes[0][2] != 0:
+        return f'probe slot {probes[0][1]} overlaps the original layout (first free slot {end})'
+    return None
+
+
+def driver(directory, entry, contract, functions, profiles):
+    blocks = []
+    for profile in profiles:
+        listed = ''.join(f'  function {f}\n' for f in functions)
+        blocks.append(f'solidity_import {profile}Import from "{directory}" entry "{entry}"\n'
+                      f'  using {PROFILES[profile]}\n  contract {contract}\n{listed}')
+        blocks.append(f'#eval IO.println ("@@{profile}@@" ++ normalizedModel {profile}Import.model)\n')
+    return ('import Compiler.SolidityImport.Import\nopen Compiler.CompilationModel\n\n'
+            '/-- The model with the probe storage field removed (see the harness docstring). -/\n'
+            'def normalizedModel (m : CompilationModel) : String :=\n'
+            f'  (repr {{ m with fields := m.fields.filter (·.name != "{PROBE}") }}).pretty 1000000\n\n'
+            + '\n'.join(blocks))
+
+
+DIAGNOSTIC = re.compile(r'([A-Za-z0-9_./-]+\.sol:\d+:\d+: [^\n]*\[solidity-import:[^\]]+\][^\n]*)')
+
+
+def import_side(directory, entry, contract, functions, profiles, timeout):
+    lean = directory / 'Check.lean'
+    lean.write_text(driver(directory.relative_to(ROOT), entry, contract, functions, profiles))
+    result = subprocess.run(['lake', 'env', 'lean', str(lean)], cwd=ROOT, text=True,
+                            capture_output=True, timeout=timeout)
+    log = result.stdout + result.stderr
+    (directory / 'check.log').write_text(log)
+    models = {}
+    for profile in profiles:
+        marker = f'@@{profile}@@'
+        line = next((l for l in log.splitlines() if l.startswith(marker)), None)
+        models[profile] = line[len(marker):] if line is not None else None
+    diagnostics = sorted(set(DIAGNOSTIC.findall(log)))
+    return models, diagnostics, log
+
+
+def run_case(case, output, timeout):
+    base_dir = output / case['name'] / 'base'
+    variant_dir = output / case['name'] / 'variant'
+    for side in (base_dir, variant_dir):
+        if 'directory' in case:
+            shutil.copytree(ROOT / case['directory'], side, ignore=solidity_only)
+        else:
+            side.mkdir(parents=True)
+            for name, text in case['files'].items():
+                (side / name).write_text(text)
+    base_layout, (source_name, node) = solc_layout(base_dir, case['entry'], case['contract'])
+    target = variant_dir / source_name
+    text = insert_probe(target.read_text(), node, case.get('probe_at', 'end'))
+    if 'variant_edit' in case:
+        old, new = case['variant_edit']
+        if text.count(old) != 1:
+            raise CaseFailure(f'variant edit anchor {old!r} is not unique')
+        text = text.replace(old, new)
+    target.write_text(text)
+    variant_layout, _ = solc_layout(variant_dir, case['entry'], case['contract'])
+    unsound = check_layout(base_layout, variant_layout)
+    if unsound:
+        return {'kind': 'unsound-layout', 'detail': unsound}
+    profiles = case.get('profiles', list(PROFILES))
+    base = import_side(base_dir, case['entry'], case['contract'], case['functions'], profiles, timeout)
+    variant = import_side(variant_dir, case['entry'], case['contract'], case['functions'], profiles, timeout)
+    outcome = {}
+    for profile in profiles:
+        base_model, variant_model = base[0][profile], variant[0][profile]
+        if base_model is None and variant_model is None:
+            if base[1] != [d.replace(str(variant_dir), str(base_dir)) for d in variant[1]]:
+                outcome[profile] = 'diagnostic'
+            else:
+                outcome[profile] = 'same-rejection'
+        elif (base_model is None) != (variant_model is None):
+            outcome[profile] = 'admission'
+        elif base_model != variant_model:
+            outcome[profile] = 'model'
+        else:
+            outcome[profile] = 'same'
+    return {'kind': 'compared', 'profiles': outcome, 'baseDiagnostics': base[1],
+            'variantDiagnostics': variant[1],
+            'modelSha256': {p: hashlib.sha256((base[0][p] or '').encode()).hexdigest() for p in profiles}}
+
+
+def judge(case, result):
+    """None when the case behaved as required, else the reason it did not."""
+    expect = case.get('expect') or EXPECTED_DISCREPANCIES.get(case['name'])
+    if result['kind'] == 'unsound-layout':
+        if expect == 'unsound-layout':
+            return None
+        return f"normalization unsound: {result['detail']}"
+    if expect == 'unsound-layout':
+        return 'layout check accepted a probe that shifts the original variables'
+    observed = set(result['profiles'].values())
+    if expect is None:
+        bad = {p: o for p, o in result['profiles'].items() if o not in ('same', 'same-rejection')}
+        if bad:
+            return f'state-count discrepancy: {bad}; base {result["baseDiagnostics"]}; variant {result["variantDiagnostics"]}'
+        if observed == {'same-rejection'}:
+            return f'positive control rejected on every profile: {result["baseDiagnostics"]}'
+        return None
+    if observed != {expect}:
+        return f'expected a {expect} discrepancy on every profile, observed {result["profiles"]}'
+    return None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    parser.add_argument('--only', help='run only cases whose name contains this text')
+    parser.add_argument('--output', type=Path)
+    parser.add_argument('--timeout', type=int, default=900)
+    args = parser.parse_args()
+    output = (args.output.resolve() if args.output else
+              Path(tempfile.mkdtemp(prefix='state-count-invariance-', dir=ROOT / '.lake')))
+    output.mkdir(parents=True, exist_ok=True)
+    if not output.is_relative_to(ROOT):
+        raise SystemExit('--output must be inside the package root (solidity_import resolves paths there)')
+    results, failures = [], []
+    for case in CASES + CONTROLS:
+        if args.only and args.only not in case['name']:
+            continue
+        try:
+            result = run_case(case, output, args.timeout)
+        except CaseFailure as error:
+            result = {'kind': 'error', 'detail': str(error)}
+        reason = (f"harness error: {result['detail']}" if result['kind'] == 'error'
+                  else judge(case, result))
+        results.append({'case': case['name'], 'result': result, 'failure': reason})
+        (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
+        if reason:
+            failures.append(f"{case['name']}: {reason}")
+            print(f"FAIL state-count-invariance-{case['name']}: {reason}", flush=True)
+        else:
+            print(f"pass state-count-invariance-{case['name']}", flush=True)
+    if failures:
+        raise SystemExit('state-count invariance failed:\n' + '\n'.join(failures) + f'\nartifacts: {output}')
+    print(f'state-count invariance passed: {output}')
+
+
+if __name__ == '__main__':
+    main()
