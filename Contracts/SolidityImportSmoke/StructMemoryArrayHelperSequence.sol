@@ -7,32 +7,32 @@ contract SequenceFixture {
         uint64 total;
         bool active;
     }
-    struct UserAssetBalance {
+    struct Holding {
         address asset;
-        uint256 userBalance;
-        uint256 totalSupply;
+        uint256 held;
+        uint256 supply;
     }
     uint256 private value;
     uint256 private last;
     Balance private stored;
     // #2721 issue case: an `S[] memory` helper result passed straight to an `S[]` helper.
-    function _getBalances(address asset) internal pure returns (UserAssetBalance[] memory list) {
-        list = new UserAssetBalance[](1);
-        list[0] = UserAssetBalance({asset: asset, userBalance: 1, totalSupply: 10});
+    function _holdings(address asset) internal pure returns (Holding[] memory list) {
+        list = new Holding[](1);
+        list[0] = Holding({asset: asset, held: 1, supply: 10});
     }
-    function _sumBalances(UserAssetBalance[] memory list) internal pure returns (uint256) {
+    function _countHoldings(Holding[] memory list) internal pure returns (uint256) {
         return list.length;
     }
-    // Member-by-member fill of zeroed elements, as Aave's `_getUserAssetBalances`.
-    function fill(uint256 x, uint256 n) internal pure returns (UserAssetBalance[] memory list) {
-        list = new UserAssetBalance[](n);
+    // Member-by-member fill of zeroed elements.
+    function fill(uint256 x, uint256 n) internal pure returns (Holding[] memory list) {
+        list = new Holding[](n);
         for (uint256 i = 0; i < n; i++) {
             list[i].asset = address(uint160(x + i));
-            list[i].userBalance = x % (i + 3);
+            list[i].held = x % (i + 3);
         }
     }
-    function supplyOf(UserAssetBalance memory b) internal pure returns (uint256) {
-        return b.userBalance * 3 + b.totalSupply + uint256(uint160(b.asset)) % 5;
+    function supplyOf(Holding memory b) internal pure returns (uint256) {
+        return b.held * 3 + b.supply + uint256(uint160(b.asset)) % 5;
     }
     function build(uint256 x, uint256 n) internal pure returns (Balance[] memory list) {
         list = new Balance[](n);
@@ -92,8 +92,8 @@ contract SequenceFixture {
             }
         }
         value += sum(list) * 1000 + sum(zeros) + list.length * 7 + sum(build(x >> 16, 2)) * 100000;
-        UserAssetBalance[] memory users = fill(x >> 8, n);
-        uint256 supplied = _sumBalances(_getBalances(address(uint160(x)))) * 11;
+        Holding[] memory users = fill(x >> 8, n);
+        uint256 supplied = _countHoldings(_holdings(address(uint160(x)))) * 11;
         for (uint256 i = 0; i < users.length; i++) {
             supplied += supplyOf(users[i]) * (i + 1);
         }
