@@ -17,7 +17,8 @@ Encapsulates the verified inline-assembly and library lowering shims required fo
 - `BitMath.mostSignificantBit` and `BitMath.leastSignificantBit`
 - `SwapMath.computeSwapStep` and `TickMath.getSqrtPriceAtTick` / `getTickAtSqrtPrice`
 - `TickBitmap.flipTick`, `Pool.updateTick`
-- `Hooks.callHook` / `Hooks.callHookWithReturnDelta` and `IUnlockCallback.unlockCallback`
+- `IUnlockCallback.unlockCallback` (`Hooks.callHook` has no shortcut: helpers of that name are
+  lowered through their body)
 -/
 
 /-- Classification of verified compiler shims for Uniswap v4 (`v4-core`) inline assembly
@@ -157,30 +158,6 @@ def lowerCurrencyTransferShim (currencyExpr toExpr amountExpr : Expr) : M (Array
     .ite (.eq (.localVar erc20Status) (.literal 0)) [.revertEmpty] []
   ]
   pure #[.ite (.eq currencyExpr (.literal 0)) nativeBranch erc20Branch]
-
-/-- Lower `Hooks.callHook(IHooks self, bytes memory data) returns (bytes memory result)`
-into a `SolidityLowLevelCall.bytesUint256Module` transport and memory buffer allocation. -/
-def lowerHooksCallShim (inReturnDelta : Bool) (selfExpr : Expr) (dataBuf : EncodedBytes) : M EncodedBytes := do
-  let ptrAtom ← atom { pre := dataBuf.pre, expr := dataBuf.pointer }
-  let sizeAtom ← atom { pre := #[], expr := dataBuf.size }
-  let word0Var ← fresh
-  let ptr ← fresh
-  let finish ← fresh
-  modify fun e => { e with encodingMemory := true }
-  let callMod := Compiler.ECM.SolidityLowLevelCall.bytesUint256Module word0Var 0
-  let allocStmts := AbiEncoding.reserve ptr finish (.literal 96)
-  let stmts := ptrAtom.pre ++ sizeAtom.pre ++ #[
-    .ecm callMod [selfExpr, ptrAtom.expr, sizeAtom.expr]
-  ] ++ allocStmts.toArray ++ #[
-    .mstore (.localVar ptr) (.localVar word0Var),
-    .mstore (.add (.localVar ptr) (.literal 32)) (.literal 0),
-    .mstore (.add (.localVar ptr) (.literal 64)) (.literal 0)
-  ]
-  return {
-    pre := stmts
-    pointer := .localVar ptr
-    size := .literal (if inReturnDelta then 64 else 96)
-  }
 
 /-- `j` without solc's source positions (`src`, `nativeSrc`), so that a fingerprint depends
 only on the code. -/

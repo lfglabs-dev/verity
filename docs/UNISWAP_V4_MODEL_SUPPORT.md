@@ -19,9 +19,10 @@ To keep `Compiler/SolidityImport/Import.lean` modular and verifiable, Uniswap v4
 | `BitMath.leastSignificantBit` | `BitMath` | `.bitMathLsb` | De Bruijn / branchless bit scan lowering (`lowerYulStmtSlice`) |
 | `TickMath.getSqrtPriceAtTick` / `getTickAtSqrtPrice` | `TickMath` | `.tickMath` | Inline Yul bit/shift/comparison lowering (`YulLiteral` booleans, `signextend`, `sar`, `shl`, `shr`) |
 | `TickBitmap.flipTick` | `TickBitmap` | `.tickBitmapFlip` | `lowerTickBitmapFlipShim` (`sdiv`/`smod` word-pos & bit-pos + `sload`/`sstore` XOR mask) |
-| `Hooks.callHook` | `Hooks` | `.hooksCall` | `lowerHooksCallShim` (`SolidityLowLevelCall.bytesUint256Module` + selector/delta extraction) |
 
 `lowerBatchArrayLoadShim` is applied only to a tail `assembly` block whose `yulBlockFingerprint` (sha256 of its solc Yul AST without source positions) is `extsloadBatchYulFingerprint` or `exttloadBatchYulFingerprint`, taken from `v4-core` `46c6834`, and whose Solidity references all resolve to the bound calldata array. Any other tail block of a `bytes32[]`-returning function with one array parameter is rejected with `shortcut fingerprint mismatch` (`Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean`).
+
+`Hooks.callHook` has no shortcut: a helper of that name is lowered through its own body like any other helper (`Contracts/SolidityImportSmoke/BytesHelperNameIndependenceChecks.lean`). It used to be replaced by a fixed low-level CALL (`lowerHooksCallShim`, removed) whenever a two-argument string/bytes helper was named `callHook`, whatever its body. v4's body allocates its result from the free-memory pointer, which the ordinary lowering rejects, so `initialize`, `donate`, `modifyLiquidity` and `swap` cannot import through it. The `.hooksCall` entry of `uniswapV4VerifiedShims` is left for the registry work of #2828; the importer does not consult it.
 
 ### 3-Layer Meta-Specification Bundle
 
