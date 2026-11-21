@@ -112,6 +112,8 @@ structure Env where
   funBases : RBMap Nat (Array Nat) compare := RBMap.empty
   contractNames : RBMap Nat String compare := RBMap.empty
   contractKinds : RBMap Nat String compare := RBMap.empty
+  /-- Contracts declared `abstract`. -/
+  abstractContracts : Array Nat := #[]
   contractBases : RBMap Nat (Array Nat) compare := RBMap.empty
   contractFuns : RBMap Nat (Array Nat) compare := RBMap.empty
   contractPublicVars : RBMap Nat (Array Nat) compare := RBMap.empty
@@ -371,6 +373,26 @@ def failAt (j : Json) (why : String) : M α := do
     sink.pending.set (some (s!"{file}:{line}:{column}: {kind}: {why}\n{excerpt}",
       { file, line, column, kind, reason, closure := frames }, referencedDecls j))
   throwError "{file}:{line}:{column}: {kind}: {why}\n{excerpt}"
+
+/-- Reject the call `at_` to `fn`, which has no implementation. solc dispatches
+an internal call to the most-derived override in the target's inheritance
+chain, and only an abstract target can leave that override missing, so the
+diagnostic names the call, the unimplemented declaration and the fix. -/
+def failNoBody (fn at_ : Json) : M α := do
+  let env ← get
+  let some target := env.linearizedBases[0]? | failAt fn "function has no body"
+  unless env.abstractContracts.contains target do failAt fn "function has no body"
+  let targetName := env.contractNames.find? target |>.getD s!"contract#{target}"
+  let name := optStr fn "name" |>.getD "<unnamed>"
+  let owner := (field? fn "id").bind (fun id => id.getNat?.toOption)
+    |>.bind env.funContract.find? |>.getD "<free>"
+  let (file, site) := nodeSite env fn
+  let declared := match site with
+    | some (line, column, _) => s!"{file}:{line}:{column}"
+    | none => file
+  failAt at_ (s!"call to unimplemented virtual function {owner}.{name} (declared at {declared}): " ++
+    s!"abstract target contract {targetName} does not implement it in its inheritance chain; " ++
+    s!"import a concrete contract that overrides {name}")
 
 /-- Record the failure `e` of the statement or root `at_` in `sink`. A `failAt`
 failure keeps its own site; any other error is located at `at_`. The entry is
