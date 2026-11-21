@@ -113,8 +113,7 @@ CASES = [
     }
 }
 ''', ['run(uint256)']),
-    # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
-    inline('known-yul-bool-literal', '''contract C {
+    inline('yul-bool-literal', '''contract C {
     uint256 private total;
 
     function flag(uint256 x) external returns (bool r) {
@@ -123,6 +122,7 @@ CASES = [
     }
 }
 ''', ['flag(uint256)']),
+    # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;
 
@@ -161,8 +161,6 @@ CASES = [
 # Importer behaviour on main that still depends on the state-variable count. Each entry
 # names the discrepancy kind the harness must observe on every listed profile.
 EXPECTED_DISCREPANCIES = {
-    # lowerYul: Yul `true`/`false` literals.
-    'known-yul-bool-literal': 'admission',
     # checkEncodingScalar: a conditional ABI encoding argument.
     'known-encode-conditional': 'admission',
     # lowerYulStmtSlice: Yul `if`.
