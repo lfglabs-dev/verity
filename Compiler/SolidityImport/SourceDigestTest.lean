@@ -10,7 +10,8 @@ Coverage of `sourceDigest`'s importer inputs (#2829).
 2. Every non-test `.lean` file in `Compiler/SolidityImport/` is a digest input;
    test files are not.
 3. In a scratch source root, editing one importer file changes its entry in the
-   digest input and leaves the others unchanged.
+   digest input and leaves the others unchanged; hidden entries are skipped.
+4. `Import.lean` puts that input into the digest.
 
 The checks assert membership and differences only, never a full list or a
 digest of this checkout, so they do not change when a module is added.
@@ -82,6 +83,7 @@ run_meta do
     IO.FS.writeFile (dir / "Nested" / "B.lean") "def"
     IO.FS.writeFile (dir / "ATest.lean") "test"
     IO.FS.writeFile (dir / "README.md") "notes"
+    IO.FS.writeFile (dir / ".#A.lean") "editor lock"
     let rels := (← importerDirectorySources tmp).qsort (· < ·)
     unless rels == #["Compiler/SolidityImport/A.lean", "Compiler/SolidityImport/Nested/B.lean"] do
       throwError "unexpected directory sources {rels}"
@@ -101,5 +103,17 @@ run_meta do
     unless entry before "Compiler/SolidityImport/Nested/B.lean" !=
         entry after "Compiler/SolidityImport/Nested/B.lean" do
       throwError "editing a file left the digest input unchanged: {after.compress}"
+
+-- 4. `importSlice` frames `importerSourcesJson` as the digest's `importerSources`,
+-- not a hand-written file list. Read from the source because `importSlice` is
+-- private and needs solc.
+run_meta do
+  let text ← IO.FS.readFile ((← IO.currentDir) / "Compiler/SolidityImport/Import.lean")
+  let has (needle : String) := (text.splitOn needle).length > 1
+  unless has "let importerSources ← importerSourcesJson (← getEnv) sourceRoot" &&
+      has "(\"importerSources\", importerSources)" do
+    throwError "Import.lean no longer frames importerSourcesJson as importerSources"
+  if has "moduleText sourceRoot" then
+    throwError "Import.lean reads importer sources by hand again (moduleText)"
 
 end Compiler.CompilationModel.SolidityImport.SourceDigestTest

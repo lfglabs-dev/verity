@@ -12,8 +12,10 @@ without an edit here:
   execution semantics the model is interpreted by (`Verity.Core.Model.Denote`
   and its imports) and `Compiler.CompilationModel`. Lean core, Std and other
   packages' modules have no file under the source root and are not hashed;
-* every `.lean` file under `Compiler/SolidityImport/`, whether or not `Import`
-  imports it, except test sources (`isImporterTestSource`).
+* every regular `.lean` file under `Compiler/SolidityImport/`, whether or not
+  `Import` imports it, except test sources (`isImporterTestSource`) and hidden
+  entries. The modules those files import are not hashed unless `Import` also
+  imports them.
 
 Each file is hashed with the host's SHA-256 tool, the one that already checks
 the pinned solc binary; the importer frames the relative paths and their
@@ -57,15 +59,24 @@ def importClosure (env : Environment) (root : Name) : Except String (Array Name)
         unless seen.contains imp.module do stack := stack.push imp.module
   return (seen.toArray.qsort Name.lt)
 
-/-- The `.lean` files under `sourceRoot/Compiler/SolidityImport/`, test sources
-excluded, relative to `sourceRoot`. -/
+/-- Whether a directory entry is hidden (`.git`, an editor lock `.#Import.lean`). -/
+private def isHiddenEntry (path : FilePath) : Bool :=
+  (path.fileName.getD "").startsWith "."
+
+/-- The regular `.lean` files under `sourceRoot/Compiler/SolidityImport/`,
+relative to `sourceRoot`. Test sources, hidden entries and symbolic links are
+skipped, and symlinked or hidden subdirectories are not entered: an editor's
+dangling lock link must not make the hash tool fail. -/
 def importerDirectorySources (sourceRoot : FilePath) : IO (Array String) := do
   let dir := sourceRoot / importerDirectory
   unless ← dir.isDir do throw (IO.userError s!"importer source missing: {dir}")
   let prefixLen := dir.toString.length + 1
+  let enter (sub : FilePath) : IO Bool := do
+    return !isHiddenEntry sub && (← sub.symlinkMetadata).type == .dir
   let mut out : Array String := #[]
-  for path in ← dir.walkDir do
-    if path.extension == some "lean" && !(← path.isDir) then
+  for path in ← dir.walkDir enter do
+    if path.extension == some "lean" && !isHiddenEntry path &&
+        (← path.symlinkMetadata).type == .file then
       let rel := importerDirectory ++ "/" ++ (path.toString.drop prefixLen).toString
       unless isImporterTestSource rel do out := out.push rel
   return out
