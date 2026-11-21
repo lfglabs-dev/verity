@@ -475,8 +475,20 @@ def _nested_struct_calls():
             [('nestedOrder(uint256)', [x]) for x in (0, 41)])
 
 
+def _struct_memory_array_root_calls():
+    """A root `S[] memory` parameter passed to `S[]` helpers (#2721): empty,
+    one and three elements, and a dirty `uint64` field (ABI revert)."""
+    def items(n, dirty=False):
+        words = [n]
+        for k in range(n):
+            words += [0x2222 * (k + 1), 10 ** k + k, (k + 1) | ((1 << 64) if dirty and k == n - 1 else 0), k % 2]
+        return words
+    sig = 'rootShared((address,uint256,uint64,bool)[])'
+    return [(sig, [32] + items(n)) for n in (0, 1, 3)] + [(sig, [32] + items(2, dirty=True))]
+
+
 ROOT_PARAM_CALLS = (_struct_string_member_calls, _struct_array_param_calls, _bytes_array_param_calls,
-                    _nested_struct_calls)
+                    _nested_struct_calls, _struct_memory_array_root_calls)
 ROOT_PARAM_SIGNATURES = {sig: gen for gen in ROOT_PARAM_CALLS for sig, _ in gen()}
 
 

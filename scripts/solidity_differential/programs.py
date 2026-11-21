@@ -3881,6 +3881,12 @@ ROOT_PARAM_RENAMES = {
         {'r', 'x', 'k', 'narrow', 'res', 'box', 'dirty', 'tagCopy', 'rawTag'},
         {'data', 'cfg', 'idx', 'token', 'spare', 'weight', 'Inner', 'Outer',
          'Pair', 'Box', 'pair', 'a', 'b', 'tag', 'value', 'last'}),
+    'struct-memory-array-helpers': (
+        {'list', 'n', 'i', 's', 'k', 'b', 'x', 'shared', 'zeros', 'first', 'probe', 'dirty',
+         'd', 'single', 'users', 'supplied', 'picked', 'view_'},
+        {'asset', 'amount', 'total', 'active', 'build', 'zeroed', 'sum', 'bump', 'same', 'touch',
+         'UserAssetBalance', 'userBalance', 'totalSupply', 'fill', 'supplyOf',
+         '_getBalances', '_sumBalances', 'value', 'last', 'stored'}),
 }
 
 

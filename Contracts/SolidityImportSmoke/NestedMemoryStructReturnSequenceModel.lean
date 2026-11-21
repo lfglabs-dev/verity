@@ -13,8 +13,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "NestedMemor
   function change(uint256)
   function fail()
   function read()
-  function nestedOrder(uint256)
   function snapshot(uint256)
+  function nestedOrder(uint256)
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

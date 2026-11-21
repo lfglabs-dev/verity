@@ -45,6 +45,7 @@ ROOT_PARAM_SIGNATURES = {
     'root-param-bytes-array-accepted': 'checked(«bytes[]»)',
     'root-param-string-array-rejected': 'checked(«string[]»)',
     'root-param-struct-array-dynamic-member-rejected': 'checked(«S[]»)',
+    'memory-struct-array-issue-helpers-accepted': 'claim(address)',
 }
 
 
@@ -1355,6 +1356,35 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported dynamic memory array local type int128[]'),
+        # `S[] memory` through internal helpers (#2721).
+        ('memory-struct-array-issue-helpers-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct UserAssetBalance { address asset; uint256 userBalance; uint256 totalSupply; }\n  function _getBalances(address asset) internal pure returns (UserAssetBalance[] memory list) {\n    list = new UserAssetBalance[](1);\n    list[0] = UserAssetBalance({asset: asset, userBalance: 1, totalSupply: 10});\n  }\n  function _sumBalances(UserAssetBalance[] memory list) internal pure returns (uint256) {\n    return list.length;\n  }\n  function claim(address asset) external pure returns (uint256) {\n    return _sumBalances(_getBalances(asset));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('memory-struct-array-flat-local-element-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 v; uint256 w; }\n  function checked(uint256 x) external pure returns (uint256) {\n    S[] memory a = new S[](1);\n    S memory s = S(x, 1);\n    a[0] = s;\n    return a[0].v;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] memory struct local aliasing is outside this slice'),
+        ('memory-struct-array-element-helper-return-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 v; uint256 w; }\n  function first(S[] memory a) internal pure returns (S memory) { return a[0]; }\n  function checked(uint256 x) external pure returns (uint256) {\n    S[] memory a = new S[](1);\n    S memory s = first(a);\n    s.v = x;\n    return a[0].v;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IndexAccess: [solidity-import:unsupported] returning a memory struct array element (an alias) is outside this slice'),
+        ('memory-struct-array-signed-member-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct I { int128 v; }\n  function checked(uint256 x) external pure returns (uint256) {\n    I[] memory a = new I[](1);\n    return a.length + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] memory struct arrays require a struct whose members are unsigned scalars, address, bool or bytes32'),
+        ('memory-struct-array-yul-reinterpret-rejected',
+         'pragma solidity 0.8.34; contract C { struct W { uint x; } '
+         'function castWords(W[] memory src) internal pure returns (uint[] memory) { '
+         'uint[] memory res; assembly { res := src } return res; } '
+         'function checked(uint256 x) external pure returns (uint256) { W[] memory a = new W[](1); '
+         'uint[] memory words = castWords(a); return words[0] + x; } }', None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulAssignment: [solidity-import:unsupported] raw memory reinterpretation of struct array pointers'),
         # Admitted since reassignable T[] memory locals (#2622).
         ('new-array-reassigned-local-positive',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256[] memory a = new uint256[](1);\n    a = new uint256[](2);\n    return a[0] + x;\n  }\n}\n",
