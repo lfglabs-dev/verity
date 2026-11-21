@@ -20,16 +20,17 @@ solidity_profile tailAssemblyRangeRead where
   optimizerRuns := some 466
   bytecodeHash := "none"
 
--- The exact range read keeps its lowering, bound by reference whatever the parameter order.
+-- The exact range read keeps its lowering, over parameters in either order or over locals.
 solidity_import rangeReads from "Contracts/SolidityImportSmoke" entry "TailAssemblyRangeRead.sol"
   using tailAssemblyRangeRead
   contract TailAssemblyRangeRead
   function loadRange(bytes32, uint256)
   function loadRangeSwapped(uint256, bytes32)
+  function loadRangeFromLocals(uint256, uint256)
 
 -- Same shape and Yul names, different code.
 /--
-error: TailAssemblyRangeRead.sol:55:27: YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert
+error: TailAssemblyRangeRead.sol:77:27: YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert
 closure: TailAssemblyRangeRead.echoRange
 mload(0x40)
 -/
@@ -41,7 +42,7 @@ solidity_import echoForm from "Contracts/SolidityImportSmoke" entry "TailAssembl
 
 -- The exact block over a count type the lowering does not model.
 /--
-error: TailAssemblyRangeRead.sol:76:27: YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert
+error: TailAssemblyRangeRead.sol:98:27: YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert
 closure: TailAssemblyRangeRead.loadRangeNarrow
 mload(0x40)
 -/
