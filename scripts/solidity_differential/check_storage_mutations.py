@@ -315,6 +315,12 @@ MUTANTS.update({
 
 
 MUTANTS.update({
+    'import-struct-memory-array-member-write': (
+        '(.mstore (.add ptr.expr (.literal (32 * i))) (.localVar snap))',
+        '(.mstore (.add ptr.expr (.literal (32 * i))) (.literal 0))'),
+    'import-struct-memory-array-zeroed-elements': (
+        '          zeroedStructAlloc elemPtr elemEnd fields.length ++',
+        '          zeroedStructAlloc elemPtr elemEnd 0 ++'),
     'import-dynamic-memory-array-result': (
         '            pure (valPre ++ #[.assignVar result.memoryPointer (.localVar value.memoryPointer),',
         '            pure (valPre ++ #[.assignVar result.memoryPointer (.literal 96),'),
@@ -872,6 +878,8 @@ def run(directory, output, name):
         fixture = "FixedMemoryArraySequence"
     if name.startswith("import-inline-array-literal-"):
         fixture = "InlineArrayLiteralSequence"
+    if name.startswith("import-struct-memory-array-"):
+        fixture = "StructMemoryArrayHelperSequence"
     if name.startswith("import-dynamic-memory-array-"):
         fixture = "DynamicMemoryArraySequence"
     if name.startswith("import-dynamic-root-return-"):

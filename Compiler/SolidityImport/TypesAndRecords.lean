@@ -179,6 +179,12 @@ structure ScalarArrayParam where
   so assigning the array variable rebinds both (`T[] memory` reference
   semantics: the pointer changes, memory is never copied). -/
   reassignable : Bool := false
+  /-- `S[] memory` of a flat scalar struct `S` (declaration id `some sid`):
+  each element word is the pointer of a struct of `elemFields`, one word per
+  member, as in solc's memory layout. `elementType` is then a non-type tag,
+  so the scalar-element lowerings (conversions, encodings) reject it. -/
+  elemStructId : Option Nat := none
+  elemFields : List AbiSchema.ScalarField := []
 
 structure MemParam where
   structId : Nat

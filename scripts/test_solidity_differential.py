@@ -106,6 +106,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-signed-struct-compound",
     "storage-storage-array-length-bound",
     "storage-struct-array-param",
+    "storage-struct-memory-array-helpers",
     "storage-struct-string-member-param",
     "storage-signed-struct-member-read",
     "storage-storage-string-members",
