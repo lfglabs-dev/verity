@@ -213,6 +213,11 @@ private def withSymlink : InferredRemappings :=
   some false
 #guard (FoundryRemap.parseFoundryToml "[default]\nlibs = ['deps']\n").issue.isSome
 #guard (FoundryRemap.parseFoundryToml "[profile.ci]\nlibs = ['deps']\n").issue.isNone
+-- `extends` and inline tables holding the default profile could set these keys elsewhere.
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nextends = 'base.toml'\n").issue.isSome
+#guard (FoundryRemap.parseFoundryToml "[profile]\ndefault = { src = 'contracts' }\n").issue.isSome
+#guard (FoundryRemap.parseFoundryToml "profile = { default = { libs = ['deps'] } }\n" (strict := false)).issue.isSome
+#guard (FoundryRemap.parseFoundryToml "[profile.ci]\nextends = 'base.toml'\n").issue.isNone
 -- The project's own `foundry.toml` is read leniently: Foundry could not build the project at
 -- all if it rejected the file, so a line this reader does not check is no issue there.
 #guard (FoundryRemap.parseFoundryToml "[profile.default]\nnot toml\n" (strict := false)).issue.isNone
