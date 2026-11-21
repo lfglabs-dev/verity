@@ -1855,11 +1855,11 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'IndexAccess: [solidity-import:unsupported] stateful or assignment array index is unsupported'),
-        ('strings-hex-arrays-bitmaps-bytes16-to-bytes1-cast-rejected',
+        ('strings-hex-arrays-bitmaps-bytes16-to-bytes1-cast-imports',
          "pragma solidity 0.8.34;\ncontract C {\n  bytes16 private constant HEX_DIGITS = \"0123456789abcdef\";\n  function checked(uint256 x) external pure returns (uint256) {\n    return uint256(uint8(bytes1(HEX_DIGITS))) + x;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'FunctionCall: [solidity-import:unsupported] unsupported cast source bytes16 for bytes1'),
+         None),
         ('ecdsa-merkle-checkpoints-storage-slot-positive',
          (root / 'Contracts/SolidityImportSmoke/EcdsaMerkleCheckpointsStorageSlotSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
          None,
@@ -1925,16 +1925,16 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
-        ('governor-slice-proposer-delay-bytes12-cast-source-rejected',
+        ('governor-slice-proposer-delay-bytes12-cast-source-imports',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (uint256) {\n    bytes16 src = bytes16(\"0123456789abcdef\");\n    bytes12 b = bytes12(src);\n    return uint96(b);\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'FunctionCall: [solidity-import:unsupported] unsupported cast source bytes16 for bytes12'),
-        ('governor-slice-proposer-delay-bytes20-cast-target-rejected',
+         None),
+        ('governor-slice-proposer-delay-bytes20-cast-target-imports',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external view returns (uint256) {\n    bytes20 b = bytes20(msg.sender);\n    bytes16 dst = bytes16(b);\n    return uint128(dst);\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'FunctionCall: [solidity-import:unsupported] unsupported cast target bytes16 from bytes20'),
+         None),
         ('governor-slice-proposer-delay-yul-tail-load-offset-over32-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function _bad(string memory description) internal pure returns (bytes12 marker) {\n    uint256 len = bytes(description).length;\n    assembly (\"memory-safe\") {\n      marker := mload(add(description, sub(len, 33)))\n    }\n  }\n  function checked(uint256) external pure returns (uint256) {\n    return uint96(_bad(\"hello\"));\n  }\n}\n",
          None,
@@ -1955,11 +1955,11 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] unsupported storage encoding dynamic_array for _sels'),
-        ('access-manager-target-role-bytes2-root-param-rejected',
+        ('access-manager-target-role-bytes2-root-param-imports',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes2 x) external pure returns (uint256) {\n    return uint16(x);\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'VariableDeclaration: [solidity-import:unsupported] unsupported parameter type bytes2'),
+         None),
         # A stateless contract: named `bytes memory` root/helper results, a
         # calldata slice as a helper argument, and a bytes-member memory struct.
         ('named-bytes-return-slice-struct-positive',
@@ -2016,7 +2016,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         fn_sig = (
             ROOT_PARAM_SIGNATURES[name] if name in ROOT_PARAM_SIGNATURES
             else 'checked(bytes)' if name.startswith('bytes-param-') or name.startswith('bytes-struct-') or name.startswith('bytes-named-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected', 'named-bytes-return-slice-struct-positive', 'bytes-struct-shared-memory-member-rejected', 'bytes-struct-root-return-rejected'}
-            else 'checked(bytes2)' if name == 'access-manager-target-role-bytes2-root-param-rejected'
+            else 'checked(bytes2)' if name == 'access-manager-target-role-bytes2-root-param-imports'
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
