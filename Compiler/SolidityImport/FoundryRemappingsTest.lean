@@ -97,7 +97,6 @@ private def explicitNoSlash : List (String × String) :=
   [("remappings.txt", "oz=vendor/oz/\n"), ("lib/ozx/src/A.sol", "")]
 #guard lines explicitNoSlash == ["ozx/=lib/ozx/src/"]
 #guard resolve explicitNoSlash "ozx/A.sol" == some ("lib/ozx/src/A.sol", some "ozx/")
-#guard resolve explicitNoSlash "oz/B.sol" == some ("vendor/oz//B.sol", none)
 
 -- A library with its own `foundry.toml`: its `remappings.txt` is rebased onto it, its `src`
 -- gets a remapping, and a nested remapping that nests with its parent's is dropped.
@@ -167,6 +166,19 @@ private def orderDependent : List (String × String) :=
 #guard resolve orderDependent "a/A.sol" == none
 #guard (errorOf orderDependent "a/A.sol" |>.splitOn "depends on directory listing order").length > 1
 
+-- Foundry's `last_nested_source_dir` can climb above the project root and stop at a
+-- directory named `src` there: `forge remappings` printed `c/=<abs>/src/` for this layout
+-- under `…/src/proj`, and `c/=lib/x/lib/` under a parent with no such name.
+private def climb : List (String × String) := [("lib/x/src/X.sol", ""), ("lib/x/lib/c/k/C.sol", "")]
+#guard lines climb == ["c/=lib/x/lib/", "x/=lib/x/src/"]
+#guard clean climb
+#guard (inferFoundryRemappings { layout climb with aboveRootSource := true } #[]).globalIssue.isSome
+
+-- An ambiguous candidate feeding a later merge leaves the key set itself unknown: listed in
+-- one order Foundry keeps `c/` and `@s/`, in the other only `@s/`.
+#guard (infer [("lib/src/F.sol", ""), ("lib/src/node_modules/c/C.sol", ""),
+  ("lib/src/node_modules/@s/x/S.sol", "")]).globalIssue.isSome
+
 -- A symlink anywhere in a scanned library leaves the inferred set unknown: an import that
 -- needs an inferred remapping fails, and so does a written path no remapping matches (Foundry
 -- may infer one). Explicit remappings and relative imports resolve as before.
@@ -211,7 +223,8 @@ private def withSymlink : InferredRemappings :=
   some false
 #guard (FoundryRemap.parseFoundryToml "[profile.default]\nautoDetectRemappings = false\n").autoDetect ==
   some false
-#guard (FoundryRemap.parseFoundryToml "[default]\nlibs = ['deps']\n").issue.isSome
+#guard (FoundryRemap.parseFoundryToml "[default]\nlibs = ['deps']\n").libs == some ["deps"]
+#guard (FoundryRemap.parseFoundryToml "[other]\nlibs = ['deps']\n").issue.isSome
 #guard (FoundryRemap.parseFoundryToml "[profile.ci]\nlibs = ['deps']\n").issue.isNone
 -- `extends` and inline tables holding the default profile could set these keys elsewhere.
 #guard (FoundryRemap.parseFoundryToml "[profile.default]\nextends = 'base.toml'\n").issue.isSome

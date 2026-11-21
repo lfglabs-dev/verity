@@ -33,6 +33,9 @@ structure RemapDir where
   foundryToml : Option String := none
   remappingsTxt : Option String := none
   children : Array RemapDir := #[]
+  /-- On the project root: some directory on its absolute path (itself included) is named
+  `src` or `contracts`, where Foundry's `last_nested_source_dir` climb can stop. -/
+  aboveRootSource : Bool := false
   deriving Inhabited, Repr
 
 /-- A remapping Foundry would add on its own, relative to the project root. -/
@@ -89,16 +92,18 @@ def nextNestedWindow (root current : Path) : Path :=
     root ++ [current[root.length]!]
   else root
 
-/-- `last_nested_source_dir(root, dir)`. -/
-def lastNestedSourceDir (root dir : Path) : Path := Id.run do
-  if isSourceDir dir then return dir
+/-- `last_nested_source_dir(root, dir)`, and whether the climb left the project: Foundry then
+continues through the project root's absolute ancestors (the project root first), stopping at
+one named `src` or `contracts`, and returns `root` only if none is. -/
+def lastNestedSourceDir (root dir : Path) : Path × Bool := Id.run do
+  if isSourceDir dir then return (dir, false)
   let mut p := dir
   while !p.isEmpty do
     let parent := p.dropLast
-    if parent == root then return root
-    if isSourceDir parent then return parent
+    if parent == root then return (root, false)
+    if isSourceDir parent then return (parent, false)
     p := parent
-  return root
+  return (root, true)
 
 /-- A remapping candidate of `find_remapping_candidates`. -/
 structure Candidate where
@@ -108,51 +113,63 @@ structure Candidate where
   ambiguous : Bool := false
   deriving Inhabited, Repr, BEq
 
-/-- `Candidate::merge_on_same_level`. -/
+/-- `Candidate::merge_on_same_level`. Also returns whether the outcome is uncertain: the
+single-`src` test reads every candidate's `sourceDir`, and an ambiguous one's real value may
+differ, which can drop or keep whole candidates (keys). -/
 def mergeOnSameLevel (cands : List Candidate) (current : Path) (level : Nat)
-    (windowStart : Path) (insideNodeModules : Bool) : List Candidate :=
+    (windowStart : Path) (insideNodeModules : Bool) : List Candidate × Bool :=
+  let uncertain := cands.any (·.ambiguous)
   match cands.filter (endsWithSrc ·.sourceDir) with
-  | [c] => [c]
+  | [c] => ([c], uncertain)
   | _ =>
     let kept := cands.filter (·.level != level)
     let sourceDir := if insideNodeModules then windowStart else current
     if level > 0 && sourceDir == windowStart && (isSourceDir sourceDir || isLibDir sourceDir) then
-      kept
+      (kept, uncertain)
     else
-      kept ++ [{ windowStart, sourceDir, level }]
+      (kept ++ [{ windowStart, sourceDir, level }], uncertain)
 
 /-- The `else` branch of `find_remapping_candidates`: Foundry adjusts the *first* candidate
 of the current level, in directory listing order. With one such candidate that is exact.
-With several, every candidate the adjustment would change is marked ambiguous. -/
-def adjustSingleNested (cands : List Candidate) (open_ windowStart : Path) (level : Nat) :
-    List Candidate :=
-  let adjust (c : Candidate) : Candidate :=
+With several, every candidate the adjustment would change is marked ambiguous. Also returns
+whether an adjustment climbs above the project root while a directory there could stop it
+(`aboveRootSource`): its value is then outside the project. -/
+def adjustSingleNested (cands : List Candidate) (open_ windowStart : Path) (level : Nat)
+    (aboveRootSource : Bool) : List Candidate × Bool :=
+  let adjust (c : Candidate) : Candidate × Bool :=
     if dirDistance c.windowStart c.sourceDir > 1 && endsWithJsSource c.sourceDir then
-      { c with sourceDir := windowStart }
+      ({ c with sourceDir := windowStart }, false)
     else if !isSourceDir c.sourceDir && c.sourceDir != c.windowStart then
-      { c with sourceDir := lastNestedSourceDir open_ c.sourceDir }
-    else c
+      let (p, escaped) := lastNestedSourceDir open_ c.sourceDir
+      ({ c with sourceDir := p }, escaped)
+    else (c, false)
   let atLevel := cands.filter (·.level == level)
+  let escapes := aboveRootSource && atLevel.any (adjust · |>.2)
   if atLevel.length == 1 then
-    cands.map fun c => if c.level == level then adjust c else c
+    (cands.map fun c => if c.level == level then (adjust c).1 else c, escapes)
   else
-    cands.map fun c =>
-      if c.level == level && adjust c != c then { c with ambiguous := true } else c
+    (cands.map fun c =>
+      if c.level == level && (adjust c).1 != c then { c with ambiguous := true } else c, escapes)
 
-/-- `find_remapping_candidates`. Symlinks never reach here: they set the global issue. -/
+/-- `find_remapping_candidates`, and whether its outcome is uncertain (see
+`mergeOnSameLevel`, `adjustSingleNested`). Symlinks never reach here: they set the global
+issue. -/
 partial def findCandidates (d : RemapDir) (current open_ : Path) (level : Nat)
-    (insideNodeModules : Bool) : List Candidate :=
+    (insideNodeModules aboveRootSource : Bool) : List Candidate × Bool :=
   let search := d.children.toList.filter fun c => !c.hidden && !noRecurse c.name
-  let cands := search.flatMap fun c =>
+  let subs := search.map fun c =>
     let sub := current ++ [c.name]
-    if isLibDir sub then findCandidates c sub sub (level + 1) insideNodeModules
-    else findCandidates c sub open_ level insideNodeModules
+    if isLibDir sub then findCandidates c sub sub (level + 1) insideNodeModules aboveRootSource
+    else findCandidates c sub open_ level insideNodeModules aboveRootSource
+  let cands := subs.flatMap (·.1)
+  let uncertain := subs.any (·.2)
   let windowStart := nextNestedWindow open_ current
   let sameWindow := cands.filter fun c => c.level == level && c.windowStart == windowStart
-  if d.hasSol || sameWindow.length > 1 then
-    mergeOnSameLevel cands current level windowStart insideNodeModules
-  else
-    adjustSingleNested cands open_ windowStart level
+  let (out, u) := if d.hasSol || sameWindow.length > 1 then
+      mergeOnSameLevel cands current level windowStart insideNodeModules
+    else
+      adjustSingleNested cands open_ windowStart level aboveRootSource
+  (out, uncertain || u)
 
 /-- Among values inserted in an unknown order into one map slot, where `replace old new`
 decides whether `new` overwrites `old`: the value that wins in every order, or an
@@ -167,21 +184,24 @@ def orderIndependentWinner {α : Type} [BEq α] (replace : α → α → Bool) (
     | some d => some (d, false)
     | none => some (first, true)
 
-/-- `Remapping::find_many` over the library directory `lib` (at `libPath`). -/
-def findMany (lib : RemapDir) (libPath : Path) : List (String × Path × Bool) :=
+/-- `Remapping::find_many` over the library directory `lib` (at `libPath`): the keys with
+their value and whether it is ambiguous, and whether the key set itself is uncertain. -/
+def findMany (lib : RemapDir) (libPath : Path) (aboveRootSource : Bool) :
+    List (String × Path × Bool) × Bool :=
   let insideNodeModules := lastName libPath == some "node_modules"
-  let cands := (lib.children.toList.filter (!·.hidden)).flatMap fun c =>
+  let subs := (lib.children.toList.filter (!·.hidden)).map fun c =>
     let p := libPath ++ [c.name]
-    findCandidates c p p 0 insideNodeModules
+    findCandidates c p p 0 insideNodeModules aboveRootSource
+  let cands := subs.flatMap (·.1)
   let keyOf (c : Candidate) := (lastName c.windowStart).map (· ++ "/")
   let keys := (cands.filterMap keyOf).eraseDups.toArray.qsort (· < ·)
   let replace (old new : Path) : Bool :=
     old.length > new.length || (endsWithSrc new && !endsWithSrc old)
-  keys.toList.filterMap fun k =>
+  (keys.toList.filterMap fun k =>
     let group := cands.filter (keyOf · == some k)
     let ambiguousInput := group.any (·.ambiguous)
     (orderIndependentWinner replace (group.map (·.sourceDir))).map fun (p, amb) =>
-      (k, p, amb || ambiguousInput)
+      (k, p, amb || ambiguousInput), subs.any (·.2))
 
 /-! ### Remapping strings and `foundry.toml` -/
 
@@ -354,6 +374,8 @@ another profile; a deeper path is a subtable. Any other place for such a key (to
 profile, which could set such a key where this reader does not look. -/
 def TomlKeys.record (keys : TomlKeys) (sect : List String) (key value : String) : TomlKeys :=
   let path := (sect ++ tomlKeyParts key).map snakeCase
+  -- forge 1.5.0 still reads the deprecated `[default]` table as the default profile.
+  let path := if path.head? == some "default" then "profile" :: path else path
   match path.getLast? with
   | none => keys
   | some leaf =>
@@ -523,9 +545,10 @@ partial def treeIssue (d : RemapDir) (p : Path) : Option String :=
 
 mutual
 /-- `RemappingsProvider::get_remappings` for the project at `root` (`d`), seeded with its
-user remappings. Returns the provider's remappings, rebased onto the project root. -/
-partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array Remap) :
-    Provided := Id.run do
+user remappings. Returns the provider's remappings, rebased onto the project root.
+`above` is the top project root's `aboveRootSource`. -/
+partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array Remap)
+    (above : Bool) : Provided := Id.run do
   let mut all := user
   let mut issue := keys.issue
   if keys.autoDetect.getD true then
@@ -540,7 +563,7 @@ partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array
       let tomlDirs := (if libDir.foundryToml.isSome then [(libDir, root ++ [lib])] else []) ++
         (libDir.children.toList.filter (·.foundryToml.isSome)).map fun c => (c, root ++ [lib, c.name])
       for (nd, np) in tomlDirs do
-        let sub := nestedRemappings nd np
+        let sub := nestedRemappings nd np above
         issue := mergeIssue issue sub.globalIssue
         for r in sub.remaps do
           entries := entries.push { remap := r, nestedDir := some dirIdx }
@@ -548,7 +571,11 @@ partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array
     -- `auto_detect_remappings`.
     for lib in libs do
       let some libDir := d.child? lib | continue
-      for (name, path, amb) in findMany libDir (root ++ [lib]) do
+      let (found, uncertain) := findMany libDir (root ++ [lib]) above
+      if uncertain then
+        issue := mergeIssue issue (some s!"Foundry's scan of {String.intercalate "/" (root ++ [lib])} \
+          depends on directory listing order or on directories above the project root")
+      for (name, path, amb) in found do
         if ["lib/", "src/", "contracts/"].contains name then continue
         let text := String.intercalate "/" path ++ "/"
         entries := entries.push
@@ -571,7 +598,7 @@ partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array
 
 /-- `nested_foundry_remappings(lib)`: `Config::load_with_root(lib).sanitized().remappings`
 plus the library's `src` remapping. A config Foundry fails to load contributes nothing. -/
-partial def nestedRemappings (d : RemapDir) (root : Path) : Provided := Id.run do
+partial def nestedRemappings (d : RemapDir) (root : Path) (above : Bool) : Provided := Id.run do
   let keys := parseFoundryToml (d.foundryToml.getD "")
   let keys := { keys with issue := keys.issue.map (s!"{String.intercalate "/" root}/" ++ ·) }
   let txt ← match d.remappingsTxt with
@@ -579,7 +606,7 @@ partial def nestedRemappings (d : RemapDir) (root : Path) : Provided := Id.run d
     | some t => pure (parseRemappingsTxt root t)
   let toml := (keys.remappings.getD []).mapM (remapOfText root)
   let (some txt, some toml) := (txt, toml) | return { remaps := #[] }
-  let p := provide d root keys (txt ++ toml).toArray
+  let p := provide d root keys (txt ++ toml).toArray above
   -- Round trip through `RelativeRemapping`: names and targets gain a trailing `/`.
   let mut out := p.remaps.map fun r =>
     { r with name := withSlash r.name, pathText := withSlash r.pathText, lib := false }
@@ -617,7 +644,7 @@ def inferFoundryRemappings (root : RemapDir) (explicit : Array (String × String
     match parseRemapping s!"{n}={t}" with
     | some (ctx, name, _) => { context := ctx, name, path := [], pathText := t }
     | none => { context := none, name := n, path := [], pathText := t }
-  let p := provide root [] keys user
+  let p := provide root [] keys user root.aboveRootSource
   let inferred := (p.remaps.filter (·.lib)).map (·.toInferred)
   { remappings := inferred, globalIssue := p.globalIssue }
 
@@ -738,6 +765,8 @@ def readRemapRoot (root : System.FilePath) : IO RemapDir := do
         children := children.push { name := lib, hasSymlink := true }
       else
         children := children.push (← readRemapDir (root / lib) lib)
-  return { shallow with children }
+  let real ← try IO.FS.realPath root catch _ => pure root
+  let aboveRootSource := real.components.any (fun c => c == "src" || c == "contracts")
+  return { shallow with children, aboveRootSource }
 
 end Compiler.CompilationModel.SolidityImport
