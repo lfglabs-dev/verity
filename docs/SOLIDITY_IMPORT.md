@@ -911,7 +911,8 @@ prerequisite for CREATE2 key-derivation helpers, not an implementation of code d
 
 `transient` state variables come from solc's `transientStorageLayout` output instead of
 `storageLayout`. They admit the same scalar types as persistent scalar state variables
-(`bool`, `address`, contracts, `uintN`, `int256`, `bytes32`) and lower to the same reads,
+(`bool`, `address`, contracts, `uintN`, `int256`, `bytes32`, and user-defined value types
+over them) and lower to the same reads,
 writes, compound updates, `delete`, assignment expressions, tuple assignments and public
 getters, on `Field.isTransient` fields (`tload` / `tstore`). Packed neighbors keep their
 bytes; persistent storage at the same slot number is a separate channel. A modifier lock
@@ -919,8 +920,12 @@ follows the transaction boundary: a fresh transaction clears it, a callback in t
 transaction sees it. Narrow signed integers, `bytes1`..`bytes31`, enums and function
 pointers fail closed with a located `unsupported transient scalar storage type`.
 A root whose closure accesses a transient variable and contains inline assembly fails
-closed at the first assembly block: assembly can observe uncleaned narrow stack words
-and write uncleaned transient words, which this slice does not model.
+closed at the first assembly block, including Yul `tload` / `tstore` and `x.slot`. This
+is a conservative bound for this slice: interactions between assembly and transient
+variables are not yet covered by controls. A transient variable that shares its name
+with a persistent one in the inheritance chain is not given a layout: roots that use it
+fail with the shadowed-declaration diagnostic, and roots that reach only the persistent
+variable import unchanged.
 
 ### Development slice: multi-statement `InlineAssembly`, Yul locals & full-word local/parameter assignments, `tstore`, `addmod` / `mulmod`, and `*=`
 

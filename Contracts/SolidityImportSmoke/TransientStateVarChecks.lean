@@ -10,10 +10,22 @@ open Compiler.CompilationModel.SolidityImport.Transactions
 `transientStorageLayout`. Every expected value below was observed on solc 0.8.34
 (optimizer runs 10, Cancun, Anvil) with the legacy and via-IR pipelines, which agree:
 a probe seeds transient slots 0 and 1, calls the function in the same transaction
-and reads transient slots 0 to 2 back. -/
+and reads transient slots 0 to 3 back. -/
+
+solidity_profile irProfile where
+  evmVersion := "cancun"
+  viaIR := true
+  optimizerRuns := some 10
+  bytecodeHash := "none"
+
+solidity_profile legacyProfile where
+  evmVersion := "cancun"
+  viaIR := false
+  optimizerRuns := some 10
+  bytecodeHash := "none"
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function count()
   function sender()
@@ -27,7 +39,7 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "TransientStateVar
   function persistentWithAssembly(uint256)
 
 solidity_import legacy from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := false, optimizerRuns := some 10, bytecodeHash := "none" }
+  using legacyProfile
   contract TransientStateVarSequence
   function count()
   function sender()
@@ -42,7 +54,7 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "TransientStat
 
 private def oracle := SolidityImport.Differential.oracle
 
-/-- Success, return words or revert bytes, persistent slot 0 and transient slots 0 to 2
+/-- Success, return words or revert bytes, persistent slot 0 and transient slots 0 to 3
 after one call from a world with `count` and transient slots 0 and 1 seeded. -/
 private def observe (model : CompilationModel) (name : String) (args : List Nat)
     (count t0 t1 : Nat) :
@@ -59,7 +71,7 @@ private def observe (model : CompilationModel) (name : String) (args : List Nat)
         | .stop st | .continue st | .return _ st => st.world
         | .revert | .revertWithData _ => world
   return (r.success, r.returnWords, r.revertData, r.finalStorage 0,
-    [0, 1, 2].map fun slot => (final.readTransient slot).val)
+    [0, 1, 2, 3].map fun slot => (final.readTransient slot).val)
 
 private def dirty0 := 0xdeadbeefcafe0102030405060708090a0b0c0d0e0f1011ff12345601
 private def dirty1 := 0xabcdef0123456789 * 2 ^ 160 + 77
@@ -74,50 +86,54 @@ private def bothModels (check : CompilationModel → Bool) : Bool :=
 
 -- nonReentrant: an unlocked call clears the lock; a locked call reverts with empty data;
 -- an early return still runs the cleanup; a revert inside the guard rolls back.
-#guard bothModels fun m => observe m "bump" [] 7 0 0 == some (true, [8], none, 8, [0, 0, 0])
-#guard bothModels fun m => observe m "bump" [] 7 1 0 == some (false, [], some [], 7, [1, 0, 0])
+#guard bothModels fun m => observe m "bump" [] 7 0 0 == some (true, [8], none, 8, [0, 0, 0, 0])
+#guard bothModels fun m => observe m "bump" [] 7 1 0 == some (false, [], some [], 7, [1, 0, 0, 0])
 #guard bothModels fun m =>
-  observe m "earlyReturnBump" [1] 7 0 0 == some (true, [17], none, 7, [0, 0, 0])
+  observe m "earlyReturnBump" [1] 7 0 0 == some (true, [17], none, 7, [0, 0, 0, 0])
 #guard bothModels fun m =>
-  observe m "earlyReturnBump" [0] 7 0 0 == some (true, [8], none, 8, [0, 0, 0])
+  observe m "earlyReturnBump" [0] 7 0 0 == some (true, [8], none, 8, [0, 0, 0, 0])
 #guard bothModels fun m =>
-  observe m "failInsideGuard" [] 7 0 0 == some (false, [], some errorGuardRollback, 7, [0, 0, 0])
+  observe m "failInsideGuard" [] 7 0 0 == some (false, [], some errorGuardRollback, 7, [0, 0, 0, 0])
 
 -- Packed slot 0 (bool, uint16, uint8, address), slot 1 (contract, uint64) and full-word
 -- slots: compound updates, increments, `delete` and neighbor bytes from a dirty slot.
 #guard bothModels fun m => observe m "packed" [] 7 0 0 ==
-  some (true, [12, 0, 1, 2, 9, 0x1234, 2 ^ 256 - 5], none, 7, [packedWord0, packedWord1, 0x1234])
+  some (true, [12, 0, 1, 2, 9, 0x1234, 2 ^ 256 - 5], none, 7,
+    [packedWord0, packedWord1, 0x1234, 2 ^ 256 - 5])
 #guard bothModels fun m => observe m "packed" [] 7 dirty0 dirty1 ==
   some (true, [13410, 0, 1, 2, 9, 0x1234, 2 ^ 256 - 5], none, 7,
-    [23450803640979561573830060092471658351661967172142324985094118597121, packedWord1, 0x1234])
+    [23450803640979561573830060092471658351661967172142324985094118597121, packedWord1, 0x1234,
+      2 ^ 256 - 5])
 
 -- Assignment expression, tuple assignment from a helper, narrow compound update, `delete`;
 -- checked `assigned + 1` overflows at 65535 and leaves the dirty slots untouched.
 #guard bothModels fun m => observe m "assignForms" [10, 3] 7 0 0 ==
-  some (true, [10, 17], none, 7, [50334464, 4384504911992708754611054498148849058967797628928, 0])
+  some (true, [10, 17], none, 7,
+    [50334464, 4384504911992708754611054498148849058967797628928, 0, 0])
 #guard bothModels fun m => observe m "assignForms" [65535, 255] 7 dirty0 dirty1 ==
-  some (false, [], some (panicBytes 0x11), 7, [dirty0, dirty1, 0])
+  some (false, [], some (panicBytes 0x11), 7, [dirty0, dirty1, 0, 0])
 
 -- Reads extract each packed field from dirty words; a dirty bool byte reads as `true`.
 #guard bothModels fun m => observe m "readWords" [] 7 0x12aa 0 ==
-  some (true, [1, 18, 0, 0, 0], none, 7, [0x12aa, 0, 0])
+  some (true, [1, 18, 0, 0, 0], none, 7, [0x12aa, 0, 0, 0])
 #guard bothModels fun m => observe m "readWords" [] 7 dirty0 dirty1 ==
   some (true, [1, 13398, 18, 1158880612783701582839550698742125304546199605759,
-    12379813738877118345], none, 7, [dirty0, dirty1, 0])
+    12379813738877118345], none, 7, [dirty0, dirty1, 0, 0])
 #guard bothModels fun m => observe m "lockedEquals" [1] 7 0x12aa 0 ==
-  some (true, [1], none, 7, [0x12aa, 0, 0])
+  some (true, [1], none, 7, [0x12aa, 0, 0, 0])
 #guard bothModels fun m => observe m "lockedEquals" [0] 7 0x1200 0 ==
-  some (true, [1], none, 7, [0x1200, 0, 0])
+  some (true, [1], none, 7, [0x1200, 0, 0, 0])
 #guard bothModels fun m => observe m "sender" [] 7 dirty0 0 ==
-  some (true, [1158880612783701582839550698742125304546199605759], none, 7, [dirty0, 0, 0])
-#guard bothModels fun m => observe m "count" [] 7 dirty0 0 == some (true, [7], none, 7, [dirty0, 0, 0])
+  some (true, [1158880612783701582839550698742125304546199605759], none, 7, [dirty0, 0, 0, 0])
+#guard bothModels fun m =>
+  observe m "count" [] 7 dirty0 0 == some (true, [7], none, 7, [dirty0, 0, 0, 0])
 
 -- A persistent-only closure with assembly keeps main's backend-specific word: legacy keeps
 -- the uncleaned narrow stack word, via-IR cleans it (solc agrees on both).
 #guard observe legacy.model "persistentWithAssembly" [2 ^ 200 + 65537] 7 0 0 ==
-  some (true, [2 ^ 200 + 65537], none, 2 ^ 200 + 65537, [0, 0, 0])
+  some (true, [2 ^ 200 + 65537], none, 2 ^ 200 + 65537, [0, 0, 0, 0])
 #guard observe ir.model "persistentWithAssembly" [2 ^ 200 + 65537] 7 0 0 ==
-  some (true, [1], none, 2 ^ 200 + 65537, [0, 0, 0])
+  some (true, [1], none, 2 ^ 200 + 65537, [0, 0, 0, 0])
 
 -- Persistent storage at the same slot number is a separate channel.
 private def slotZero (m : CompilationModel) (name : String) (isTransient : Bool) : Bool :=
@@ -164,7 +180,7 @@ delta
 -/
 #guard_msgs in
 solidity_import unsupportedSigned from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function readSigned()
 
@@ -175,7 +191,7 @@ tag
 -/
 #guard_msgs in
 solidity_import unsupportedFixedBytes from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function readTag()
 
@@ -186,7 +202,7 @@ mode
 -/
 #guard_msgs in
 solidity_import unsupportedEnum from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function readMode()
 
@@ -197,7 +213,7 @@ pointer
 -/
 #guard_msgs in
 solidity_import unsupportedPointer from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function clearPointer()
 
@@ -210,7 +226,7 @@ assembly { word := tload(0) }
 -/
 #guard_msgs in
 solidity_import rawAssemblyInRoot from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function rawInRoot()
 
@@ -221,7 +237,7 @@ assembly { slotWord := sender.slot }
 -/
 #guard_msgs in
 solidity_import slotAssemblyInRoot from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function slotInRoot()
 
@@ -232,19 +248,39 @@ assembly { word := v }
 -/
 #guard_msgs in
 solidity_import rawAssemblyInHelper from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract TransientStateVarSequence
   function rawInHelper()
 
--- A transient variable shadowing a persistent one keeps the shadowing rejection.
+-- A transient variable shadowing a persistent one keeps the shadowing rejection where it is
+-- used, while a root reaching only the persistent base variable imports as before.
+solidity_import baseOnly from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
+  using irProfile
+  contract ShadowedTransientChild
+  function touchBaseOnly()
+
+#guard observe baseOnly.model "touchBaseOnly" [] 0 0 0 == some (true, [], none, 1, [0, 0, 0, 0])
+#guard baseOnly.model.fields.all (!·.isTransient)
+
 /--
-error: TransientStateVarSequence.sol:123:37: Identifier: [solidity-import:unsupported] shadowed storage declaration shadowed is outside this slice
-closure: ShadowedTransientChild.touchChild -> ShadowedTransientBase.touchBase
+error: TransientStateVarSequence.sol:121:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable number is unsupported
+closure: TransientStateVarSequence.rawInModifier
+assembly { word := 1 }
+-/
+#guard_msgs in
+solidity_import rawAssemblyInModifier from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
+  using irProfile
+  contract TransientStateVarSequence
+  function rawInModifier()
+
+/--
+error: TransientStateVarSequence.sol:141:9: Identifier: [solidity-import:unsupported] shadowed storage declaration shadowed is outside this slice
+closure: ShadowedTransientChild.touchChild
 shadowed
 -/
 #guard_msgs in
 solidity_import unsupportedShadowed from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
-  using { evmVersion := "cancun", viaIR := true, optimizerRuns := some 10, bytecodeHash := "none" }
+  using irProfile
   contract ShadowedTransientChild
   function touchChild()
 
