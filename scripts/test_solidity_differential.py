@@ -70,6 +70,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "scalar-array-abi-rejections",
     "scoped",
     "selector-responder",
+    "state-count-invariance",
     "storage",
     "storage-byte-constant-conversions",
     "storage-bytes",
