@@ -1358,7 +1358,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          'VariableDeclaration: [solidity-import:unsupported] unsupported dynamic memory array local type int128[]'),
         # `S[] memory` through internal helpers (#2721).
         ('memory-struct-array-issue-helpers-accepted',
-         "pragma solidity 0.8.34;\ncontract C {\n  struct UserAssetBalance { address asset; uint256 userBalance; uint256 totalSupply; }\n  function _getBalances(address asset) internal pure returns (UserAssetBalance[] memory list) {\n    list = new UserAssetBalance[](1);\n    list[0] = UserAssetBalance({asset: asset, userBalance: 1, totalSupply: 10});\n  }\n  function _sumBalances(UserAssetBalance[] memory list) internal pure returns (uint256) {\n    return list.length;\n  }\n  function claim(address asset) external pure returns (uint256) {\n    return _sumBalances(_getBalances(asset));\n  }\n}\n",
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Holding { address asset; uint256 held; uint256 supply; }\n  function _holdings(address asset) internal pure returns (Holding[] memory list) {\n    list = new Holding[](1);\n    list[0] = Holding({asset: asset, held: 1, supply: 10});\n  }\n  function _countHoldings(Holding[] memory list) internal pure returns (uint256) {\n    return list.length;\n  }\n  function claim(address asset) external pure returns (uint256) {\n    return _countHoldings(_holdings(asset));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),

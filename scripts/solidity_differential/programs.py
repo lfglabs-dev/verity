@@ -3885,8 +3885,8 @@ ROOT_PARAM_RENAMES = {
         {'list', 'n', 'i', 's', 'k', 'b', 'x', 'shared', 'zeros', 'first', 'probe', 'dirty',
          'd', 'single', 'users', 'supplied', 'picked', 'view_'},
         {'asset', 'amount', 'total', 'active', 'build', 'zeroed', 'sum', 'bump', 'same', 'touch',
-         'UserAssetBalance', 'userBalance', 'totalSupply', 'fill', 'supplyOf',
-         '_getBalances', '_sumBalances', 'value', 'last', 'stored'}),
+         'Holding', 'held', 'supply', 'fill', 'supplyOf',
+         '_holdings', '_countHoldings', 'value', 'last', 'stored'}),
 }
 
 
