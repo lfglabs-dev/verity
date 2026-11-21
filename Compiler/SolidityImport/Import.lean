@@ -8897,6 +8897,15 @@ private partial def bindYulExternalConstants (j : Json) (allowAllStateVarSlots :
           unless isConst || isImm do
             let ident ← mStr (← mField decl "name")
             let slotName := s!"{ident}.slot"
+            if let some bound := env.yulNames.find? slotName then
+              -- A caller's storage parameter or local of the same name binds `<name>.slot`
+              -- for another declaration; it must not stand in for this state variable's slot.
+              let info ← resolveField ident j
+              let ownSlot := match bound with
+                | .literal slot => slot == info.slot
+                | _ => false
+              unless ownSlot do
+                failAt j s!"shadowed storage declaration {ident} is outside this slice"
             if !env.yulNames.contains ident && !env.yulNames.contains slotName then
               if env.duplicateLayoutLabels.contains ident then
                 failAt j s!"shadowed storage declaration {ident} is outside this slice"
