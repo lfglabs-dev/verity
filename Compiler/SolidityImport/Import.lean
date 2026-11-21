@@ -511,6 +511,9 @@ private def buildField (types item : Json) (isTransient : Bool := false) : M Fie
          memberNames := names, opaqueNames := skipped, booleanMembers, structFixedArrays, structMappings,
          structDynamicArrays, subStructs, signedMembers, structMembers := members' }
 
+/-- Marks a layout item that came from solc's `transientStorageLayout`. -/
+private def transientLayoutKey : String := "verityTransientLayout"
+
 /-- Record a transient state variable in the current root's closure. -/
 private def noteTransientField (info : FieldInfo) : M Unit := do
   let name := info.field.name
@@ -527,8 +530,7 @@ private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
     return info
   let env ← get
   let some item := env.layoutItems.find? name | failAt at_ s!"no storage layout for {name}"
-  let id ← mNat (← mField item "astId")
-  let isTransient := (env.stateVars.find? id >>= (optStr · "storageLocation")) == some "transient"
+  let isTransient := (field? item transientLayoutKey).bind (·.getBool?.toOption) == some true
   let types := if isTransient then env.transientLayoutTypes else env.layoutTypes
   let info ← try buildField types item isTransient catch ex =>
     failAt at_ (← ex.toMessageData.toString)
@@ -18819,11 +18821,21 @@ private def importSlice
     | some tl => pure (← field tl "types", ← arr (← field tl "storage"))
     | none => pure (Json.null, #[])
   env := { env with layoutTypes := types, transientLayoutTypes := transientTypes }
-  for item in items ++ transientItems do
+  for item in items do
     let label ← str (← field item "label")
     if env.layoutItems.contains label && !env.duplicateLayoutLabels.contains label then
       env := { env with duplicateLayoutLabels := env.duplicateLayoutLabels.push label }
     env := { env with layoutItems := env.layoutItems.insert label item }
+  let persistentItems := env.layoutItems
+  for item in transientItems do
+    let label ← str (← field item "label")
+    -- A persistent variable keeps its label: the transient namesake stays unresolved and
+    -- its uses hit the shadowed-declaration rejection, as without transient layouts.
+    if persistentItems.contains label then continue
+    if env.layoutItems.contains label && !env.duplicateLayoutLabels.contains label then
+      env := { env with duplicateLayoutLabels := env.duplicateLayoutLabels.push label }
+    let tagged := item.setObjVal! transientLayoutKey (.bool true)
+    env := { env with layoutItems := env.layoutItems.insert label tagged }
   let mut specs : Array FunctionSpec := #[]
   let mut projections : Array ParamProjection := #[]
   let mut signatures : Array Json := #[]

@@ -115,6 +115,16 @@ contract TransientStateVarSequence is TransientStateVarBase {
         uint16 y = uint16(count);
         assembly { word := y }
     }
+
+    modifier observed() {
+        uint256 word;
+        assembly { word := 1 }
+        _;
+    }
+
+    function rawInModifier() external observed {
+        number = 1;
+    }
 }
 
 contract ShadowedTransientBase {
@@ -129,5 +139,9 @@ contract ShadowedTransientChild is ShadowedTransientBase {
     function touchChild() external {
         touchBase();
         shadowed = 2;
+    }
+
+    function touchBaseOnly() external {
+        touchBase();
     }
 }
