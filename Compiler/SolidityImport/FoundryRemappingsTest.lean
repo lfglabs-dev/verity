@@ -183,6 +183,9 @@ private def withSymlink : InferredRemappings :=
 #guard resolveWith #[("x/", "y/")] withSymlink "src/A.sol" == none
 #guard (resolveImport "src/E.sol" "./A.sol" #[("x/", "y/")] withSymlink).toOption.map (·.1) ==
   some "src/A.sol"
+-- A written name without a trailing `/` keeps longer inferred names it prefixes, so it is
+-- refused too while the inferred set is unknown.
+#guard resolveWith #[("oz", "vendor/oz/")] withSymlink "ozx/A.sol" == none
 
 -- `foundry.toml` reading: only `[profile.default]` counts; other profiles are ignored; a
 -- modeled key outside any profile, or an unreadable value, is an issue.
@@ -196,6 +199,24 @@ private def withSymlink : InferredRemappings :=
 -- Other keys pass when they are well-formed TOML lines, including multi-line inline tables.
 #guard (FoundryRemap.parseFoundryToml
   "[profile.default]\nfs_permissions = [\n  { access = \"read\", path = \"./a\" },\n]\nruns = 10_000\n[fuzz]\nseed = '0x1'\n").issue.isNone
-#guard (FoundryRemap.parseFoundryToml "[profile.default]\nkey = \"\"\"\nx\n\"\"\"\n").issue.isSome
+-- Multi-line strings are skipped; an unterminated one is an issue.
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nkey = \"\"\"\nx = [\n\"\"\"\nsrc = 'c'\n").src ==
+  some "c"
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nkey = \"\"\"\nx\n").issue.isSome
+-- Keys are matched as Foundry reads them: snake case, dotted paths into `profile.default`.
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nLibs = ['deps']\n").libs == some ["deps"]
+#guard (FoundryRemap.parseFoundryToml "profile.default.libs = ['deps']\n").libs == some ["deps"]
+#guard (FoundryRemap.parseFoundryToml "[profile]\ndefault.src = 'x'\n").src == some "x"
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nauto-detect-remappings = false\n").autoDetect ==
+  some false
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nautoDetectRemappings = false\n").autoDetect ==
+  some false
+#guard (FoundryRemap.parseFoundryToml "[default]\nlibs = ['deps']\n").issue.isSome
+#guard (FoundryRemap.parseFoundryToml "[profile.ci]\nlibs = ['deps']\n").issue.isNone
+-- The project's own `foundry.toml` is read leniently: Foundry could not build the project at
+-- all if it rejected the file, so a line this reader does not check is no issue there.
+#guard (FoundryRemap.parseFoundryToml "[profile.default]\nnot toml\n" (strict := false)).issue.isNone
+#guard (inferFoundryRemappings (layout [("foundry.toml", "[profile.default]\nnot toml\n"),
+  ("src/A.sol", "")]) #[]).globalIssue.isNone
 
 end Compiler.CompilationModel.SolidityImport.FoundryRemappingsTest

@@ -8,8 +8,9 @@ Imports through Foundry's inferred remappings (issue #2835).
   `forge remappings` prints), which imports `./Bounds.sol` relatively, and `local/Scale.sol`
   through the written `local/=src/local/`. solc receives both remappings, and the report
   lists the inferred one.
-* `inferred-remappings-unknown/`: the same import while the root `foundry.toml` holds a line
-  the importer cannot check. Foundry's inferred set is then unknown, and the import fails.
+* `inferred-remappings-unknown/`: the same import while a library (`deps/bad`) has a
+  `foundry.toml` line the importer cannot check. Foundry would skip that library's config,
+  so its inferred set is unknown here, and the import fails.
 -/
 namespace SolidityImportSmoke.InferredRemappingsChecks
 open Compiler.CompilationModel.SolidityImport
@@ -27,7 +28,7 @@ private def has (text needle : String) : Bool := (text.splitOn needle).length > 
 #guard has inferred.report.toText "\ninferred remapping dep/=deps/dep/src/\n"
 
 /--
-error: src/Entry.sol: import dep/DepMath.sol needs Foundry's inferred remapping dep/=deps/dep/src/, but the inferred set is unknown here (foundry.toml line 3 is not TOML this reader checks); write the remapping in remappings.txt
+error: src/Entry.sol: import dep/DepMath.sol needs Foundry's inferred remapping dep/=deps/dep/src/, but the inferred set is unknown here (deps/bad/foundry.toml line 2 is not TOML this reader checks); write the remapping in remappings.txt
 -/
 #guard_msgs in
 solidity_import unknown from "Contracts/SolidityImportSmoke/inferred-remappings-unknown"
