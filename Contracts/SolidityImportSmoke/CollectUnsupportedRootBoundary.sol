@@ -13,9 +13,9 @@ contract CollectUnsupportedRootBoundary {
     function pick(address) external view returns (uint256) {
         return total;
     }
-    function narrowKey(bytes2 key) external returns (uint256) {
+    function narrowKey(bytes2[2] calldata key) external returns (uint256) {
         do { total += 1; } while (total < 10);
-        return uint256(uint16(key));
+        return uint256(uint16(key[0]));
     }
     function narrowResult(uint256 x) external returns (bytes2 r) {
         do { x += 1; } while (x < 10);

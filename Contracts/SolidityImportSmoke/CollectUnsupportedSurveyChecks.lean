@@ -223,7 +223,7 @@ gives exactly one entry for the root: its body, which also has an unsupported
 /--
 warning: collectUnsupported: 2 of 3 roots unsupported; no model, theorem or accessor is emitted, and an unsupported root proves nothing
 status narrowKey unsupported constructs 1 denoteCovered false compilerProof unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)
-  CollectUnsupportedRootBoundary.sol:16:24 VariableDeclaration: unsupported parameter type bytes2 (closure CollectUnsupportedRootBoundary.narrowKey)
+  CollectUnsupportedRootBoundary.sol:16:24 VariableDeclaration: unsupported parameter type bytes2[2] (closure CollectUnsupportedRootBoundary.narrowKey)
 status narrowResult unsupported constructs 1 denoteCovered false compilerProof unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)
   CollectUnsupportedRootBoundary.sol:20:56 VariableDeclaration: unsupported named root return type bytes2 (closure CollectUnsupportedRootBoundary.narrowResult)
 -/
@@ -232,7 +232,7 @@ solidity_import boundary from "Contracts/SolidityImportSmoke"
   entry "CollectUnsupportedRootBoundary.sol"
   using survey
   contract CollectUnsupportedRootBoundary
-  function narrowKey(bytes2)
+  function narrowKey(«bytes2[2]»)
   function narrowResult(uint256)
   function read()
 
