@@ -9341,21 +9341,6 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
   unless rets.size == 1 do failAt fn "string helper must have one return parameter"
   let r := rets[0]!
   let rname ← mStr (← mField r "name")
-  if !(← get).forwardingBytesTuple && (← get).stateVars.size > 1 && optStr fn "name" == some "callHook" && args.size == 2 then
-    let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
-    modify fun e => { e with yulNames := yul }
-    noteFn fn
-    let p0Id ← mNat (← mField params[0]! "id")
-    let p1Id ← mNat (← mField params[1]! "id")
-    let some selfExpr := (← get).values.find? p0Id | failAt fn "missing callHook self"
-    let some dataBuf := (← get).byteBuffers.find? p1Id | failAt fn "missing callHook data"
-    let inReturnDelta := saved.stack.any fun callerId =>
-      ((saved.funs.find? callerId).bind fun cf => optStr cf "name") == some "callHookWithReturnDelta"
-    let resBuf ← lowerHooksCallShim inReturnDelta selfExpr dataBuf
-    modify fun e =>
-      { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-    return { pre := boundPre ++ resBuf.pre, pointer := resBuf.pointer, size := resBuf.size }
   let rloc := optStr r "storageLocation" |>.getD "default"
   let rty ← mType r
   if rname != "" && rloc == "memory" && rty == "bytes" then
