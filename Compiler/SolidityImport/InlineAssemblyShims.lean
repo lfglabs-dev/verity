@@ -243,8 +243,8 @@ def inlineAssemblyRefsWithin (asm : Json) (declIds : List Nat) : Bool :=
 
 /-- `yulBlockFingerprint` of the `assembly` block of `Extsload.extsload(bytes32 startSlot,
 uint256 nSlots)` in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75`
-(`src/Extsload.sol`). It selects the block that `lowerBatchRangeSloadShim` replaces; the
-lowering's agreement with that block is a separate, tested claim (`TailAssemblyRangeRead`). -/
+(`src/Extsload.sol`). It only selects the block that `lowerBatchRangeSloadShim` replaces; it
+says nothing about whether that lowering agrees with the block. -/
 def extsloadRangeYulFingerprint : String :=
   "d9730e93af57142b904009c9e095ae86ca3d5b56703996afe94872b2ad280ebc"
 
@@ -287,23 +287,33 @@ def lowerBatchArrayLoadShim (arr : ScalarArrayParam) (isTransient : Bool) : M (A
   ]
 
 /-- Lower `Extsload.extsload(bytes32 startSlot, uint256 nSlots)` into an ABI-encoded
-memory buffer loop and `SolidityReturnMemory.module` transport. -/
+memory buffer loop and `SolidityReturnMemory.module` transport.
+
+The block's byte length `shl(5, nSlots)` wraps, so it reads `m := nSlots mod 2^251` words and
+returns `(0x40 + 32 * m) mod 2^256` bytes, keeping the full `nSlots` as the length word. When
+`m` is `2^251 - 2` or `2^251 - 1` that is 0 or 32 bytes and no returned word is read. A count
+whose result does not fit in memory runs out of gas on the EVM; here `AbiEncoding.reserve`
+reverts with `Panic(0x41)` instead (gas is not modeled). -/
 def lowerBatchRangeSloadShim (startSlotExpr nSlotsExpr : Expr) : M (Array Stmt) := do
   let startVar ← fresh
   let finishVar ← fresh
   let loopIdx ← fresh
-  let totalBytes := Expr.add (.literal 64) (.mul nSlotsExpr (.literal 32))
+  let countVar ← fresh
+  let count := Expr.localVar countVar
+  let totalBytes := Expr.add (.literal 64) (.mul count (.literal 32))
   modify fun e => { e with encodingMemory := true, usedRawStorage := true }
   let allocStmts := AbiEncoding.reserve startVar finishVar totalBytes
   let slotExpr := Expr.add startSlotExpr (.localVar loopIdx)
   let loadedVal := Expr.storageArrayElement rawStorageFieldName slotExpr
   let destAddr := Expr.add (.add (.localVar startVar) (.literal 64)) (.mul (.localVar loopIdx) (.literal 32))
-  return allocStmts.toArray ++ #[
+  return #[.letVar countVar (.mod nSlotsExpr (.literal (2 ^ 251)))] ++ allocStmts.toArray ++ #[
     .mstore (.localVar startVar) (.literal 32),
     .mstore (.add (.localVar startVar) (.literal 32)) nSlotsExpr,
-    .forEach loopIdx nSlotsExpr [
-      .mstore destAddr loadedVal
-    ],
+    .ite (.lt count (.literal (2 ^ 251 - 2))) [
+      .forEach loopIdx count [
+        .mstore destAddr loadedVal
+      ]
+    ] [],
     .ecm Compiler.ECM.SolidityReturnMemory.module [.localVar startVar, totalBytes],
     .revertEmpty
   ]
