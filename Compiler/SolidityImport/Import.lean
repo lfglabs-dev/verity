@@ -539,6 +539,10 @@ private partial def refersToByRefStruct (j : Json) : M Bool := do
   | "Conditional" =>
       pure ((← refersToByRefStruct (← mField j "trueExpression")) ||
         (← refersToByRefStruct (← mField j "falseExpression")))
+  | "MemberAccess" =>
+      -- A nested struct member of a by-reference struct is part of the alias.
+      if (← mType j).startsWith "struct " then refersToByRefStruct (← mField j "expression")
+      else pure false
   | _ => pure false
 
 private def readRawStructScalar (pre : Array Stmt) (baseSlot : Expr) (mInfo : RawStructMemberInfo) : M Val := do
@@ -1183,6 +1187,8 @@ private def yulMemoryStructHash? (ptrNode sizeNode : Json) (lowerYulFn : Json �
   let mut pre : Array Stmt := #[]
   let mut words : List Expr := []
   if let some flat := env.flatStructs.find? declId then
+    if flat.members.any (fun (leaf, _, _) => leaf.contains '.') then
+      failAt ptrNode "raw memory hash of a flattened nested struct is outside this slice"
     for (_, mTy, binding) in flat.members do
       unless !mTy.startsWith "enum " && mTy != "bytes4" && mTy != "bytes1" && (paramType mTy).isSome do
         failAt ptrNode s!"unsupported Yul struct keccak256 member type {mTy}"
@@ -4175,9 +4181,26 @@ private partial def lowerRef (j : Json) : M Ref := do
             pure (.expr { pre := #[], expr := .literal elements.size })
         | .flatStruct id =>
             let some flat := (← get).flatStructs.find? id | failAt j "unknown flat struct local"
-            let some (_, _, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
-              | failAt j s!"{member} is not a member of {flat.structName}"
-            pure (.expr { pre := #[], expr := .localVar binding })
+            if let some (_, _, binding) := flat.members.find? (fun (mName, _, _) => mName == member) then
+              pure (.expr { pre := #[], expr := .localVar binding })
+            else
+              -- A static nested struct member: a view over its leaves'
+              -- bindings (under a synthetic id), so reads and writes through
+              -- `s.m.x` reach the same bindings as the whole struct.
+              let pfx := s!"{member}."
+              let sub := flat.members.filterMap fun (mName, mTy, binding) =>
+                if mName.startsWith pfx then some ((mName.drop pfx.length).toString, mTy, binding) else none
+              if sub.isEmpty then failAt j s!"{member} is not a member of {flat.structName}"
+              let (subSid, subDecl) ← resolveStructDeclFromType j
+              let subId := 1000000000 + (← get).next
+              modify fun e =>
+                { e with next := e.next + 1,
+                         flatStructs := e.flatStructs.insert subId
+                           { structId := subSid, structName := optStr subDecl "name" |>.getD "", members := sub },
+                         byRefFlatStructs :=
+                           if e.byRefFlatStructs.contains id then subId :: e.byRefFlatStructs.erase subId
+                           else e.byRefFlatStructs.filter (· != subId) }
+              pure (.flatStruct subId)
         | .mem id pre =>
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
             if let some schema := mem.schema then
@@ -12936,21 +12959,38 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
       for (mNode, arg) in sMembers.zip args do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
+        if mTy.startsWith "struct " && !mTy.contains "[" then
+          -- A static nested struct member: its value's leaves (a fresh
+          -- constructor or helper result; a memory struct local would be shared).
+          let subSid ← refInt (← mField mNode "typeName")
+          let (_, _, subPre, subVals) ← lowerFlatStructValue arg (some subSid.toNat) false
+          pre := pre ++ subPre
+          memberVals := memberVals ++ subVals.map fun (n, t, e) => (s!"{mName}.{n}", t, e)
+          continue
         unless !mTy.startsWith "enum " && (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
         let normExpr := cleanHelperResultExpr mTy convVal
-        let normVal ← atom { pre := convVal.pre, expr := normExpr }
-        pre := pre ++ normVal.pre
-        memberVals := memberVals.push (mName, mTy, normVal.expr)
+        -- Snapshot: a later argument may write a local this one read (`S(k, k++)`).
+        let snap ← fresh
+        pre := (pre ++ convVal.pre).push (.letVar snap normExpr)
+        memberVals := memberVals.push (mName, mTy, .localVar snap)
       return (sid.toNat, sName, pre, memberVals)
     else
       unless names.size == args.size do
         failAt j "named struct constructor name/argument count mismatch"
       let mut pre : Array Stmt := #[]
       let mut evaluatedByName : Array (String × String × Expr) := #[]
-      for i in [:args.size] do
+      let written ← names.mapM mStr
+      let mut order := Array.range args.size
+      if !(← get).viaIR then
+        -- Legacy evaluates in declaration order, even when two pure arguments panic.
+        order ← sMembers.mapM fun m => do
+          let name ← mStr (← mField m "name")
+          let some i := written.findIdx? (· == name) | failAt j s!"missing struct constructor member {name}"
+          return i
+      for i in order do
         let argName ← mStr names[i]!
         let arg := args[i]!
         if statefulCallIn arg (← get) || assignmentIn arg then
@@ -12964,20 +13004,27 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
         let some mNode := matchedMember?
           | failAt j s!"unknown struct constructor member {argName}"
         let mTy ← mType mNode
+        if mTy.startsWith "struct " && !mTy.contains "[" then
+          let subSid ← refInt (← mField mNode "typeName")
+          let (_, _, subPre, subVals) ← lowerFlatStructValue arg (some subSid.toNat) false
+          pre := pre ++ subPre
+          evaluatedByName := evaluatedByName ++ subVals.map fun (n, t, e) => (s!"{argName}.{n}", t, e)
+          continue
         unless !mTy.startsWith "enum " && (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
         let normExpr := cleanHelperResultExpr mTy convVal
-        let normVal ← atom { pre := convVal.pre, expr := normExpr }
-        pre := pre ++ normVal.pre
-        evaluatedByName := evaluatedByName.push (argName, mTy, normVal.expr)
+        let snap ← fresh
+        pre := (pre ++ convVal.pre).push (.letVar snap normExpr)
+        evaluatedByName := evaluatedByName.push (argName, mTy, .localVar snap)
       let mut memberVals : Array (String × String × Expr) := #[]
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
-        let some (_, mTy, expr) := evaluatedByName.find? (fun (n, _, _) => n == mName)
-          | failAt j s!"missing struct constructor member {mName}"
-        memberVals := memberVals.push (mName, mTy, expr)
+        let leaves := evaluatedByName.filter (fun (n, _, _) => n == mName || n.startsWith s!"{mName}.")
+        if leaves.isEmpty then
+          failAt j s!"missing struct constructor member {mName}"
+        memberVals := memberVals ++ leaves
       return (sid.toNat, sName, pre, memberVals)
   if (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" &&
       (← mType j).startsWith "struct " && !(← mType j).contains "[" &&
@@ -13742,6 +13789,24 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         rejectByRefStructWrite structLocalId target
         let some flat := (← get).flatStructs.find? structLocalId
           | failAt target "unknown flat struct local"
+        let pfx := s!"{member}."
+        let sub := flat.members.filter fun (mName, _, _) => mName.startsWith pfx
+        if !sub.isEmpty then
+          -- `s.m = v` for a static nested struct member: every leaf. solc
+          -- would share a memory struct local's pointer, so only fresh values
+          -- (constructors, helper results, storage reads) are admitted.
+          if deleting then
+            return sub.map fun (_, _, binding) => Stmt.assignVar binding (.literal 0)
+          let (subSid, _) ← resolveStructDeclFromType target
+          let (_, _, rhsPre, memberVals) ← lowerFlatStructValue (← mField expression "rightHandSide") (some subSid) false
+          unless memberVals.size == sub.size do
+            failAt expression "nested struct assignment member count mismatch"
+          let mut out := rhsPre
+          for ((mName, _, binding), (rhsName, _, mExpr)) in sub.zip memberVals do
+            unless mName == s!"{pfx}{rhsName}" do
+              failAt expression s!"nested struct member mismatch {mName} != {pfx}{rhsName}"
+            out := out.push (.assignVar binding mExpr)
+          return out
         let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
           | failAt target s!"unknown flat struct member {member}"
         if deleting then
@@ -15625,6 +15690,8 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
+        if mTy.startsWith "struct " then
+          failAt d "uninitialized nested struct locals are outside this slice"
         let binding ← freshFor s!"{name}_{mName}"
         out := out.push (.letVar binding (.literal 0))
         members := members.push (mName, mTy, binding)
@@ -16197,6 +16264,33 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
       return some .string
   | _ => return none
 
+/-- The flat leaves of memory struct `sid`: its members in declaration order,
+with each member of a static struct type replaced by that struct's leaves,
+named `member.leaf` (solc ABI-encodes a static nested struct inline, so the
+leaves are the encoded words in order). `none` when a member is neither a
+non-`enum` ABI scalar nor such a struct. -/
+private partial def flatStructLeaves? (sid : Nat) (fuel : Nat := 8) :
+    M (Option (Array (String × String))) := do
+  if fuel == 0 then return none
+  let some decl := (← get).structs.find? sid | return none
+  let members ← mArr (← mField decl "members")
+  if members.isEmpty then return none
+  let mut out : Array (String × String) := #[]
+  for m in members do
+    let name ← mStr (← mField m "name")
+    let ty ← mType m
+    if !ty.startsWith "enum " && (paramType ty).isSome then
+      out := out.push (name, ty)
+    else if ty.startsWith "struct " && !ty.contains "[" then
+      let subId ← refInt (← mField m "typeName")
+      if subId < 0 then return none
+      let some subLeaves ← flatStructLeaves? subId.toNat (fuel - 1) | return none
+      for (leaf, leafTy) in subLeaves do
+        out := out.push (s!"{name}.{leaf}", leafTy)
+    else
+      return none
+  return some out
+
 private def functionFlatStructReturnType? (fn : Json) :
     M (Option (Nat × String × String × Nat × Array (String × String × ParamType))) := do
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
@@ -16211,10 +16305,8 @@ private def functionFlatStructReturnType? (fn : Json) :
   let retMembers ← mArr (← mField retDecl "members")
   unless !retMembers.isEmpty do return none
   let mut memberSpecs : Array (String × String × ParamType) := #[]
-  for mNode in retMembers do
-    let mName ← mStr (← mField mNode "name")
-    let mTy ← mType mNode
-    unless !mTy.startsWith "enum " do return none
+  let some leaves ← flatStructLeaves? retSid | return none
+  for (mName, mTy) in leaves do
     let some mPty := paramType mTy | return none
     memberSpecs := memberSpecs.push (mName, mTy, mPty)
   let rname ← mStr (← mField r "name")

@@ -40,6 +40,7 @@ STORAGE_FIXTURES = (
     'tuple-destructuring',
     'event-nested-mapping-read',
     'storage-string-members',
+    'nested-memory-struct-return',
 )
 
 def stateful_campaign(output, transactions, seed, jobs=1):

@@ -470,7 +470,12 @@ def _bytes_array_param_calls():
 # passed to the model's `compile` in this order (first appearance in each call
 # list), and `compile` maps them positionally onto the Model.lean function list,
 # so each fixture's Model.lean lists its roots in that same order.
-ROOT_PARAM_CALLS = (_struct_string_member_calls, _struct_array_param_calls, _bytes_array_param_calls)
+def _nested_snapshot_calls():
+    return [('snapshot(uint256)', [k]) for k in (7, (1 << 128) + 3)]
+
+
+ROOT_PARAM_CALLS = (_struct_string_member_calls, _struct_array_param_calls, _bytes_array_param_calls,
+                    _nested_snapshot_calls)
 ROOT_PARAM_SIGNATURES = {sig: gen for gen in ROOT_PARAM_CALLS for sig, _ in gen()}
 
 
