@@ -182,8 +182,44 @@ def lowerHooksCallShim (inReturnDelta : Bool) (selfExpr : Expr) (dataBuf : Encod
     size := .literal (if inReturnDelta then 64 else 96)
   }
 
+/-- `j` without solc's source positions (`src`, `nativeSrc`), so that a fingerprint depends
+only on the code. -/
+partial def yulAstWithoutSrc : Json → Json
+  | .obj kvs => Json.mkObj <| kvs.foldl (init := []) fun acc k v =>
+      if k == "src" || k == "nativeSrc" then acc else acc ++ [(k, yulAstWithoutSrc v)]
+  | .arr xs => .arr (xs.map yulAstWithoutSrc)
+  | j => j
+
+/-- Fingerprint of an `InlineAssembly` node: sha256 of its solc Yul AST (`AST`) without source
+positions, as printed by `Json.compress` (keys sorted). Comments and layout do not count;
+identifiers, literals and statement structure do. -/
+def yulBlockFingerprint (asm : Json) : String :=
+  sha256Hex (yulAstWithoutSrc ((asm.getObjVal? "AST").toOption.getD .null)).compress.toUTF8
+
+/-- Whether `asm` (an `InlineAssembly` node) has at least one Solidity reference and every one
+resolves to declaration `declId`. -/
+def inlineAssemblyRefsOnlyDecl (asm : Json) (declId : Nat) : Bool :=
+  match (asm.getObjVal? "externalReferences").toOption.bind (fun v => v.getArr?.toOption) with
+  | some refs => !refs.isEmpty && refs.all fun ref =>
+      ((ref.getObjVal? "declaration").toOption.bind (fun d => d.getNat?.toOption)) == some declId
+  | none => false
+
+/-- `yulBlockFingerprint` of the `assembly` block of `Extsload.extsload(bytes32[] calldata slots)`
+in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` (`src/Extsload.sol`), the only code
+`lowerBatchArrayLoadShim` models with `isTransient := false`. Same value for solc 0.8.26 to 0.8.34. -/
+def extsloadBatchYulFingerprint : String :=
+  "be5cd0027ebaa78d230b732c81cebe4339c348553867668201b357cc758aae83"
+
+/-- `yulBlockFingerprint` of the `assembly` block of `Exttload.exttload(bytes32[] calldata slots)`
+in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` (`src/Exttload.sol`), the only code
+`lowerBatchArrayLoadShim` models with `isTransient := true`. -/
+def exttloadBatchYulFingerprint : String :=
+  "fde99fddf01f23a921eb50aadccf35541f1d93ab92ea966af76de65e839097f8"
+
 /-- Lower `Exttload.exttload(bytes32[] calldata slots)` and `Extsload.extsload(bytes32[] calldata slots)`
-into an ABI-encoded memory buffer loop and `SolidityReturnMemory.module` transport. -/
+into an ABI-encoded memory buffer loop and `SolidityReturnMemory.module` transport.
+Callers apply it only to a block whose `yulBlockFingerprint` is `extsloadBatchYulFingerprint` or
+`exttloadBatchYulFingerprint`. -/
 def lowerBatchArrayLoadShim (arr : ScalarArrayParam) (isTransient : Bool) : M (Array Stmt) := do
   let startVar ← fresh
   let finishVar ← fresh

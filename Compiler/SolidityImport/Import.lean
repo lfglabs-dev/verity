@@ -17673,8 +17673,15 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               handledScratchReturn := true
           if !handledScratchReturn && stmtIsTail && env.rootPost.isEmpty &&
               env.rootReturnTypes == #["bytes32[]"] && env.stateVars.size > 1 then
-            if let [(_, arr)] := env.scalarArrays.toList then
-              let isTransient := (s.compress.splitOn "\"tload\"").length > 1
+            if let [(arrId, arr)] := env.scalarArrays.toList then
+              -- The shim replaces the block: apply it only to the exact v4 `extsload`/`exttload`
+              -- code, whose every Solidity reference resolves to the bound calldata array.
+              let fingerprint := yulBlockFingerprint s
+              let refsArr := inlineAssemblyRefsOnlyDecl s arrId
+              let isTransient ←
+                if refsArr && fingerprint == extsloadBatchYulFingerprint then pure false
+                else if refsArr && fingerprint == exttloadBatchYulFingerprint then pure true
+                else failAt s s!"shortcut fingerprint mismatch: tail assembly of a bytes32[]-returning function is not a registered calldata-keyed batch slot read (fingerprint {fingerprint.take 12})"
               let shimStmts ← lowerBatchArrayLoadShim arr isTransient
               modify fun e => { e with yulNames := savedAsmYul }
               out := out ++ extPre ++ shimStmts
