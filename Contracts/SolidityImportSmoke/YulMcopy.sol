@@ -29,6 +29,13 @@ contract YulMcopy {
             y := mload(0x00)
         }
     }
+    function partlyWrittenSource(uint256 x) external pure returns (uint256 y) {
+        assembly ("memory-safe") {
+            mstore(0x00, x)
+            mcopy(0x00, 0x10, 0x20)
+            y := mload(0x00)
+        }
+    }
     function bufferCopy(bytes memory target, bytes memory source) external pure returns (uint256 y) {
         assembly ("memory-safe") {
             mcopy(add(target, 0x20), add(source, 0x20), mload(source))
