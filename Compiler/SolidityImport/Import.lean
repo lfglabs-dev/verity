@@ -8900,9 +8900,16 @@ private partial def bindYulExternalConstants (j : Json) (allowAllStateVarSlots :
           unless isConst || isImm do
             let ident ← mStr (← mField decl "name")
             let slotName := s!"{ident}.slot"
-            if let some bound := env.yulNames.find? slotName then
-              -- A caller's storage parameter or local of the same name binds `<name>.slot`
-              -- for another declaration; it must not stand in for this state variable's slot.
+            let bound? := env.yulNames.find? slotName
+            if bound?.isSome || !env.yulNames.contains ident then
+              if env.duplicateLayoutLabels.contains ident then
+                failAt j s!"shadowed storage declaration {ident} is outside this slice"
+              if let some item := env.layoutItems.find? ident then
+                unless (← mNat (← mField item "astId")) == n do
+                  failAt j s!"shadowed storage declaration {ident} is outside this slice"
+            if let some bound := bound? then
+              -- A storage parameter of the same name (seen from its modifiers) binds
+              -- `<name>.slot` for another declaration; it must not stand in for this slot.
               let info ← resolveField ident j
               let ownSlot := match bound with
                 | .literal slot => slot == info.slot
@@ -8910,11 +8917,6 @@ private partial def bindYulExternalConstants (j : Json) (allowAllStateVarSlots :
               unless ownSlot do
                 failAt j s!"shadowed storage declaration {ident} is outside this slice"
             if !env.yulNames.contains ident && !env.yulNames.contains slotName then
-              if env.duplicateLayoutLabels.contains ident then
-                failAt j s!"shadowed storage declaration {ident} is outside this slice"
-              if let some item := env.layoutItems.find? ident then
-                unless (← mNat (← mField item "astId")) == n do
-                  failAt j s!"shadowed storage declaration {ident} is outside this slice"
               let info ← resolveField ident j
               if allowAllStateVarSlots || info.dynamicArrayElemType.isSome then
                 markField ident
@@ -15699,6 +15701,11 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
   if !assignedHere.isEmpty then
     modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedHere.contains ·) }
   let decls ← mArr (← mField s "declarations")
+  -- A local `<name>` shadows any visible `<name>.slot` of a parameter or outer local;
+  -- a storage local that has a slot binds its own below.
+  for d in decls do
+    if let some name := optStr d "name" then
+      modify fun e => { e with yulNames := e.yulNames.erase s!"{name}.slot" }
   if decls.size > 1 then
     unless decls.any (!·.isNull) do failAt s "empty tuple declaration"
     let init := field? s "initialValue" |>.getD Json.null
