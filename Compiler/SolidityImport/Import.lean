@@ -15585,6 +15585,21 @@ private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
 private partial def lowerEmit (statement : Json) : M (Array Stmt) :=
   recoverAt statement #[] (lowerEmitCore statement)
 
+/-- The revert payload of an event-argument guard: `0` for empty returndata, `1` for
+`Panic(0x32)`. -/
+private partial def eventGuardPayload? : Stmt → Option Nat
+  | .ite _ [] [.revertEmpty] => some 0
+  | .ite _ [] [.panicCode (.literal 0x32)] => some 1
+  | _ => none
+
+/-- solc evaluates event arguments left to right under via-IR but indexed arguments last
+to first under legacy codegen. When guards in different arguments revert with different
+payloads, the first failing guard depends on that order, so such events are rejected. -/
+private partial def rejectMixedEventGuards (guarded : Array (Json × Array Nat)) : M Unit := do
+  let payloads := guarded.foldl (fun acc (_, ps) => acc ++ ps) #[]
+  if guarded.size > 1 && payloads.any (· != payloads[0]!) then
+    failAt guarded[1]!.1 "event arguments whose guards revert with different payloads require explicit evaluation-order support"
+
 private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "eventCall"
   unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
@@ -15615,6 +15630,7 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
   let mut pre : Array Stmt := #[]
   -- Arguments whose prelude can revert, and whether any argument hashes through scratch.
   let mut guardedArguments : Array Json := #[]
+  let mut guardPayloads : Array (Json × Array Nat) := #[]
   let mut scratchArgument := false
   for index in [:parameters.size] do
     let parameter := parameters[index]!
@@ -15660,6 +15676,7 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
       failAt argument "event arguments currently require total scalar expressions"
     if value.pre.any isGuard then
       guardedArguments := guardedArguments.push argument
+      guardPayloads := guardPayloads.push (argument, value.pre.filterMap eventGuardPayload?)
     if value.pre.any isScratch then
       scratchArgument := true
     let rec directParam? : Expr → Option String
@@ -15704,6 +15721,7 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
   -- is admitted only when at most one argument can revert.
   if scratchArgument && guardedArguments.size > 1 then
     failAt guardedArguments[1]! "event arguments with competing revert paths require explicit evaluation-order support"
+  rejectMixedEventGuards guardPayloads
   unless (params.filter (·.kind == .indexed)).length ≤ 3 do
     failAt declaration "event has more than three indexed parameters"
   if let some previous := (← get).usedEvents.find? (fun pair => pair.2.name == name) then
@@ -15740,6 +15758,7 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
   let mut pre : Array Stmt := #[]
   let mut data : Array Json := #[]
   let mut lastIndexed : Option Nat := none
+  let mut guardPayloads : Array (Json × Array Nat) := #[]
   let mut hasString := false
   for index in [:parameters.size] do
     if ← mBool (← mField parameters[index]! "indexed") then
@@ -15769,6 +15788,9 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
           | .ite _ [] [.panicCode (.literal 0x32)] => true
           | _ => false) do
         failAt argument "event arguments currently require total scalar expressions"
+      let payloads := value.pre.filterMap eventGuardPayload?
+      unless payloads.isEmpty do
+        guardPayloads := guardPayloads.push (argument, payloads)
       let topic ← atom { value with expr := cleanHelperResultExpr ty value }
       pre := pre ++ topic.pre
       topics := topics.push topic.expr
@@ -15797,6 +15819,7 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
       data := data.push argument
       params := params ++ [{ name := parameterName, ty := modelType, kind := .unindexed }]
   unless topics.size ≤ 4 do failAt declaration "event has more than three indexed parameters"
+  rejectMixedEventGuards guardPayloads
   let payload ← lowerAbiEncodeArgs data
   let pointer ← atom { pre := payload.pre, expr := payload.pointer }
   let size ← atom { pre := #[], expr := payload.size }

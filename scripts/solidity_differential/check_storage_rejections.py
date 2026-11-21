@@ -114,6 +114,11 @@ def main():
         ('discarded-helper', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-private', 'function h(uint256 n) private pure returns (uint256) { require(n != 20, "helper"); return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-void', 'function h(uint256 n) internal { require(n != 20); }', 'h(x); return x;', 'uint256', None),
+        # Legacy evaluates indexed event arguments last to first, via-IR left to right:
+        # guards in different arguments must revert with the same payload (#2830 review).
+        ('event-guard-payloads-mixed', 'event E(uint256 indexed a, uint256 indexed b); function g(uint256 n) internal pure returns (uint256) { require(n != 0); return n; }', 'bytes32 c = bytes32(x); emit E(g(x), uint8(c[x])); return 1;', 'uint256', 'event arguments whose guards revert with different payloads'),
+        ('event-guard-payloads-mixed-string', 'event E(uint256 indexed a, uint256 indexed b, string s); function g(uint256 n) internal pure returns (uint256) { require(n != 0); return n; }', 'bytes32 c = bytes32(x); emit E(g(x), uint8(c[x]), "s"); return 1;', 'uint256', 'event arguments whose guards revert with different payloads'),
+        ('event-guard-payloads-same', 'event E(uint256 indexed a, uint256 indexed b); function g(uint256 n) internal pure returns (uint256) { require(n != 0); return n; }', 'emit E(g(x), g(x)); return 1;', 'uint256', None),
         ('discarded-helper-tuple', 'function h(uint256 n) internal pure returns (uint256,uint256) { return (n,n); }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-external', 'function h(uint256 n) external pure returns (uint256) { return n; }', 'this.h(x); return x;', 'uint256', 'discarded helper calls require an internal or private'),
         ('discarded-helper-recursive', 'function h(uint256 n) internal returns (uint256) { h(n); return n; }', 'h(x); return x;', 'uint256', 'recursive call'),
