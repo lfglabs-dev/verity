@@ -169,6 +169,50 @@ def inlineAssemblyRefsOnlyDecl (asm : Json) (declId : Nat) : Bool :=
       ((ref.getObjVal? "declaration").toOption.bind (fun d => d.getNat?.toOption)) == some declId
   | none => false
 
+/-- Source positions of the Yul identifiers named `name` below `j` (uses and assignment targets). -/
+partial def yulIdentifierSrcs (name : String) : Json → List String
+  | .arr xs => xs.toList.flatMap (yulIdentifierSrcs name)
+  | j@(.obj o) =>
+      let own :=
+        if (j.getObjValAs? String "nodeType").toOption == some "YulIdentifier" &&
+            (j.getObjValAs? String "name").toOption == some name then
+          (j.getObjValAs? String "src").toOption.toList
+        else []
+      o.foldl (fun acc _ v => acc ++ yulIdentifierSrcs name v) own
+  | _ => []
+
+/-- The Solidity declaration that every Yul identifier named `name` in `asm` (an
+`InlineAssembly` node) resolves to through `externalReferences`. `none` if the name does not
+occur, an occurrence has no external reference, or occurrences resolve to different
+declarations. -/
+def inlineAssemblyIdentDecl? (asm : Json) (name : String) : Option Nat :=
+  let srcs := yulIdentifierSrcs name ((asm.getObjVal? "AST").toOption.getD .null)
+  let refs := ((asm.getObjVal? "externalReferences").toOption.bind
+    (fun v => v.getArr?.toOption)).getD #[]
+  let declOf (src : String) : Option Nat :=
+    (refs.toList.find? fun r => (r.getObjValAs? String "src").toOption == some src).bind
+      fun r => (r.getObjVal? "declaration").toOption.bind (fun d => d.getNat?.toOption)
+  match srcs.map declOf with
+  | some d :: rest => if rest.all (· == some d) then some d else none
+  | _ => none
+
+/-- Whether every Solidity reference of `asm` (an `InlineAssembly` node) resolves to one of
+`declIds`. -/
+def inlineAssemblyRefsWithin (asm : Json) (declIds : List Nat) : Bool :=
+  match (asm.getObjVal? "externalReferences").toOption.bind (fun v => v.getArr?.toOption) with
+  | some refs => refs.all fun ref =>
+      match (ref.getObjVal? "declaration").toOption.bind (fun d => d.getNat?.toOption) with
+      | some d => declIds.contains d
+      | none => false
+  | none => true
+
+/-- `yulBlockFingerprint` of the `assembly` block of `Extsload.extsload(bytes32 startSlot,
+uint256 nSlots)` in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75`
+(`src/Extsload.sol`). It selects the block that `lowerBatchRangeSloadShim` replaces; the
+lowering's agreement with that block is a separate, tested claim (`TailAssemblyRangeRead`). -/
+def extsloadRangeYulFingerprint : String :=
+  "d9730e93af57142b904009c9e095ae86ca3d5b56703996afe94872b2ad280ebc"
+
 /-- `yulBlockFingerprint` of the `assembly` block of `Extsload.extsload(bytes32[] calldata slots)`
 in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` (`src/Extsload.sol`), the only code
 `lowerBatchArrayLoadShim` models with `isTransient := false`. Same value for solc 0.8.26 to 0.8.34. -/
