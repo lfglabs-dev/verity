@@ -5220,6 +5220,8 @@ private partial def lowerCast (j : Json) : M Val := do
     if let some tw := fixedBytesWidth? tname then
       if let some sw := fixedBytesWidth? src then
         if sw ≤ tw then return v
+        -- Legacy codegen narrows without cleaning the stack word, as the dedicated cases do.
+        unless (← get).viaIR do return raw
         let a ← atom v
         let dest ← fresh
         let mask := (2 ^ (8 * tw) - 1) * 2 ^ (8 * (32 - tw))

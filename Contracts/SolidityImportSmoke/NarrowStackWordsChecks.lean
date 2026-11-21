@@ -49,6 +49,7 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function prefixInc(uint8)
   function prefixDec(uint8)
   function finalBoolWord(uint256)
+  function bytesWidthCasts(uint256)
 
 solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -95,6 +96,7 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function prefixInc(uint8)
   function prefixDec(uint8)
   function finalBoolWord(uint256)
+  function bytesWidthCasts(uint256)
 
 private def observes (model : CompilationModel) (name : String) (args : List Nat) (n : Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -300,6 +302,16 @@ solidity_import dirtyMsbLoopIr from "Contracts/SolidityImportSmoke" entry "Narro
 
 #guard [legacy.model, ir.model].all fun m =>
   observesWords m "finalBoolWord" [0] [0, 7] && observesWords m "finalBoolWord" [256] [1, 7]
+
+-- `bytes19` / `bytes7` narrowing (generic widths, #2832) and `bytes4(bytes19)`: legacy keeps
+-- the stack word, via-IR clears the low bytes (pinned solc 0.8.34 on anvil, both pipelines).
+private def wordX := 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+#guard observesWords legacy.model "bytesWidthCasts" [wordX] [wordX, wordX, wordX]
+#guard observesWords legacy.model "bytesWidthCasts" [2 ^ 256 - 1] [2 ^ 256 - 1, 2 ^ 256 - 1, 2 ^ 256 - 1]
+#guard observesWords ir.model "bytesWidthCasts" [wordX]
+  [0x0102030405060708090a0b0c0d0e0f10111213 * 2 ^ 104, 0x01020304050607 * 2 ^ 200, 0x01020304 * 2 ^ 224]
+#guard observesWords ir.model "bytesWidthCasts" [2 ^ 256 - 1]
+  [(2 ^ 152 - 1) * 2 ^ 104, (2 ^ 56 - 1) * 2 ^ 200, (2 ^ 32 - 1) * 2 ^ 224]
 
 /--
 error: NarrowStackWords.sol:318:33: YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local result is unsupported
