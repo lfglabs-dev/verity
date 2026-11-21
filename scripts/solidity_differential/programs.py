@@ -1460,7 +1460,7 @@ def stateful_fixed_bytes_widths_source(fixture: str, variant: str) -> str:
         return fixture
     if variant == 'renamed':
         import re
-        names = set(['a', 'acc', 'b', 'c', 'ch', 'f', 'p', 'q', 'r', 's', 'same', 'seen', 't', 'u', 'v', 'w', 'x'])
+        names = set(['a', 'acc', 'b', 'c', 'ch', 'f', 'g', 'm', 'p', 'q', 'r', 'rawS', 'rawT', 's', 'same', 'seen', 't', 'u', 'v', 'w', 'x'])
         return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b',
                       lambda m: m.group(0) + 'Renamed' if m.group(0) in names else m.group(0),
                       fixture)

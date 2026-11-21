@@ -5130,7 +5130,11 @@ private partial def lowerCast (j : Json) : M Val := do
   -- shifts the value into the high bytes and `uint{8N}(bytesN)` shifts it back.
   let dedicatedBytes := ["bytes1", "bytes4", "bytes12", "bytes20", "bytes32"]
   let genericBytes (ty : String) := (fixedBytesWidth? ty).isSome && !dedicatedBytes.contains ty
-  if genericBytes tname || genericBytes src then
+  -- Pairs of dedicated widths that no dedicated case below converts (`bytes20(bytes4)`).
+  let dedicatedPair := (fixedBytesWidth? tname).isSome && (fixedBytesWidth? src).isSome &&
+    tname != src && tname != "bytes32" && src != "bytes32" &&
+    !((tname == "bytes1" && src == "bytes4") || (tname == "bytes4" && src == "bytes1"))
+  if genericBytes tname || genericBytes src || dedicatedPair then
     if let some tw := fixedBytesWidth? tname then
       if let some sw := fixedBytesWidth? src then
         if sw ≤ tw then return v

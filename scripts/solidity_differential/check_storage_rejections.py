@@ -228,6 +228,7 @@ def main():
         ('fixed-bytes-width-uint-cast', '', 'bytes19 p = bytes19(uint152(x)); return uint256(uint152(p));', 'uint256', None),
         ('fixed-bytes-width-narrow', '', 'bytes31 r = bytes31(bytes32(x)); bytes7 t = bytes7(r); return uint256(bytes32(t));', 'uint256', None),
         ('fixed-bytes-width-widen', '', 'bytes7 t = bytes7(uint56(x)); bytes31 r = bytes31(t); return uint256(bytes32(r));', 'uint256', None),
+        ('fixed-bytes-width-dedicated-pair', '', 'bytes4 f = bytes4(uint32(x)); bytes20 g = bytes20(f); bytes12 m = bytes12(g); return uint256(bytes32(m));', 'uint256', None),
         ('fixed-bytes-width-int-literal', '', 'bytes19 p = bytes19(0); return uint256(bytes32(p)) + x;', 'uint256', 'unsupported cast source int_const 0 for bytes19'),
         ('fixed-bytes-width-event', 'event E(bytes19 v);', 'emit E(bytes19(uint152(x))); return x;', 'uint256', 'unsupported event parameter type bytes19'),
         ('fixed-bytes-string-literal-return', 'function helper() internal pure returns (bytes8) { return "GS0"; }', 'return uint256(bytes32(helper())) + x;', 'uint256', None),
