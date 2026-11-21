@@ -163,9 +163,6 @@ def canonical_observations(observations):
     return result
 
 
-# One call per Yul revert shape (x % 8 in 0..5) with small arguments, the argument shapes with
-# high-bit payload words (selector + argument, two words with `add(x, 1)` near 2^256,
-# `mul(x, 3)` wrapping), and calls that store (x % 8 in 6, 7).
 # Every `x % 8` arm of YulMcopySequence (0-5 copy, 6-7 store only), with small words and
 # high-bit words whose bytes differ across each copy boundary.
 YUL_MCOPY_PREFIX = [8, 9, 10, 11, 12, 13, 14, 15, 2 ** 255 + 8, 2 ** 255 + 1, 2 ** 256 - 6,
@@ -174,6 +171,9 @@ YUL_MCOPY_PREFIX = [8, 9, 10, 11, 12, 13, 14, 15, 2 ** 255 + 8, 2 ** 255 + 1, 2 
                     0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 2,
                     0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 5]
 
+# One call per Yul revert shape (x % 8 in 0..5) with small arguments, the argument shapes with
+# high-bit payload words (selector + argument, two words with `add(x, 1)` near 2^256,
+# `mul(x, 3)` wrapping), and calls that store (x % 8 in 6, 7).
 YUL_REVERT_MEMORY_PREFIX = [16, 17, 18, 19, 20, 21, 22, 23, 2 ** 255 + 2, 2 ** 255 + 3,
                             2 ** 256 - 5, 2 ** 255 + 4, 2 ** 255 + 5, 2 ** 256 - 1, 2 ** 255 + 6]
 

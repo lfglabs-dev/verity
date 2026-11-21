@@ -64,9 +64,21 @@ solidity_import freePointerSourceForm from "Contracts/SolidityImportSmoke" entry
   contract YulMcopy
   function freePointerSource(uint256)
 
+-- The source runs from written scratch bytes into the unwritten second scratch word.
+/--
+error: YulMcopy.sol:35:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
+closure: YulMcopy.partlyWrittenSource
+mcopy(0x00, 0x10, 0x20)
+-/
+#guard_msgs in
+solidity_import partlyWrittenForm from "Contracts/SolidityImportSmoke" entry "YulMcopy.sol"
+  using yulMcopy
+  contract YulMcopy
+  function partlyWrittenSource(uint256)
+
 -- A copy between `bytes memory` payloads: heap addresses the model allocates differently (#2620).
 /--
-error: YulMcopy.sol:34:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
+error: YulMcopy.sol:41:13: YulFunctionCall: [solidity-import:unsupported] Yul mcopy is supported only for a zero size, or a literal range inside the scratch words below 0x40 whose source bytes this Yul block wrote on every path
 closure: YulMcopy.bufferCopy
 mcopy(add(target, 0x20), add(source, 0x20), mload(source))
 -/
