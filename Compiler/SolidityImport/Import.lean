@@ -19303,6 +19303,17 @@ private def importSlice
           if let some binding := env.rawBindings.find? p.id then
             abiGuards := abiGuards.push (.letVar binding rawWord)
       let body := abiGuards ++ body
+      -- A closed low-level CALL hands control to an arbitrary account, which may re-enter.
+      -- It is admitted only where the body is CEI-clean around it and only local computation,
+      -- memory writes, returns and reverts follow it (`onlyTrailingCallReentrancyWindows`).
+      if body.toList.any stmtContainsClosedLowLevelCall then
+        let ceiClean := (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isNone ||
+          onlyStaticCallCEIBarriers body.toList || onlyClosedTransportCEIBarriers body.toList
+        let reentrancyClosed := onlyCreate2ReentrancyWindows body.toList ||
+          onlyTrailingCallReentrancyWindows body.toList
+        unless ceiClean && reentrancyClosed do
+          (failAt fn ("storage reads, storage writes, logs and other interactions after an " ++
+            "external CALL are unsupported: the call may re-enter this contract")).run' env
       let returns ← (do
         if (← mKind fn) == "VariableDeclaration" then
           return (← get).publicVarGetterReturns

@@ -65,46 +65,45 @@ contract InterfaceVoidCallFixture {
     /// `try` of a function without return values, with a catch-all clause: a successful
     /// call runs the success clause whatever its return data (none is decoded), a failed
     /// call runs the catch clause, and an account without code reverts uncaught with no
-    /// data. Each clause writes state, and the statement after the `try` runs either way.
+    /// data. The callee may re-enter, so state is written before the call and nothing
+    /// after it reads or writes storage.
     function tryPing(address target, uint256 amount) external {
         calls += 1;
-        try INotified(target).ping(amount) {
-            lastAmount = amount;
-        } catch {
-            calls += 1000;
-        }
+        lastAmount = amount;
+        try INotified(target).ping(amount) {} catch {}
+    }
+
+    /// Clauses that return different values; calldata-bytes arguments.
+    function tryRelay(address target, bytes calldata data) external returns (bool) {
         calls += 1;
-    }
-
-    /// A `return` in the catch clause skips the continuation; calldata-bytes arguments.
-    function tryRelay(address target, bytes calldata data) external {
         try INotified(target).relay(msg.sender, data) {
-            calls += 1;
+            return true;
         } catch {
-            return;
+            return false;
         }
-        lastAmount = data.length;
     }
 
-    /// Inlined `void` helpers: empty clauses, and a `return` in the success clause that
-    /// skips the helper's continuation (the caller's continuation still runs).
-    function tryPoke(address target) external {
-        pokeQuietly(target);
-        pokeOrCount(target);
+    /// Inlined `void` helpers as the last statement: empty clauses, and a `return` in the
+    /// success clause with a revert in the catch clause.
+    function tryPoke(address target, bool strict) external {
         calls += 7;
+        if (strict) {
+            pokeOrRevert(target);
+        } else {
+            pokeQuietly(target);
+        }
     }
 
     function pokeQuietly(address target) private {
         try INotified(target).poke() {} catch {}
     }
 
-    function pokeOrCount(address target) private {
+    function pokeOrRevert(address target) private {
         try INotified(target).poke() {
             return;
         } catch {
-            calls += 3;
+            revert();
         }
-        lastAmount += 1;
     }
 
     function read() external view returns (uint256, uint256) {

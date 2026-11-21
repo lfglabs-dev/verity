@@ -6,13 +6,14 @@ empty argument lists, and one `nonpayable` function with a `bytes32` result and 
 `enum` argument (return data expected: no code check, a no-data revert on short
 return data). solc reverts with no data when the target has no code, forwards a
 failed call's complete return data and ignores a successful call's return data,
-whatever its length or contents. `try` of the same calls with a catch-all clause runs
-the success clause on any successful call (no return data is decoded), the catch clause
-on a failed call (its effects rolled back) and reverts uncaught with no data when the
-target has no code. The A/B/C sequence reuses the Yul memory call
-campaign: the recording responders (every response shape, success and failure,
-calldata size and first four words recorded in storage), one account without code
-and the sender EOA. A divergence is shrunk to a deletion-minimal sequence.
+whatever its length or contents. `try` of the same calls with a catch-all clause, as the
+last interaction (nothing after it reads or writes storage), runs the success clause on
+any successful call (no return data is decoded), the catch clause on a failed call (its
+effects rolled back) and reverts uncaught with no data when the target has no code.
+The A/B/C sequence reuses the Yul memory call campaign: the recording responders
+(every response shape, success and failure, calldata size and first four words
+recorded in storage), one account without code and the sender EOA. A divergence is
+shrunk to a deletion-minimal sequence.
 """
 import argparse
 from pathlib import Path
@@ -66,7 +67,8 @@ def transactions_for(count, seed, caller, responders):
             [target, SENDER, (index + 1) % 2])
         add('tryPing(address,uint256)', ['address', 'uint256'], [target, 11 + index])
         add('tryRelay(address,bytes)', ['address', 'bytes'], [target, bytes(range(index + 3))])
-        add('tryPoke(address)', ['address'], [target])
+        add('tryPoke(address,bool)', ['address', 'bool'], [target, False])
+        add('tryPoke(address,bool)', ['address', 'bool'], [target, True])
     # An out-of-range ordinal panics (0x21) before the call.
     add('signal(address,address,uint8)', ['address', 'address', 'uint8'], [targets[0], SENDER, 2])
     add('signalWord(address,address,uint8)', ['address', 'address', 'uint8'],
@@ -97,7 +99,7 @@ def transactions_for(count, seed, caller, responders):
         elif choice == 9:
             add('tryRelay(address,bytes)', ['address', 'bytes'], [target, payload()])
         elif choice == 10:
-            add('tryPoke(address)', ['address'], [target])
+            add('tryPoke(address,bool)', ['address', 'bool'], [target, rng.random() < 0.5])
         else:
             add('read()', [], [])
     return calls
@@ -110,7 +112,7 @@ def main():
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = 10 * (len(RESPONDERS) + 2) + 3
+    minimum = 11 * (len(RESPONDERS) + 2) + 3
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every target and call shape')
     output = (args.output.resolve() if args.output else

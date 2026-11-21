@@ -122,7 +122,7 @@ zero-initialised result binding, a log by an empty branch, a memory return by
 partial def eraseClosedTransports : Stmt → Stmt
   | .ecm mod args =>
       if isClosedStaticCall mod || isClosedCreate2 mod || isClosedExtCodeSize mod ||
-          isClosedExtCodeHash mod || isClosedExtCodeCopy mod || isClosedLowLevelCall mod then
+          isClosedExtCodeHash mod || isClosedExtCodeCopy mod then
         .letVar (mod.resultVars.headD "") (.literal 0)
       else if isClosedLog mod then .ite (.literal 0) [] []
       else if isClosedReturnMemory mod then .stop
@@ -233,22 +233,33 @@ def exprStorageFree (expression : Expr) : Bool :=
 abbrev purePostCallExpr := exprStorageFree
 
 /-- Statements allowed after a closed low-level call in a trailing-call body:
-local bindings, checks, returns and further closed low-level calls, none of
-which reads or writes storage or logs. A code-hash read is not admitted: the
-call can change the account world it observes (a value transfer makes an empty
-account exist, moving its hash from `0` to `keccak256("")`). -/
+local bindings, memory writes, checks, returns, reverts (including forwarding the
+call's return data) and further closed low-level calls, none of which reads or
+writes storage or logs. A code-hash read is not admitted: the call can change the
+account world it observes (a value transfer makes an empty account exist, moving
+its hash from `0` to `keccak256("")`). -/
 partial def stmtAfterTrailingCall : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .require value _ => exprStorageFree value
+  | .mstore offset value => exprStorageFree offset && exprStorageFree value
   | .requireError condition _ args => exprStorageFree condition && args.all exprStorageFree
   | .ite condition yes no =>
       exprStorageFree condition && yes.all stmtAfterTrailingCall && no.all stmtAfterTrailingCall
   | .ecm mod args => (isClosedLowLevelCall mod || isClosedExtCodeSize mod) && args.all exprStorageFree
   | .return value => exprStorageFree value
   | .returnValues values => values.all exprStorageFree
-  | .revertEmpty | .stop => true
+  | .revertEmpty | .revertReturndata | .stop => true
   | _ => false
 
 abbrev allowedPostCallStmt := stmtAfterTrailingCall
+
+/-- `statement` or a nested body contains a closed low-level `CALL`. -/
+partial def stmtContainsClosedLowLevelCall : Stmt → Bool
+  | .ecm mod _ => isClosedLowLevelCall mod
+  | .ite _ yes no => yes.any stmtContainsClosedLowLevelCall || no.any stmtContainsClosedLowLevelCall
+  | .forEach _ _ body | .forEachSetBit _ _ body => body.any stmtContainsClosedLowLevelCall
+  | .unsafeBlock _ body => body.any stmtContainsClosedLowLevelCall
+  | .matchAdt _ _ branches => branches.any fun (_, _, body) => body.any stmtContainsClosedLowLevelCall
+  | _ => false
 
 /-- A statement list whose only reentrancy windows are closed low-level calls
 after which only `stmtAfterTrailingCall` statements execute. -/
