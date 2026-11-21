@@ -24,6 +24,7 @@ MESSAGES = {
     'try': 'external try/catch of a view, pure or value-returning function is unsupported',
     'try-clause': 'external try/catch supports exactly one catch-all `catch { }` clause',
     'try-shape': 'unsupported statement TryStatement',
+    'try-named': 'named arguments in an external try call are unsupported',
 }
 HOOK = 'interface IHook {\n    function hook() external;\n}\n'
 
@@ -94,6 +95,13 @@ CASES = [
     ('try-void-bytes-clause', HOOK, '',
      'try IHook(oracle).hook() { return 1; } catch (bytes memory) { return 0; }',
      ('try', 0, 'TryStatement', 'try-clause')),
+    ('try-void-panic-clause', HOOK, '',
+     'try IHook(oracle).hook() { return 1; } catch Panic(uint256) { return 2; }',
+     ('try', 0, 'TryStatement', 'try-clause')),
+    ('try-void-named-arguments',
+     'interface IHook {\n    function hook(uint256 amount) external;\n}\n', '',
+     'try IHook(oracle).hook({amount: 1}) { return 1; } catch { return 0; }',
+     ('IHook(oracle).hook({amount: 1})', 0, 'FunctionCall', 'try-named')),
     ('try-void-call-options', HOOK, '',
      'try IHook(oracle).hook{gas: 50000}() { return 1; } catch { return 0; }',
      ('try', 0, 'TryStatement', 'try-shape')),
