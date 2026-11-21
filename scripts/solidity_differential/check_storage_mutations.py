@@ -172,7 +172,7 @@ MUTANTS.update({
         '.ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]',
         '.ite (.lt oldLen (.literal (2 ^ 64 + 1))) [] [.panicCode (.literal 0x41)]')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
-# its slot held and `x = a.push()` reads it.
+# its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
     'import-empty-push-zero-fill-value': (
         '  let mut writeStmts : Array Stmt := #[]\n',
@@ -185,6 +185,12 @@ MUTANTS.update({
         "  -- No zero fill: solc's empty `push()` writes nothing, and `push(v)` writes each member into\n",
         '  for w in [:rawInfo.wordCount] do\n'
         '    stmts := stmts.push (.setStorageArrayElement rawStorageFieldName '
+        '(rawStructMemberSlot (.localVar elemSlot) w) (.literal 0))\n'),
+    'import-empty-push-zero-fill-struct-value': (
+        "  -- No zero fill: solc's empty `push()` writes nothing, and `push(v)` writes each member into\n",
+        '  if memberVals?.isSome then\n'
+        '    for w in [:rawInfo.wordCount] do\n'
+        '      stmts := stmts.push (.setStorageArrayElement rawStorageFieldName '
         '(rawStructMemberSlot (.localVar elemSlot) w) (.literal 0))\n')})
 # Signed event parameters keep their declared type in the event signature, and the
 # observed ABI word is sign-extended.
@@ -1010,12 +1016,13 @@ def run(directory, output, name):
         argv.extend(['--change-prefix', *map(str, [0, 1, 5, 9, 13, 2, 6, 10, 0, 3, 7, 11, 4, 1])])
     if fixture == 'EmptyPushSequence':
         # Push three elements onto each array (x % 4 == 1), lower every length to 0 (x = 0),
-        # push() (2), read a stale lane into `last` (3), lower to 1 (4, 16) and push() over the
-        # written elements again (6, 2), then random calls.
+        # push() (2), read stale elements into `last` and `lastWord` (3), lower to 1 (4, 16) and
+        # push() over the written elements again (6, 2), fill the first struct element's padding
+        # while lowering to 0 (12) and push(v) over it (1), then random calls.
         argv[argv.index('--transactions') + 1] = '24'
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
-        argv.extend(['--change-prefix', *map(str, [1, 5, 9, 0, 2, 3, 2, 4, 6, 3, 13, 16, 2, 3])])
+        argv.extend(['--change-prefix', *map(str, [1, 5, 9, 0, 2, 3, 2, 4, 6, 3, 12, 1, 13, 16, 2, 3])])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
