@@ -16,6 +16,7 @@ import Compiler.SolidityImport.Lowering.EvalOrderHazards
 import Compiler.SolidityImport.StorageLayout
 import Compiler.SolidityImport.InlineAssemblyShims
 import Compiler.SolidityImport.SourceDigest
+import Compiler.SolidityImport.FoundryRemappings
 
 /-!
 Solidity importer. Pinned `solc --standard-json` supplies the AST, declaration
@@ -18610,20 +18611,17 @@ private def normalizePath (path : String) : Except String String := Id.run do
       out := out.push part
   return .ok (String.intercalate "/" out.toList)
 
-private def resolveSpec (origin spec : String) (remaps : Array (String × String)) : Except String String := do
-  if spec.startsWith "." then
-    let parent := String.intercalate "/" (origin.splitOn "/").dropLast
-    normalizePath (parent ++ "/" ++ spec)
-  else
-    let mut best : Option (String × String) := none
-    for pair in remaps do
-      if spec.startsWith pair.1 then
-        best := match best with
-          | none => some pair
-          | some prev => if pair.1.length > prev.1.length then some pair else some prev
-    match best with
-    | some (pre, tgt) => normalizePath (tgt ++ spec.drop pre.length)
-    | none => normalizePath spec
+/-- The source unit `spec` (imported from `origin`) names, as solc resolves it: a relative
+path is joined to `origin`'s directory first, then remappings apply to every import path.
+Also returns the Foundry-inferred remapping used, if any. -/
+private def resolveSpec (origin spec : String) (remaps : Array (String × String))
+    (inferred : InferredRemappings) : Except String (String × Option InferredRemapping) := do
+  let path ← if spec.startsWith "." then
+      let parent := String.intercalate "/" (origin.splitOn "/").dropLast
+      normalizePath (parent ++ "/" ++ spec)
+    else pure spec
+  let (target, used) ← remapImportPath path remaps inferred
+  return (← normalizePath target, used)
 
 private def importSpecs (text : String) : Array String := Id.run do
   let mut out : Array String := #[]
@@ -18708,24 +18706,31 @@ private def readRemappings (root : System.FilePath) : IO (Array (String × Strin
   let foundryPath := root / "foundry.toml"
   if ← foundryPath.pathExists then
     let foundryText ← IO.FS.readFile foundryPath
+    -- Foundry keeps the first remapping of each name (`Remappings::into_inner`).
     for pair in parseFoundryTomlRemappings foundryText do
-      unless out.contains pair do
+      unless out.any (·.1 == pair.1) do
         out := out.push pair
   pure out
 
+/-- The sources reachable from `logical`, and the Foundry-inferred remappings their imports
+use (in first-use order). -/
 private partial def collectSources
     (root : System.FilePath) (logical : String)
-    (remaps : Array (String × String))
-    (acc : RBMap String String compare) : MetaM (RBMap String String compare) := do
-  if acc.contains logical then return acc
+    (remaps : Array (String × String)) (inferred : InferredRemappings)
+    (acc : RBMap String String compare × Array InferredRemapping) :
+    MetaM (RBMap String String compare × Array InferredRemapping) := do
+  if acc.1.contains logical then return acc
   let path := root / logical
   unless ← path.pathExists do throwError "missing Solidity source {logical}"
   let text ← IO.FS.readFile path
-  let mut acc := acc.insert logical text
+  let mut acc := (acc.1.insert logical text, acc.2)
   for spec in importSpecs text do
-    match resolveSpec logical spec remaps with
+    match resolveSpec logical spec remaps inferred with
     | .error e => throwError "{logical}: {e}"
-    | .ok next => acc ← collectSources root next remaps acc
+    | .ok (next, used) =>
+      if let some r := used then
+        unless acc.2.contains r do acc := (acc.1, acc.2.push r)
+      acc ← collectSources root next remaps inferred acc
   pure acc
 
 /-- Why the pinned solc binary at `path` cannot be used, if it cannot: it is not
@@ -18873,8 +18878,13 @@ private def importSlice
       release.banners.contains versionOut.stdout.trimAscii.toString do
     throwError "compiler version mismatch"
   unless (← verifyCompiler release compiler) == solcSha do throwError "compiler changed during import"
-  let remaps ← readRemappings projectRoot
-  let sources ← collectSources projectRoot entry remaps RBMap.empty
+  let explicitRemaps ← readRemappings projectRoot
+  let inferred := inferFoundryRemappings (← readRemapRoot projectRoot) explicitRemaps
+  let (sources, usedInferred) ←
+    collectSources projectRoot entry explicitRemaps inferred (RBMap.empty, #[])
+  -- solc sees the explicit remappings and, in Foundry's order, the inferred ones in use.
+  let usedInferred := inferred.remappings.filter usedInferred.contains
+  let remaps := explicitRemaps ++ usedInferred.map fun r => (r.name, r.path)
   let mut fileBytes : RBMap String ByteArray compare := RBMap.empty
   let mut sourceObj : Array (String × Json) := #[]
   for (logical, text) in sources do
@@ -19417,7 +19427,8 @@ private def importSlice
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,
       storageKeys := env.referenced.toList.map fun name => (name, mappingKeyNames env name),
-      opaqueMembers := opaqueMembers.toList, observesPanicPayload := true }
+      opaqueMembers := opaqueMembers.toList, observesPanicPayload := true,
+      inferredRemappings := usedInferred.toList.map fun r => s!"{r.name}={r.path}" }
   pure (model, report)
 
 /-- `solidity_profile osaka466 where evmVersion := "osaka" …` defines a named

@@ -122,6 +122,9 @@ structure ImportReport where
   /-- The statement denotation exposes the exact panic bytes. Legacy scalar
   projections still erase failure bytes; the differential runner retains them. -/
   observesPanicPayload : Bool := false
+  /-- Remappings Foundry infers (from `lib/` and nested library configs) that the imports
+  used, as `name=target`. They are also in `settingsJson`. -/
+  inferredRemappings : List String := []
   deriving Repr, BEq
 
 /-- Whether some root recorded an unsupported construct (`collectUnsupported`). -/
@@ -132,7 +135,8 @@ def ImportReport.hasUnsupported (r : ImportReport) : Bool :=
 def ImportReport.toText (r : ImportReport) : String := Id.run do
   let mut lines := [s!"importer {r.importerVersion}", s!"solc {r.solcLongVersion}",
     s!"solcSha256 {r.solcSha256}", s!"digest {r.sourceDigest}",
-    s!"contract {r.contract}"] ++ r.roots.map (s!"root {·}") ++ [s!"settings {r.settingsJson}"]
+    s!"contract {r.contract}"] ++ r.roots.map (s!"root {·}") ++ [s!"settings {r.settingsJson}"] ++
+    r.inferredRemappings.map (s!"inferred remapping {·}")
   for st in r.functions do
     lines := lines ++ [st.toText]
   for fn in r.includedFunctions do
