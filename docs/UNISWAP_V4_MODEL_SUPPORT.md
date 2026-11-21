@@ -21,6 +21,8 @@ To keep `Compiler/SolidityImport/Import.lean` modular and verifiable, Uniswap v4
 | `TickBitmap.flipTick` | `TickBitmap` | `.tickBitmapFlip` | `lowerTickBitmapFlipShim` (`sdiv`/`smod` word-pos & bit-pos + `sload`/`sstore` XOR mask) |
 | `Hooks.callHook` | `Hooks` | `.hooksCall` | `lowerHooksCallShim` (`SolidityLowLevelCall.bytesUint256Module` + selector/delta extraction) |
 
+`lowerBatchArrayLoadShim` is applied only to a tail `assembly` block whose `yulBlockFingerprint` (sha256 of its solc Yul AST without source positions) is `extsloadBatchYulFingerprint` or `exttloadBatchYulFingerprint`, taken from `v4-core` `46c6834`, and whose Solidity references all resolve to the bound calldata array. Any other tail block of a `bytes32[]`-returning function with one array parameter is rejected with `shortcut fingerprint mismatch` (`Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean`).
+
 ### 3-Layer Meta-Specification Bundle
 
 `Compiler/SolidityImport/InlineAssemblyShims.lean` exports a 3-layer specification bundle:
