@@ -372,7 +372,8 @@ def quoteReport (r : ImportReport) : m Term := do
        storageFields := $(← strings r.storageFields),
        storageKeys := $(← list (← r.storageKeys.mapM fun (f, ks) => do `(($(quote f), $(← strings ks))))),
        opaqueMembers := $(← list (← r.opaqueMembers.mapM opq)),
-       observesPanicPayload := $(quote r.observesPanicPayload) } :
+       observesPanicPayload := $(quote r.observesPanicPayload),
+       inferredRemappings := $(← strings r.inferredRemappings) } :
       Compiler.CompilationModel.SolidityImport.ImportReport))
 
 end Compiler.CompilationModel.SolidityImport

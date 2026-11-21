@@ -26,6 +26,18 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
 - `from` is the Solidity project directory, relative to the importing
   package's `lakefile.lean`; its `remappings.txt` resolves imports. `entry` is
   the file declaring the contract.
+- Imports no written remapping covers resolve through the remappings Foundry
+  (forge 1.5.0) infers from `lib/` (or the configured `libs`) and from the
+  `remappings.txt` / `foundry.toml` of nested libraries
+  (`Compiler/SolidityImport/FoundryRemappings.lean`). A written remapping wins:
+  an inferred one whose name nests with it is dropped, as in Foundry. Remappings
+  apply after relative imports resolve, as in solc. The inferred remappings in
+  use go to solc and appear as `inferred remapping` lines in `report.toText`.
+  The importer refuses an inferred remapping whose value depends on directory
+  listing order in Foundry, and refuses all of them when a scanned library
+  holds a symlink or a `foundry.toml` value it cannot read. Write the remapping
+  in `remappings.txt` instead. The importer does not read `FOUNDRY_PROFILE`,
+  `FOUNDRY_REMAPPINGS`, `DAPP_REMAPPINGS` or the global `~/.foundry/foundry.toml`.
 - `solidity_profile` defines an ordinary `Profile` value (reusable,
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
