@@ -5211,6 +5211,34 @@ private partial def lowerCast (j : Json) : M Val := do
     let dest ← fresh
     let ext := Stmt.letVar dest (.signextend (.literal (pb / 8 - 1)) a.expr)
     return { pre := a.pre.push ext, expr := .localVar dest }
+  -- `bytesN` widths without a dedicated case below. `bytesN(bytesM)` keeps the left-aligned
+  -- word when `N >= M` and clears the low `32 - N` bytes when narrowing; `bytesN(uint{8N})`
+  -- shifts the value into the high bytes and `uint{8N}(bytesN)` shifts it back.
+  let dedicatedBytes := ["bytes1", "bytes4", "bytes12", "bytes20", "bytes32"]
+  let genericBytes (ty : String) := (fixedBytesWidth? ty).isSome && !dedicatedBytes.contains ty
+  if genericBytes tname || genericBytes src then
+    if let some tw := fixedBytesWidth? tname then
+      if let some sw := fixedBytesWidth? src then
+        if sw ≤ tw then return v
+        let a ← atom v
+        let dest ← fresh
+        let mask := (2 ^ (8 * tw) - 1) * 2 ^ (8 * (32 - tw))
+        return { pre := a.pre.push (.letVar dest (.bitAnd a.expr (.literal mask))),
+                 expr := .localVar dest }
+      if src == s!"uint{8 * tw}" then
+        let a ← atom v
+        let dest ← fresh
+        let shifted := Stmt.letVar dest
+          (.shl (.literal (8 * (32 - tw))) (.bitAnd a.expr (.literal (2 ^ (8 * tw) - 1))))
+        return { pre := a.pre.push shifted, expr := .localVar dest }
+      failAt j s!"unsupported cast source {src} for {tname}"
+    if let some sw := fixedBytesWidth? src then
+      if tname == s!"uint{8 * sw}" then
+        let a ← atom v
+        let dest ← fresh
+        return { pre := a.pre.push (.letVar dest (.shr (.literal (8 * (32 - sw))) a.expr)),
+                 expr := .localVar dest }
+      failAt j s!"unsupported cast target {tname} from {src}"
   if tname == "bytes1" then
     if src == "bytes1" then
       return v
@@ -17501,7 +17529,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
     else if ty.startsWith "struct " && !ty.contains "[" then
       failAt p s!"unsupported location {loc} for {ty}"
     else
-      let some pty := paramType ty | failAt p s!"unsupported parameter type {ty}"
+      -- `localParamType` also admits every `bytes1`..`bytes31` width (left-aligned words).
+      let some pty := localParamType ty | failAt p s!"unsupported parameter type {ty}"
       let enumBound? ← validateEnumTypeIfNeeded p ty
       modify fun e =>
         let values := e.values.insert id (.param name)
@@ -19296,10 +19325,13 @@ private def importSlice
             abiGuards := abiGuards.push (.ite
               (.eq (.bitAnd rawWord (.literal (2 ^ 224 - 1))) (.literal 0))
               [] [.revertEmpty])
-          if ty == .bytesN 1 then
-            abiGuards := abiGuards.push (.ite
-              (.eq (.bitAnd rawWord (.literal (2 ^ 248 - 1))) (.literal 0))
-              [] [.revertEmpty])
+          -- solc's ABI decoder reverts (empty data) on a `bytesN` word with nonzero
+          -- low `32 - N` bytes; `bytes4` is checked through `bytes4Params` above.
+          if let .bytesN byteW := ty then
+            if 0 < byteW && byteW < 32 && byteW != 4 then
+              abiGuards := abiGuards.push (.ite
+                (.eq (.bitAnd rawWord (.literal (2 ^ (8 * (32 - byteW)) - 1))) (.literal 0))
+                [] [.revertEmpty])
           if let some binding := env.rawBindings.find? p.id then
             abiGuards := abiGuards.push (.letVar binding rawWord)
       let body := abiGuards ++ body
@@ -19342,7 +19374,7 @@ private def importSlice
         let mut out : Array ParamType := #[]
         for r in rets do
           let ty ← mType r
-          let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
+          let some pty := localParamType ty | failAt r s!"unsupported return type {ty}"
           out := out.push pty
         pure out) |>.run' env
       let isView ←
@@ -19616,8 +19648,7 @@ private def paramTypeTerm? : ParamType → Option (CommandElabM Term)
   | .uint16 => some `(Verity.Core.UIntN 16)
   | .address => some `(Verity.Core.Address)
   | .bytes32 => some `(Verity.Core.BytesN 32)
-  | .bytesN 4 => some `(Verity.Core.BytesN 4)
-  | .bytesN 1 => some `(Verity.Core.BytesN 1)
+  | .bytesN n => if 0 < n && n < 32 then some `(Verity.Core.BytesN $(quote n)) else none
   | .bool => some `(Bool)
   | _ => none
 

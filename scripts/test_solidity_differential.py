@@ -82,6 +82,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-dynamic-memory-arrays",
     "storage-event-nested-mapping-read",
     "storage-fixed-bytes-conversions",
+    "storage-fixed-bytes-widths",
     "storage-fixed-memory-arrays",
     "storage-helper-loop-break",
     "storage-helper-name-independence",

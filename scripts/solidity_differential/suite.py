@@ -28,6 +28,7 @@ STORAGE_FIXTURES = (
     'storage-array-length-bound',
     'helper-loop-break',
     'fixed-bytes-conversions',
+    'fixed-bytes-widths',
     'msg-sig',
     'yul-empty-revert',
     'yul-revert-memory',
