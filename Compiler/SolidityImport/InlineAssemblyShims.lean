@@ -11,7 +11,7 @@ namespace Compiler.CompilationModel.SolidityImport
 Encapsulates the verified inline-assembly and library lowering shims required for
 100% Uniswap v4 (`v4-core` `PoolManager.sol` and its libraries) coverage:
 - `Exttload.exttload` and `Extsload.extsload`
-- `CurrencyLibrary.transfer` (`ERC20` / native currency transfer lowering)
+- (`CurrencyLibrary.transfer` has no shortcut: it is lowered through its body)
 - `FullMath.mulDiv` and `FullMath.mulDivRoundingUp`
 - `SqrtPriceMath` (`getAmount0Delta`, `getAmount1Delta`, `getNextSqrtPriceFromInput`, `getNextSqrtPriceFromOutput`)
 - `BitMath.mostSignificantBit` and `BitMath.leastSignificantBit`
@@ -77,6 +77,8 @@ def uniswapV4VerifiedShims : List VerifiedCompilerShim :=
       functionName := "extsloadSlots"
       preservesStorageSafety := true
       coveredByDenote := true }
+  -- Inert: no lowering uses this entry since `CurrencyLibrary.transfer` is lowered through its
+  -- body (#2828); its flags are not backed by any lowering. Left for the registry work of #2828.
   , { kind := .currencyTransfer
       libraryName := "CurrencyLibrary"
       functionName := "transfer"
@@ -142,24 +144,6 @@ def allShimsVerified (shims : List VerifiedCompilerShim) : Bool :=
 /-!
 ## Verified Runtime Lowering Constructors for Uniswap v4 Shims
 -/
-
-/-- Lower `CurrencyLibrary.transfer(Currency currency, address to, uint256 amount)`
-into native and ERC-20 `SolidityLowLevelCall.optionalBoolModule` branches with revert-on-failure. -/
-def lowerCurrencyTransferShim (currencyExpr toExpr amountExpr : Expr) : M (Array Stmt) := do
-  let nativeStatus ← fresh
-  let erc20Status ← fresh
-  modify fun e => { e with encodingMemory := true }
-  let nativeMod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule nativeStatus 0 1
-  let erc20Mod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule erc20Status 0xa9059cbb 2
-  let nativeBranch : List Stmt := [
-    .ecm nativeMod [toExpr, amountExpr],
-    .ite (.eq (.localVar nativeStatus) (.literal 0)) [.revertEmpty] []
-  ]
-  let erc20Branch : List Stmt := [
-    .ecm erc20Mod [currencyExpr, toExpr, amountExpr],
-    .ite (.eq (.localVar erc20Status) (.literal 0)) [.revertEmpty] []
-  ]
-  pure #[.ite (.eq currencyExpr (.literal 0)) nativeBranch erc20Branch]
 
 /-- `j` without solc's source positions (`src`, `nativeSrc`), so that a fingerprint depends
 only on the code. -/
