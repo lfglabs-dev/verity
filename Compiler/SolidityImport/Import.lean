@@ -14,6 +14,7 @@ import Compiler.SolidityImport.LibraryCallGuard
 import Compiler.SolidityImport.ExprHelpers
 import Compiler.SolidityImport.StorageLayout
 import Compiler.SolidityImport.InlineAssemblyShims
+import Compiler.SolidityImport.SourceDigest
 
 /-!
 Solidity importer. Pinned `solc --standard-json` supplies the AST, declaration
@@ -18894,11 +18895,6 @@ private def importerSourceRoot (pkgRoot : System.FilePath) : MetaM System.FilePa
     return dep
   throwError "importer source missing: {pkgRoot / "Compiler/SolidityImport/Import.lean"}"
 
-private def moduleText (pkgRoot : System.FilePath) (rel : String) : MetaM String := do
-  let path := pkgRoot / rel
-  unless ← path.pathExists do throwError "importer source missing: {path}"
-  IO.FS.readFile path
-
 private def FnRec.toImported (f : FnRec) : ImportedFunction :=
   { contract := f.contract, name := f.name, declId := f.declId, paramTypes := f.paramTypes.toList }
 
@@ -19517,11 +19513,9 @@ private def importSlice
         { field := o.field, name := o.name, solcType := o.solcType,
           wordOffset := o.wordOffset, byteOffset := o.byteOffset }
   let sourceRoot ← importerSourceRoot pkgRoot
-  let importer ← moduleText sourceRoot "Compiler/SolidityImport/Import.lean"
-  let coverage ← moduleText sourceRoot "Compiler/SolidityImport/Coverage.lean"
-  let reportSrc ← moduleText sourceRoot "Compiler/SolidityImport/Report.lean"
-  let quoteSrc ← moduleText sourceRoot "Compiler/SolidityImport/Quote.lean"
-  let profileSrc ← moduleText sourceRoot "Compiler/SolidityImport/Profile.lean"
+  -- Every module `Import` imports, directly or not, under the source root, and
+  -- every non-test file of `Compiler/SolidityImport/` (`SourceDigest.lean`).
+  let importerSources ← importerSourcesJson (← getEnv) sourceRoot
   -- JSON framing prevents distinct file/signature lists from sharing a
   -- concatenation merely because their text contains separator newlines.
   let digestInput := Json.mkObj [
@@ -19530,10 +19524,7 @@ private def importSlice
     ("contract", Json.str contract),
     ("functions", Json.arr signatures),
     ("solcInput", input),
-    ("importerSources", Json.mkObj [
-      ("Import.lean", Json.str importer), ("Coverage.lean", Json.str coverage),
-      ("Report.lean", Json.str reportSrc), ("Quote.lean", Json.str quoteSrc),
-      ("Profile.lean", Json.str profileSrc)])]
+    ("importerSources", importerSources)]
   let digest := sha256Hex digestInput.compress.toUTF8
   let report : ImportReport :=
     { importerVersion, solcLongVersion := release.longVersion, solcSha256 := solcSha, settingsJson := settings.compress,

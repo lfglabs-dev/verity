@@ -152,8 +152,10 @@ the model, through `runFunction` and `readMember` in
 kernel-checked against those definitions. They inherit the model's layout, so
 they mean the Solidity storage member only as far as the imported layout does.
 
-The source digest hashes `Import.lean`, `Coverage.lean`, `Report.lean`,
-`Quote.lean`, and `Profile.lean` from
+The source digest hashes every module in the import closure of
+`Compiler/SolidityImport/Import.lean` (including the `Verity.Core.Model.Denote`
+semantics) and every non-test file under `Compiler/SolidityImport/`
+(`docs/SOLIDITY_IMPORT.md` gives the exact set), from
 the package that contains them: the Verity tree itself, or
 `.lake/packages/verity` when a downstream package elaborates the import. The
 pinned solc binary stays in the elaborating package's

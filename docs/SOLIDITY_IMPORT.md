@@ -281,9 +281,26 @@ runs behind a `DELEGATECALL` to a linked library is chosen at deployment and is
 never inlined (`check_library_call_rejections`).
 The model is built as ordinary values and quoted (`Quote.lean`); after
 elaboration the definitions are evaluated back and must equal those values.
-The digest is SHA-256 over framed JSON of the complete solc input, the selected
-signatures, the solc release, and the sources of `Import.lean`,
-`Coverage.lean`, `Report.lean`, `Quote.lean` and `Profile.lean`. The statement
+The digest (`sourceDigest`) is SHA-256 over framed JSON of the importer
+version, the solc release, the contract name, the selected signatures, the
+complete solc input (sources and settings), and `importerSources`: the SHA-256
+of each importer source file, keyed by its path relative to the importer's
+source root. `Compiler/SolidityImport/SourceDigest.lean` computes that file set;
+nothing lists it by hand:
+
+- every module in the import closure of `Compiler.SolidityImport.Import` that
+  has a source file under the source root. That includes the execution
+  semantics the model is interpreted by (`Verity.Core.Model.Denote` and its
+  imports) and `Compiler.CompilationModel`. Lean core, Std and other packages'
+  modules are not hashed;
+- every `.lean` file under `Compiler/SolidityImport/`, imported or not, except
+  test files (names ending in `Test.lean` or `Tests.lean`).
+
+So editing any non-test importer file changes the digest of an unchanged
+contract (`SourceDigestTest.lean` checks the closure and the directory). Lake
+re-elaborates an import, and so recomputes its digest, only when a module in its
+import graph changes; after editing a directory file outside `Import`'s
+closure, rebuild the import to refresh a cached digest. The statement
 denotation retains exact panic bytes; legacy scalar accessors erase failure
 bytes. Gas, public ABI decoding and bytecode equivalence remain outside the
 import certificate.
