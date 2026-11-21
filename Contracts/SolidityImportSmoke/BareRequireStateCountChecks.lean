@@ -4,28 +4,28 @@ import Compiler.SolidityImport.Differential
 namespace SolidityImportSmoke.BareRequireStateCountChecks
 open Compiler.CompilationModel
 
-solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "BareRequireStateCount.sol"
+solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "BareRequireOneSlot.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
   contract BareRequireOneSlot
   function rootGuard(uint256)
   function helperGuard(uint256)
   function namedHelperGuard(uint256)
 
-solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "BareRequireStateCount.sol"
+solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "BareRequireTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
   contract BareRequireTwoSlots
   function rootGuard(uint256)
   function helperGuard(uint256)
   function namedHelperGuard(uint256)
 
-solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "BareRequireStateCount.sol"
+solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "BareRequireOneSlot.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract BareRequireOneSlot
   function rootGuard(uint256)
   function helperGuard(uint256)
   function namedHelperGuard(uint256)
 
-solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "BareRequireStateCount.sol"
+solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "BareRequireTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract BareRequireTwoSlots
   function rootGuard(uint256)
