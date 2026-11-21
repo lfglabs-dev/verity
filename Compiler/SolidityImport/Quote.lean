@@ -247,7 +247,7 @@ private def quoteMember (s : StructMember) : m Term := do
       Compiler.CompilationModel.StructMember))
 
 def quoteField (f : Field) : m Term := do
-  unless !f.isTransient && f.aliasSlots.isEmpty do
+  unless f.aliasSlots.isEmpty do
     throwError "internal: field {f.name} has settings the importer does not emit"
   let packed ← match f.packedBits with
     | none => `(none)
@@ -260,7 +260,7 @@ def quoteField (f : Field) : m Term := do
         `(Compiler.CompilationModel.FieldType.mappingStruct2 $(← quoteKey k1) $(← quoteKey k2)
           $(← list (← ms.mapM quoteMember)))
     | t => throwError "internal: the importer cannot quote {repr t}"
-  `(({ name := $(quote f.name), ty := $ty, slot := $(← optNat f.slot), packedBits := $packed } : Compiler.CompilationModel.Field))
+  `(({ name := $(quote f.name), ty := $ty, slot := $(← optNat f.slot), isTransient := $(quote f.isTransient), packedBits := $packed } : Compiler.CompilationModel.Field))
 
 partial def quoteParamType : ParamType → m Term
   | .uint256 => `(Compiler.CompilationModel.ParamType.uint256)
