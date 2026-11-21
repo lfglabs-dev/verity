@@ -8339,7 +8339,10 @@ private partial def lowerCall (j : Json) : M Val := do
 private partial def bindHelperParams (params : Array Json) (args : Array CallArg) (body : Json) (at_ : Json)
     (savedYul : RBMap String Expr compare) : M (Array Stmt × RBMap String Expr compare) := do
   let mut pre : Array Stmt := #[]
-  let mut yul := savedYul
+  -- A caller's `<name>.slot` names its own storage parameter or local, which is out of
+  -- scope in the callee; state variable slots are rebound per assembly block.
+  let mut yul := savedYul.fold (fun acc name _ => if name.endsWith ".slot" then acc.erase name else acc)
+    savedYul
   for i in [:params.size] do
     let p := params[i]!
     let pname ← mStr (← mField p "name")
