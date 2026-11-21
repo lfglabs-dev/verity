@@ -160,9 +160,34 @@ class CompareTests(unittest.TestCase):
 
     def test_targets_without_a_value_are_listed(self) -> None:
         targets = {"ModuleA": ["N.one", "N.two"], "ModuleB": ["N.three", "N.rejected"]}
-        summary = self.compare(two_imports(), two_imports(), base_targets=targets, cand_targets=targets)
+        guarded = {"ModuleB": ["N.rejected"]}
+        summary = self.compare(two_imports(), two_imports(), base_targets=targets, cand_targets=targets,
+                               base_guarded=guarded, cand_guarded=guarded)
         self.assertEqual(summary["mismatches"], [])
         self.assertEqual(summary["targets_without_value"], ["ModuleB: N.rejected"])
+
+    def test_unguarded_target_without_a_value_fails(self) -> None:
+        targets = {"ModuleA": ["N.one", "N.two"], "ModuleB": ["N.three", "N.lost"]}
+        summary = self.compare(two_imports(), two_imports(), base_targets=targets, cand_targets=targets)
+        self.assertEqual(summary["mismatches"], ["no value for an import not pinned by #guard_msgs: ModuleB: N.lost"])
+
+    def test_identical_errors_in_module_source_fail(self) -> None:
+        lines = {"ModuleA": 40, "ModuleB": 40}
+        error = "<out>/probes/ModuleB.lean:12:0: error: solc binary checksum mismatch\n"
+        probe_error = "<out>/probes/ModuleB.lean:43:0: error: unknown identifier 'N.rejected.model'\n"
+        summary = self.compare(two_imports(), two_imports(), base_source_lines=lines, cand_source_lines=lines,
+                               base_diagnostics={"ModuleB": error + probe_error},
+                               cand_diagnostics={"ModuleB": error + probe_error})
+        self.assertEqual(summary["mismatches"], ["error in module source in base ModuleB/diagnostics.txt: line 12",
+                                                 "error in module source in candidate ModuleB/diagnostics.txt: line 12"])
+
+    def test_subset_dumps_need_explicit_consent(self) -> None:
+        base = write_dump(self.dir / "b", two_imports(), subset=True)
+        candidate = write_dump(self.dir / "c", two_imports(), subset=True)
+        self.assertEqual(harness.compare(base, candidate)["mismatches"],
+                         ["base dump covers only some modules (pass --allow-subset)",
+                          "candidate dump covers only some modules (pass --allow-subset)"])
+        self.assertEqual(harness.compare(base, candidate, allow_subset=True)["mismatches"], [])
 
     def test_dumps_without_models_are_not_evidence(self) -> None:
         only_reports = {"ModuleB": {"N.three.report": report(DIGEST_A)}}
@@ -212,9 +237,11 @@ end Inner.Deep
 def s := "-- solidity_import inString"
 end Outer
 solidity_import top from "d"
+#guard_msgs in solidity_import sameLine from "d"
 """
-        self.assertEqual(harness.import_names(source),
-                         ["Outer.first", "Outer.guarded", "Outer.Inner.Deep.deep", "top"])
+        self.assertEqual(harness.import_targets(source),
+                         [("Outer.first", False), ("Outer.guarded", True), ("Outer.Inner.Deep.deep", False),
+                          ("top", False), ("sameLine", True)])
 
     def test_scope_errors_are_reported(self) -> None:
         for source in ("end Foo\n", "namespace A\nend B\n",
@@ -249,8 +276,16 @@ solidity_import top from "d"
     def test_probe_only_dump_of_in_tree_module(self) -> None:
         module = next(iter(harness.targets(harness.ROOT)))
         with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "dump"
-            manifest = harness.dump(harness.ROOT, out, [module], [], probe_only=True)
+            root = Path(tmp)
+            (root / harness.SMOKE).mkdir(parents=True)
+            source = (harness.ROOT / harness.SMOKE / f"{module}.lean").read_text()
+            (root / harness.SMOKE / f"{module}.lean").write_text(source)
+            with self.assertRaises(HarnessError):
+                harness.dump(root, Path(tmp + "-elsewhere"), [module], [], probe_only=True)
+            out = root / ".lake" / "dump"
+            manifest = harness.dump(root, out, [module], [], probe_only=True)
+            self.assertTrue(manifest["subset"])
+            self.assertEqual(manifest["source_lines"][module], len(source.rstrip("\n").splitlines()))
             probe = (out / "probes" / f"{module}.lean").read_text()
             self.assertEqual(list(manifest["targets"]), [module])
             self.assertEqual(probe.count("#eval IO.FS.writeFile"), 2 * len(manifest["targets"][module]))
