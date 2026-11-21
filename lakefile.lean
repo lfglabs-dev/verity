@@ -69,6 +69,13 @@ input_dir solidityImportSmokeSources where
   filter := .extension "sol"
   text := true
 
+/-- The importer's own sources, all hashed into `sourceDigest`: editing one
+that `Import` does not import still rebuilds the imports and their digests. -/
+input_dir solidityImporterSources where
+  path := "Compiler/SolidityImport"
+  filter := .extension "lean"
+  text := true
+
 -- Every module in Contracts/SolidityImportSmoke/: a new smoke model needs no
 -- lakefile edit, so PRs adding different models do not conflict here.
 @[default_target]
@@ -76,7 +83,7 @@ lean_lib «SolidityImportSmoke» where
   globs := #[.submodules `Contracts.SolidityImportSmoke,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory]
-  needs := #[solidityImportSmokeSources]
+  needs := #[solidityImportSmokeSources, solidityImporterSources]
 
 @[default_target]
 lean_lib «Compiler» where

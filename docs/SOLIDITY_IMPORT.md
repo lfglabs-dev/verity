@@ -293,14 +293,21 @@ nothing lists it by hand:
   semantics the model is interpreted by (`Verity.Core.Model.Denote` and its
   imports) and `Compiler.CompilationModel`. Lean core, Std and other packages'
   modules are not hashed;
-- every `.lean` file under `Compiler/SolidityImport/`, imported or not, except
-  test files (names ending in `Test.lean` or `Tests.lean`).
+- every regular `.lean` file under `Compiler/SolidityImport/`, imported or
+  not, except test files (names ending in `Test.lean` or `Tests.lean`), hidden
+  entries and symbolic links. The modules such a file imports are hashed only
+  when `Import` imports them too (for example `Verity.Core.Model.Denote` is,
+  `DenoteByteExternalCalls` is not).
 
 So editing any non-test importer file changes the digest of an unchanged
-contract (`SourceDigestTest.lean` checks the closure and the directory). Lake
-re-elaborates an import, and so recomputes its digest, only when a module in its
-import graph changes; after editing a directory file outside `Import`'s
-closure, rebuild the import to refresh a cached digest. The statement
+contract (`SourceDigestTest.lean` checks the closure, the directory and the
+wiring into the digest input). Lake re-elaborates an import, and so recomputes
+its digest, only when its traced inputs change. Its import graph covers the
+closure. The `solidityImporterSources` input in Verity's `lakefile.lean` covers
+the other directory files for the smoke imports; a downstream package does the
+same with
+`input_dir verityImporter where path := ".lake/packages/verity/Compiler/SolidityImport"`
+(`filter := .extension "lean"`) in its library's `needs`. The statement
 denotation retains exact panic bytes; legacy scalar accessors erase failure
 bytes. Gas, public ABI decoding and bytecode equivalence remain outside the
 import certificate.
