@@ -23,7 +23,10 @@ instance : Word Int256 := ⟨fun x => x.toUint256.val, fun n => Int256.ofUint256
 instance : Word (UIntN bits) := ⟨UIntN.val, UIntN.ofNat bits⟩
 instance : Word Address := ⟨Address.val, Address.ofNat⟩
 instance : Word (BytesN 32) := ⟨BytesN.val, BytesN.ofNat 32⟩
-instance : Word (BytesN 4) := ⟨fun x => (BytesN.toUint256 x).val, fun n => BytesN.ofUint256 4 (Uint256.ofNat n)⟩
+/-- `bytesN` (`N < 32`) is left-aligned in its ABI word: the high `N` bytes carry the value and
+the low `32 - N` bytes are zero. `bytes32` (the instance above) fills the word. -/
+instance (priority := low) : Word (BytesN n) :=
+  ⟨fun x => (BytesN.toUint256 x).val, fun w => BytesN.ofUint256 n (Uint256.ofNat w)⟩
 instance : Word Bool := ⟨fun b => if b then 1 else 0, fun n => n != 0⟩
 
 @[simp] theorem toWord_uint256 (x : Uint256) : Word.toWord x = x.val := rfl

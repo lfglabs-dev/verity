@@ -487,8 +487,24 @@ def _struct_memory_array_root_calls():
     return [(sig, [32] + items(n)) for n in (0, 1, 3)] + [(sig, [32] + items(2, dirty=True))]
 
 
+def _fixed_bytes_width_calls():
+    """`bytes1` / `bytes19` / `bytes31` root parameters (#2832): clean left-aligned
+    words (zero, mixed, every value byte set), then a nonzero low padding byte in
+    each parameter, including the highest padding bit of `bytes19`, which solc's
+    ABI decoder rejects with empty revert data; and a `bytes1` hex-digit parser."""
+    a, b, c = 0x61 << 248, 0x0102030405060708090a0b0c0d0e0f10111213 << 104, ((1 << 248) - 3) << 8
+    sig = 'widths(bytes1,bytes19,bytes31)'
+    calls = [(sig, [a, b, c]), (sig, [0, 0, 0]),
+             (sig, [0xff << 248, ((1 << 152) - 1) << 104, ((1 << 248) - 1) << 8]),
+             (sig, [a | 1, b, c]), (sig, [a, b | (1 << 103), c]), (sig, [a, b | 1, c]),
+             (sig, [a, b, c | 1])]
+    calls += [('nibble(bytes1)', [ch << 248]) for ch in (0x30, 0x39, 0x61, 0x66, 0x67, 0xff)]
+    calls.append(('nibble(bytes1)', [(0x61 << 248) | 1]))
+    return calls
+
+
 ROOT_PARAM_CALLS = (_struct_string_member_calls, _struct_array_param_calls, _bytes_array_param_calls,
-                    _nested_struct_calls, _struct_memory_array_root_calls)
+                    _nested_struct_calls, _struct_memory_array_root_calls, _fixed_bytes_width_calls)
 ROOT_PARAM_SIGNATURES = {sig: gen for gen in ROOT_PARAM_CALLS for sig, _ in gen()}
 
 
