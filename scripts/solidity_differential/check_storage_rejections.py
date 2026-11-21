@@ -1260,6 +1260,24 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
+        ('nested-struct-raw-hash-rejected',
+         'pragma solidity 0.8.34; contract C { struct I { uint x; } struct O { I i; uint y; } uint a; uint b; '
+         'function checked(uint256 x) external view returns (bytes32 h) { O memory o = O(I(x + a), b + 7); '
+         'assembly ("memory-safe") { h := keccak256(o, 64) } } }', None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulIdentifier: [solidity-import:unsupported] raw memory hash of a flattened nested struct'),
+        ('nested-struct-member-alias-local-rejected',
+         'pragma solidity 0.8.34; contract C { struct I { uint x; } struct O { I i; uint y; } uint a; uint b; '
+         'function checked(uint256 x) external view returns (O memory o) { o = O(I(x), a); '
+         'I memory shared = o.i; shared.x = b; } }', None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] struct local initializer must be a supported struct or struct-array element reference'),
+        ('nested-struct-member-from-local-rejected',
+         'pragma solidity 0.8.34; contract C { struct I { uint x; } struct O { I i; uint y; } uint a; uint b; '
+         'function checked(uint256 x) external view returns (O memory o) { I memory t = I(x); '
+         'o.i = t; t.x = a + b; } }', None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] memory struct local aliasing is outside this slice'),
         ('new-array-signed-element-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    int128[] memory a = new int128[](x);\n    return a.length;\n  }\n}\n",
          None,

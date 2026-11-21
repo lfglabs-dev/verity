@@ -1165,6 +1165,15 @@ provenance, the canonical word-memory bridge and compiled-model integration
 remain mandatory before admitting object-pointer Yul expressions.
 
 
+### Development slice: static nested sub-structs in flat memory structs (#2738)
+
+| Supported Solidity | Lowering boundary |
+| --- | --- |
+| A static struct member of a flat memory struct (`struct R { C configuration; uint128 index; }`) as a root return (named or unnamed), positional or named constructor argument, member read or write (`r.configuration.data = x`), whole sub-struct assignment from a fresh value (`r.configuration = C(x)`), `delete r.configuration`, and helper argument | `flatStructLeaves?` flattens it into leaves named `member.leaf`; solc ABI-encodes a static nested struct inline, so the leaves are the returned words in order. `r.configuration` is a view over the same leaf bindings (a by-reference parent makes the view by-reference). Constructor leaves are snapshotted as they are evaluated (`S(k, ++k)`), and legacy (`viaIR := false`) evaluates named constructor arguments in declaration order, as solc. |
+| Rejected | `enum` leaves, nested structs in helper results, `S memory s;` without an initializer when `S` has a struct member (`uninitialized nested struct locals are outside this slice`), raw Yul `keccak256` over a flattened nested struct (`raw memory hash of a flattened nested struct is outside this slice`), and every way solc would share the sub-struct's pointer: assigning a memory struct local to `r.m` (`memory struct local aliasing is outside this slice`), `C memory c = r.m`, returning `p.m` of a memory struct parameter, and member writes through it in a helper. |
+
+`NestedMemoryStructReturnSequence` (`nested-memory-struct-return`) runs A/B/C variants `baseline`, `renamed` (locals) and `members-renamed` (struct members, types, helpers and state variables): a nested struct root return built member by member, by `delete` and by whole assignment, a helper reading nested leaves, and narrow nested leaves written from assembly-dirtied words (`snapshot`).
+
 ### CREATE2 parent opcode composition prerequisite
 
 `Create2ParentGas` charges the Osaka base cost, six-gas Keccak and two-gas

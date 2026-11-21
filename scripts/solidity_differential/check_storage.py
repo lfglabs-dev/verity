@@ -243,6 +243,7 @@ FIXTURE_CONTRACTS = {
     'signed-struct-member-read': 'SignedStructMemberReadSequence',
     'solc-0810': 'Solc0810Sequence',
     'storage-string-members': 'StorageStringMemberSequence',
+    'nested-memory-struct-return': 'NestedMemoryStructReturnSequence',
     'string-bytes-mappings-uri-storage-strings': 'StringBytesMappingsUriStorageStringsSequence',
     'string-event-param': 'StringEventParamSequence',
     'strings-hex-arrays-bitmaps': 'StringsHexArraysBitmapsSequence',

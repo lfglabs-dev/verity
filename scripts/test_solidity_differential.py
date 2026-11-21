@@ -94,6 +94,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-named-string-return",
     "storage-narrow-event",
     "storage-narrow-for-counters",
+    "storage-nested-memory-struct-return",
     "storage-numeric-literals",
     "storage-packed-signed-int",
     "storage-short-circuit",
