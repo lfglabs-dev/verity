@@ -18599,30 +18599,6 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
         index file contract? child
   | _ => pure ()
 
-private def normalizePath (path : String) : Except String String := Id.run do
-  let mut out : Array String := #[]
-  for part in path.splitOn "/" do
-    if part == "" || part == "." then
-      pure ()
-    else if part == ".." then
-      if out.isEmpty then return .error s!"path escapes the project: {path}"
-      out := out.pop
-    else
-      out := out.push part
-  return .ok (String.intercalate "/" out.toList)
-
-/-- The source unit `spec` (imported from `origin`) names, as solc resolves it: a relative
-path is joined to `origin`'s directory first, then remappings apply to every import path.
-Also returns the Foundry-inferred remapping used, if any. -/
-private def resolveSpec (origin spec : String) (remaps : Array (String × String))
-    (inferred : InferredRemappings) : Except String (String × Option InferredRemapping) := do
-  let path ← if spec.startsWith "." then
-      let parent := String.intercalate "/" (origin.splitOn "/").dropLast
-      normalizePath (parent ++ "/" ++ spec)
-    else pure spec
-  let (target, used) ← remapImportPath path remaps inferred
-  return (← normalizePath target, used)
-
 private def importSpecs (text : String) : Array String := Id.run do
   let mut out : Array String := #[]
   for line in text.splitOn "\n" do
@@ -18725,7 +18701,7 @@ private partial def collectSources
   let text ← IO.FS.readFile path
   let mut acc := (acc.1.insert logical text, acc.2)
   for spec in importSpecs text do
-    match resolveSpec logical spec remaps inferred with
+    match resolveImport logical spec remaps inferred with
     | .error e => throwError "{logical}: {e}"
     | .ok (next, used) =>
       if let some r := used then

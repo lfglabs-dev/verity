@@ -34,10 +34,14 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   apply after relative imports resolve, as in solc. The inferred remappings in
   use go to solc and appear as `inferred remapping` lines in `report.toText`.
   The importer refuses an inferred remapping whose value depends on directory
-  listing order in Foundry, and refuses all of them when a scanned library
-  holds a symlink or a `foundry.toml` value it cannot read. Write the remapping
-  in `remappings.txt` instead. The importer does not read `FOUNDRY_PROFILE`,
-  `FOUNDRY_REMAPPINGS`, `DAPP_REMAPPINGS` or the global `~/.foundry/foundry.toml`.
+  listing order in Foundry. When a scanned library holds a symlink, or a
+  `foundry.toml` line or remapping key it cannot check, Foundry's inferred set
+  is unknown: the importer then refuses every inferred remapping and every
+  non-relative import no remapping matches. Write the remapping in
+  `remappings.txt` instead. Not modeled: a nested `foundry.toml` that is
+  well-formed TOML but which Foundry rejects for a value's type (Foundry then
+  ignores that library's remappings, the importer does not), `FOUNDRY_PROFILE`,
+  `FOUNDRY_REMAPPINGS`, `DAPP_REMAPPINGS` and the global `~/.foundry/foundry.toml`.
 - `solidity_profile` defines an ordinary `Profile` value (reusable,
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
