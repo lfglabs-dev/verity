@@ -4,7 +4,7 @@ import Compiler.SolidityImport.Differential
 namespace SolidityImportSmoke.YulBoolLiteralStateCountChecks
 open Compiler.CompilationModel
 
-solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralStateCount.sol"
+solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralOneSlot.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
   contract YulBoolLiteralOneSlot
   function flag(uint256)
@@ -13,7 +13,7 @@ solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "YulBoolLit
   function timesFalse(uint256)
   function boundTrue(uint256)
 
-solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralStateCount.sol"
+solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
   contract YulBoolLiteralTwoSlots
   function flag(uint256)
@@ -22,7 +22,7 @@ solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "YulBoolLit
   function timesFalse(uint256)
   function boundTrue(uint256)
 
-solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralStateCount.sol"
+solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralOneSlot.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract YulBoolLiteralOneSlot
   function flag(uint256)
@@ -31,7 +31,7 @@ solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "YulBoolLiteral
   function timesFalse(uint256)
   function boundTrue(uint256)
 
-solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralStateCount.sol"
+solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "YulBoolLiteralTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract YulBoolLiteralTwoSlots
   function flag(uint256)
