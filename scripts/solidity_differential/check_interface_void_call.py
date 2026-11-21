@@ -6,7 +6,10 @@ empty argument lists, and one `nonpayable` function with a `bytes32` result and 
 `enum` argument (return data expected: no code check, a no-data revert on short
 return data). solc reverts with no data when the target has no code, forwards a
 failed call's complete return data and ignores a successful call's return data,
-whatever its length or contents. The A/B/C sequence reuses the Yul memory call
+whatever its length or contents. `try` of the same calls with a catch-all clause runs
+the success clause on any successful call (no return data is decoded), the catch clause
+on a failed call (its effects rolled back) and reverts uncaught with no data when the
+target has no code. The A/B/C sequence reuses the Yul memory call
 campaign: the recording responders (every response shape, success and failure,
 calldata size and first four words recorded in storage), one account without code
 and the sender EOA. A divergence is shrunk to a deletion-minimal sequence.
@@ -61,13 +64,16 @@ def transactions_for(count, seed, caller, responders):
             [target, SENDER, index % 2])
         add('signalWord(address,address,uint8)', ['address', 'address', 'uint8'],
             [target, SENDER, (index + 1) % 2])
+        add('tryPing(address,uint256)', ['address', 'uint256'], [target, 11 + index])
+        add('tryRelay(address,bytes)', ['address', 'bytes'], [target, bytes(range(index + 3))])
+        add('tryPoke(address)', ['address'], [target])
     # An out-of-range ordinal panics (0x21) before the call.
     add('signal(address,address,uint8)', ['address', 'address', 'uint8'], [targets[0], SENDER, 2])
     add('signalWord(address,address,uint8)', ['address', 'address', 'uint8'],
         [targets[0], SENDER, 255])
     add('read()', [], [])
     while len(calls) < count:
-        choice = rng.randrange(8)
+        choice = rng.randrange(11)
         target = rng.choice(targets)
         amount = rng.choice([0, 1, 7, rng.getrandbits(8), rng.getrandbits(256)])
         if choice == 0:
@@ -86,6 +92,12 @@ def transactions_for(count, seed, caller, responders):
         elif choice == 7:
             add('signalWord(address,address,uint8)', ['address', 'address', 'uint8'],
                 [target, rng.choice(targets), rng.choice([0, 0, 1, 2, 255])])
+        elif choice == 8:
+            add('tryPing(address,uint256)', ['address', 'uint256'], [target, amount])
+        elif choice == 9:
+            add('tryRelay(address,bytes)', ['address', 'bytes'], [target, payload()])
+        elif choice == 10:
+            add('tryPoke(address)', ['address'], [target])
         else:
             add('read()', [], [])
     return calls
@@ -93,12 +105,12 @@ def transactions_for(count, seed, caller, responders):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--transactions', type=int, default=96)
+    parser.add_argument('--transactions', type=int, default=160)
     parser.add_argument('--seed', type=int, default=4219)
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = 7 * (len(RESPONDERS) + 2) + 3
+    minimum = 10 * (len(RESPONDERS) + 2) + 3
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every target and call shape')
     output = (args.output.resolve() if args.output else

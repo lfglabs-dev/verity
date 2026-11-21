@@ -1,4 +1,5 @@
-"""Located near-miss rejections and positive controls for typed-interface staticcalls.
+"""Located near-miss rejections and positive controls for typed-interface staticcalls
+and for external `try` of interface functions without return values.
 
 Each case is imported on its own. A positive control must elaborate and leave
 an olean; a near miss must fail with the exact `Fixture.sol:line:column`
@@ -20,8 +21,11 @@ MESSAGES = {
     'return': 'typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool',
     'receiver': 'typed interface call receiver must be an explicit interface conversion of an address',
     'external': 'external contract calls are outside this slice',
-    'try': 'unsupported statement TryStatement',
+    'try': 'external try/catch of a view, pure or value-returning function is unsupported',
+    'try-clause': 'external try/catch supports exactly one catch-all `catch { }` clause',
+    'try-shape': 'unsupported statement TryStatement',
 }
+HOOK = 'interface IHook {\n    function hook() external;\n}\n'
 
 # name, interface/contract declarations, contract members, body, expected
 # expected: None (positive control) or (marker, occurrence, construct, message key)
@@ -82,6 +86,20 @@ CASES = [
     ('try-catch', ORACLE, '',
      'try IPriceOracle(oracle).price() returns (uint256 v) { return v; } catch { return 0; }',
      ('try', 0, 'TryStatement', 'try')),
+    ('try-void', HOOK, '', 'try IHook(oracle).hook() { return 1; } catch { return 0; }', None),
+    ('try-void-error-clause', HOOK, '',
+     'try IHook(oracle).hook() { return 1; } catch Error(string memory) { return 2; } '
+     'catch { return 0; }',
+     ('try', 0, 'TryStatement', 'try-clause')),
+    ('try-void-bytes-clause', HOOK, '',
+     'try IHook(oracle).hook() { return 1; } catch (bytes memory) { return 0; }',
+     ('try', 0, 'TryStatement', 'try-clause')),
+    ('try-void-call-options', HOOK, '',
+     'try IHook(oracle).hook{gas: 50000}() { return 1; } catch { return 0; }',
+     ('try', 0, 'TryStatement', 'try-shape')),
+    ('try-self', HOOK, 'function hook() external {}',
+     'try this.hook() { return 1; } catch { return 0; }',
+     ('try', 0, 'TryStatement', 'try-shape')),
     ('void-return',
      'interface IPriceOracle {\n    function price() external view;\n}\n', '',
      'IPriceOracle(oracle).price(); return 1;',

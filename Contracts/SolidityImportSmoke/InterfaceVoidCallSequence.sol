@@ -17,6 +17,7 @@ interface INotified {
 /// call with a `bytes32` result and an `enum` argument. solc reverts with no data when
 /// the target has no code, forwards a failed call's return data and ignores a successful
 /// call's return data. State is written before each call, so every call is trailing.
+/// The `try*` functions catch the same calls with a catch-all clause.
 contract InterfaceVoidCallFixture {
     uint256 private calls;
     uint256 private lastAmount;
@@ -59,6 +60,40 @@ contract InterfaceVoidCallFixture {
         INotified.Kind kind = INotified.Kind(raw);
         bytes32 word = INotified(target).notifyWord(to, kind);
         return word;
+    }
+
+    /// `try` of a function without return values, with a catch-all clause: a successful
+    /// call runs the success clause whatever its return data (none is decoded), a failed
+    /// call runs the catch clause, and an account without code reverts uncaught with no
+    /// data. Each clause writes state, and the statement after the `try` runs either way.
+    function tryPing(address target, uint256 amount) external {
+        calls += 1;
+        try INotified(target).ping(amount) {
+            lastAmount = amount;
+        } catch {
+            calls += 1000;
+        }
+        calls += 1;
+    }
+
+    /// A `return` in the catch clause skips the continuation; calldata-bytes arguments.
+    function tryRelay(address target, bytes calldata data) external {
+        try INotified(target).relay(msg.sender, data) {
+            calls += 1;
+        } catch {
+            return;
+        }
+        lastAmount = data.length;
+    }
+
+    /// Empty clauses inside an inlined `void` helper.
+    function tryPoke(address target) external {
+        pokeQuietly(target);
+        calls += 7;
+    }
+
+    function pokeQuietly(address target) private {
+        try INotified(target).poke() {} catch {}
     }
 
     function read() external view returns (uint256, uint256) {

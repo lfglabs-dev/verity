@@ -22,7 +22,7 @@ DENOTE = 'Verity/Core/Model/Denote.lean'
 ECM = 'Verity/Core/Model/ECM.lean'
 YUL = ('solidity_differential.check_yul_memory_call', '--transactions', '64', '--seed', '2531',
        'Contracts.SolidityImportSmoke.YulMemoryCallSequenceModel')
-VOID = ('solidity_differential.check_interface_void_call', '--transactions', '96', '--seed', '4219',
+VOID = ('solidity_differential.check_interface_void_call', '--transactions', '160', '--seed', '4219',
         'Contracts.SolidityImportSmoke.InterfaceVoidCallSequenceModel')
 # name: (file, anchor, replacement, campaign)
 MUTANTS = {
@@ -47,8 +47,12 @@ MUTANTS = {
         '.ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] [],',
         '.ite (.eq (.localVar codeSize) (.literal 0)) [] [],', VOID),
     'import-void-call-forward': (IMPORT,
-        '.ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] []]',
-        '.ite (.eq (.localVar success) (.literal 0)) [.revertEmpty] []]', VOID),
+        '.ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [])',
+        '.ite (.eq (.localVar success) (.literal 0)) [.revertEmpty] [])', VOID),
+    # `try` runs the success clause on a successful call and the catch clause on a failed one.
+    'import-try-call-clauses': (IMPORT,
+        'return some ({ pre, expr := .localVar success }, yesStmts, noStmts)',
+        'return some ({ pre, expr := .localVar success }, noStmts, yesStmts)', VOID),
     'import-void-call-selector': (IMPORT,
         '.mstore (.localVar callBase) (.literal selector),',
         '.mstore (.localVar callBase) (.literal (selector + 1)),', VOID),
