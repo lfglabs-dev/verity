@@ -15517,7 +15517,7 @@ private partial def lowerRequireWith (statement : Json) (lowerCondition : Json �
   let signature ← mType callee
   unless (← mField callee "referencedDeclaration").getInt?.toOption == some (-18) &&
       (signature == "function (bool,string memory) pure" || signature == "function (bool,error) pure" ||
-       ((← get).stateVars.size > 1 && signature == "function (bool) pure")) do
+       signature == "function (bool) pure") do
     failAt callee "require must resolve to a supported Solidity builtin signature"
   unless (← mArr (← mField callee "overloadedDeclarations")).all
       (fun declaration => declaration.getInt?.toOption == some (-18)) do
@@ -15527,7 +15527,9 @@ private partial def lowerRequireWith (statement : Json) (lowerCondition : Json �
   unless (← mArr (← mField call "names")).isEmpty do
     failAt call "named require arguments are unsupported"
   let args ← mArr (← mField call "arguments")
-  if signature == "function (bool) pure" && (← get).stateVars.size > 1 then
+  -- solc evaluates the condition and, when it is false, reverts with empty
+  -- returndata. That does not depend on the contract's state variables (#2830).
+  if signature == "function (bool) pure" then
     unless args.size == 1 do failAt call "require(bool) requires one argument"
     let condition ← atom (← lowerCondition args[0]!)
     return condition.pre.push (.ite condition.expr [] [.revertEmpty])

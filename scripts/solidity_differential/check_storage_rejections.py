@@ -85,7 +85,8 @@ def main():
         ('yul-free-pointer-restored', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { let p := mload(0x40) mstore(0x24, n) r := n mstore(0x40, p) } }', 'return h(x);', 'uint256', None),
         ('yul-numeric-create2', 'function h(uint256 n) internal returns(uint256 r) { assembly { r := create2(0, 0, 0, 0) } }', 'return h(x);', 'uint256', 'YulLiteral: [solidity-import:unsupported] create2 initcode offset must be add(buffer, 0x20) of a bytes memory local'),
         ('yul-numeric-block', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { let v := n r := add(v, 1) } }', 'return h(x);', 'uint256', None),
-        ('named-helper-bare-require', 'function h(uint256 n) internal pure returns(uint256 result) { result = n; require(n != 20); }', 'return h(x);', 'uint256', 'require must resolve to a supported Solidity builtin signature'),
+        # Bare require(bool) lowers without a state-count gate (#2830).
+        ('named-helper-bare-require', 'function h(uint256 n) internal pure returns(uint256 result) { result = n; require(n != 20); }', 'return h(x);', 'uint256', None),
         ('named-helper-default', 'function h(uint256) internal pure returns(uint256 result) { }', 'return h(x);', 'uint256', None),
         ('named-helper-write', 'function h(uint256 n) internal pure returns(uint256 result) { result = n + 1; }', 'return h(x);', 'uint256', None),
         ('named-helper-early', 'function h(uint256 n) internal pure returns(uint256 result) { if(n == 0) return result; result = n; }', 'return h(x);', 'uint256', None),
@@ -112,7 +113,7 @@ def main():
         ('discarded-helper-emit-string', 'event E(string v); function h(uint256 n) internal returns (uint256) { emit E("dynamic"); return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-private', 'function h(uint256 n) private pure returns (uint256) { require(n != 20, "helper"); return n; }', 'h(x); return x;', 'uint256', None),
-        ('discarded-helper-void', 'function h(uint256 n) internal { require(n != 20); }', 'h(x); return x;', 'uint256', 'require must resolve to a supported Solidity builtin signature'),
+        ('discarded-helper-void', 'function h(uint256 n) internal { require(n != 20); }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-tuple', 'function h(uint256 n) internal pure returns (uint256,uint256) { return (n,n); }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-external', 'function h(uint256 n) external pure returns (uint256) { return n; }', 'this.h(x); return x;', 'uint256', 'discarded helper calls require an internal or private'),
         ('discarded-helper-recursive', 'function h(uint256 n) internal returns (uint256) { h(n); return n; }', 'h(x); return x;', 'uint256', 'recursive call'),
