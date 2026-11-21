@@ -3735,7 +3735,7 @@ ROOT_PARAM_RENAMES = {
     # Not root parameters: the same two rename axes for a memory struct fixture.
     'nested-memory-struct-return': (
         {'r', 'x', 'k', 'narrow', 'res', 'box', 'dirty', 'tagCopy', 'rawTag'},
-        {'data', 'configuration', 'index', 'token', 'extra', 'weight', 'Config', 'Reserve',
+        {'data', 'cfg', 'idx', 'token', 'spare', 'weight', 'Inner', 'Outer',
          'Pair', 'Box', 'pair', 'a', 'b', 'tag', 'value', 'last'}),
 }
 
