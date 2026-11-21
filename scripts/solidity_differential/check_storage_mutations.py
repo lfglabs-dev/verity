@@ -230,6 +230,17 @@ MUTANTS.update({
         '      pure { pre := #[], expr := raw }'),
     'import-yul-empty-revert-drop': ('            out := out ++ offVal.pre |>.push .revertEmpty\n',
                                      '            out := out ++ offVal.pre\n'),
+    # Reads the live word instead of the snapshot: wrong when a copy rewrites word 0 and then
+    # needs its old bytes for word 0x20 (overlap).
+    'import-yul-mcopy-snapshot': (
+        '              | some binding => .localVar binding\n',
+        '              | some _ => .mload (.literal w)\n'),
+    'import-yul-mcopy-keep': (
+        '  some (.bitOr (.bitAnd (word w) (.literal (2 ^ 256 - 1 - mask))) (.bitAnd copied (.literal mask)))',
+        '  some (.bitOr (.bitAnd (word w) (.literal 0)) (.bitAnd copied (.literal mask)))'),
+    'import-yul-mcopy-direction': (
+        '      if d < 32 then some (Expr.shr (.literal (8 * d)) (word s)) else none',
+        '      if d < 32 then some (Expr.shl (.literal (8 * d)) (word s)) else none'),
     'import-yul-revert-memory-empty': (
         '            out := out.push (.revertMemory (.literal off) (.literal size))\n',
         '            out := out.push .revertEmpty\n'),
@@ -841,6 +852,8 @@ def run(directory, output, name):
         fixture = "DynamicArrayRootReturnStatelessSequence"
     if name.startswith("import-yul-empty-revert-"):
         fixture = "YulEmptyRevertSequence"
+    if name.startswith("import-yul-mcopy-"):
+        fixture = "YulMcopySequence"
     if name.startswith("import-yul-revert-memory-"):
         fixture = "YulRevertMemorySequence"
     if name.startswith("import-signed-compound-"):

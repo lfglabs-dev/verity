@@ -1405,6 +1405,35 @@ private def checkYulCallRange (offNode sizeNode : Json) (off size : Expr) (limit
     if lo + n ≤ limit && (List.range n).all fun k => written.testBit (lo + k) then return
   failAt offNode message
 
+/-- The aligned scratch words, `0x00` and `0x20`. -/
+private def yulScratchWords : List Nat := [0, 32]
+
+/-- Bytes `[lo, hi)` of a word as a mask; byte 0 is the most significant. -/
+private def yulByteMask (lo hi : Nat) : Nat :=
+  (2 ^ (8 * (hi - lo)) - 1) * 2 ^ (8 * (32 - hi))
+
+/-- Scratch word `w` after `mcopy(dst, src, size)` inside the scratch words, given each word's
+value before the copy (`word`), or `none` when the copy leaves it alone. Byte `i` of `w` in the
+destination range takes byte `w + i + src - dst` of the old scratch words: each old word
+shifted by its distance to that source byte, the rest of `w` kept. Reading only the old values
+gives memmove semantics when the ranges overlap, in either direction. -/
+private def yulScratchWordAfterMcopy (word : Nat → Expr) (dst src size w : Nat) : Option Expr :=
+  let lo := max dst w
+  let hi := min (dst + size) (w + 32)
+  if hi ≤ lo then none else
+  let mask := yulByteMask (lo - w) (hi - w)
+  let moved := yulScratchWords.filterMap fun s =>
+    if dst + s ≤ w + src then
+      let d := w + src - (dst + s)
+      if d < 32 then some (Expr.shl (.literal (8 * d)) (word s)) else none
+    else
+      let d := dst + s - (w + src)
+      if d < 32 then some (Expr.shr (.literal (8 * d)) (word s)) else none
+  let copied := match moved with
+    | [] => Expr.literal 0
+    | e :: es => es.foldl Expr.bitOr e
+  some (.bitOr (.bitAnd (word w) (.literal (2 ^ 256 - 1 - mask))) (.bitAnd copied (.literal mask)))
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -2375,6 +2404,51 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
               | failAt expr ("Yul revert with revert data is supported only for a literal " ++
                   "range below 0x40 that this Yul block wrote on every path")
             out := out.push (.revertMemory (.literal off) (.literal size))
+        else if fname == "mcopy" then
+          unless args.size == 3 do failAt expr "mcopy requires three arguments"
+          if (← yulNumber? args[2]!) == some 0 then
+            -- EIP-5656: a zero size copies nothing and expands no memory, whatever the offsets;
+            -- only the operands' own effects remain.
+            let dstVal ← lowerYul args[0]!
+            let srcVal ← lowerYul args[1]!
+            checkYulOperandOrder expr #[dstVal, srcVal]
+            out := out ++ dstVal.pre ++ srcVal.pre
+          else
+            -- The model's memory agrees with the EVM's only on scratch bytes this block wrote on
+            -- every path (`yulWrittenBytes`); from 0x40 on sit solc's free-memory pointer and zero
+            -- slot, which the model's differ from. So both ranges stay below 0x40 and every source
+            -- byte must be written. Other copies (e.g. between heap buffers) are #2620.
+            let written := (← get).yulWrittenBytes
+            let range? := match (← yulNumber? args[0]!), (← yulNumber? args[1]!),
+                (← yulNumber? args[2]!) with
+              | some dst, some src, some size =>
+                  if dst + size ≤ 0x40 && src + size ≤ 0x40 &&
+                      (List.range size).all fun k => written.testBit (src + k) then
+                    some (dst, src, size)
+                  else none
+              | _, _, _ => none
+            let some (dst, src, size) := range?
+              | failAt expr ("Yul mcopy is supported only for a zero size, or a literal range " ++
+                  "inside the scratch words below 0x40 whose source bytes this Yul block " ++
+                  "wrote on every path")
+            -- Snapshot both scratch words, then rewrite the destination words from the snapshot.
+            let mut snapshots : List (Nat × String) := []
+            for w in yulScratchWords do
+              let binding ← fresh
+              snapshots := snapshots ++ [(w, binding)]
+              out := out.push (.letVar binding (.mload (.literal w)))
+            let word (w : Nat) : Expr := match snapshots.lookup w with
+              | some binding => .localVar binding
+              | none => .literal 0
+            for w in yulScratchWords do
+              if let some value := yulScratchWordAfterMcopy word dst src size w then
+                out := out.push (.mstore (.literal w) value)
+            modify fun e =>
+              let bytes := Nat.lor e.yulWrittenBytes (Nat.shiftLeft (2 ^ size - 1) dst)
+              { e with yulWrittenBytes := bytes,
+                       yulScratch0 := e.yulScratch0 || (List.range 32).all bytes.testBit,
+                       yulScratch32 := e.yulScratch32 ||
+                         (List.range 32).all fun k => bytes.testBit (32 + k) }
         else
           failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
     | "YulIf" =>
