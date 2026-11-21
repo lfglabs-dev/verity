@@ -710,6 +710,20 @@ def yulOnlyAssignsDecl (j : Json) (declId : Nat) : Bool :=
         | _, none => true
   | none => true
 
+/-- Whether an inline assembly block below `j` names `<decl>.slot` for declaration `declId`. -/
+partial def yulReferencesDeclSlot (j : Json) (declId : Nat) : Bool :=
+  match j with
+  | .arr xs => xs.any (yulReferencesDeclSlot · declId)
+  | .obj o =>
+      let own := optStr j "nodeType" == some "InlineAssembly" &&
+        match (field? j "externalReferences").bind (fun v => v.getArr?.toOption) with
+        | some refs => refs.any fun ref =>
+            (field? ref "declaration").bind (fun d => d.getNat?.toOption) == some declId &&
+            optStr ref "suffix" == some "slot"
+        | none => false
+      o.foldl (fun acc _ v => acc || yulReferencesDeclSlot v declId) own
+  | _ => false
+
 /-- Includes nested loop step writes; callers pass only the current loop body. -/
 partial def bodyAssignedIds (j : Json) : List Nat :=
   match j with

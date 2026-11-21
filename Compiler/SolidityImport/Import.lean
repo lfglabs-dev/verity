@@ -950,6 +950,26 @@ private def memberRead (pre : Array Stmt) (path : SPath) (member : String) (at_ 
       | none => read
   pure { pre, expr }
 
+/-- The slot solc assigns to a storage struct reached by a top-level or mapping-indexed path,
+from the resolved storage layout: the value of `<pointer>.slot` in inline assembly. -/
+private def storageStructPathSlot (path : SPath) (at_ : Json) : M (Array Stmt × Expr) := do
+  let rawField ← match path with
+    | .zero field | .one field _ | .two field _ _ => pure field
+    | .outer _ _ | .rawSlot _ _ | .bytesSlot _ _ =>
+        failAt at_ "inline assembly .slot of this storage struct pointer is outside this slice"
+  let (field, subPrefix) := splitSPathField rawField
+  unless subPrefix == "" do
+    failAt at_ "inline assembly .slot of a nested storage struct member is outside this slice"
+  let info ← resolveField field at_
+  unless !info.scalarMapping && !info.bytesStorage && info.fixedArrayLength.isNone do
+    failAt at_ "inline assembly .slot requires a storage struct path"
+  markField field
+  if let .zero _ := path then
+    unless info.keyCount == 0 do
+      failAt at_ "storage struct mapping key count differs"
+    return (#[], .literal info.slot)
+  computeSPathBaseSlot path info 0 at_
+
 private def scalarMappingRead (pre : Array Stmt) (path : SPath) (at_ : Json) : M Val := do
   let (name, count, read) ← match path with
     | .one field key => pure (field, 1, Expr.structMember field key "__solidity_value")
@@ -8685,6 +8705,15 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             | "storage", .rawSlot _ baseSlot | "storage", .bytesSlot (_, baseSlot) _ =>
                 yul.erase pname |>.insert s!"{pname}.slot" baseSlot
             | _, _ => yul.erase pname
+          -- `<param>.slot` of a top-level or mapping-indexed struct is its layout slot,
+          -- computed at the call only when the helper's assembly names it.
+          if location == "storage" && yulReferencesDeclSlot body pid then
+            match path with
+            | .zero _ | .one _ _ | .two _ _ _ =>
+                let (slotPre, slotExpr) ← storageStructPathSlot path p
+                pre := pre ++ slotPre
+                yul := yul.insert s!"{pname}.slot" slotExpr
+            | .outer _ _ | .rawSlot _ _ | .bytesSlot _ _ => pure ()
     | .flatStruct argSid sName memberVals effects byRef =>
         unless pty.startsWith "struct " && !pty.contains "[" do
           failAt p "flat struct argument requires a struct parameter"
