@@ -350,13 +350,21 @@ def snakeCase (k : String) : String := Id.run do
 /-- Record one `key = value` under table `sect` (its parts), when the full key path ends in
 a key that steers inference. `profile.default.<key>` is read; `profile.<other>.<key>` is
 another profile; a deeper path is a subtable. Any other place for such a key (top level,
-`[default]`, …) is an issue. -/
+`[default]`, …) is an issue, and so are `extends` and an inline table holding the default
+profile, which could set such a key where this reader does not look. -/
 def TomlKeys.record (keys : TomlKeys) (sect : List String) (key value : String) : TomlKeys :=
   let path := (sect ++ tomlKeyParts key).map snakeCase
   match path.getLast? with
   | none => keys
   | some leaf =>
-    if !modeledKeys.contains leaf then keys
+    -- `profile = { default = { … } }` and `[profile] default = { … }` set modeled keys
+    -- through an inline table; `extends` pulls them from another file. Neither is read here.
+    if path == ["profile"] || path == ["profile", "default"] then
+      { keys with issue := some s!"foundry.toml sets {String.intercalate "." path} as a value" }
+    else if leaf == "extends" && path.length ≤ 3 &&
+        !(path.length == 3 && path.head? == some "profile" && path[1]? != some "default") then
+      { keys with issue := some "foundry.toml extends another file" }
+    else if !modeledKeys.contains leaf then keys
     else if path.length > 3 then keys
     else if path.length == 3 && path.head? == some "profile" then
       if path[1]? != some "default" then keys

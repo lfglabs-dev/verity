@@ -40,8 +40,14 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   non-relative import no remapping matches. Write the remapping in
   `remappings.txt` instead. Not modeled: a nested `foundry.toml` that is
   well-formed TOML but which Foundry rejects for a value's type (Foundry then
-  ignores that library's remappings, the importer does not), `FOUNDRY_PROFILE`,
-  `FOUNDRY_REMAPPINGS`, `DAPP_REMAPPINGS` and the global `~/.foundry/foundry.toml`.
+  ignores that library's remappings, the importer does not), environment
+  variables (`FOUNDRY_PROFILE`, `FOUNDRY_CONFIG`, `FOUNDRY_REMAPPINGS`,
+  `FOUNDRY_LIBS`, `FOUNDRY_SRC`, `FOUNDRY_AUTO_DETECT_REMAPPINGS` and their
+  `DAPP_` forms) and the global `~/.foundry/foundry.toml`. A `foundry.toml`
+  that uses `extends`, or sets the default profile as an inline table, counts
+  as one the importer cannot check; written remappings come only from
+  `remappings.txt` and the project's own `foundry.toml`, never from a file it
+  extends.
 - `solidity_profile` defines an ordinary `Profile` value (reusable,
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
