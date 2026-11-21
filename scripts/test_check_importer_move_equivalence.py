@@ -38,7 +38,8 @@ def model(body: str = "x") -> str:
 
 
 def write_dump(directory: Path, imports: dict[str, dict[str, str]], diagnostics: dict[str, str] | None = None,
-               exits: dict[str, str] | None = None, targets: dict | None = None) -> Path:
+               exits: dict[str, str] | None = None, targets: dict | None = None,
+               **manifest_fields) -> Path:
     """A dump laid out as `dump` writes it. `imports` maps module -> {file name: text}."""
     directory.mkdir(parents=True)
     manifest_targets = {}
@@ -51,7 +52,8 @@ def write_dump(directory: Path, imports: dict[str, dict[str, str]], diagnostics:
         manifest_targets[module] = sorted({name.rsplit(".", 1)[0] for name in files})
     (directory / "probes").mkdir()
     (directory / "probes" / "ignored.lean").write_text("-- probes are not compared\n")
-    manifest = {"revision": directory.name, "targets": targets or manifest_targets}
+    manifest = {"revision": directory.name, "dirty": False, "built": True,
+                "targets": targets or manifest_targets, **manifest_fields}
     (directory / "manifest.json").write_text(json.dumps(manifest))
     return directory
 
@@ -138,6 +140,30 @@ class CompareTests(unittest.TestCase):
         summary = self.compare(two_imports(), two_imports(), cand_targets={"ModuleA": ["N.one"]})
         self.assertIn("targets differ", summary["mismatches"])
 
+    def test_unbuilt_dumps_are_not_evidence(self) -> None:
+        summary = self.compare(two_imports(), two_imports(), cand_built=False)
+        self.assertEqual(summary["mismatches"], ["candidate dump was not built before probing"])
+
+    def test_same_clean_revision_is_not_a_comparison(self) -> None:
+        summary = self.compare(two_imports(), two_imports(), base_revision="r", cand_revision="r")
+        self.assertEqual(summary["mismatches"], ["base and candidate are the same clean revision"])
+        summary = harness.compare(self.dir / "base", write_dump(self.dir / "dirty", two_imports(),
+                                                                 revision="r", dirty=True))
+        self.assertEqual(summary["mismatches"], [])
+
+    def test_identical_missing_build_failures_are_not_evidence(self) -> None:
+        line = "<out>/probes/ModuleB.lean:1:0: error: object file <root>/.lake/build/lib/lean/X.olean of module X does not exist\n"
+        summary = self.compare(two_imports(), two_imports(), base_diagnostics={"ModuleB": line},
+                               cand_diagnostics={"ModuleB": line})
+        self.assertEqual(summary["mismatches"], ["missing build output in base ModuleB/diagnostics.txt",
+                                                 "missing build output in candidate ModuleB/diagnostics.txt"])
+
+    def test_targets_without_a_value_are_listed(self) -> None:
+        targets = {"ModuleA": ["N.one", "N.two"], "ModuleB": ["N.three", "N.rejected"]}
+        summary = self.compare(two_imports(), two_imports(), base_targets=targets, cand_targets=targets)
+        self.assertEqual(summary["mismatches"], [])
+        self.assertEqual(summary["targets_without_value"], ["ModuleB: N.rejected"])
+
     def test_dumps_without_models_are_not_evidence(self) -> None:
         only_reports = {"ModuleB": {"N.three.report": report(DIGEST_A)}}
         summary = self.compare(only_reports, only_reports)
@@ -205,6 +231,10 @@ solidity_import top from "d"
         self.assertEqual(len(names), len(set(names)))
         self.assertTrue(all(found.values()))
 
+    def test_module_imports_are_the_leading_import_lines(self) -> None:
+        source = "/- header -/\nimport A.B\n-- note\nimport C\n\nopen A\nimport NotLeading\n"
+        self.assertEqual(harness.module_imports(source), ["A.B", "C"])
+
     def test_unknown_module_is_rejected(self) -> None:
         with self.assertRaises(HarnessError):
             harness.targets(harness.ROOT, ["NoSuchSmokeModule"])
@@ -224,7 +254,8 @@ solidity_import top from "d"
             probe = (out / "probes" / f"{module}.lean").read_text()
             self.assertEqual(list(manifest["targets"]), [module])
             self.assertEqual(probe.count("#eval IO.FS.writeFile"), 2 * len(manifest["targets"][module]))
-            self.assertTrue((out / "manifest.json").is_file())
+            self.assertFalse(json.loads((out / "manifest.json").read_text())["built"])
+            self.assertIn("Compiler.SolidityImport.Import", manifest["imports"])
             with self.assertRaises(HarnessError):
                 harness.dump(harness.ROOT, out, [module], [], probe_only=True)
 

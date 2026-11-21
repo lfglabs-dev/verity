@@ -28,7 +28,12 @@ byte-identical. Absolute checkout and output paths are replaced by ``<root>``
 and ``<out>`` when a dump is written, so two checkouts can be compared.
 
 A comparison that saw no model or no report fails: an empty dump is not
-evidence of equivalence.
+evidence of equivalence. So does a dump that was not built first, a probe that
+could not load a module, and a base and candidate at the same clean revision.
+
+Not dumped: the accessors and the `covered` theorem an import also defines.
+Smoke modules that use them still fail to elaborate if they break, and that
+shows up as a diagnostics or exit-code difference.
 """
 from __future__ import annotations
 
@@ -173,23 +178,51 @@ def normalize_paths(text: str, root: Path, out: Path) -> str:
     return text
 
 
-def dump(root: Path, out: Path, modules: list[str] | None, runner: list[str], probe_only: bool) -> dict:
+def module_imports(source: str) -> list[str]:
+    """The modules a Lean file imports (its leading `import` lines)."""
+    found: list[str] = []
+    for line in strip_comments(source):
+        words = line.split()
+        if not words:
+            continue
+        if words[0] != "import":
+            break
+        found += words[1:]
+    return found
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=root, text=True, capture_output=True).stdout.strip()
+
+
+def dump(root: Path, out: Path, modules: list[str] | None, runner: list[str], probe_only: bool,
+         build: bool = True) -> dict:
     root, out = root.resolve(), out.resolve()
     if out.exists() and any(out.iterdir()):
         raise HarnessError(f"{out} is not empty")
     found = targets(root, modules)
     if not found:
         raise HarnessError("no solidity_import targets found")
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, text=True,
-                              capture_output=True).stdout.strip()
-    manifest = {"revision": revision, "targets": found}
+    sources = {module: (root / SMOKE / f"{module}.lean").read_text(encoding="utf-8") for module in found}
+    imports = sorted({name for source in sources.values() for name in module_imports(source)})
+    # `lake env lean` never rebuilds: without this build a probe can load oleans
+    # from another revision, or fail on a missing one identically on both sides.
+    built = build and not probe_only
+    out.mkdir(parents=True, exist_ok=True)
+    if built:
+        result = subprocess.run([*runner, "lake", "build", *imports], cwd=root, text=True, capture_output=True)
+        (out / "build.log").write_text(normalize_paths(result.stdout + result.stderr, root, out), encoding="utf-8")
+        if result.returncode:
+            raise HarnessError(f"lake build of the smoke imports failed (exit {result.returncode}); see {out / 'build.log'}")
+    manifest = {"revision": git(root, "rev-parse", "HEAD"),
+                "dirty": bool(git(root, "status", "--porcelain", "--untracked-files=no")),
+                "built": built, "imports": imports, "targets": found}
     for module, names in found.items():
         directory = out / module
         directory.mkdir(parents=True)
         probe = out / "probes" / f"{module}.lean"
         probe.parent.mkdir(exist_ok=True)
-        source = (root / SMOKE / f"{module}.lean").read_text(encoding="utf-8")
-        probe.write_text(probe_text(source, names, directory), encoding="utf-8")
+        probe.write_text(probe_text(sources[module], names, directory), encoding="utf-8")
         if probe_only:
             continue
         result = subprocess.run([*runner, "lake", "env", "lean", str(probe)], cwd=root,
@@ -215,7 +248,11 @@ def normalize_report(text: str, where: str) -> str:
 
 def dump_files(directory: Path) -> set[str]:
     return {p.relative_to(directory).as_posix() for p in directory.rglob("*")
-            if p.is_file() and p.parts[len(directory.parts)] not in ("probes", "manifest.json")}
+            if p.is_file() and p.parts[len(directory.parts)] not in ("probes", "manifest.json", "build.log")}
+
+
+# A probe that could not load a module proves nothing, even when both sides agree.
+MISSING_BUILD_RE = re.compile(r"object file \S+ of module \S+ does not exist|unknown module prefix|unknown package")
 
 
 def compare(base: Path, candidate: Path) -> dict:
@@ -227,6 +264,12 @@ def compare(base: Path, candidate: Path) -> dict:
         if not manifest.is_file():
             raise HarnessError(f"{side}: missing manifest.json (not a dump)")
         manifests.append(json.loads(manifest.read_text(encoding="utf-8")))
+    for label, manifest in zip(("base", "candidate"), manifests):
+        if not manifest.get("built"):
+            mismatches.append(f"{label} dump was not built before probing")
+    if (manifests[0].get("revision") == manifests[1].get("revision")
+            and not manifests[0].get("dirty") and not manifests[1].get("dirty")):
+        mismatches.append("base and candidate are the same clean revision")
     if manifests[0]["targets"] != manifests[1]["targets"]:
         mismatches.append("targets differ")
     base_files, candidate_files = dump_files(base), dump_files(candidate)
@@ -249,12 +292,22 @@ def compare(base: Path, candidate: Path) -> dict:
                 digest_changed += 1
             before = normalize_report(before, f"base {name}")
             after = normalize_report(after, f"candidate {name}")
+        if kind == "diagnostics":
+            for label, text in (("base", before), ("candidate", after)):
+                if MISSING_BUILD_RE.search(text):
+                    mismatches.append(f"missing build output in {label} {name}")
         if before != after:
             mismatches.append(f"differs: {name}")
     for kind in ("model", "report", "diagnostics"):
         if counts[kind] == 0:
             mismatches.append(f"no {kind} compared: the dumps are not evidence")
+    # Rejected and `#guard_msgs`-checked imports legitimately define no value; their
+    # evidence is the diagnostics. List them so a reviewer sees what was not dumped.
+    without_output = sorted(f"{module}: {name}" for module, names in manifests[0]["targets"].items()
+                            for name in names
+                            if not {f"{module}/{name}.model", f"{module}/{name}.report"} & base_files)
     return {"compared": counts, "reports_with_changed_digest": digest_changed,
+            "targets_without_value": without_output,
             "base_revision": manifests[0].get("revision"),
             "candidate_revision": manifests[1].get("revision"), "mismatches": mismatches}
 
@@ -452,6 +505,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--module", action="append", help="smoke module stem (default: all)")
     p.add_argument("--runner", default="", help='command prefix, e.g. "lean-job lane-equiv --"')
     p.add_argument("--probe-only", action="store_true", help="write probes, do not run Lean")
+    p.add_argument("--no-build", action="store_true",
+                   help="skip `lake build` of the smoke imports (compare rejects such dumps)")
     p = sub.add_parser("compare", help="compare two dumps")
     p.add_argument("base", type=Path)
     p.add_argument("candidate", type=Path)
@@ -461,7 +516,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "targets":
             print(json.dumps(targets(args.root.resolve(), args.module), indent=2))
         elif args.command == "dump":
-            manifest = dump(args.root, args.out, args.module, shlex.split(args.runner), args.probe_only)
+            manifest = dump(args.root, args.out, args.module, shlex.split(args.runner), args.probe_only,
+                            build=not args.no_build)
             print(f"{sum(map(len, manifest['targets'].values()))} imports in {len(manifest['targets'])} modules")
         elif args.command == "compare":
             summary = compare(args.base, args.candidate)
