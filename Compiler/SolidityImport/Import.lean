@@ -15820,6 +15820,15 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
       params := params ++ [{ name := parameterName, ty := modelType, kind := .unindexed }]
   unless topics.size ≤ 4 do failAt declaration "event has more than three indexed parameters"
   rejectMixedEventGuards guardPayloads
+  -- Topics are lowered before the data. via-IR evaluates a data argument that precedes an
+  -- indexed one first, so once a topic can revert, such data arguments must not.
+  unless guardPayloads.isEmpty do
+    for index in [:parameters.size] do
+      unless ← mBool (← mField parameters[index]! "indexed") do
+        if lastIndexed.any (index < ·) then
+          let kind ← mKind arguments[index]!
+          unless kind == "Identifier" || kind == "Literal" do
+            failAt arguments[index]! "event data arguments before a guarded indexed argument must be variables or literals"
   let payload ← lowerAbiEncodeArgs data
   let pointer ← atom { pre := payload.pre, expr := payload.pointer }
   let size ← atom { pre := #[], expr := payload.size }
