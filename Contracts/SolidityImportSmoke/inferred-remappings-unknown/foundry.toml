@@ -1,3 +1,2 @@
 [profile.default]
 libs = ["deps"]
-not a toml line

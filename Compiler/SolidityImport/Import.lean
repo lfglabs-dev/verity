@@ -18613,61 +18613,6 @@ private def importSpecs (text : String) : Array String := Id.run do
           out := out.push singleParts[1]!
   pure out
 
-private def extractQuotedStrings (s : String) : Array String := Id.run do
-  let mut out : Array String := #[]
-  let mut inQuote : Option Char := none
-  let mut current : String := ""
-  for c in s.toList do
-    match inQuote with
-    | none =>
-        if c == '"' || c == '\'' then
-          inQuote := some c
-          current := ""
-    | some q =>
-        if c == q then
-          out := out.push current
-          inQuote := none
-        else
-          current := current.push c
-  return out
-
-private def parseFoundryTomlRemappings (text : String) : Array (String × String) := Id.run do
-  let mut out : Array (String × String) := #[]
-  let mut collecting := false
-  let mut buf := ""
-  for line in text.splitOn "\n" do
-    let trimmed := line.trimAscii.toString
-    if trimmed.startsWith "#" then continue
-    let codeLine := (trimmed.splitOn "#").headD ""
-    if !collecting then
-      if codeLine.startsWith "remappings" then
-        let rest := (codeLine.drop 10).trimAscii.toString
-        if rest.startsWith "=" then
-          let rhs := (rest.drop 1).trimAscii.toString
-          if rhs.startsWith "[" then
-            let afterBracket := (rhs.drop 1).toString
-            if afterBracket.contains ']' then
-              let inside := (afterBracket.splitOn "]").headD ""
-              for item in extractQuotedStrings inside do
-                let parts := item.splitOn "="
-                if parts.length == 2 && parts[0]! != "" && parts[1]! != "" then
-                  out := out.push (parts[0]!, parts[1]!)
-            else
-              collecting := true
-              buf := afterBracket
-    else
-      if codeLine.contains ']' then
-        let inside := buf ++ "\n" ++ ((codeLine.splitOn "]").headD "")
-        for item in extractQuotedStrings inside do
-          let parts := item.splitOn "="
-          if parts.length == 2 && parts[0]! != "" && parts[1]! != "" then
-            out := out.push (parts[0]!, parts[1]!)
-        collecting := false
-        buf := ""
-      else
-        buf := buf ++ "\n" ++ codeLine
-  return out
-
 private def readRemappings (root : System.FilePath) : IO (Array (String × String)) := do
   let mut out : Array (String × String) := #[]
   let path := root / "remappings.txt"
@@ -18682,10 +18627,15 @@ private def readRemappings (root : System.FilePath) : IO (Array (String × Strin
   let foundryPath := root / "foundry.toml"
   if ← foundryPath.pathExists then
     let foundryText ← IO.FS.readFile foundryPath
-    -- Foundry keeps the first remapping of each name (`Remappings::into_inner`).
-    for pair in parseFoundryTomlRemappings foundryText do
-      unless out.any (·.1 == pair.1) do
-        out := out.push pair
+    -- Only `[profile.default]` counts (other profiles are not selected), and Foundry keeps
+    -- the first remapping of each name (`Remappings::into_inner`).
+    let keys := FoundryRemap.parseFoundryToml foundryText (strict := false)
+    for item in keys.remappings.getD [] do
+      let parts := item.splitOn "="
+      if parts.length == 2 && parts[0]! != "" && parts[1]! != "" then
+        let pair := (parts[0]!, parts[1]!)
+        unless out.any (·.1 == pair.1) do
+          out := out.push pair
   pure out
 
 /-- The sources reachable from `logical`, and the Foundry-inferred remappings their imports
