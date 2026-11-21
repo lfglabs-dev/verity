@@ -171,6 +171,21 @@ MUTANTS.update({
     'import-push-length-bound': (
         '.ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]',
         '.ite (.lt oldLen (.literal (2 ^ 64 + 1))) [] [.panicCode (.literal 0x41)]')})
+# An empty storage array push() writes nothing, as solc's does: the new element keeps what
+# its slot held and `x = a.push()` reads it.
+MUTANTS.update({
+    'import-empty-push-zero-fill-value': (
+        '  let mut writeStmts : Array Stmt := #[]\n',
+        '  let mut writeStmts : Array Stmt ←\n'
+        '    writeStorageDynamicArrayElementAtUnchecked baseDataSlot elemTy lenVal.expr (.literal 0) true\n'),
+    'import-empty-push-read-zero': (
+        '    elemVal := .localVar dest\n',
+        '    elemVal := .literal 0\n'),
+    'import-empty-push-zero-fill-struct': (
+        "  -- No zero fill: solc's empty `push()` writes nothing, and `push(v)` writes each member into\n",
+        '  for w in [:rawInfo.wordCount] do\n'
+        '    stmts := stmts.push (.setStorageArrayElement rawStorageFieldName '
+        '(rawStructMemberSlot (.localVar elemSlot) w) (.literal 0))\n')})
 # Signed event parameters keep their declared type in the event signature, and the
 # observed ABI word is sign-extended.
 MUTANTS.update({
@@ -918,6 +933,8 @@ def run(directory, output, name):
         fixture = "EncodingArgSuperOverrideSequence"
     if name.startswith("import-push-length-"):
         fixture = "PushLengthBoundSequence"
+    if name.startswith("import-empty-push-"):
+        fixture = "EmptyPushSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
         fixture = "SignedEventSequence"
     if name.startswith("import-constant-array-"):
@@ -991,6 +1008,14 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 1, 5, 9, 13, 2, 6, 10, 0, 3, 7, 11, 4, 1])])
+    if fixture == 'EmptyPushSequence':
+        # Push three elements onto each array (x % 4 == 1), lower every length to 0 (x = 0),
+        # push() (2), read a stale lane into `last` (3), lower to 1 (4, 16) and push() over the
+        # written elements again (6, 2), then random calls.
+        argv[argv.index('--transactions') + 1] = '24'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [1, 5, 9, 0, 2, 3, 2, 4, 6, 3, 13, 16, 2, 3])])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
