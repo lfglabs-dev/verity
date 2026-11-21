@@ -1256,6 +1256,13 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'unbound Yul identifier s.offset'),
+        # A parameter's `<name>.slot` must not stand in for a same-named state variable's
+        # slot in an inlined callee (solc returns the state variable's own slot there).
+        ('storage-struct-param-slot-shadows-state-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct In { uint256 a; }\n  In private t;\n  In private c;\n  function g() internal view returns (uint256 s) { assembly { s := c.slot } }\n  function h(In storage c) internal view returns (uint256 s) { assembly { s := c.slot } s = s * 100 + g(); }\n  function checked(uint256 x) external view returns (uint256) { return h(t) + x; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:6:52: InlineAssembly: [solidity-import:unsupported] shadowed storage declaration c is outside this slice'),
         ('yul-sload-sstore-positive',
          "pragma solidity 0.8.34;\ncontract C {\n  struct Slot { uint256 value; }\n  uint256 private v;\n  function _slot(bytes32 s) internal pure returns (Slot storage r) {\n    assembly { r.slot := s }\n  }\n  function checked(uint256 x) external returns (uint256 out) {\n    Slot storage s = _slot(bytes32(uint256(0x77)));\n    assembly {\n      sstore(0, x)\n      sstore(v.slot, add(sload(0), 1))\n      sstore(s.slot, add(sload(v.slot), 2))\n      out := sload(s.slot)\n    }\n  }\n}\n",
          None,
