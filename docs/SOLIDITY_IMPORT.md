@@ -35,8 +35,11 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   of `forge config`, not the longer list `forge remappings` prints): a
   remapping named after the project's `src`, `test` or `script` directory is
   dropped, and so is a written remapping nested under an earlier one
-  (`a/b/=…` after `a/=…`). Remappings apply after relative imports resolve, as
-  in solc. The inferred remappings in
+  (`a/b/=…` after `a/=…`). One older difference remains: Foundry appends `/` to
+  a written name or target that lacks one (`oz=lib/oz` becomes `oz/=lib/oz/`),
+  while the importer passes it as written; solc then reports a missing source
+  rather than reading another file. Remappings apply after relative imports
+  resolve, as in solc. The inferred remappings in
   use go to solc and appear as `inferred remapping` lines in `report.toText`.
   The importer refuses an inferred remapping whose value depends on directory
   listing order in Foundry. When a scanned library holds a symlink, or a
