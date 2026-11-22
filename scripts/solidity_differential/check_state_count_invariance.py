@@ -225,7 +225,7 @@ CASES = [
     fixture('fixture-root-array-return', 'Contracts/SolidityImportSmoke/RootArrayReturnOneSlot.sol',
             'RootArrayReturnOneSlot', [
                 'loadSlots(«bytes32[]»)', 'loadTransientSlots(«bytes32[]»)', 'loadRange(bytes32,uint256)',
-                'copied(«uint256[]»)', 'narrowCopied(«uint8[]»)', 'fromStorage()', 'built(uint256)']),
+                'revertedWord(uint256)', 'copied(«uint256[]»)', 'narrowCopied(«uint8[]»)', 'fromStorage()', 'built(uint256)']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]

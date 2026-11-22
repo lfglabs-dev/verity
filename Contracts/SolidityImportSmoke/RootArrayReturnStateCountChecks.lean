@@ -9,7 +9,10 @@ the same contract plus one unrelated state variable and one unused function.
 The calldata-keyed batch slot reads and the range read (`loadSlots`, `loadTransientSlots`,
 `loadRange`: the exact blocks `extsloadBatchYulFingerprint`, `exttloadBatchYulFingerprint` and
 `extsloadRangeYulFingerprint` select) took their fixed lowerings only with more than one state
-variable; with one, the block reached the ordinary assembly lowering and was rejected.
+variable; with one, the block reached the ordinary assembly lowering and was rejected. Tail
+assembly that does not reference the one bound array (`revertedWord`, whose only array is its
+named result) is not the batch read and takes the ordinary lowering; it used to be a
+fingerprint-mismatch rejection with more than one state variable.
 `T[] memory` results were already lowered the same way. `T[] calldata` results were rejected on
 both sides with different diagnostics; they now share one located rejection at the return
 parameter (`check_storage_rejections.py`, `root-array-return-*-rejected`).
@@ -28,6 +31,7 @@ solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "RootArrayR
   function loadSlots(«bytes32[]»)
   function loadTransientSlots(«bytes32[]»)
   function loadRange(bytes32, uint256)
+  function revertedWord(uint256)
   function copied(«uint256[]»)
   function narrowCopied(«uint8[]»)
   function fromStorage()
@@ -39,6 +43,7 @@ solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "RootArrayR
   function loadSlots(«bytes32[]»)
   function loadTransientSlots(«bytes32[]»)
   function loadRange(bytes32, uint256)
+  function revertedWord(uint256)
   function copied(«uint256[]»)
   function narrowCopied(«uint8[]»)
   function fromStorage()
@@ -50,6 +55,7 @@ solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "RootArrayRetur
   function loadSlots(«bytes32[]»)
   function loadTransientSlots(«bytes32[]»)
   function loadRange(bytes32, uint256)
+  function revertedWord(uint256)
   function copied(«uint256[]»)
   function narrowCopied(«uint8[]»)
   function fromStorage()
@@ -61,6 +67,7 @@ solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "RootArrayRetur
   function loadSlots(«bytes32[]»)
   function loadTransientSlots(«bytes32[]»)
   function loadRange(bytes32, uint256)
+  function revertedWord(uint256)
   function copied(«uint256[]»)
   function narrowCopied(«uint8[]»)
   function fromStorage()
@@ -97,6 +104,16 @@ private def observe (model : CompilationModel) (name : String) (args : List Nat)
 private def reverts (model : CompilationModel) (name : String) (args : List Nat) : Bool :=
   (observe model name args).map Prod.fst == some false
 
+/-- `name` reverts on `args` with the one-word payload `word`. -/
+private def revertsWithWord (model : CompilationModel) (name : String) (args : List Nat)
+    (word : Nat) : Bool :=
+  match model.functions.find? (·.name == name) with
+  | some fn =>
+      let r := denoteFunction SolidityImport.Differential.oracle model fn
+        { sender := 1, functionSelector := 0, args } initial
+      !r.success && r.revertData == some (List.replicate 31 0 ++ [UInt8.ofNat word])
+  | none => false
+
 /-- `name` reverts with `Panic(0x11)` on `args`. -/
 private def panics (model : CompilationModel) (name : String) (args : List Nat) : Bool :=
   match model.functions.find? (·.name == name) with
@@ -111,6 +128,7 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard sameBody oneLegacy.model twoLegacy.model "loadSlots"
 #guard sameBody oneLegacy.model twoLegacy.model "loadTransientSlots"
 #guard sameBody oneLegacy.model twoLegacy.model "loadRange"
+#guard sameBody oneLegacy.model twoLegacy.model "revertedWord"
 #guard sameBody oneLegacy.model twoLegacy.model "copied"
 #guard sameBody oneLegacy.model twoLegacy.model "narrowCopied"
 #guard sameBody oneLegacy.model twoLegacy.model "fromStorage"
@@ -118,6 +136,7 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard sameBody oneIr.model twoIr.model "loadSlots"
 #guard sameBody oneIr.model twoIr.model "loadTransientSlots"
 #guard sameBody oneIr.model twoIr.model "loadRange"
+#guard sameBody oneIr.model twoIr.model "revertedWord"
 #guard sameBody oneIr.model twoIr.model "copied"
 #guard sameBody oneIr.model twoIr.model "narrowCopied"
 #guard sameBody oneIr.model twoIr.model "fromStorage"
@@ -148,6 +167,9 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard reverts oneLegacy.model "loadSlots" [32, 2 ^ 64, 0]
 #guard reverts oneLegacy.model "loadSlots" [2 ^ 64, 1, 0]
 #guard panics oneLegacy.model "built" [maxWord]
+#guard observe oneLegacy.model "revertedWord" [1] == some (true, [32, 0])
+#guard observe oneLegacy.model "revertedWord" [maxWord] == some (true, [32, 0])
+#guard revertsWithWord oneLegacy.model "revertedWord" [0] 2
 #guard observe twoLegacy.model "loadSlots" [32, 0] == some (true, [32, 0])
 #guard observe twoLegacy.model "loadSlots" [32, 1, 0] == some (true, [32, 1, 2])
 #guard observe twoLegacy.model "loadSlots" [32, 4, 0, itemsData, itemsData + 1, maxWord] ==
@@ -173,6 +195,9 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard reverts twoLegacy.model "loadSlots" [32, 2 ^ 64, 0]
 #guard reverts twoLegacy.model "loadSlots" [2 ^ 64, 1, 0]
 #guard panics twoLegacy.model "built" [maxWord]
+#guard observe twoLegacy.model "revertedWord" [1] == some (true, [32, 0])
+#guard observe twoLegacy.model "revertedWord" [maxWord] == some (true, [32, 0])
+#guard revertsWithWord twoLegacy.model "revertedWord" [0] 2
 #guard observe oneIr.model "loadSlots" [32, 0] == some (true, [32, 0])
 #guard observe oneIr.model "loadSlots" [32, 1, 0] == some (true, [32, 1, 2])
 #guard observe oneIr.model "loadSlots" [32, 4, 0, itemsData, itemsData + 1, maxWord] ==
@@ -196,6 +221,9 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard reverts oneIr.model "loadSlots" [32, 2 ^ 64, 0]
 #guard reverts oneIr.model "loadSlots" [2 ^ 64, 1, 0]
 #guard panics oneIr.model "built" [maxWord]
+#guard observe oneIr.model "revertedWord" [1] == some (true, [32, 0])
+#guard observe oneIr.model "revertedWord" [maxWord] == some (true, [32, 0])
+#guard revertsWithWord oneIr.model "revertedWord" [0] 2
 #guard observe twoIr.model "loadSlots" [32, 0] == some (true, [32, 0])
 #guard observe twoIr.model "loadSlots" [32, 1, 0] == some (true, [32, 1, 2])
 #guard observe twoIr.model "loadSlots" [32, 4, 0, itemsData, itemsData + 1, maxWord] ==
@@ -219,6 +247,9 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard reverts twoIr.model "loadSlots" [32, 2 ^ 64, 0]
 #guard reverts twoIr.model "loadSlots" [2 ^ 64, 1, 0]
 #guard panics twoIr.model "built" [maxWord]
+#guard observe twoIr.model "revertedWord" [1] == some (true, [32, 0])
+#guard observe twoIr.model "revertedWord" [maxWord] == some (true, [32, 0])
+#guard revertsWithWord twoIr.model "revertedWord" [0] 2
 
 -- Both contracts list the same shortcut for the batch reads and none for the other roots.
 private def shortcuts (r : SolidityImport.ImportReport) : List (String × List String) :=
@@ -227,12 +258,14 @@ private def shortcuts (r : SolidityImport.ImportReport) : List (String × List S
 #guard shortcuts oneLegacy.report == shortcuts twoLegacy.report
 #guard shortcuts oneLegacy.report == [("loadSlots", ["extsloadBatchYulFingerprint"]),
   ("loadTransientSlots", ["exttloadBatchYulFingerprint"]),
-  ("loadRange", ["extsloadRangeYulFingerprint"]), ("copied", []), ("narrowCopied", []),
+  ("loadRange", ["extsloadRangeYulFingerprint"]), ("revertedWord", []), ("copied", []),
+  ("narrowCopied", []),
   ("fromStorage", []), ("built", [])]
 #guard shortcuts oneIr.report == shortcuts twoIr.report
 #guard shortcuts oneIr.report == [("loadSlots", ["extsloadBatchYulFingerprint"]),
   ("loadTransientSlots", ["exttloadBatchYulFingerprint"]),
-  ("loadRange", ["extsloadRangeYulFingerprint"]), ("copied", []), ("narrowCopied", []),
+  ("loadRange", ["extsloadRangeYulFingerprint"]), ("revertedWord", []), ("copied", []),
+  ("narrowCopied", []),
   ("fromStorage", []), ("built", [])]
 
 end SolidityImportSmoke.RootArrayReturnStateCountChecks

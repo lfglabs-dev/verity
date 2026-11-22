@@ -169,6 +169,14 @@ def inlineAssemblyRefsOnlyDecl (asm : Json) (declId : Nat) : Bool :=
       ((ref.getObjVal? "declaration").toOption.bind (fun d => d.getNat?.toOption)) == some declId
   | none => false
 
+/-- Whether some Solidity reference of `asm` (an `InlineAssembly` node) resolves to declaration
+`declId`. -/
+def inlineAssemblyRefsDecl (asm : Json) (declId : Nat) : Bool :=
+  match (asm.getObjVal? "externalReferences").toOption.bind (fun v => v.getArr?.toOption) with
+  | some refs => refs.any fun ref =>
+      ((ref.getObjVal? "declaration").toOption.bind (fun d => d.getNat?.toOption)) == some declId
+  | none => false
+
 /-- Source positions of the Yul identifiers named `name` below `j` (uses and assignment targets). -/
 partial def yulIdentifierSrcs (name : String) : Json → List String
   | .arr xs => xs.toList.flatMap (yulIdentifierSrcs name)
