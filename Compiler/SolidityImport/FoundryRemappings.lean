@@ -50,6 +50,8 @@ structure InferredRemapping where
 /-- Foundry's inferred remappings for a project, in Foundry's order. -/
 structure InferredRemappings where
   remappings : Array InferredRemapping := #[]
+  /-- The written remappings `forge build` keeps, in order (see `inferFoundryRemappings`). -/
+  explicit : Array (String × String) := #[]
   /-- Set when the layout leaves Foundry's inferred set itself unknown. -/
   globalIssue : Option String := none
   deriving Inhabited, Repr
@@ -297,6 +299,9 @@ structure TomlKeys where
   src : Option String := none
   libs : Option (List String) := none
   autoDetect : Option Bool := none
+  /-- `[profile.default]` `test` and `script` (the project paths `forge build` protects). -/
+  test : Option String := none
+  script : Option String := none
   issue : Option String := none
   deriving Inhabited, Repr
 
@@ -389,6 +394,10 @@ def TomlKeys.record (keys : TomlKeys) (sect : List String) (key value : String) 
     else if leaf == "extends" && path.length ≤ 3 &&
         !(path.length == 3 && path.head? == some "profile" && path[1]? != some "default") then
       { keys with issue := some "foundry.toml extends another file" }
+    else if path == ["profile", "default", "test"] || path == ["profile", "default", "script"] then
+      match quotedStrings value with
+      | some [v] => if leaf == "test" then { keys with test := some v } else { keys with script := some v }
+      | _ => keys
     else if !modeledKeys.contains leaf then keys
     else if path.length > 3 then keys
     else if path.length == 3 && path.head? == some "profile" then
@@ -658,18 +667,38 @@ def Remap.toInferred (r : Remap) : InferredRemapping :=
 end FoundryRemap
 
 open FoundryRemap in
-/-- The remappings Foundry infers for the project `root` beyond its `explicit` ones
-(`remappings.txt`, then `foundry.toml`), in Foundry's order. -/
+/-- The remappings `forge build` gives solc for the project `root` with the written
+remappings `explicit` (`remappings.txt`, then `foundry.toml`): the provider's list, written
+then inferred, pushed once more through `Remappings::push` with the project's `src`, `test`
+and `script` directories as protected names (`BuildOpts` in forge's CLI; `forge remappings`
+prints the list before this pass). That pass drops a remapping named after one of those
+directories, ignoring ASCII case, and a written remapping nested under an earlier one. -/
 def inferFoundryRemappings (root : RemapDir) (explicit : Array (String × String)) :
-    InferredRemappings :=
+    InferredRemappings := Id.run do
   let keys := parseFoundryToml (root.foundryToml.getD "") (strict := false)
   let user := explicit.map fun (n, t) =>
     match parseRemapping s!"{n}={t}" with
     | some (ctx, name, _) => { context := ctx, name, path := [], pathText := t }
     | none => { context := none, name := n, path := [], pathText := t }
   let p := provide root [] keys user root.aboveRootSource
-  let inferred := (p.remaps.filter (·.lib)).map (·.toInferred)
-  { remappings := inferred, globalIssue := p.globalIssue }
+  let src := keys.src.getD (if (root.child? "src").isSome then "src"
+    else if (root.child? "contracts").isSome then "contracts" else "src")
+  let projectPaths := [src, keys.test.getD "test", keys.script.getD "script"].map (· ++ "/")
+  let isProjectPath (n : String) : Bool := projectPaths.any (·.toLower == n.toLower)
+  let mut kept : Array Remap := #[]
+  let mut keptExplicit : Array (String × String) := #[]
+  for (pair, r) in explicit.zip user do
+    if isProjectPath r.name then continue
+    let next := pushFiltered kept r
+    if next.size > kept.size then keptExplicit := keptExplicit.push pair
+    kept := next
+  let mut inferred : Array InferredRemapping := #[]
+  for r in p.remaps.filter (·.lib) do
+    if isProjectPath r.name then continue
+    let next := pushFiltered kept r
+    if next.size > kept.size then inferred := inferred.push r.toInferred
+    kept := next
+  return { remappings := inferred, explicit := keptExplicit, globalIssue := p.globalIssue }
 
 /-- solc's remapping of the import path `name` (after relative resolution): the longest
 matching prefix among the `explicit` remappings (the first on a tie) and Foundry's inferred
@@ -776,7 +805,8 @@ def readRemapRoot (root : System.FilePath) : IO RemapDir := do
   let toml ← if ← (root / "foundry.toml").pathExists then
       some <$> IO.FS.readFile (root / "foundry.toml") else pure none
   let keys := FoundryRemap.parseFoundryToml (toml.getD "") (strict := false)
-  let present ← ["lib", "node_modules"].filterM fun (n : String) => (root / n).isDir
+  let present ← ["contracts", "lib", "node_modules", "src"].filterM fun (n : String) =>
+    (root / n).isDir
   let shallow : RemapDir :=
     { name := "", foundryToml := toml, children := present.toArray.map fun n => { name := n } }
   let (libs, _) := FoundryRemap.libsOf shallow keys

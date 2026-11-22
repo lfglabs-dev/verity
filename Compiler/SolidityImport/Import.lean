@@ -18806,11 +18806,12 @@ private def importSlice
   unless (← verifyCompiler release compiler) == solcSha do throwError "compiler changed during import"
   let explicitRemaps ← readRemappings projectRoot
   let inferred := inferFoundryRemappings (← readRemapRoot projectRoot) explicitRemaps
+  -- `forge build` keeps only some written remappings (see `inferFoundryRemappings`).
   let (sources, usedInferred) ←
-    collectSources projectRoot entry explicitRemaps inferred (RBMap.empty, #[])
-  -- solc sees the explicit remappings and, in Foundry's order, the inferred ones in use.
+    collectSources projectRoot entry inferred.explicit inferred (RBMap.empty, #[])
+  -- solc sees the kept written remappings and, in Foundry's order, the inferred ones in use.
   let usedInferred := inferred.remappings.filter usedInferred.contains
-  let remaps := explicitRemaps ++ usedInferred.map fun r => (r.name, r.path)
+  let remaps := inferred.explicit ++ usedInferred.map fun r => (r.name, r.path)
   let mut fileBytes : RBMap String ByteArray compare := RBMap.empty
   let mut sourceObj : Array (String × Json) := #[]
   for (logical, text) in sources do
