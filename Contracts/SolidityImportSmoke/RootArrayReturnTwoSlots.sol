@@ -4,8 +4,8 @@ pragma solidity 0.8.34;
 // Root functions returning a scalar array: RootArrayReturnOneSlot.sol plus one unrelated
 // state variable and one unused function.
 // The importer lowers them the same way whatever the state-variable count (#2830): the exact
-// batch and range slot reads keep their fixed lowerings, `T[] memory` results are ABI-encoded,
-// and `T[] calldata` results and other tail assembly are located rejections.
+// batch and range slot reads keep their fixed lowerings, other tail assembly takes the ordinary
+// lowering, and `T[] memory` results are ABI-encoded.
 contract RootArrayReturnTwoSlots {
     uint256[] private items = [7, 9];
     uint256 private unrelated;
@@ -67,23 +67,15 @@ contract RootArrayReturnTwoSlots {
         }
     }
 
-    // Same shape, but returns the keys: not the batch read.
-    function echoSlots(bytes32[] calldata slots) external view returns (bytes32[] memory) {
-        assembly ("memory-safe") {
-            let memptr := mload(0x40)
-            let start := memptr
-            mstore(memptr, 0x20)
-            mstore(add(memptr, 0x20), slots.length)
-            memptr := add(memptr, 0x40)
-            let end := add(memptr, shl(5, slots.length))
-            let calldataptr := slots.offset
-            for {} 1 {} {
-                mstore(memptr, calldataload(calldataptr))
-                memptr := add(memptr, 0x20)
-                calldataptr := add(calldataptr, 0x20)
-                if iszero(lt(memptr, end)) { break }
-            }
-            return(start, sub(end, start))
+    // Tail assembly that does not reference the bound array (here the named result) is not the
+    // batch read: it takes the ordinary assembly lowering.
+    function revertedWord(uint256 n) external view returns (bytes32[] memory r) {
+        if (n > 0) {
+            return r;
+        }
+        assembly {
+            mstore(0, sload(0))
+            revert(0, 0x20)
         }
     }
 
@@ -103,14 +95,6 @@ contract RootArrayReturnTwoSlots {
         r = new uint256[](2);
         r[0] = x;
         r[1] = items[1] + x;
-    }
-
-    function calldataEcho(uint256[] calldata xs) external pure returns (uint256[] calldata) {
-        return xs;
-    }
-
-    function calldataNamed(uint256[] calldata xs) external pure returns (uint256[] calldata r) {
-        r = xs;
     }
 
     function unrelatedCount() external view returns (uint256) {

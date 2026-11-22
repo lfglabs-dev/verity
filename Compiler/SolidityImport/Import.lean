@@ -17962,7 +17962,12 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               handledScratchReturn := true
           if !handledScratchReturn && stmtIsTail && env.rootPost.isEmpty &&
               env.rootReturnTypes == #["bytes32[]"] then
-            if let [(arrId, arr)] := env.scalarArrays.toList then
+            -- Only a block over the one bound array can be the batch read; a block that does not
+            -- reference it takes the ordinary lowering.
+            let batchArr? := match env.scalarArrays.toList with
+              | [(arrId, arr)] => if inlineAssemblyRefsDecl s arrId then some (arrId, arr) else none
+              | _ => none
+            if let some (arrId, arr) := batchArr? then
               -- The shim replaces the block: apply it only to the exact v4 `extsload`/`exttload`
               -- code, whose every Solidity reference resolves to the bound calldata array.
               let fingerprint := yulBlockFingerprint s
