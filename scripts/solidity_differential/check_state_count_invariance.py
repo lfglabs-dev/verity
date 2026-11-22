@@ -179,6 +179,19 @@ CASES = [
     }
 }
 ''', ['run(address,uint256)']),
+    inline('encode-call-bytes-parameter', '''interface ISink {
+    function put(uint256 tag, bytes calldata data) external;
+}
+
+contract C {
+    uint256 private total;
+
+    function run(uint256 x, bytes calldata b) external returns (bytes32) {
+        total = x;
+        return keccak256(abi.encodeCall(ISink.put, (x, b)));
+    }
+}
+''', ['run(uint256,bytes)']),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;
@@ -226,6 +239,12 @@ CASES = [
             'RootArrayReturnOneSlot', [
                 'loadSlots(«bytes32[]»)', 'loadTransientSlots(«bytes32[]»)', 'loadRange(bytes32,uint256)',
                 'revertedWord(uint256)', 'copied(«uint256[]»)', 'narrowCopied(«uint8[]»)', 'fromStorage()', 'built(uint256)']),
+    fixture('fixture-encode-call-bytes', 'Contracts/SolidityImportSmoke/EncodeCallBytesOneSlot.sol',
+            'EncodeCallBytesOneSlot', [
+                'literalEmpty()', 'literalLong()', 'memoryArg(uint256)', 'memoryLength(uint256)',
+                'helperArg(uint256)', 'calldataArg(bytes)', 'storageArg(uint256)',
+                'staticSiblings(uint256,bytes,address)', 'dynamicSiblings(bytes,uint256,uint256)',
+                'helperRevert(uint256,uint256)', 'returned(uint256)']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]
