@@ -7,12 +7,12 @@ type PackedString is bytes32;
 // sentinel that selects a storage fallback. Decoding reverts with a custom error on a
 // length byte above 31.
 library PackedStrings {
-    bytes32 internal constant FALLBACK_SENTINEL =
+    bytes32 internal constant STORE_SENTINEL =
         0x00000000000000000000000000000000000000000000000000000000000000FF;
 
     error InvalidPackedString(uint256 raw);
 
-    function byteLength(PackedString value) internal pure returns (uint256) {
+    function packedLength(PackedString value) internal pure returns (uint256) {
         uint256 raw = uint256(PackedString.unwrap(value));
         uint256 result = raw & 0xFF;
         if (result > 0x1f) {
@@ -21,8 +21,8 @@ library PackedStrings {
         return result;
     }
 
-    function toString(PackedString value) internal pure returns (string memory) {
-        uint256 len = byteLength(value);
+    function unpack(PackedString value) internal pure returns (string memory) {
+        uint256 len = packedLength(value);
         string memory str = new string(0x20);
         assembly ("memory-safe") {
             mstore(str, len)
@@ -31,13 +31,13 @@ library PackedStrings {
         return str;
     }
 
-    function toStringWithFallback(PackedString value, string storage store)
+    function unpackOrFallback(PackedString value, string storage store)
         internal
         pure
         returns (string memory)
     {
-        if (PackedString.unwrap(value) != FALLBACK_SENTINEL) {
-            return toString(value);
+        if (PackedString.unwrap(value) != STORE_SENTINEL) {
+            return unpack(value);
         } else {
             return store;
         }
@@ -62,11 +62,11 @@ contract SequenceFixture {
     uint256 internal saved;
 
     function _name() internal view returns (string memory) {
-        return packedName.toStringWithFallback(nameFallback);
+        return packedName.unpackOrFallback(nameFallback);
     }
 
     function _version() internal view returns (string memory) {
-        return packedVersion.toStringWithFallback(versionFallback);
+        return packedVersion.unpackOrFallback(versionFallback);
     }
 
     function _tag(uint256 k) internal view returns (bytes memory) {
@@ -98,7 +98,7 @@ contract SequenceFixture {
         } else {
             return PackedString.wrap(bytes32((raw << 8) | 0x2f));
         }
-        return PackedString.wrap(PackedStrings.FALLBACK_SENTINEL);
+        return PackedString.wrap(PackedStrings.STORE_SENTINEL);
     }
 
     function change(uint256 next) external returns (uint256) {

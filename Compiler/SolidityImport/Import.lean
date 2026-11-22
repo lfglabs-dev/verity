@@ -7302,7 +7302,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         -- A pure or view helper that may revert (`string` / `bytes` result) runs here, at its
         -- own position: both solc pipelines evaluate the arguments left to right, and every
         -- revert of the other arguments sits in their `pre`, also at their position. A
-        -- calldata sibling is validated only while encoding, so it stays rejected beside it.
+        -- calldata sibling is conservatively rejected beside it: a calldata array or nested
+        -- calldata value may be validated only while encoding, after the helper has run.
         if args.size > 1 && jsonHasCustomRevert (← get) [] arg then
           for otherIdx in [:args.size] do
             if otherIdx != argIdx && (← mType args[otherIdx]!).contains "calldata" then
