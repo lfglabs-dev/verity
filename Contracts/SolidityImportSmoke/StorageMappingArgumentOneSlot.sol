@@ -13,15 +13,23 @@ contract StorageMappingArgumentOneSlot {
         uint256 b;
     }
 
+    struct Packed {
+        uint128 a;
+        uint64 b;
+        address c;
+    }
+
     struct Book {
         uint256 total;
         mapping(address => uint256) bal;
         mapping(uint256 => int256) delta;
         mapping(uint256 => Entry) entries;
         mapping(int8 => uint256) signedKey;
+        mapping(uint256 => Packed) packed;
     }
 
     mapping(uint256 => Book) internal books;
+
     function credit(mapping(address => uint256) storage m, address who, uint256 v) internal returns (uint256) {
         m[who] += v;
         return m[who];
@@ -59,6 +67,14 @@ contract StorageMappingArgumentOneSlot {
     function setSigned(mapping(int8 => uint256) storage m, int8 k, uint256 v) internal returns (uint256) {
         m[k] = v;
         return m[k];
+    }
+
+    // Packed members share one slot: each write keeps its siblings.
+    function setPacked(mapping(uint256 => Packed) storage m, uint256 k, uint128 a, uint64 b) internal returns (uint256) {
+        m[k].c = address(0xbeef);
+        m[k].a = a;
+        m[k].b = b;
+        return uint256(m[k].a) * 1000000 + m[k].b * 1000 + uint160(m[k].c) % 1000;
     }
 
     function slotOf(mapping(address => uint256) storage m) internal pure returns (uint256 s) {
@@ -102,6 +118,11 @@ contract StorageMappingArgumentOneSlot {
     function entry(uint256 id, uint256 k, uint256 v) external returns (uint256) {
         uint256 r = setEntry(books[id].entries, k, v);
         return r * 10 + books[id].entries[k].b;
+    }
+
+    function packedEntry(uint256 id, uint256 k, uint128 a, uint64 b) external returns (uint256) {
+        uint256 r = setPacked(books[id].packed, k, a, b);
+        return r + uint256(books[id].packed[k].b) * 10 ** 12;
     }
 
     function signedKey(uint256 id, int8 k, uint256 v) external returns (uint256) {

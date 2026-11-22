@@ -219,6 +219,7 @@ CASES = [
                 'deposit(uint256,address,uint256)', 'forwarded(uint256,address,uint256)',
                 'cleared(uint256,address)', 'aliased(uint256,address)', 'shifted(uint256,uint256,int256)',
                 'entry(uint256,uint256,uint256)', 'signedKey(uint256,int8,uint256)',
+                'packedEntry(uint256,uint256,uint128,uint64)',
                 'pointer(uint256,address,uint256)', 'keyOrder(uint256,address)', 'slotOfMember(uint256)',
                 'rawSlot(address,uint256)', 'rawSlotOf()']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
