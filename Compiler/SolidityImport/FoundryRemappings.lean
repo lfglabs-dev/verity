@@ -1028,8 +1028,9 @@ partial def readRemapDir (dir : System.FilePath) (name : String) : IO RemapDir :
     | .other => pure ()
   if let some toml := d.foundryToml then
     -- A library's own hidden `libs` directory is scanned by Foundry like any other.
-    let (libs, _) := FoundryRemap.libsOf d (FoundryRemap.parseFoundryToml toml)
-    for lib in libs do
+    -- Only entries naming one directory here (`libName?`): never `.` or `..`.
+    let (libs, libIssue) := FoundryRemap.libsOf d (FoundryRemap.parseFoundryToml toml)
+    for lib in if libIssue.isSome then [] else libs do
       if lib.startsWith "." && (d.child? lib).isNone then
         for c in ← shallowDirs dir [lib] do
           let child ← if c.isSymlink then pure c else readRemapDir (dir / lib) lib
