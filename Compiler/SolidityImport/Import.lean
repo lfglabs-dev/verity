@@ -8341,6 +8341,41 @@ private partial def lowerLowLevelCallSequence? (s : Json) (following : List Json
   let check ← lowerRequireWith validation fun _ => pure { pre := #[], expr := .localVar result }
   return some (pre.push call ++ check)
 
+/-- The global `ecrecover(hash, v, r, s)` builtin, as solc emits it: the four
+arguments are evaluated left to right, ABI-encoded at the free memory pointer
+(which is not advanced), the output word at `0` is cleared, and
+`staticcall(gas(), 1, ptr, 128, 0, 32)` runs through the closed
+`YulMemoryCall` transport. A failed call forwards its return data; otherwise
+the result is the output word masked to an address, so an invalid signature
+(the precompile returns no data) yields `address(0)`. -/
+private partial def lowerEcrecover (j callee : Json) : M Val := do
+  unless optStr callee "name" == some "ecrecover" &&
+      (← mType callee) == "function (bytes32,uint8,bytes32,bytes32) pure returns (address)" do
+    failAt callee "ecrecover must resolve to the global builtin"
+  let args ← mArr (← mField j "arguments")
+  unless args.size == 4 do failAt j "ecrecover requires four arguments"
+  let mut pre : Array Stmt := #[]
+  let mut words : Array Expr := #[]
+  for (arg, paramTy) in args.toList.zip ["bytes32", "uint8", "bytes32", "bytes32"] do
+    let converted ← convert paramTy (← mType arg) (← lowerExpr arg) arg
+    -- Bind each argument before the next one runs: solc's left-to-right order.
+    let bound ← atom converted
+    pre := pre ++ bound.pre
+    words := words.push bound.expr
+  let ptr ← fresh
+  let success ← fresh
+  let result ← fresh
+  pre := pre.push (.letVar ptr (.mload (.literal 64)))
+  for (word, index) in words.toList.zip (List.range 4) do
+    pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * index))) word)
+  pre := pre ++ #[
+    .mstore (.literal 0) (.literal 0),
+    .ecm (Compiler.ECM.YulMemoryCall.module true success)
+      [.literal 1, .localVar ptr, .literal 128, .literal 0, .literal 32],
+    .ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [],
+    .letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 160 - 1)))]
+  return { pre, expr := .localVar result }
+
 private partial def lowerCall (j : Json) : M Val := do
   let names ← mArr (← mField j "names")
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
@@ -8386,6 +8421,8 @@ private partial def lowerCall (j : Json) : M Val := do
         let modCheck : Stmt := .ite (.eq m (.literal 0)) [.panic .divisionByZero] []
         let modVal ← if isMul then lowerYulMulmod a b m else lowerYulAddmod a b m
         return { pre := pre.push modCheck ++ modVal.pre, expr := modVal.expr }
+      if calleeId == -6 then
+        return ← lowerEcrecover j callee
       if calleeId ≥ 0 then
         if let some ptr := (← get).fnPtrs.find? calleeId.toNat then
           let vals ← lowerCallArgs j none

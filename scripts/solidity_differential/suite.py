@@ -256,6 +256,11 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',
         '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
         '--output', str(output / 'yul-memory-call')]))
+    checks.append(('ecrecover', ['-m', 'solidity_differential.check_ecrecover',
+        '--transactions', str(max(200, min(transactions, 240))), '--seed', str(seed),
+        '--output', str(output / 'ecrecover')]))
+    checks.append(('ecrecover-rejections', ['-m', 'solidity_differential.check_ecrecover_rejections',
+        '--output', str(output / 'ecrecover-rejections')]))
     checks.append(('interface-void-call', ['-m', 'solidity_differential.check_interface_void_call',
         '--transactions', str(max(160, min(transactions, 192))), '--seed', str(seed),
         '--output', str(output / 'interface-void-call')]))

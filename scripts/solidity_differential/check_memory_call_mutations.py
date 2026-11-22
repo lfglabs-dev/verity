@@ -1,6 +1,6 @@
 """Memory-call mutants in isolated source/cache snapshots: inline-assembly `call` /
-`staticcall` over memory and typed external calls without return values, which share
-the closed memory-call transport.
+`staticcall` over memory, typed external calls without return values and the `ecrecover`
+builtin, which share the closed memory-call transport.
 
 Each mutant must survive an unmodified positive control of its A/B/C campaign and then
 produce a divergence with a reproduced deletion-minimal witness. A mutant that fails to
@@ -20,10 +20,13 @@ from solidity_differential.mutations import release, snapshot
 IMPORT = 'Compiler/SolidityImport/Import.lean'
 DENOTE = 'Verity/Core/Model/Denote.lean'
 ECM = 'Verity/Core/Model/ECM.lean'
+PRECOMPILE = 'Compiler/SolidityImport/PrecompileResponderMocks.lean'
 YUL = ('solidity_differential.check_yul_memory_call', '--transactions', '64', '--seed', '2531',
        'Contracts.SolidityImportSmoke.YulMemoryCallSequenceModel')
 VOID = ('solidity_differential.check_interface_void_call', '--transactions', '160', '--seed', '4219',
         'Contracts.SolidityImportSmoke.InterfaceVoidCallSequenceModel')
+ECRECOVER = ('solidity_differential.check_ecrecover', '--transactions', '200', '--seed', '2698',
+             'Contracts.SolidityImportSmoke.EcrecoverSequenceModel')
 # name: (file, anchor, replacement, campaign)
 MUTANTS = {
     # A `call` lowered as a `staticcall`: the responders' fallback writes storage, so it fails.
@@ -62,6 +65,21 @@ MUTANTS = {
     'import-void-call-calldata-size': (IMPORT,
         '.letVar dataSize (.add payloadSize (.literal 4))]',
         '.letVar dataSize (.add payloadSize (.literal 3))]', VOID),
+    # `ecrecover`: the ABI words (hash, v, r, s) in order, and the 160-bit result mask.
+    'import-ecrecover-word-order': (IMPORT,
+        'pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * index))) word)',
+        'pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * (3 - index)))) word)',
+        ECRECOVER),
+    'import-ecrecover-address-mask': (IMPORT,
+        '.letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 160 - 1)))]',
+        '.letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 159 - 1)))]', ECRECOVER),
+    # The precompile program: high `s` is accepted, and `v` selects the parity of `y`.
+    'denote-ecrecover-high-s': (PRECOMPILE,
+        'unless (v == 27 || v == 28) && 0 < r && r < n && 0 < s && s < n do none',
+        'unless (v == 27 || v == 28) && 0 < r && r < n && 0 < s && s ≤ n / 2 do none', ECRECOVER),
+    'denote-ecrecover-parity': (PRECOMPILE,
+        'let y := if beta % 2 == v - 27 then beta else p - beta',
+        'let y := if beta % 2 != v - 27 then beta else p - beta', ECRECOVER),
 }
 MODULES = ['Compiler.SolidityImport.Import', 'Compiler.SolidityImport.Differential',
            'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.CallResponderMocks',

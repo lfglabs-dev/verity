@@ -30,6 +30,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "create2-struct-emit",
     "create2-struct-emit-rejections",
     "early-return",
+    "ecrecover",
+    "ecrecover-rejections",
     "emit-rejections",
     "encoding-arg-super-override",
     "environment",
