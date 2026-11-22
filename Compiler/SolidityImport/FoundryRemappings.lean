@@ -1083,11 +1083,16 @@ partial def readRemapLibConfigs (dir : System.FilePath) (name : String) : IO Rem
   if hasToml then d ← readRemapConfigDir dir name
   for e in entries.qsort (·.fileName < ·.fileName) do
     let md ← try e.path.symlinkMetadata catch _ => return { d with unreadable := true }
-    if md.type != .dir || (d.child? e.fileName).isSome then continue
+    if md.type != .dir then continue
+    -- A child the directory's own configuration read already holds in full is kept; a
+    -- shallow entry it recorded (`src`, `contracts`, …) is read here if it is a configuration.
+    if (d.child? e.fileName).any (fun c => c.foundryToml.isSome || c.unreadable ||
+        !c.children.isEmpty) then continue
     -- `symlinkMetadata`: a symlinked `foundry.toml` is found (and refused) too.
     if (← (e.path / "foundry.toml").symlinkMetadata.toBaseIO).toBool then
       let child ← readRemapConfigDir e.path e.fileName
-      d := { d with children := d.children.push { child with hidden := e.fileName.startsWith "." } }
+      let others := d.children.filter (·.name != e.fileName)
+      d := { d with children := others.push { child with hidden := e.fileName.startsWith "." } }
   return d
 end
 

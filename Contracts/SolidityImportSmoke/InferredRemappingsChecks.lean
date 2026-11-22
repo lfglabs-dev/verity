@@ -30,7 +30,8 @@ was used. `remappingScan` shows how far the importer read the libraries.
   it and compiles `deps/dep/alt/Bar.sol` for `src/foo/Bar.sol`; the importer does not follow
   it: refused), and `symlink-root-config/` (the project's own `foundry.toml` is a symlink,
   read through as Foundry does), and `nonconfig-toml/` (test-fixture `foundry.toml` files
-  with `libs = [".."]` deep in a library: the scan stays bounded).
+  with `libs = [".."]` deep in a library: the scan stays bounded), and `lib-config-children/`
+  (a configuration inside a library directory that is itself a configuration).
 -/
 namespace SolidityImportSmoke.InferredRemappingsChecks
 open Compiler.CompilationModel.SolidityImport
@@ -183,6 +184,23 @@ solidity_import nonconfigToml from ".lake/remapping-fixtures/nonconfig-toml"
 
 #guard nonconfigToml.report.inferredRemappings == ["dep/=deps/dep/src/"]
 #guard nonconfigToml.report.remappingScan == "full"
+
+-- A library directory with its own `foundry.toml` whose `contracts/` child is a configuration
+-- too: Foundry reads both, and `forge build` compiled `lib/contracts/alt/X.sol` for the
+-- project's `src/sub/X.sol`.
+run_meta (writeFixture "lib-config-children"
+  [("foundry.toml", "[profile.default]\n"), ("lib/foundry.toml", "[profile.default]\n"),
+   ("lib/contracts/foundry.toml", "[profile.default]\n"),
+   ("lib/contracts/remappings.txt", "src/sub/=alt/\n"),
+   ("lib/contracts/alt/X.sol", library "X" "depValue" 2),
+   ("src/sub/X.sol", library "X" "projectValue" 1),
+   ("src/Entry.sol", entry "X" "src/sub/X.sol" "depValue")] [])
+
+solidity_import libConfigChildren from ".lake/remapping-fixtures/lib-config-children"
+  entry "src/Entry.sol" using remapProfile contract Entry
+  function value()
+
+#guard libConfigChildren.report.inferredRemappings == ["src/sub/=lib/contracts/alt/"]
 
 -- The project's own `foundry.toml` may be a symlink (read through, as Foundry does): the
 -- library configuration's `src/sub/` remapping still applies, and `forge build` compiled
