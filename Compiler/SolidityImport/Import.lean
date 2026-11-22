@@ -2431,17 +2431,16 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         else
           failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
     | "YulIf" =>
-        if (← get).stateVars.size > 1 then
-          let condVal ← lowerYul (← mField stmt "condition")
-          let bodyNode ← mField stmt "body"
-          let bodyStmts ← mArr (← mField bodyNode "statements")
-          let before ← get
-          let bodyOut ← lowerYulStmtSlice j bodyStmts refs retName atRootAbiExit
-          modify fun e => { e with yulScratch0 := before.yulScratch0, yulScratch32 := before.yulScratch32,
-                                   yulWrittenBytes := before.yulWrittenBytes }
-          out := out ++ condVal.pre |>.push (.ite (.logicalNot (.eq condVal.expr (.literal 0))) bodyOut.toList [])
-        else
-          failAt stmt "unsupported Yul statement YulIf"
+        -- Yul runs the body exactly when the condition word is nonzero. The body may not run,
+        -- so its scratch writes do not count as written after the `if`.
+        let condVal ← lowerYul (← mField stmt "condition")
+        let bodyNode ← mField stmt "body"
+        let bodyStmts ← mArr (← mField bodyNode "statements")
+        let before ← get
+        let bodyOut ← lowerYulStmtSlice j bodyStmts refs retName atRootAbiExit
+        modify fun e => { e with yulScratch0 := before.yulScratch0, yulScratch32 := before.yulScratch32,
+                                 yulWrittenBytes := before.yulWrittenBytes }
+        out := out ++ condVal.pre |>.push (.ite (.logicalNot (.eq condVal.expr (.literal 0))) bodyOut.toList [])
     | kind => failAt stmt s!"unsupported Yul statement {kind}"
   if zeroSlotDirty then
     failAt j "inline assembly must restore the zero slot at 0x60 to zero before it ends"
