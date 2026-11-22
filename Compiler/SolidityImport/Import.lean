@@ -8341,13 +8341,17 @@ private partial def lowerLowLevelCallSequence? (s : Json) (following : List Json
   let check ← lowerRequireWith validation fun _ => pure { pre := #[], expr := .localVar result }
   return some (pre.push call ++ check)
 
-/-- The global `ecrecover(hash, v, r, s)` builtin, as solc emits it: the four
+/-- The global `ecrecover(hash, v, r, s)` builtin in solc's via-IR shape: the four
 arguments are evaluated left to right, ABI-encoded at the free memory pointer
 (which is not advanced), the output word at `0` is cleared, and
 `staticcall(gas(), 1, ptr, 128, 0, 32)` runs through the closed
 `YulMemoryCall` transport. A failed call forwards its return data; otherwise
 the result is the output word masked to an address, so an invalid signature
-(the precompile returns no data) yields `address(0)`. -/
+(the precompile returns no data) yields `address(0)`. The legacy pipeline makes
+the same call and forwarding but receives the word in a 32-byte allocation at the
+free pointer instead of at `0`: only memory layout differs, which the imported
+fragment does not observe (the model's allocations are not solc's, and Yul reads
+below `0x80` must read words their own block wrote). -/
 private partial def lowerEcrecover (j callee : Json) : M Val := do
   unless optStr callee "name" == some "ecrecover" &&
       (← mType callee) == "function (bytes32,uint8,bytes32,bytes32) pure returns (address)" do
@@ -8358,10 +8362,11 @@ private partial def lowerEcrecover (j callee : Json) : M Val := do
   let mut words : Array Expr := #[]
   for (arg, paramTy) in args.toList.zip ["bytes32", "uint8", "bytes32", "bytes32"] do
     let converted ← convert paramTy (← mType arg) (← lowerExpr arg) arg
-    -- Bind each argument before the next one runs: solc's left-to-right order.
-    let bound ← atom converted
-    pre := pre ++ bound.pre
-    words := words.push bound.expr
+    -- Copy each argument into a fresh local before the next one runs (solc's left-to-right
+    -- order): a plain local is copied too, since a later argument may assign it.
+    let word ← fresh
+    pre := pre ++ converted.pre.push (.letVar word converted.expr)
+    words := words.push (.localVar word)
   let ptr ← fresh
   let success ← fresh
   let result ← fresh

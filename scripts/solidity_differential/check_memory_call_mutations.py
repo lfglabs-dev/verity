@@ -70,6 +70,10 @@ MUTANTS = {
         'pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * index))) word)',
         'pre := pre.push (.mstore (.add (.localVar ptr) (.literal (32 * (3 - index)))) word)',
         ECRECOVER),
+    # A plain local argument left unbound is read after a later argument reassigns it.
+    'import-ecrecover-argument-copy': (IMPORT,
+        'pre := pre ++ converted.pre.push (.letVar word converted.expr)\n    words := words.push (.localVar word)',
+        'pre := pre ++ converted.pre\n    words := words.push converted.expr', ECRECOVER),
     'import-ecrecover-address-mask': (IMPORT,
         '.letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 160 - 1)))]',
         '.letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 159 - 1)))]', ECRECOVER),
