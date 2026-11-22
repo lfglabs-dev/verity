@@ -34,6 +34,11 @@ contract SequenceFixture {
         return v;
     }
 
+    function touchHeld(uint256 v) internal returns (uint256) {
+        held[0].a = held[0].a + 1;
+        return v;
+    }
+
     function restamp() internal returns (uint256) {
         stamp = 2;
         return 7;
@@ -78,7 +83,11 @@ contract SequenceFixture {
         // Struct-member mapping and dynamic array element (13: `op=`, constant and `j5++` keys).
         if (c == 10) { books[1].slots[y - 1] = 10 / y; }
         if (c == 11) { books[1].vals[y - 1] = 10 / y; }
-        if (c == 12) { books[1].vals[bump(k)] = stamp + 100; }
+        if (c == 12) {
+            books[1].vals[bump(k)] = stamp + 100;
+            // A storage struct source is read at the copy, after the key helper.
+            held[touchHeld(k + 1)] = held[0];
+        }
         if (c == 13) {
             books[1].slots[y - 1] += 10 / y;
             uint256 j5 = k;
