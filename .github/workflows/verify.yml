@@ -560,12 +560,18 @@ jobs:
       # Lake runs one Lean/clang process per LEAN_NUM_THREADS (default: every
       # vCPU). lean.ci may boot this 8-vCPU label with up to 24 vCPUs but scales
       # its memory by only half the vCPU ratio, and grows a VM only from memory
-      # its engine has free, so a burst VM next to another build ran out of
-      # memory (ENOMEM, error code 12; six builds on 2026-11-22). Capping at the
-      # label's 8 keeps every target and check and bounds peak memory to what
-      # an 8-vCPU run needs.
+      # its engine has free. Six builds on 2026-11-22 that overlapped another
+      # build failed with ENOMEM or allocation failures (error code 12), two of
+      # them while running ~15 Lean processes at once. Capping at the label's 8
+      # keeps every target and check and bounds peak memory to an 8-vCPU run.
       LEAN_NUM_THREADS: 8
     steps:
+      # Records the VM size lean.ci gave this job (it can exceed the label).
+      - name: Report runner size
+        run: |
+          echo "vCPUs: $(nproc), LEAN_NUM_THREADS: ${LEAN_NUM_THREADS}"
+          free -m
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
@@ -751,9 +757,11 @@ jobs:
 
   import-mutations:
     runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
-    # 12 shards of ~31 campaigns: ~2.5-3 h each on a 64 GiB build-medium host
-    # or an 8-vCPU lean.ci VM. Six shards of ~61 hit the old 210-minute limit
-    # with about a quarter of their campaigns not yet run.
+    # 24 shards of 15-16 campaigns. Nightly 2026-11-22 (6 shards of ~61, 6
+    # workers each): median campaign 1630-1730 s on the 64 GiB build-medium
+    # hosts, ~3880 s on the 28 GiB one, so 26-30% resp. 64% of each shard was
+    # still unrun at the 210-minute limit. 16 campaigns: ~80 min on the 64 GiB
+    # hosts, ~175 min on the 28 GiB one.
     timeout-minutes: 240
     needs: [changes, route, checks, build]
     # ~30 runner-hours per run: nightly, manual dispatch, or PRs labelled
@@ -764,10 +772,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
     env:
       LEAN_NUM_THREADS: 2
-      IMPORT_MUTATION_SHARDS: 12
+      IMPORT_MUTATION_SHARDS: 24
       IMPORT_MUTATION_JOBS: auto
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

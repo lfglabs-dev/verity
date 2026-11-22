@@ -104,7 +104,8 @@ them only for temporary debugging or deliberate host pinning via
   `lean-8vcpu-ubuntu-2604` once it backs up (`LEAN_NUM_THREADS=2` per worker
   on sharded `import-mutations` on either pool). `build` keeps
   `LEAN_NUM_THREADS=8` (its label's vCPUs): lean.ci can boot it with more
-  vCPUs than memory for one Lean process per vCPU, which ran out of memory.
+  vCPUs than memory for one Lean process per vCPU, which failed with
+  ENOMEM / allocation failures.
   Ephemeral runners automatically fall back to GitHub Actions caches and
   `$RUNNER_TEMP` when `/srv/verity-ci-cache` is absent.
 - Prefer one full Verity build runner per 8-core host when using self-hosted

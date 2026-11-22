@@ -447,7 +447,7 @@ scripts/check_solidity_differential.sh --reduce --reduce-seconds 120 --output .l
   `--shard I/N --jobs J` runs a deterministic share of the independent
   campaigns with `J` parallel isolated snapshots (`--jobs auto` sizes `J` by
   cores and available memory; `--task NAME` selects single campaigns); CI's
-  `import-mutations` job runs twelve shards from the prepared `build` workspace.
+  `import-mutations` job runs 24 shards from the prepared `build` workspace.
 
 CI runs fixed seeds on every PR (10 minutes) and longer input, program and
 mutant campaigns nightly and on demand (60 minutes), archiving the evidence.
