@@ -110,4 +110,30 @@ solidity_import nestedPackedForm from "Contracts/SolidityImportSmoke"
   contract NestedPackedC
   function digest(uint256)
 
+-- 7. An ordered `abi.encode` as an unhashed `bytes.concat` argument (walked last to first).
+/--
+error: AbiEncodeStatefulRejections.sol:66:39: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: ConcatC.digest
+abi.encode(_bump())
+-/
+#guard_msgs in
+solidity_import concatForm from "Contracts/SolidityImportSmoke"
+  entry "AbiEncodeStatefulRejections.sol"
+  using statefulEncoding
+  contract ConcatC
+  function digest(uint256)
+
+-- 8. An ordered `abi.encode` as an unhashed `abi.encodePacked` argument beside another one.
+/--
+error: AbiEncodeStatefulRejections.sol:72:43: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: PackedEncodeC.digest
+abi.encode(_bump())
+-/
+#guard_msgs in
+solidity_import packedEncodeForm from "Contracts/SolidityImportSmoke"
+  entry "AbiEncodeStatefulRejections.sol"
+  using statefulEncoding
+  contract PackedEncodeC
+  function digest(uint256)
+
 end SolidityImportSmoke.AbiEncodeStatefulChecks
