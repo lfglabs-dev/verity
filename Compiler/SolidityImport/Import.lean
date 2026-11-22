@@ -16042,6 +16042,9 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     for i in [:decls.size] do
       let d := decls[i]!
       if d.isNull then
+        -- An elided component takes one result: an elided struct with more than
+        -- one member already failed the arity check (`expectedTypes` has one slot
+        -- for it, the helper returns one per member).
         off := off + 1
         continue
       let name ← mStr (← mField d "name")
