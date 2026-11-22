@@ -47,6 +47,20 @@ contract EcrecoverFixture {
         return ecrecover(digest, uint8(vWord), r, s);
     }
 
+    /// A `uint8` assigned in inline assembly keeps the full word until the ABI encoder
+    /// cleans it to 8 bits.
+    function recoverAssemblyV(bytes32 digest, uint256 vWord, bytes32 r, bytes32 s)
+        external
+        pure
+        returns (address)
+    {
+        uint8 v;
+        assembly ("memory-safe") {
+            v := vWord
+        }
+        return ecrecover(digest, v, r, s);
+    }
+
     function setDigest(bytes32 digest) external {
         storedDigest = digest;
     }

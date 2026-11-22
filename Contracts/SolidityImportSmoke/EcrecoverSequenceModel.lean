@@ -21,6 +21,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "EcrecoverSe
   function recover(bytes32,uint8,bytes32,bytes32)
   function verify(bytes32,uint8,bytes32,bytes32,address)
   function recoverWide(bytes32,uint256,bytes32,bytes32)
+  function recoverAssemblyV(bytes32,uint256,bytes32,bytes32)
   function setDigest(bytes32)
   function recoverOrdered(uint8,bytes32,bytes32)
   function recoverReassigned(bytes32,uint8,bytes32,bytes32)
