@@ -366,6 +366,8 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         # so its Lake parallelism stays at the label's 8.
         self.assertIn("\n    env:\n", job_body("build"))
         self.assertIn("\n      LEAN_NUM_THREADS: 8\n", job_body("build"))
+        # No later step may raise it again through $GITHUB_ENV.
+        self.assertNotIn("LEAN_NUM_THREADS=", job_body("build"))
         for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
             self.assertIn("runs-on: lean-", job_body(job), job)
 
