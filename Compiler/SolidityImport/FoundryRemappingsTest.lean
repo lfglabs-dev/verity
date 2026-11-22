@@ -2,9 +2,10 @@ import Compiler.SolidityImport.FoundryRemappings
 
 /-!
 Foundry's inferred remappings (`inferFoundryRemappings`) and the resolution order
-(`remapImportPath`). Each layout's expected list is what `forge remappings` (forge 1.5.0,
-commit 1c57854) printed for the same files, minus the explicit lines. `order dependent`
-printed a different value for `a/` when the same files were listed in reverse order.
+(`remapImportPath`). Each layout's expected list is the `remappings` of `forge config --json`
+(forge 1.5.0, commit 1c57854; what `forge build` gives solc) for the same files, minus the
+written lines. `order dependent` gave a different value for `a/` when the same files were
+listed in reverse order.
 -/
 
 namespace Compiler.CompilationModel.SolidityImport.FoundryRemappingsTest
@@ -54,10 +55,10 @@ private def resolveWith (explicit : Array (String × String)) (inferred : Inferr
 /-- Resolve `name` in the project `files`. -/
 private def resolve (files : List (String × String)) (name : String) :
     Option (String × Option String) :=
-  resolveWith (explicitOf files) (infer files) name
+  resolveWith (infer files).explicit (infer files) name
 
 private def errorOf (files : List (String × String)) (name : String) : String :=
-  match remapImportPath name (explicitOf files) (infer files) with
+  match remapImportPath name (infer files).explicit (infer files) with
   | .error e => e
   | .ok _ => ""
 
@@ -133,6 +134,25 @@ private def consumerShape : List (String × String) :=
 #guard resolve consumerShape "approvals/Approve.sol" ==
   some ("lib/approvals/src/Approve.sol", some "approvals/")
 #guard resolve consumerShape "@scope/core/src/Pool.sol" == some ("lib/core/src/Pool.sol", none)
+
+-- `forge build` protects the project's `src`, `test` and `script` names (ASCII case
+-- ignored): a library's `src/=src/` is dropped, so `src/…` and relative imports stay in the
+-- project. `forge remappings` still prints the dropped entry; `forge config` does not.
+private def projectPathLib : List (String × String) :=
+  [("src/E.sol", ""), ("src/B.sol", ""), ("lib/dep/foundry.toml", "[profile.default]\n"),
+   ("lib/dep/remappings.txt", "src/=src/\n"), ("lib/dep/src/B.sol", "")]
+#guard lines projectPathLib == ["dep/=lib/dep/src/"]
+#guard resolve projectPathLib "src/B.sol" == some ("src/B.sol", none)
+#guard (resolveImport "src/E.sol" "./B.sol" (infer projectPathLib).explicit
+  (infer projectPathLib)).toOption.map (·.1) == some "src/B.sol"
+-- The same holds for written remappings.
+#guard (infer [("src/E.sol", ""), ("remappings.txt", "src/=lib/dep/src/\nTest/=x/\n")]).explicit == #[]
+
+-- `forge build` also drops a written remapping nested under an earlier written one.
+private def nestedExplicit : List (String × String) :=
+  [("src/E.sol", ""), ("remappings.txt", "@oz/=lib/oz/\n@oz/up/=lib/ozup/\n")]
+#guard (infer nestedExplicit).explicit == #[("@oz/", "lib/oz/")]
+#guard resolve nestedExplicit "@oz/up/X.sol" == some ("lib/oz/up/X.sol", none)
 
 -- A hidden library directory is not scanned for sources, but its `foundry.toml` counts.
 #guard lines [("lib/.cfg/foundry.toml", "[profile.default]\nremappings = ['dep/=foo/']\n"),

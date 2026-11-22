@@ -30,8 +30,13 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   (forge 1.5.0) infers from `lib/` (or the configured `libs`) and from the
   `remappings.txt` / `foundry.toml` of nested libraries
   (`Compiler/SolidityImport/FoundryRemappings.lean`). A written remapping wins:
-  an inferred one whose name nests with it is dropped, as in Foundry. Remappings
-  apply after relative imports resolve, as in solc. The inferred remappings in
+  an inferred one whose name nests with it is dropped, as in Foundry. The
+  remappings solc receives are the ones `forge build` passes (the `remappings`
+  of `forge config`, not the longer list `forge remappings` prints): a
+  remapping named after the project's `src`, `test` or `script` directory is
+  dropped, and so is a written remapping nested under an earlier one
+  (`a/b/=…` after `a/=…`). Remappings apply after relative imports resolve, as
+  in solc. The inferred remappings in
   use go to solc and appear as `inferred remapping` lines in `report.toText`.
   The importer refuses an inferred remapping whose value depends on directory
   listing order in Foundry. When a scanned library holds a symlink, or a
