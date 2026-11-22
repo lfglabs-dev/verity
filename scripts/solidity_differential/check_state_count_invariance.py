@@ -159,6 +159,26 @@ CASES = [
     }
 }
 ''', ['run(uint256)']),
+    inline('storage-mapping-argument', '''contract C {
+    struct Book {
+        uint256 total;
+        mapping(address => uint256) bal;
+    }
+
+    Book private book;
+
+    function credit(mapping(address => uint256) storage m, address who, uint256 v) internal returns (uint256) {
+        m[who] += v;
+        return m[who];
+    }
+
+    function run(address who, uint256 v) external returns (uint256) {
+        book.total = v;
+        uint256 r = credit(book.bal, who, v);
+        return r + book.bal[who];
+    }
+}
+''', ['run(address,uint256)']),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;
@@ -194,6 +214,13 @@ CASES = [
                 'negatedCondition(address,address)', 'equalityRequire(address,uint256)',
                 'helperArguments(address,uint256)', 'discardedOwner(address)',
                 'discardedSmall(address)']),
+    fixture('fixture-storage-mapping-argument', 'Contracts/SolidityImportSmoke/StorageMappingArgumentOneSlot.sol',
+            'StorageMappingArgumentOneSlot', [
+                'deposit(uint256,address,uint256)', 'forwarded(uint256,address,uint256)',
+                'cleared(uint256,address)', 'aliased(uint256,address)', 'shifted(uint256,uint256,int256)',
+                'entry(uint256,uint256,uint256)', 'signedKey(uint256,int8,uint256)',
+                'pointer(uint256,address,uint256)', 'keyOrder(uint256,address)', 'slotOfMember(uint256)',
+                'rawSlot(address,uint256)', 'rawSlotOf()']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]
