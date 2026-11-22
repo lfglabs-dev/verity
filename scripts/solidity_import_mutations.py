@@ -926,8 +926,9 @@ def auto_jobs() -> int:
     Each worker is a single-threaded Lean rebuild of the importer (~2.7 GiB
     peak) plus its campaign; budget 6 GiB per worker so hosts with less memory
     than cores (or a cgroup cap) do not swap. At 4 GiB a 28 GiB CI host ran 6
-    workers and every importer rebuild overran its 1800 s budget, while 6
-    workers on 64 GiB hosts and 2 on ~12 GiB VMs finished. Campaigns also run their own
+    workers and nearly every importer rebuild overran its 1800 s budget, while 6
+    workers on 64 GiB hosts and 2 on ~12 GiB VMs finished (such VMs now run
+    1). Campaigns also run their own
     `lean --run` and anvil processes, so two cores stay free for them: with one
     worker per core, campaign subprocesses overran their time budgets.
     """
