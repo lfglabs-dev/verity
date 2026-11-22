@@ -212,7 +212,11 @@ MUTANTS.update({
     # A storage struct source is read at the copy, after the target's keys.
     'import-assign-order-whole-struct-reference': (
         '  let valueFirst := !pre.isEmpty && isValue\n',
-        '  let valueFirst := !pre.isEmpty\n')})
+        '  let valueFirst := !pre.isEmpty\n'),
+    # A helper returning a storage struct pointer is a reference, not a value.
+    'import-assign-order-whole-struct-storage-pointer': (
+        '      return (ty.splitOn " storage").length == 1\n',
+        '      return true\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1077,7 +1081,7 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '32'
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
-        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 15, 17, 19, 20, 22, 23, 25, 28, 29, 30, 31, 47, 49, 50, 75, 62, 144, 2 ** 256 - 1])])
+        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 15, 17, 19, 20, 22, 23, 25, 28, 29, 30, 31, 47, 49, 50, 60, 75, 62, 144, 2 ** 256 - 1])])
     if fixture == 'EmptyPushSequence':
         # Push three elements onto each array (x % 4 == 1), lower every length to 0 (x = 0),
         # push() (2), read stale elements into `last` and `lastWord` (3), lower to 1 (4, 16) and

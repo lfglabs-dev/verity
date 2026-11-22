@@ -39,6 +39,10 @@ contract SequenceFixture {
         return v;
     }
 
+    function heldZero() internal view returns (Pair storage) {
+        return held[0];
+    }
+
     function viewPair() internal view returns (Pair memory) {
         return Pair(stamp, stamp + 1);
     }
@@ -95,6 +99,9 @@ contract SequenceFixture {
             held[bump(k + 4)] = viewPair();
             held[bump(k + 8)] = y > 1 ? Pair(stamp, 1) : Pair(2, stamp);
             held[bump(k + 12)] = (Pair(stamp, 3));
+            held[bump(k + 16)] = y > 1 ? (y > 2 ? Pair(stamp, 4) : Pair(4, stamp)) : Pair(stamp, 5);
+            // A storage pointer helper is a reference: read after the key helper.
+            held[touchHeld(k + 20)] = heldZero();
         }
         if (c == 13) {
             books[1].slots[y - 1] += 10 / y;
