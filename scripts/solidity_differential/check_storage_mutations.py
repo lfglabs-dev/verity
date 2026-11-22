@@ -216,7 +216,21 @@ MUTANTS.update({
         'writeStorageDynamicArrayElement (pre ++ value.pre ++ slotPre)'),
     'import-assign-order-struct-mapping': (
         'writeStructMappingElement (value.pre ++ pre) path mapInfo key value.expr deleting target',
-        'writeStructMappingElement (pre ++ value.pre) path mapInfo key value.expr deleting target')})
+        'writeStructMappingElement (pre ++ value.pre) path mapInfo key value.expr deleting target'),
+    # These sites already emit the right-hand side first; the mutants drop its capture, so a
+    # bare local right-hand side is read after `i++` in the index.
+    'import-assign-order-dynamic-array-compound': (
+        '      let rhsVal ← captureAssignedValue (← lowerRhs ty)\n      let lhsVal ← readStorageDynamicArrayElement pre fieldName',
+        '      let rhsVal ← lowerRhs ty\n      let lhsVal ← readStorageDynamicArrayElement pre fieldName'),
+    'import-assign-order-struct-dynamic-array-compound': (
+        '      let rhsVal ← captureAssignedValue (← lowerRhs ty)\n      let (slotPre, arrSlot) ← resolveStructDynamicSlot',
+        '      let rhsVal ← lowerRhs ty\n      let (slotPre, arrSlot) ← resolveStructDynamicSlot'),
+    'import-assign-order-raw-struct': (
+        'let value ← captureAssignedValue (← atom (← lowerConverted mInfo.ty right))',
+        'let value ← atom (← lowerConverted mInfo.ty right)'),
+    'import-assign-order-raw-struct-compound': (
+        '          let rhsVal ← captureAssignedValue (← lowerRhs ty)\n          let lhsVal ← readRawStructScalar pre baseSlot mInfo',
+        '          let rhsVal ← lowerRhs ty\n          let lhsVal ← readRawStructScalar pre baseSlot mInfo')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1083,7 +1097,7 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '32'
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
-        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 17, 19, 20, 22, 23, 25, 28, 29, 49, 50, 75, 31, 62, 144, 2 ** 256 - 1])])
+        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 17, 19, 20, 22, 23, 25, 28, 29, 30, 31, 47, 49, 50, 75, 62, 144, 2 ** 256 - 1])])
     if fixture == 'EmptyPushSequence':
         # Push three elements onto each array (x % 4 == 1), lower every length to 0 (x = 0),
         # push() (2), read stale elements into `last` and `lastWord` (3), lower to 1 (4, 16) and
