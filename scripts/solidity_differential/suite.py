@@ -92,6 +92,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('pinned-sequence', ['-m', 'solidity_differential.check_pinned_sequence_fixture',
         '--transactions', str(max(64, transactions)), '--seed', str(seed),
         '--output', str(output / 'pinned-sequence')]))
+    checks.append(('pinned-sequence-corpus', ['-m', 'solidity_differential.check_pinned_sequence_corpus',
+        '--transactions', str(max(128, transactions)), '--seed', str(seed), '--fetch',
+        '--output', str(output / 'pinned-sequence-corpus')]))
     checks.append(('create2-parent-opcode', ['-m', 'solidity_differential.check_deployment_world',
         '--parent-opcode', '--output', str(output / 'create2-parent-opcode')]))
     checks.append(('hashing-programs', ['-m', 'solidity_differential.check_hashing_programs',
@@ -307,6 +310,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         'event-mutations',
         'mutations',
         'pinned-sequence',
+        'pinned-sequence-corpus',
         'struct-abi',
         'abi',
         'interface-static-call',

@@ -112,8 +112,16 @@ storage world. The `drop-events` mutant filters every model `emit`; it must
 diverge and shrink to a replayed deletion-minimal witness.
 `check_pinned_sequence_fixture` commits the generic `fixtures/pinned-sequence`
 role-registry fixture with a fixed identity, so its revision is reproducible,
-and runs both the positive campaign and the mutant. Benchmark-specific
-configurations belong in downstream verification repositories.
+and runs both the positive campaign and the mutant. Configurations for
+contracts of a pinned corpus project live only in that project's `sequences` in
+`scripts/solidity_import_corpus/manifest.json` (#2834): the same fields without
+`project`/`revision`, which come from the project's clean checkout at its full
+commit SHA. Every prefix step there states its documented source outcome
+(`expect`), which the source route must reproduce, and every imported signature
+must succeed once in the prefix. `check_pinned_sequence_corpus --fetch` runs the
+positive campaign and the `drop-events` mutant for each of them; it is part of
+the stateful suite. Other benchmark-specific configurations belong in
+downstream verification repositories.
 
 # Deployment account observations
 
