@@ -555,14 +555,21 @@ structure Provided where
 /-- The first of two issues. -/
 def mergeIssue (a b : Option String) : Option String := a <|> b
 
+/-- The directory a `libs` entry names, when it is one directory of the project (`lib`,
+`./lib`, `lib/`): Foundry joins the entry to the root, so `.` parts do not matter. -/
+def libName? (l : String) : Option String :=
+  match (l.splitOn "/").filter (fun p => p != "" && p != ".") with
+  | [n] => if l.startsWith "/" || n == ".." then none else some n
+  | _ => none
+
 /-- Library directories from `libs`, or Foundry's default (`DappHardhatDirProvider`). -/
 def libsOf (d : RemapDir) (keys : TomlKeys) : List String × Option String :=
   match keys.libs with
   | some ls =>
-    if ls.any (fun l => l.startsWith "/" || ((l.splitOn "/").filter (· != "")).length != 1) then
-      (ls, some s!"libs entry outside the project or with several components in {ls}; the \
-        importer does not read there")
-    else (ls.map fun l => ((l.splitOn "/").filter (· != "")).headD l, none)
+    match ls.mapM libName? with
+    | some names => (names, none)
+    | none => (ls, some s!"libs entry outside the project or with several components in {ls}; \
+        the importer does not read there")
   | none =>
     if (d.child? "node_modules").isSome then
       ((if (d.child? "lib").isSome then ["lib"] else []) ++ ["node_modules"], none)
@@ -858,8 +865,12 @@ def remapImportPath (name : String) (explicit : Array (String × String))
   match inf with
   | some r =>
     if let some i := r.issue then
+      -- A file remapping is never dropped for nesting, so writing one does not help.
+      let advice := if r.name.endsWith ".sol" then
+          "set auto_detect_remappings = false if the written remappings suffice"
+        else "write the remapping in remappings.txt"
       throw s!"import {name} needs Foundry's inferred remapping {r.name}={r.path}, but {i}; \
-        write the remapping in remappings.txt"
+        {advice}"
     return (r.path ++ (name.drop r.name.length).toString, some r)
   | none => return (applyRemapping name best, none)
 
@@ -900,8 +911,9 @@ Context remappings that can reach `path` are refused. Otherwise `needScan`. -/
 def remapDecideA (s : RemapStage0) (pool : FoundryRemap.ConfigPool) (origin path : String) :
     Except String RemapStep := do
   if let some i := pool.issue then
-    throw s!"import {path}: Foundry's remappings are unknown here ({i}); write the remapping \
-      in remappings.txt"
+    throw s!"import {path}: Foundry's remappings are unknown here ({i}), so any import may \
+      resolve differently; remove the cause, or set auto_detect_remappings = false if the \
+      written remappings suffice"
   if let some m := contextRefusal origin path pool.entries then throw m
   let best := bestExplicit s.explicit path
   -- `Remappings::push` drops no file remapping (`….sol`) for nesting, so a configuration's
@@ -1032,7 +1044,7 @@ def readRemapRootShallow (root : System.FilePath) : IO RemapDir := do
       some <$> IO.FS.readFile (root / "foundry.toml") else pure none
   let keys := FoundryRemap.parseFoundryToml (toml.getD "") (strict := false)
   let children ← shallowDirs root
-    (["contracts", "lib", "node_modules", "src"] ++ (keys.libs.getD []))
+    (["contracts", "lib", "node_modules", "src"] ++ (keys.libs.getD []).filterMap FoundryRemap.libName?)
   let real ← try IO.FS.realPath root catch _ => pure root
   let aboveRootSource := real.components.any (fun c => c == "src" || c == "contracts")
   return { name := "", foundryToml := toml, children, aboveRootSource }
@@ -1051,7 +1063,8 @@ partial def readRemapConfigDir (dir : System.FilePath) (name : String) (follow :
     | .ok t => pure t
     | .error () => return { name, unreadable := true }
   let keys := FoundryRemap.parseFoundryToml (toml.getD "") (strict := false)
-  let present ← shallowDirs dir (["contracts", "lib", "node_modules", "src"] ++ (keys.libs.getD []))
+  let present ← shallowDirs dir
+    (["contracts", "lib", "node_modules", "src"] ++ (keys.libs.getD []).filterMap FoundryRemap.libName?)
   let shallow : RemapDir := { name, foundryToml := toml, remappingsTxt := txt, children := present }
   let (libs, _) := FoundryRemap.libsOf shallow keys
   let mut children := present.filter (!libs.contains ·.name)
