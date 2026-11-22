@@ -52,3 +52,9 @@ contract StringBesideRevertingScalarC is NamedBase {
         return keccak256(abi.encode(_name(), x, _checkedCount()));
     }
 }
+
+contract ConcatBesideC is NamedBase {
+    function digest(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(x, string.concat(_name(), _name())));
+    }
+}

@@ -7,7 +7,8 @@ tuple components (`AbiEncodeStringHelperSequence.sol`, `AbiEncodeStringHelperRej
 
 Such a helper may revert with a custom error: it runs at its own argument position, as both
 solc pipelines evaluate the arguments left to right. A state-changing helper, a calldata
-sibling and a reverting scalar helper beside it stay located rejections.
+sibling, a reverting scalar helper and a reverting multi-argument concat beside it stay located
+rejections.
 -/
 namespace SolidityImportSmoke.AbiEncodeStringHelperChecks
 
@@ -81,6 +82,20 @@ solidity_import besideRevertingScalarForm from "Contracts/SolidityImportSmoke"
   entry "AbiEncodeStringHelperRejections.sol"
   using stringHelperEncoding
   contract StringBesideRevertingScalarC
+  function digest(uint256)
+
+-- 5. A multi-argument `string.concat` with a reverting argument beside other arguments: the
+-- concat arguments are lowered last to first, solc evaluates them left to right.
+/--
+error: AbiEncodeStringHelperRejections.sol:58:40: FunctionCall: [solidity-import:unsupported] reverting concat ABI encoding argument beside other arguments is unsupported
+closure: ConcatBesideC.digest
+string.concat(_name(), _name())
+-/
+#guard_msgs in
+solidity_import besideConcatForm from "Contracts/SolidityImportSmoke"
+  entry "AbiEncodeStringHelperRejections.sol"
+  using stringHelperEncoding
+  contract ConcatBesideC
   function digest(uint256)
 
 end SolidityImportSmoke.AbiEncodeStringHelperChecks
