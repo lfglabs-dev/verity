@@ -5326,6 +5326,38 @@ private partial def statefulAbiEncodeIn (j : Json) (env : Env) : Bool :=
       own || o.foldl (fun found _ child => found || statefulAbiEncodeIn child env) false
   | _ => false
 
+/-- A `bytes.concat` / `string.concat` call with more than one argument, one of which may
+revert, in `j` or in an internal function it calls. `lowerPacked` lowers the concat
+arguments last to first while both solc pipelines evaluate them left to right, so the
+revert data of such a call would be the wrong one. -/
+private partial def revertingConcatIn (env : Env) (seen : List Nat) (j : Json) : Bool :=
+  match j with
+  | .arr xs => xs.any (revertingConcatIn env seen)
+  | .obj o =>
+      let own :=
+        if optStr j "nodeType" == some "FunctionCall" && optStr j "kind" == some "functionCall" then
+          let callee := field? j "expression" |>.getD Json.null
+          let args := ((field? j "arguments").bind (·.getArr?.toOption)).getD #[]
+          if optStr callee "nodeType" == some "MemberAccess" &&
+              optStr callee "memberName" == some "concat" &&
+              (field? callee "referencedDeclaration").isNone then
+            args.size > 1 && args.any (jsonHasCustomRevert env [])
+          else
+            match (field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption) with
+            | some id =>
+                if id >= 0 then
+                  match effectCallTarget? env seen callee id.toNat with
+                  | some targetId =>
+                      !seen.contains targetId &&
+                        ((env.funs.find? targetId).bind (field? · "body")).any
+                          (revertingConcatIn env (targetId :: seen))
+                  | none => false
+                else false
+            | none => false
+        else false
+      own || o.foldl (fun found _ child => found || revertingConcatIn env seen child) false
+  | _ => false
+
 /-- Restrict the entire argument tree, not merely its outer cast. This keeps
 custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
 private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M Unit := do
@@ -7200,6 +7232,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         -- calldata sibling is conservatively rejected beside it: a calldata array or nested
         -- calldata value may be validated only while encoding, after the helper has run.
         if args.size > 1 && jsonHasCustomRevert (← get) [] arg then
+          if revertingConcatIn (← get) [] arg then
+            failAt arg "reverting concat ABI encoding argument beside other arguments is unsupported"
           for otherIdx in [:args.size] do
             if otherIdx != argIdx && (← mType args[otherIdx]!).contains "calldata" then
               failAt args[otherIdx]! "calldata ABI encoding argument beside a reverting helper is unsupported"
