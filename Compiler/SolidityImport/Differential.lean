@@ -106,8 +106,9 @@ def statusText (model : CompilationModel) (report : ImportReport) : String := Id
       | .ok _ => "true"
       | .error reason => s!"false ({reason.replace "\n" " "})"
     lines := lines.push (String.intercalate "\n"
-      [s!"function {fn.name}", "  importable true", s!"  denoteCovered {st.denoteCovered}",
-       s!"  compilable {compilable}", s!"  compilerProofCovered {st.compilerProof.toText}"])
+      ([s!"function {fn.name}", "  importable true", s!"  denoteCovered {st.denoteCovered}",
+       s!"  compilable {compilable}", s!"  compilerProofCovered {st.compilerProof.toText}"] ++
+       st.shortcuts.map ShortcutUse.toText))
   return String.intercalate "\n" lines.toList ++ "\n"
 
 private def selectRoot (model : CompilationModel) (name : String) : IO FunctionSpec := do
@@ -142,7 +143,8 @@ def run (model : CompilationModel) (report : ImportReport) (args : List String) 
        ("importable", toJson st.isSome), ("denoteCovered", toJson denoteCovered),
        ("compilerProof", toJson compilerProof), ("status", toJson statusLine),
        ("compilable", toJson compilable), ("compileError", toJson reason),
-       ("panicPayloadObserved", toJson report.observesPanicPayload)]))
+       ("panicPayloadObserved", toJson report.observesPanicPayload),
+       ("shortcuts", toJson ((st.map (·.shortcuts)).getD [] |>.map (·.fingerprintName)))]))
   | ["run", name, input, output, digest] =>
     let fn ← selectRoot model name
     unless digest == report.sourceDigest do throw (IO.userError "source/importer digest changed; rebuild the campaign")

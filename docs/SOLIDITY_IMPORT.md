@@ -264,6 +264,22 @@ function f
   compilerProofCovered unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)
 ```
 
+### Shortcuts used
+
+A few inline-assembly blocks are not translated: when a block's `yulBlockFingerprint`
+equals a registered fingerprint, the importer uses a fixed lowering for it instead
+(`docs/UNISWAP_V4_MODEL_SUPPORT.md`). The report lists each such replacement under
+the root whose model uses it (`FunctionStatus.shortcuts`), in both `toText` and
+`statusText`:
+
+```text
+status loadSlots importable denoteCovered true compilerProof unavailable (...)
+  shortcut extsloadBatchYulFingerprint lowering lowerBatchArrayLoadShim fingerprint <sha256> at TailAssemblyArrayRead.sol:12:9
+```
+
+A root without such a line uses no shortcut. The differential `describe` output
+lists the same fingerprint names under `shortcuts`.
+
 ## Collecting every unsupported construct
 
 By default the importer stops at the first construct it cannot lower. For an
