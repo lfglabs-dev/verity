@@ -521,13 +521,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'function is not implemented'),
-        ('inheritance-external-contract-call-rejected',
+        # A returned typed interface staticcall imports in every contract (#2830).
+        ('inheritance-external-interface-call',
          "pragma solidity 0.8.34;\ninterface IPeer { function ping(uint256 x) external view returns (uint256); }\ncontract C { function checked(uint256 x) external view returns (uint256) { return IPeer(msg.sender).ping(x); } }\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         ('Fixture.sol:3:83: FunctionCall: [solidity-import:unsupported] typed interface staticcall must be a whole '
-          'variable initializer, assignment right-hand side, expression statement, require condition or '
-          'short-circuit operand of one')),
+         None),
         ('inheritance-duplicate-private-storage-rejected',
          "pragma solidity 0.8.34;\nabstract contract Base { uint256 private dup; }\ncontract C is Base { uint256 private dup; function checked(uint256 x) external returns (uint256) { dup = x; return dup; } }\n",
          None,

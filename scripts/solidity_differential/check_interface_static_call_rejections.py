@@ -15,9 +15,8 @@ import tempfile
 
 ORACLE = 'interface IPriceOracle {\n    function price() external view returns (uint256);\n}\n'
 MESSAGES = {
-    'placement': 'typed interface staticcall must be a whole variable initializer, '
-                 'assignment right-hand side, expression statement, require condition or '
-                 'short-circuit operand of one',
+    'key-order': 'typed interface staticcall in an assignment to an array element or computed key '
+                 'is unsupported: solc evaluates the right-hand side first',
     'non-view': 'typed interface calls to non-view functions are outside this slice',
     'return': 'typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool',
     'receiver': 'typed interface call receiver must be an explicit interface conversion of an address',
@@ -65,27 +64,74 @@ CASES = [
      'interface IPriceOracle {\n    function price() external view returns (uint256, uint256);\n}\n', '',
      '(uint256 a, uint256 b) = IPriceOracle(oracle).price(); return a + b;',
      ('IPriceOracle(oracle).price', 0, 'MemberAccess', 'external')),
-    ('return-placement', ORACLE, '', 'return IPriceOracle(oracle).price();',
-     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'placement')),
-    ('binary-placement', ORACLE, '', 'uint256 v = IPriceOracle(oracle).price() + 1; return v;',
-     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'placement')),
+    # Any expression position, in every contract (#2830, `InterfaceStaticCallStateCountChecks`).
+    ('return-placement', ORACLE, '', 'return IPriceOracle(oracle).price();', None),
+    ('binary-placement', ORACLE, '', 'uint256 v = IPriceOracle(oracle).price() + 1; return v;', None),
     ('compound-assignment', ORACLE, '', 'uint256 v = 1; v += IPriceOracle(oracle).price(); return v;',
-     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'placement')),
+     None),
     ('indexed-target', ORACLE, 'mapping(uint256 => uint256) m;',
-     'm[1] = IPriceOracle(oracle).price(); return m[1];',
-     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'placement')),
+     'm[1] = IPriceOracle(oracle).price(); return m[1];', None),
     ('conditional', ORACLE, '', 'uint256 v = oracle == address(0) ? 0 : IPriceOracle(oracle).price(); return v;',
-     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'placement')),
+     None),
     ('nested-receiver', ORACLE, '',
-     'uint256 v = IPriceOracle(address(uint160(IPriceOracle(oracle).price()))).price(); return v;',
-     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'placement')),
+     'uint256 v = IPriceOracle(address(uint160(IPriceOracle(oracle).price()))).price(); return v;', None),
     ('helper-return', ORACLE,
      'function q(address o) internal view returns (uint256) { return IPriceOracle(o).price(); }',
-     'uint256 v = q(oracle); return v;',
-     ('IPriceOracle(o).price()', 0, 'FunctionCall', 'placement')),
+     'uint256 v = q(oracle); return v;', None),
     ('typed-local-receiver', ORACLE, '',
-     'IPriceOracle feed = IPriceOracle(oracle); uint256 v = feed.price(); return v;',
-     ('feed.price', 0, 'Identifier', 'receiver')),
+     'IPriceOracle feed = IPriceOracle(oracle); uint256 v = feed.price(); return v;', None),
+    # solc evaluates the right-hand side before the target's keys and bounds checks.
+    ('computed-key-target', ORACLE, 'mapping(uint256 => uint256) m;',
+     'm[uint256(uint160(oracle)) + 1] = IPriceOracle(oracle).price(); return 1;',
+     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'key-order')),
+    ('computed-key-compound', ORACLE, 'mapping(uint256 => uint256) m;',
+     'm[uint256(uint160(oracle)) + 1] += IPriceOracle(oracle).price(); return 1;',
+     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'key-order')),
+    ('call-key-target', ORACLE, 'mapping(uint256 => uint256) m;',
+     'm[IPriceOracle(oracle).price()] = 1; return 1;',
+     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'key-order')),
+    ('helper-computed-key-target', ORACLE,
+     'mapping(uint256 => uint256) m;\n'
+     '    function q(address o) internal view returns (uint256) { return IPriceOracle(o).price(); }',
+     'm[uint256(uint160(oracle)) + 1] = q(oracle); return 1;',
+     ('q(oracle)', 0, 'Identifier', 'key-order')),
+    ('modifier-computed-key-target', ORACLE,
+     'mapping(uint256 => uint256) m;\n'
+     '    modifier priced(address o) { require(IPriceOracle(o).price() == 7); _; }\n'
+     '    function q(address o) internal view priced(o) returns (uint256) { return 1; }',
+     'm[uint256(uint160(oracle)) + 1] = q(oracle); return 1;',
+     ('q(oracle)', 0, 'Identifier', 'key-order')),
+    ('modifier-argument-computed-key-target', ORACLE,
+     'mapping(uint256 => uint256) m;\n'
+     '    modifier atLeast(uint256 v) { require(v > 0); _; }\n'
+     '    function q(address o) internal view atLeast(IPriceOracle(o).price()) returns (uint256) '
+     '{ return 1; }',
+     'm[uint256(uint160(oracle)) + 1] = q(oracle); return 1;',
+     ('q(oracle)', 0, 'Identifier', 'key-order')),
+    # `super` resolves from the callee being inspected, not the root frame.
+    ('super-computed-key-target', ORACLE +
+     'abstract contract Base {\n'
+     '    function f(address o) internal view virtual returns (uint256) { return IPriceOracle(o).price(); }\n'
+     '}\n'
+     'abstract contract Middle is Base {\n'
+     '    function f(address o) internal view virtual override returns (uint256) { return super.f(o); }\n'
+     '}\n',
+     'mapping(uint256 => uint256) m;',
+     'm[uint256(uint160(oracle)) + 1] = f(oracle); return 1;',
+     ('f(oracle)', 0, 'Identifier', 'key-order'), 'uint256', ' is Middle'),
+    # A function value passed to a callee is followed; an unresolved pointer counts as a call.
+    ('pointer-argument-computed-key-target', ORACLE,
+     'mapping(uint256 => uint256) m;\n'
+     '    function g(address o) internal view returns (uint256) { return IPriceOracle(o).price(); }\n'
+     '    function callPtr(function (address) internal view returns (uint256) p, address o)\n'
+     '        internal view returns (uint256) { return p(o); }',
+     'm[uint256(uint160(oracle)) + 1] = callPtr(g, oracle); return 1;',
+     ('g, oracle)', 0, 'Identifier', 'key-order')),
+    ('tuple-target', ORACLE, '',
+     'uint256 v; uint256 w; (v, w) = (IPriceOracle(oracle).price(), 1); return v + w;', None),
+    ('array-target', ORACLE, 'uint256[] a;',
+     'a[0] = IPriceOracle(oracle).price(); return 1;',
+     ('IPriceOracle(oracle).price()', 0, 'FunctionCall', 'key-order')),
     ('try-catch', ORACLE, '',
      'try IPriceOracle(oracle).price() returns (uint256 v) { return v; } catch { return 0; }',
      ('try', 0, 'TryStatement', 'try')),
@@ -160,9 +206,9 @@ CASES = [
 ]
 
 
-def source(declarations, members, body, result_type='uint256'):
+def source(declarations, members, body, result_type='uint256', bases=''):
     return (f'// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n{declarations}\n'
-            f'contract C {{\n    {members}\n    function checked(address oracle) external returns ({result_type}) {{\n'
+            f'contract C{bases} {{\n    {members}\n    function checked(address oracle) external returns ({result_type}) {{\n'
             f'        {body}\n    }}\n}}\n')
 
 

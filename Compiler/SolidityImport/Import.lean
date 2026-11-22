@@ -2817,6 +2817,91 @@ private def isInterfaceExternalCall (j : Json) : M Bool := do
         return false
   | none => return false
 
+/-- An internal function or internal function pointer (`t_function_internal_*`); events,
+errors, builtins and external functions have other type identifiers. -/
+private def internalFunctionTyped (j : Json) : Bool :=
+  ((field? j "typeDescriptions").bind (optStr · "typeIdentifier")).any
+    (·.startsWith "t_function_internal")
+
+/-- A node of `j` that makes, or may make, a typed-interface call: the call itself, or a
+reference to an internal function (called, or passed as a function value) whose body or
+modifier invocations (arguments, and the body of every modifier of that name, which
+covers overrides) reach one transitively. `seen` is the walk's frame stack, whose head is
+the body being inspected, so `super` resolves from it; `clean` collects the functions and
+modifiers already walked without reaching a call, so each is walked at most once. A
+function-typed reference that does not resolve to a declaration (a pointer parameter or
+local of a callee) is conservatively a reaching node. -/
+private partial def interfaceCallIn? (clean : IO.Ref (Array Nat)) (j : Json)
+    (seen : List Nat := []) : M (Option Json) := do
+  if ← isInterfaceExternalCall j then return some j
+  if optStr j "nodeType" == some "ModifierInvocation" then
+    let env ← get
+    let modId := ((field? j "modifierName").bind (field? · "referencedDeclaration")).bind
+      (·.getNat?.toOption)
+    let name := (modId.bind env.modifiers.find?).bind (optStr · "name")
+    let mods := env.modifiers.fold (init := #[]) fun acc mid decl =>
+      if some mid == modId || (name.isSome && optStr decl "name" == name) then
+        acc.push (mid, decl) else acc
+    for (mid, decl) in mods do
+      unless seen.contains mid || (← clean.get).contains mid do
+        if let some body := field? decl "body" then
+          if (← interfaceCallIn? clean body (mid :: seen)).isSome then return some j
+        clean.modify (·.push mid)
+  let kind := optStr j "nodeType"
+  if (kind == some "Identifier" || kind == some "MemberAccess") && internalFunctionTyped j then
+    if let some id := (field? j "referencedDeclaration").bind (·.getNat?.toOption) then
+      let env ← get
+      let targets := match env.fnPtrs.find? id with
+        | some (.direct fid) => [fid]
+        | some (.branch _ tFid fFid) => [tFid, fFid]
+        | none => (effectCallTarget? env seen j id).toList
+      let resolved := targets.filterMap fun target => (env.funs.find? target).map (target, ·)
+      if resolved.isEmpty then return some j
+      for (target, fn) in resolved do
+        unless seen.contains target || (← clean.get).contains target do
+          for part in [field? fn "body", field? fn "modifiers"] do
+            if let some node := part then
+              if (← interfaceCallIn? clean node (target :: seen)).isSome then return some j
+          clean.modify (·.push target)
+  match j with
+  | .obj kvs => kvs.toList.findSomeM? fun (_, v) => interfaceCallIn? clean v seen
+  | .arr xs => xs.toList.findSomeM? (interfaceCallIn? clean · seen)
+  | _ => return none
+
+/-- An assignment target whose evaluation cannot revert: an identifier, member and
+mapping accesses over one whose keys are identifiers or literals, or a tuple of those.
+Array elements are excluded, including memory arrays whose lowering already evaluates the
+right-hand side first (conservative). -/
+private partial def revertFreeAssignmentTarget (j : Json) : Bool :=
+  match optStr j "nodeType" with
+  | some "Identifier" => true
+  | some "TupleExpression" =>
+      match field? j "components" with
+      | some (.arr cs) => cs.all fun c => c.isNull || revertFreeAssignmentTarget c
+      | _ => false
+  | some "MemberAccess" => ((field? j "expression").map revertFreeAssignmentTarget).getD false
+  | some "IndexAccess" =>
+      let base := (field? j "baseExpression").getD .null
+      let key := (field? j "indexExpression").bind (optStr · "nodeType")
+      ((field? base "typeDescriptions").bind (optStr · "typeString")).any
+          (·.startsWith "mapping(") &&
+        (key == some "Identifier" || key == some "Literal") && revertFreeAssignmentTarget base
+  | _ => false
+
+/-- solc evaluates an assignment's right-hand side before the target's index keys and
+bounds checks on both pipelines, while the lowering evaluates the target first. A
+typed-interface call can revert, so an assignment statement that makes one, directly or
+through an internal callee, is admitted only when its target cannot revert
+(`revertFreeAssignmentTarget`). -/
+private def checkInterfaceCallAssignmentOrder (statement : Json) : M Unit := do
+  let some expression := field? statement "expression" | return
+  unless optStr expression "nodeType" == some "Assignment" do return
+  let some target := field? expression "leftHandSide" | return
+  if revertFreeAssignmentTarget target then return
+  if let some call ← interfaceCallIn? (← IO.mkRef #[]) expression then
+    failAt call ("typed interface staticcall in an assignment to an array element or " ++
+      "computed key is unsupported: solc evaluates the right-hand side first")
+
 /-- The declaration called by a typed external call `I(a).f(...)` when `f` has no
 return values and is `nonpayable` or `payable`; such a call lowers only as a
 whole expression statement. -/
@@ -7997,16 +8082,18 @@ private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := d
   return pre.push (.ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [])
 
 /-- `I(a).f(args...)` for a `view` interface function returning a single
-`uint256`, `int256`, `bytes32`, `bytes4` or `bool` over scalar, struct or dynamic `bytes`/`string`
-arguments. solc 0.8.34 (via-IR) ABI-encodes the selector and arguments at the
+`uint256`, `int256`, `bytes32`, `bytes4`, `bool`, `address` or `uint8` over scalar, struct or
+dynamic `bytes`/`string` arguments. solc 0.8.34 ABI-encodes the selector and arguments at the
 free pointer, emits `staticcall(gas(), a, p, len, p, 32)`, forwards a failed
 call's complete return data as the revert payload, reverts with no data on fewer
-than 32 return bytes, decodes the first word (rejecting values `> 1` for `bool`)
+than 32 return bytes, decodes the first word (reverting with no data on a `bool`,
+`address` or `uint8` word out of range or a `bytes4` word with dirty low bytes)
 and ignores extra bytes. With return data expected, the code-existence check is
 omitted, so an account without code takes the short-return revert. The closed
 `SolidityStaticCall` transports have this exact meaning in Denote and in
-compiled Yul. Placement is restricted to admitted statement positions so the
-call's position among other effects and reverts is the source order. -/
+compiled Yul. Placement, parameter, receiver, return and argument routing do not depend on
+whether the contract has one or more state variables (#2830,
+`InterfaceStaticCallStateCountChecks`). -/
 private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   if (← get).forwardingBytesTuple then
     failAt j "typed external call results are unsupported in a forwarded tuple call tree"
@@ -8028,7 +8115,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     pure (ps, ← rs.mapM mType)
   let rawParamTypes ← params.mapM mType
   let paramTypes := rawParamTypes.map fun ty =>
-    if env.stateVars.size > 1 && ty.startsWith "contract " then "address" else ty
+    if ty.startsWith "contract " then "address" else ty
   let args ← mArr (← mField j "arguments")
   let returnTypes := rawReturnTypes.map fun ty =>
     if ty.startsWith "contract " then "address" else ty
@@ -8041,7 +8128,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   let hasDynamicOrStructParam := !env.stateVars.isEmpty && paramTypes.any fun pty =>
     pty == "bytes" || pty == "string" || (pty.startsWith "struct " && !pty.contains "[") ||
     (scalarArrayElement? pty).isSome
-  let hasExtendedScalarParam := env.stateVars.size > 1 &&
+  let hasExtendedScalarParam :=
     !paramTypes.all (["address", "uint256", "bytes32", "bool"].contains ·) &&
     paramTypes.all fun pty => (paramType pty).isSome
   -- Each parameter is one ABI head word; solc cleans `address` to 160 bits and
@@ -8055,17 +8142,18 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       failAt j "typed interface staticcall parameters must be address, uint256, bytes32 or bool"
   unless args.size == params.size do
     failAt j "typed interface staticcall argument count differs from its declaration"
-  let isSupportedExtraReturn := env.stateVars.size > 1 &&
-    (returnTypes == #["address"] || returnTypes == #["uint8"])
+  let isSupportedExtraReturn := returnTypes == #["address"] || returnTypes == #["uint8"]
   let returnType := returnTypes.getD 0 "uint256"
   unless isSupportedExtraReturn do
     unless returnTypes.size == 1 && ["uint256", "int256", "bytes32", "bytes4", "bool"].contains returnType do
       failAt callee "typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool"
-  -- All three transports deliver the first complete return word. Validate bytes4
-  -- even when the value is discarded; on success the raw word is already left-aligned.
+  -- All three transports deliver the first complete return word. solc's ABI decoder
+  -- validates `bytes4`, `address` and `uint8` words (dirty padding reverts with no data)
+  -- even when the value is discarded; on success the raw word is already the value.
   let decoded (pre : Array Stmt) (result : String) : Val :=
     let word := Expr.localVar result
-    let guard := if returnType == "bytes4" then abiDecodeScalarGuard? returnType none word else none
+    let guard := if returnType == "bytes4" || isSupportedExtraReturn then
+      abiDecodeScalarGuard? returnType none word else none
     { pre := pre ++ guard.toList.toArray, expr := word }
   let some hex := optStr decl "functionSelector"
     | failAt callee "interface function has no functionSelector"
@@ -8080,8 +8168,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   let convArgs ← if (← mKind base) == "FunctionCall" &&
       optStr base "kind" == some "typeConversion" then
     mArr (← mField base "arguments")
-  else if (← mKind base) == "Identifier" && (← mType base).startsWith "contract " &&
-      env.stateVars.size > 1 then
+  else if (← mKind base) == "Identifier" && (← mType base).startsWith "contract " then
     pure #[base]
   else pure #[]
   let rawConvTypes ← convArgs.mapM mType
@@ -8089,19 +8176,26 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     if ty.startsWith "contract " then "address" else ty
   unless convTypes == #["address"] do
     failAt base "typed interface call receiver must be an explicit interface conversion of an address"
+  -- Any expression position: each enclosing lowering sequences the call's prelude in
+  -- solc's evaluation order (binary operands per pipeline, conditional arms and
+  -- short-circuit operands only on their branch, assignments right-hand side first).
   let callId ← mNat (← mField j "id")
-  unless env.stateVars.size > 1 do
-    unless (← get).admittedInterfaceCalls.contains callId do
-      failAt j ("typed interface staticcall must be a whole variable initializer, assignment " ++
-        "right-hand side, expression statement, require condition or short-circuit operand of one")
   modify fun e => { e with admittedInterfaceCalls := e.admittedInterfaceCalls.erase callId }
-  let hasExtendedArg ← if env.stateVars.size > 1 then
-    (args.zip paramTypes).anyM fun (arg, ty) => do
-      let argTy ← mType arg
-      let k ← mKind arg
-      pure (argTy != ty && !(ty == "uint256" && argTy.startsWith "int_const " && !argTy.startsWith "int_const -") ||
-        k == "BinaryOperation" || k == "FunctionCall")
-  else pure false
+  -- A converted argument, or a computed one whose lowering needs a prelude, is converted
+  -- and cleaned below; any other argument takes the word path. The trial lowering runs on
+  -- a copy of the state without the unsupported-construct sink, then the state is restored.
+  let hasExtendedArg ← (args.zip paramTypes).anyM fun (arg, ty) => do
+    let argTy ← mType arg
+    if argTy != ty && !(ty == "uint256" && argTy.startsWith "int_const " && !argTy.startsWith "int_const -") then
+      return true
+    let k ← mKind arg
+    unless k == "BinaryOperation" || k == "FunctionCall" do return false
+    let saved ← get
+    set { saved with unsupportedSink := none }
+    let needsPrelude ← try pure !(← lowerExpr arg).pre.isEmpty catch e =>
+      if e.isInterrupt || e.isRuntime then throw e else pure true
+    set saved
+    return needsPrelude
   if isNonpayableCallback || hasDynamicOrStructParam || hasExtendedScalarParam || hasExtendedArg then
     let rawTarget ← lowerExpr convArgs[0]!
     let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
@@ -8196,6 +8290,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       Compiler.ECM.SolidityStaticCall.uint256Module result selector words.size
     let callPre := pre.push (.ecm mod (target.expr :: words.toList))
     return decoded callPre result
+  -- Implied by `hasExtendedArg` being false; kept as a defensive check.
   for (arg, ty) in args.zip paramTypes do
     let argTy ← mType arg
     unless argTy == ty ||
@@ -13846,9 +13941,11 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
     out := out.push (writeMember mName stored)
   return out
 
-/-- An expression statement may admit its own typed-interface call, or the
-right-hand side of a plain `=` to an unindexed identifier. Indexed targets are
-excluded: their key evaluation order relative to the call is not admitted. -/
+/-- An expression statement admits its own typed-interface call, or the right-hand
+side of a plain `=` to an unindexed identifier; `lowerBinary` relaxes its sibling
+order check for a `==`/`!=` operand that is an admitted call. An assignment to a
+target that can revert rejects any typed-interface call
+(`checkInterfaceCallAssignmentOrder`). -/
 private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let admitted := (field? statement "expression").bind fun expression =>
     if optStr expression "nodeType" == some "Assignment" then
@@ -13857,7 +13954,9 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
         field? expression "rightHandSide"
       else none
     else some expression
-  recoverAt statement #[] (withAdmittedInterfaceCall admitted (lowerEffectCore statement))
+  recoverAt statement #[] <| withAdmittedInterfaceCall admitted do
+    checkInterfaceCallAssignmentOrder statement
+    lowerEffectCore statement
 
 private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
   let assignedHere := bodyAssignedIds statement

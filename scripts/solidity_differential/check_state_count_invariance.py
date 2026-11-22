@@ -154,6 +154,18 @@ CASES = [
 ''', ['pair(uint256)']),
     fixture('fixture-storage-void-sequence', 'Contracts/SolidityImportSmoke/StorageVoidSequence.sol',
             'SequenceFixture', ['change(uint256)', 'fail()', 'read()']),
+    fixture('fixture-interface-static-call', 'Contracts/SolidityImportSmoke/InterfaceStaticCallOneSlot.sol',
+            'InterfaceStaticCallOneSlot', [
+                'peerQuote(address,address)', 'typedReceiver(IWordFeed,uint256)',
+                'narrowQuote(address,uint128,int256,bytes4)', 'ownerWord(address)',
+                'smallWord(address)', 'convertedArgument(address,uint8)',
+                'returned(address,uint256)', 'leftOperand(address,uint256)',
+                'rightOperand(address,uint256)', 'compound(address,uint256)',
+                'mappingTarget(address,uint256)', 'conditional(address,uint256)',
+                'nestedReceiver(address,uint256)', 'helperReturn(address,uint256)',
+                'negatedCondition(address,address)', 'equalityRequire(address,uint256)',
+                'helperArguments(address,uint256)', 'discardedOwner(address)',
+                'discardedSmall(address)']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]
