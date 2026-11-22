@@ -3342,6 +3342,13 @@ private def structMemArrayElementRoot (sid : Nat) (fields : List AbiSchema.Scala
   modify fun e => { e with next := e.next + 1, mems := e.mems.insert rootId desc }
   return rootId
 
+/-- `m[k]` / `m[a][b]` / `arr[i]`: index accesses down to an identifier, every key a `leaf`. -/
+private partial def indexedPath (leaf : Json → Bool) (n : Json) : Bool :=
+  optStr n "nodeType" == some "IndexAccess" &&
+    (field? n "indexExpression").any leaf &&
+    (field? n "baseExpression").any (fun base =>
+      optStr base "nodeType" == some "Identifier" || indexedPath leaf base)
+
 set_option maxHeartbeats 1600000 in
 mutual
 
@@ -5411,12 +5418,28 @@ private partial def checkEncodingStructRef (j : Json) : M Unit := do
         failAt idx "effectful ABI encoding argument is unsupported"
   | _ => failAt j "effectful ABI encoding argument is unsupported"
 
+/-- A value-type element reached through mapping keys / array indexes from a storage or
+local identifier (`m[k]`, `m[a][b]`, `arr[i]`), each key an effect-free encoding scalar. -/
+private partial def checkEncodingIndexedTarget (j : Json) : M Unit := do
+  unless (← mKind j) == "IndexAccess" do
+    failAt j "effectful ABI encoding argument is unsupported"
+  let base ← mField j "baseExpression"
+  let some index := (field? j "indexExpression").filter (!·.isNull)
+    | failAt j "effectful ABI encoding argument is unsupported"
+  unless (← mKind base) == "Identifier" do
+    checkEncodingIndexedTarget base
+  checkEncodingScalar index
+
 /-- Some `abi.encode(...)` call inside `j` has a state-changing argument. Such an encoding
 is admitted (`lowerAbiEncodeArgs` with `orderedEffects`) and runs its effects in place, so
 an encoding that hashes it beside deferred sibling reads must not admit it. -/
 private partial def statefulAbiEncodeIn (j : Json) (env : Env) : Bool :=
+  abiEncodeArgIn (statefulCallIn · env) j
+
+/-- Some `abi.encode(...)` call inside `j` has an argument satisfying `p`. -/
+private partial def abiEncodeArgIn (p : Json → Bool) (j : Json) : Bool :=
   match j with
-  | .arr xs => xs.any (statefulAbiEncodeIn · env)
+  | .arr xs => xs.any (abiEncodeArgIn p)
   | .obj o =>
       let own := optStr j "nodeType" == some "FunctionCall" &&
         optStr j "kind" == some "functionCall" &&
@@ -5427,9 +5450,14 @@ private partial def statefulAbiEncodeIn (j : Json) (env : Env) : Bool :=
               ((field? callee "expression").bind (field? · "referencedDeclaration")).bind
                 (·.getInt?.toOption) == some (-1)
           | none => false) &&
-        ((field? j "arguments").any (statefulCallIn · env))
-      own || o.foldl (fun found _ child => found || statefulAbiEncodeIn child env) false
+        ((field? j "arguments").any p)
+      own || o.foldl (fun found _ child => found || abiEncodeArgIn p child) false
   | _ => false
+
+/-- Some `abi.encode(...)` call inside `j` has an assignment, `++` or `--` argument. Such an
+encoding is ordered too (`lowerAbiEncodeArgs`), so it runs the write in place. -/
+private partial def assignmentAbiEncodeIn (j : Json) : Bool :=
+  abiEncodeArgIn assignmentIn j
 
 /-- A `bytes.concat` / `string.concat` call with more than one argument, one of which may
 revert, in `j` or in an internal function it calls. `lowerPacked` lowers the concat
@@ -5468,11 +5496,38 @@ custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
 private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M Unit := do
   match ← mKind j with
   | "Identifier" | "Literal" => pure ()
+  | "TupleExpression" =>
+      -- `(e)`: the same expression, evaluated where it stands.
+      let components := ((field? j "components").bind (·.getArr?.toOption)).getD #[]
+      unless (field? j "isInlineArray").bind (·.getBool?.toOption) != some true &&
+          components.size == 1 &&
+          !components[0]!.isNull do
+        failAt j "effectful ABI encoding argument is unsupported"
+      checkEncodingScalar components[0]! ordered
+  | "IndexAccess" =>
+      -- A value read through mapping keys / array indexes. Outside an ordered `abi.encode`
+      -- it would be read while encoding rather than at its position.
+      unless ordered do failAt j "effectful ABI encoding argument is unsupported"
+      checkEncodingIndexedTarget j
+  | "Assignment" =>
+      -- `x = v` (scalar local or storage identifier) in an ordered `abi.encode`: both solc
+      -- pipelines run it at its own argument position (`lowerAssignmentExpr`).
+      unless ordered && optStr j "operator" == some "=" do
+        failAt j "effectful ABI encoding argument is unsupported"
+      unless (← mKind (← mField j "leftHandSide")) == "Identifier" do
+        failAt j "effectful ABI encoding argument is unsupported"
+      checkEncodingScalar (← mField j "rightHandSide") ordered
   | "MemberAccess" =>
       if optStr j "memberName" == some "interfaceId" || optStr j "memberName" == some "selector" then pure ()
       else checkEncodingScalar (← mField j "expression") ordered
   | "UnaryOperation" =>
-      if let some natId := (field? j "function").bind (fun v => v.getNat?.toOption) then
+      if ordered && (optStr j "operator" == some "++" || optStr j "operator" == some "--") &&
+          (field? j "function").isNone then
+        -- `x++` / `--m[k]` in an ordered `abi.encode` (`lowerIncDecExpr`), at its position.
+        let target ← mField j "subExpression"
+        unless (← mKind target) == "Identifier" do
+          checkEncodingIndexedTarget target
+      else if let some natId := (field? j "function").bind (fun v => v.getNat?.toOption) then
         unless (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true do
           failAt j "effectful ABI encoding argument is unsupported"
         let env ← get
@@ -5535,7 +5590,7 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
           else if refId == some (-8) && (← mKind callee) == "Identifier" && args.size == 1 then
             -- The hashed buffer is lowered by its own encoding rules; outside an ordered
             -- `abi.encode` a state change inside it would run beside deferred sibling reads.
-            if !ordered && statefulAbiEncodeIn j (← get) then
+            if !ordered && (statefulAbiEncodeIn j (← get) || assignmentAbiEncodeIn j) then
               failAt j "effectful ABI encoding argument is unsupported"
           else if let some id := refId then
             unless id >= 0 do
@@ -5820,9 +5875,12 @@ private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false
           failAt arg "memory-writing packed arguments in a forwarded tuple require explicit evaluation-order support"
   -- An ordered `abi.encode` runs its helpers in place, but the concat builtins walk their
   -- arguments last to first and a storage `bytes` sibling is copied before solc copies it.
+  -- A scalar write (`x++`, `m[k] = v`) cannot reach a `bytes` sibling, and `abi.encodePacked`
+  -- (`sourceOrder`) writes each scalar sibling at its own position, as both solc pipelines
+  -- evaluate them, so there only the concat builtins must reject it.
   if args.size > 1 then
     for arg in args do
-      if statefulAbiEncodeIn arg env then
+      if statefulAbiEncodeIn arg env || (!sourceOrder && assignmentAbiEncodeIn arg) then
         failAt arg "effectful ABI encoding argument is unsupported"
   let mut buffers : Array EncodedBytes := #[]
   let mut pre := #[]
@@ -7279,7 +7337,8 @@ private partial def copyStorageScalarArray? (arg : Json) : M (Option (Array Stmt
 /-- `abi.encode(args...)` into a fresh aligned memory buffer.
 
 With `orderedEffects` (the `abi.encode` builtin) and an all-static argument list, internal
-helpers that change state may appear among the arguments. Both solc 0.8.34 pipelines
+helpers that change state, `x++` / `--m[k]` and `x = v` may appear among the arguments, and
+siblings may read mapping and array elements. Both solc 0.8.34 pipelines
 evaluate the arguments left to right before encoding, so each word is then bound to a
 temporary at its own position and every effect runs once, in source order. A struct
 argument is read by solc only while encoding, after every later argument has run, so it
@@ -7477,7 +7536,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
     pre := pre.push (.letVar totalSize (.sub (.mload (.literal 64)) base))
     return { pre, pointer := base, size := .localVar totalSize }
   let env ← get
-  let ordered := orderedEffects && params?.isNone && args.any (statefulCallIn · env)
+  let ordered := orderedEffects && params?.isNone &&
+    args.any (fun arg => statefulCallIn arg env || assignmentIn arg)
   let mut pre := #[]
   let mut words := []
   for argIdx in [:args.size] do
@@ -7563,16 +7623,32 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
         optStr recv "nodeType" != some "Identifier" &&
         !args.all (fun arg => optStr (unparenJson arg) "nodeType" == some "Literal") then
       failAt j "computed calldata receiver with nontrivial arguments requires legacy receiver-last evaluation"
+  -- An effect-free scalar sibling (any reads, view helpers, checked arithmetic) is bound to a
+  -- temporary at its own position below, so it sees exactly the writes on its left.
+  let pureScalar := fun (n : Json) =>
+    scalarLeaf n || (!assignmentIn n && !statefulCallIn n env &&
+      ((field? n "typeDescriptions").bind (optStr · "typeString")).any
+        (fun ty => (paramType ty).isSome))
+  -- A calldata identifier cannot be written by a sibling, so its position is irrelevant.
+  let calldataLeaf := fun (n : Json) =>
+    optStr n "nodeType" == some "Identifier" &&
+      ((field? n "typeDescriptions").bind (optStr · "typeString")).any
+        (·.endsWith " calldata")
   let scalarUpdate := fun (n : Json) =>
     let e := unparenJson n
-    (optStr e "nodeType" == some "UnaryOperation" && optStr e "operator" == some "++" &&
-      ((field? e "subExpression").bind (optStr · "nodeType")) == some "Identifier") ||
+    (optStr e "nodeType" == some "UnaryOperation" &&
+      (optStr e "operator" == some "++" || optStr e "operator" == some "--") &&
+      (field? e "subExpression").any (fun t =>
+        optStr t "nodeType" == some "Identifier" || indexedPath scalarLeaf t)) ||
     (optStr e "nodeType" == some "Assignment" && optStr e "operator" == some "=" &&
       ((field? e "leftHandSide").bind (optStr · "nodeType")) == some "Identifier" &&
-      (field? e "rightHandSide").any scalarLeaf)
+      (field? e "rightHandSide").any pureScalar)
+  -- Both 0.8.34 pipelines evaluate every argument (and its write) at its own position,
+  -- left to right; each scalar argument is then bound to a temporary there (below).
   let sequence := directHelper && field? j "reorderedScalarArguments" != some (.bool true) &&
     nodes.size > 1 && receiver?.isNone &&
-    nodes.any assignmentIn && nodes.all (fun n => scalarLeaf n || scalarUpdate n)
+    nodes.any assignmentIn && nodes.all (fun n =>
+      pureScalar n || calldataLeaf (unparenJson n) || scalarUpdate n)
   let singleEffect := field? j "reorderedScalarArguments" == some (.bool true) &&
     (nodes.filter (fun n => optStr n "nodeType" != some "Literal")).size == 1 &&
     receiver?.isNone

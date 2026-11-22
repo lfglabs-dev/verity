@@ -167,6 +167,22 @@ MUTANTS.update({
     'import-abi-encode-string-helper-storage-guard': (
         'if otherIdx != argIdx && (← mType args[otherIdx]!).contains " storage" then',
         'if false then')})
+# `x++` / `--m[k]` / `x = v` as call and `abi.encode` arguments: each sibling is bound at its
+# own position (both solc pipelines evaluate the arguments left to right), and a hashed
+# assignment encoding stays rejected where its siblings are walked out of order.
+MUTANTS.update({
+    'import-assignment-argument-encode-snapshot': (
+        '      if ordered && !(word matches .literal _) then',
+        '      if false then'),
+    'import-assignment-argument-call-capture': (
+        '      if sequence then\n        -- Even a bare local must capture',
+        '      if false then\n        -- Even a bare local must capture'),
+    'import-assignment-argument-concat-guard': (
+        'if statefulAbiEncodeIn arg env || (!sourceOrder && assignmentAbiEncodeIn arg) then',
+        'if statefulAbiEncodeIn arg env then'),
+    'import-assignment-argument-hash-guard': (
+        'if !ordered && (statefulAbiEncodeIn j (← get) || assignmentAbiEncodeIn j) then',
+        'if !ordered && statefulAbiEncodeIn j (← get) then')})
 # A storage array push panics with 0x41 once the length reaches 2^64, as solc's does, for
 # value and struct elements; and not one element earlier or later.
 MUTANTS.update({
@@ -957,6 +973,8 @@ def run(directory, output, name):
         fixture = "NamespacedStructMembersSequence"
     if name.startswith("import-dividing-while-"):
         fixture = "DividingWhileSequence"
+    if name.startswith("import-assignment-argument-") and not name.endswith("-guard"):
+        fixture = "AssignmentArgumentSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
     if name.startswith("import-storage-struct-param-slot-"):
@@ -1049,6 +1067,11 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [1, 5, 9, 0, 2, 3, 2, 4, 6, 3, 12, 1, 13, 16, 2, 3])])
+    if fixture == 'AssignmentArgumentSequence':
+        # The `abi-encode`/call orders of `stateful_campaign` (`assignment-arguments`).
+        argv[argv.index('--transactions') + 1] = '16'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [2, 0, 3, 0, 1, 7, 4, 1, 25, 10, 5, 11])])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
@@ -1847,6 +1870,28 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-assignment-argument-concat-guard':
+        diagnostic = 'effectful ABI encoding argument is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ uint256 n;
+ uint256 other;
+ function checked(uint256) external returns (uint256) {
+  return uint256(keccak256(bytes.concat(abi.encode(n++), abi.encode(n))));
+ }
+}
+''')
+    elif name == 'import-assignment-argument-hash-guard':
+        diagnostic = 'effectful ABI encoding argument is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ uint256 n;
+ uint256 other;
+ function checked(uint256) external returns (uint256) {
+  return uint256(keccak256(abi.encode("ab", n, keccak256(abi.encode(n++)))));
+ }
+}
+''')
     elif name == 'import-named-arguments-order-guard':
         diagnostic = 'named call arguments are outside this slice'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1986,7 +2031,9 @@ def mutation_campaign(output, selected=None):
                                   'import-named-arguments-order-guard',
                                   'import-abi-encode-string-helper-calldata-guard',
                                   'import-abi-encode-string-helper-concat-guard',
-                                  'import-abi-encode-string-helper-storage-guard'}
+                                  'import-abi-encode-string-helper-storage-guard',
+                                  'import-assignment-argument-concat-guard',
+                                  'import-assignment-argument-hash-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)

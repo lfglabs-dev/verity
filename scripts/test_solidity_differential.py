@@ -24,6 +24,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "abi-event-composition",
     "abi-rejections",
     "anvil",
+    "assignment-arguments",
     "baseline",
     "block-rejections",
     "checked-oracle-mock",

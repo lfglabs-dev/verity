@@ -254,6 +254,13 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '402', '14337', '69', '14355', '61', '65', '108', '14355', '14337', '65', '384', '61', '63',
         str(2**256 - 1),
         '--output', str(output / 'abi-encode-string-helper')]))
+    checks.append(('assignment-arguments', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/AssignmentArgumentSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/AssignmentArgumentSequenceModel.lean',
+        '--transactions', str(max(32, transactions)), '--seed', str(seed),
+        '--change-prefix', '2', '0', '3', '0', '1', '7', '4', '1', '25', '10', '5', '11', '8', '9',
+        '6', '12', '13', '2', '14', str(2**256 - 1),
+        '--output', str(output / 'assignment-arguments')]))
     checks.append(('named-arguments', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/NamedArgumentsSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/NamedArgumentsSequenceModel.lean',
