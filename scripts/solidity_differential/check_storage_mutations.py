@@ -163,6 +163,9 @@ MUTANTS.update({
         'if false then'),
     'import-abi-encode-string-helper-concat-guard': (
         'if revertingConcatIn (← get) [] arg then',
+        'if false then'),
+    'import-abi-encode-string-helper-storage-guard': (
+        'if otherIdx != argIdx && (← mType args[otherIdx]!).contains " storage" then',
         'if false then')})
 # A storage array push panics with 0x41 once the length reaches 2^64, as solc's does, for
 # value and struct elements; and not one element earlier or later.
@@ -1829,6 +1832,21 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-abi-encode-string-helper-storage-guard':
+        diagnostic = 'storage ABI encoding argument beside a reverting helper is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ error EmptyName();
+ string private label;
+ function _name() internal view returns (string memory) {
+  if (bytes(label).length == 0) revert EmptyName();
+  return label;
+ }
+ function checked(uint256 x) external view returns (uint256) {
+  return uint256(keccak256(abi.encode(label, x, _name())));
+ }
+}
+''')
     elif name == 'import-named-arguments-order-guard':
         diagnostic = 'named call arguments are outside this slice'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1967,7 +1985,8 @@ def mutation_campaign(output, selected=None):
                                   'import-encoding-arg-super-revert-guard',
                                   'import-named-arguments-order-guard',
                                   'import-abi-encode-string-helper-calldata-guard',
-                                  'import-abi-encode-string-helper-concat-guard'}
+                                  'import-abi-encode-string-helper-concat-guard',
+                                  'import-abi-encode-string-helper-storage-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)

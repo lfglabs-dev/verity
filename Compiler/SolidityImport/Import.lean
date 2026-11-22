@@ -7227,16 +7227,19 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then
           failAt arg "effectful ABI encoding argument is unsupported"
         -- A pure or view helper that may revert (`string` / `bytes` result) runs here, at its
-        -- own position: both solc pipelines evaluate the arguments left to right, and every
-        -- revert of the other arguments sits in their `pre`, also at their position. A
-        -- calldata sibling is conservatively rejected beside it: a calldata array or nested
-        -- calldata value may be validated only while encoding, after the helper has run.
+        -- own position: both solc pipelines evaluate the arguments left to right, and a revert
+        -- of a scalar or memory sibling sits in its `pre`, also at its position. Calldata and
+        -- storage siblings are rejected beside it: solc reads a storage `string` / `bytes`
+        -- (panic 0x22 on a corrupt encoding) and may validate a calldata array only while
+        -- encoding, after the helper has run, whereas they are lowered at their position.
         if args.size > 1 && jsonHasCustomRevert (← get) [] arg then
           if revertingConcatIn (← get) [] arg then
             failAt arg "reverting concat ABI encoding argument beside other arguments is unsupported"
           for otherIdx in [:args.size] do
             if otherIdx != argIdx && (← mType args[otherIdx]!).contains "calldata" then
               failAt args[otherIdx]! "calldata ABI encoding argument beside a reverting helper is unsupported"
+            if otherIdx != argIdx && (← mType args[otherIdx]!).contains " storage" then
+              failAt args[otherIdx]! "storage ABI encoding argument beside a reverting helper is unsupported"
         let buf ← lowerEncodedBytes arg
         let ptrVal ← if isAtom buf.pointer then pure { pre := #[], expr := buf.pointer } else atom { pre := #[], expr := buf.pointer }
         let sizeVal ← if isAtom buf.size then pure { pre := #[], expr := buf.size } else atom { pre := #[], expr := buf.size }

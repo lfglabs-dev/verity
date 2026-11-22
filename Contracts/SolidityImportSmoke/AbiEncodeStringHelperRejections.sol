@@ -58,3 +58,9 @@ contract ConcatBesideC is NamedBase {
         return keccak256(abi.encode(x, string.concat(_name(), _name())));
     }
 }
+
+contract StorageBesideC is NamedBase {
+    function digest(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(label, x, _name()));
+    }
+}
