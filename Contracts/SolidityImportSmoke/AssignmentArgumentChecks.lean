@@ -32,6 +32,13 @@ solidity_import legacyForm from "Contracts/SolidityImportSmoke"
   function change(uint256)
   function read()
 
+-- 0b. A `bytes calldata` and an enum sibling beside `nonce++` in an internal call imports.
+solidity_import calldataSiblingForm from "Contracts/SolidityImportSmoke"
+  entry "AssignmentArgumentRejections.sol"
+  using assignmentArguments
+  contract CalldataSiblingC
+  function digest(address, bytes, CalldataSiblingC.Op)
+
 -- 1. `x++` beside a dynamic (`bytes`) `abi.encode` argument: not ordered.
 /--
 error: AssignmentArgumentRejections.sol:11:43: UnaryOperation: [solidity-import:unsupported] effectful ABI encoding argument is unsupported

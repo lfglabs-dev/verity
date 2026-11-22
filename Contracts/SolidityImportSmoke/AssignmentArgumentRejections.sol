@@ -83,3 +83,17 @@ contract CallComputedKeyC {
         return mix(x, m[x + 1]++);
     }
 }
+
+// Positive control: a `bytes calldata` and an enum sibling beside `nonce++` in an internal call
+// of a public function, read before the increment.
+contract CalldataSiblingC {
+    enum Op { Call, DelegateCall }
+    uint256 public nonce;
+    uint256 internal other;
+    function hashOf(address to, bytes calldata data, Op op, uint256 n) public view returns (bytes32) {
+        return keccak256(abi.encode(to, keccak256(data), op, n, other));
+    }
+    function digest(address to, bytes calldata data, Op op) external returns (bytes32) {
+        return hashOf(to, data, op, nonce++);
+    }
+}
