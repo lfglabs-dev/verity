@@ -26,7 +26,7 @@ def main (args : List String) : IO UInt32 := do
         (← parsed.getArr?).toList.mapM fun j => j.getNat?
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile
         SolidityImportSmoke.SignedCompoundAssignmentSequenceModel.model selectors .osaka)
-      IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
+      IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYulSpilled compiled))
       return 0
   | _ =>
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run

@@ -44,7 +44,7 @@ def main (args : List String) : IO UInt32 := do
           | throw (IO.userError s!"ABI selector manifest lacks {fn.name}")
         pure entry.2
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile model selectors .osaka)
-      IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
+      IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYulSpilled compiled))
       return 0
   | ["observe", input, output] =>
       let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile input))

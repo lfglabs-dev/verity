@@ -24,7 +24,7 @@ def main (args : List String) : IO UInt32 := do
       let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile selectorsFile))
       let selectors ← IO.ofExcept ((← IO.ofExcept parsed.getArr?).toList.mapM Json.getNat?)
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile model selectors .osaka)
-      IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
+      IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYulSpilled compiled))
       return 0
   | ["observe", input, output] =>
       let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile input))
