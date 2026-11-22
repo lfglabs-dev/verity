@@ -149,6 +149,8 @@ private def rejected (model : CompilationModel) (name : String) (args : List Nat
 #guard allModels.all (returns · "calldataArg" [32, 0] 0xb754ebc0eb6ddc3cae0db7f8ad933c361ebf7363c7bd11bb5d66c5387afd15f6)
 #guard allModels.all (returns · "calldataArg" [32, 5, 455867356318211655669198171616910294656723054863879369520075368192163184640] 0x5f2e2c62c2d54eaa9f26cf26cc2a73df0a0bed9332ca38e6a486050da2dccd3d)
 #guard allModels.all (returns · "storageArg" [1] 0xc8e54e28cff73e8e1a440031c0ccee62fec871f105ebc21cd55585a67e368423)
+#guard allModels.all (returns · "storageArg" [2] 0xcda70f95264b60841b062ce185cd13596f21aa7d89a5fec3fcefae298d197b3e)
+#guard allModels.all (returns · "storageArg" [3] 0xfb59a82d8bcd11ff1246016717ace638ea41008a890f915a8d0848aed14c0bf1)
 #guard allModels.all (returns · "storageArg" [4] 0x3767e548adb478e85291b49e1810cfea49da7f56d7a0a4581ce3b9030b5368d9)
 #guard allModels.all (returns · "staticSiblings" [7, 96, 170, 3, 77224992616523589168109820555166644084464138706973000561478295394838187606016] 0x779a30695e9eaa856c28a8a31331ee172dd24067713a92914a1eb38c8e1f60c)
 #guard allModels.all (returns · "dynamicSiblings" [96, 9, 4, 3, 77224992616523589168109820555166644084464138706973000561478295394838187606016] 0x140a3a08ec55474d7968079cd5d93387ecd2efff12044bb6332695ffb134ef39)
