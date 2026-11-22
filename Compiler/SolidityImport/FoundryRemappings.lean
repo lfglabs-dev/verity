@@ -560,7 +560,8 @@ def libsOf (d : RemapDir) (keys : TomlKeys) : List String × Option String :=
   match keys.libs with
   | some ls =>
     if ls.any (fun l => l.startsWith "/" || ((l.splitOn "/").filter (· != "")).length != 1) then
-      (ls, some s!"unsupported libs entry in {ls}")
+      (ls, some s!"libs entry outside the project or with several components in {ls}; the \
+        importer does not read there")
     else (ls.map fun l => ((l.splitOn "/").filter (· != "")).headD l, none)
   | none =>
     if (d.child? "node_modules").isSome then
@@ -688,6 +689,10 @@ partial def configPool (d : RemapDir) (root : Path) (keys : TomlKeys) : ConfigPo
       let why := s!"library directory {String.intercalate "/" path} is a symlink or unreadable"
       out := { out with issue := mergeIssue out.issue (some why) }
       continue
+    if let some c := libDir.children.find? (·.unreadable) then
+      let why := s!"{String.intercalate "/" (path ++ [c.name])}: a configuration file is a \
+        symlink or unreadable"
+      out := { out with issue := mergeIssue out.issue (some why) }
     let tomlDirs := (if libDir.foundryToml.isSome then [(libDir, path)] else []) ++
       (libDir.children.toList.filter (·.foundryToml.isSome)).map fun c => (c, path ++ [c.name])
     for (nd, np) in tomlDirs do
@@ -738,7 +743,8 @@ open FoundryRemap in
 before it): the provider's list, written then inferred, pushed once more through
 `Remappings::push` with the project paths as protected names. It drops a remapping named
 after a project path (ASCII case ignored) and a written remapping nested under an earlier
-one. Returns the kept written pairs (context ones included, in order), the kept inferred
+one. Returns the kept written pairs as solc gets them (context ones included, in order; name
+and target with a trailing `/` unless they end in `/` or `.sol`), the kept inferred
 remappings, and the kept written context remappings. -/
 def buildPass (projectPaths : List String) (explicit : Array (String × String))
     (inferred : Array Remap) : Array (String × String) × Array Remap × Array Remap := Id.run do
@@ -750,8 +756,12 @@ def buildPass (projectPaths : List String) (explicit : Array (String × String))
     if isProjectPath r.name then continue
     let next := pushFiltered kept r
     if next.size > kept.size then
-      keptExplicit := keptExplicit.push pair
-      if r.context.isSome then contexts := contexts.push r
+      -- solc gets them with a trailing `/` on name and target (`Remapping::from`).
+      let name := match r.context with
+        | some c => s!"{c}:{withSlash r.name}"
+        | none => withSlash pair.1
+      keptExplicit := keptExplicit.push (name, withSlash pair.2)
+      if r.context.isSome then contexts := contexts.push { r with name := withSlash r.name }
     kept := next
   let mut keptInferred : Array Remap := #[]
   for r in inferred do
@@ -796,8 +806,9 @@ def remapStage0 (root : RemapDir) (explicit : Array (String × String)) : RemapS
   let (keptExplicit, _, contexts) := buildPass projectPaths explicit #[]
   let (libs, libIssue) := libsOf root keys
   let present := libs.any fun l => (root.child? l).isSome
-  { explicit := keptExplicit, contexts, projectPaths,
-    inference := keys.autoDetect.getD true && present, issue := keys.issue <|> libIssue }
+  -- An unsupported `libs` entry only matters when Foundry infers (`remapDecideA`).
+  let inference := keys.autoDetect.getD true && (present || libIssue.isSome)
+  { explicit := keptExplicit, contexts, projectPaths, inference, issue := keys.issue }
 
 open FoundryRemap in
 /-- The `ConfigPool` of the project `root` (read with `readRemapConfigs`, or in full). -/
@@ -878,7 +889,8 @@ def remapDecide0 (s : RemapStage0) (origin path : String) : Except String RemapS
 remapping can reach it, whatever a scan would find:
 - a written match ending in `/` (Foundry drops every inferred name nesting with it), or a
   written match `E` without `/` where `path` continues with `E/` (any longer name matching
-  `path` starts with `E/` and nests with it);
+  `path` starts with `E/` and nests with it), unless a configuration's file remapping
+  (`….sol`, never dropped for nesting) matches `path`;
 - no written match, or a shorter one, where no configuration name is a prefix of `path` and
   the first component `c` of `path` is protected: a name found by scanning sources is a single
   directory name, so only `c/` could match, and Foundry skips `lib/`, `src/`, `contracts/`
@@ -891,8 +903,12 @@ def remapDecideA (s : RemapStage0) (pool : FoundryRemap.ConfigPool) (origin path
       in remappings.txt"
   if let some m := contextRefusal origin path pool.entries then throw m
   let best := bestExplicit s.explicit path
+  -- `Remappings::push` drops no file remapping (`….sol`) for nesting, so a configuration's
+  -- file remapping matching `path` can win over any written match.
+  let fileHit := pool.entries.any fun r => r.context.isNone && r.name.endsWith ".sol" &&
+    path.startsWith r.name
   if let some (pre, _) := best then
-    if pre.endsWith "/" || path.startsWith (pre ++ "/") then
+    if !fileHit && (pre.endsWith "/" || path.startsWith (pre ++ "/")) then
       return .done (applyRemapping path best) none
   let c := ((path.splitOn "/").headD "") ++ "/"
   let projectPath := s.projectPaths.any (·.toLower == c.toLower)
@@ -950,9 +966,11 @@ def resolveImportStaged (origin spec : String) (s : RemapStage0)
       let (t, u) ← remapDecideB s full path
       return (← normalizeSourcePath t, u, 2)
 
-/-- Read a file that may be absent: `none` if absent, `.error` if unreadable. -/
+/-- Read a configuration file that may be absent: `none` if absent, `.error` if it is a
+symlink (never followed) or unreadable. -/
 def readOptional (path : System.FilePath) : IO (Except Unit (Option String)) := do
-  if !(← path.pathExists) then return .ok none
+  let md ← try path.symlinkMetadata catch _ => return .ok none
+  if md.type == .symlink then return .error ()
   try return .ok (some (← IO.FS.readFile path)) catch _ => return .error ()
 
 /-- Shallow entries of `dir` for the directories named `names` that exist there: a symlink
@@ -1041,13 +1059,14 @@ holding a `foundry.toml` are read with `readRemapConfigDir`. Symlinked children 
 followed (Foundry's search for nested configurations does not follow them either). -/
 partial def readRemapLibConfigs (dir : System.FilePath) (name : String) : IO RemapDir := do
   let entries ← try dir.readDir catch _ => return { name, unreadable := true }
-  let hasToml ← (dir / "foundry.toml").pathExists
+  let hasToml := (← (dir / "foundry.toml").symlinkMetadata.toBaseIO).toBool
   let mut d : RemapDir := { name }
   if hasToml then d ← readRemapConfigDir dir name
   for e in entries.qsort (·.fileName < ·.fileName) do
     let md ← try e.path.symlinkMetadata catch _ => return { d with unreadable := true }
     if md.type != .dir || (d.child? e.fileName).isSome then continue
-    if ← (e.path / "foundry.toml").pathExists then
+    -- `symlinkMetadata`: a symlinked `foundry.toml` is found (and refused) too.
+    if (← (e.path / "foundry.toml").symlinkMetadata.toBaseIO).toBool then
       let child ← readRemapConfigDir e.path e.fileName
       d := { d with children := d.children.push { child with hidden := e.fileName.startsWith "." } }
   return d
