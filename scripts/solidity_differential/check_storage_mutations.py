@@ -235,8 +235,13 @@ MUTANTS.update({
         '      let rhsVal ← captureAssignedValue (← lowerRhs ty)\n      let lhsVal ← readStructMappingElement pre path',
         '      let rhsVal ← lowerRhs ty\n      let lhsVal ← readStructMappingElement pre path'),
     'import-assign-order-whole-struct': (
-        '  let mut out := valuePre ++ pre\n',
-        '  let mut out := pre ++ valuePre\n')})
+        '  let mut out := if valueFirst then valuePre ++ pre else pre ++ valuePre\n',
+        '  let mut out := pre ++ valuePre\n'),
+    # A storage struct source is read at the copy, after the target's keys.
+    'import-assign-order-whole-struct-reference': (
+        '  let valueFirst := !pre.isEmpty && (← mKind right) == "FunctionCall" &&\n'
+        '    optStr right "kind" == some "structConstructorCall"\n',
+        '  let valueFirst := !pre.isEmpty\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
