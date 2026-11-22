@@ -102,6 +102,8 @@ contract SequenceFixture {
             held[bump(k + 16)] = y > 1 ? (y > 2 ? Pair(stamp, 4) : Pair(4, stamp)) : Pair(stamp, 5);
             // A storage pointer helper is a reference: read after the key helper.
             held[touchHeld(k + 20)] = heldZero();
+            // A storage branch of a memory conditional is copied before the key helper.
+            held[touchHeld(k + 24)] = y > 0 ? held[0] : Pair(1, 2);
         }
         if (c == 13) {
             books[1].slots[y - 1] += 10 / y;

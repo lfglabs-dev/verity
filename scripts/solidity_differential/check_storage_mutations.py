@@ -243,8 +243,12 @@ MUTANTS.update({
         '  let valueFirst := !pre.isEmpty\n'),
     # A helper returning a storage struct pointer is a reference, not a value.
     'import-assign-order-whole-struct-storage-pointer': (
-        '      return (ty.splitOn " storage").length == 1\n',
-        '      return true\n')})
+        '  | "FunctionCall" => return !(← isStorageTyped j)\n',
+        '  | "FunctionCall" => return true\n'),
+    # A storage branch of a memory-typed conditional is copied when the conditional runs.
+    'import-assign-order-whole-struct-storage-branch': (
+        '        if ← isStorageTyped b then return true\n',
+        '        if ← isStorageTyped b then return false\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({

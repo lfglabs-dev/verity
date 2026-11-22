@@ -14001,18 +14001,23 @@ private partial def structMemElementPointer (rhs : Json) (sid : Nat)
   return (out, .localVar ptr)
 
 /-- Whether a struct-typed right-hand side is a value that solc evaluates in full before the
-target's keys: a call returning a memory struct (constructor or helper), or a conditional
-whose branches are both such values. Variables, elements and storage pointers are references
-whose members solc reads at the copy. -/
+target's keys: a call returning a memory struct (constructor or helper), or a memory-typed
+conditional whose branches are values or storage references (solc copies a storage branch to
+memory when it evaluates the conditional). Variables, elements and storage pointers are
+references whose members solc reads at the copy. -/
 private partial def isStructValueSource (j : Json) : M Bool := do
   let j ← stripParens j
+  let isStorageTyped (e : Json) : M Bool := do
+    return ((← mType e).splitOn " storage").length > 1
   match ← mKind j with
-  | "FunctionCall" =>
-      let ty ← mType j
-      return (ty.splitOn " storage").length == 1
+  | "FunctionCall" => return !(← isStorageTyped j)
   | "Conditional" =>
-      let onTrue ← isStructValueSource (← mField j "trueExpression")
-      let onFalse ← isStructValueSource (← mField j "falseExpression")
+      if ← isStorageTyped j then return false
+      let branchIsValue (b : Json) : M Bool := do
+        if ← isStorageTyped b then return true
+        isStructValueSource b
+      let onTrue ← branchIsValue (← mField j "trueExpression")
+      let onFalse ← branchIsValue (← mField j "falseExpression")
       return onTrue && onFalse
   | _ => return false
 
