@@ -7629,11 +7629,13 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
     scalarLeaf n || (!assignmentIn n && !statefulCallIn n env &&
       ((field? n "typeDescriptions").bind (optStr · "typeString")).any
         (fun ty => (paramType ty).isSome))
-  -- A calldata identifier cannot be written by a sibling, so its position is irrelevant.
+  -- A `bytes` / `string` calldata identifier cannot be written by a sibling and is bound
+  -- without validation, so its position is irrelevant. (Calldata structs and arrays are not
+  -- admitted: their binding may validate before a sibling's panic.)
   let calldataLeaf := fun (n : Json) =>
     optStr n "nodeType" == some "Identifier" &&
       ((field? n "typeDescriptions").bind (optStr · "typeString")).any
-        (·.endsWith " calldata")
+        (fun ty => ty == "bytes calldata" || ty == "string calldata")
   let scalarUpdate := fun (n : Json) =>
     let e := unparenJson n
     (optStr e "nodeType" == some "UnaryOperation" &&
