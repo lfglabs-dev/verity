@@ -125,6 +125,9 @@ structure ImportReport where
   /-- Remappings Foundry infers (from `lib/` and nested library configs) that the imports
   used, as `name=target`. They are also in `settingsJson`. -/
   inferredRemappings : List String := []
+  /-- How far resolving the imports read the libraries for remappings: `none`, `configs`
+  (library configurations only) or `full` (every library directory). -/
+  remappingScan : String := "none"
   deriving Repr, BEq
 
 /-- Whether some root recorded an unsupported construct (`collectUnsupported`). -/
@@ -136,7 +139,8 @@ def ImportReport.toText (r : ImportReport) : String := Id.run do
   let mut lines := [s!"importer {r.importerVersion}", s!"solc {r.solcLongVersion}",
     s!"solcSha256 {r.solcSha256}", s!"digest {r.sourceDigest}",
     s!"contract {r.contract}"] ++ r.roots.map (s!"root {·}") ++ [s!"settings {r.settingsJson}"] ++
-    r.inferredRemappings.map (s!"inferred remapping {·}")
+    r.inferredRemappings.map (s!"inferred remapping {·}") ++
+    (if r.remappingScan == "none" then [] else [s!"remapping scan {r.remappingScan}"])
   for st in r.functions do
     lines := lines ++ [st.toText]
   for fn in r.includedFunctions do

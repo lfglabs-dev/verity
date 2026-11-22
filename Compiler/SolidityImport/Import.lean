@@ -18693,11 +18693,52 @@ private def readRemappings (root : System.FilePath) : IO (Array (String × Strin
           out := out.push pair
   pure out
 
+/-- Remapping inputs for one import closure. The library configurations and the full library
+scan are each read at most once, and only when an import's resolution needs them (see
+`remapDecideA`, `remapDecideB`). -/
+private structure RemapReads where
+  root : System.FilePath
+  written : Array (String × String)
+  stage0 : RemapStage0
+  pool : Option FoundryRemap.ConfigPool := none
+  full : Option InferredRemappings := none
+
+/-- The source unit `spec` in `origin` names (see `resolveImportStaged`), reading the library
+configurations or the full library scan only on first need. -/
+private def resolveLazily (reads : IO.Ref RemapReads) (origin spec : String) :
+    MetaM (String × Option InferredRemapping) := do
+  let lift {α : Type} (r : Except String α) : MetaM α := match r with
+    | .ok a => pure a
+    | .error e => throwError "{origin}: {e}"
+  let st ← reads.get
+  let path ← lift (importPath origin spec)
+  let finish (t : String) (u : Option InferredRemapping) := do
+    return (← lift (normalizeSourcePath t), u)
+  match ← lift (remapDecide0 st.stage0 origin path) with
+  | .done t u => finish t u
+  | _ =>
+    let pool ← match st.pool with
+      | some p => pure p
+      | none => do
+        let p := remapConfigPool (← readRemapConfigs st.root)
+        reads.modify fun r => { r with pool := some p }
+        pure p
+    match ← lift (remapDecideA st.stage0 pool origin path) with
+    | .done t u => finish t u
+    | _ =>
+      let full ← match (← reads.get).full with
+        | some f => pure f
+        | none => do
+          let f := inferFoundryRemappings (← readRemapRoot st.root) st.written
+          reads.modify fun r => { r with full := some f }
+          pure f
+      let (t, u) ← lift (remapDecideB st.stage0 full path)
+      finish t u
+
 /-- The sources reachable from `logical`, and the Foundry-inferred remappings their imports
 use (in first-use order). -/
 private partial def collectSources
-    (root : System.FilePath) (logical : String)
-    (remaps : Array (String × String)) (inferred : InferredRemappings)
+    (root : System.FilePath) (logical : String) (reads : IO.Ref RemapReads)
     (acc : RBMap String String compare × Array InferredRemapping) :
     MetaM (RBMap String String compare × Array InferredRemapping) := do
   if acc.1.contains logical then return acc
@@ -18706,12 +18747,10 @@ private partial def collectSources
   let text ← IO.FS.readFile path
   let mut acc := (acc.1.insert logical text, acc.2)
   for spec in importSpecs text do
-    match resolveImport logical spec remaps inferred with
-    | .error e => throwError "{logical}: {e}"
-    | .ok (next, used) =>
-      if let some r := used then
-        unless acc.2.contains r do acc := (acc.1, acc.2.push r)
-      acc ← collectSources root next remaps inferred acc
+    let (next, used) ← resolveLazily reads logical spec
+    if let some r := used then
+      unless acc.2.contains r do acc := (acc.1, acc.2.push r)
+    acc ← collectSources root next reads acc
   pure acc
 
 /-- Why the pinned solc binary at `path` cannot be used, if it cannot: it is not
@@ -18859,14 +18898,19 @@ private def importSlice
       release.banners.contains versionOut.stdout.trimAscii.toString do
     throwError "compiler version mismatch"
   unless (← verifyCompiler release compiler) == solcSha do throwError "compiler changed during import"
-  let explicitRemaps ← readRemappings projectRoot
-  let inferred := inferFoundryRemappings (← readRemapRoot projectRoot) explicitRemaps
-  -- `forge build` keeps only some written remappings (see `inferFoundryRemappings`).
-  let (sources, usedInferred) ←
-    collectSources projectRoot entry inferred.explicit inferred (RBMap.empty, #[])
-  -- solc sees the kept written remappings and, in Foundry's order, the inferred ones in use.
-  let usedInferred := inferred.remappings.filter usedInferred.contains
-  let remaps := inferred.explicit ++ usedInferred.map fun r => (r.name, r.path)
+  let written ← readRemappings projectRoot
+  let stage0 := remapStage0 (← readRemapRootShallow projectRoot) written
+  let reads ← IO.mkRef ({ root := projectRoot, written, stage0 } : RemapReads)
+  let (sources, usedInferred) ← collectSources projectRoot entry reads (RBMap.empty, #[])
+  let reads ← reads.get
+  -- solc sees the written remappings `forge build` keeps and, in Foundry's order, the inferred
+  -- ones in use.
+  let usedInferred := match reads.full with
+    | some full => full.remappings.filter usedInferred.contains
+    | none => #[]
+  let remaps := stage0.explicit ++ usedInferred.map fun r => (r.name, r.path)
+  let remappingScan :=
+    if reads.full.isSome then "full" else if reads.pool.isSome then "configs" else "none"
   let mut fileBytes : RBMap String ByteArray compare := RBMap.empty
   let mut sourceObj : Array (String × Json) := #[]
   for (logical, text) in sources do
@@ -19410,7 +19454,8 @@ private def importSlice
       projections := projections.toList, storageFields := env.referenced.toList,
       storageKeys := env.referenced.toList.map fun name => (name, mappingKeyNames env name),
       opaqueMembers := opaqueMembers.toList, observesPanicPayload := true,
-      inferredRemappings := usedInferred.toList.map fun r => s!"{r.name}={r.path}" }
+      inferredRemappings := usedInferred.toList.map fun r => s!"{r.name}={r.path}",
+      remappingScan }
   pure (model, report)
 
 /-- `solidity_profile osaka466 where evmVersion := "osaka" …` defines a named

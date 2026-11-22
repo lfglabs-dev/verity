@@ -1,8 +1,8 @@
 import Compiler.SolidityImport.FoundryRemappings
 
 /-!
-Foundry's inferred remappings (`inferFoundryRemappings`) and the resolution order
-(`remapImportPath`). Each layout's expected list is the `remappings` of `forge config --json`
+Foundry's inferred remappings (`inferFoundryRemappings`) and the staged resolution
+(`resolveImportStaged`: which stage, hence which library read, each import needs). Each layout's expected list is the `remappings` of `forge config --json`
 (forge 1.5.0, commit 1c57854; what `forge build` gives solc) for the same files, minus the
 written lines. `order dependent` gave a different value for `a/` when the same files were
 listed in reverse order.
@@ -46,21 +46,38 @@ private def lines (files : List (String × String)) : List String :=
 private def clean (files : List (String × String)) : Bool :=
   (infer files).globalIssue.isNone && (infer files).remappings.all (·.issue.isNone)
 
-/-- Resolve `name` against `explicit` and `inferred`: the target and the inferred entry
-used, or `none` on an error. -/
-private def resolveWith (explicit : Array (String × String)) (inferred : InferredRemappings)
-    (name : String) : Option (String × Option String) :=
-  (remapImportPath name explicit inferred).toOption.map fun (t, r) => (t, r.map (·.name))
+/-- Resolve `spec` imported from `origin` in a project tree with written remappings
+`explicit`, every stage at hand: the target, the inferred entry used, and the deepest stage
+needed (0: no library read, 1: library configurations, 2: full scan); `none` on an error. -/
+private def resolveTree (d : RemapDir) (explicit : Array (String × String))
+    (origin spec : String) : Option (String × Option String × Nat) :=
+  (resolveImportStaged origin spec (remapStage0 d explicit) (remapConfigPool d)
+    (inferFoundryRemappings d explicit)).toOption.map fun (t, r, n) => (t, r.map (·.name), n)
 
-/-- Resolve `name` in the project `files`. -/
-private def resolve (files : List (String × String)) (name : String) :
-    Option (String × Option String) :=
-  resolveWith (infer files).explicit (infer files) name
-
-private def errorOf (files : List (String × String)) (name : String) : String :=
-  match remapImportPath name (infer files).explicit (infer files) with
+/-- The error `resolveTree` drops. -/
+private def errorTree (d : RemapDir) (explicit : Array (String × String))
+    (origin spec : String) : String :=
+  match resolveImportStaged origin spec (remapStage0 d explicit) (remapConfigPool d)
+      (inferFoundryRemappings d explicit) with
   | .error e => e
   | .ok _ => ""
+
+/-- `resolveTree` in the project `files`, from `origin`. -/
+private def resolveFrom (files : List (String × String)) (origin spec : String) :
+    Option (String × Option String × Nat) :=
+  resolveTree (layout files) (explicitOf files) origin spec
+
+/-- The target and inferred entry of `name` imported from `src/E.sol` in `files`. -/
+private def resolve (files : List (String × String)) (name : String) :
+    Option (String × Option String) :=
+  (resolveFrom files "src/E.sol" name).map fun (t, r, _) => (t, r)
+
+/-- The stage `name`, imported from `src/E.sol` in `files`, needs. -/
+private def stageOf (files : List (String × String)) (name : String) : Option Nat :=
+  (resolveFrom files "src/E.sol" name).map (·.2.2)
+
+private def errorOf (files : List (String × String)) (name : String) : String :=
+  errorTree (layout files) (explicitOf files) "src/E.sol" name
 
 -- Dapptools layout: `<dep>/` → `lib/<dep>/src/`, nested `lib/` opens a new window, `test/` is
 -- not searched.
@@ -143,8 +160,7 @@ private def projectPathLib : List (String × String) :=
    ("lib/dep/remappings.txt", "src/=src/\n"), ("lib/dep/src/B.sol", "")]
 #guard lines projectPathLib == ["dep/=lib/dep/src/"]
 #guard resolve projectPathLib "src/B.sol" == some ("src/B.sol", none)
-#guard (resolveImport "src/E.sol" "./B.sol" (infer projectPathLib).explicit
-  (infer projectPathLib)).toOption.map (·.1) == some "src/B.sol"
+#guard (resolveFrom projectPathLib "src/E.sol" "./B.sol").map (·.1) == some "src/B.sol"
 -- The same holds for written remappings.
 #guard (infer [("src/E.sol", ""), ("remappings.txt", "src/=lib/dep/src/\nTest/=x/\n")]).explicit == #[]
 
@@ -159,22 +175,21 @@ private def nestedExplicit : List (String × String) :=
   ("lib/dep/src/A.sol", "")] == [".cfg/=lib/.cfg/src/", "dep/=lib/.cfg/foo/"]
 
 -- A nested `foundry.toml` this reader cannot check: Foundry would skip that library's config,
--- so the inferred set is unknown and inferred resolution is refused.
+-- so its remappings (context ones included) are unknown and every import is refused.
 private def badToml : List (String × String) :=
   [("lib/core/foundry.toml", "[profile.default]\nthis is not toml\n"),
    ("lib/core/remappings.txt", "@oz/=lib/oz/\n"), ("lib/core/src/A.sol", "")]
 #guard (infer badToml).globalIssue.isSome
 #guard resolve badToml "@oz/T.sol" == none
+#guard resolve badToml "src/A.sol" == none
 
 -- Relative imports resolve first, then remap, as in solc (`./x` from `a/B.sol` is `a/x`).
-private def resolveFrom (origin spec : String) (explicit : Array (String × String)) :
+private def relative (origin spec : String) (explicit : Array (String × String)) :
     Option String :=
-  (resolveImport origin spec explicit {}).toOption.map (·.1)
-#guard resolveFrom "a/B.sol" "./C.sol" #[("a/", "x/")] == some "x/C.sol"
-#guard resolveFrom "a/b/B.sol" "../C.sol" #[] == some "a/C.sol"
-#guard resolveFrom "a/B.sol" "../../C.sol" #[] == none
-#guard (resolveImport "src/E.sol" "other/O.sol" (explicitOf explicitSame) (infer explicitSame)).toOption ==
-  some ("lib/other/src/O.sol", (infer explicitSame).remappings[0]?)
+  (resolveTree { name := "" } explicit origin spec).map (·.1)
+#guard relative "a/B.sol" "./C.sol" #[("a/", "x/")] == some "x/C.sol"
+#guard relative "a/b/B.sol" "../C.sol" #[] == some "a/C.sol"
+#guard relative "a/B.sol" "../../C.sol" #[] == none
 
 -- Order dependent: `lib/a/` and `lib/b/lib/a/src/` both claim `a/`, and each replaces the
 -- other, so Foundry keeps whichever it lists last. The entry is kept (it still drops
@@ -207,34 +222,78 @@ private def climb : List (String × String) := [("lib/x/src/X.sol", ""), ("lib/x
 #guard (infer [("lib/n/foundry.toml", "[profile.default]\nremappings = [\"z/=/abs/zz/\"]\n"),
   ("lib/z/src/Z.sol", "")]).remappings.any fun r => r.name == "z/" && r.issue.isSome
 
--- A hidden directory in a library's `libs`: Foundry scans it (as here, where the tree holds
--- it, giving what `forge remappings` printed), but the reader drops hidden directories
--- without a `foundry.toml`, so a missing one is an issue.
+-- A hidden directory in a library's `libs` is scanned by Foundry like any other (the readers
+-- read it too).
 #guard lines [("lib/x/foundry.toml", "[profile.default]\nlibs = ['.deps']\n"),
   ("lib/x/.deps/foo/src/F.sol", ""), ("lib/y/lib/foo/src/F.sol", "")] ==
   ["foo/=lib/x/.deps/foo/src/", "x/=lib/x/src/"]
-#guard (infer [("lib/x/foundry.toml", "[profile.default]\nlibs = ['.deps']\n"),
-  ("lib/y/lib/foo/src/F.sol", "")]).globalIssue.isSome
 
--- A symlink anywhere in a scanned library leaves the inferred set unknown: an import that
--- needs an inferred remapping fails, and so does a written path no remapping matches (Foundry
--- may infer one). Explicit remappings and relative imports resolve as before.
-private def withSymlink : InferredRemappings :=
+-- A symlink in a scanned library leaves the names Foundry finds by scanning unknown, but
+-- such a name is a single directory name (`<dir>/`). With an unrelated symlink under `lib/`
+-- (`forge build` compiled `src/foo/Bar.sol` as written), a path whose first directory is
+-- protected (`src`, `lib`, `contracts`, the project's `test`, `script`) still resolves after
+-- reading only the library configurations; so does a written match ending in `/`, or a
+-- written `E` without `/` when the path continues with `E/` (F3x: `forge build` compiled
+-- `deps/oz/A.sol` for `oz=deps/oz`). A path such a name could reach is refused.
+private def withSymlink : RemapDir :=
   let d := layout dapptools
   let lib := (d.child? "lib").get!
-  inferFoundryRemappings { d with children := #[{ lib with hasSymlink := true }] } #[("x/", "y/")]
-#guard withSymlink.globalIssue.isSome
-#guard resolveWith #[("x/", "y/")] withSymlink "dep/A.sol" == none
-#guard match remapImportPath "dep/A.sol" #[("x/", "y/")] withSymlink with
-  | .error e => (e.splitOn "symlink in lib").length > 1
-  | .ok _ => false
-#guard resolveWith #[("x/", "y/")] withSymlink "x/A.sol" == some ("y/A.sol", none)
-#guard resolveWith #[("x/", "y/")] withSymlink "src/A.sol" == none
-#guard (resolveImport "src/E.sol" "./A.sol" #[("x/", "y/")] withSymlink).toOption.map (·.1) ==
-  some "src/A.sol"
--- A written name without a trailing `/` keeps longer inferred names it prefixes, so it is
--- refused too while the inferred set is unknown.
-#guard resolveWith #[("oz", "vendor/oz/")] withSymlink "ozx/A.sol" == none
+  { d with children := #[{ lib with hasSymlink := true }] }
+#guard (inferFoundryRemappings withSymlink #[]).globalIssue.isSome
+#guard resolveTree withSymlink #[("x/", "y/")] "src/E.sol" "src/foo/Bar.sol" ==
+  some ("src/foo/Bar.sol", none, 1)
+#guard resolveTree withSymlink #[("x/", "y/")] "src/E.sol" "./A.sol" == some ("src/A.sol", none, 1)
+#guard resolveTree withSymlink #[("x/", "y/")] "src/E.sol" "x/A.sol" == some ("y/A.sol", none, 1)
+#guard resolveTree withSymlink #[("oz", "deps/oz")] "src/E.sol" "oz/A.sol" ==
+  some ("deps/oz/A.sol", none, 1)
+#guard resolveTree withSymlink #[("x/", "y/")] "src/E.sol" "dep/A.sol" == none
+#guard (errorTree withSymlink #[] "src/E.sol" "dep/A.sol" |>.splitOn "symlink in lib").length > 1
+#guard resolveTree withSymlink #[("oz", "deps/oz/")] "src/E.sol" "ozx/A.sol" == none
+-- The symlink itself can supply the name: with `lib/pkg` a symlink to a package, `forge build`
+-- compiled `lib/pkg/src/P.sol` for `pkg/P.sol` although `pkg/P.sol` exists in the project.
+-- Resolving as written would take another file, so the import is refused.
+#guard resolveTree { layout [("src/E.sol", ""), ("pkg/P.sol", "")] with
+    children := #[{ name := "lib", hasSymlink := true }, { name := "pkg", hasSol := true }] }
+  #[] "src/E.sol" "pkg/P.sol" == none
+
+-- A library's configuration can remap a path in the project's own `src/`: `forge build`
+-- compiled `lib/dep/src/X.sol` for the project's `src/sub/X.sol` here.
+private def configIntoSrc : List (String × String) :=
+  [("src/E.sol", ""), ("src/sub/X.sol", ""), ("lib/dep/foundry.toml", "[profile.default]\n"),
+   ("lib/dep/remappings.txt", "src/sub/=src/\n"), ("lib/dep/src/X.sol", "")]
+#guard resolveFrom configIntoSrc "src/E.sol" "src/sub/X.sol" ==
+  some ("lib/dep/src/X.sol", some "src/sub/", 2)
+
+-- A context remapping in a library's configuration reaches solc verbatim and overrides a
+-- written remapping for files under its context: `forge build` compiled `lib/dep/lib/alt/A.sol`
+-- for `@oz/A.sol` in `src/E.sol` despite `@oz/=lib/oz/`. The importer refuses there, and
+-- resolves the written remapping in files outside the context.
+private def configContext : List (String × String) :=
+  [("remappings.txt", "@oz/=lib/oz/\n"), ("src/E.sol", ""), ("lib/oz/A.sol", ""),
+   ("lib/dep/foundry.toml", "[profile.default]\n"), ("lib/dep/remappings.txt", "src:@oz/=lib/alt/\n"),
+   ("lib/dep/src/D.sol", ""), ("lib/dep/lib/alt/A.sol", "")]
+#guard resolveFrom configContext "src/E.sol" "@oz/A.sol" == none
+#guard (errorOf configContext "@oz/A.sol" |>.splitOn "context remapping src:@oz/").length > 1
+#guard resolveFrom configContext "test/T.sol" "@oz/A.sol" == some ("lib/oz/A.sol", none, 1)
+-- A written context remapping is refused the same way.
+#guard resolveFrom [("remappings.txt", "src:@oz/=x/\n")] "src/E.sol" "@oz/A.sol" == none
+
+-- Library reads happen only when a decision needs them. No library directory, or
+-- `auto_detect_remappings = false`: nothing is read (`forge build` compiled the project's
+-- `dep/V.sol` with inference off). Written remappings and protected paths: configurations only.
+#guard stageOf [("remappings.txt", "x/=y/\n"), ("src/E.sol", "")] "x/A.sol" == some 0
+#guard resolveFrom [("foundry.toml", "[profile.default]\nlibs = ['deps']\nauto_detect_remappings = false\n"),
+  ("dep/V.sol", ""), ("deps/dep/src/V.sol", "")] "src/E.sol" "dep/V.sol" == some ("dep/V.sol", none, 0)
+private def writtenOnly : List (String × String) :=
+  [("remappings.txt", "dep/=lib/dep/src/\n"), ("src/E.sol", ""), ("src/B.sol", ""),
+   ("lib/dep/src/D.sol", "")]
+#guard stageOf writtenOnly "dep/D.sol" == some 1
+#guard (resolveFrom writtenOnly "src/E.sol" "./B.sol").map (·.2.2) == some 1
+#guard stageOf explicitSame "other/O.sol" == some 2
+-- F1a: of two nested written remappings `forge build` keeps the first; it compiled
+-- `deps/A/b/X.sol` for `a/b/X.sol`.
+#guard resolveFrom [("remappings.txt", "a/=deps/A/\na/b/=deps/B/\n")] "src/E.sol" "a/b/X.sol" ==
+  some ("deps/A/b/X.sol", none, 0)
 
 -- `foundry.toml` reading: only `[profile.default]` counts; other profiles are ignored; a
 -- modeled key outside any profile, or an unreadable value, is an issue.
