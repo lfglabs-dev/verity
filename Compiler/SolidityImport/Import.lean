@@ -10296,19 +10296,6 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let (pre, yul) ← bindHelperParams params args body at_ savedYul
   modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none }
   noteFn fn
-  if !saved.forwardingBytesTuple && (← get).stateVars.size > 1 && optStr fn "name" == some "flipTick" && args.size == 3 &&
-      (← get).funContract.find? fnId == some "TickBitmap" then
-    let p0Id ← mNat (← mField params[0]! "id")
-    let p1Id ← mNat (← mField params[1]! "id")
-    let p2Id ← mNat (← mField params[2]! "id")
-    let some (.rawSlot _ mapSlotExpr) := (← get).paths.find? p0Id | failAt fn "missing flipTick self"
-    let some tickExpr := (← get).values.find? p1Id | failAt fn "missing tick"
-    let some tsExpr := (← get).values.find? p2Id | failAt fn "missing tickSpacing"
-    let shimStmts ← lowerTickBitmapFlipShim mapSlotExpr tickExpr tsExpr
-    modify fun e =>
-      { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
-               values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-    return pre ++ shimStmts
   let (modStmts, modPost) ← lowerModifiers mods
   let condModExpr? : Option Expr := match modPost.toList with
     | [.ite condExpr [] []] => some condExpr

@@ -16,7 +16,7 @@ Encapsulates the verified inline-assembly and library lowering shims required fo
 - `SqrtPriceMath` (`getAmount0Delta`, `getAmount1Delta`, `getNextSqrtPriceFromInput`, `getNextSqrtPriceFromOutput`)
 - `BitMath.mostSignificantBit` and `BitMath.leastSignificantBit`
 - `SwapMath.computeSwapStep` and `TickMath.getSqrtPriceAtTick` / `getTickAtSqrtPrice`
-- `TickBitmap.flipTick`, `Pool.updateTick`
+- `Pool.updateTick` (`TickBitmap.flipTick` has no shortcut: it is lowered through its body)
 - `IUnlockCallback.unlockCallback` (`Hooks.callHook` has no shortcut: helpers of that name are
   lowered through their body)
 -/
@@ -109,6 +109,8 @@ def uniswapV4VerifiedShims : List VerifiedCompilerShim :=
       functionName := "getSqrtPriceAtTick"
       preservesStorageSafety := true
       coveredByDenote := true }
+  -- Inert: no lowering uses this entry since `TickBitmap.flipTick` is lowered through its body
+  -- (#2828); its flags are not backed by any lowering. Left for the registry work of #2828.
   , { kind := .tickBitmapFlip
       libraryName := "TickBitmap"
       functionName := "flipTick"
@@ -225,30 +227,6 @@ def lowerBatchRangeSloadShim (startSlotExpr nSlotsExpr : Expr) : M (Array Stmt) 
     ],
     .ecm Compiler.ECM.SolidityReturnMemory.module [.localVar startVar, totalBytes],
     .revertEmpty
-  ]
-
-/-- Lower `TickBitmap.flipTick(mapping(int16 => uint256) storage self, int24 tick, int24 tickSpacing)`
-into a tick-spacing alignment guard and storage bitmap word XOR update. -/
-def lowerTickBitmapFlipShim (mapSlotExpr tickExpr tickSpacingExpr : Expr) : M (Array Stmt) := do
-  let tVar ← fresh
-  let tsVar ← fresh
-  let compVar ← fresh
-  let slotVar ← fresh
-  let oldWord ← fresh
-  modify fun e => { e with encodingMemory := true, usedRawStorage := true }
-  let tExt := Expr.signextend (.literal 2) tickExpr
-  let tsExt := Expr.signextend (.literal 2) tickSpacingExpr
-  return #[
-    .letVar tVar tExt,
-    .letVar tsVar tsExt,
-    .ite (.eq (.smod (.localVar tVar) (.localVar tsVar)) (.literal 0)) [] [.revertEmpty],
-    .letVar compVar (.sdiv (.localVar tVar) (.localVar tsVar)),
-    .mstore (.literal 0) (.sar (.literal 8) (.localVar compVar)),
-    .mstore (.literal 32) mapSlotExpr,
-    .letVar slotVar (.keccak256 (.literal 0) (.literal 64)),
-    .letVar oldWord (.storageArrayElement rawStorageFieldName (.localVar slotVar)),
-    .setStorageArrayElement rawStorageFieldName (.localVar slotVar)
-      (.bitXor (.localVar oldWord) (.shl (.bitAnd (.localVar compVar) (.literal 0xff)) (.literal 1)))
   ]
 
 /-!
