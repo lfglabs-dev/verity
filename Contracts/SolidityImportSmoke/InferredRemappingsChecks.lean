@@ -29,7 +29,8 @@ was used. `remappingScan` shows how far the importer read the libraries.
   and `symlink-config-file/` (a library's `remappings.txt` is a symlink; `forge build` reads
   it and compiles `deps/dep/alt/Bar.sol` for `src/foo/Bar.sol`; the importer does not follow
   it: refused), and `symlink-root-config/` (the project's own `foundry.toml` is a symlink,
-  read through as Foundry does).
+  read through as Foundry does), and `nonconfig-toml/` (test-fixture `foundry.toml` files
+  with `libs = [".."]` deep in a library: the scan stays bounded).
 -/
 namespace SolidityImportSmoke.InferredRemappingsChecks
 open Compiler.CompilationModel.SolidityImport
@@ -163,6 +164,25 @@ error: src/Entry.sol: import pkg/P.sol could take a remapping Foundry infers, bu
 solidity_import symlinkName from ".lake/remapping-fixtures/symlink-supplies-name"
   entry "src/Entry.sol" using remapProfile contract Entry
   function value()
+
+-- `foundry.toml` files Foundry does not read as library configurations (test fixtures deep
+-- in a library), with `libs = [".."]` or a hidden entry: the full scan stays bounded and
+-- inside the project; `forge build` compiled `deps/dep/src/D.sol`.
+run_meta (writeFixture "nonconfig-toml"
+  [("foundry.toml", "[profile.default]\nlibs = [\"deps\"]\n"),
+   ("deps/dep/src/D.sol", library "D" "dValue" 3),
+   ("deps/dep/test/fixtures/foundry.toml", "[profile.default]\nlibs = [\"..\"]\n"),
+   ("deps/dep/test/fx2/foundry.toml", "[profile.default]\nlibs = [\"..\"]\n"),
+   ("deps/dep/test/foundry.toml", "[profile.default]\nlibs = [\".hidden\"]\n"),
+   ("deps/dep/test/.hidden/x/X.sol", library "X" "xValue" 4),
+   ("src/Entry.sol", entry "D" "dep/D.sol" "dValue")] [])
+
+solidity_import nonconfigToml from ".lake/remapping-fixtures/nonconfig-toml"
+  entry "src/Entry.sol" using remapProfile contract Entry
+  function value()
+
+#guard nonconfigToml.report.inferredRemappings == ["dep/=deps/dep/src/"]
+#guard nonconfigToml.report.remappingScan == "full"
 
 -- The project's own `foundry.toml` may be a symlink (read through, as Foundry does): the
 -- library configuration's `src/sub/` remapping still applies, and `forge build` compiled
