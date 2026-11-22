@@ -13732,59 +13732,6 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       if let some decl ← interfaceVoidCallDecl? expression then
         return ← lowerInterfaceVoidCall expression decl
       return (← lowerInterfaceStaticCall expression).pre
-    if !(← get).forwardingBytesTuple && (← mKind callee) == "Identifier" && optStr callee "name" == some "_callOptionalReturn" then
-      let callRef ← refInt callee
-      let callArgs ← mArr (← mField expression "arguments")
-      if callRef ≥ 0 && callArgs.size == 2 then
-        let tokenNode := callArgs[0]!
-        let dataNode ← stripParens callArgs[1]!
-        if (← mKind dataNode) == "FunctionCall" &&
-            optStr dataNode "kind" == some "functionCall" then
-          let dataCallee ← mField dataNode "expression"
-          if (← mKind dataCallee) == "MemberAccess" &&
-              optStr dataCallee "memberName" == some "encodeWithSelector" then
-            let encArgs ← mArr (← mField dataNode "arguments")
-            if encArgs.size ≥ 1 then
-              let selNode ← stripParens encArgs[0]!
-              if (← mKind selNode) == "MemberAccess" &&
-                  optStr selNode "memberName" == some "selector" then
-                let fnExpr ← mField selNode "expression"
-                let declId ← refInt fnExpr
-                if declId ≥ 0 then
-                  if let some fnDecl := (← get).funs.find? declId.toNat then
-                    if let some hex := optStr fnDecl "functionSelector" then
-                      if hex.length == 8 then
-                        let mut sel := 0
-                        for c in hex.toList do
-                          let some digit := Compiler.Hex.hexCharToNat? c
-                            | failAt fnExpr "invalid functionSelector hex digit"
-                          sel := sel * 16 + digit
-                        let fnParams ← mArr
-                          (← mField (← mField fnDecl "parameters") "parameters")
-                        let valArgs := encArgs.extract 1 encArgs.size
-                        if fnParams.size == valArgs.size then
-                          if let some callOptDecl := (← get).funs.find? callRef.toNat then
-                            noteFn callOptDecl
-                          let rawTarget ← lowerExpr tokenNode
-                          let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
-                          let mut pre := target.pre
-                          let mut callWords : Array Expr := #[]
-                          for (param, arg) in fnParams.zip valArgs do
-                            let pty ← mType param
-                            let convVal ← convert pty (← mType arg)
-                              (← lowerExpr arg) arg
-                            let word ← atom { convVal with expr := cleanHelperResultExpr pty convVal }
-                            pre := pre ++ word.pre
-                            callWords := callWords.push word.expr
-                          let resVar ← fresh
-                          let callMod :=
-                            Compiler.ECM.SolidityLowLevelCall.optionalBoolModule
-                              resVar sel callWords.size
-                          let callStmt := Stmt.ecm callMod
-                            (target.expr :: callWords.toList)
-                          let reqStmt := Stmt.require (.localVar resVar)
-                            "SafeERC20: ERC20 operation did not succeed"
-                          return (pre.push callStmt |>.push reqStmt)
     if (← mKind callee) == "MemberAccess" && (field? callee "referencedDeclaration").isNone then
       let base ← mField callee "expression"
       let baseTy ← mType base
