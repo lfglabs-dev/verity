@@ -155,6 +155,12 @@ MUTANTS.update({
     'import-named-arguments-order-guard': (
         '(summaries.filter (!·.2)).size ≤ 1',
         '(summaries.filter (!·.2)).size ≤ operands.size')})
+# A reverting `string` / `bytes` helper beside a calldata `abi.encode` argument, which is
+# validated only while encoding, stays rejected.
+MUTANTS.update({
+    'import-abi-encode-string-helper-calldata-guard': (
+        'if otherIdx != argIdx && (← mType args[otherIdx]!).contains "calldata" then',
+        'if false then')})
 # A storage array push panics with 0x41 once the length reaches 2^64, as solc's does, for
 # value and struct elements; and not one element earlier or later.
 MUTANTS.update({
@@ -624,7 +630,7 @@ MUTANTS.update({
     'import-timelock-and-bytes4-cast-literal-zero': ('      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal (n * 16 ^ 56) }', '      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal 0 }'),
     'import-timelock-and-bytes4-cast-abi-encode-tail-len-zero': ('          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) bufSize\n          ]', '          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) (.literal 0)\n          ]'),
     'import-timelock-and-bytes4-cast-const-error-eval-zero': ('      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some n => { pre := #[], expr := .literal n }\n        | none => rawConverted', '      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some _ => { pre := #[], expr := .literal 0 }\n        | none => rawConverted'),
-    'import-timelock-and-bytes4-cast-encode-stateful-bytes-guard': ('      if isDynamicBytesOrString ty then\n        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get) || jsonHasCustomRevert (← get) [] arg) then\n          failAt arg "effectful ABI encoding argument is unsupported"', '      if isDynamicBytesOrString ty then\n        if false then\n          failAt arg "effectful ABI encoding argument is unsupported"'),
+    'import-timelock-and-bytes4-cast-encode-stateful-bytes-guard': ('      if isDynamicBytesOrString ty then\n        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then\n          failAt arg "effectful ABI encoding argument is unsupported"', '      if isDynamicBytesOrString ty then\n        if false then\n          failAt arg "effectful ABI encoding argument is unsupported"'),
     'import-string-bytes-mappings-uri-storage-strings-mstore8-zero': ('          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let newByte := Expr.shl shift (.bitAnd valVal.expr (.literal 0xff))\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))', '          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let _ := valVal.expr\n          let newByte := Expr.shl shift (.literal 0)\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))'),
     'import-string-bytes-mappings-uri-storage-strings-mapping-slot-zero': ('              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, slotExpr) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", slotExpr, info.stringStorage)', '              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, _) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", .literal 0, info.stringStorage)'),
     'import-string-bytes-mappings-uri-storage-strings-while-true-break-immediately': ('    let iterStmts := bodyOut.toList ++ [Stmt.ite breakCondVal.expr [.assignVar doneVar (.literal 1)] []]\n    return #[\n      .letVar doneVar (.literal 0),\n      .forEach loopVar (.literal bits) [.ite (.eq (.localVar doneVar) (.literal 0)) iterStmts []]\n    ]', '    let _ := breakCondVal.expr\n    let iterStmts := bodyOut.toList ++ [Stmt.assignVar doneVar (.literal 1)]\n    return #[\n      .letVar doneVar (.literal 0),\n      .forEach loopVar (.literal bits) [.ite (.eq (.localVar doneVar) (.literal 0)) iterStmts []]\n    ]'),
@@ -1790,6 +1796,21 @@ contract C {
  function checked(uint256 n) external { emit Before(tag(n), n); }
 }
 ''')
+    elif name == 'import-abi-encode-string-helper-calldata-guard':
+        diagnostic = 'calldata ABI encoding argument beside a reverting helper is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ error EmptyName();
+ string private label;
+ function _name() internal view returns (string memory) {
+  if (bytes(label).length == 0) revert EmptyName();
+  return label;
+ }
+ function checked(uint256) external view returns (uint256) {
+  return uint256(keccak256(abi.encode(msg.data, _name())));
+ }
+}
+''')
     elif name == 'import-named-arguments-order-guard':
         diagnostic = 'named call arguments are outside this slice'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1926,7 +1947,8 @@ def mutation_campaign(output, selected=None):
                                   'import-event-scratch-competing-guard',
                                   'import-string-event-data-before-indexed-guard',
                                   'import-encoding-arg-super-revert-guard',
-                                  'import-named-arguments-order-guard'}
+                                  'import-named-arguments-order-guard',
+                                  'import-abi-encode-string-helper-calldata-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)

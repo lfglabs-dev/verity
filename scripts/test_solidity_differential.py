@@ -19,6 +19,7 @@ from solidity_differential.suite import STORAGE_FIXTURES, run_checks, stateful_c
 EXPECTED_CAMPAIGN_CHECKS = (
     "abi",
     "abi-encode-stateful",
+    "abi-encode-string-helper",
     "abi-encode-udvt",
     "abi-event-composition",
     "abi-rejections",

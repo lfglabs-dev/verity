@@ -245,6 +245,15 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(16, transactions)), '--seed', str(seed),
         '--change-prefix', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', str(2**256 - 1),
         '--output', str(output / 'abi-encode-stateful')]))
+    checks.append(('abi-encode-string-helper', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/AbiEncodeStringHelperSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/AbiEncodeStringHelperSequenceModel.lean',
+        '--transactions', str(max(64, transactions)), '--seed', str(seed),
+        '--change-prefix', '306', '61', '74', '62', '64', '77', '63', '180', '61', '74', '62', '64',
+        '77', '63', '42', '61', '74', '62', '64', '77', '63', '228', '61', '74', '62', '64', '77', '63',
+        '402', '14337', '69', '14355', '61', '65', '108', '14355', '14337', '65', '384', '61', '63',
+        str(2**256 - 1),
+        '--output', str(output / 'abi-encode-string-helper')]))
     checks.append(('named-arguments', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/NamedArgumentsSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/NamedArgumentsSequenceModel.lean',
