@@ -14090,10 +14090,21 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   unless memberVals.size == info.memberNames.size do
     failAt target "struct assignment member count mismatch"
   markField name
-  let mut out := pre ++ rhsPre
+  -- solc evaluates the right-hand side before the target's keys: with a key prelude,
+  -- capture every member value first.
+  let mut valuePre := rhsPre
+  let mut values : Array (String × Expr) := #[]
   for (mName, _, mExpr) in memberVals do
     unless info.memberNames.contains mName do
       failAt target s!"unknown struct layout member {mName}"
+    if pre.isEmpty then
+      values := values.push (mName, mExpr)
+    else
+      let captured ← fresh
+      valuePre := valuePre.push (.letVar captured mExpr)
+      values := values.push (mName, .localVar captured)
+  let mut out := valuePre ++ pre
+  for (mName, mExpr) in values do
     let stored := if info.booleanMembers.contains mName then Expr.logicalNot (.logicalNot mExpr) else mExpr
     out := out.push (writeMember mName stored)
   return out
@@ -15306,7 +15317,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
         failAt target s!"unsupported mapping compound assignment type {ty}"
       if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
         failAt target "compound mapping write key prelude with stateful RHS is unsupported"
-      let rhsVal ← lowerRhs ty
+      let rhsVal ← captureAssignedValue (← lowerRhs ty)
       let lhsVal ← readStructMappingElement pre path mapInfo key target
       let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
       let writeStmts ← writeStructMappingElement #[] path mapInfo key combined.expr false target

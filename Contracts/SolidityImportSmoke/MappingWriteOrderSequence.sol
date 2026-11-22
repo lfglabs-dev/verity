@@ -24,6 +24,7 @@ contract SequenceFixture {
     mapping(uint256 => mapping(uint256 => uint256)) internal mm;
     mapping(uint256 => Book) internal books;
     Pair[] internal pairs;
+    mapping(uint256 => Pair) internal held;
     uint256 internal stamp;
 
     event Written(uint256 selector, uint256 stamp);
@@ -74,11 +75,15 @@ contract SequenceFixture {
         // Mapping compound assignment: right-hand side, key, read, combine.
         if (c == 8) { m[y - 1] += 10 / y; }
         if (c == 9) { m[bump(k)] += stamp + 100; }
-        // Struct-member mapping and dynamic array element (13: `op=` control).
+        // Struct-member mapping and dynamic array element (13: `op=`, constant and `j5++` keys).
         if (c == 10) { books[1].slots[y - 1] = 10 / y; }
         if (c == 11) { books[1].vals[y - 1] = 10 / y; }
         if (c == 12) { books[1].vals[bump(k)] = stamp + 100; }
-        if (c == 13) { books[1].slots[y - 1] += 10 / y; }
+        if (c == 13) {
+            books[1].slots[y - 1] += 10 / y;
+            uint256 j5 = k;
+            books[j5++].slots[0] += j5;
+        }
         // Dynamic array compound assignment: the right-hand side was already first.
         if (c == 14) {
             arr[y - 1] += 10 / y;
@@ -98,6 +103,10 @@ contract SequenceFixture {
             pairs[j3++].a = j3;
             uint256 j4 = k;
             pairs[j4++].b += j4;
+            // Whole-struct write: the constructor arguments run before the key.
+            uint256 j6 = k;
+            held[j6++] = Pair(j6, j6);
+            held[y - 1] = Pair(10 / y, 1);
         }
         emit Written(c, stamp);
         return stamp;

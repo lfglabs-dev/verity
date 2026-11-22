@@ -275,7 +275,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingWriteOrderSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/MappingWriteOrderSequenceModel.lean',
         '--transactions', str(max(32, transactions)), '--seed', str(seed),
-        '--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 17, 19, 20, 22, 23, 25, 28, 29, 30, 31, 47, 49, 50, 75, 62, 144, 2 ** 256 - 1]),
+        '--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 15, 17, 19, 20, 22, 23, 25, 28, 29, 30, 31, 47, 49, 50, 75, 62, 144, 2 ** 256 - 1]),
         '--output', str(output / 'mapping-write-order')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
