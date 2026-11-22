@@ -23,6 +23,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "EcrecoverSe
   function recoverWide(bytes32,uint256,bytes32,bytes32)
   function setDigest(bytes32)
   function recoverOrdered(uint8,bytes32,bytes32)
+  function recoverReassigned(bytes32,uint8,bytes32,bytes32)
   function permit(address,address,uint256,uint256,uint8,bytes32,bytes32)
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

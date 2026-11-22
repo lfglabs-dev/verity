@@ -3,7 +3,8 @@ pragma solidity ^0.8.20;
 
 /// Solidity's global `ecrecover` builtin: direct recovery, a pure signer check, an
 /// explicit `uint8` conversion of the `v` argument, left-to-right argument evaluation
-/// against a later argument that writes the storage an earlier argument reads, and an
+/// against a later argument that writes the storage or reassigns the local an earlier
+/// argument reads, and an
 /// EIP-2612-style permit whose digest hashes the consumed nonce.
 contract EcrecoverFixture {
     bytes32 public constant PERMIT_TYPEHASH =
@@ -58,6 +59,13 @@ contract EcrecoverFixture {
     /// The first argument reads `storedDigest` before the last one overwrites it.
     function recoverOrdered(uint8 v, bytes32 r, bytes32 s) external returns (address) {
         return ecrecover(storedDigest, v, r, _replaceDigest(s));
+    }
+
+    /// The first argument is a local that the last argument reassigns: solc copies its old
+    /// value before the assignment runs.
+    function recoverReassigned(bytes32 digest, uint8 v, bytes32 r, bytes32 s) external pure returns (address) {
+        bytes32 hash = digest;
+        return ecrecover(hash, v, r, (hash = s));
     }
 
     function permit(

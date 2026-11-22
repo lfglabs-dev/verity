@@ -2,7 +2,8 @@
 
 `EcrecoverSequence.sol` calls the global `ecrecover(hash, v, r, s)` directly, in a pure
 signer check, with an explicit `uint8` conversion of `v`, with a later argument that
-overwrites the storage an earlier argument reads (left-to-right evaluation), and in an
+overwrites the storage or reassigns the local an earlier argument reads (left-to-right
+evaluation), and in an
 EIP-2612-style permit whose digest hashes the consumed `nonces[owner]++`. Signatures are produced
 here with deterministic nonces; the campaign covers valid signatures, their high-`s`
 twins (which the precompile accepts), `v` outside {27, 28} (including words whose low byte
@@ -172,6 +173,9 @@ def transactions_for(count, seed, contract):
         add('setDigest(bytes32)', ['bytes32'], [digest])
         add('recoverOrdered(uint8,bytes32,bytes32)', ['uint8', 'bytes32', 'bytes32'], [v, word(r), word(s)])
         add('storedDigest()', [], [])
+        # The hash argument is a local that the last argument reassigns.
+        add('recoverReassigned(bytes32,uint8,bytes32,bytes32)', ['bytes32', 'uint8', 'bytes32', 'bytes32'],
+            [digest, v, word(r), word(s)], owner)
     nonces = {}
     late = 2**64
     for key in KEYS:
