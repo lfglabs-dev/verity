@@ -239,6 +239,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(16, transactions)), '--seed', str(seed),
         '--change-prefix', '0', '1', '2', '3', '8', '9', '10', '11', str(2**256 - 1),
         '--output', str(output / 'abi-encode-udvt')]))
+    checks.append(('abi-encode-stateful', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/AbiEncodeStatefulSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/AbiEncodeStatefulSequenceModel.lean',
+        '--transactions', str(max(16, transactions)), '--seed', str(seed),
+        '--change-prefix', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', str(2**256 - 1),
+        '--output', str(output / 'abi-encode-stateful')]))
     checks.append(('named-arguments', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/NamedArgumentsSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/NamedArgumentsSequenceModel.lean',
