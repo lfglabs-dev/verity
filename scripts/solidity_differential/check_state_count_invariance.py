@@ -122,6 +122,15 @@ CASES = [
     }
 }
 ''', ['flag(uint256)']),
+    inline('yul-if', '''contract C {
+    uint256 private total;
+
+    function clamp(uint256 x) external returns (uint256 r) {
+        total = x;
+        assembly { r := x if gt(x, 10) { r := 10 } }
+    }
+}
+''', ['clamp(uint256)']),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;
@@ -143,15 +152,6 @@ CASES = [
     }
 }
 ''', ['pair(uint256)']),
-    inline('known-yul-if', '''contract C {
-    uint256 private total;
-
-    function clamp(uint256 x) external returns (uint256 r) {
-        total = x;
-        assembly { r := x if gt(x, 10) { r := 10 } }
-    }
-}
-''', ['clamp(uint256)']),
     fixture('fixture-storage-void-sequence', 'Contracts/SolidityImportSmoke/StorageVoidSequence.sol',
             'SequenceFixture', ['change(uint256)', 'fail()', 'read()']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
@@ -163,8 +163,6 @@ CASES = [
 EXPECTED_DISCREPANCIES = {
     # checkEncodingScalar: a conditional ABI encoding argument.
     'known-encode-conditional': 'admission',
-    # lowerYulStmtSlice: Yul `if`.
-    'known-yul-if': 'admission',
 }
 
 # Self-tests of the harness itself; see the module docstring.
