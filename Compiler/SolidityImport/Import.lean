@@ -6064,6 +6064,33 @@ private partial def encodeSelectorAndWords (selBuffer : EncodedBytes) (pre : Arr
     pre := pre.push (.assignVar start (.add (.localVar start) buffer.size))
   return { pre, pointer := .localVar pointer, size }
 
+/-- `selector ++ payload` in a fresh word-padded buffer: the `abi.encodeCall` layout of a
+four-byte selector followed by an `abi.encode` payload. -/
+private partial def prefixSelector (selBuffer payload : EncodedBytes) : M EncodedBytes := do
+  let mut pre := selBuffer.pre ++ payload.pre
+  let payloadPointer ← fresh
+  let payloadSize ← fresh
+  pre := pre ++ #[.letVar payloadPointer payload.pointer, .letVar payloadSize payload.size]
+  let sizeName ← fresh
+  let size := Expr.localVar sizeName
+  pre := pre.push (.letVar sizeName (.add (.literal 4) (.localVar payloadSize)))
+  let pointer ← fresh
+  let finish ← fresh
+  let clearIndex ← fresh
+  modify fun env => { env with encodingMemory := true }
+  pre := pre ++ (AbiEncoding.packedBuffer pointer finish clearIndex size).toArray
+  let start ← fresh
+  pre := pre.push (.letVar start (.literal 0))
+  for (bufPointer, bufSize) in [(selBuffer.pointer, selBuffer.size),
+      (Expr.localVar payloadPointer, Expr.localVar payloadSize)] do
+    let index ← fresh
+    let byteName ← fresh
+    let address ← fresh
+    pre := pre.push (AbiEncoding.copyBytes bufPointer (.localVar pointer)
+      (.localVar start) bufSize index byteName address)
+    pre := pre.push (.assignVar start (.add (.localVar start) bufSize))
+  return { pre, pointer := .localVar pointer, size }
+
 private partial def lowerStorageBytesLength (pre : Array Stmt) (fieldName : String) (slotExpr : Expr) : M Val := do
   let rawRead ← if fieldName != "" then do
     markField fieldName
@@ -7205,21 +7232,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         let msgBuf ← lowerMsgDataBuffer
         return { msgBuf with pre := msgPre ++ msgBuf.pre }
       if ty == "string memory" || ty == "string" || ty == "bytes memory" || ty == "bytes" then
-        if (← mKind callee) == "MemberAccess" && (← get).stateVars.size > 1 then
-          let base ← mField callee "expression"
-          let callArgs ← mArr (← mField j "arguments")
-          if (← mType base).startsWith "contract " && callArgs.isEmpty then
-            if (← get).forwardingBytesTuple then
-              failAt j "external byte buffer in a forwarded tuple requires dynamic return decoding"
-            let target ← atom (← convert "address" (← mType base) (← lowerExpr base) base)
-            let wordVar ← fresh
-            let ptr ← fresh
-            let finish ← fresh
-            modify fun e => { e with encodingMemory := true }
-            let callMod := Compiler.ECM.SolidityStaticCall.uint256Module wordVar 0 0
-            let encStmts := (AbiEncoding.staticWords ptr finish [.localVar wordVar]).toArray
-            let pre := target.pre.push (.ecm callMod [target.expr]) ++ encStmts
-            return { pre, pointer := .localVar ptr, size := .literal 32 }
+        -- An external call returning `bytes` / `string` (`c.name()`) needs dynamic return
+        -- decoding: `resolveCallTargetAndArgs` rejects it at the callee.
         let (fnId, vals) ← resolveCallTargetAndArgs j
         return ← inlineStringFn fnId vals j
   unless (← mKind callee) == "MemberAccess" do
@@ -7310,6 +7324,18 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       pure #[args[1]!]
     unless callArgs.size == params.size do
       failAt args[1]! s!"abi.encodeCall argument count {callArgs.size} does not match declaration {params.size}"
+    if ← params.anyM (fun p => return (← mType p) == "bytes") then
+      -- solc encodes the selector, then the arguments as `abi.encode` with the parameter
+      -- types: static heads, an offset for each `bytes`, then its length and padded data.
+      if (← get).forwardingBytesTuple then
+        failAt j "abi.encodeCall with a bytes parameter in a forwarded tuple requires dynamic ABI encoding"
+      for idx in [:params.size] do
+        if callArgs[idx]!.isNull then failAt args[1]! "empty abi.encodeCall tuple component"
+        let pty ← mType params[idx]!
+        unless pty == "bytes" || (paramType pty).isSome do
+          failAt params[idx]! s!"abi.encodeCall parameter type {pty} beside a bytes parameter is outside this slice"
+      let payload ← lowerAbiEncodeArgs callArgs (some params)
+      return ← prefixSelector selBuffer payload
     let mut pre := selBuffer.pre
     let mut words := []
     for idx in [:params.size] do
@@ -7335,14 +7361,6 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         let (sPre, sWords) ← lowerEncodedStaticStructWords arg
         pre := pre ++ sPre
         words := words ++ sWords
-      else if pty == "bytes" && (← get).stateVars.size > 1 then
-        if (← get).forwardingBytesTuple then
-          failAt j "abi.encodeCall with a bytes parameter in a forwarded tuple requires dynamic ABI encoding"
-        let buf ← lowerEncodedBytes arg
-        let ptrVal ← atom { pre := buf.pre, expr := buf.pointer }
-        let sizeVal ← atom { pre := #[], expr := buf.size }
-        pre := pre ++ ptrVal.pre ++ sizeVal.pre
-        words := words ++ [ptrVal.expr, sizeVal.expr]
       else
         unless (paramType pty).isSome do
           failAt p s!"unsupported ABI encoding argument type {pty}"
