@@ -13846,11 +13846,13 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   unless memberVals.size == info.memberNames.size do
     failAt target "struct assignment member count mismatch"
   markField name
-  -- solc evaluates a struct constructor's arguments before the target's keys, so with a
-  -- key prelude its member values are captured first. A storage or memory source is a
-  -- reference: solc reads its members at the copy, after the keys.
-  let valueFirst := !pre.isEmpty && (← mKind right) == "FunctionCall" &&
-    optStr right "kind" == some "structConstructorCall"
+  -- solc evaluates a struct value (constructor, helper call, or a conditional of memory
+  -- values) before the target's keys, so with a key prelude its member values are captured
+  -- first. A storage or memory variable or element is a reference: solc reads its members
+  -- at the copy, after the keys.
+  let rightKind ← mKind right
+  let valueFirst := !pre.isEmpty && (rightKind == "FunctionCall" ||
+    (rightKind == "Conditional" && (← mType right).endsWith " memory"))
   let mut valuePre := rhsPre
   let mut values : Array (String × Expr) := #[]
   for (mName, _, mExpr) in memberVals do

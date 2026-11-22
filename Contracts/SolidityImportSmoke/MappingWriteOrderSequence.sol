@@ -39,6 +39,10 @@ contract SequenceFixture {
         return v;
     }
 
+    function viewPair() internal view returns (Pair memory) {
+        return Pair(stamp, stamp + 1);
+    }
+
     function restamp() internal returns (uint256) {
         stamp = 2;
         return 7;
@@ -87,6 +91,9 @@ contract SequenceFixture {
             books[1].vals[bump(k)] = stamp + 100;
             // A storage struct source is read at the copy, after the key helper.
             held[touchHeld(k + 1)] = held[0];
+            // A helper result and a conditional of constructors are values: evaluated first.
+            held[bump(k + 4)] = viewPair();
+            held[bump(k + 8)] = y > 1 ? Pair(stamp, 1) : Pair(2, stamp);
         }
         if (c == 13) {
             books[1].slots[y - 1] += 10 / y;
