@@ -295,6 +295,38 @@ private def writtenOnly : List (String × String) :=
 #guard resolveFrom [("remappings.txt", "a/=deps/A/\na/b/=deps/B/\n")] "src/E.sol" "a/b/X.sol" ==
   some ("deps/A/b/X.sol", none, 0)
 
+-- Written names and targets reach solc with a trailing `/`, as `forge build` passes them:
+-- `oz/=deps/oz` compiles `deps/oz/A.sol` (not `deps/ozA.sol`), and `oz=deps/oz/` does not
+-- match `ozx/A.sol`.
+#guard (remapStage0 { name := "" } #[("oz/", "deps/oz"), ("w", "x.sol")]).explicit ==
+  #[("oz/", "deps/oz/"), ("w/", "x.sol")]
+#guard resolveFrom [("remappings.txt", "oz/=deps/oz\n")] "src/E.sol" "oz/A.sol" ==
+  some ("deps/oz/A.sol", none, 0)
+#guard resolveFrom [("remappings.txt", "oz=deps/oz/\n")] "src/E.sol" "ozx/A.sol" ==
+  some ("ozx/A.sol", none, 0)
+
+-- A library's file remapping is never dropped for nesting, so it can beat a written match:
+-- `forge build` compiled `lib/dep/alt/A.sol` for `oz/A.sol` despite `oz/=deps/oz/`. The written
+-- shortcut does not apply, and the full scan refuses the file remapping.
+private def configFileRemap : List (String × String) :=
+  [("remappings.txt", "oz/=deps/oz/\n"), ("src/E.sol", ""), ("deps/oz/A.sol", ""),
+   ("lib/dep/foundry.toml", "[profile.default]\n"), ("lib/dep/remappings.txt", "oz/A.sol=alt/A.sol\n"),
+   ("lib/dep/alt/A.sol", ""), ("lib/dep/src/D.sol", "")]
+#guard resolve configFileRemap "oz/A.sol" == none
+#guard (errorOf configFileRemap "oz/A.sol" |>.splitOn "file remapping").length > 1
+#guard resolve configFileRemap "oz/B.sol" == some ("deps/oz/B.sol", none)
+
+-- A `libs` entry the importer does not read (outside the project, as a hoisted
+-- `../../node_modules`): irrelevant with auto-detection off, refused when Foundry infers.
+private def hoisted (auto : String) : List (String × String) :=
+  [("foundry.toml", s!"[profile.default]\nlibs = [\"node_modules\", \"../../node_modules\"]\n{auto}"),
+   ("remappings.txt", "@oz/=deps/oz/\n")]
+#guard resolveFrom (hoisted "auto_detect_remappings = false\n") "src/E.sol" "@oz/A.sol" ==
+  some ("deps/oz/A.sol", none, 0)
+#guard resolveFrom (hoisted "") "src/E.sol" "@oz/A.sol" == none
+#guard (errorTree (layout (hoisted "")) (explicitOf (hoisted "")) "src/E.sol" "@oz/A.sol"
+  |>.splitOn "outside the project").length > 1
+
 -- `foundry.toml` reading: only `[profile.default]` counts; other profiles are ignored; a
 -- modeled key outside any profile, or an unreadable value, is an issue.
 #guard (FoundryRemap.parseFoundryToml

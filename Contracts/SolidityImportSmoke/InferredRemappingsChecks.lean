@@ -25,7 +25,10 @@ was used. `remappingScan` shows how far the importer read the libraries.
   `symlink-unrelated/` (an unrelated symlink under `deps/`; `src/foo/Bar.sol` as written,
   configurations only), `symlink-written-noslash/` (the same with `oz=deps/oz`, importing
   `oz/A.sol`), and `symlink-supplies-name/` (`deps/pkg` is a symlink, so Foundry infers `pkg/`
-  through it and compiles `deps/pkg/src/P.sol` although the project has `pkg/P.sol`: refused).
+  through it and compiles `deps/pkg/src/P.sol` although the project has `pkg/P.sol`: refused),
+  and `symlink-config-file/` (a library's `remappings.txt` is a symlink; `forge build` reads
+  it and compiles `deps/dep/alt/Bar.sol` for `src/foo/Bar.sol`; the importer does not follow
+  it: refused).
 -/
 namespace SolidityImportSmoke.InferredRemappingsChecks
 open Compiler.CompilationModel.SolidityImport
@@ -132,6 +135,13 @@ run_meta (writeFixture "symlink-supplies-name"
   [("foundry.toml", "[profile.default]\nlibs = [\"deps\"]\n"),
    ("pkg/P.sol", library "P" "projectValue" 1), ("vendor/pkg/src/P.sol", library "P" "vendorValue" 2),
    ("src/Entry.sol", entry "P" "pkg/P.sol" "projectValue")] [("deps/pkg", "../vendor/pkg")])
+run_meta (writeFixture "symlink-config-file"
+  [("foundry.toml", "[profile.default]\nlibs = [\"deps\"]\n"),
+   ("deps/dep/foundry.toml", "[profile.default]\n"), ("elsewhere.txt", "src/foo/=alt/\n"),
+   ("deps/dep/alt/Bar.sol", library "Bar" "barValue" 2), ("deps/dep/src/D.sol", library "D" "dValue" 3),
+   ("src/foo/Bar.sol", library "Bar" "barValue" 1),
+   ("src/Entry.sol", entry "Bar" "src/foo/Bar.sol" "barValue")]
+  [("deps/dep/remappings.txt", "../../elsewhere.txt")])
 
 solidity_import symlinkUnrelated from ".lake/remapping-fixtures/symlink-unrelated"
   entry "src/Entry.sol" using remapProfile contract Entry
@@ -150,6 +160,14 @@ error: src/Entry.sol: import pkg/P.sol could take a remapping Foundry infers, bu
 -/
 #guard_msgs in
 solidity_import symlinkName from ".lake/remapping-fixtures/symlink-supplies-name"
+  entry "src/Entry.sol" using remapProfile contract Entry
+  function value()
+
+/--
+error: src/Entry.sol: import src/foo/Bar.sol: Foundry's remappings are unknown here (deps/dep: a configuration file is a symlink or unreadable); write the remapping in remappings.txt
+-/
+#guard_msgs in
+solidity_import symlinkConfig from ".lake/remapping-fixtures/symlink-config-file"
   entry "src/Entry.sol" using remapProfile contract Entry
   function value()
 

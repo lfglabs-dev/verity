@@ -41,13 +41,11 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   `test` or `script` directory is dropped, and so is a written remapping nested
   under an earlier one (`a/b/=…` after `a/=…`: `a/b/X.sol` is now
   `<a target>/b/X.sol`, the file `forge build` compiles, where earlier importers
-  took the `a/b/` target). Only `[profile.default]` (or the legacy `[default]`)
-  counts, and the first remapping of a name wins. A library's configuration
-  can remap a path inside the project, such as `src/sub/`, as `forge build`
-  does. One older difference remains: Foundry appends `/` to a written name or
-  target that lacks one (`oz=lib/oz` becomes `oz/=lib/oz/`), while the
-  importer passes it as written; solc then reports a missing source rather
-  than reading another file.
+  took the `a/b/` target). A written name or target without a trailing `/`
+  gains one (`oz=lib/oz` reaches solc as `oz/=lib/oz/`, so `ozx/…` no longer
+  matches `oz`). Only `[profile.default]` (or the legacy `[default]`) counts,
+  and the first remapping of a name wins. A library's configuration can remap a
+  path inside the project, such as `src/sub/`, as `forge build` does.
 - Libraries are read only as far as an import needs, at most once per
   `solidity_import`, shown as `remapping scan` in `report.toText`. With
   `auto_detect_remappings = false`, or no library directory, nothing is read.
@@ -61,8 +59,12 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   - an import a context remapping (`context:name=…`, written or from a
     library) can reach;
   - every import, when a library's `foundry.toml` has a line or key it cannot
-    check, uses `extends` or sets the default profile as an inline table, or a
-    library directory is a symlink or unreadable;
+    check, uses `extends` or sets the default profile as an inline table, a
+    library directory or configuration file is a symlink (Foundry reads through
+    it, the importer never follows one) or unreadable, or, with auto-detection
+    on, a `libs` entry lies outside the project or has several components (a
+    hoisted `../../node_modules`);
+  - an import a library's file remapping (`….sol=…`) could reach;
   - an inferred remapping whose value depends on directory listing order in
     Foundry;
   - when a scanned library holds a symlink (Foundry follows it, the importer
