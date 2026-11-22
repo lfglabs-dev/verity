@@ -278,7 +278,7 @@
     "foundry": 45,
     "foundry-patched": 60,
     "foundry-multi-seed": 75,
-    "import-mutations": 240,
+    "import-mutations": 300,
     "ci-gate": 5,
     "importer-differential": 45
   },

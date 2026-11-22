@@ -103,9 +103,10 @@ them only for temporary debugging or deliberate host pinning via
   and Foundry jobs go through `route`: build-medium while it has room,
   `lean-8vcpu-ubuntu-2604` once it backs up (`LEAN_NUM_THREADS=2` per worker
   on sharded `import-mutations` on either pool). `build` keeps
-  `LEAN_NUM_THREADS=8` (its label's vCPUs): lean.ci can boot it with more
-  vCPUs than memory for one Lean process per vCPU, which failed with
-  ENOMEM / allocation failures.
+  `LEAN_NUM_THREADS=8` (its label's vCPUs): lean.ci can give it more vCPUs
+  (up to 32) than memory for one Lean process per vCPU, which failed with
+  ENOMEM / allocation failures. The nightly `import-mutations` (24 shards,
+  ~30 host-hours) holds the build-medium hosts for ~12-14 h when routed there.
   Ephemeral runners automatically fall back to GitHub Actions caches and
   `$RUNNER_TEMP` when `/srv/verity-ci-cache` is absent.
 - Prefer one full Verity build runner per 8-core host when using self-hosted
