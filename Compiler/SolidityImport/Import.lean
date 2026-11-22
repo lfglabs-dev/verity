@@ -7333,7 +7333,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         if callArgs[idx]!.isNull then failAt args[1]! "empty abi.encodeCall tuple component"
         let pty ← mType params[idx]!
         unless pty == "bytes" || (paramType pty).isSome do
-          failAt params[idx]! s!"abi.encodeCall parameter type {pty} beside a bytes parameter is outside this slice"
+          failAt callArgs[idx]! s!"abi.encodeCall parameter type {pty} beside a bytes parameter is outside this slice"
       let payload ← lowerAbiEncodeArgs callArgs (some params)
       return ← prefixSelector selBuffer payload
     let mut pre := selBuffer.pre
