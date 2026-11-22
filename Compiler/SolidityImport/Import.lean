@@ -1748,7 +1748,8 @@ private def lowerAssembly (j : Json) (retName : String) : M Val := do
 
 /-- solc evaluates an assignment's right-hand side before the target's mapping keys and
 indexes (`=` and `op=`, legacy and via-IR). Bind the lowered value to a fresh local so it can be
-emitted before the target's key prelude, which then cannot change what is stored. -/
+emitted before the target's key prelude, which then cannot change what is stored (a key helper's
+storage write, or `i++` in the key when the right-hand side is the bare local `i`). -/
 private def captureAssignedValue (value : Val) : M Val := do
   let captured ← fresh
   pure { pre := value.pre.push (.letVar captured value.expr), expr := .localVar captured }
@@ -14347,7 +14348,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let right ← mField expression "rightHandSide"
           if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
             failAt target "raw-slot struct member write prelude with stateful RHS is unsupported"
-          let value ← atom (← lowerConverted mInfo.ty right)
+          let value ← captureAssignedValue (← atom (← lowerConverted mInfo.ty right))
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo value.expr false
           return value.pre ++ pre ++ writeStmts
         -- solc evaluates the right-hand side before the target's keys; these
@@ -14974,7 +14975,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
             failAt target s!"unsupported raw-slot struct member compound assignment type {ty}"
           if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
             failAt target "raw-slot struct member compound write prelude with stateful RHS is unsupported"
-          let rhsVal ← lowerRhs ty
+          let rhsVal ← captureAssignedValue (← lowerRhs ty)
           let lhsVal ← readRawStructScalar pre baseSlot mInfo
           let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo combined.expr false
@@ -15034,7 +15035,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
         failAt target s!"unsupported dynamic array compound assignment type {ty}"
       if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
         failAt target "compound dynamic array write index prelude with stateful RHS is unsupported"
-      let rhsVal ← lowerRhs ty
+      let rhsVal ← captureAssignedValue (← lowerRhs ty)
       let (slotPre, arrSlot) ← resolveStructDynamicSlot path dynInfo target
       let lhsVal ← readStorageDynamicArrayElement (pre ++ slotPre) "" arrSlot dynInfo.elemType index
       let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
@@ -15046,7 +15047,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
         failAt target s!"unsupported dynamic array compound assignment type {ty}"
       if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
         failAt target "compound dynamic array write index prelude with stateful RHS is unsupported"
-      let rhsVal ← lowerRhs ty
+      let rhsVal ← captureAssignedValue (← lowerRhs ty)
       let lhsVal ← readStorageDynamicArrayElement pre fieldName slotExpr elemTy index
       let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
       let writeStmts ← writeStorageDynamicArrayElement #[] fieldName slotExpr elemTy index combined.expr false

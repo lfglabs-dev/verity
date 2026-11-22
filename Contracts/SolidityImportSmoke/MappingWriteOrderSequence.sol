@@ -6,8 +6,14 @@ pragma solidity 0.8.34;
 // y = x / 16: y = 0 makes both the key (`y - 1`) and the right-hand side (`10 / y`) revert,
 // so the panic code shows which ran first; `bump` is a key helper that writes the stamp the
 // right-hand side reads; `restamp` is a right-hand-side helper that writes the stamp the key
-// reads, so key-first evaluation writes a different slot.
+// reads, so key-first evaluation writes a different slot; `i++` in an index with the bare
+// local `i` as the right-hand side checks that the right-hand side is captured before it.
 contract SequenceFixture {
+    struct Pair {
+        uint256 a;
+        uint256 b;
+    }
+
     struct Book {
         mapping(uint256 => uint256) slots;
         uint256[] vals;
@@ -17,6 +23,7 @@ contract SequenceFixture {
     mapping(uint256 => uint256) internal m;
     mapping(uint256 => mapping(uint256 => uint256)) internal mm;
     mapping(uint256 => Book) internal books;
+    Pair[] internal pairs;
     uint256 internal stamp;
 
     event Written(uint256 selector, uint256 stamp);
@@ -48,6 +55,12 @@ contract SequenceFixture {
             books[1].vals.push();
             books[1].vals.push();
         }
+        if (pairs.length == 0) {
+            pairs.push();
+            pairs.push();
+            pairs.push();
+            pairs.push();
+        }
         // Storage dynamic array element.
         if (c == 0) { arr[y - 1] = 10 / y; }
         if (c == 1) { arr[bump(k)] = stamp + 100; }
@@ -66,9 +79,26 @@ contract SequenceFixture {
         if (c == 11) { books[1].vals[y - 1] = 10 / y; }
         if (c == 12) { books[1].vals[bump(k)] = stamp + 100; }
         if (c == 13) { books[1].slots[y - 1] += 10 / y; }
-        // Controls: dynamic array compound assignment and a pure computed key.
-        if (c == 14) { arr[y - 1] += 10 / y; }
-        if (c == 15) { m[y % 4] = stamp + y; }
+        // Dynamic array compound assignment: the right-hand side was already first.
+        if (c == 14) {
+            arr[y - 1] += 10 / y;
+            uint256 i1 = k;
+            arr[i1++] += i1;
+            uint256 i2 = k;
+            books[1].vals[i2++] += i2;
+        }
+        // A pure computed key (unchanged), then `i++` indexes with a bare-local right-hand side.
+        if (c == 15) {
+            m[y % 4] = stamp + y;
+            uint256 j1 = k;
+            m[j1++] = j1;
+            uint256 j2 = k;
+            arr[j2++] = j2;
+            uint256 j3 = k;
+            pairs[j3++].a = j3;
+            uint256 j4 = k;
+            pairs[j4++].b += j4;
+        }
         emit Written(c, stamp);
         return stamp;
     }
