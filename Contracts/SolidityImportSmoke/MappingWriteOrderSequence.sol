@@ -94,6 +94,7 @@ contract SequenceFixture {
             // A helper result and a conditional of constructors are values: evaluated first.
             held[bump(k + 4)] = viewPair();
             held[bump(k + 8)] = y > 1 ? Pair(stamp, 1) : Pair(2, stamp);
+            held[bump(k + 12)] = (Pair(stamp, 3));
         }
         if (c == 13) {
             books[1].slots[y - 1] += 10 / y;
