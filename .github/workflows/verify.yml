@@ -760,11 +760,13 @@ jobs:
     runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
     # 24 shards of 15-16 campaigns. Nightly 2026-11-22 (6 shards of ~62, 6
     # workers each): median campaign 1630-1730 s on the 64 GiB build-medium
-    # hosts, ~3880 s on the 28 GiB one; 23-31% resp. 64% of each shard was
-    # still unrun at the old 210-minute limit. 16 campaigns = 3 waves of 6:
-    # ~85 min on the 64 GiB hosts, ~200-210 min on the 28 GiB one. The whole
-    # run is ~30 host-hours, so on build-medium alone (one shard per host at
-    # a time) a nightly takes ~12-14 h wall-clock, as it did before the split.
+    # hosts, and 21-30% of each shard was still unrun at the old 210-minute
+    # limit. On the 28 GiB host nearly every importer rebuild overran its
+    # 1800 s budget with 6 workers (failed, not slow); `--jobs auto` now
+    # budgets 6 GiB per worker, so that host runs at most 4. 16 campaigns: ~85 min on
+    # the 64 GiB hosts; 300 min leaves room for slower hosts and retries. The
+    # whole run is ~30 host-hours, so on build-medium alone (one shard per
+    # host at a time) a nightly takes ~12-14 h wall-clock, as before the split.
     timeout-minutes: 300
     needs: [changes, route, checks, build]
     # ~30 runner-hours per run: nightly, manual dispatch, or PRs labelled
