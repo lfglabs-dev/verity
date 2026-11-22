@@ -28,7 +28,8 @@ MUTANTS = {
         '    words := if words.isEmpty then words.push word.expr else words',
         'runtime', None),
     'import-interface-word-bytes4-validation': (IMPORT,
-        '    let guard := if returnType == "bytes4" then abiDecodeScalarGuard? returnType none word else none',
+        '    let guard := if returnType == "bytes4" || isSupportedExtraReturn then\n'
+        '      abiDecodeScalarGuard? returnType none word else none',
         '    let guard : Option Stmt := none', 'runtime', None),
     'import-interface-word-bool-validation': (IMPORT,
         'pre := pre.push (.ite (.gt (.localVar result) (.literal 1)) [.revertEmpty] [])',
@@ -47,19 +48,13 @@ MUTANTS = {
     'import-interface-word-free-pointer-init': (IMPORT,
         '  modify fun e => { e with encodingMemory := true }\n  pre := pre.push (.ecm',
         '  pre := pre.push (.ecm', 'runtime', None),
-    'import-interface-word-operator-admission': (IMPORT,
-        '      if optStr node "operator" == some "&&" || optStr node "operator" == some "||" then',
-        '      if true then', 'admission', 'equality-operand'),
     'import-interface-word-effects-guard': (IMPORT,
         '    unless value.pre.isEmpty do\n      failAt arg "typed interface staticcall arguments must',
         '    unless true do\n      failAt arg "typed interface staticcall arguments must',
-        'admission', 'checked-argument'),
+        'admission', 'indexed-argument'),
     'import-interface-word-parameter-guard': (IMPORT,
         '  unless paramTypes.all (["address", "uint256", "bytes32", "bool"].contains ·) do',
-        '  unless true do', 'admission', 'narrow-parameter'),
-    'import-interface-word-argument-type-guard': (IMPORT,
-        '    unless argTy == ty ||',
-        '    unless true ||', 'admission', 'narrow-argument'),
+        '  unless true do', 'admission', 'bytes-parameter'),
 }
 
 

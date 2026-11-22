@@ -22,13 +22,11 @@ WORD = ('interface IWord {\n'
         '}\n')
 ERROR = 'error Gated();'
 MESSAGES = {
-    'placement': 'typed interface staticcall must be a whole variable initializer, '
-                 'assignment right-hand side, expression statement, require condition or '
-                 'short-circuit operand of one',
     'parameters': 'typed interface staticcall parameters must be address, uint256, bytes32 or bool',
     'return': 'typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool',
     'named': 'named call arguments are outside this slice',
     'effects': 'typed interface staticcall arguments must lower without side effects',
+    'encoding': 'effectful ABI encoding argument is unsupported',
     'non-view': 'typed interface calls to non-view functions are outside this slice',
     'external': 'external contract calls are outside this slice',
 }
@@ -36,10 +34,6 @@ MESSAGES = {
 
 def single(signature, returns='uint256'):
     return f'interface IWord {{\n    function f({signature}) external view returns ({returns});\n}}\n'
-
-
-def mismatch(argument, parameter):
-    return f'typed interface staticcall argument type {argument} differs from parameter type {parameter}'
 
 
 # name, declarations, contract members, body, expected
@@ -59,27 +53,28 @@ CASES = [
      'require(oracle == address(0) || IWord(oracle).allowed(msg.sender), Gated()); return x;', None),
     ('require-string', WORD, '',
      'require(IWord(oracle).allowed(msg.sender), "gated"); return x;', None),
+    # Narrow, payable and fixed-bytes parameters, `address` returns, converted arguments
+    # and any expression position, in every contract (#2830).
     ('narrow-parameter', single('uint128 amount'), '',
-     'uint256 v = IWord(oracle).f(1); return v;',
-     ('IWord(oracle).f(1)', 0, 'FunctionCall', 'parameters')),
+     'uint256 v = IWord(oracle).f(1); return v;', None),
     ('payable-parameter', single('address payable account'), '',
-     'uint256 v = IWord(oracle).f(payable(oracle)); return v;',
-     ('IWord(oracle).f(payable(oracle))', 0, 'FunctionCall', 'parameters')),
+     'uint256 v = IWord(oracle).f(payable(oracle)); return v;', None),
     ('bytes-parameter', single('bytes calldata data'), '',
      'uint256 v = IWord(oracle).f(""); return v;',
      ('IWord(oracle).f("")', 0, 'FunctionCall', 'parameters')),
     ('bytes4-parameter', single('bytes4 tag'), '',
-     'uint256 v = IWord(oracle).f(bytes4(0)); return v;',
-     ('IWord(oracle).f(bytes4(0))', 0, 'FunctionCall', 'parameters')),
+     'uint256 v = IWord(oracle).f(bytes4(0)); return v;', None),
     ('address-return', single('uint256 amount', 'address'), '',
-     'address a = IWord(oracle).f(x); return uint256(uint160(a));',
-     ('IWord(oracle).f', 0, 'MemberAccess', 'return')),
+     'address a = IWord(oracle).f(x); return uint256(uint160(a));', None),
     ('narrow-argument', WORD, '',
-     'uint8 small = uint8(x); uint256 v = IWord(oracle).quote(small, bytes32(0)); return v;',
-     ('small, bytes32(0)', 0, 'Identifier', mismatch('uint8', 'uint256'))),
+     'uint8 small = uint8(x); uint256 v = IWord(oracle).quote(small, bytes32(0)); return v;', None),
+    # A bounds-checked read is an argument with a prelude on the word path.
+    ('indexed-argument', single('uint256 amount'), 'uint256[] a;',
+     'uint256 v = IWord(oracle).f(a[x]); return v;',
+     ('a[x]', 0, 'IndexAccess', 'effects')),
     ('checked-argument', WORD, '',
      'uint256 v = IWord(oracle).quote(x + 1, bytes32(0)); return v;',
-     ('x + 1', 0, 'BinaryOperation', 'effects')),
+     ('x + 1', 0, 'BinaryOperation', 'encoding')),
     # Declaration-order and commuting reordered scalars share positional lowering.
     ('named-arguments', WORD, '',
      'bool b = IWord(oracle).allowed({account: oracle}); return b ? 1 : 0;', None),
@@ -92,19 +87,15 @@ CASES = [
      ('IWord(oracle).quote', 0, 'FunctionCall', 'named')),
     ('nested-argument', WORD, '',
      'uint256 v = IWord(oracle).quote(IWord(oracle).quote(1, bytes32(0)), bytes32(0)); return v;',
-     ('IWord(oracle).quote(1, bytes32(0))', 0, 'FunctionCall', 'placement')),
+     ('IWord(oracle).quote(1, bytes32(0))', 0, 'FunctionCall', 'encoding')),
     ('not-operand', WORD, ERROR,
-     'require(!IWord(oracle).allowed(msg.sender), Gated()); return x;',
-     ('IWord(oracle).allowed(msg.sender)', 0, 'FunctionCall', 'placement')),
+     'require(!IWord(oracle).allowed(msg.sender), Gated()); return x;', None),
     ('equality-operand', WORD, ERROR,
-     'require(IWord(oracle).quote(1, bytes32(0)) == 5, Gated()); return x;',
-     ('IWord(oracle).quote(1, bytes32(0))', 0, 'FunctionCall', 'placement')),
+     'require(IWord(oracle).quote(1, bytes32(0)) == 5, Gated()); return x;', None),
     ('conditional-operand', WORD, '',
-     'bool b = x > 1 ? IWord(oracle).allowed(oracle) : false; return b ? 1 : 0;',
-     ('IWord(oracle).allowed(oracle)', 0, 'FunctionCall', 'placement')),
+     'bool b = x > 1 ? IWord(oracle).allowed(oracle) : false; return b ? 1 : 0;', None),
     ('if-condition', WORD, '',
-     'if (IWord(oracle).allowed(oracle)) { return 1; } return 0;',
-     ('IWord(oracle).allowed(oracle)', 0, 'FunctionCall', 'placement')),
+     'if (IWord(oracle).allowed(oracle)) { return 1; } return 0;', None),
     ('error-argument', WORD, 'error Coded(uint256 code);',
      'require(x > 1, Coded(IWord(oracle).quote(1, bytes32(0)))); return x;',
      ('IWord(oracle).quote(1, bytes32(0))', 0, 'FunctionCall',
