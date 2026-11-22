@@ -1,5 +1,6 @@
 import Compiler.CodegenCommon
 import Compiler.Yul.PatchRules
+import Compiler.Yul.TempReuse
 
 namespace Compiler
 
@@ -16,6 +17,13 @@ def defaultDispatchCase := Compiler.CodegenCommon.defaultDispatchCase
 def buildSwitch := Compiler.CodegenCommon.buildSwitch
 def runtimeCode := Compiler.CodegenCommon.runtimeCode
 def emitYul := Compiler.CodegenCommon.emitYul
+
+/-- `emitYul` followed by the temporary-reuse and scratch-memory spill pass
+(`Compiler.Yul.TempReuse.reuseAndSpillTempsObject` at `defaultMaxStackLocals`), the same pass
+`CompileDriverCommon.writeContract` applies before rendering. Use it wherever emitted Yul is
+handed to solc: blocks with many live temporaries otherwise fail with StackTooDeep (#2831). -/
+def emitYulSpilled (contract : IRContract) : YulObject :=
+  Yul.TempReuse.reuseAndSpillTempsObject Yul.TempReuse.defaultMaxStackLocals (emitYul contract)
 
 private def patchBackend : Compiler.CodegenCommon.PatchBackend :=
   { apply := fun base options =>

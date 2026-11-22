@@ -126,7 +126,7 @@ def run (model : CompilationModel) (report : ImportReport) (args : List String) 
     let fn ← selectRoot model name
     let (compilable, reason) ← match compileRoot model fn with
       | .ok ir =>
-        IO.FS.writeFile yulPath (Compiler.Yul.render (Compiler.emitYul ir))
+        IO.FS.writeFile yulPath (Compiler.Yul.render (Compiler.emitYulSpilled ir))
         pure (true, "")
       | .error reason => pure (false, reason)
     let projections := (report.projections.filter (·.function == name)).map fun p => Json.mkObj
