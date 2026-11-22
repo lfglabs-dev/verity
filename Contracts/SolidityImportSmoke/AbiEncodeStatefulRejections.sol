@@ -60,3 +60,15 @@ contract NestedPackedC is Counter {
         return keccak256(abi.encodePacked(keccak256(abi.encode(_bump())), x));
     }
 }
+
+contract ConcatC is Counter {
+    function digest(uint256 x) external returns (bytes32) {
+        return keccak256(bytes.concat(abi.encode(_bump()), bytes32(x + count)));
+    }
+}
+
+contract PackedEncodeC is Counter {
+    function digest(uint256 x) external returns (bytes32) {
+        return keccak256(abi.encodePacked(abi.encode(_bump()), x));
+    }
+}

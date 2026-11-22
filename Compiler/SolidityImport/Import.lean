@@ -5681,6 +5681,12 @@ private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false
       for k in [i + 1:args.size] do
         if memoryWriteOrderHazard arg args[k]! env then
           failAt arg "memory-writing packed arguments in a forwarded tuple require explicit evaluation-order support"
+  -- An ordered `abi.encode` runs its helpers in place, but the concat builtins walk their
+  -- arguments last to first and a storage `bytes` sibling is copied before solc copies it.
+  if args.size > 1 then
+    for arg in args do
+      if statefulAbiEncodeIn arg env then
+        failAt arg "effectful ABI encoding argument is unsupported"
   let mut buffers : Array EncodedBytes := #[]
   let mut pre := #[]
   -- For abi.encodePacked the first argument's panic takes precedence in both solc
