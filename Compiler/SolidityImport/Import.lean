@@ -7192,8 +7192,16 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         | some ps => mType ps[argIdx]!
         | none => pure ty
       if isDynamicBytesOrString ty then
-        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get) || jsonHasCustomRevert (← get) [] arg) then
+        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then
           failAt arg "effectful ABI encoding argument is unsupported"
+        -- A pure or view helper that may revert (`string` / `bytes` result) runs here, at its
+        -- own position: both solc pipelines evaluate the arguments left to right, and every
+        -- revert of the other arguments sits in their `pre`, also at their position. A
+        -- calldata sibling is validated only while encoding, so it stays rejected beside it.
+        if args.size > 1 && jsonHasCustomRevert (← get) [] arg then
+          for otherIdx in [:args.size] do
+            if otherIdx != argIdx && (← mType args[otherIdx]!).contains "calldata" then
+              failAt args[otherIdx]! "calldata ABI encoding argument beside a reverting helper is unsupported"
         let buf ← lowerEncodedBytes arg
         let ptrVal ← if isAtom buf.pointer then pure { pre := #[], expr := buf.pointer } else atom { pre := #[], expr := buf.pointer }
         let sizeVal ← if isAtom buf.size then pure { pre := #[], expr := buf.size } else atom { pre := #[], expr := buf.size }
