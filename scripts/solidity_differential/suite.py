@@ -267,6 +267,15 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(16, transactions)), '--seed', str(seed),
         '--change-prefix', '0', '1', '2', '7', '12', str(2**128 - 1), str(2**128),
         '--output', str(output / 'named-arguments')]))
+    # Assignment order (MappingWriteOrderSequence): x = 16 * y + c selects assignment c. The
+    # prefix makes key and right-hand side revert together (y = 0), runs the key and
+    # right-hand-side helper cases (y = 1), in-range writes and an out-of-range index.
+    checks.append(('mapping-write-order', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/MappingWriteOrderSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/MappingWriteOrderSequenceModel.lean',
+        '--transactions', str(max(32, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 17, 19, 20, 22, 23, 25, 28, 29, 49, 50, 75, 31, 62, 144, 2 ** 256 - 1]),
+        '--output', str(output / 'mapping-write-order')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',

@@ -57,6 +57,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "interface-word-static-call",
     "interface-word-static-call-rejections",
     "mapping-dirty",
+    "mapping-write-order",
     "mocks",
     "multiple-dynamic-abi",
     "mutations",
