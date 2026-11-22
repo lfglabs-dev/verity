@@ -352,7 +352,6 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             return match.group("body")
 
         for job in (
-            "build",
             "build-audits",
             "build-compiler-binaries",
             "compiler-audits",
@@ -362,6 +361,11 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             body = job_body(job)
             # lean.ci sizes and grows these VMs; Lean must use the cores it gets.
             self.assertNotIn("LEAN_NUM_THREADS:", body, job)
+        # `build` is the exception: a burst VM (more vCPUs than its 8-vCPU label,
+        # memory scaled by half the ratio) ran one Lean per vCPU and hit ENOMEM,
+        # so its Lake parallelism stays at the label's 8.
+        self.assertIn("\n    env:\n", job_body("build"))
+        self.assertIn("\n      LEAN_NUM_THREADS: 8\n", job_body("build"))
         for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
             self.assertIn("runs-on: lean-", job_body(job), job)
 

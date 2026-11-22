@@ -556,6 +556,15 @@ jobs:
     timeout-minutes: 120
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
+    env:
+      # Lake runs one Lean/clang process per LEAN_NUM_THREADS (default: every
+      # vCPU). lean.ci may boot this 8-vCPU label with up to 24 vCPUs but scales
+      # its memory by only half the vCPU ratio, and grows a VM only from memory
+      # its engine has free, so a burst VM next to another build ran out of
+      # memory (ENOMEM, error code 12; six builds on 2026-11-22). Capping at the
+      # label's 8 keeps every target and check and bounds peak memory to what
+      # an 8-vCPU run needs.
+      LEAN_NUM_THREADS: 8
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -742,9 +751,12 @@ jobs:
 
   import-mutations:
     runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
-    timeout-minutes: 210
+    # 12 shards of ~31 campaigns: ~2.5-3 h each on a 64 GiB build-medium host
+    # or an 8-vCPU lean.ci VM. Six shards of ~61 hit the old 210-minute limit
+    # with about a quarter of their campaigns not yet run.
+    timeout-minutes: 240
     needs: [changes, route, checks, build]
-    # ~6 runner-hours per run: nightly, manual dispatch, or PRs labelled
+    # ~30 runner-hours per run: nightly, manual dispatch, or PRs labelled
     # `ci:mutations` only, so it stops starving the compiler jobs on every PR
     # and every merge. The label is read from the triggering event: add it,
     # then push (or reopen), or dispatch this workflow on the branch instead.
@@ -752,10 +764,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     env:
       LEAN_NUM_THREADS: 2
-      IMPORT_MUTATION_SHARDS: 6
+      IMPORT_MUTATION_SHARDS: 12
       IMPORT_MUTATION_JOBS: auto
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
