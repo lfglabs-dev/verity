@@ -222,6 +222,10 @@ CASES = [
                 'packedEntry(uint256,uint256,uint128,uint64)',
                 'pointer(uint256,address,uint256)', 'keyOrder(uint256,address)', 'slotOfMember(uint256)',
                 'rawSlot(address,uint256)', 'rawSlotOf()']),
+    fixture('fixture-root-array-return', 'Contracts/SolidityImportSmoke/RootArrayReturnOneSlot.sol',
+            'RootArrayReturnOneSlot', [
+                'loadSlots(«bytes32[]»)', 'loadTransientSlots(«bytes32[]»)', 'loadRange(bytes32,uint256)',
+                'copied(«uint256[]»)', 'narrowCopied(«uint8[]»)', 'fromStorage()', 'built(uint256)']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]

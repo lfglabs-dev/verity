@@ -17961,7 +17961,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               returned := true
               handledScratchReturn := true
           if !handledScratchReturn && stmtIsTail && env.rootPost.isEmpty &&
-              env.rootReturnTypes == #["bytes32[]"] && env.stateVars.size > 1 then
+              env.rootReturnTypes == #["bytes32[]"] then
             if let [(arrId, arr)] := env.scalarArrays.toList then
               -- The shim replaces the block: apply it only to the exact v4 `extsload`/`exttload`
               -- code, whose every Solidity reference resolves to the bound calldata array.
@@ -18619,9 +18619,14 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let mut rootRetExprs : Array Expr := #[]
   let mut rootNamedReturn? : Option (Nat × String × String × String) := none
   let mut rootFlatStructState? : Option (Nat × String × Array (String × String × String) × Bool) := none
-  let isRootScalarArrayRet := (← get).stateVars.size > 1 && returns.size == 1 &&
-    (scalarArrayElement? (rootReturnTypes.getD 0 "")).isSome
-  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && flatStructRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone && !isRootScalarArrayRet
+  -- A scalar `T[] memory` result is a dynamic tuple component (`functionDynamicTupleReturn?`)
+  -- or an empty-body array result; no other lowering models a scalar array result (a
+  -- `T[] calldata` result would return the caller's calldata region), so reject it here.
+  for r in returns do
+    if (scalarArrayElement? (← mType r)).isSome &&
+        (optStr r "storageLocation" |>.getD "default") != "memory" then
+      failAt r "calldata array root return values are outside this slice"
+  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && flatStructRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone
   if let some (retSid, retStructName, rname, rid, memberSpecs) := flatStructRet? then
     let mut memberBindings : Array (String × String × String) := #[]
     for (mName, mTy, _) in memberSpecs do
@@ -18655,7 +18660,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     for r in returns do
       if (← mStr (← mField r "name")) != "" then
         rootInit := rootInit ++ (← bindRootDynamicTupleResult r)
-  else if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone && !isRootScalarArrayRet then
+  else if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone then
     for r in returns do
       let rty ← mType r
       discard (validateEnumTypeIfNeeded r rty)
@@ -19616,11 +19621,6 @@ private def importSlice
           return #[.uint256]
         if let some tys ← functionDynamicTupleReturn? fn then
           return tys
-        if (← get).stateVars.size > 1 then
-          let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
-          if rets.size == 1 then
-            if let some (_, elemPty, _) := scalarArrayElement? (← mType rets[0]!) then
-              return #[.array elemPty]
         let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
         let mut out : Array ParamType := #[]
         for r in rets do
