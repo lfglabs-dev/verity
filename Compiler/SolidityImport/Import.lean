@@ -14000,6 +14000,22 @@ private partial def structMemElementPointer (rhs : Json) (sid : Nat)
     out := out.push (.mstore (.add (.localVar ptr) (.literal (32 * i))) mExpr)
   return (out, .localVar ptr)
 
+/-- Whether a struct-typed right-hand side is a value that solc evaluates in full before the
+target's keys: a call returning a memory struct (constructor or helper), or a conditional
+whose branches are both such values. Variables, elements and storage pointers are references
+whose members solc reads at the copy. -/
+private partial def isStructValueSource (j : Json) : M Bool := do
+  let j ← stripParens j
+  match ← mKind j with
+  | "FunctionCall" =>
+      let ty ← mType j
+      return (ty.splitOn " storage").length == 1
+  | "Conditional" =>
+      let onTrue ← isStructValueSource (← mField j "trueExpression")
+      let onFalse ← isStructValueSource (← mField j "falseExpression")
+      return onTrue && onFalse
+  | _ => return false
+
 private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (deleting : Bool)
     (target expression : Json) : M (Array Stmt) := do
   if let .rawSlot rawSid baseSlot := path then
@@ -14090,17 +14106,10 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   unless memberVals.size == info.memberNames.size do
     failAt target "struct assignment member count mismatch"
   markField name
-  -- solc evaluates a struct value (a constructor or helper call, or a conditional of those)
-  -- before the target's keys, so with a key prelude its member values are captured first.
-  -- A storage or memory variable or element is a reference: solc reads its members at the
-  -- copy, after the keys.
-  let isCall (j : Json) : M Bool := do return (← mKind (← stripParens j)) == "FunctionCall"
-  let source ← stripParens right
-  let mut isValue ← isCall source
-  if (← mKind source) == "Conditional" then
-    let onTrue ← isCall (← mField source "trueExpression")
-    let onFalse ← isCall (← mField source "falseExpression")
-    isValue := onTrue && onFalse
+  -- solc evaluates a struct value before the target's keys, so with a key prelude its member
+  -- values are captured first. A reference (storage or memory variable, element or storage
+  -- pointer) is read at the copy, after the keys.
+  let isValue ← isStructValueSource right
   let valueFirst := !pre.isEmpty && isValue
   let mut valuePre := rhsPre
   let mut values : Array (String × Expr) := #[]
