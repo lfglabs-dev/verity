@@ -35,8 +35,8 @@ private def observe (name : String) (args : List Nat) : Option (Bool × List Nat
     (if r.returnWords.isEmpty then r.returnValue.toList else r.returnWords) else [])
 
 -- Status and return words observed from solc 0.8.26 (cancun) and 0.8.34 (osaka) via-IR, which
--- agree: the checks pass and `amount * 2` is returned, or the call reverts (empty revert data for
--- a failed `require`, Panic(0x11) for the overflow).
+-- agree: the checks pass and `amount * 2` is returned, or the call reverts. Revert data (empty
+-- for a failed `require`, Panic(0x11) for the overflow) is not compared here.
 #guard observe "viaCurrencyName" [0, 2, 5] == some (true, [10])
 #guard observe "viaCurrencyName" [0, 0, 5] == some (false, [])
 #guard observe "viaCurrencyName" [1, 2, 1000] == some (true, [2000])
@@ -50,7 +50,7 @@ private def observe (name : String) (args : List Nat) : Option (Bool × List Nat
 
 -- A `CurrencyLibrary.transfer` that performs the native or ERC-20 CALL in inline assembly (the
 -- structure of Uniswap v4's) is lowered through its body: a located rejection at the value
--- argument of the native-value CALL, which the ordinary Yul lowering does not admit.
+-- argument of the native-value CALL (the ordinary Yul lowering admits only a literal 0 value).
 /--
 error: LibraryLowLevelTransfer.sol:14:44: YulIdentifier: [solidity-import:unsupported] Yul call with a nonzero value is outside this slice
 closure: LibraryLowLevelTransfer.pay -> CurrencyLibrary.transfer
