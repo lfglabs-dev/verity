@@ -575,11 +575,15 @@ def libsOf (d : RemapDir) (keys : TomlKeys) : List String × Option String :=
       ((if (d.child? "lib").isSome then ["lib"] else []) ++ ["node_modules"], none)
     else (["lib"], none)
 
-/-- Symlinks or unreadable directories anywhere below `d`. -/
-partial def treeIssue (d : RemapDir) (p : Path) : Option String :=
+/-- Symlinks or unreadable directories where Foundry's scan of the library directory `d`
+lists entries: `d` itself, every child of `d` (`find_many` starts a window at each), and below
+that every directory `find_remapping_candidates` enters, so not inside `test`, `tests` or
+`demo` (`no_recurse`). A symlink named so is still listed, and counts. -/
+partial def treeIssue (d : RemapDir) (p : Path) (top : Bool := true) : Option String :=
   if d.hasSymlink || d.isSymlink then some s!"symlink in {String.intercalate "/" p}"
   else if d.unreadable then some s!"cannot list {String.intercalate "/" p}"
-  else d.children.toList.findSome? fun c => treeIssue c (p ++ [c.name])
+  else d.children.toList.findSome? fun c =>
+    if !top && noRecurse c.name then none else treeIssue c (p ++ [c.name]) false
 
 mutual
 /-- `RemappingsProvider::get_remappings` for the project at `root` (`d`), seeded with its
