@@ -557,12 +557,13 @@ jobs:
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
     env:
-      # Lake runs one Lean/clang process per LEAN_NUM_THREADS (default: every
-      # vCPU). lean.ci may give this 8-vCPU label more vCPUs (up to 32) but
-      # scales its memory by only half the vCPU ratio, and grows a VM only
-      # from memory its engine has free. Builds on 2026-11-22 failed with
-      # ENOMEM or allocation failures (error code 12); in jobs 137208270853
-      # and 137338728566 the smoke-model step ran ~15 Lean processes at once.
+      # Lake's parallelism follows LEAN_NUM_THREADS (default: every vCPU).
+      # lean.ci may give this 8-vCPU label more vCPUs (up to 32) but scales
+      # its memory by only half the vCPU ratio, and grows a VM only from
+      # memory its engine has free. Builds on 2026-11-22 failed with ENOMEM
+      # or allocation failures (error code 12): in jobs 137208270853 and
+      # 137338728566 the smoke-model step ran ~15 Lean processes at once, and
+      # the failures hit that step and the storage-layout clang step.
       # Capping at the label's 8 keeps every target and check and bounds peak
       # memory to an 8-vCPU run.
       LEAN_NUM_THREADS: 8
@@ -763,10 +764,10 @@ jobs:
     # hosts, and 21-30% of each shard was still unrun at the old 210-minute
     # limit. On the 28 GiB host nearly every importer rebuild overran its
     # 1800 s budget with 6 workers (failed, not slow); `--jobs auto` now
-    # budgets 6 GiB per worker, so that host runs at most 4. 16 campaigns: ~85 min on
-    # the 64 GiB hosts; 300 min leaves room for slower hosts and retries. The
-    # whole run is ~30 host-hours, so on build-medium alone (one shard per
-    # host at a time) a nightly takes ~12-14 h wall-clock, as before the split.
+    # budgets 6 GiB per worker: that host runs at most 4, a ~12 GiB lean.ci
+    # VM 1 (worst shard ~3.5 h). 16 campaigns: ~85 min on the 64 GiB hosts.
+    # The whole run is ~30 host-hours, so a complete nightly needs ~12-14 h
+    # wall-clock on build-medium alone (one shard per host at a time).
     timeout-minutes: 300
     needs: [changes, route, checks, build]
     # ~30 runner-hours per run: nightly, manual dispatch, or PRs labelled

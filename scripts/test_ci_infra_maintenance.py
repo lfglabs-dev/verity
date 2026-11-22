@@ -365,7 +365,8 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         # memory scaled by half the ratio) ran one Lean per vCPU and hit ENOMEM,
         # so its Lake parallelism stays at the label's 8.
         self.assertRegex(job_body("build"), r"\n    env:\n(?:      #.*\n)*      LEAN_NUM_THREADS: 8\n")
-        # No later step may raise it again through $GITHUB_ENV.
+        # No step may set it again (step env or $GITHUB_ENV).
+        self.assertEqual(len(re.findall(r"^\s+LEAN_NUM_THREADS:", job_body("build"), re.M)), 1)
         self.assertNotIn("LEAN_NUM_THREADS=", job_body("build"))
         for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
             self.assertIn("runs-on: lean-", job_body(job), job)
