@@ -470,6 +470,26 @@ private partial def refersToMemoryStructElement (j : Json) : M Bool := do
         (← refersToMemoryStructElement (← mField j "falseExpression")))
   | _ => pure false
 
+/-- The declarations whose struct value `j` may denote (through tuples,
+conditionals and struct-typed member accesses). Two components of one `return`
+tuple that share one hand the caller the same pointer twice, which separate flat
+copies cannot model once either is written. -/
+private partial def structValueRefIds (j : Json) : M (Array Nat) := do
+  match ← mKind j with
+  | "Identifier" =>
+      let id ← refInt j
+      pure (if id ≥ 0 && (← mType j).startsWith "struct " then #[id.toNat] else #[])
+  | "TupleExpression" =>
+      (← mArr (← mField j "components")).foldlM (init := #[]) fun acc c => do
+        if c.isNull then pure acc else pure (acc ++ (← structValueRefIds c))
+  | "Conditional" =>
+      return (← structValueRefIds (← mField j "trueExpression")) ++
+        (← structValueRefIds (← mField j "falseExpression"))
+  | "MemberAccess" =>
+      if (← mType j).startsWith "struct " then structValueRefIds (← mField j "expression")
+      else pure #[]
+  | _ => pure #[]
+
 private def readRawStructScalar (pre : Array Stmt) (baseSlot : Expr) (mInfo : RawStructMemberInfo) : M Val := do
   modify fun e => { e with usedRawStorage := true }
   let wordSlot := rawStructMemberSlot baseSlot mInfo.wordOffset
@@ -12980,6 +13000,7 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
             let mut pre : Array Stmt := #[]
             let mut vals : Array Expr := #[]
             let mut resIdx : Nat := 0
+            let mut structRefs : Array Nat := #[]
             for i in [:cs.size] do
               let c := cs[i]!
               if c.isNull then failAt expression "empty return component"
@@ -12987,6 +13008,10 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
                 failAt c "stateful or assignment expression in multi-return tuple requires explicit evaluation-order support"
               let cTy ← mType c
               if cTy.startsWith "struct " && !cTy.contains "[" then
+                let refs ← structValueRefIds c
+                if refs.any structRefs.contains then
+                  failAt c "returning one memory struct in two tuple components (an alias) is outside this slice"
+                structRefs := structRefs ++ refs
                 if ← refersToByRefStruct c then
                   failAt c "returning a memory struct parameter (an alias) is outside this slice"
                 if ← refersToMemoryStructElement c then

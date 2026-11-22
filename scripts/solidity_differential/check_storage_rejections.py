@@ -1376,6 +1376,18 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
+        # A helper returning one memory struct in two tuple components hands the
+        # caller two aliases of one pointer; flat copies cannot model that (#2830).
+        ('memory-struct-tuple-return-alias-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct P { uint256 a; uint256 b; }\n  uint256 internal stored;\n  function twice(uint256 x) internal pure returns (P memory, uint256, P memory) {\n    P memory t = P(x, x + 1);\n    return (t, 0, t);\n  }\n  function checked(uint256 x) external returns (uint256) {\n    stored = x;\n    (P memory p, , P memory q) = twice(x);\n    p.a = 9;\n    return q.a;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] returning one memory struct in two tuple components (an alias) is outside this slice'),
+        ('memory-struct-tuple-return-conditional-alias-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct P { uint256 a; uint256 b; }\n  uint256 internal stored;\n  function pick(uint256 x) internal pure returns (P memory, P memory) {\n    P memory t = P(x, 1);\n    P memory u = P(2, x);\n    return (x > 3 ? t : u, t);\n  }\n  function checked(uint256 x) external returns (uint256) {\n    stored = x;\n    (P memory p, P memory q) = pick(x);\n    p.a = 9;\n    return q.a;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] returning one memory struct in two tuple components (an alias) is outside this slice'),
         ('memory-struct-array-flat-local-element-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 v; uint256 w; }\n  function checked(uint256 x) external pure returns (uint256) {\n    S[] memory a = new S[](1);\n    S memory s = S(x, 1);\n    a[0] = s;\n    return a[0].v;\n  }\n}\n",
          None,
