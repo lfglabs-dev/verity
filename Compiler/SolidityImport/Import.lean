@@ -8364,8 +8364,12 @@ private partial def lowerEcrecover (j callee : Json) : M Val := do
     let converted ← convert paramTy (← mType arg) (← lowerExpr arg) arg
     -- Copy each argument into a fresh local before the next one runs (solc's left-to-right
     -- order): a plain local is copied too, since a later argument may assign it.
+    -- solc's ABI encoder cleans `v` to 8 bits; a Yul-assigned `uint8` local may hold a
+    -- dirty word until a typed consumer like this one.
+    let value := if paramTy == "uint8" then .bitAnd converted.expr (.literal 255)
+      else converted.expr
     let word ← fresh
-    pre := pre ++ converted.pre.push (.letVar word converted.expr)
+    pre := pre ++ converted.pre.push (.letVar word value)
     words := words.push (.localVar word)
   let ptr ← fresh
   let success ← fresh

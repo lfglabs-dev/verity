@@ -6,8 +6,8 @@ overwrites the storage or reassigns the local an earlier argument reads (left-to
 evaluation), and in an
 EIP-2612-style permit whose digest hashes the consumed `nonces[owner]++`. Signatures are produced
 here with deterministic nonces; the campaign covers valid signatures, their high-`s`
-twins (which the precompile accepts), `v` outside {27, 28} (including words whose low byte
-is 27), zero and out-of-range `r` / `s`, an `r` that is no curve x-coordinate, random
+twins (which the precompile accepts), `v` outside {27, 28}, `uint8(v)` truncation and a
+dirty assembly-assigned `uint8` `v` (encoded as its low byte), zero and out-of-range `r` / `s`, an `r` that is no curve x-coordinate, random
 words, valid, forged, replayed and expired permits. On the EVM the call reaches the real
 precompile at `address(1)`; Denote answers it with `ecrecover-precompile-v1`
 (`PrecompileResponderMocks`). A divergence is shrunk to a deletion-minimal sequence.
@@ -169,6 +169,11 @@ def transactions_for(count, seed, contract):
         for v_word in (v, v + 256, v + 2**255, v - 27 + 2**8 * 3):
             add('recoverWide(bytes32,uint256,bytes32,bytes32)', ['bytes32', 'uint256', 'bytes32', 'bytes32'],
                 [digest, v_word, word(r), word(s)])
+        # A dirty assembly-assigned `uint8`: solc encodes only its low byte.
+        for v_word in (v + 256, v + 2**255, 55 - v + 2**8 * 7):
+            add('recoverAssemblyV(bytes32,uint256,bytes32,bytes32)',
+                ['bytes32', 'uint256', 'bytes32', 'bytes32'], [digest, v_word, word(r), word(s)],
+                owner if v_word % 256 == v else None)
         # Left to right: the digest is read before the last argument overwrites it.
         add('setDigest(bytes32)', ['bytes32'], [digest])
         add('recoverOrdered(uint8,bytes32,bytes32)', ['uint8', 'bytes32', 'bytes32'], [v, word(r), word(s)])

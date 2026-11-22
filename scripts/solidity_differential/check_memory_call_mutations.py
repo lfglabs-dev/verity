@@ -72,16 +72,20 @@ MUTANTS = {
         ECRECOVER),
     # A plain local argument left unbound is read after a later argument reassigns it.
     'import-ecrecover-argument-copy': (IMPORT,
-        'pre := pre ++ converted.pre.push (.letVar word converted.expr)\n    words := words.push (.localVar word)',
-        'pre := pre ++ converted.pre\n    words := words.push converted.expr', ECRECOVER),
+        'pre := pre ++ converted.pre.push (.letVar word value)\n    words := words.push (.localVar word)',
+        'pre := pre ++ converted.pre\n    words := words.push value', ECRECOVER),
+    # A dirty `uint8` word (assigned in inline assembly) reaches the precompile uncleaned.
+    'import-ecrecover-v-cleanup': (IMPORT,
+        'let value := if paramTy == "uint8" then .bitAnd converted.expr (.literal 255)',
+        'let value := if paramTy == "uint8x" then .bitAnd converted.expr (.literal 255)', ECRECOVER),
     'import-ecrecover-address-mask': (IMPORT,
         '.letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 160 - 1)))]',
         '.letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 159 - 1)))]', ECRECOVER),
-    # The precompile program: high `s` is accepted, and `v` selects the parity of `y`.
-    'denote-ecrecover-high-s': (PRECOMPILE,
+    # The harness precompile program: high `s` is accepted, `v` selects the parity of `y`.
+    'mock-ecrecover-high-s': (PRECOMPILE,
         'unless (v == 27 || v == 28) && 0 < r && r < n && 0 < s && s < n do none',
         'unless (v == 27 || v == 28) && 0 < r && r < n && 0 < s && s ≤ n / 2 do none', ECRECOVER),
-    'denote-ecrecover-parity': (PRECOMPILE,
+    'mock-ecrecover-parity': (PRECOMPILE,
         'let y := if beta % 2 == v - 27 then beta else p - beta',
         'let y := if beta % 2 != v - 27 then beta else p - beta', ECRECOVER),
 }
