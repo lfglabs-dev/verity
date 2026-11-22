@@ -10748,7 +10748,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
                                yulNames := e.yulNames.erase rname }
       results := results.push (ptr, rty, true)
       retExprs := retExprs ++ #[(buf.pointer, rty), (buf.size, "uint256")]
-    else if rloc == "memory" && rty.startsWith "struct " && !rty.contains "[" && (← get).stateVars.size > 1 then
+    else if rloc == "memory" && rty.startsWith "struct " && !rty.contains "[" then
       let (retSid, retDecl) ← resolveStructDeclFromType r
       let retStructName ← mStr (← mField retDecl "name")
       let retMembers ← mArr (← mField retDecl "members")
@@ -13127,7 +13127,7 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
               if cs.size > 1 && (statefulCallIn c (← get) || assignmentIn c) then
                 failAt c "stateful or assignment expression in multi-return tuple requires explicit evaluation-order support"
               let cTy ← mType c
-              if cTy.startsWith "struct " && !cTy.contains "[" && (← get).stateVars.size > 1 then
+              if cTy.startsWith "struct " && !cTy.contains "[" then
                 if ← refersToByRefStruct c then
                   failAt c "returning a memory struct parameter (an alias) is outside this slice"
                 if ← refersToMemoryStructElement c then
@@ -16166,7 +16166,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       else
         let loc := optStr d "storageLocation" |>.getD "default"
         let dTy ← mType d
-        if loc == "memory" && dTy.startsWith "struct " && !dTy.contains "[" && (← get).stateVars.size > 1 then
+        if loc == "memory" && dTy.startsWith "struct " && !dTy.contains "[" then
           let (_, sDecl) ← resolveStructDeclFromType d
           let sMembers ← mArr (← mField sDecl "members")
           for mNode in sMembers do
@@ -16181,16 +16181,21 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     unless expectedTypes.size == retExprs.size do
       failAt s s!"tuple declaration arity {decls.size} does not match helper return arity {retExprs.size}"
     let mut out := callPre
+    -- A memory struct component takes one result per member, so the results of
+    -- later components start at a running offset, not at the component index.
+    let mut off : Nat := 0
     for i in [:decls.size] do
       let d := decls[i]!
-      if d.isNull then continue
+      if d.isNull then
+        off := off + 1
+        continue
       let name ← mStr (← mField d "name")
       unless name.all (fun c => c.isAlphanum || c == '_' || c == '$') && name != "" do
         failAt d s!"unsupported local name {name}"
       let id ← mNat (← mField d "id")
       let loc := optStr d "storageLocation" |>.getD "default"
       let ty ← mType d
-      if loc == "memory" && ty.startsWith "struct " && !ty.contains "[" && (← get).stateVars.size > 1 then
+      if loc == "memory" && ty.startsWith "struct " && !ty.contains "[" then
         let (sid, sDecl) ← resolveStructDeclFromType d
         let sName ← mStr (← mField sDecl "name")
         let sMembers ← mArr (← mField sDecl "members")
@@ -16199,7 +16204,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
           let mNode := sMembers[mIdx]!
           let mName ← mStr (← mField mNode "name")
           let mTy ← mType mNode
-          let (retExpr, retTy) := retExprs.getD (i + mIdx) (.literal 0, "")
+          let (retExpr, retTy) := retExprs.getD (off + mIdx) (.literal 0, "")
           let converted ← convert mTy retTy { pre := #[], expr := retExpr } d
           let mBinding ← freshFor s!"{name}_{mName}"
           out := out ++ converted.pre |>.push (.letVar mBinding converted.expr)
@@ -16209,9 +16214,10 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                    yulNames := e.yulNames.erase name,
                    yulMemoryArrays := e.yulMemoryArrays.erase name,
                    yulMemoryStructs := e.yulMemoryStructs.insert name id }
+        off := off + sMembers.size
         continue
       if loc == "memory" then
-        let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
+        let (retExpr, retTy) := retExprs.getD off (.literal 0, "")
         if let some fixedTy := fixedMemArrayType? ty then
           unless fixedMemArrayType? retTy == some fixedTy do
             failAt d "fixed-size memory array tuple component type differs"
@@ -16220,6 +16226,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
           modify fun e =>
             { e with fixedMemArrays := e.fixedMemArrays.insert id arr, yulNames := e.yulNames.erase name,
                      yulMemoryArrays := e.yulMemoryArrays.erase name, yulMemoryStructs := e.yulMemoryStructs.erase name }
+          off := off + 1
           continue
         if let some (elemStr, elemPty, abiKind) := scalarArrayElement? ty then
           unless (scalarArrayElement? retTy).map (·.1) == some elemStr do
@@ -16232,13 +16239,15 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
           modify fun e =>
             { e with scalarArrays := e.scalarArrays.insert id owned, yulNames := e.yulNames.erase name,
                      yulMemoryArrays := e.yulMemoryArrays.erase name, yulMemoryStructs := e.yulMemoryStructs.erase name }
+          off := off + 1
           continue
       unless loc == "default" do
         failAt d "tuple variable declaration only supports scalar locals"
       discard (validateEnumTypeIfNeeded d ty)
       let some scalarType := localParamType ty
         | failAt d s!"unsupported tuple local type {ty}"
-      let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
+      let (retExpr, retTy) := retExprs.getD off (.literal 0, "")
+      off := off + 1
       let converted ← convert ty retTy { pre := #[], expr := retExpr } d
       let binding ← freshFor name
       let expr := Expr.localVar binding
@@ -16328,7 +16337,7 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                  yulNames := e.yulNames.erase name,
                  yulMemoryStructs := e.yulMemoryStructs.insert name id }
       return effects
-    if loc == "memory" && (← mType d).startsWith "struct " && !(← mType d).contains "[" && (← get).stateVars.size > 1 then
+    if loc == "memory" && (← mType d).startsWith "struct " && !(← mType d).contains "[" then
       let sid ← refInt (← mField d "typeName")
       if sid < 0 then failAt d "builtin struct"
       let some sDecl := (← get).structs.find? sid.toNat | failAt d "unknown struct declaration"

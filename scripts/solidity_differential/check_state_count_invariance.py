@@ -131,6 +131,34 @@ CASES = [
     }
 }
 ''', ['clamp(uint256)']),
+    inline('memory-struct-locals', '''contract C {
+    struct Pair {
+        uint256 a;
+        bool flag;
+    }
+
+    uint256 private total;
+
+    function split(uint256 x) internal pure returns (Pair memory p, uint256 k) {
+        p.a = x + 1;
+        p.flag = x > 4;
+        k = x * 2;
+    }
+
+    function make(uint256 x) internal pure returns (uint256, Pair memory) {
+        return (x + 3, Pair(x, true));
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        total = x;
+        (Pair memory p, uint256 k) = split(x);
+        (uint256 j, Pair memory q) = make(x);
+        Pair memory z;
+        if (q.flag) z.a = j;
+        return p.flag ? p.a + k + z.a : q.a + z.a;
+    }
+}
+''', ['run(uint256)']),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;
