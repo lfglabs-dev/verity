@@ -1746,6 +1746,13 @@ private def lowerAssembly (j : Json) (retName : String) : M Val := do
   checkYulReturnTarget j asg vars[0]! vname retName
   lowerYulValue (← mField asg "value")
 
+/-- solc evaluates an assignment's right-hand side before the target's mapping keys and
+indexes (`=` and `op=`, legacy and via-IR). Bind the lowered value to a fresh local so it can be
+emitted before the target's key prelude, which then cannot change what is stored. -/
+private def captureAssignedValue (value : Val) : M Val := do
+  let captured ← fresh
+  pure { pre := value.pre.push (.letVar captured value.expr), expr := .localVar captured }
+
 private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
   if ty == "bool" then
     match v.expr with
@@ -14613,8 +14620,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       markField name
       markStructFixedArray name arrInfo.member
       return result
-    -- solc evaluates the right-hand side before the target's keys; these
-    -- paths capture the keys first, which a memory-writing helper can observe.
+    -- solc evaluates the right-hand side before the target's keys. The scalar
+    -- mapping and dynamic array paths below emit the captured right-hand side
+    -- first; this guard is kept as a conservative check for the other paths.
     if !deleting then
       if memoryWriteOrderHazard target (← mField expression "rightHandSide") (← get) then
         failAt target "memory-writing helper right-hand side with a memory-reading index or key is unsupported"
@@ -14626,8 +14634,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let right ← mField expression "rightHandSide"
         if assignmentIn right || statefulCallIn right (← get) then
           failAt target "struct dynamic array write index prelude with stateful RHS is unsupported"
+      let value ← if deleting then pure value else captureAssignedValue value
       let (slotPre, arrSlot) ← resolveStructDynamicSlot path dynInfo target
-      return ← writeStorageDynamicArrayElement (pre ++ value.pre ++ slotPre) "" arrSlot dynInfo.elemType index value.expr deleting
+      return ← writeStorageDynamicArrayElement (value.pre ++ pre ++ slotPre) "" arrSlot dynInfo.elemType index value.expr deleting
     if let .storageDynamicElement pre fieldName slotExpr elemTy index := reference then
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
@@ -14636,7 +14645,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let right ← mField expression "rightHandSide"
         if assignmentIn right || statefulCallIn right (← get) then
           failAt target "storage dynamic array write index prelude with stateful RHS is unsupported"
-      return ← writeStorageDynamicArrayElement (pre ++ value.pre) fieldName slotExpr elemTy index value.expr deleting
+      let value ← if deleting then pure value else captureAssignedValue value
+      return ← writeStorageDynamicArrayElement (value.pre ++ pre) fieldName slotExpr elemTy index value.expr deleting
     if let .structMappingElement pre path mapInfo key := reference then
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
@@ -14650,7 +14660,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         let capturedValue ← fresh
         let valuePre := value.pre.push (.letVar capturedValue value.expr)
         return ← writeStructMappingElement (valuePre ++ pre) path mapInfo key (.localVar capturedValue) false target
-      return ← writeStructMappingElement (pre ++ value.pre) path mapInfo key value.expr deleting target
+      let value ← if deleting then pure value else captureAssignedValue value
+      return ← writeStructMappingElement (value.pre ++ pre) path mapInfo key value.expr deleting target
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     if let .rawSlot _ _ := path then
@@ -14679,9 +14690,10 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
       let right ← mField expression "rightHandSide"
       atom (← lowerConverted (← mType target) right)
+    let value ← if deleting then pure value else captureAssignedValue value
     let targetTy ← mType target
     let expr := if deleting then value.expr else cleanHelperResultExpr targetTy value
-    return (pre ++ value.pre).push (write expr)
+    return (value.pre ++ pre).push (write expr)
   unless (← mKind target) == "Identifier" || (← mKind target) == "FunctionCall" do
     failAt target "only a resolved scalar storage identifier is writable"
   match ← lowerRef target with
@@ -15050,8 +15062,9 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
       let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
       let writeStmts ← writeStructMappingElement #[] path mapInfo key combined.expr false target
       return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
-    -- solc evaluates the right-hand side before the target's keys; this path
-    -- captures the keys first, which a memory-writing helper can observe.
+    -- solc evaluates the right-hand side before the target's keys. This path
+    -- emits the captured right-hand side first; the guard is kept as a
+    -- conservative check.
     if memoryWriteOrderHazard target right (← get) then
       failAt target "memory-writing helper right-hand side with a memory-reading index or key is unsupported"
     let .path pre path := reference
@@ -15071,10 +15084,10 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
     if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
       failAt target "compound mapping write key prelude with stateful RHS is unsupported"
     markField name
-    let rhsVal ← lowerRhs ty
+    let rhsVal ← captureAssignedValue (← lowerRhs ty)
     let lhsVar ← fresh
     let combined ← combineCompound operator ty (.localVar lhsVar) rhsVal.expr expression
-    return (pre ++ rhsVal.pre).push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
+    return (rhsVal.pre ++ pre).push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
   unless (← mKind target) == "Identifier" do
     failAt target "only a resolved scalar storage identifier is writable"
   let .state name pre ← lowerRef target

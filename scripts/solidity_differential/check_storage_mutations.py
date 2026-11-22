@@ -171,6 +171,24 @@ MUTANTS.update({
     'import-push-length-bound': (
         '.ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]',
         '.ite (.lt oldLen (.literal (2 ^ 64 + 1))) [] [.panicCode (.literal 0x41)]')})
+# Assignment evaluates and captures the right-hand side before the target's keys and index
+# (solc, legacy and via-IR). Each mutant puts one site's key prelude back first.
+MUTANTS.update({
+    'import-assign-order-dynamic-array': (
+        'writeStorageDynamicArrayElement (value.pre ++ pre) fieldName slotExpr elemTy index value.expr deleting',
+        'writeStorageDynamicArrayElement (pre ++ value.pre) fieldName slotExpr elemTy index value.expr deleting'),
+    'import-assign-order-mapping': (
+        '    return (value.pre ++ pre).push (write expr)',
+        '    return (pre ++ value.pre).push (write expr)'),
+    'import-assign-order-mapping-compound': (
+        '    return (rhsVal.pre ++ pre).push (.letVar lhsVar read)',
+        '    return (pre ++ rhsVal.pre).push (.letVar lhsVar read)'),
+    'import-assign-order-struct-dynamic-array': (
+        'writeStorageDynamicArrayElement (value.pre ++ pre ++ slotPre)',
+        'writeStorageDynamicArrayElement (pre ++ value.pre ++ slotPre)'),
+    'import-assign-order-struct-mapping': (
+        'writeStructMappingElement (value.pre ++ pre) path mapInfo key value.expr deleting target',
+        'writeStructMappingElement (pre ++ value.pre) path mapInfo key value.expr deleting target')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -955,6 +973,8 @@ def run(directory, output, name):
         fixture = "PushLengthBoundSequence"
     if name.startswith("import-empty-push-"):
         fixture = "EmptyPushSequence"
+    if name.startswith("import-assign-order-"):
+        fixture = "MappingWriteOrderSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
         fixture = "SignedEventSequence"
     if name.startswith("import-constant-array-"):
@@ -1028,6 +1048,12 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 1, 5, 9, 13, 2, 6, 10, 0, 3, 7, 11, 4, 1])])
+    if fixture == 'MappingWriteOrderSequence':
+        # x = 16 * y + c selects assignment c; y = 0 makes key and right-hand side revert.
+        argv[argv.index('--transactions') + 1] = '32'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 17, 19, 20, 22, 23, 25, 28, 29, 49, 50, 75, 31, 62, 144, 2 ** 256 - 1])])
     if fixture == 'EmptyPushSequence':
         # Push three elements onto each array (x % 4 == 1), lower every length to 0 (x = 0),
         # push() (2), read stale elements into `last` and `lastWord` (3), lower to 1 (4, 16) and
