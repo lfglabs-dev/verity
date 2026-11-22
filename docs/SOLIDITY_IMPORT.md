@@ -55,23 +55,22 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   and whose first directory is not protected (`src`, `lib`, `contracts`, the
   project's `test` and `script`), or that a configuration's remapping could
   match.
-- The importer refuses, asking to write the remapping in `remappings.txt`:
-  - an import a context remapping (`context:name=…`, written or from a
-    library) can reach;
+- The importer refuses, saying why:
+  - an import a context remapping (`context:name=…`) or a library's file
+    remapping (`….sol=…`) can reach (not modeled);
   - every import, when a library's `foundry.toml` has a line or key it cannot
     check, uses `extends` or sets the default profile as an inline table, a
     library directory or configuration file is a symlink (Foundry reads through
     it, the importer never follows one) or unreadable, or, with auto-detection
     on, a `libs` entry lies outside the project or has several components (a
-    hoisted `../../node_modules`);
-  - an import a library's file remapping (`….sol=…`) could reach;
-  - an inferred remapping whose value depends on directory listing order in
-    Foundry;
-  - when a scanned library holds a symlink (Foundry follows it, the importer
-    does not), or Foundry's scan depends on listing order or on directories
-    above the project root, an import the full scan was needed for. A
-    protected path, a written match ending in `/`, or a written `E` without
-    `/` followed by `E/` still resolves.
+    hoisted `../../node_modules`). Remove the cause, or set
+    `auto_detect_remappings = false` if the written remappings suffice;
+  - an import that needs an inferred remapping whose value depends on
+    directory listing order in Foundry, or that needs the full scan while a
+    scanned library holds a symlink (Foundry follows it, the importer does
+    not) or Foundry's scan depends on listing order or on directories above
+    the project root. A protected path or a written match ending in `/` still
+    resolves; a remapping written in `remappings.txt` resolves the others.
 - Not modeled: a nested `foundry.toml` that is well-formed TOML but which
   Foundry rejects for a value's type (Foundry then ignores that library's
   remappings, the importer does not); environment variables

@@ -327,6 +327,14 @@ private def hoisted (auto : String) : List (String × String) :=
 #guard (errorTree (layout (hoisted "")) (explicitOf (hoisted "")) "src/E.sol" "@oz/A.sol"
   |>.splitOn "outside the project").length > 1
 
+-- `libs = ["./lib"]` names `lib`, as in Foundry.
+#guard FoundryRemap.libName? "./lib" == some "lib"
+#guard FoundryRemap.libName? "lib/" == some "lib"
+#guard FoundryRemap.libName? "../lib" == none
+#guard FoundryRemap.libName? "a/b" == none
+#guard lines [("foundry.toml", "[profile.default]\nlibs = ['./lib']\n"), ("lib/dep/src/A.sol", "")] ==
+  ["dep/=lib/dep/src/"]
+
 -- `foundry.toml` reading: only `[profile.default]` counts; other profiles are ignored; a
 -- modeled key outside any profile, or an unreadable value, is an issue.
 #guard (FoundryRemap.parseFoundryToml

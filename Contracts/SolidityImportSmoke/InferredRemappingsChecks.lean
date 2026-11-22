@@ -87,7 +87,7 @@ solidity_import configContext from "Contracts/SolidityImportSmoke/remappings-con
   function value()
 
 /--
-error: src/Entry.sol: import dep/DepMath.sol: Foundry's remappings are unknown here (deps/bad/foundry.toml line 2 is not TOML this reader checks); write the remapping in remappings.txt
+error: src/Entry.sol: import dep/DepMath.sol: Foundry's remappings are unknown here (deps/bad/foundry.toml line 2 is not TOML this reader checks), so any import may resolve differently; remove the cause, or set auto_detect_remappings = false if the written remappings suffice
 -/
 #guard_msgs in
 solidity_import unknown from "Contracts/SolidityImportSmoke/inferred-remappings-unknown"
@@ -182,7 +182,7 @@ solidity_import symlinkRootConfig from ".lake/remapping-fixtures/symlink-root-co
 #guard symlinkRootConfig.report.inferredRemappings == ["src/sub/=deps/dep/src/"]
 
 /--
-error: src/Entry.sol: import src/foo/Bar.sol: Foundry's remappings are unknown here (deps/dep: a configuration file is a symlink or unreadable); write the remapping in remappings.txt
+error: src/Entry.sol: import src/foo/Bar.sol: Foundry's remappings are unknown here (deps/dep: a configuration file is a symlink or unreadable), so any import may resolve differently; remove the cause, or set auto_detect_remappings = false if the written remappings suffice
 -/
 #guard_msgs in
 solidity_import symlinkConfig from ".lake/remapping-fixtures/symlink-config-file"
