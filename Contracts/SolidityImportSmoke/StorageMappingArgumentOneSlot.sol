@@ -115,7 +115,8 @@ contract StorageMappingArgumentOneSlot {
         return r * 10 + b.bal[who];
     }
 
-    // The key expression is evaluated once, at the call, before the other arguments.
+    // The outer key and a computed argument; a key or argument that assigns (`i++`) is rejected
+    // (`storage-mapping-argument-assignment-key-rejected`).
     function keyOrder(uint256 id, address who) external returns (uint256) {
         uint256 i = id;
         uint256 r = credit(books[i].bal, who, i + 1);
