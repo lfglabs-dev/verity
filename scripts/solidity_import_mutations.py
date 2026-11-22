@@ -925,8 +925,10 @@ def auto_jobs() -> int:
     """One worker per usable core minus two, bounded by memory.
 
     Each worker is a single-threaded Lean rebuild of the importer (~2.7 GiB
-    peak) plus its campaign; budget 4 GiB per worker so hosts with less memory
-    than cores (or a cgroup cap) do not swap. Campaigns also run their own
+    peak) plus its campaign; budget 6 GiB per worker so hosts with less memory
+    than cores (or a cgroup cap) do not swap. At 4 GiB a 28 GiB CI host ran 6
+    workers and every importer rebuild overran its 1800 s budget, while 6
+    workers on 64 GiB hosts and 2 on ~12 GiB VMs finished. Campaigns also run their own
     `lean --run` and anvil processes, so two cores stay free for them: with one
     worker per core, campaign subprocesses overran their time budgets.
     """
@@ -943,7 +945,7 @@ def auto_jobs() -> int:
             limits.append(int(cap))
     except (OSError, ValueError):
         pass
-    by_memory = min(limits) // (4 << 30) if limits else cores
+    by_memory = min(limits) // (6 << 30) if limits else cores
     return max(1, min(cores - 2, by_memory))
 
 
