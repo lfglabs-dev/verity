@@ -249,6 +249,23 @@ private def withSymlink : RemapDir :=
 #guard resolveTree withSymlink #[("x/", "y/")] "src/E.sol" "dep/A.sol" == none
 #guard (errorTree withSymlink #[] "src/E.sol" "dep/A.sol" |>.splitOn "symlink in lib").length > 1
 #guard resolveTree withSymlink #[("oz", "deps/oz/")] "src/E.sol" "ozx/A.sol" == none
+-- Foundry does not enter `test`, `tests` or `demo` below a library's first level, so a
+-- symlink there cannot change its result (`forge build` compiled `lib/dep/src/D.sol` here);
+-- at the first level it is scanned, and counts.
+private def withNestedLink (dir : String) : RemapDir :=
+  let d := layout dapptools
+  let lib := (d.child? "lib").get!
+  let dep := (lib.child? "dep").get!
+  let dep := { dep with children := dep.children.push { name := dir, hasSymlink := true } }
+  { d with children := #[{ lib with children := #[dep] }] }
+#guard (inferFoundryRemappings (withNestedLink "test") #[]).globalIssue.isNone
+#guard resolveTree (withNestedLink "demo") #[] "src/E.sol" "dep/A.sol" ==
+  some ("lib/dep/src/A.sol", some "dep/", 2)
+#guard (inferFoundryRemappings (withNestedLink "other") #[]).globalIssue.isSome
+#guard (inferFoundryRemappings { layout dapptools with children :=
+  #[{ (layout dapptools |>.child? "lib").get! with
+    children := #[{ name := "test", hasSymlink := true }] }] } #[]).globalIssue.isSome
+
 -- The symlink itself can supply the name: with `lib/pkg` a symlink to a package, `forge build`
 -- compiled `lib/pkg/src/P.sol` for `pkg/P.sol` although `pkg/P.sol` exists in the project.
 -- Resolving as written would take another file, so the import is refused.

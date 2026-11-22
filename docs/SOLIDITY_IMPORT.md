@@ -67,8 +67,9 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
     `auto_detect_remappings = false` if the written remappings suffice;
   - an import that needs an inferred remapping whose value depends on
     directory listing order in Foundry, or that needs the full scan while a
-    scanned library holds a symlink (Foundry follows it, the importer does
-    not) or Foundry's scan depends on listing order or on directories above
+    scanned library holds a symlink where Foundry looks (it follows the link,
+    the importer does not; symlinks inside `test`, `tests` or `demo` below a
+    library's first level do not count) or Foundry's scan depends on listing order or on directories above
     the project root. A protected path or a written match ending in `/` still
     resolves; a remapping written in `remappings.txt` resolves the others.
 - Not modeled: a nested `foundry.toml` that is well-formed TOML but which
