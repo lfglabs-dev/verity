@@ -673,8 +673,8 @@ MUTANTS.update({
 # Literal tuple initializers and skipped declaration components, observed through TupleSequence.
 MUTANTS.update({
     'import-tuple-destructuring-component-order': ('pre := pre ++ val.pre', 'pre := val.pre ++ pre'),
-    'import-tuple-destructuring-skip': ('        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD i (.literal 0, "")',
-                                        '        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD (decls.size - 1 - i) (.literal 0, "")'),
+    'import-tuple-destructuring-skip': ('        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD off (.literal 0, "")',
+                                        '        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD (decls.size - 1 - off) (.literal 0, "")'),
 })
 
 MUTANTS.update({
