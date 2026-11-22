@@ -23,6 +23,27 @@ solidity_import batchReads from "Contracts/SolidityImportSmoke" entry "TailAssem
   contract TailAssemblyArrayRead
   function loadSlots(«bytes32[]»)
   function loadTransientSlots(«bytes32[]»)
+  function readFirst()
+
+private def has (text needle : String) : Bool := (text.splitOn needle).length > 1
+
+-- The import report lists, per root, the shortcut its model uses and the site of the block
+-- it replaces; a root without one lists none.
+#guard batchReads.report.functions.map (fun st => (st.function, st.shortcuts.map
+    fun u => (u.fingerprintName, u.lowering, u.file, u.line, u.column))) ==
+  [("loadSlots", [("extsloadBatchYulFingerprint", "lowerBatchArrayLoadShim",
+      "TailAssemblyArrayRead.sol", 12, 9)]),
+   ("loadTransientSlots", [("exttloadBatchYulFingerprint", "lowerBatchArrayLoadShim",
+      "TailAssemblyArrayRead.sol", 31, 9)]),
+   ("readFirst", [])]
+#guard batchReads.report.functions.map (·.shortcuts.map (·.fingerprint)) ==
+  [[Compiler.CompilationModel.SolidityImport.extsloadBatchYulFingerprint],
+   [Compiler.CompilationModel.SolidityImport.exttloadBatchYulFingerprint], []]
+#guard has batchReads.report.toText ("\n  shortcut extsloadBatchYulFingerprint lowering " ++
+  "lowerBatchArrayLoadShim fingerprint " ++
+  Compiler.CompilationModel.SolidityImport.extsloadBatchYulFingerprint ++
+  " at TailAssemblyArrayRead.sol:12:9\n")
+#guard has batchReads.report.toText "\nstatus readFirst importable denoteCovered true"
 
 -- Same shape, different code.
 /--

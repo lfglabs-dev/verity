@@ -57,6 +57,13 @@ private def observe (name : String) (args : List Nat) : Option (Bool × List Nat
 #guard observe "loadRangeFromLocals" [2^256 - 3, 3] == some (true, [32, 3, 0, 0, 7])
 #guard (observe "loadRangeFromLocals" [2^256 - 1, 1]).map Prod.fst == some false
 
+-- The import report lists the shortcut each root's model uses and the replaced block's site.
+#guard rangeReads.report.functions.map (fun st => (st.function, st.shortcuts.map
+    fun u => (u.fingerprintName, u.lowering, u.fingerprint, u.file, u.line, u.column))) ==
+  ["loadRange", "loadRangeSwapped", "loadRangeFromLocals"].zip
+    ([12, 33, 55].map fun line => [("extsloadRangeYulFingerprint", "lowerBatchRangeSloadShim",
+      SolidityImport.extsloadRangeYulFingerprint, "TailAssemblyRangeRead.sol", line, 9)])
+
 -- Same shape and Yul names, different code.
 /--
 error: TailAssemblyRangeRead.sol:77:27: YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert

@@ -74,6 +74,23 @@ def UnsupportedConstruct.toText (c : UnsupportedConstruct) : String :=
   let tag := if c.followOn.isEmpty then "" else s!" [possibly consequential: {c.followOn}]"
   s!"  {c.file}:{c.line}:{c.column} {c.kind}: {c.reason} (closure {String.intercalate " -> " c.closure}){tag}"
 
+/-- A protocol shortcut the importer applied: instead of lowering the inline-assembly block at
+`file:line:column`, it used the fixed lowering `lowering`, because the block's
+`yulBlockFingerprint` equals the registered fingerprint `fingerprint` (the constant named
+`fingerprintName`). The model of that block is the fixed lowering, not a translation of the
+block, so a proof about the root relies on the two agreeing. -/
+structure ShortcutUse where
+  fingerprintName : String
+  fingerprint : String
+  lowering : String
+  file : String
+  line : Nat
+  column : Nat
+  deriving Repr, BEq
+
+def ShortcutUse.toText (u : ShortcutUse) : String :=
+  s!"  shortcut {u.fingerprintName} lowering {u.lowering} fingerprint {u.fingerprint} at {u.file}:{u.line}:{u.column}"
+
 /-- Static status of one root. Without `collectUnsupported` a root is listed
 only if it was importable. With it, a root whose lowering recorded a construct
 is listed with `unsupported` non-empty and `denoteCovered = false`; such a root
@@ -88,16 +105,23 @@ structure FunctionStatus where
   compilerProof : CompilerProofStatus
   /-- Constructs recorded under `collectUnsupported`, in source order. -/
   unsupported : List UnsupportedConstruct := []
+  /-- Shortcuts the lowered body uses, in lowering order. Empty for a root recorded as
+  unsupported: its lowering is discarded. -/
+  shortcuts : List ShortcutUse := []
   deriving Repr, BEq
 
-/-- The `status` line of one root, followed by its unsupported constructs. -/
+/-- The `status` line of one root, followed by its unsupported constructs, then by the
+shortcuts its model uses. -/
 def FunctionStatus.toText (st : FunctionStatus) : String :=
+  let shortcuts := st.shortcuts.map ShortcutUse.toText
   if st.unsupported.isEmpty then
-    s!"status {st.function} importable denoteCovered {st.denoteCovered} compilerProof {st.compilerProof.toText}"
+    String.intercalate "\n" <|
+      s!"status {st.function} importable denoteCovered {st.denoteCovered} compilerProof {st.compilerProof.toText}" ::
+      shortcuts
   else
     String.intercalate "\n" <|
       s!"status {st.function} unsupported constructs {st.unsupported.length} denoteCovered false compilerProof {st.compilerProof.toText}" ::
-      st.unsupported.map UnsupportedConstruct.toText
+      (st.unsupported.map UnsupportedConstruct.toText ++ shortcuts)
 
 /-- Provenance and closure report. `sourceDigest` covers sources, solc settings,
 the compiler release identity, and the importer sources. -/

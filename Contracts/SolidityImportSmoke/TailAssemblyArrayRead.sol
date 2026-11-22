@@ -65,4 +65,9 @@ contract TailAssemblyArrayRead {
             return(start, sub(end, start))
         }
     }
+
+    // No assembly: the import report lists no shortcut for it.
+    function readFirst() external view returns (uint256) {
+        return first;
+    }
 }

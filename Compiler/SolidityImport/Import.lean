@@ -17561,12 +17561,18 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                 else if refsArr && fingerprint == exttloadBatchYulFingerprint then pure true
                 else failAt s s!"shortcut fingerprint mismatch: tail assembly of a bytes32[]-returning function is not a registered calldata-keyed batch slot read (fingerprint {fingerprint.take 12})"
               let shimStmts ← lowerBatchArrayLoadShim arr isTransient
+              if isTransient then
+                recordShortcut s "exttloadBatchYulFingerprint" fingerprint "lowerBatchArrayLoadShim"
+              else
+                recordShortcut s "extsloadBatchYulFingerprint" fingerprint "lowerBatchArrayLoadShim"
               modify fun e => { e with yulNames := savedAsmYul }
               out := out ++ extPre ++ shimStmts
               returned := true
               handledScratchReturn := true
             else if let some (startExpr, nSlotsExpr) := rangeReadBindings? env s then
               let shimStmts ← lowerBatchRangeSloadShim startExpr nSlotsExpr
+              recordShortcut s "extsloadRangeYulFingerprint" extsloadRangeYulFingerprint
+                "lowerBatchRangeSloadShim"
               modify fun e => { e with yulNames := savedAsmYul }
               out := out ++ extPre ++ shimStmts
               returned := true
@@ -18952,6 +18958,8 @@ private def importSlice
   -- With `collectUnsupported` off it equals `specs.map (·.name)` here.
   let mut rootNames : Array String := #[]
   let mut unsupportedRoots : Array (String × List UnsupportedConstruct) := #[]
+  -- Shortcuts each importable root's model uses (`Env.rootShortcuts` after its lowering).
+  let mut rootShortcuts : Array (String × List ShortcutUse) := #[]
   if profile.collectUnsupported then
     let pending ← IO.mkRef (none : Option (String × UnsupportedConstruct × Array Nat))
     let recorded ← IO.mkRef (#[] : Array UnsupportedConstruct)
@@ -18978,6 +18986,7 @@ private def importSlice
     let envBefore := env
     let specsBefore := specs
     let projectionsBefore := projections
+    let rootShortcutsBefore := rootShortcuts
     if let some sink := env.unsupportedSink then
       sink.pending.set none
       sink.recorded.set #[]
@@ -18988,7 +18997,7 @@ private def importSlice
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                         projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[],
-                        rootTransientFields := #[], rootAssembly := none }
+                        rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[] }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       -- Inline assembly can observe uncleaned stack words and write uncleaned transient
@@ -19255,6 +19264,7 @@ private def importSlice
                 "updates. Denote lets the callee's committed world change any account, " ++
                 "including this one. The trailing position is checked by the importer, not proved."
               proofStatus := .unchecked }] else []) }
+      rootShortcuts := rootShortcuts.push (functionName, env.rootShortcuts.toList)
       for proj in env.projections do
         let ignored :=
           match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
@@ -19277,6 +19287,7 @@ private def importSlice
         env := envBefore
         specs := specsBefore
         projections := projectionsBefore
+        rootShortcuts := rootShortcutsBefore
         -- Source order (stable, so equal positions keep lowering order), then
         -- one entry per distinct (site, reason, closure).
         let ordered := found.mergeSort fun x y =>
@@ -19393,7 +19404,8 @@ private def importSlice
                    compilerProof := .unavailable noCompilerProofReason, unsupported := constructs }
         | none => (specs.find? (·.name == functionName)).map fun f =>
             { function := f.name, denoteCovered := executableStmtListCovered f.body,
-              compilerProof := .unavailable noCompilerProofReason },
+              compilerProof := .unavailable noCompilerProofReason,
+              shortcuts := (rootShortcuts.find? (·.1 == functionName)).map (·.2) |>.getD [] },
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,

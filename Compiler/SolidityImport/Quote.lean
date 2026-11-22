@@ -358,8 +358,14 @@ def quoteReport (r : ImportReport) : m Term := do
            kind := $(quote c.kind), reason := $(quote c.reason), closure := $(← strings c.closure),
            followOn := $(quote c.followOn) } :
           Compiler.CompilationModel.SolidityImport.UnsupportedConstruct))
+    let shortcut (u : ShortcutUse) : m Term := do
+      `(({ fingerprintName := $(quote u.fingerprintName), fingerprint := $(quote u.fingerprint),
+           lowering := $(quote u.lowering), file := $(quote u.file), line := $(quote u.line),
+           column := $(quote u.column) } :
+          Compiler.CompilationModel.SolidityImport.ShortcutUse))
     `(({ function := $(quote st.function), denoteCovered := $(quote st.denoteCovered),
-         compilerProof := $proof, unsupported := $(← list (← st.unsupported.mapM construct)) } :
+         compilerProof := $proof, unsupported := $(← list (← st.unsupported.mapM construct)),
+         shortcuts := $(← list (← st.shortcuts.mapM shortcut)) } :
         Compiler.CompilationModel.SolidityImport.FunctionStatus))
   `(({ importerVersion := $(quote r.importerVersion), solcLongVersion := $(quote r.solcLongVersion),
        solcSha256 := $(quote r.solcSha256), settingsJson := $(quote r.settingsJson),
