@@ -5328,7 +5328,21 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
         let callee ← mField j "expression"
         if (← mKind callee) == "Identifier" || (← mKind callee) == "MemberAccess" then
           let refId := (field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)
-          if refId == some (-8) && (← mKind callee) == "Identifier" && args.size == 1 then
+          let member := optStr callee "memberName"
+          -- `T.wrap(x)` / `T.unwrap(x)` on a user-defined value type `T` is the identity on the
+          -- underlying word (lowered by `lowerExpr`); only its argument can carry an effect.
+          let udvtBase? : Option Int ←
+            if refId.isNone && (← mKind callee) == "MemberAccess" &&
+                (member == some "wrap" || member == some "unwrap") then
+              pure ((field? (← mField callee "expression") "referencedDeclaration").bind
+                (fun v => v.getInt?.toOption))
+            else pure none
+          if let some baseId := udvtBase? then
+            unless baseId >= 0 && ((← get).userValueTypeById.find? baseId.toNat).isSome &&
+                args.size == 1 do
+              failAt j "effectful ABI encoding argument is unsupported"
+            checkEncodingScalar args[0]!
+          else if refId == some (-8) && (← mKind callee) == "Identifier" && args.size == 1 then
             pure ()
           else if let some id := refId then
             unless id >= 0 do
