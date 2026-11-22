@@ -7,7 +7,7 @@ User-defined value type `T.wrap(x)` / `T.unwrap(x)` inside `abi.encode*` argumen
 
 `checkEncodingScalar` admits the conversion as the identity on the underlying word and
 inspects only its argument, so an effect beneath the conversion is still rejected at the
-inner call.
+inner call, except a state-changing helper in an ordered `abi.encode` (`AbiEncodeStatefulChecks`).
 -/
 namespace SolidityImportSmoke.AbiEncodeUdvtChecks
 
@@ -30,13 +30,8 @@ solidity_import unwrapRevertForm from "Contracts/SolidityImportSmoke"
   contract UnwrapRevertC
   function digest(uint256)
 
--- 2. A state-changing helper beneath `unwrap` is rejected at the inner call.
-/--
-error: AbiEncodeUdvtRejections.sol:29:54: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
-closure: UnwrapStatefulC.digest
-_useWord()
--/
-#guard_msgs in
+-- 2. A state-changing helper beneath `unwrap` in plain `abi.encode` is evaluated in order
+-- (`AbiEncodeStatefulChecks`, `AbiEncodeStatefulSequence`), so it imports.
 solidity_import unwrapStatefulForm from "Contracts/SolidityImportSmoke"
   entry "AbiEncodeUdvtRejections.sol"
   using udvtEncoding

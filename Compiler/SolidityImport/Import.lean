@@ -5306,14 +5306,34 @@ private partial def checkEncodingStructRef (j : Json) : M Unit := do
         failAt idx "effectful ABI encoding argument is unsupported"
   | _ => failAt j "effectful ABI encoding argument is unsupported"
 
+/-- Some `abi.encode(...)` call inside `j` has a state-changing argument. Such an encoding
+is admitted (`lowerAbiEncodeArgs` with `orderedEffects`) and runs its effects in place, so
+an encoding that hashes it beside deferred sibling reads must not admit it. -/
+private partial def statefulAbiEncodeIn (j : Json) (env : Env) : Bool :=
+  match j with
+  | .arr xs => xs.any (statefulAbiEncodeIn · env)
+  | .obj o =>
+      let own := optStr j "nodeType" == some "FunctionCall" &&
+        optStr j "kind" == some "functionCall" &&
+        (match field? j "expression" with
+          | some callee =>
+              optStr callee "nodeType" == some "MemberAccess" &&
+              optStr callee "memberName" == some "encode" &&
+              ((field? callee "expression").bind (field? · "referencedDeclaration")).bind
+                (·.getInt?.toOption) == some (-1)
+          | none => false) &&
+        ((field? j "arguments").any (statefulCallIn · env))
+      own || o.foldl (fun found _ child => found || statefulAbiEncodeIn child env) false
+  | _ => false
+
 /-- Restrict the entire argument tree, not merely its outer cast. This keeps
 custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
-private partial def checkEncodingScalar (j : Json) : M Unit := do
+private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M Unit := do
   match ← mKind j with
   | "Identifier" | "Literal" => pure ()
   | "MemberAccess" =>
       if optStr j "memberName" == some "interfaceId" || optStr j "memberName" == some "selector" then pure ()
-      else checkEncodingScalar (← mField j "expression")
+      else checkEncodingScalar (← mField j "expression") ordered
   | "UnaryOperation" =>
       if let some natId := (field? j "function").bind (fun v => v.getNat?.toOption) then
         unless (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true do
@@ -5354,7 +5374,7 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
             failAt j "fallible enum conversion in ABI encoding argument is unsupported"
           unless (← mType args[0]!) == (← mType j) do
             failAt j "fallible enum conversion in ABI encoding argument is unsupported"
-        for arg in args do checkEncodingScalar arg
+        for arg in args do checkEncodingScalar arg ordered
       else if optStr j "kind" == some "functionCall" then
         unless (← mArr (← mField j "names")).isEmpty do
           failAt j "effectful ABI encoding argument is unsupported"
@@ -5374,9 +5394,12 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
             unless baseId >= 0 && ((← get).userValueTypeById.find? baseId.toNat).isSome &&
                 args.size == 1 do
               failAt j "effectful ABI encoding argument is unsupported"
-            checkEncodingScalar args[0]!
+            checkEncodingScalar args[0]! ordered
           else if refId == some (-8) && (← mKind callee) == "Identifier" && args.size == 1 then
-            pure ()
+            -- The hashed buffer is lowered by its own encoding rules; outside an ordered
+            -- `abi.encode` a state change inside it would run beside deferred sibling reads.
+            if !ordered && statefulAbiEncodeIn j (← get) then
+              failAt j "effectful ABI encoding argument is unsupported"
           else if let some id := refId then
             unless id >= 0 do
               failAt j "effectful ABI encoding argument is unsupported"
@@ -5384,7 +5407,14 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
             let natId := id.toNat
             let some targetId := effectCallTarget? env [] callee natId
               | failAt j "effectful ABI encoding argument is unsupported"
-            if fnHasCustomRevert env targetId then
+            -- In an ordered `abi.encode` (`lowerAbiEncodeArgs`) every argument is bound in
+            -- source order, as both solc pipelines evaluate them, so a state-changing or
+            -- reverting internal helper with a body runs exactly once and in place.
+            let internalHelper := ordered && !env.fnPtrs.contains natId &&
+              ((field? callee "typeDescriptions").bind (optStr · "typeIdentifier")).any
+                (·.startsWith "t_function_internal_") &&
+              ((env.funs.find? targetId).bind (field? · "body")).any (!·.isNull)
+            if fnHasCustomRevert env targetId && !internalHelper then
               failAt j "effectful ABI encoding argument is unsupported"
             if (← mKind callee) == "MemberAccess" then
               let base ← mField callee "expression"
@@ -5393,12 +5423,12 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
                 if baseTy.startsWith "struct " then
                   checkEncodingStructRef base
                 else
-                  checkEncodingScalar base
+                  checkEncodingScalar base ordered
             for arg in args do
               if (← mType arg).startsWith "struct " then
                 checkEncodingStructRef arg
               else
-                checkEncodingScalar arg
+                checkEncodingScalar arg ordered
           else
             failAt j "effectful ABI encoding argument is unsupported"
         else
@@ -5624,6 +5654,8 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
       let callee ← mField j "expression"
       if (← mKind callee) == "Identifier" then
         hashCall := (← refInt callee) == -8
+    if hashCall && statefulAbiEncodeIn j (← get) then
+      failAt j "effectful ABI encoding argument is unsupported"
     unless hashCall do checkEncodingScalar j
     let value ← atom (← lowerExpr j)
     -- Packed scalars take their own width; a narrow signed value contributes the low bytes of its
@@ -7083,7 +7115,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     return ← encodeSelectorAndWords selBuffer pre words
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
-  lowerAbiEncodeArgs args
+  lowerAbiEncodeArgs args (orderedEffects := true)
 
 /-- A dynamic storage array of ABI scalars (a state variable, a storage pointer
 local or a struct member) copied into a fresh memory array, as solc copies a
@@ -7101,9 +7133,16 @@ private partial def copyStorageScalarArray? (arg : Json) : M (Option (Array Stmt
   modify fun e => { e with next := e.next + 1, scalarArrays := e.scalarArrays.insert arrId desc }
   return some (copyPre, arrId)
 
-/-- `abi.encode(args...)` into a fresh aligned memory buffer. -/
+/-- `abi.encode(args...)` into a fresh aligned memory buffer.
+
+With `orderedEffects` (the `abi.encode` builtin) and an all-static argument list, internal
+helpers that change state may appear among the arguments. Both solc 0.8.34 pipelines
+evaluate the arguments left to right before encoding, so each word is then bound to a
+temporary at its own position and every effect runs once, in source order. A struct
+argument is read by solc only while encoding, after every later argument has run, so it
+stays rejected beside such a helper, as do the dynamic and other encoding forms. -/
 private partial def lowerAbiEncodeArgs (args : Array Json)
-    (params? : Option (Array Json) := none) : M EncodedBytes := do
+    (params? : Option (Array Json) := none) (orderedEffects : Bool := false) : M EncodedBytes := do
   if args.size == 1 && params?.isNone then
     if (← mType args[0]!).startsWith "struct " && !(← mType args[0]!).contains "[" then
       let isMemRoot ← if (← mKind args[0]!) != "FunctionCall" && (← mKind args[0]!) != "Conditional" && (← mKind args[0]!) != "TupleExpression" then
@@ -7280,6 +7319,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
     let totalSize ← fresh
     pre := pre.push (.letVar totalSize (.sub (.mload (.literal 64)) base))
     return { pre, pointer := base, size := .localVar totalSize }
+  let env ← get
+  let ordered := orderedEffects && params?.isNone && args.any (statefulCallIn · env)
   let mut pre := #[]
   let mut words := []
   for argIdx in [:args.size] do
@@ -7289,6 +7330,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       | some ps => mType ps[argIdx]!
       | none => pure ty
     if ty.startsWith "struct " && !ty.contains "[" then
+      if ordered then
+        failAt arg "struct ABI encoding argument beside a state-changing argument is unsupported"
       let (sPre, sWords) ← lowerEncodedStaticStructWords arg
       pre := pre ++ sPre
       words := words ++ sWords
@@ -7296,12 +7339,20 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       unless (paramType targetTy).isSome do
         failAt arg s!"unsupported ABI encoding argument type {targetTy}"
       -- Avoid assigning an evaluation order to multiple effectful arguments.
-      -- Scalar paths and casts have no source-level writes or custom reverts.
-      checkEncodingScalar arg
+      -- Scalar paths and casts have no source-level writes or custom reverts,
+      -- unless the arguments are `ordered` (see above).
+      checkEncodingScalar arg ordered
       let raw ← convert targetTy ty (← lowerExpr arg) arg
       let value ← if raw.pre.isEmpty then pure raw else atom raw
       pre := pre ++ value.pre
-      words := words ++ [cleanHelperResultExpr targetTy value]
+      let word := cleanHelperResultExpr targetTy value
+      if ordered && !(word matches .literal _) then
+        -- Read now: a later argument's helper may write what this word reads.
+        let snapshot ← fresh
+        pre := pre.push (.letVar snapshot word)
+        words := words ++ [.localVar snapshot]
+      else
+        words := words ++ [word]
   let pointer ← fresh
   let finish ← fresh
   modify fun env => { env with encodingMemory := true }

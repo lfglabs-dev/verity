@@ -4,7 +4,7 @@ pragma solidity 0.8.34;
 type WordId is bytes32;
 type PackedTag is uint48;
 
-// An effect beneath `T.unwrap(...)` in an `abi.encode*` argument stays a located rejection.
+// An effect beneath `T.unwrap(...)` in an `abi.encode*` argument stays a located rejection, except a state-changing helper in plain `abi.encode` (`UnwrapStatefulC`, evaluated in order).
 contract UnwrapRevertC {
     error Blocked();
 
