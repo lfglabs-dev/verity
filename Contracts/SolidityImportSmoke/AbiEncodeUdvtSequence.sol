@@ -42,13 +42,16 @@ contract SequenceFixture {
             digest = keccak256(abi.encodePacked(
                 NarrowTag.unwrap(tag),
                 WordId.unwrap(WordId.wrap(keccak256(abi.encode(next)))),
-                NarrowTag.unwrap(tag)));
+                NarrowTag.unwrap(tag),
+                NarrowTag.wrap(uint48(next)),
+                tag));
         } else {
             digest = keccak256(abi.encodeWithSelector(
                 IAbiEncodeUdvtTarget.accept.selector,
                 WordId.unwrap(id),
                 NarrowTag.unwrap(tag),
-                Holder.unwrap(Holder.wrap(address(this)))));
+                Holder.unwrap(Holder.wrap(address(this))),
+                WordId.wrap(bytes32(next >> 1))));
         }
         saved = uint256(digest);
         return saved;

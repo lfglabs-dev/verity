@@ -19,7 +19,7 @@ solidity_profile udvtEncoding where
 
 -- 1. A custom revert beneath `unwrap` is rejected at the inner call.
 /--
-error: AbiEncodeUdvtRejections.sol:16:57: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+error: AbiEncodeUdvtRejections.sol:17:57: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
 closure: UnwrapRevertC.digest
 _mayRevert(x)
 -/
@@ -32,7 +32,7 @@ solidity_import unwrapRevertForm from "Contracts/SolidityImportSmoke"
 
 -- 2. A state-changing helper beneath `unwrap` is rejected at the inner call.
 /--
-error: AbiEncodeUdvtRejections.sol:28:54: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+error: AbiEncodeUdvtRejections.sol:29:54: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
 closure: UnwrapStatefulC.digest
 _useWord()
 -/
@@ -41,6 +41,19 @@ solidity_import unwrapStatefulForm from "Contracts/SolidityImportSmoke"
   entry "AbiEncodeUdvtRejections.sol"
   using udvtEncoding
   contract UnwrapStatefulC
+  function digest(uint256)
+
+-- 3. A state-changing helper beneath `wrap` is rejected at the inner call.
+/--
+error: AbiEncodeUdvtRejections.sol:41:61: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: WrapStatefulC.digest
+_useCount()
+-/
+#guard_msgs in
+solidity_import wrapStatefulForm from "Contracts/SolidityImportSmoke"
+  entry "AbiEncodeUdvtRejections.sol"
+  using udvtEncoding
+  contract WrapStatefulC
   function digest(uint256)
 
 end SolidityImportSmoke.AbiEncodeUdvtChecks

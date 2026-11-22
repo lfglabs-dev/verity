@@ -2,6 +2,7 @@
 pragma solidity 0.8.34;
 
 type WordId is bytes32;
+type PackedTag is uint48;
 
 // An effect beneath `T.unwrap(...)` in an `abi.encode*` argument stays a located rejection.
 contract UnwrapRevertC {
@@ -26,5 +27,17 @@ contract UnwrapStatefulC {
 
     function digest(uint256 x) external returns (bytes32) {
         return keccak256(abi.encode(x, WordId.unwrap(_useWord())));
+    }
+}
+
+contract WrapStatefulC {
+    uint256 internal nonce;
+
+    function _useCount() internal returns (uint48) {
+        return uint48(nonce++);
+    }
+
+    function digest(uint256 x) external returns (bytes32) {
+        return keccak256(abi.encodePacked(x, PackedTag.wrap(_useCount())));
     }
 }
