@@ -6,6 +6,8 @@ pragma solidity 0.8.34;
 // Both solc pipelines evaluate the arguments left to right, each write at its own
 // position, so siblings before it read the old value and siblings after it the new one.
 contract SequenceFixture {
+    enum Kind { Plain, Tagged, Sealed }
+
     bytes32 internal constant TYPEHASH = keccak256("Use(address owner,uint256 value,uint256 nonce)");
 
     uint256 internal saved;
@@ -16,6 +18,10 @@ contract SequenceFixture {
 
     function _mix(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
         return uint256(keccak256(abi.encode(a, b, c)));
+    }
+
+    function _tag(Kind kind, uint256 a, uint256 b) internal pure returns (uint256) {
+        return uint256(kind) * 1e9 + a * 1e3 + b;
     }
 
     function _domain() internal view returns (bytes32) {
@@ -49,6 +55,7 @@ contract SequenceFixture {
             r = _mix(x, x++, x);
             r ^= _mix(counter, counter = next % 100, counter);
             r ^= uint256(keccak256(abi.encode(counter, counter = x, counter)));
+            r ^= _tag(Kind(next % 3), counter--, counter);
         } else if (next % 6 == 4) {
             // Pre-increment and two updates of the same element in one argument list.
             r = _mix(++slots[k], slots[k], slots[k]++);
