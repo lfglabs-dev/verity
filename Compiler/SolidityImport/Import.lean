@@ -7673,7 +7673,7 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
             | .outer _ _ =>
                 failAt arg "storage struct argument requires all mapping keys"
         | _ => failAt arg "only root memory/calldata struct arguments are supported"
-    else if argTy.startsWith "mapping(" && (← get).stateVars.size > 1 then
+    else if argTy.startsWith "mapping(" then
       match ← lowerRef arg with
       | .structMapping pre path mapInfo =>
           -- The helper's raw storage pointer carries no scalar packing metadata.
@@ -8959,7 +8959,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         if pname != "" then
           yul := yul.erase pname
     | .storagePath argSid path effects =>
-        if pty.startsWith "mapping(" && optStr p "storageLocation" == some "storage" && (← get).stateVars.size > 1 then
+        if pty.startsWith "mapping(" && optStr p "storageLocation" == some "storage" then
           pre := pre ++ effects
           modify fun e => { e with paths := e.paths.insert pid path }
           if pname != "" then
