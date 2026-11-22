@@ -813,7 +813,8 @@ def remapStage0 (root : RemapDir) (explicit : Array (String × String)) : RemapS
 open FoundryRemap in
 /-- The `ConfigPool` of the project `root` (read with `readRemapConfigs`, or in full). -/
 def remapConfigPool (root : RemapDir) : ConfigPool :=
-  configPool root [] (parseFoundryToml (root.foundryToml.getD "") (strict := false))
+  if root.unreadable then { issue := some "the project's configuration files are unreadable" }
+  else configPool root [] (parseFoundryToml (root.foundryToml.getD "") (strict := false))
 
 /-- One step of the staged resolution: a result, or the next read it needs. -/
 inductive RemapStep where
@@ -966,11 +967,13 @@ def resolveImportStaged (origin spec : String) (s : RemapStage0)
       let (t, u) ← remapDecideB s full path
       return (← normalizeSourcePath t, u, 2)
 
-/-- Read a configuration file that may be absent: `none` if absent, `.error` if it is a
-symlink (never followed) or unreadable. -/
-def readOptional (path : System.FilePath) : IO (Except Unit (Option String)) := do
+/-- Read a configuration file that may be absent: `none` if absent, `.error` if unreadable,
+or if it is a symlink and `follow` is off (a library's configuration file is never followed;
+the project's own is, as `readRemappings` and `readRemapRootShallow` read it). -/
+def readOptional (path : System.FilePath) (follow : Bool := false) :
+    IO (Except Unit (Option String)) := do
   let md ← try path.symlinkMetadata catch _ => return .ok none
-  if md.type == .symlink then return .error ()
+  if md.type == .symlink && !follow then return .error ()
   try return .ok (some (← IO.FS.readFile path)) catch _ => return .error ()
 
 /-- Shallow entries of `dir` for the directories named `names` that exist there: a symlink
@@ -1036,13 +1039,15 @@ def readRemapRootShallow (root : System.FilePath) : IO RemapDir := do
 
 mutual
 /-- `dir` read for `remapConfigPool`: its configuration files, shallow entries for its
-default directories, and its library directories (`readRemapLibConfigs`). -/
-partial def readRemapConfigDir (dir : System.FilePath) (name : String) : IO RemapDir := do
+default directories, and its library directories (`readRemapLibConfigs`). `follow`: read
+symlinked configuration files (the project root only). -/
+partial def readRemapConfigDir (dir : System.FilePath) (name : String) (follow : Bool := false) :
+    IO RemapDir := do
   let some toml ← (do
-      match ← readOptional (dir / "foundry.toml") with
+      match ← readOptional (dir / "foundry.toml") follow with
       | .ok t => pure (some t)
       | .error () => pure none) | return { name, unreadable := true }
-  let txt ← match ← readOptional (dir / "remappings.txt") with
+  let txt ← match ← readOptional (dir / "remappings.txt") follow with
     | .ok t => pure t
     | .error () => return { name, unreadable := true }
   let keys := FoundryRemap.parseFoundryToml (toml.getD "") (strict := false)
@@ -1074,7 +1079,7 @@ end
 
 /-- The project root read for `remapConfigPool`. -/
 def readRemapConfigs (root : System.FilePath) : IO RemapDir := do
-  let d ← readRemapConfigDir root ""
+  let d ← readRemapConfigDir root "" (follow := true)
   return { d with aboveRootSource := (← readRemapRootShallow root).aboveRootSource }
 
 /-- The project root read in full for `inferFoundryRemappings`: its `foundry.toml`, and its

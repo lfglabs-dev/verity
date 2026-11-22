@@ -28,7 +28,8 @@ was used. `remappingScan` shows how far the importer read the libraries.
   through it and compiles `deps/pkg/src/P.sol` although the project has `pkg/P.sol`: refused),
   and `symlink-config-file/` (a library's `remappings.txt` is a symlink; `forge build` reads
   it and compiles `deps/dep/alt/Bar.sol` for `src/foo/Bar.sol`; the importer does not follow
-  it: refused).
+  it: refused), and `symlink-root-config/` (the project's own `foundry.toml` is a symlink,
+  read through as Foundry does).
 -/
 namespace SolidityImportSmoke.InferredRemappingsChecks
 open Compiler.CompilationModel.SolidityImport
@@ -162,6 +163,23 @@ error: src/Entry.sol: import pkg/P.sol could take a remapping Foundry infers, bu
 solidity_import symlinkName from ".lake/remapping-fixtures/symlink-supplies-name"
   entry "src/Entry.sol" using remapProfile contract Entry
   function value()
+
+-- The project's own `foundry.toml` may be a symlink (read through, as Foundry does): the
+-- library configuration's `src/sub/` remapping still applies, and `forge build` compiled
+-- `deps/dep/src/Shared.sol` here too.
+run_meta (writeFixture "symlink-root-config"
+  [("cfg/foundry.toml", "[profile.default]\nlibs = [\"deps\"]\n"),
+   ("deps/dep/foundry.toml", "[profile.default]\n"), ("deps/dep/remappings.txt", "src/sub/=src/\n"),
+   ("deps/dep/src/Shared.sol", library "Shared" "depValue" 2),
+   ("src/sub/Shared.sol", library "Shared" "projectValue" 1),
+   ("src/Entry.sol", entry "Shared" "src/sub/Shared.sol" "depValue")]
+  [("foundry.toml", "cfg/foundry.toml")])
+
+solidity_import symlinkRootConfig from ".lake/remapping-fixtures/symlink-root-config"
+  entry "src/Entry.sol" using remapProfile contract Entry
+  function value()
+
+#guard symlinkRootConfig.report.inferredRemappings == ["src/sub/=deps/dep/src/"]
 
 /--
 error: src/Entry.sol: import src/foo/Bar.sol: Foundry's remappings are unknown here (deps/dep: a configuration file is a symlink or unreadable); write the remapping in remappings.txt
