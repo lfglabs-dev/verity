@@ -558,12 +558,13 @@ jobs:
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
     env:
       # Lake runs one Lean/clang process per LEAN_NUM_THREADS (default: every
-      # vCPU). lean.ci may boot this 8-vCPU label with up to 24 vCPUs but scales
-      # its memory by only half the vCPU ratio, and grows a VM only from memory
-      # its engine has free. Six builds on 2026-11-22 that overlapped another
-      # build failed with ENOMEM or allocation failures (error code 12), two of
-      # them while running ~15 Lean processes at once. Capping at the label's 8
-      # keeps every target and check and bounds peak memory to an 8-vCPU run.
+      # vCPU). lean.ci may give this 8-vCPU label more vCPUs (up to 32) but
+      # scales its memory by only half the vCPU ratio, and grows a VM only
+      # from memory its engine has free. Builds on 2026-11-22 failed with
+      # ENOMEM or allocation failures (error code 12); in jobs 137208270853
+      # and 137338728566 the smoke-model step ran ~15 Lean processes at once.
+      # Capping at the label's 8 keeps every target and check and bounds peak
+      # memory to an 8-vCPU run.
       LEAN_NUM_THREADS: 8
     steps:
       # Records the VM size lean.ci gave this job (it can exceed the label).
@@ -757,12 +758,14 @@ jobs:
 
   import-mutations:
     runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
-    # 24 shards of 15-16 campaigns. Nightly 2026-11-22 (6 shards of ~61, 6
+    # 24 shards of 15-16 campaigns. Nightly 2026-11-22 (6 shards of ~62, 6
     # workers each): median campaign 1630-1730 s on the 64 GiB build-medium
-    # hosts, ~3880 s on the 28 GiB one, so 26-30% resp. 64% of each shard was
-    # still unrun at the 210-minute limit. 16 campaigns: ~80 min on the 64 GiB
-    # hosts, ~175 min on the 28 GiB one.
-    timeout-minutes: 240
+    # hosts, ~3880 s on the 28 GiB one; 23-31% resp. 64% of each shard was
+    # still unrun at the old 210-minute limit. 16 campaigns = 3 waves of 6:
+    # ~85 min on the 64 GiB hosts, ~200-210 min on the 28 GiB one. The whole
+    # run is ~30 host-hours, so on build-medium alone (one shard per host at
+    # a time) a nightly takes ~12-14 h wall-clock, as it did before the split.
+    timeout-minutes: 300
     needs: [changes, route, checks, build]
     # ~30 runner-hours per run: nightly, manual dispatch, or PRs labelled
     # `ci:mutations` only, so it stops starving the compiler jobs on every PR

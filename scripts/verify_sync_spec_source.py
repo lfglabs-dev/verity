@@ -957,7 +957,7 @@ SPEC['expected_job_if_conditions']['import-mutations'] = (
     "github.event_name == 'workflow_dispatch' || "
     "contains(github.event.pull_request.labels.*.name, 'ci:mutations'))")
 SPEC['expected_job_runs_on']['import-mutations'] = 'lean-8vcpu-ubuntu-2604'
-SPEC['expected_job_timeouts']['import-mutations'] = 240
+SPEC['expected_job_timeouts']['import-mutations'] = 300
 SPEC['expected_job_strategy_fail_fast']['import-mutations'] = False
 SPEC['expected_build_commands'].remove('solidity_import_mutations.py')
 SPEC['expected_downloaded_artifacts'] = {

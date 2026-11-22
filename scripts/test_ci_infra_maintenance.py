@@ -364,8 +364,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         # `build` is the exception: a burst VM (more vCPUs than its 8-vCPU label,
         # memory scaled by half the ratio) ran one Lean per vCPU and hit ENOMEM,
         # so its Lake parallelism stays at the label's 8.
-        self.assertIn("\n    env:\n", job_body("build"))
-        self.assertIn("\n      LEAN_NUM_THREADS: 8\n", job_body("build"))
+        self.assertRegex(job_body("build"), r"\n    env:\n(?:      #.*\n)*      LEAN_NUM_THREADS: 8\n")
         # No later step may raise it again through $GITHUB_ENV.
         self.assertNotIn("LEAN_NUM_THREADS=", job_body("build"))
         for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
