@@ -26,36 +26,57 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
 - `from` is the Solidity project directory, relative to the importing
   package's `lakefile.lean`; its `remappings.txt` resolves imports. `entry` is
   the file declaring the contract.
-- Imports no written remapping covers resolve through the remappings Foundry
-  (forge 1.5.0) infers from `lib/` (or the configured `libs`) and from the
-  `remappings.txt` / `foundry.toml` of nested libraries
-  (`Compiler/SolidityImport/FoundryRemappings.lean`). A written remapping wins:
-  an inferred one whose name nests with it is dropped, as in Foundry. The
-  remappings solc receives are the ones `forge build` passes (the `remappings`
-  of `forge config`, not the longer list `forge remappings` prints): a
-  remapping named after the project's `src`, `test` or `script` directory is
-  dropped, and so is a written remapping nested under an earlier one
-  (`a/b/=…` after `a/=…`). One older difference remains: Foundry appends `/` to
-  a written name or target that lacks one (`oz=lib/oz` becomes `oz/=lib/oz/`),
-  while the importer passes it as written; solc then reports a missing source
-  rather than reading another file. Remappings apply after relative imports
-  resolve, as in solc. The inferred remappings in
-  use go to solc and appear as `inferred remapping` lines in `report.toText`.
-  The importer refuses an inferred remapping whose value depends on directory
-  listing order in Foundry. When a scanned library holds a symlink, or a
-  `foundry.toml` line or remapping key it cannot check, Foundry's inferred set
-  is unknown: the importer then refuses every inferred remapping and every
-  non-relative import no remapping matches. Write the remapping in
-  `remappings.txt` instead. Not modeled: a nested `foundry.toml` that is
-  well-formed TOML but which Foundry rejects for a value's type (Foundry then
-  ignores that library's remappings, the importer does not), environment
-  variables (`FOUNDRY_PROFILE`, `FOUNDRY_CONFIG`, `FOUNDRY_REMAPPINGS`,
-  `FOUNDRY_LIBS`, `FOUNDRY_SRC`, `FOUNDRY_AUTO_DETECT_REMAPPINGS` and their
-  `DAPP_` forms) and the global `~/.foundry/foundry.toml`. A `foundry.toml`
-  that uses `extends`, or sets the default profile as an inline table, counts
-  as one the importer cannot check; written remappings come only from
-  `remappings.txt` and the project's own `foundry.toml`, never from a file it
-  extends.
+- Imports resolve with the remappings `forge build` (forge 1.5.0) gives solc:
+  the written ones (`remappings.txt`, then `[profile.default]` of the
+  project's `foundry.toml`) and the ones Foundry infers from `lib/` (or the
+  configured `libs`) and from the `remappings.txt` / `foundry.toml` of nested
+  libraries (`Compiler/SolidityImport/FoundryRemappings.lean`). Remappings
+  apply after relative imports resolve, as in solc. A written remapping wins:
+  an inferred one whose name nests with it is dropped. The inferred
+  remappings in use go to solc and appear as `inferred remapping` lines in
+  `report.toText`.
+- Migration from earlier importers: written remappings now follow
+  `forge build` (the `remappings` of `forge config`, not the longer list
+  `forge remappings` prints). A remapping named after the project's `src`,
+  `test` or `script` directory is dropped, and so is a written remapping nested
+  under an earlier one (`a/b/=…` after `a/=…`: `a/b/X.sol` is now
+  `<a target>/b/X.sol`, the file `forge build` compiles, where earlier importers
+  took the `a/b/` target). Only `[profile.default]` (or the legacy `[default]`)
+  counts, and the first remapping of a name wins. A library's configuration
+  can remap a path inside the project, such as `src/sub/`, as `forge build`
+  does. One older difference remains: Foundry appends `/` to a written name or
+  target that lacks one (`oz=lib/oz` becomes `oz/=lib/oz/`), while the
+  importer passes it as written; solc then reports a missing source rather
+  than reading another file.
+- Libraries are read only as far as an import needs, at most once per
+  `solidity_import`, shown as `remapping scan` in `report.toText`. With
+  `auto_detect_remappings = false`, or no library directory, nothing is read.
+  Otherwise the library configurations are read (`configs`), since they can
+  remap any path, through context remappings too. Every library directory is
+  read (`full`) only for an import no written remapping ending in `/` decides
+  and whose first directory is not protected (`src`, `lib`, `contracts`, the
+  project's `test` and `script`), or that a configuration's remapping could
+  match.
+- The importer refuses, asking to write the remapping in `remappings.txt`:
+  - an import a context remapping (`context:name=…`, written or from a
+    library) can reach;
+  - every import, when a library's `foundry.toml` has a line or key it cannot
+    check, uses `extends` or sets the default profile as an inline table, or a
+    library directory is a symlink or unreadable;
+  - an inferred remapping whose value depends on directory listing order in
+    Foundry;
+  - when a scanned library holds a symlink (Foundry follows it, the importer
+    does not), or Foundry's scan depends on listing order or on directories
+    above the project root, an import the full scan was needed for. A
+    protected path, a written match ending in `/`, or a written `E` without
+    `/` followed by `E/` still resolves.
+- Not modeled: a nested `foundry.toml` that is well-formed TOML but which
+  Foundry rejects for a value's type (Foundry then ignores that library's
+  remappings, the importer does not); environment variables
+  (`FOUNDRY_PROFILE`, `FOUNDRY_CONFIG`, `FOUNDRY_REMAPPINGS`, `FOUNDRY_LIBS`,
+  `FOUNDRY_SRC`, `FOUNDRY_AUTO_DETECT_REMAPPINGS` and their `DAPP_` forms); the
+  global `~/.foundry/foundry.toml`. A project `foundry.toml` using `extends`
+  or an inline default profile makes every import refused.
 - `solidity_profile` defines an ordinary `Profile` value (reusable,
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the

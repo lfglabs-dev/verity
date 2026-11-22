@@ -1,0 +1,3 @@
+[profile.default]
+libs = ["deps"]
+auto_detect_remappings = false

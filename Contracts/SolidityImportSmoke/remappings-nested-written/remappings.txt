@@ -1,0 +1,2 @@
+a/=deps/A/
+a/b/=deps/B/

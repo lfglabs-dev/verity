@@ -28,6 +28,8 @@ structure RemapDir where
   hasSol : Bool := false
   /-- Some non-hidden entry directly in this directory is a symlink (not followed). -/
   hasSymlink : Bool := false
+  /-- This directory is itself a symlink and was not read. -/
+  isSymlink : Bool := false
   /-- The directory could not be listed. -/
   unreadable : Bool := false
   foundryToml : Option String := none
@@ -567,7 +569,7 @@ def libsOf (d : RemapDir) (keys : TomlKeys) : List String × Option String :=
 
 /-- Symlinks or unreadable directories anywhere below `d`. -/
 partial def treeIssue (d : RemapDir) (p : Path) : Option String :=
-  if d.hasSymlink then some s!"symlink in {String.intercalate "/" p}"
+  if d.hasSymlink || d.isSymlink then some s!"symlink in {String.intercalate "/" p}"
   else if d.unreadable then some s!"cannot list {String.intercalate "/" p}"
   else d.children.toList.findSome? fun c => treeIssue c (p ++ [c.name])
 
@@ -586,11 +588,7 @@ partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array
     let mut dirIdx := 0
     -- `find_nested_foundry_remappings`: each lib directory itself, then its children.
     for lib in libs do
-      let some libDir := d.child? lib |
-        -- The reader keeps a hidden directory only when it holds a `foundry.toml`.
-        if lib.startsWith "." then
-          issue := mergeIssue issue (some s!"hidden libs directory {lib} is not read")
-        continue
+      let some libDir := d.child? lib | continue
       issue := mergeIssue issue (treeIssue libDir (root ++ [lib]))
       let tomlDirs := (if libDir.foundryToml.isSome then [(libDir, root ++ [lib])] else []) ++
         (libDir.children.toList.filter (·.foundryToml.isSome)).map fun c => (c, root ++ [lib, c.name])
@@ -623,8 +621,6 @@ partial def provide (d : RemapDir) (root : Path) (keys : TomlKeys) (user : Array
       | none, none => a.2 < b.2
     for slot in slots do
       let some e := insertClosest (entries.toList.filter (slotKey · == slot)) | continue
-      if e.remap.context.isSome then
-        issue := mergeIssue issue (some s!"context remapping {e.remap.name}")
       all := pushFiltered all { e.remap with lib := true }
   return { remaps := dedupByKey all, globalIssue := issue }
 
@@ -664,88 +660,257 @@ def Remap.toInferred (r : Remap) : InferredRemapping :=
     else withSlash (String.intercalate "/" r.path)
   { name := r.name, path, issue := r.issue }
 
+/-! ### Library configurations only (no source scan) -/
+
+/-- The remappings Foundry may take from library configurations, without scanning any
+library for sources: for every nested `foundry.toml` directory (recursively), its written
+remappings, rebased and slash-normalized as Foundry does, and its `src` remapping. Context
+remappings are included with their context. Names Foundry derives by scanning sources are
+single directory names (`<dir>/`), so they are left out here. `issue`: a configuration whose
+remappings this reader cannot know (see `parseFoundryToml`), a symlinked or unreadable
+library directory. -/
+structure ConfigPool where
+  entries : Array Remap := #[]
+  issue : Option String := none
+  deriving Inhabited
+
+mutual
+/-- `ConfigPool` of the libraries of the project or library `d` at `root`. -/
+partial def configPool (d : RemapDir) (root : Path) (keys : TomlKeys) : ConfigPool := Id.run do
+  if !(keys.autoDetect.getD true) then return {}
+  let (libs, libIssue) := libsOf d keys
+  let mut out : ConfigPool := { issue := libIssue }
+  for lib in libs do
+    let some libDir := d.child? lib | continue
+    let path := root ++ [lib]
+    if libDir.isSymlink || libDir.unreadable then
+      -- Foundry reads nested configurations through a symlinked library directory.
+      let why := s!"library directory {String.intercalate "/" path} is a symlink or unreadable"
+      out := { out with issue := mergeIssue out.issue (some why) }
+      continue
+    let tomlDirs := (if libDir.foundryToml.isSome then [(libDir, path)] else []) ++
+      (libDir.children.toList.filter (·.foundryToml.isSome)).map fun c => (c, path ++ [c.name])
+    for (nd, np) in tomlDirs do
+      let sub := nestedConfigPool nd np
+      out := { entries := out.entries ++ sub.entries, issue := mergeIssue out.issue sub.issue }
+  return out
+
+/-- `ConfigPool` contribution of the library configuration `d` at `root`. -/
+partial def nestedConfigPool (d : RemapDir) (root : Path) : ConfigPool := Id.run do
+  let keys := parseFoundryToml (d.foundryToml.getD "")
+  let issue := keys.issue.map (s!"{String.intercalate "/" root}/" ++ ·)
+  let txt := match d.remappingsTxt with
+    | none => some []
+    | some t => parseRemappingsTxt root t
+  let toml := (keys.remappings.getD []).mapM (remapOfText root)
+  -- A configuration Foundry fails to load contributes nothing.
+  let (some txt, some toml) := (txt, toml) | return { issue }
+  let written := (txt ++ toml).toArray.map fun r =>
+    { r with name := withSlash r.name, pathText := withSlash r.pathText }
+  let srcName := (lastName root).map (· ++ "/")
+  let src : Array Remap := match srcName with
+    | some n => #[{ context := none, name := n, path := [], pathText := "" }]
+    | none => #[]
+  let sub := configPool d root keys
+  return { entries := written ++ src ++ sub.entries, issue := mergeIssue issue sub.issue }
+end
+
 end FoundryRemap
 
 open FoundryRemap in
-/-- The remappings `forge build` gives solc for the project `root` with the written
-remappings `explicit` (`remappings.txt`, then `foundry.toml`): the provider's list, written
-then inferred, pushed once more through `Remappings::push` with the project's `src`, `test`
-and `script` directories as protected names (`BuildOpts` in forge's CLI; `forge remappings`
-prints the list before this pass). That pass drops a remapping named after one of those
-directories, ignoring ASCII case, and a written remapping nested under an earlier one. -/
-def inferFoundryRemappings (root : RemapDir) (explicit : Array (String × String)) :
-    InferredRemappings := Id.run do
-  let keys := parseFoundryToml (root.foundryToml.getD "") (strict := false)
-  let user := explicit.map fun (n, t) =>
+/-- The project paths `forge build` protects: `src` (configured, else `src` or `contracts`
+as present), `test` and `script`, each with a trailing `/`. -/
+def projectPathsOf (root : RemapDir) (keys : TomlKeys) : List String :=
+  let src := keys.src.getD (if (root.child? "src").isSome then "src"
+    else if (root.child? "contracts").isSome then "contracts" else "src")
+  [src, keys.test.getD "test", keys.script.getD "script"].map (· ++ "/")
+
+open FoundryRemap in
+/-- Written remappings as Foundry parses them (`context:name=target`). -/
+def userRemaps (explicit : Array (String × String)) : Array Remap :=
+  explicit.map fun (n, t) =>
     match parseRemapping s!"{n}={t}" with
     | some (ctx, name, _) => { context := ctx, name, path := [], pathText := t }
     | none => { context := none, name := n, path := [], pathText := t }
-  let p := provide root [] keys user root.aboveRootSource
-  let src := keys.src.getD (if (root.child? "src").isSome then "src"
-    else if (root.child? "contracts").isSome then "contracts" else "src")
-  let projectPaths := [src, keys.test.getD "test", keys.script.getD "script"].map (· ++ "/")
+
+open FoundryRemap in
+/-- `forge build`'s last pass (`BuildOpts` in forge's CLI; `forge remappings` prints the list
+before it): the provider's list, written then inferred, pushed once more through
+`Remappings::push` with the project paths as protected names. It drops a remapping named
+after a project path (ASCII case ignored) and a written remapping nested under an earlier
+one. Returns the kept written pairs (context ones included, in order), the kept inferred
+remappings, and the kept written context remappings. -/
+def buildPass (projectPaths : List String) (explicit : Array (String × String))
+    (inferred : Array Remap) : Array (String × String) × Array Remap × Array Remap := Id.run do
   let isProjectPath (n : String) : Bool := projectPaths.any (·.toLower == n.toLower)
   let mut kept : Array Remap := #[]
   let mut keptExplicit : Array (String × String) := #[]
-  for (pair, r) in explicit.zip user do
+  let mut contexts : Array Remap := #[]
+  for (pair, r) in explicit.zip (userRemaps explicit) do
     if isProjectPath r.name then continue
     let next := pushFiltered kept r
-    if next.size > kept.size then keptExplicit := keptExplicit.push pair
+    if next.size > kept.size then
+      keptExplicit := keptExplicit.push pair
+      if r.context.isSome then contexts := contexts.push r
     kept := next
-  let mut inferred : Array InferredRemapping := #[]
-  for r in p.remaps.filter (·.lib) do
+  let mut keptInferred : Array Remap := #[]
+  for r in inferred do
     if isProjectPath r.name then continue
     let next := pushFiltered kept r
-    if next.size > kept.size then inferred := inferred.push r.toInferred
+    if next.size > kept.size then keptInferred := keptInferred.push r
     kept := next
-  return { remappings := inferred, explicit := keptExplicit, globalIssue := p.globalIssue }
+  return (keptExplicit, keptInferred, contexts)
 
-/-- solc's remapping of the import path `name` (after relative resolution): the longest
-matching prefix among the `explicit` remappings (the first on a tie) and Foundry's inferred
-ones. Foundry drops every inferred remapping whose name nests with an explicit one, so an
-inferred entry can only win where no explicit prefix matches. Returns the remapped path and
-the inferred entry used, if any. Using an entry with an issue, or any inferred entry while
-the inferred set is unknown, is an error. -/
-def remapImportPath (name : String) (explicit : Array (String × String))
-    (inferred : InferredRemappings) (relative : Bool := false) :
-    Except String (String × Option InferredRemapping) := do
+open FoundryRemap in
+/-- The remappings `forge build` gives solc for the project `root` (read in full) with the
+written remappings `explicit` (`remappings.txt`, then `foundry.toml`): the provider's list
+after `buildPass`. Context remappings are left out of `remappings` (the importer refuses an
+import a context remapping could reach before it gets here; see `remapDecideA`). -/
+def inferFoundryRemappings (root : RemapDir) (explicit : Array (String × String)) :
+    InferredRemappings :=
+  let keys := parseFoundryToml (root.foundryToml.getD "") (strict := false)
+  let p := provide root [] keys (userRemaps explicit) root.aboveRootSource
+  let (keptExplicit, keptInferred, _) :=
+    buildPass (projectPathsOf root keys) explicit (p.remaps.filter (·.lib))
+  { remappings := (keptInferred.filter (·.context.isNone)).map (·.toInferred),
+    explicit := keptExplicit, globalIssue := p.globalIssue }
+
+/-- What the importer knows before reading inside any library directory (only the root's
+`foundry.toml` and which directories exist): the written remappings `forge build` keeps, its
+written context remappings, the project paths, and whether Foundry infers anything at all
+(auto-detection on and some library directory present). `issue`: the root configuration
+leaves even the written remappings unknown (`extends`, an inline default profile, …). -/
+structure RemapStage0 where
+  explicit : Array (String × String) := #[]
+  contexts : Array FoundryRemap.Remap := #[]
+  projectPaths : List String := []
+  inference : Bool := false
+  issue : Option String := none
+  deriving Inhabited
+
+open FoundryRemap in
+/-- `RemapStage0` of the project `root` (a shallow read suffices). -/
+def remapStage0 (root : RemapDir) (explicit : Array (String × String)) : RemapStage0 :=
+  let keys := parseFoundryToml (root.foundryToml.getD "") (strict := false)
+  let projectPaths := projectPathsOf root keys
+  let (keptExplicit, _, contexts) := buildPass projectPaths explicit #[]
+  let (libs, libIssue) := libsOf root keys
+  let present := libs.any fun l => (root.child? l).isSome
+  { explicit := keptExplicit, contexts, projectPaths,
+    inference := keys.autoDetect.getD true && present, issue := keys.issue <|> libIssue }
+
+open FoundryRemap in
+/-- The `ConfigPool` of the project `root` (read with `readRemapConfigs`, or in full). -/
+def remapConfigPool (root : RemapDir) : ConfigPool :=
+  configPool root [] (parseFoundryToml (root.foundryToml.getD "") (strict := false))
+
+/-- One step of the staged resolution: a result, or the next read it needs. -/
+inductive RemapStep where
+  | done (target : String) (used : Option InferredRemapping)
+  | needConfigs
+  | needScan
+  deriving Inhabited
+
+/-- The longest written remapping without a context whose name is a prefix of `path` (the
+first on a tie). -/
+def bestExplicit (explicit : Array (String × String)) (path : String) :
+    Option (String × String) := Id.run do
   let mut best : Option (String × String) := none
   for pair in explicit do
-    if name.startsWith pair.1 then
+    let contextual := (FoundryRemap.parseRemapping s!"{pair.1}={pair.2}").any (·.1.isSome)
+    if path.startsWith pair.1 && !contextual then
       best := match best with
         | none => some pair
         | some prev => if pair.1.length > prev.1.length then some pair else some prev
+  return best
+
+/-- `path` remapped by `best`, or as written. -/
+def applyRemapping (path : String) : Option (String × String) → String
+  | some (pre, tgt) => tgt ++ (path.drop pre.length).toString
+  | none => path
+
+/-- solc's remapping of the import path `name` (after relative resolution) by the written
+remappings `explicit` and Foundry's inferred ones: the longest matching prefix (the first on a
+tie among written ones). Foundry drops every inferred remapping whose name nests with a
+written one, so an inferred entry only wins where no written prefix of it matches. Returns
+the remapped path and the inferred entry used, if any. Using an entry with an issue is an
+error. -/
+def remapImportPath (name : String) (explicit : Array (String × String))
+    (inferred : InferredRemappings) : Except String (String × Option InferredRemapping) := do
+  let best := bestExplicit explicit name
   let mut inf : Option InferredRemapping := none
   for r in inferred.remappings do
     if name.startsWith r.name && best.all (r.name.length > ·.1.length) &&
         inf.all (r.name.length > ·.name.length) then
       inf := some r
-  match inf, best with
-  | some r, _ =>
-    if let some g := inferred.globalIssue then
-      throw s!"import {name} needs Foundry's inferred remapping {r.name}={r.path}, but the \
-        inferred set is unknown here ({g}); write the remapping in remappings.txt"
+  match inf with
+  | some r =>
     if let some i := r.issue then
       throw s!"import {name} needs Foundry's inferred remapping {r.name}={r.path}, but {i}; \
         write the remapping in remappings.txt"
     return (r.path ++ (name.drop r.name.length).toString, some r)
-  | none, some (pre, tgt) =>
-    -- A written name without a trailing `/` does not drop a longer inferred name it is a
-    -- prefix of (`oz` keeps `ozx/`), so an unknown inferred set could hold a longer match.
-    if let some g := inferred.globalIssue then
-      if !pre.endsWith "/" then
-        throw s!"import {name} matches the remapping {pre}={tgt}, written without a trailing \
-          /, but Foundry's inferred remappings are unknown here ({g}); end the name with /"
-    return (tgt ++ (name.drop pre.length).toString, none)
-  | none, none =>
-    -- Foundry might hold an inferred remapping for this path that the port cannot see.
-    -- A written non-relative path is refused; a relative one, already inside the project
-    -- tree, resolves as written.
-    if let some g := inferred.globalIssue then
-      if !relative then
-        throw s!"import {name} matches no remapping, but Foundry's inferred remappings are \
-          unknown here ({g}); write the remapping in remappings.txt"
-    return (name, none)
+  | none => return (applyRemapping name best, none)
+
+open FoundryRemap in
+/-- A context remapping that can reach `path` imported from `origin`: solc applies
+`context:name=target` to imports in files whose source unit name starts with `context`, and
+`forge build` passes such remappings from library configurations verbatim. The importer does
+not model contexts, so it refuses. -/
+def contextRefusal (origin path : String) (rs : Array Remap) : Option String :=
+  rs.findSome? fun r => match r.context with
+    | some c =>
+      if origin.startsWith c && path.startsWith r.name then
+        some s!"import {path} in {origin} can take the context remapping {c}:{r.name}, \
+          which the importer does not model"
+      else none
+    | none => none
+
+/-- Stage 0 (no library read): refusal on an unknown root configuration or a written context
+remapping; the written result when Foundry infers nothing; otherwise `needConfigs`. -/
+def remapDecide0 (s : RemapStage0) (origin path : String) : Except String RemapStep := do
+  if let some i := s.issue then
+    throw s!"import {path}: the project's remappings are unknown ({i})"
+  if let some m := contextRefusal origin path s.contexts then throw m
+  if !s.inference then return .done (applyRemapping path (bestExplicit s.explicit path)) none
+  return .needConfigs
+
+/-- Stage 1 (library configurations read, no source scan). Decides `path` when no inferred
+remapping can reach it, whatever a scan would find:
+- a written match ending in `/` (Foundry drops every inferred name nesting with it), or a
+  written match `E` without `/` where `path` continues with `E/` (any longer name matching
+  `path` starts with `E/` and nests with it);
+- no written match, or a shorter one, where no configuration name is a prefix of `path` and
+  the first component `c` of `path` is protected: a name found by scanning sources is a single
+  directory name, so only `c/` could match, and Foundry skips `lib/`, `src/`, `contracts/`
+  found that way and drops a project path (`src`, `test`, `script` as configured).
+Context remappings that can reach `path` are refused. Otherwise `needScan`. -/
+def remapDecideA (s : RemapStage0) (pool : FoundryRemap.ConfigPool) (origin path : String) :
+    Except String RemapStep := do
+  if let some i := pool.issue then
+    throw s!"import {path}: Foundry's remappings are unknown here ({i}); write the remapping \
+      in remappings.txt"
+  if let some m := contextRefusal origin path pool.entries then throw m
+  let best := bestExplicit s.explicit path
+  if let some (pre, _) := best then
+    if pre.endsWith "/" || path.startsWith (pre ++ "/") then
+      return .done (applyRemapping path best) none
+  let c := ((path.splitOn "/").headD "") ++ "/"
+  let projectPath := s.projectPaths.any (·.toLower == c.toLower)
+  let protected_ := path.length > c.length && path.startsWith c &&
+    (["lib/", "src/", "contracts/"].contains c || projectPath)
+  let poolHit := pool.entries.any fun r =>
+    r.context.isNone && path.startsWith r.name && !(projectPath && r.name.toLower == c.toLower)
+  if protected_ && !poolHit then return .done (applyRemapping path best) none
+  return .needScan
+
+/-- Stage 2 (libraries scanned in full): the exact result, or a refusal when Foundry's inferred
+set is unknown (`globalIssue`) or the matching inferred entry has an issue. -/
+def remapDecideB (s : RemapStage0) (full : InferredRemappings) (path : String) :
+    Except String (String × Option InferredRemapping) := do
+  if let some g := full.globalIssue then
+    throw s!"import {path} could take a remapping Foundry infers, but the inferred set is \
+      unknown here ({g}); write the remapping in remappings.txt"
+  remapImportPath path s.explicit full
 
 /-- Normalize a `/`-separated source unit name: drop `.` and empty parts, apply `..`. -/
 def normalizeSourcePath (path : String) : Except String String := Id.run do
@@ -760,21 +925,52 @@ def normalizeSourcePath (path : String) : Except String String := Id.run do
       out := out.push part
   return .ok (String.intercalate "/" out.toList)
 
-/-- The source unit that `spec`, imported from `origin`, names, as solc resolves it: a
-relative path is joined to `origin`'s directory first, then remappings apply to every import
-path. Also returns the inferred remapping used, if any. -/
-def resolveImport (origin spec : String) (explicit : Array (String × String))
-    (inferred : InferredRemappings) : Except String (String × Option InferredRemapping) := do
-  let relative := spec.startsWith "."
-  let path ← if relative then
-      let parent := String.intercalate "/" (origin.splitOn "/").dropLast
-      normalizeSourcePath (parent ++ "/" ++ spec)
-    else pure spec
-  let (target, used) ← remapImportPath path explicit inferred relative
-  return (← normalizeSourcePath target, used)
+/-- The import path of `spec` in `origin` before remapping: a relative `spec` joined to
+`origin`'s directory and normalized, as solc does first. -/
+def importPath (origin spec : String) : Except String String :=
+  if spec.startsWith "." then
+    normalizeSourcePath (String.intercalate "/" (origin.splitOn "/").dropLast ++ "/" ++ spec)
+  else pure spec
+
+/-- The source unit that `spec`, imported from `origin`, names, as solc resolves it with the
+remappings `forge build` passes, with every stage at hand: the source unit, the inferred
+remapping used, and the deepest stage the decision needed (0: none, 1: library
+configurations, 2: full library scan). The importer runs the same stages but reads each one
+only when a decision needs it. -/
+def resolveImportStaged (origin spec : String) (s : RemapStage0)
+    (pool : FoundryRemap.ConfigPool) (full : InferredRemappings) :
+    Except String (String × Option InferredRemapping × Nat) := do
+  let path ← importPath origin spec
+  match ← remapDecide0 s origin path with
+  | .done t u => return (← normalizeSourcePath t, u, 0)
+  | _ =>
+    match ← remapDecideA s pool origin path with
+    | .done t u => return (← normalizeSourcePath t, u, 1)
+    | _ =>
+      let (t, u) ← remapDecideB s full path
+      return (← normalizeSourcePath t, u, 2)
+
+/-- Read a file that may be absent: `none` if absent, `.error` if unreadable. -/
+def readOptional (path : System.FilePath) : IO (Except Unit (Option String)) := do
+  if !(← path.pathExists) then return .ok none
+  try return .ok (some (← IO.FS.readFile path)) catch _ => return .error ()
+
+/-- Shallow entries of `dir` for the directories named `names` that exist there: a symlink
+is recorded (`isSymlink`) and not followed. -/
+def shallowDirs (dir : System.FilePath) (names : List String) : IO (Array RemapDir) := do
+  let mut out : Array RemapDir := #[]
+  for n in names.eraseDups do
+    if n.isEmpty || n.startsWith "/" || n.contains '/' then continue
+    let p := dir / n
+    let md ← try p.symlinkMetadata catch _ => continue
+    if md.type == .symlink then
+      if ← p.isDir then out := out.push { name := n, isSymlink := true }
+    else if md.type == .dir then out := out.push { name := n }
+  return out
 
 /-- Read the parts of `dir` that remapping inference looks at. Hidden entries are skipped,
-symlinks are recorded and not followed, children are sorted. -/
+except a hidden directory holding a `foundry.toml` and the hidden library directories a
+`foundry.toml` here names. Symlinks are recorded and not followed. Children are sorted. -/
 partial def readRemapDir (dir : System.FilePath) (name : String) : IO RemapDir := do
   let entries ← try dir.readDir catch _ => return { name, unreadable := true }
   let entries := entries.qsort (·.fileName < ·.fileName)
@@ -797,29 +993,80 @@ partial def readRemapDir (dir : System.FilePath) (name : String) : IO RemapDir :
         d := if e.fileName == "foundry.toml" then { d with foundryToml := some text }
           else { d with remappingsTxt := some text }
     | .other => pure ()
+  if let some toml := d.foundryToml then
+    -- A library's own hidden `libs` directory is scanned by Foundry like any other.
+    let (libs, _) := FoundryRemap.libsOf d (FoundryRemap.parseFoundryToml toml)
+    for lib in libs do
+      if lib.startsWith "." && (d.child? lib).isNone then
+        for c in ← shallowDirs dir [lib] do
+          let child ← if c.isSymlink then pure c else readRemapDir (dir / lib) lib
+          d := { d with children := d.children.push { child with hidden := true } }
   return d
 
-/-- The project root as inference sees it: its `foundry.toml`, and its library directories
-read in full (the only part of the tree Foundry scans). -/
-def readRemapRoot (root : System.FilePath) : IO RemapDir := do
+/-- The project root without reading inside any directory: its `foundry.toml`, and shallow
+entries for `src`, `contracts`, `lib`, `node_modules` and the configured `libs`. Enough for
+`remapStage0`. -/
+def readRemapRootShallow (root : System.FilePath) : IO RemapDir := do
   let toml ← if ← (root / "foundry.toml").pathExists then
       some <$> IO.FS.readFile (root / "foundry.toml") else pure none
   let keys := FoundryRemap.parseFoundryToml (toml.getD "") (strict := false)
-  let present ← ["contracts", "lib", "node_modules", "src"].filterM fun (n : String) =>
-    (root / n).isDir
-  let shallow : RemapDir :=
-    { name := "", foundryToml := toml, children := present.toArray.map fun n => { name := n } }
-  let (libs, _) := FoundryRemap.libsOf shallow keys
-  let mut children := shallow.children.filter (!libs.contains ·.name)
-  for lib in libs do
-    if ← (root / lib).isDir then
-      let md ← (root / lib).symlinkMetadata
-      if md.type == .symlink then
-        children := children.push { name := lib, hasSymlink := true }
-      else
-        children := children.push (← readRemapDir (root / lib) lib)
+  let children ← shallowDirs root
+    (["contracts", "lib", "node_modules", "src"] ++ (keys.libs.getD []))
   let real ← try IO.FS.realPath root catch _ => pure root
   let aboveRootSource := real.components.any (fun c => c == "src" || c == "contracts")
-  return { shallow with children, aboveRootSource }
+  return { name := "", foundryToml := toml, children, aboveRootSource }
+
+mutual
+/-- `dir` read for `remapConfigPool`: its configuration files, shallow entries for its
+default directories, and its library directories (`readRemapLibConfigs`). -/
+partial def readRemapConfigDir (dir : System.FilePath) (name : String) : IO RemapDir := do
+  let some toml ← (do
+      match ← readOptional (dir / "foundry.toml") with
+      | .ok t => pure (some t)
+      | .error () => pure none) | return { name, unreadable := true }
+  let txt ← match ← readOptional (dir / "remappings.txt") with
+    | .ok t => pure t
+    | .error () => return { name, unreadable := true }
+  let keys := FoundryRemap.parseFoundryToml (toml.getD "") (strict := false)
+  let present ← shallowDirs dir (["contracts", "lib", "node_modules", "src"] ++ (keys.libs.getD []))
+  let shallow : RemapDir := { name, foundryToml := toml, remappingsTxt := txt, children := present }
+  let (libs, _) := FoundryRemap.libsOf shallow keys
+  let mut children := present.filter (!libs.contains ·.name)
+  for c in present.filter (libs.contains ·.name) do
+    children := children.push (← if c.isSymlink then pure c else readRemapLibConfigs (dir / c.name) c.name)
+  return { shallow with children }
+
+/-- A library directory read for `remapConfigPool`: listed one level deep; it and every child
+holding a `foundry.toml` are read with `readRemapConfigDir`. Symlinked children are not
+followed (Foundry's search for nested configurations does not follow them either). -/
+partial def readRemapLibConfigs (dir : System.FilePath) (name : String) : IO RemapDir := do
+  let entries ← try dir.readDir catch _ => return { name, unreadable := true }
+  let hasToml ← (dir / "foundry.toml").pathExists
+  let mut d : RemapDir := { name }
+  if hasToml then d ← readRemapConfigDir dir name
+  for e in entries.qsort (·.fileName < ·.fileName) do
+    let md ← try e.path.symlinkMetadata catch _ => return { d with unreadable := true }
+    if md.type != .dir || (d.child? e.fileName).isSome then continue
+    if ← (e.path / "foundry.toml").pathExists then
+      let child ← readRemapConfigDir e.path e.fileName
+      d := { d with children := d.children.push { child with hidden := e.fileName.startsWith "." } }
+  return d
+end
+
+/-- The project root read for `remapConfigPool`. -/
+def readRemapConfigs (root : System.FilePath) : IO RemapDir := do
+  let d ← readRemapConfigDir root ""
+  return { d with aboveRootSource := (← readRemapRootShallow root).aboveRootSource }
+
+/-- The project root read in full for `inferFoundryRemappings`: its `foundry.toml`, and its
+library directories read entirely (the only part of the tree Foundry scans). -/
+def readRemapRoot (root : System.FilePath) : IO RemapDir := do
+  let shallow ← readRemapRootShallow root
+  let keys := FoundryRemap.parseFoundryToml (shallow.foundryToml.getD "") (strict := false)
+  let (libs, _) := FoundryRemap.libsOf shallow keys
+  let mut children := shallow.children.filter (!libs.contains ·.name)
+  for c in shallow.children.filter (libs.contains ·.name) do
+    children := children.push (← if c.isSymlink then pure c else readRemapDir (root / c.name) c.name)
+  return { shallow with children }
 
 end Compiler.CompilationModel.SolidityImport
