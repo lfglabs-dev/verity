@@ -17,11 +17,14 @@ Configuration (JSON; `project` is relative to the configuration file):
                                          `optimizer`, `metadata.bytecodeHash`)
     signatures                           imported entry points, in model order
     initialStorage                       [{"label": <state variable>, "value": v}]
-    prefix                               [{"signature": s, "args": [v], "sender": i}]
+    prefix                               [{"signature": s, "args": [v], "sender": i,
+                                           "expect": "ok" | "revert" (optional)}]
     arguments                            {<signature>: [[v, ...] per argument]}
 
 Values are integers, booleans, `sender:<i>` addresses or 0x-prefixed hex
 (addresses and bytes32). Only static word-sized argument types are supported.
+A prefix row's optional `expect` is the documented source outcome: the source
+route must reproduce it, or the campaign fails before any A/B/C verdict.
 """
 import argparse
 import hashlib
@@ -228,6 +231,9 @@ def load_config(path):
         raise HarnessError(f'incomplete pinned-sequence configuration: {sorted(required - config.keys())}')
     if config['settings'].get('evmVersion', 'osaka') != 'osaka':
         raise HarnessError('only the osaka evmVersion is supported')
+    for index, row in enumerate(config['prefix']):
+        if row.get('expect', 'ok') not in ('ok', 'revert'):
+            raise HarnessError(f'prefix step {index}: expect must be "ok" or "revert"')
     config['project'] = (path.parent / config['project']).resolve()
     for signature in config['signatures']:
         argument_types(signature)
@@ -271,6 +277,14 @@ def compiler_checksum():
     return digest
 
 
+def check_prefix_expectations(prefix, source_rows):
+    """The source route reproduces each documented prefix outcome, located by step."""
+    for index, (row, observed) in enumerate(zip(prefix, source_rows)):
+        if 'expect' in row and observed['status'] != row['expect']:
+            raise HarnessError(f'prefix step {index} ({row["signature"]}): source route '
+                               f'{observed["status"]}, expected {row["expect"]}')
+
+
 def campaign(config_path, output, count, seed, shrink_attempts, mutant=None):
     config, output = load_config(config_path), Path(output).resolve()
     if not output.is_relative_to(Path.cwd().resolve()):
@@ -291,6 +305,7 @@ def campaign(config_path, output, count, seed, shrink_attempts, mutant=None):
         'compiled': EVM(output / 'C', [compiled], initial),
     }
     result = replay_three_routes(calls, adapters)
+    check_prefix_expectations(config['prefix'], result['observations']['source'])
     if command(['git', 'rev-parse', 'HEAD']).strip() != revision:
         raise HarnessError('candidate HEAD changed during pinned-sequence campaign')
     pinned_sources(config['project'], config['revision'], config['entry'])
