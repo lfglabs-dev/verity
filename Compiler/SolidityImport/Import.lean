@@ -8849,24 +8849,13 @@ private partial def lowerCall (j : Json) : M Val := do
       let .scalar _ _ expr := decoded[0]!
         | failAt j "scalar abi.decode expression requires a scalar target type"
       return { pre := decodePre, expr }
-    if (← mKind callee) == "NewExpression" && (← mType j).startsWith "contract " &&
-        (← get).stateVars.size > 1 then
+    -- `new C(...)` runs CREATE: a fresh account at an address derived from this
+    -- contract's nonce, C's constructor with its own effects, reverts bubbled up.
+    -- No lowering models that, so contract creation rejects in every contract.
+    if (← mKind callee) == "NewExpression" && (← mType j).startsWith "contract " then
       if (← get).forwardingBytesTuple then
         failAt j "contract creation in a forwarded tuple requires CREATE semantics"
-      let args ← mArr (← mField j "arguments")
-      let mut pre : Array Stmt := #[]
-      for arg in args do
-        let argTy ← mType arg
-        if argTy == "string memory" || argTy == "string" ||
-            argTy == "bytes memory" || argTy == "bytes" then
-          let buf ← lowerEncodedBytes arg
-          pre := pre ++ buf.pre
-        else
-          let v ← lowerExpr arg
-          pre := pre ++ v.pre
-      let res ← fresh
-      let mod := Compiler.ECM.SolidityStaticCall.uint256Module res 0 0
-      return { pre := pre.push (.ecm mod [Expr.contractAddress]), expr := .localVar res }
+      failAt j "contract creation `new C(...)` requires CREATE semantics and is outside this slice"
     let (fnId, vals) ← resolveCallTargetAndArgs j
     inlineFn fnId vals j
   else
@@ -13187,51 +13176,26 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           | _, _ => failAt s "inlined helper does not return on every path"
     | kind => failAt s s!"unsupported helper statement {kind}"
 
-private partial def lowerThisTryCall? (s : Json) :
-    M (Option (Val × Array Json × Array Json)) := do
-  unless (← mKind s) == "TryStatement" && (← get).stateVars.size > 1 do
-    return none
-  if (← get).forwardingBytesTuple then
-    failAt s "try/catch in a forwarded tuple requires call-success semantics"
+/-- `try this.f(args...)` is an external CALL to this contract: `f` runs in a new frame
+whose storage writes and logs persist on success and roll back on failure, its return
+data is decoded for a `returns (...)` clause, and each `catch` clause selects on the
+revert data. No lowering models that, so the self-call form rejects in every contract,
+located at the `try` statement (named arguments at the call). Other `try` forms are
+left to `lowerInterfaceTryCall?`. -/
+private partial def rejectThisTryCall (s : Json) : M Unit := do
+  unless (← mKind s) == "TryStatement" do return
   let extCall ← mField s "externalCall"
   unless (← mKind extCall) == "FunctionCall" && optStr extCall "kind" == some "functionCall" do
-    return none
+    return
   let callee ← mField extCall "expression"
-  unless (← mKind callee) == "MemberAccess" do return none
+  unless (← mKind callee) == "MemberAccess" do return
   let base ← mField callee "expression"
-  unless (← mKind base) == "Identifier" && optStr base "name" == some "this" do return none
+  unless (← mKind base) == "Identifier" && optStr base "name" == some "this" do return
+  if (← get).forwardingBytesTuple then
+    failAt s "try/catch in a forwarded tuple requires call-success semantics"
   unless (← mArr (← mField extCall "names")).isEmpty do
     failAt extCall "named arguments in a try self-call are unsupported"
-  let refId ← refInt callee
-  unless refId ≥ 0 do return none
-  let env ← get
-  let some fnDecl := env.funs.find? refId.toNat | return none
-  let some hex := optStr fnDecl "functionSelector" | return none
-  unless hex.length == 8 do return none
-  let mut sel : Nat := 0
-  for c in hex.toList do
-    let some d := Compiler.Hex.hexCharToNat? c | return none
-    sel := sel * 16 + d
-  let clauses ← mArr (← mField s "clauses")
-  unless clauses.size == 2 do return none
-  let yesBlock ← mField clauses[0]! "block"
-  let noBlock ← mField clauses[1]! "block"
-  let yesStmts ← mArr (← mField yesBlock "statements")
-  let noStmts ← mArr (← mField noBlock "statements")
-  let args ← mArr (← mField extCall "arguments")
-  let params ← mArr (← mField (← mField fnDecl "parameters") "parameters")
-  unless args.size == params.size do return none
-  let mut pre : Array Stmt := #[]
-  let mut callWords : Array Expr := #[]
-  for (arg, param) in args.zip params do
-    let ty ← mType param
-    let v ← atom (← lowerConverted ty arg)
-    pre := pre ++ v.pre
-    callWords := callWords.push (cleanHelperResultExpr ty v)
-  let okVar ← fresh
-  let mod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule okVar sel callWords.size
-  let callStmt := Stmt.ecm mod (Expr.contractAddress :: callWords.toList)
-  return some ({ pre := pre.push callStmt, expr := .localVar okVar }, yesStmts, noStmts)
+  failAt s "try/catch of an external self-call `this.f(...)` requires call semantics and is outside this slice"
 
 /-- `try I(a).f(args...) { A } catch { B }` for a `nonpayable` or `payable` external
 function without return values, called without options, with a success clause that
@@ -13539,8 +13503,8 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
             ifParts s
           else do
             let some parts ← (do
-                if let some parts ← lowerThisTryCall? s then pure (some parts)
-                else lowerInterfaceTryCall? s)
+                rejectThisTryCall s
+                lowerInterfaceTryCall? s)
               | failAt s "unsupported void helper statement TryStatement"
             pure parts
         let yesAll ← match yes.back? with | some b => voidHelperReturns b | none => pure false
@@ -18481,8 +18445,8 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               ifParts s
             else do
               let some parts ← (do
-                  if let some parts ← lowerThisTryCall? s then pure (some parts)
-                  else lowerInterfaceTryCall? s)
+                  rejectThisTryCall s
+                  lowerInterfaceTryCall? s)
                 | failAt s "unsupported statement TryStatement"
               pure parts
           let saved ← get
