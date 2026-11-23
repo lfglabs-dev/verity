@@ -306,6 +306,12 @@ contract C {
             'UncheckedBlockDeclarationOneSlot', [
                 'runBumped(uint256)', 'runCheckedAfter(uint256,uint256)', 'runTwoDeclarations(uint256)',
                 'runRedeclared(uint256)', 'runShadowedLocal(uint256)', 'runShadowedConstant(uint256)']),
+    fixture('fixture-helper-branch-scope', 'Contracts/SolidityImportSmoke/HelperBranchScopeOneSlot.sol',
+            'HelperBranchScopeOneSlot', [
+                'runThenDeclares(uint256)', 'runElseDeclares(uint256)', 'runNestedDeclares(uint256)',
+                'runOuterBranchDeclares(uint256)', 'runShadowsConstant(uint256)', 'runAssignsOuter(uint256)',
+                'runUncheckedBranch(uint256)', 'runBlockDeclaresString(uint256)',
+                'runBlockDeclaresArray(uint256)']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]
