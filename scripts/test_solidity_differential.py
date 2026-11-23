@@ -79,6 +79,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "scoped",
     "selector-responder",
     "state-count-invariance",
+    "storage-pointer-mapping-helper",
     "storage",
     "storage-byte-constant-conversions",
     "storage-bytes",

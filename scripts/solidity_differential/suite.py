@@ -287,6 +287,18 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(32, transactions)), '--seed', str(seed),
         '--change-prefix', *map(str, [0, 8, 1, 9, 17, 2, 26, 10, 3, 11, 4, 12, 5, 21, 6, 30, 7, 111, 1, 2 ** 256 - 1]),
         '--output', str(output / 'assert-statement')]))
+    # Storage-pointer library helper on a mapping of structs (StoragePointerMappingHelperSequence):
+    # x = 32 * v + 8 * k + c runs case c on key k with value v. The prefix lists keys 1-3, runs
+    # every case on a listed key and on the never-listed key 0 (the custom-error reverts), with
+    # packed values that fill the narrow members, deletes key 1, misses it, then relists it.
+    checks.append(('storage-pointer-mapping-helper', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/StoragePointerMappingHelperSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/StoragePointerMappingHelperSequenceModel.lean',
+        '--transactions', str(max(40, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, [8, 16, 24, 1, 23612620949129, 10, 2, 171, 19, 251, 3, 12, 20, 4,
+                                       14, 6, 16367, 1375, 7, 35184372088817, 18, 13, 105, 10, 12, 14,
+                                       303, 8, 2473, 12, 2 ** 256 - 1]),
+        '--output', str(output / 'storage-pointer-mapping-helper')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',

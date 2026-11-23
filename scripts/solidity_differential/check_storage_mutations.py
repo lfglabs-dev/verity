@@ -211,6 +211,25 @@ MUTANTS.update({
     'import-push-length-bound': (
         '.ite (.lt oldLen (.literal (2 ^ 64))) [] [.panicCode (.literal 0x41)]',
         '.ite (.lt oldLen (.literal (2 ^ 64 + 1))) [] [.panicCode (.literal 0x41)]')})
+# A one-key mapping state variable of structs passed to a `mapping(K => S) storage` helper
+# parameter is that variable: `m[k]` in the helper is `entries[k]` (StoragePointerMappingHelperSequence).
+# The slot mutant binds the parameter one slot off, through the raw-slot route; the guard mutants
+# drop the value-type gate and the Yul-name erasure, so their exact negative controls import.
+MUTANTS.update({
+    'import-storage-pointer-mapping-helper-slot': (
+        '          vals := vals.push (.storagePath 0 (.zero name) pre)\n',
+        '          let some decl := (← get).stateVars.find? (← refInt arg).toNat\n'
+        '            | failAt arg "mapping state variable declaration"\n'
+        '          let valSid := (← refInt (← mField (← mField decl "typeName") "valueType")).toNat\n'
+        '          vals := vals.push (.storagePath valSid (.rawSlot valSid (.literal (info.slot + 1))) pre)\n'),
+    'import-storage-pointer-mapping-helper-value-guard': (
+        '          unless info.keyCount == 1 && !info.scalarMapping && info.fixedArrayLength.isNone &&\n'
+        '              info.dynamicArrayElemType.isNone && info.dynamicArrayStructId.isNone &&\n'
+        '              valueTy.startsWith "struct " && !valueTy.contains "[" && !valueTy.contains "mapping(" do\n',
+        '          unless true do\n'),
+    'import-storage-pointer-mapping-helper-yul-slot-guard': (
+        '              yul := yul.erase pname |>.erase s!"{pname}.slot"\n',
+        '              yul := yul.erase pname\n')})
 # Assignment evaluates and captures the right-hand side before the target's keys and index
 # (solc, legacy and via-IR). Each mutant puts one site's key prelude back first.
 MUTANTS.update({
@@ -1051,6 +1070,8 @@ def run(directory, output, name):
         fixture = "EmptyPushSequence"
     if name.startswith("import-assign-order-"):
         fixture = "MappingWriteOrderSequence"
+    if name.startswith("import-storage-pointer-mapping-helper-"):
+        fixture = "StoragePointerMappingHelperSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
         fixture = "SignedEventSequence"
     if name.startswith("import-constant-array-"):
@@ -1130,6 +1151,14 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 15, 17, 19, 20, 22, 23, 25, 28, 29, 30, 31, 47, 49, 50, 60, 75, 62, 144, 2 ** 256 - 1])])
+    if fixture == 'StoragePointerMappingHelperSequence':
+        # The `stateful_campaign` prefix (`storage-pointer-mapping-helper`): list keys 1-3, run
+        # every case on a listed key and on the never-listed key 0.
+        argv[argv.index('--transactions') + 1] = '40'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [8, 16, 24, 1, 23612620949129, 10, 2, 171, 19, 251, 3, 12, 20, 4,
+                     14, 6, 16367, 1375, 7, 35184372088817, 18, 13, 105, 10, 12, 14, 303, 8, 2473, 12, 2 ** 256 - 1])])
     if fixture == 'EmptyPushSequence':
         # Push three elements onto each array (x % 4 == 1), lower every length to 0 (x = 0),
         # push() (2), read stale elements into `last` and `lastWord` (3), lower to 1 (4, 16) and
@@ -1977,6 +2006,45 @@ contract C {
  function checked(uint256 x) external pure returns (uint256) { return diff({b: 1 / x, a: x - 1}); }
 }
 ''')
+    elif name == 'import-storage-pointer-mapping-helper-value-guard':
+        # A scalar-valued mapping state variable as a helper argument stays rejected.
+        diagnostic = 'only struct mapping storage arguments are supported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ mapping(address => uint256) internal bal;
+ function credit(mapping(address => uint256) storage m, address who, uint256 v) internal returns (uint256) {
+  m[who] += v;
+  return m[who];
+ }
+ function checked(uint256 x) external returns (uint256) {
+  return credit(bal, address(uint160(x)), x);
+ }
+}
+''')
+    elif name == 'import-storage-pointer-mapping-helper-yul-slot-guard':
+        # The helper's `m.slot` must not resolve to the caller's storage local `m`.
+        diagnostic = 'unbound Yul identifier m.slot'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+struct E { address owner; uint256 v; }
+library L {
+ function at(mapping(uint256 => E) storage m, uint256 k) internal pure returns (E storage r) {
+  assembly { r.slot := add(m.slot, k) }
+ }
+}
+contract C {
+ using L for mapping(uint256 => E);
+ mapping(uint256 => E) internal es;
+ uint256 internal stamp;
+ function slotOf(uint256 s) internal pure returns (E storage r) {
+  assembly { r.slot := s }
+ }
+ function checked(uint256 x) external returns (uint256) {
+  E storage m = slotOf(x);
+  stamp = m.v;
+  return es.at(x).v;
+ }
+}
+''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':
         diagnostic = 'event direct parameter type differs from its declaration'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2057,6 +2125,8 @@ def mutation_campaign(output, selected=None):
             if baseline_code or not baseline['transactions'] or baseline['divergences']:
                 raise HarnessError(f'{name}: unmodified positive control failed')
             order_guard = name in {'import-helper-effect-binary-guard',
+                                  'import-storage-pointer-mapping-helper-value-guard',
+                                  'import-storage-pointer-mapping-helper-yul-slot-guard',
                                   'import-helper-effect-argument-guard',
                                   'import-helper-effect-classifier',
                                   'import-yul-result-id-guard',
