@@ -20,15 +20,14 @@ open Compiler.Proofs.SlotCoalescingShim
 open Compiler.Proofs.YulGeneration.TempReuseSoundness
 
 /-!
-# Proof-Carrying `PipelineConfig` & Active `Codegen` Composition
+# `PipelineConfig` & `emitYulWithProfile` (not on any compile path)
 ## Verity 2.0 Unified Roadmap — Phase C1 (Branch `V5-4`)
 
 This module resolves Phase C1 of the unified architectural roadmap:
 
 1. **Proof-Carrying `PipelineConfig` (`certifiedOptimized`)**:
-   Parameterizes the active Yul emission pipeline (`emitYulWithOptionsReport`)
-   by a declarative `PipelineConfig` specifying:
-   - whether `SelectorDispatchTree` logarithmic dispatch (`O(log N)`) is enabled,
+   Wraps Yul emission (`emitYulWithOptionsReport`) in `emitYulWithProfile`, which no compile
+   path calls, parameterized by a declarative `PipelineConfig` specifying:
    - whether `SlotCoalescingShim` packed storage read/write coalescing is enabled,
    - the dynamic spill watermark base (`computedSpillBase`) used by `TempReuse`
      (fixing the hardcoded `defaultSpillBase := 0x1000` seam),
@@ -98,7 +97,7 @@ theorem dynamicSpillSlotAddr_nonOverlapping
   unfold dynamicSpillSlotAddr computedSpillBase
   omega
 
-/-! ## 2. Proof-Carrying `PipelineConfig` & Active `Codegen` Integration -/
+/-! ## 2. `PipelineConfig` & `emitYulWithProfile` (unused by the CLI and import drivers) -/
 
 /-- Declarative configuration for the Verity 2.0 Layer 3 Yul codegen pipeline.
     Defaults to the `certifiedOptimized` setup (plugin catalog G2–G8, whose `.kernelVerified`
@@ -125,7 +124,8 @@ def PipelineConfig.unoptimized (opts : YulEmitOptions := {}) : PipelineConfig wh
 /-- Optimized profile enabling `SlotCoalescingShim`, the acceleration plugin catalog
     (G2–G8, labels only: no pass of it has a semantic-preservation theorem) and the dynamic
     spill watermark. No compile path uses this profile (see the module docstring).
-    `TempReuse` (G1) is not certified: it is a trusted, tested-only pass (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
+    `TempReuse` (G1) is not certified: it is a trusted, tested-only pass
+    (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 def PipelineConfig.certifiedOptimized
     (opts : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } })
     (memoryHighWaterMark : Nat := 512) : PipelineConfig where

@@ -15,14 +15,15 @@ open Compiler.Yul
 open Compiler.Autoresearch.MaxwellGasSuperoptimizer
 
 /-!
-# Segregated Acceleration Plugin Architecture, Semantic `MetaGateSpec` & Active AST Passes
+# Segregated Acceleration Plugin Architecture, Semantic `MetaGateSpec` & AST Passes
 ## Layer 2 & Layer 3 Unified Architecture (`Verity 2.0`)
 
 This module implements:
 
 1. **Meta-Specification & Speculative Gate (`MetaGateSpec`, `evalWithUntrustedAccelPlugin`)**:
-   Every optimization pass or external solver is gated through `verifyAccelCertGate`.
-   Unlike nominal self-specifications, `accelCertMetaGateSpec` is proved sound and complete
+   Defines `verifyAccelCertGate` and `evalWithUntrustedAccelPlugin` and proves facts about
+   them abstractly; no compile path runs this gate or any pass behind it. Unlike nominal
+   self-specifications, `accelCertMetaGateSpec` is proved sound and complete
    against the independent semantic safety proposition `AccelCertSafe`.
 
 2. **Compositional Verified Acceleration Contracts (`VerifiedAccelContract`, `AccelChain`)**:
@@ -346,7 +347,7 @@ theorem runAccelPluginChain_sound {Prog : Type} {Refines : Prog → Prog → Pro
     exact hTrans init (hd.run init) (runAccelPluginChain tl (hd.run init))
       (hd.is_sound init) (ih (hd.run init))
 
-/-! ## 4. Active Layer 2/3 Yul AST Rewrite Passes (`applyCertifiedAstPassesToObject`) -/
+/-! ## 4. Layer 2/3 Yul AST Rewrite Passes (`applyCertifiedAstPassesToObject`) -/
 
 /-- Check whether `e` is a canonical boolean Yul expression (`0` or `1`). -/
 def isCanonicalBoolYulExpr : YulExpr → Bool
