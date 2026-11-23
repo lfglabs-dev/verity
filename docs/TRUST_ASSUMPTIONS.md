@@ -319,7 +319,7 @@ lowering: `extsloadBatchYulFingerprint` and `exttloadBatchYulFingerprint` (the
 uint256)`) by `lowerBatchRangeSloadShim`. Selection is by exact code fingerprint only, never by
 a name: the lowerings take a `TrustedShortcutMatch`, which only a registry fingerprint match
 builds, and `scripts/check_importer_name_selection.py` (in `make check`) rejects importer code
-holding a name literal that is not a builtin, a solc AST or JSON name or one of the importer's own
+(`Compiler/SolidityImport/`) holding a name literal that is not a builtin, a solc AST or JSON name or one of the importer's own
 names, and any fingerprint use or shortcut lowering outside the registry (a text check; its
 exemptions and blind spots are listed in the script and left to review). The model of a replaced
 block is the fixed lowering. No Lean proof relates it to the block; each registry entry names
