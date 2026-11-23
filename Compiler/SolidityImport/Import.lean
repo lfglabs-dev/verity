@@ -5985,8 +5985,8 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
 (`abi.encode`, `abi.encodePacked`, `bytes.concat`, `string.concat`). Both solc 0.8.34 pipelines
 evaluate such a reference (its keys, index checks, storage-pointer local) at its position but
 read the bytes (length, Panic 0x22 on a corrupt encoding, data) only while encoding, after
-every argument has run. Returns the reference prelude, with the slot bound to a fresh local,
-and the field and slot of the read the caller defers. A storage-typed argument whose slot does
+every argument has run. Returns the reference prelude and the field and slot of the read the
+caller defers; the slot is a literal or a local the prelude binds (keys hashed at the position). A storage-typed argument whose slot does
 not resolve here (a storage conditional) is read at its position, so it is a located rejection
 before a later sibling that can revert, call or write. `none`: not deferred. -/
 private partial def deferredStorageBytesArgument? (args : Array Json) (idx : Nat) :
@@ -5997,12 +5997,7 @@ private partial def deferredStorageBytesArgument? (args : Array Json) (idx : Nat
       (ty.splitOn " storage").length > 1 do
     return none
   match ← resolveStorageBytesTarget? arg with
-  | some (refPre, name, slotExpr, _) =>
-      match slotExpr with
-      | .literal _ => return some (refPre, name, slotExpr)
-      | _ =>
-          let slot ← fresh
-          return some (refPre.push (.letVar slot slotExpr), name, .localVar slot)
+  | some (refPre, name, slotExpr, _) => return some (refPre, name, slotExpr)
   | none =>
       for later in args.extract (idx + 1) args.size do
         unless ← orderInert later do
@@ -7601,12 +7596,13 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
               failAt args[otherIdx]! "storage ABI encoding argument beside a reverting helper is unsupported"
         if args.size > 1 then
           if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then
-            -- solc validates a calldata array argument while encoding it, in argument order;
-            -- an earlier one would be validated before this deferred read.
+            -- solc may validate a calldata array or struct argument while encoding it, in
+            -- argument order; an earlier one would be validated before this deferred read.
             for earlier in args.extract 0 argIdx do
               let earlierTy ← mType earlier
-              if earlierTy.contains "calldata" && (scalarArrayElement? earlierTy).isSome then
-                failAt earlier "calldata array ABI encoding argument before a storage bytes/string argument is unsupported"
+              if earlierTy.contains "calldata" &&
+                  ((scalarArrayElement? earlierTy).isSome || earlierTy.startsWith "struct ") then
+                failAt earlier "calldata array or struct ABI encoding argument before a storage bytes/string argument is unsupported"
             pre := pre ++ refPre
             let headIdx := headWords.size
             headWords := headWords.push none
