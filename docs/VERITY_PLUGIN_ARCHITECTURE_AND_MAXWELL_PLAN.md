@@ -8,7 +8,7 @@
 
 ## 1. Synthèse du Consensus Architectural (Claude Fable 5.1 × GPT-6 Astra)
 
-L'audit croisé avec **Claude Fable 5.1** et **GPT-6 Astra** converge sur quatre invariants architecturaux non négociables pour faire du profil optimisé certifié (`PipelineConfig.certifiedOptimized`, passes `G1`–`G8`) le setup de base par défaut de Verity tout en ouvrant le compilateur à des plugins d'accélération substituables (simplificateurs algébriques `Mathlib` / `Tau Ceti`, solveurs e-graphs `egglog`, SMT/Bitwuzla, superoptimiseurs énumératifs, mutateurs guidés par `maxwell`) :
+L'audit croisé avec **Claude Fable 5.1** et **GPT-6 Astra** converge sur quatre invariants architecturaux non négociables pour faire du profil optimisé certifié (`PipelineConfig.certifiedOptimized`, passes `G2`–`G8` certifiées, `G1` de confiance) le setup de base par défaut de Verity tout en ouvrant le compilateur à des plugins d'accélération substituables (simplificateurs algébriques `Mathlib` / `Tau Ceti`, solveurs e-graphs `egglog`, SMT/Bitwuzla, superoptimiseurs énumératifs, mutateurs guidés par `maxwell`) :
 
 | # | Invariant Architectural | Formulation Formelle dans Verity |
 |---|---|---|
@@ -64,7 +64,7 @@ Sous la gouvernance de **`maxwell`** (le gouverneur Bayésien à 4 axes : *Spéc
 
 ### Horizon H4 — Ordonnancement Optimal de Pile EVM (`DUP`/`SWAP`/Spill Watermark Dynamique) (Moyen/Long Terme)
 - **Au-delà de `TempReuse` (`G1`) et du watermark dynamique (`computedSpillBase`)** : formalisation de la machine à pile EVM à 16 slots accessibles (`DUP1`..`DUP16`, `SWAP1`..`SWAP16`) comme problème d'ordonnancement sous contraintes (MaxSAT / programmation par contraintes hors TCB).
-- **Élimination certifiée des `StackTooDeep`** : lorsque la pression de registres dépasse 16 variables vivantes, le solveur calcule le plan optimal combinant rematérialisation de constantes bon marché (`PUSH0`, `CALLER`, `CALLVALUE`) et spill minimal au-dessus de `computedSpillBase memoryHighWaterMark`, validé par `dynamicSpillSlotAddr_disjoint_from_active_memory`.
+- **Élimination certifiée des `StackTooDeep`** : lorsque la pression de registres dépasse 16 variables vivantes, le solveur calcule le plan optimal combinant rematérialisation de constantes bon marché (`PUSH0`, `CALLER`, `CALLVALUE`) et spill minimal au-dessus de `computedSpillBase memoryHighWaterMark` ; un théorème de préservation reste à prouver (`dynamicSpillSlotAddr_disjoint_from_active_memory` ne porte que sur l'arithmétique des adresses et ne couvre aucune passe du compilateur).
 
 ### Horizon H5 — Superoptimisation Bytecode Multi-Forks (Cancun, Prague, Osaka, EOF) sur `EVMYulLean 2.0` (Long Terme)
 - **Portabilité paramétrique par `HardFork`** : chaque `PassStepCert` et chaque règle du catalogue porte ses hypothèses de fork explicites (`HardFork.cancun`, `.prague`, `.osaka`, et conteneurs EOF).
