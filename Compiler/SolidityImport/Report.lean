@@ -74,10 +74,10 @@ def UnsupportedConstruct.toText (c : UnsupportedConstruct) : String :=
   let tag := if c.followOn.isEmpty then "" else s!" [possibly consequential: {c.followOn}]"
   s!"  {c.file}:{c.line}:{c.column} {c.kind}: {c.reason} (closure {String.intercalate " -> " c.closure}){tag}"
 
-/-- A protocol shortcut the importer applied: instead of lowering the inline-assembly block at
+/-- A trusted shortcut the importer applied: instead of lowering the inline-assembly block at
 `file:line:column`, it used the fixed lowering `lowering`, because the block's
-`yulBlockFingerprint` equals the registered fingerprint `fingerprint` (the constant named
-`fingerprintName`). The model of that block is the fixed lowering, not a translation of the
+`yulBlockFingerprint` equals the fingerprint `fingerprint` of the `trustedImporterShortcuts`
+entry for the constant `fingerprintName`. The model of that block is the fixed lowering, not a translation of the
 block, so a proof about the root relies on the two agreeing. -/
 structure ShortcutUse where
   fingerprintName : String

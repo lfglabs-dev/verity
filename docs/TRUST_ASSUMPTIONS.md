@@ -317,6 +317,24 @@ is not part of this change. Solidity sources are Lake inputs only when the
 consumer declares them (`input_dir` + `needs`); consumers should also
 re-elaborate in CI to verify freshness against a compiled import.
 
+### Trusted importer shortcuts
+
+Three inline-assembly blocks are not translated by the importer. When a block's
+`yulBlockFingerprint` (SHA-256 of its solc Yul AST without source positions) equals the
+fingerprint of an entry of `trustedImporterShortcuts`
+(`Compiler/SolidityImport/InlineAssemblyShims.lean`), the block is replaced by that entry's fixed
+lowering: `extsloadBatchYulFingerprint` and `exttloadBatchYulFingerprint` (the
+`Extsload`/`Exttload` `bytes32[]` batch reads of `Uniswap/v4-core` `46c6834`) by
+`lowerBatchArrayLoadShim`, and `extsloadRangeYulFingerprint` (`Extsload.extsload(bytes32,
+uint256)`) by `lowerBatchRangeSloadShim`. Selection is by exact code fingerprint only, never by
+a name (`scripts/check_importer_name_selection.py`, in `make check`). The model of a replaced
+block is the fixed lowering. No Lean proof relates it to the block; each registry entry names
+the tests that compare the lowering's results with solc's (`TrustedShortcut.evidence`). A proof
+about an imported root whose model uses a shortcut relies on the lowering and the block
+agreeing, which is a trusted assumption (tested, not verified). The import report lists the
+shortcuts each root uses, per function (`FunctionStatus.shortcuts`, the `shortcut` lines of
+`report.toText`); see `docs/SOLIDITY_IMPORT.md`, "Trust boundary".
+
 ## CI execution and Action supply chain
 
 GitHub Actions and the machines that execute them are operational trust

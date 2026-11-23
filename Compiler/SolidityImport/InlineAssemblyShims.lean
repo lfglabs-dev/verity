@@ -6,146 +6,56 @@ open Lean Meta Elab Command
 namespace Compiler.CompilationModel.SolidityImport
 
 /-!
-# Solidity Import Inline Assembly & Uniswap v4 Verified Compiler Shims
+# Trusted importer shortcuts
 
-Encapsulates the verified inline-assembly and library lowering shims required for
-100% Uniswap v4 (`v4-core` `PoolManager.sol` and its libraries) coverage:
-- `Exttload.exttload` and `Extsload.extsload`
-- (`CurrencyLibrary.transfer` has no shortcut: it is lowered through its body)
-- `FullMath.mulDiv` and `FullMath.mulDivRoundingUp`
-- `SqrtPriceMath` (`getAmount0Delta`, `getAmount1Delta`, `getNextSqrtPriceFromInput`, `getNextSqrtPriceFromOutput`)
-- `BitMath.mostSignificantBit` and `BitMath.leastSignificantBit`
-- `SwapMath.computeSwapStep` and `TickMath.getSqrtPriceAtTick` / `getTickAtSqrtPrice`
-- `Pool.updateTick` (`TickBitmap.flipTick` has no shortcut: it is lowered through its body)
-- `IUnlockCallback.unlockCallback` (`Hooks.callHook` has no shortcut: helpers of that name are
-  lowered through their body)
+A few inline-assembly blocks are not translated. When a block's `yulBlockFingerprint` (sha256
+of its solc Yul AST without source positions) equals the fingerprint of an entry of
+`trustedImporterShortcuts`, the importer replaces the block with that entry's fixed lowering.
+
+These shortcuts are trusted, not verified: no Lean proof relates a lowering to the block it
+replaces. The fingerprint only identifies the block. Each entry names the tests that compare
+the lowering's results with solc's (`TrustedShortcut.evidence`). The model of a replaced block
+is the fixed lowering, so a proof about a root that uses a shortcut relies on the lowering and
+the block agreeing. The import report lists the shortcuts each root uses
+(`FunctionStatus.shortcuts`).
+
+A lowering can only be applied through a `TrustedShortcutMatch`, which only
+`matchTrustedShortcut?` builds, from a block whose fingerprint is registered. Applying it
+records the shortcut in the current root's report. `scripts/check_importer_name_selection.py`
+(`make check`) keeps every shortcut behind this registry and rejects importer code that selects
+a lowering by a user-chosen name.
 -/
 
-/-- Classification of verified compiler shims for Uniswap v4 (`v4-core`) inline assembly
-and low-level external call idioms. -/
-inductive VerifiedCompilerShimKind where
-  | exttloadSingle
-  | exttloadBatch
-  | extsloadSingle
-  | extsloadRange
-  | extsloadBatch
-  | currencyTransfer
-  | fullMathMulDiv
-  | sqrtPriceMathDelta
-  | bitMathScan
-  | swapMathStep
-  | tickMathLookup
-  | tickBitmapFlip
-  | poolUpdateTick
-  | hooksCall
-  | unlockCallback
+/-- The fixed lowering a trusted shortcut replaces its block with. -/
+inductive TrustedShortcutLowering where
+  /-- `lowerBatchArrayLoadShim` with one `sload` per calldata key. -/
+  | batchStorageRead
+  /-- `lowerBatchArrayLoadShim` with one `tload` per calldata key. -/
+  | batchTransientRead
+  /-- `lowerBatchRangeSloadShim`: `sload` of consecutive slots. -/
+  | rangeStorageRead
   deriving DecidableEq, Repr
 
-/-- Descriptor for a registered `VerifiedCompilerShim`. -/
-structure VerifiedCompilerShim where
-  kind : VerifiedCompilerShimKind
-  libraryName : String
-  functionName : String
-  preservesStorageSafety : Bool
-  coveredByDenote : Bool
-  deriving DecidableEq, Repr
+/-- One trusted shortcut: an exact block, the lowering that replaces it, and the tests that
+compare that lowering with solc on the block. -/
+structure TrustedShortcut where
+  /-- Name of the `*YulFingerprint` constant, printed in import reports. -/
+  fingerprintName : String
+  /-- `yulBlockFingerprint` of the only block this entry replaces. -/
+  fingerprint : String
+  lowering : TrustedShortcutLowering
+  /-- Repository paths of the tests that back the entry (lowering results against solc's). -/
+  evidence : List String
+  deriving Repr
 
-/-- Canonical registry of Uniswap v4 `VerifiedCompilerShim` descriptors. -/
-def uniswapV4VerifiedShims : List VerifiedCompilerShim :=
-  [ { kind := .exttloadSingle
-      libraryName := "Exttload"
-      functionName := "exttload"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .exttloadBatch
-      libraryName := "Exttload"
-      functionName := "exttloadSlots"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .extsloadSingle
-      libraryName := "Extsload"
-      functionName := "extsload"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .extsloadRange
-      libraryName := "Extsload"
-      functionName := "extsloadRange"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .extsloadBatch
-      libraryName := "Extsload"
-      functionName := "extsloadSlots"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  -- Inert: no lowering uses this entry since `CurrencyLibrary.transfer` is lowered through its
-  -- body (#2828); its flags are not backed by any lowering. Left for the registry work of #2828.
-  , { kind := .currencyTransfer
-      libraryName := "CurrencyLibrary"
-      functionName := "transfer"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .fullMathMulDiv
-      libraryName := "FullMath"
-      functionName := "mulDiv"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .sqrtPriceMathDelta
-      libraryName := "SqrtPriceMath"
-      functionName := "getAmountDelta"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .bitMathScan
-      libraryName := "BitMath"
-      functionName := "mostSignificantBit"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .swapMathStep
-      libraryName := "SwapMath"
-      functionName := "computeSwapStep"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .tickMathLookup
-      libraryName := "TickMath"
-      functionName := "getSqrtPriceAtTick"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  -- Inert: no lowering uses this entry since `TickBitmap.flipTick` is lowered through its body
-  -- (#2828); its flags are not backed by any lowering. Left for the registry work of #2828.
-  , { kind := .tickBitmapFlip
-      libraryName := "TickBitmap"
-      functionName := "flipTick"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .poolUpdateTick
-      libraryName := "Pool"
-      functionName := "updateTick"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  -- Inert: no lowering uses this entry since helpers named `callHook` are lowered through their
-  -- body (#2828); its flags are not backed by any lowering. Left for the registry work of #2828.
-  , { kind := .hooksCall
-      libraryName := "Hooks"
-      functionName := "callHook"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  , { kind := .unlockCallback
-      libraryName := "IUnlockCallback"
-      functionName := "unlockCallback"
-      preservesStorageSafety := true
-      coveredByDenote := true }
-  ]
-
-/-- Lookup a `VerifiedCompilerShim` by its `VerifiedCompilerShimKind`. -/
-def findVerifiedShim? (kind : VerifiedCompilerShimKind) : Option VerifiedCompilerShim :=
-  uniswapV4VerifiedShims.find? (·.kind == kind)
-
-/-- Predicate checking that all registered shims preserve storage safety and are covered by `Denote`. -/
-def allShimsVerified (shims : List VerifiedCompilerShim) : Bool :=
-  shims.all (fun s => s.preservesStorageSafety && s.coveredByDenote)
-
-/-!
-## Verified Runtime Lowering Constructors for Uniswap v4 Shims
--/
+/-- A trusted shortcut whose fingerprint matched the inline-assembly block `asm`. Only
+`matchTrustedShortcut?` builds one, so a lowering that takes it is applied only to a block that
+is exactly a registered one. -/
+structure TrustedShortcutMatch where
+  private mk ::
+  shortcut : TrustedShortcut
+  /-- The matched `InlineAssembly` node. -/
+  asm : Json
 
 /-- `j` without solc's source positions (`src`, `nativeSrc`), so that a fingerprint depends
 only on the code. -/
@@ -216,28 +126,48 @@ def inlineAssemblyRefsWithin (asm : Json) (declIds : List Nat) : Bool :=
 
 /-- `yulBlockFingerprint` of the `assembly` block of `Extsload.extsload(bytes32 startSlot,
 uint256 nSlots)` in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75`
-(`src/Extsload.sol`). It only selects the block that `lowerBatchRangeSloadShim` replaces; it
-says nothing about whether that lowering agrees with the block. -/
+(`src/Extsload.sol`), the block of the `.rangeStorageRead` shortcut. It only selects the block
+that `lowerBatchRangeSloadShim` replaces; it says nothing about whether that lowering agrees with
+the block. -/
 def extsloadRangeYulFingerprint : String :=
   "d9730e93af57142b904009c9e095ae86ca3d5b56703996afe94872b2ad280ebc"
 
 /-- `yulBlockFingerprint` of the `assembly` block of `Extsload.extsload(bytes32[] calldata slots)`
-in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` (`src/Extsload.sol`), the only code
-`lowerBatchArrayLoadShim` models with `isTransient := false`. Same value for solc 0.8.26 to 0.8.34. -/
+in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` (`src/Extsload.sol`), the block of
+the `.batchStorageRead` shortcut. Same value for solc 0.8.26 to 0.8.34. -/
 def extsloadBatchYulFingerprint : String :=
   "be5cd0027ebaa78d230b732c81cebe4339c348553867668201b357cc758aae83"
 
 /-- `yulBlockFingerprint` of the `assembly` block of `Exttload.exttload(bytes32[] calldata slots)`
-in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` (`src/Exttload.sol`), the only code
-`lowerBatchArrayLoadShim` models with `isTransient := true`. -/
+in `Uniswap/v4-core` `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` (`src/Exttload.sol`), the block of
+the `.batchTransientRead` shortcut. -/
 def exttloadBatchYulFingerprint : String :=
   "fde99fddf01f23a921eb50aadccf35541f1d93ab92ea966af76de65e839097f8"
 
-/-- Lower `Exttload.exttload(bytes32[] calldata slots)` and `Extsload.extsload(bytes32[] calldata slots)`
-into an ABI-encoded memory buffer loop and `SolidityReturnMemory.module` transport.
-Callers apply it only to a block whose `yulBlockFingerprint` is `extsloadBatchYulFingerprint` or
-`exttloadBatchYulFingerprint`. -/
-def lowerBatchArrayLoadShim (arr : ScalarArrayParam) (isTransient : Bool) : M (Array Stmt) := do
+/-- Record in the current root's report that its model replaces the block `m.asm` with the
+lowering `lowering` (its declaration name) of the trusted shortcut `m.shortcut`. Every shortcut
+lowering calls it. -/
+private def recordShortcut (m : TrustedShortcutMatch) (lowering : Name) : M Unit := do
+  let env ← get
+  let (file, site) := nodeSite env m.asm
+  let (line, column) := match site with
+    | some (line, column, _) => (line, column)
+    | none => (0, 0)
+  let use : ShortcutUse :=
+    { fingerprintName := m.shortcut.fingerprintName, fingerprint := m.shortcut.fingerprint,
+      lowering := lowering.getString!, file, line, column }
+  set { env with rootShortcuts := env.rootShortcuts.push use }
+
+/-- Replace the matched block of `Exttload.exttload(bytes32[] calldata slots)` or
+`Extsload.extsload(bytes32[] calldata slots)` (`m` is `.batchTransientRead` or
+`.batchStorageRead`) with an ABI-encoded memory buffer loop and `SolidityReturnMemory.module`
+transport, and record the shortcut. -/
+def lowerBatchArrayLoadShim (m : TrustedShortcutMatch) (arr : ScalarArrayParam) : M (Array Stmt) := do
+  let isTransient ← match m.shortcut.lowering with
+    | .batchStorageRead => pure false
+    | .batchTransientRead => pure true
+    | other => throwError "lowerBatchArrayLoadShim: shortcut {m.shortcut.fingerprintName} selects {repr other}, not a batch read"
+  recordShortcut m decl_name%
   let startVar ← fresh
   let finishVar ← fresh
   let loopIdx ← fresh
@@ -259,8 +189,10 @@ def lowerBatchArrayLoadShim (arr : ScalarArrayParam) (isTransient : Bool) : M (A
     .revertEmpty
   ]
 
-/-- Lower `Extsload.extsload(bytes32 startSlot, uint256 nSlots)` into an ABI-encoded
-memory buffer loop and `SolidityReturnMemory.module` transport.
+/-- Replace the matched block of `Extsload.extsload(bytes32 startSlot, uint256 nSlots)` (`m` is
+`.rangeStorageRead`) with an ABI-encoded memory buffer loop and `SolidityReturnMemory.module`
+transport, and record the shortcut. `startSlotExpr` and `nSlotsExpr` are the values of the
+block's `startSlot` and `nSlots`.
 
 The block's byte length `shl(5, nSlots)` wraps, so it reads `m := nSlots mod 2^251` words and
 returns `(0x40 + 32 * m) mod 2^256` bytes, keeping the full `nSlots` as the length word. When
@@ -268,7 +200,11 @@ returns `(0x40 + 32 * m) mod 2^256` bytes, keeping the full `nSlots` as the leng
 modeled: where the EVM runs out of gas (from about 7,600 cold reads under the Osaka 2^24
 transaction gas cap), this lowering still returns the words, or reverts with `Panic(0x41)` from
 `AbiEncoding.reserve` once the result exceeds the 2^64-byte memory bound. -/
-def lowerBatchRangeSloadShim (startSlotExpr nSlotsExpr : Expr) : M (Array Stmt) := do
+def lowerBatchRangeSloadShim (m : TrustedShortcutMatch) (startSlotExpr nSlotsExpr : Expr) :
+    M (Array Stmt) := do
+  unless m.shortcut.lowering == .rangeStorageRead do
+    throwError "lowerBatchRangeSloadShim: shortcut {m.shortcut.fingerprintName} selects {repr m.shortcut.lowering}, not the range read"
+  recordShortcut m decl_name%
   let startVar ← fresh
   let finishVar ← fresh
   let loopIdx ← fresh
@@ -292,60 +228,36 @@ def lowerBatchRangeSloadShim (startSlotExpr nSlotsExpr : Expr) : M (Array Stmt) 
     .revertEmpty
   ]
 
-/-!
-## 3-Layer MetaSpec Bundle (`InlineAssemblyShimsMetaSpec`)
--/
+/-- The trusted importer shortcuts: every block the importer replaces instead of translating.
+Each `fingerprintName` is the name of the constant `fingerprint` reads, written as a quoted name
+that must resolve when this file elaborates. -/
+def trustedImporterShortcuts : List TrustedShortcut :=
+  [ { fingerprintName := (``extsloadBatchYulFingerprint).getString!
+      fingerprint := extsloadBatchYulFingerprint
+      lowering := .batchStorageRead
+      evidence := ["Contracts/SolidityImportSmoke/RootArrayReturnStateCountChecks.lean",
+        "Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean"] }
+  , { fingerprintName := (``exttloadBatchYulFingerprint).getString!
+      fingerprint := exttloadBatchYulFingerprint
+      lowering := .batchTransientRead
+      evidence := ["Contracts/SolidityImportSmoke/RootArrayReturnStateCountChecks.lean",
+        "Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean"] }
+  , { fingerprintName := (``extsloadRangeYulFingerprint).getString!
+      fingerprint := extsloadRangeYulFingerprint
+      lowering := .rangeStorageRead
+      evidence := ["Contracts/SolidityImportSmoke/TailAssemblyRangeReadChecks.lean",
+        "Contracts/SolidityImportSmoke/RootArrayReturnStateCountChecks.lean"] }
+  ]
 
-/-- **Layer I MetaSpec** for `InlineAssemblyShims`:
-1. Every shim in `uniswapV4VerifiedShims` preserves storage safety and is covered by `Denote`.
-2. `uniswapV4VerifiedShims` has exactly 15 canonical Uniswap v4 shim entries.
-3. For any `s`, `allShimsVerified [s] = (s.preservesStorageSafety && s.coveredByDenote)`. -/
-structure InlineAssemblyShimsMetaSpec (s : VerifiedCompilerShim) : Prop where
-  registry_all_verified :
-    allShimsVerified uniswapV4VerifiedShims = true
-  registry_card :
-    uniswapV4VerifiedShims.length = 15
-  singleton_verified_iff :
-    allShimsVerified [s] = (s.preservesStorageSafety && s.coveredByDenote)
+/-- The trusted shortcut whose fingerprint is the `yulBlockFingerprint` of the `InlineAssembly`
+node `asm`, if any. The only way to build a `TrustedShortcutMatch`. -/
+def matchTrustedShortcut? (asm : Json) : Option TrustedShortcutMatch :=
+  let fingerprint := yulBlockFingerprint asm
+  (trustedImporterShortcuts.find? (·.fingerprint == fingerprint)).map fun shortcut =>
+    TrustedShortcutMatch.mk shortcut asm
 
-/-- Universal theorem establishing `InlineAssemblyShimsMetaSpec` for every `VerifiedCompilerShim`. -/
-theorem inlineAssemblyShims_satisfies_metaSpec (s : VerifiedCompilerShim) :
-    InlineAssemblyShimsMetaSpec s where
-  registry_all_verified := by decide
-  registry_card := rfl
-  singleton_verified_iff := by
-    simp [allShimsVerified]
-
-/-! ## Layer II: 1–3 Line Projection Corollaries -/
-
-theorem uniswapV4VerifiedShims_all_verified :
-    allShimsVerified uniswapV4VerifiedShims = true :=
-  (inlineAssemblyShims_satisfies_metaSpec {
-    kind := .exttloadSingle, libraryName := "", functionName := "",
-    preservesStorageSafety := true, coveredByDenote := true }).registry_all_verified
-
-theorem uniswapV4VerifiedShims_length :
-    uniswapV4VerifiedShims.length = 15 :=
-  (inlineAssemblyShims_satisfies_metaSpec {
-    kind := .exttloadSingle, libraryName := "", functionName := "",
-    preservesStorageSafety := true, coveredByDenote := true }).registry_card
-
-theorem allShimsVerified_singleton (s : VerifiedCompilerShim) :
-    allShimsVerified [s] = (s.preservesStorageSafety && s.coveredByDenote) :=
-  (inlineAssemblyShims_satisfies_metaSpec s).singleton_verified_iff
-
-/-! ## Layer III: Concrete `by decide` Witnesses -/
-
-theorem witness_findVerifiedShim_exttloadSingle :
-    (findVerifiedShim? .exttloadSingle).isSome = true := by decide
-
-theorem witness_findVerifiedShim_fullMathMulDiv :
-    (findVerifiedShim? .fullMathMulDiv).isSome = true := by decide
-
-theorem witness_findVerifiedShim_unlockCallback :
-    (findVerifiedShim? .unlockCallback).isSome = true := by decide
-
-theorem witness_uniswapV4VerifiedShims_all_safe :
-    allShimsVerified uniswapV4VerifiedShims = true := by decide
+/-- A block matches at most one shortcut: the registered fingerprints are distinct. -/
+theorem trustedImporterShortcuts_fingerprints_nodup :
+    (trustedImporterShortcuts.map (·.fingerprint)).Nodup := by decide
 
 end Compiler.CompilationModel.SolidityImport

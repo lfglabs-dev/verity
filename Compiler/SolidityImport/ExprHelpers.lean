@@ -209,8 +209,8 @@ structure Env where
   rootTransientFields : Array String := #[]
   /-- First inline-assembly block in a body the current root's closure lowers. -/
   rootAssembly : Option Json := none
-  /-- Shortcuts (fixed lowerings selected by a registered fingerprint) the current root's
-  lowering applied, in order. Reported per root in `FunctionStatus.shortcuts`. -/
+  /-- Trusted shortcuts (`trustedImporterShortcuts`) the current root's lowering applied, in
+  order. Reported per root in `FunctionStatus.shortcuts`. -/
   rootShortcuts : Array ShortcutUse := #[]
   included : Array FnRec
   projections : Array ProjRec
@@ -393,18 +393,6 @@ def failAt (j : Json) (why : String) : M α := do
     sink.pending.set (some (s!"{file}:{line}:{column}: {kind}: {why}\n{excerpt}",
       { file, line, column, kind, reason, closure := frames }, referencedDecls j))
   throwError "{file}:{line}:{column}: {kind}: {why}\n{excerpt}"
-
-/-- Record that the current root's model replaces the inline-assembly block `asm` with the fixed
-lowering `lowering`, selected because the block's fingerprint `fingerprint` is the registered
-constant `fingerprintName`. -/
-def recordShortcut (asm : Json) (fingerprintName fingerprint lowering : String) : M Unit := do
-  let env ← get
-  let (file, site) := nodeSite env asm
-  let (line, column) := match site with
-    | some (line, column, _) => (line, column)
-    | none => (0, 0)
-  set { env with rootShortcuts :=
-    env.rootShortcuts.push { fingerprintName, fingerprint, lowering, file, line, column } }
 
 /-- Reject the call `at_` to `fn`, which has no implementation. solc dispatches
 an internal call to the most-derived override in the target's inheritance

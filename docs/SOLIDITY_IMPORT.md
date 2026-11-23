@@ -325,10 +325,11 @@ function f
 ### Shortcuts used
 
 A few inline-assembly blocks are not translated: when a block's `yulBlockFingerprint`
-equals a registered fingerprint, the importer uses a fixed lowering for it instead
-(`docs/UNISWAP_V4_MODEL_SUPPORT.md`). The report lists each such replacement under
-the root whose model uses it (`FunctionStatus.shortcuts`), in both `toText` and
-`statusText`:
+equals the fingerprint of a trusted shortcut, the importer uses that shortcut's fixed
+lowering instead (see "Trusted shortcuts" under [Trust boundary](#trust-boundary)). The
+report lists each such replacement under the root whose model uses it
+(`FunctionStatus.shortcuts`), in both `toText` and `statusText`. The names it prints come
+from the registry entry (`trustedImporterShortcuts`) and the lowering's own declaration:
 
 ```text
 status loadSlots importable denoteCovered true compilerProof unavailable (...)
@@ -441,6 +442,29 @@ same with
 denotation retains exact panic bytes; legacy scalar accessors erase failure
 bytes. Gas, public ABI decoding and bytecode equivalence remain outside the
 import certificate.
+
+**Trusted shortcuts.** Three inline-assembly blocks are not translated. When a block's
+`yulBlockFingerprint` (SHA-256 of its solc Yul AST without source positions) equals the
+fingerprint of an entry of `trustedImporterShortcuts`
+(`Compiler/SolidityImport/InlineAssemblyShims.lean`), the importer replaces the block with that
+entry's fixed lowering:
+
+| Fingerprint constant | Block it selects (`Uniswap/v4-core` `46c6834`) | Fixed lowering |
+| --- | --- | --- |
+| `extsloadBatchYulFingerprint` | `Extsload.extsload(bytes32[] calldata)` | `lowerBatchArrayLoadShim`, one `sload` per key |
+| `exttloadBatchYulFingerprint` | `Exttload.exttload(bytes32[] calldata)` | `lowerBatchArrayLoadShim`, one `tload` per key |
+| `extsloadRangeYulFingerprint` | `Extsload.extsload(bytes32, uint256)` | `lowerBatchRangeSloadShim`, consecutive `sload`s |
+
+A shortcut is selected only by the exact code fingerprint of the block, never by a function,
+library, contract or variable name; `scripts/check_importer_name_selection.py` (in `make check`)
+fails if importer code selects a lowering by name or around the registry. For a replaced block
+the model is the fixed lowering, not a translation of the block, and no Lean proof relates the
+two: each entry names the tests that compare the lowering's results with solc's on the block
+(`TrustedShortcut.evidence`). A proof about a root whose model uses a shortcut therefore says
+something about the deployed code only if the lowering and the block agree, and that agreement
+is trusted (tested on the inputs those tests cover, not proved). The import report lists the
+shortcuts each root's model uses, per function (`shortcut` lines under its `status` line, see
+[Shortcuts used](#shortcuts-used)); a root without such a line uses none.
 
 An address immutable that a constructor assigns `address(this)` is modeled as
 the executing contract's address. That holds for code running at its own
