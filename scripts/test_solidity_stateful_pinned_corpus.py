@@ -14,6 +14,12 @@ def manifest():
     return json.loads(corpus.MANIFEST.read_text())
 
 
+def solc_output(sequence):
+    methods = {s: '00000000' for s in sequence['signatures']}
+    return {'contracts': {sequence['entry']: {sequence['contract']: {
+        'abi': [{'type': 'function'}], 'evm': {'methodIdentifiers': methods}}}}}
+
+
 class CorpusSequences(unittest.TestCase):
     def test_committed_sequences_are_complete(self):
         pairs = corpus.corpus_sequences(manifest())
@@ -69,15 +75,72 @@ class CorpusSequences(unittest.TestCase):
         with self.assertRaisesRegex(HarnessError, 'no corpus sequence'):
             corpus.corpus_sequences(manifest(), ['no-such-project'])
 
+    def test_duplicate_signature_is_rejected(self):
+        data = self.mutated(lambda s: s['signatures'].append(s['signatures'][0]))
+        with self.assertRaisesRegex(HarnessError, 'duplicate imported signatures'):
+            corpus.corpus_sequences(data)
+
     def test_entry_points_must_all_be_imported(self):
         _, sequence = corpus.corpus_sequences(manifest())[0]
-        methods = {s: '00000000' for s in sequence['signatures']}
-        output = {'contracts': {sequence['entry']: {sequence['contract']: {'evm': {
-            'methodIdentifiers': methods}}}}}
+        output = solc_output(sequence)
         corpus.check_entry_points(sequence, output)
-        methods['permit()'] = '00000000'
+        contract = output['contracts'][sequence['entry']][sequence['contract']]
+        contract['evm']['methodIdentifiers']['permit()'] = '00000000'
         with self.assertRaisesRegex(HarnessError, r"missing \['permit\(\)'\]"):
             corpus.check_entry_points(sequence, output)
+
+    def test_receive_and_fallback_are_rejected(self):
+        _, sequence = corpus.corpus_sequences(manifest())[0]
+        for kind in ('receive', 'fallback'):
+            output = solc_output(sequence)
+            output['contracts'][sequence['entry']][sequence['contract']]['abi'].append({'type': kind})
+            with self.assertRaisesRegex(HarnessError, f"unsupported \\['{kind}'\\]"):
+                corpus.check_entry_points(sequence, output)
+
+
+class RunSequence(unittest.TestCase):
+    """The checker's per-sequence order: entry points, positive campaign, mutant."""
+
+    def setUp(self):
+        self.project, self.sequence = corpus.corpus_sequences(manifest())[0]
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.calls = []
+
+    def run_with(self, output, positive=0, mutant=1, witness=('tx',)):
+        def run(config, out, transactions, seed, attempts, mutant=None):
+            self.calls.append(mutant)
+            if mutant:
+                out.mkdir(parents=True, exist_ok=True)
+                (out / 'reduced.json').write_text(json.dumps(
+                    {'deletion_minimal': True, 'transactions': list(witness)}))
+                return mutant_result
+            return positive
+        mutant_result = mutant
+        return corpus.run_sequence(self.project, self.sequence, 'config.json', self.root, 128, 2449,
+                                   entry_points=lambda config, root: output, run=run)
+
+    def test_incomplete_entry_points_stop_before_any_campaign(self):
+        output = solc_output(self.sequence)
+        output['contracts'][self.sequence['entry']][self.sequence['contract']]['evm'][
+            'methodIdentifiers'].pop(self.sequence['signatures'][0])
+        with self.assertRaisesRegex(HarnessError, 'signatures differ'):
+            self.run_with(output)
+        self.assertEqual(self.calls, [])
+
+    def test_positive_then_mutant(self):
+        summary = self.run_with(solc_output(self.sequence))
+        self.assertEqual(self.calls, [None, 'drop-events'])
+        self.assertEqual(summary['mutantWitness'], 1)
+
+    def test_divergence_and_escaped_mutant_fail(self):
+        with self.assertRaisesRegex(HarnessError, 'campaign diverged'):
+            self.run_with(solc_output(self.sequence), positive=1)
+        with self.assertRaisesRegex(HarnessError, 'mutant escaped'):
+            self.run_with(solc_output(self.sequence), mutant=0)
+        with self.assertRaisesRegex(HarnessError, 'minimal witness'):
+            self.run_with(solc_output(self.sequence), witness=())
 
 
 class PrefixExpectations(unittest.TestCase):
