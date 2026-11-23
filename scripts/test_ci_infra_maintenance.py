@@ -413,9 +413,11 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             self.assertEqual(body.count(step), 1, job)
             self.assertLess(body.index("actions/checkout@"), body.index(step), job)
             self.assertLess(body.index(step), body.index("uses: ./.github/actions/setup-lean"), job)
-            # A job-level `LEAN_NUM_THREADS:` would hide the $GITHUB_ENV value.
+            # A job-level `LEAN_NUM_THREADS:` would hide the $GITHUB_ENV value,
+            # and no later step may set it again (step env or $GITHUB_ENV).
             self.assertNotIn("LEAN_NUM_THREADS:", body, job)
-        self.assertEqual(len(re.findall(r"^\s+LEAN_NUM_THREADS", job_body("build"), re.M)), 0)
+            # build-audits keeps exactly one other write: the build-medium cap.
+            self.assertEqual(body.count("LEAN_NUM_THREADS="), 1 if job == "build-audits" else 0, job)
         for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
             self.assertIn("runs-on: lean-", job_body(job), job)
 
