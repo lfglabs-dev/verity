@@ -11,13 +11,15 @@ account answers with an imported model of the contract deployed there: the
 calldata selector picks one external `view`/`pure` function, its word-aligned
 arguments are bound as in a top-level transaction, and its body runs in Denote
 over the account's own storage (the caller world's `.contractSlot account _`
-words, read as that model's plain slots). Return or revert bytes and the
+words, read as that model's plain slots) and the account's own balance; every
+other storage channel, including storage arrays, starts empty. Return or revert bytes and the
 account's accessed slots are the response; the caller world is never changed.
 
 The request domain fails closed: anything other than a value-free `STATICCALL`
 of a configured account whose calldata is a selector plus whole words and selects
 exactly one imported read-only function, or an execution that logs, writes,
-touches a channel other than plain storage or does not finish in Denote, is an
+has a traced access to a channel other than plain storage or does not finish in
+Denote, is an
 instrumentation error, never a Solidity success or revert. Gas equivalence is not
 claimed; campaigns supply ample real EVM gas.
 -/
@@ -26,12 +28,16 @@ namespace Compiler.CompilationModel.SolidityImport.ModelResponders
 open Denote DenoteByteExternalCalls ByteExternalCall Transactions
 
 /-- The world a callee model sees: its plain slots are the account's
-contract-qualified words; every other channel starts empty. -/
+contract-qualified words and its balance is the account's; every other storage
+channel, including storage arrays, starts empty. -/
 def calleeWorld (world : Verity.ContractState) (account : Nat) : Verity.ContractState :=
-  world.withStorageWords fun key =>
+  let words := world.withStorageWords fun key =>
     match key with
     | .slot slot => world.storageWords (.contractSlot account slot)
     | _ => 0
+  { words with
+    storageArray := fun _ => []
+    selfBalance := (world.accountWorld (Verity.Core.Address.ofNat account)).balance }
 
 /-- Selector and argument words of calldata made of a selector and whole words. -/
 def calldataWords (calldata : Bytes) : Option (Nat × List Nat) :=

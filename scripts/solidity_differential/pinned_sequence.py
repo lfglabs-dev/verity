@@ -559,9 +559,11 @@ def campaign(config_path, output, count, seed, shrink_attempts, mutant=None):
     write_json(output / 'campaign.json', {**result, 'revision': config['revision'],
         'verityHead': revision, 'seed': seed, 'transactions': calls,
         'signatures': config['signatures'], 'mutant': mutant,
-        # Both constructors' storage writes are checked against the initial storage; the
-        # immutables are copied from the source deployment, not computed by the model.
-        'constructorValidated': 'constructor-storage-checked; immutables-copied-from-source',
+        # No route compares constructors: the model route runs none. Both constructors'
+        # storage writes are checked against the initial storage, and the immutables are
+        # copied from the source deployment, not computed by the model.
+        'constructorValidated': False,
+        'constructorWorld': 'storage-writes-checked; immutables-copied-from-source',
         'addresses': world['addresses'],
         'immutables': world['immutables'], 'initialStorage': initial,
         'compilerSha256': digest, 'implementation': identity.manifest,

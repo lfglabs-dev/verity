@@ -2132,14 +2132,16 @@ answer `STATICCALL`s from the tested contract to a dependency deployed next to i
 The dependency runs as its solc bytecode on the source and compiled routes; on the
 model route its own imported model executes the selected external `view`/`pure`
 function in Denote over the dependency account's storage (`.contractSlot account _`
-read as that model's plain slots), with fresh transient storage, and returns its
+read as that model's plain slots) and the dependency account's own balance, with
+fresh transient storage and every other storage channel (including storage arrays)
+empty, and returns its
 exact return or revert bytes and qualified storage accesses without changing the
 caller world. It is a validation instrument, not an importer feature and not a
 semantic claim about external calls: no Solidity construct is admitted by it.
 Requests outside its domain (value-carrying or non-static calls, other targets,
 calldata that is not a selector plus whole words, selectors that do not pick one
-imported read-only function, executions that log, write, touch another storage
-channel or do not finish) are instrumentation errors, never a Solidity success or
+imported read-only function, executions that log, write, access another storage
+channel through a traced read or do not finish) are instrumentation errors, never a Solidity success or
 revert. Models with immutables are rejected.
 `test/ByteExternalCall/ModelResponderDomain.lean` checks each of these
 rejections and an in-domain answer from the callee's own storage. The responder's answers are trusted
