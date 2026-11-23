@@ -119,6 +119,10 @@ contract SequenceFixture {
             label = "lbl";
             out = uint256(keccak256(bytes.concat(blob, bytes32(y), blob))) % 1000 +
                 uint256(keccak256(abi.encode(label, y, blob))) % 1000 * 1000;
+            // A keyed storage `string` in `abi.encode`: its key (`y - 1`) is evaluated at its
+            // position, before the later `10 / y` (y = 0: Panic 0x11).
+            bytes32 keyed = keccak256(abi.encode(names[y - 1], 10 / y));
+            out = out + uint256(keyed) % 7;
         }
         emit Written(c, out);
         return out;
