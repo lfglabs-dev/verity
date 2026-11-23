@@ -641,8 +641,8 @@ except to a memory-free builtin. -/
 def sectionMemoryStaticBelow (bound : Nat) (code : List YulStmt) : Bool :=
   stmtsMemoryStaticBelow bound (stmtsFuncDefNames code) code
 
-/-- Spill a code section only when the spill words are provably disjoint from every other
-memory access: each access in `code` has a literal address and length below
+/-- Spill a code section only when the spill words are statically checked to be disjoint from
+every other memory access: each access in `code` has a literal address and length below
 `defaultSpillBase`, `msize` is unused, and every call stays inside the section or is a
 memory-free builtin. The free-memory pointer is left untouched, so the
 memory layout (and every allocation bound) stays exactly as emitted. Any other section is
