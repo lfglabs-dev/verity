@@ -283,130 +283,6 @@ def findFreeSpillSlot (rest : List YulStmt) : List Nat → Option Nat
       else
         findFreeSpillSlot rest slots
 
-/-- Fuel-bounded pass over a single lexical statement list when `countLetBindings > maxStackLocals`. -/
-def reuseBlockTempsLoop
-    (stackCap : Nat)
-    (spillBase : Nat)
-    (protectedNames : List String) :
-    Nat → List String → List Nat → Bool → List YulStmt → List YulStmt
-  | 0, _, _, _, stmts => stmts
-  | _ + 1, _, _, _, [] => []
-  | fuel + 1, stackVars, spillSlots, inUnsafe, stmt :: rest =>
-      match stmt with
-      | .comment text =>
-          let nextUnsafe :=
-            if text == UnsafeYulFragment.beginMarker then true
-            else if text == UnsafeYulFragment.endMarker then false
-            else inUnsafe
-          stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames fuel stackVars spillSlots nextUnsafe rest
-      | .let_ v rhs =>
-          if inUnsafe || !canRewriteLet protectedNames v rhs rest then
-            stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames fuel (stackVars ++ [v]) spillSlots inUnsafe rest
-          else
-            let span := letSpanInStmts v rest
-            if stackVars.length < stackCap && (span ≤ 2 || stackVars.length < 4) then
-              stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames fuel (stackVars ++ [v]) spillSlots inUnsafe rest
-            else
-              match if span ≤ 2 then findDeadStackVar protectedNames rhs rest stackVars else none with
-              | some deadVar =>
-                  let rest' := renameIdentInStmts v deadVar rest
-                  .assign deadVar rhs ::
-                    reuseBlockTempsLoop stackCap spillBase protectedNames fuel stackVars spillSlots inUnsafe rest'
-              | none =>
-                  let (slot, spillSlots') :=
-                    match findFreeSpillSlot rest spillSlots with
-                    | some existingSlot => (existingSlot, spillSlots)
-                    | none =>
-                        let newSlot := spillBase + 32 * spillSlots.length
-                        (newSlot, spillSlots ++ [newSlot])
-                  let rest' := spillIdentInStmts v slot rest
-                  .exprStmt (.call "mstore" [.lit slot, rhs]) ::
-                    reuseBlockTempsLoop stackCap spillBase protectedNames fuel stackVars spillSlots' inUnsafe rest'
-      | _ =>
-          stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames fuel stackVars spillSlots inUnsafe rest
-
-/-- Rewrite a single lexical block: fast-path identity when `countLetBindings stmts ≤ maxStackLocals`. -/
-def reuseBlockTemps
-    (maxStackLocals : Nat := defaultMaxStackLocals)
-    (protectedNames : List String := [])
-    (stmts : List YulStmt) : List YulStmt :=
-  if countLetBindings stmts ≤ maxStackLocals then
-    stmts
-  else
-    let stackCap := Nat.max 1 (maxStackLocals / 2 + 1)
-    reuseBlockTempsLoop stackCap defaultSpillBase protectedNames stmts.length [] [] false stmts
-
-/-- Rewrite a single lexical block using an explicit dynamic scratch-memory `spillBase`:
-    fast-path identity when `countLetBindings stmts ≤ maxStackLocals`. -/
-def reuseBlockTempsWithSpillBase
-    (maxStackLocals : Nat := defaultMaxStackLocals)
-    (spillBase : Nat := defaultSpillBase)
-    (protectedNames : List String := [])
-    (stmts : List YulStmt) : List YulStmt :=
-  if countLetBindings stmts ≤ maxStackLocals then
-    stmts
-  else
-    let stackCap := Nat.max 1 (maxStackLocals / 2 + 1)
-    reuseBlockTempsLoop stackCap spillBase protectedNames stmts.length [] [] false stmts
-
-mutual
-/-- Recursively apply temporary reuse and spilling across a `YulStmt`. -/
-def reuseAndSpillTempsInStmt
-    (maxStackLocals : Nat)
-    (protectedNames : List String) : YulStmt → YulStmt
-  | .comment text => .comment text
-  | .let_ name value => .let_ name value
-  | .letMany names value => .letMany names value
-  | .assign name value => .assign name value
-  | .exprStmt value => .exprStmt value
-  | .leave => .leave
-  | .if_ cond body =>
-      .if_ cond (reuseAndSpillTemps maxStackLocals protectedNames body)
-  | .for_ init cond post body =>
-      .for_
-        (reuseAndSpillTemps maxStackLocals protectedNames init)
-        cond
-        (reuseAndSpillTemps maxStackLocals protectedNames post)
-        (reuseAndSpillTemps maxStackLocals protectedNames body)
-  | .switch expr cases default =>
-      .switch
-        expr
-        (reuseAndSpillTempsInCases maxStackLocals protectedNames cases)
-        (match default with
-         | none => none
-         | some body => some (reuseAndSpillTemps maxStackLocals protectedNames body))
-  | .block stmts =>
-      .block (reuseAndSpillTemps maxStackLocals protectedNames stmts)
-  | .funcDef name params rets body =>
-      .funcDef name params rets (reuseAndSpillTemps maxStackLocals (params ++ rets) body)
-
-/-- Recursively apply temporary reuse and spilling across a list of `YulStmt`. -/
-def reuseAndSpillTempsChildren
-    (maxStackLocals : Nat)
-    (protectedNames : List String) : List YulStmt → List YulStmt
-  | [] => []
-  | s :: ss =>
-      reuseAndSpillTempsInStmt maxStackLocals protectedNames s ::
-        reuseAndSpillTempsChildren maxStackLocals protectedNames ss
-
-/-- Recursively apply temporary reuse and spilling across switch cases. -/
-def reuseAndSpillTempsInCases
-    (maxStackLocals : Nat)
-    (protectedNames : List String) : List (Nat × List YulStmt) → List (Nat × List YulStmt)
-  | [] => []
-  | (tag, body) :: rest =>
-      (tag, reuseAndSpillTemps maxStackLocals protectedNames body) ::
-        reuseAndSpillTempsInCases maxStackLocals protectedNames rest
-
-/-- Apply temporary reuse and scratch-memory spilling to a statement list and all nested blocks. -/
-def reuseAndSpillTemps
-    (maxStackLocals : Nat := defaultMaxStackLocals)
-    (protectedNames : List String := [])
-    (stmts : List YulStmt) : List YulStmt :=
-  reuseBlockTemps maxStackLocals protectedNames
-    (reuseAndSpillTempsChildren maxStackLocals protectedNames stmts)
-end
-
 mutual
 /-- One past the highest spill slot (`mload`/`mstore` at a literal address at or above
 `defaultSpillBase`) used in an expression, or 0 if none. -/
@@ -456,6 +332,170 @@ def spillHighWaterCases : List (Nat × List YulStmt) → Nat
   | (_, body) :: rest => max (spillHighWaterStmts body) (spillHighWaterCases rest)
 end
 
+/-- Fuel-bounded pass over a single lexical statement list when `countLetBindings > maxStackLocals`.
+With `allowSpill = false` a `let` with no dead stack temporary to reuse stays a `let` (no
+scratch-memory spill): used where fixed spill slots would be shared by live frames. -/
+def reuseBlockTempsLoop
+    (stackCap : Nat)
+    (spillBase : Nat)
+    (protectedNames : List String)
+    (allowSpill : Bool := true) :
+    Nat → List String → List Nat → Bool → List YulStmt → List YulStmt
+  | 0, _, _, _, stmts => stmts
+  | _ + 1, _, _, _, [] => []
+  | fuel + 1, stackVars, spillSlots, inUnsafe, stmt :: rest =>
+      match stmt with
+      | .comment text =>
+          let nextUnsafe :=
+            if text == UnsafeYulFragment.beginMarker then true
+            else if text == UnsafeYulFragment.endMarker then false
+            else inUnsafe
+          stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel stackVars spillSlots nextUnsafe rest
+      | .let_ v rhs =>
+          if inUnsafe || !canRewriteLet protectedNames v rhs rest then
+            stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel (stackVars ++ [v]) spillSlots inUnsafe rest
+          else
+            let span := letSpanInStmts v rest
+            if stackVars.length < stackCap && (span ≤ 2 || stackVars.length < 4) then
+              stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel (stackVars ++ [v]) spillSlots inUnsafe rest
+            else
+              match if span ≤ 2 then findDeadStackVar protectedNames rhs rest stackVars else none with
+              | some deadVar =>
+                  let rest' := renameIdentInStmts v deadVar rest
+                  .assign deadVar rhs ::
+                    reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel stackVars spillSlots inUnsafe rest'
+              | none =>
+                  if !allowSpill then
+                    stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel
+                      (stackVars ++ [v]) spillSlots inUnsafe rest
+                  else
+                    let (slot, spillSlots') :=
+                      match findFreeSpillSlot rest spillSlots with
+                      | some existingSlot => (existingSlot, spillSlots)
+                      | none =>
+                          let newSlot := spillBase + 32 * spillSlots.length
+                          (newSlot, spillSlots ++ [newSlot])
+                    let rest' := spillIdentInStmts v slot rest
+                    .exprStmt (.call "mstore" [.lit slot, rhs]) ::
+                      reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel
+                        stackVars spillSlots' inUnsafe rest'
+      | _ =>
+          stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel stackVars spillSlots inUnsafe rest
+
+/-- Rewrite a single lexical block: fast-path identity when `countLetBindings stmts ≤ maxStackLocals`.
+New spill slots start above any spill slot already used inside `stmts`. -/
+def reuseBlockTemps
+    (maxStackLocals : Nat := defaultMaxStackLocals)
+    (protectedNames : List String := [])
+    (stmts : List YulStmt) : List YulStmt :=
+  if countLetBindings stmts ≤ maxStackLocals then
+    stmts
+  else
+    let stackCap := Nat.max 1 (maxStackLocals / 2 + 1)
+    reuseBlockTempsLoop stackCap (max defaultSpillBase (spillHighWaterStmts stmts)) protectedNames true
+      stmts.length [] [] false stmts
+
+/-- Rewrite a single lexical block using an explicit dynamic scratch-memory `spillBase`:
+    fast-path identity when `countLetBindings stmts ≤ maxStackLocals`. -/
+def reuseBlockTempsWithSpillBase
+    (maxStackLocals : Nat := defaultMaxStackLocals)
+    (spillBase : Nat := defaultSpillBase)
+    (protectedNames : List String := [])
+    (stmts : List YulStmt) : List YulStmt :=
+  if countLetBindings stmts ≤ maxStackLocals then
+    stmts
+  else
+    let stackCap := Nat.max 1 (maxStackLocals / 2 + 1)
+    reuseBlockTempsLoop stackCap (max spillBase (spillHighWaterStmts stmts)) protectedNames true
+      stmts.length [] [] false stmts
+
+/-- Rewrite one lexical block for `reuseAndSpillTemps`. New spill slots start above every
+slot the (already rewritten) nested blocks of `stmts` use: a nested block runs while this
+block's spilled locals are live, so the two must never share a slot. With
+`allowSpill = false` only dead stack temporaries are reused. -/
+def reuseBlockTempsNested
+    (maxStackLocals : Nat)
+    (protectedNames : List String)
+    (allowSpill : Bool)
+    (stmts : List YulStmt) : List YulStmt :=
+  if countLetBindings stmts ≤ maxStackLocals then
+    stmts
+  else
+    let stackCap := Nat.max 1 (maxStackLocals / 2 + 1)
+    reuseBlockTempsLoop stackCap (max defaultSpillBase (spillHighWaterStmts stmts))
+      protectedNames allowSpill stmts.length [] [] false stmts
+
+mutual
+/-- Recursively apply temporary reuse and spilling across a `YulStmt`.
+
+Spill slots are fixed memory words, so spilling is only sound where no other live frame can
+touch the same words. A function body never spills: it runs while its caller's spilled locals
+are live and may recurse into itself, and its slots would not be disjoint from either. A `for`
+initialiser never spills: its variables stay live while the body and post blocks run. Both
+still reuse dead stack temporaries; a body that remains too deep fails closed in solc
+(StackTooDeep) instead of aliasing memory. -/
+def reuseAndSpillTempsInStmt
+    (maxStackLocals : Nat)
+    (protectedNames : List String)
+    (allowSpill : Bool) : YulStmt → YulStmt
+  | .comment text => .comment text
+  | .let_ name value => .let_ name value
+  | .letMany names value => .letMany names value
+  | .assign name value => .assign name value
+  | .exprStmt value => .exprStmt value
+  | .leave => .leave
+  | .if_ cond body =>
+      .if_ cond (reuseAndSpillTemps maxStackLocals protectedNames allowSpill body)
+  | .for_ init cond post body =>
+      .for_
+        (reuseAndSpillTemps maxStackLocals protectedNames false init)
+        cond
+        (reuseAndSpillTemps maxStackLocals protectedNames allowSpill post)
+        (reuseAndSpillTemps maxStackLocals protectedNames allowSpill body)
+  | .switch expr cases default =>
+      .switch
+        expr
+        (reuseAndSpillTempsInCases maxStackLocals protectedNames allowSpill cases)
+        (match default with
+         | none => none
+         | some body => some (reuseAndSpillTemps maxStackLocals protectedNames allowSpill body))
+  | .block stmts =>
+      .block (reuseAndSpillTemps maxStackLocals protectedNames allowSpill stmts)
+  | .funcDef name params rets body =>
+      .funcDef name params rets (reuseAndSpillTemps maxStackLocals (params ++ rets) false body)
+
+/-- Recursively apply temporary reuse and spilling across a list of `YulStmt`. -/
+def reuseAndSpillTempsChildren
+    (maxStackLocals : Nat)
+    (protectedNames : List String)
+    (allowSpill : Bool) : List YulStmt → List YulStmt
+  | [] => []
+  | s :: ss =>
+      reuseAndSpillTempsInStmt maxStackLocals protectedNames allowSpill s ::
+        reuseAndSpillTempsChildren maxStackLocals protectedNames allowSpill ss
+
+/-- Recursively apply temporary reuse and spilling across switch cases. -/
+def reuseAndSpillTempsInCases
+    (maxStackLocals : Nat)
+    (protectedNames : List String)
+    (allowSpill : Bool) : List (Nat × List YulStmt) → List (Nat × List YulStmt)
+  | [] => []
+  | (tag, body) :: rest =>
+      (tag, reuseAndSpillTemps maxStackLocals protectedNames allowSpill body) ::
+        reuseAndSpillTempsInCases maxStackLocals protectedNames allowSpill rest
+
+/-- Apply temporary reuse and scratch-memory spilling to a statement list and all nested blocks
+(`allowSpill = false`: dead-stack-temporary reuse only). -/
+def reuseAndSpillTemps
+    (maxStackLocals : Nat := defaultMaxStackLocals)
+    (protectedNames : List String := [])
+    (allowSpill : Bool := true)
+    (stmts : List YulStmt) : List YulStmt :=
+  reuseBlockTempsNested maxStackLocals protectedNames allowSpill
+    (reuseAndSpillTempsChildren maxStackLocals protectedNames allowSpill stmts)
+end
+
+
 mutual
 /-- Raise every literal free-memory-pointer store `mstore(64, n)` in a statement (at any
 depth: nested blocks, branches, switch cases, loops and function bodies) to `minFree` when
@@ -494,7 +534,7 @@ end
 
 /-- Spill a code section, then start its free memory above the spill slots it uses. -/
 def reuseAndSpillTempsSection (maxStackLocals : Nat) (code : List YulStmt) : List YulStmt :=
-  let spilled := reuseAndSpillTemps maxStackLocals [] code
+  let spilled := reuseAndSpillTemps maxStackLocals [] true code
   let highWater := spillHighWaterStmts spilled
   if highWater = 0 then spilled else raiseFreePointerInit highWater spilled
 
