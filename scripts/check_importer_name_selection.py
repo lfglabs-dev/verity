@@ -32,7 +32,11 @@ one, so skipped code cannot reach the importer):
    Exempt: literals outside a selection position inside a `theorem` / `lemma` / `example` (up
    to the next line starting in column 0 or starting, at any indent, with a command keyword,
    or a `where` / `let rec` helper), which are test data of a statement; and the reasoned
-   `FILE_EXCEPTIONS` (EmitVerity's printed names and example model). Raw strings (`r"..."`,
+   `FILE_EXCEPTIONS` (EmitVerity's printed names and example model); a pinned solc release string
+   of the exact shape `<major>.<minor>.<patch>+commit.<8 hex>` (`"0.7.6+commit.7338295f"`), which
+   names a compiler build and cannot be an identifier; and the `INSTRUMENT_MODULES`
+   (differential-validation responders), which the run requires to exist and to be unreachable
+   through the imports of every other importer module. Raw strings (`r"..."`,
    `r#"..."#`) are read as strings without escapes; string gaps (`\` at a line end) and
    interpolations of nothing or of a literal are joined, so a name split by them is one name.
    Scope: only `Compiler/SolidityImport/`; a helper elsewhere under `Compiler/` is not read.
@@ -72,6 +76,10 @@ REGISTRY_FILE = IMPORTER_DIR / "InlineAssemblyShims.lean"
 
 # Identifiers that may appear in a selection literal. Grouped by where they come from; none is a
 # name chosen by the author of the imported code.
+# `nodeType` values of solc's AST JSON (libsolidity/ast/ASTJsonExporter.cpp, `ASTJsonConverter.cpp`
+# before 0.8.10): the node kinds the importer reads, including those the Solidity 0.7.6 slice
+# (`Legacy.lean`) admits or inspects (`ParameterList`, `OverrideSpecifier`,
+# `StructuredDocumentation`, `PragmaDirective`), all emitted by both solc 0.7.6 and 0.8.x.
 SOLC_AST_NODE_TYPES = {
     "ArrayTypeName", "Assignment", "BinaryOperation", "Block", "Break", "Conditional", "Continue",
     "ContractDefinition", "ElementaryTypeName", "ElementaryTypeNameExpression", "EmitStatement",
@@ -79,7 +87,8 @@ SOLC_AST_NODE_TYPES = {
     "FunctionCall", "FunctionCallOptions", "FunctionDefinition", "FunctionTypeName", "Identifier",
     "IfStatement", "IndexAccess", "IndexRangeAccess", "InlineAssembly", "Literal", "Mapping",
     "MemberAccess", "ModifierDefinition", "ModifierInvocation", "NewExpression",
-    "PlaceholderStatement", "Return", "RevertStatement", "StructDefinition", "TryStatement",
+    "OverrideSpecifier", "ParameterList", "PlaceholderStatement", "PragmaDirective", "Return",
+    "RevertStatement", "StructDefinition", "StructuredDocumentation", "TryStatement",
     "TupleExpression", "UnaryOperation", "UncheckedBlock", "UserDefinedTypeName",
     "UserDefinedValueTypeDefinition", "VariableDeclaration", "VariableDeclarationStatement",
     "WhileStatement", "YulAssignment", "YulBlock", "YulExpressionStatement", "YulFunctionCall",
@@ -153,6 +162,11 @@ INSTRUMENT_NAMES = {
     "checked", "static", "oracle", "v1", "ecrecover", "precompile", "recording", "call",
     "responder", "selector", "word", "raw",
 }
+# Tokens of the ABI coder pragmas, read from a `PragmaDirective`'s `literals` (solc splits
+# `pragma experimental ABIEncoderV2;` into ["experimental", "ABIEncoderV2"] and, from 0.7.5,
+# `pragma abicoder v2;` into ["abicoder", "v2"]; Solidity docs, "Layout of a Source File",
+# "Pragmas"). Pragma words are fixed by the language, not named by the source author.
+SOLIDITY_PRAGMA_TOKENS = {"experimental", "ABIEncoderV2", "abicoder", "v2"}
 # Exponent markers of Solidity number literals (`1e18`, `2E3`).
 SOLIDITY_LITERAL_SYNTAX = {"E", "e"}
 # Subcommands of the importer's own differential driver (`Differential.run`).
@@ -162,7 +176,7 @@ SOLC_JSON_FIELDS = {
     "AST", "Solidity", "arguments", "ast", "baseType", "body", "bytecodeHash", "components",
     "condition", "content", "declarations", "enabled", "evmVersion", "expression", "falseBody",
     "indexed", "initialValue", "initializationExpression", "isInlineArray", "label", "language",
-    "leftHandSide", "members", "metadata", "names", "optimizer", "outputSelection", "parameterTypes",
+    "leftHandSide", "literals", "members", "metadata", "names", "optimizer", "outputSelection", "parameterTypes",
     "parameters", "runs", "settings", "sources", "statements", "storageLayout", "subExpression",
     "transientStorageLayout", "trueBody", "typeDescriptions", "typeName", "typeString", "types",
     "variableNames", "viaIR",
@@ -215,8 +229,23 @@ ALLOWED_IDENTIFIERS = (
     SOLC_AST_NODE_TYPES | SOLC_AST_FIELD_VALUES | SOLC_TYPE_WORDS | SOLIDITY_BUILTINS
     | YUL_BUILTINS | SOLC_JSON_KEYS | IMPORTER_GENERATED | BUILD_TOOL_NAMES | INSTRUMENT_NAMES
     | DRIVER_COMMANDS | SOLIDITY_LITERAL_SYNTAX | SOLC_JSON_FIELDS | EVM_VERSIONS | YUL_KEYWORDS | IMPORTER_BINDINGS
-    | IMPORTER_JSON_KEYS
+    | IMPORTER_JSON_KEYS | SOLIDITY_PRAGMA_TOKENS
 )
+
+# A pinned solc release, `<major>.<minor>.<patch>+commit.<8 hex digits>` (solc `--version`, the
+# standard-JSON `longVersion`; e.g. "0.7.6+commit.7338295f"). It names a compiler build, never
+# imported code, and is not an identifier, so a user-chosen name cannot have this shape.
+SOLC_RELEASE = re.compile(r"\d+\.\d+\.\d+\+commit\.[0-9a-f]{8}")
+
+# Validation instruments under Compiler/SolidityImport/ that are not on the importer's selection
+# path: they are differential-test responders, never imported (even transitively) by any other
+# importer module, so their literals cannot select a lowering. The name check skips them, and
+# `check_instruments` fails if one is missing or reachable from a checked importer module.
+INSTRUMENT_MODULES = {
+    IMPORTER_DIR / "ModelResponders.lean": (
+        "imported-model static responder (docs/TRUST_ASSUMPTIONS.md, \"Validation instrument: "
+        "imported-model static responder\"); its `program` id selects the harness, not a lowering"),
+}
 
 # Lean name literals of the declarations `solidity_import` generates (`x.model`, `x.report`, ...).
 ALLOWED_NAME_LITERALS = {
@@ -539,6 +568,8 @@ def is_allowed(ident: str) -> bool:
 def check_names(root: Path, errors: list[str]) -> None:
     for path in importer_files(root):
         rel = path.relative_to(root)
+        if rel in INSTRUMENT_MODULES:
+            continue
         raw = path.read_text(encoding="utf-8")
         code, literals = scan(raw)
         lists = membership_list_spans(code, literals)
@@ -550,6 +581,8 @@ def check_names(root: Path, errors: list[str]) -> None:
                 continue
             if (rel.as_posix(), body) in FILE_EXCEPTIONS:
                 USED.add(("file", f"{rel.as_posix()}:{body}"))
+                continue
+            if SOLC_RELEASE.fullmatch(body):
                 continue
             kind = selection_kind(code, m.start, m.end, lists)
             if kind is None and any(lo <= m.start < hi for lo, hi in proofs):
@@ -604,6 +637,52 @@ def check_names(root: Path, errors: list[str]) -> None:
                 f"{rel}:{line_of(code, nm.start())}: Lean name literal {quote}{name} is not one of "
                 f"the importer's generated declaration or syntax names (ALLOWED_NAME_LITERALS): a "
                 f"name literal must not select a lowering")
+
+
+IMPORT_LINE = re.compile(r"(?m)^\s*(?:(?:public|private|meta)\s+)*import\s+(?:all\s+)?([\w.]+)")
+
+
+def module_path(root: Path, module: str) -> Path:
+    return root / Path(*module.split(".")).with_suffix(".lean")
+
+
+def check_instruments(root: Path, errors: list[str]) -> None:
+    """Every instrument module exists, and none is imported, directly or through any chain of
+    modules of this repository, by an importer module the name check reads."""
+    for rel in sorted(INSTRUMENT_MODULES):
+        if not (root / rel).is_file():
+            errors.append(f"INSTRUMENT_MODULES entry {rel} does not exist: remove it")
+    targets = {(root / rel).resolve() for rel in INSTRUMENT_MODULES}
+    imports: dict[Path, list[Path]] = {}
+
+    def deps(path: Path) -> list[Path]:
+        if path not in imports:
+            imports[path] = [module_path(root, imp.group(1)).resolve()
+                             for imp in IMPORT_LINE.finditer(path.read_text(encoding="utf-8"))]
+        return imports[path]
+
+    for start in importer_files(root):
+        if start.relative_to(root) in INSTRUMENT_MODULES:
+            continue
+        parent: dict[Path, Path | None] = {start.resolve(): None}
+        queue = [start.resolve()]
+        while queue:
+            path = queue.pop()
+            for dep in deps(path):
+                if dep in parent or not dep.is_file():
+                    continue
+                parent[dep] = path
+                if dep in targets:
+                    chain, node = [], dep
+                    while node is not None:
+                        chain.append(node.relative_to(root.resolve()).as_posix())
+                        node = parent[node]
+                    errors.append(
+                        f"{start.relative_to(root)}: imports the validation instrument "
+                        f"{chain[0]} ({' <- '.join(chain)}), which the name check skips; "
+                        f"importer code must not depend on a validation instrument")
+                    continue
+                queue.append(dep)
 
 
 def check_registry(root: Path, errors: list[str]) -> None:
@@ -675,7 +754,7 @@ def check_registry(root: Path, errors: list[str]) -> None:
 def check_routing(root: Path, errors: list[str]) -> None:
     for path in importer_files(root):
         rel = path.relative_to(root)
-        for imp in re.finditer(r"(?m)^\s*(?:(?:public|private|meta)\s+)*import\s+(?:all\s+)?([\w.]+)", path.read_text(encoding="utf-8")):
+        for imp in IMPORT_LINE.finditer(path.read_text(encoding="utf-8")):
             if imp.group(1).endswith(("Test", "Tests")):
                 errors.append(f"{rel}: imports the test module {imp.group(1)}, which this check "
                               f"skips; importer code must not depend on a test module")
@@ -717,6 +796,7 @@ def run(root: Path) -> list[str]:
     errors: list[str] = []
     USED.clear()
     check_names(root, errors)
+    check_instruments(root, errors)
     check_unused(errors)
     check_registry(root, errors)
     check_routing(root, errors)

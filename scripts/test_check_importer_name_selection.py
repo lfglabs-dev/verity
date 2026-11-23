@@ -18,6 +18,8 @@ import check_importer_name_selection as lint
 REPO = SCRIPT_DIR.parent
 IMPORT = "Compiler/SolidityImport/Import.lean"
 REGISTRY = "Compiler/SolidityImport/InlineAssemblyShims.lean"
+LEGACY = "Compiler/SolidityImport/Legacy.lean"
+RESPONDERS = "Compiler/SolidityImport/ModelResponders.lean"
 EVIDENCE = [
     "Contracts/SolidityImportSmoke/RootArrayReturnStateCountChecks.lean",
     "Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean",
@@ -303,6 +305,86 @@ class ImporterNameSelectionTests(unittest.TestCase):
         self.append(REGISTRY, '\ndef callHookYulFingerprint : String :=\n  "'
                     + "0" * 64 + '"\n')
         self.assertFails("callHookYulFingerprint is defined but no registry entry uses it")
+
+    # Solidity 0.7.6 slice (Legacy.lean): solc AST node types and ABI coder pragma tokens.
+    def test_legacy_node_types_and_pragma_tokens_pass(self) -> None:
+        self.append(LEGACY, '\ndef zzA (kind : String) : Bool :=\n'
+                    '  #["ParameterList", "OverrideSpecifier", "StructuredDocumentation"].contains kind\n'
+                    'def zzB (node : Json) : Bool :=\n'
+                    '  optStr node "nodeType" == some "PragmaDirective" &&\n'
+                    '    (field? node "literals").bind (·.getArr?.toOption) ==\n'
+                    '      some #[Json.str "abicoder", Json.str "v2"]\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    def test_user_name_next_to_an_ast_node_type_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (kind : String) : Bool :=\n'
+                    '  #["ParameterList", "callHook"].contains kind\n')
+        self.assertFails("`callHook`")
+
+    def test_user_name_beside_a_pragma_directive_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (node : Json) : Bool :=\n'
+                    '  optStr node "nodeType" == some "PragmaDirective" &&\n'
+                    '    optStr node "name" == some "callHook"\n')
+        self.assertFails("`callHook`")
+
+    def test_user_name_as_a_pragma_token_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (l : Array Json) : Bool :=\n'
+                    '  l == #[Json.str "experimental", Json.str "CurrencyLibrary"]\n')
+        self.assertFails("`CurrencyLibrary`")
+
+    # Pinned solc release strings: exact `<major>.<minor>.<patch>+commit.<8 hex>` only.
+    def test_pinned_solc_release_passes(self) -> None:
+        self.append(IMPORT, '\ndef zzA (v : String) : Bool := v == "0.8.33+commit.64118f21"\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    def test_word_commit_alone_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (v : String) : Bool := v == "commit"\n')
+        self.assertFails("`commit`")
+
+    def test_release_lookalikes_fail(self) -> None:
+        for lit, ident in (("0.7.6+commit.callHook", "callHook"),
+                           ("0.7.6+commit.7338295f.callHook", "callHook"),
+                           ("callHook+commit.7338295f", "callHook"),
+                           ("0.7.6+commit.7338295", "commit"),
+                           ("0.7.6+commit.7338295F", "commit"),
+                           ("0.7+commit.7338295f", "commit")):
+            with self.subTest(lit=lit):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, f'\ndef zzA (v : String) : Bool := v == "{lit}"\n')
+                self.assertFails(f"`{ident}`")
+                path.write_text(text, encoding="utf-8")
+
+    # Validation instruments: skipped by the name check, so never reachable from the importer.
+    def test_model_responders_is_an_instrument_not_imported_by_the_importer(self) -> None:
+        self.assertIn(Path(RESPONDERS), lint.INSTRUMENT_MODULES)
+        errors: list[str] = []
+        lint.check_instruments(REPO, errors)
+        self.assertEqual(errors, [])
+        self.assertNotIn("ModelResponders", (REPO / IMPORT).read_text(encoding="utf-8"))
+
+    def test_importing_an_instrument_fails(self) -> None:
+        path = self.root / IMPORT
+        path.write_text("import Compiler.SolidityImport.ModelResponders\n"
+                        + path.read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertFails(f"imports the validation instrument {RESPONDERS}")
+
+    def test_importing_an_instrument_transitively_fails(self) -> None:
+        bridge = self.root / "Compiler/ZzBridge.lean"
+        bridge.write_text("import Compiler.SolidityImport.ModelResponders\n", encoding="utf-8")
+        self.edit(LEGACY, "import Compiler.SolidityImport.ExprHelpers\n",
+                  "import Compiler.SolidityImport.ExprHelpers\nimport Compiler.ZzBridge\n")
+        self.assertFails(f"{LEGACY}: imports the validation instrument {RESPONDERS} "
+                         f"({RESPONDERS} <- Compiler/ZzBridge.lean <- {LEGACY})")
+
+    def test_missing_instrument_fails(self) -> None:
+        (self.root / RESPONDERS).unlink()
+        self.assertFails(f"INSTRUMENT_MODULES entry {RESPONDERS} does not exist")
+
+    def test_name_selection_in_a_non_instrument_responder_still_fails(self) -> None:
+        self.append("Compiler/SolidityImport/StaticOracleMocks.lean",
+                    '\ndef zzA (n : String) : Bool := n == "callHook"\n')
+        self.assertFails("`callHook`")
 
     def test_comments_are_ignored(self) -> None:
         self.append(IMPORT, '\n-- optStr callee "name" == some "callHook"\n'
