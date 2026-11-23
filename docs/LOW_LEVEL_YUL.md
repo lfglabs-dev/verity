@@ -76,8 +76,9 @@ deploy and runtime code sections separately:
   `for` initialiser never reuses its own variables, which are live after the initialiser.
 - **Not proven**: slot selection, liveness (`findDeadStackVar`, `findFreeSpillSlot`), the
   nested-block rule, function and loop handling, and the gate itself are covered by
-  `Compiler/MainTest.lean` cases, the Foundry tests `test/SpillReturnArraySmoke.t.sol` and
-  `test/SpillFreeMemorySmoke.t.sol`, and differential tests only.
+  `Compiler/MainTest.lean` cases, the Foundry tests `test/SpillStaticMemorySmoke.t.sol` (a
+  section that spills on the CLI path), `test/SpillReturnArraySmoke.t.sol` and
+  `test/SpillFreeMemorySmoke.t.sol` (sections that must not spill), and differential tests only.
   `reuseDeadLetStep_eval_eq` and `spillLetStep_eval_eq` are single-step lemmas over a toy
   word-keyed state; the `computedSpillBase` theorems in `Compiler/Codegen/Profile.lean` are
   about a spill base that no compile path uses.

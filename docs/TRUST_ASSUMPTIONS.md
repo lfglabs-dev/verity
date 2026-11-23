@@ -635,7 +635,8 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   differ from the emitted Yul (see "EVM/Yul Semantics and Gas": gas is not modeled).
 - **Mitigation**: `Compiler/MainTest.lean` spill cases (gate rejections, nested slots,
   functions, `for` initialisers), the Foundry regression `test/SpillReturnArraySmoke.t.sol`
-  (return data written from address 0 past the spill words), the Solidity import differential
+  (return data written from address 0 past the spill words), `test/SpillStaticMemorySmoke.t.sol`
+  (a gated section that spills on the CLI path, checked on the EVM), the Solidity import differential
   campaigns, and `solc` itself, which rejects a section that is still too deep.
 - **Reference**: [LOW_LEVEL_YUL.md](LOW_LEVEL_YUL.md#yul-temporary-slot-reuse-and-scratch-memory-spilling---max-stack-locals).
 
