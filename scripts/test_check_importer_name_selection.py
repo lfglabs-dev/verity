@@ -313,8 +313,8 @@ class ImporterNameSelectionTests(unittest.TestCase):
                     '  #["ParameterList", "OverrideSpecifier", "StructuredDocumentation"].contains kind\n'
                     'def zzB (node : Json) : Bool :=\n'
                     '  optStr node "nodeType" == some "PragmaDirective" &&\n'
-                    '    (field? node "literals").bind (·.getArr?.toOption) ==\n'
-                    '      some #[Json.str "abicoder", Json.str "v2"]\n')
+                    '    (let literals := (field? node "literals").bind (·.getArr?.toOption)\n'
+                    '     literals == some #[Json.str "abicoder", Json.str "v2"])\n')
         self.assertEqual(lint.run(self.root), [])
 
     def test_user_name_next_to_an_ast_node_type_fails(self) -> None:
@@ -355,6 +355,24 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.append(IMPORT, f'\ndef zzA (v : String) : Bool := v == "{lit}"\n')
                 self.assertFails(f"`{ident}`")
                 path.write_text(text, encoding="utf-8")
+
+    def test_pragma_token_as_a_name_in_legacy_fails(self) -> None:
+        for tok in ("v2", "experimental", "abicoder", "ABIEncoderV2"):
+            with self.subTest(tok=tok):
+                path = self.root / LEGACY
+                text = path.read_text(encoding="utf-8")
+                self.append(LEGACY, f'\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "{tok}"\n')
+                self.assertFails(f"`{tok}`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_pragma_tokens_in_another_pair_fail(self) -> None:
+        self.append(LEGACY, '\ndef zzA (literals : Option (Array Json)) : Bool :=\n'
+                    '  literals == some #[Json.str "abicoder", Json.str "ABIEncoderV2"]\n')
+        self.assertFails("`ABIEncoderV2`")
+
+    def test_unused_pragma_pair_fails(self) -> None:
+        self.edit(LEGACY, 'Json.str "abicoder", Json.str "v2"', 'Json.str "abicoder", Json.str "v1"')
+        self.assertFails("PRAGMA_LITERALS entry")
 
     def test_pragma_token_outside_legacy_fails(self) -> None:
         self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "v2"\n')

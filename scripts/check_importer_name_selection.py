@@ -32,8 +32,10 @@ one, so skipped code cannot reach the importer):
    Exempt: literals outside a selection position inside a `theorem` / `lemma` / `example` (up
    to the next line starting in column 0 or starting, at any indent, with a command keyword,
    or a `where` / `let rec` helper), which are test data of a statement; and the reasoned
-   `FILE_EXCEPTIONS` (EmitVerity's printed names and example model, Legacy's ABI coder pragma
-   tokens, the model responder's harness id), each an exact literal in one file; and a pinned solc
+   `FILE_EXCEPTIONS` (EmitVerity's printed names and example model, the model responder's
+   harness id), each an exact literal in one file; Legacy's ABI coder pragma tokens, only inside
+   the exact `literals == some #[Json.str ..., Json.str ...]` comparisons of `PRAGMA_LITERALS`;
+   and a pinned solc
    release string of the exact shape `<major>.<minor>.<patch>+commit.<8 hex>`
    (`"0.7.6+commit.7338295f"`), which names a compiler build and cannot be an identifier. Raw strings (`r"..."`,
    `r#"..."#`) are read as strings without escapes; string gaps (`\` at a line end) and
@@ -241,12 +243,6 @@ _EMIT = "Compiler/SolidityImport/EmitVerity.lean"
 _LEGACY = "Compiler/SolidityImport/Legacy.lean"
 _RESPONDERS = "Compiler/SolidityImport/ModelResponders.lean"
 FILE_EXCEPTIONS = {
-    **{(_LEGACY, lit): (
-        "ABI coder pragma tokens in a PragmaDirective's `literals` (solc splits `pragma "
-        "experimental ABIEncoderV2;` into [\"experimental\", \"ABIEncoderV2\"] and, from 0.7.5, "
-        "`pragma abicoder v2;` into [\"abicoder\", \"v2\"]; Solidity docs, \"Layout of a Source "
-        "File\" > Pragmas): `legacyAbiV2` reads the coder version, never a declaration name")
-       for lit in ("experimental", "ABIEncoderV2", "abicoder", "v2")},
     (_RESPONDERS, "imported-model-static-v1"): (
         "program id of the imported-model static responder harness config, a differential "
         "validation instrument (docs/TRUST_ASSUMPTIONS.md, \"Validation instrument: imported-model "
@@ -267,6 +263,30 @@ FILE_EXCEPTIONS = {
        for lit in ("ImportedVaultV2", "totalSupply", "feeAccrued", "paused", "balances",
                    "accrueWadFee", "assets", "feeRateWad", "fee")},
 }
+
+# ABI coder pragma tokens: allowed only in Legacy.lean, and only as one of these exact
+# `literals` comparisons. solc splits `pragma experimental ABIEncoderV2;` into
+# ["experimental", "ABIEncoderV2"] and, from 0.7.5, `pragma abicoder v2;` into ["abicoder", "v2"]
+# (Solidity docs, "Layout of a Source File" > Pragmas). Elsewhere, even in Legacy.lean, each token
+# is an ordinary (user-nameable) identifier and is checked as such.
+PRAGMA_LITERALS = {
+    (_LEGACY, pair): re.compile(
+        r'\bliterals\s*==\s*some\s*#\[\s*Json\.str\s+"' + pair[0]
+        + r'"\s*,\s*Json\.str\s+"' + pair[1] + r'"\s*\]')
+    for pair in (("experimental", "ABIEncoderV2"), ("abicoder", "v2"))
+}
+
+
+def pragma_literal_spans(rel: str, raw: str) -> list[tuple[int, int]]:
+    spans = []
+    for (file, pair), pattern in PRAGMA_LITERALS.items():
+        if file != rel:
+            continue
+        for m in pattern.finditer(raw):
+            USED.add(("pragma", f"{file}:{pair[0]} {pair[1]}"))
+            spans.append((m.start(), m.end()))
+    return spans
+
 
 # A pinned solc release, `<major>.<minor>.<patch>+commit.<8 hex digits>` (solc `--version`, the
 # standard-JSON `longVersion`; e.g. "0.7.6+commit.7338295f"). It names a compiler build, never
@@ -568,6 +588,7 @@ def check_names(root: Path, errors: list[str]) -> None:
         code, literals = scan(raw)
         lists = membership_list_spans(code, literals)
         proofs = proof_spans(code)
+        pragmas = pragma_literal_spans(rel.as_posix(), raw)
         for m in literals:
             body = m.text
             idents = literal_identifiers(body)
@@ -577,6 +598,8 @@ def check_names(root: Path, errors: list[str]) -> None:
                 USED.add(("file", f"{rel.as_posix()}:{body}"))
                 continue
             if SOLC_RELEASE.fullmatch(body):
+                continue
+            if any(lo <= m.start and m.end <= hi for lo, hi in pragmas):
                 continue
             kind = selection_kind(code, m.start, m.end, lists)
             if kind is None and any(lo <= m.start < hi for lo, hi in proofs):
@@ -735,6 +758,9 @@ def check_unused(errors: list[str]) -> None:
     for name in sorted(ALLOWED_NAME_LITERALS):
         if ("name", name) not in USED:
             errors.append(f"ALLOWED_NAME_LITERALS entry `{name}` is not used: remove it")
+    for file, pair in sorted(PRAGMA_LITERALS):
+        if ("pragma", f"{file}:{pair[0]} {pair[1]}") not in USED:
+            errors.append(f"PRAGMA_LITERALS entry {file}: {pair} is not used: remove it")
     for file, lit in sorted(FILE_EXCEPTIONS):
         if ("file", f"{file}:{lit}") not in USED:
             errors.append(f"FILE_EXCEPTIONS entry {file}: \"{lit}\" is not used: remove it")
