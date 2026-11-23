@@ -7,7 +7,8 @@ translation of the source (a "shortcut") is allowed only through the trusted sho
 an inline-assembly block by the exact fingerprint of its Yul AST.
 
 Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test files end in
-`Test.lean` or `Tests.lean`, as in `SourceDigest.lean`):
+`Test.lean` or `Tests.lean`, as in `SourceDigest.lean`; a non-test importer file may not import
+one, so skipped code cannot reach the importer):
 
 1. Name selection. A string literal that is exactly an identifier or a dotted identifier
    (`"callHook"`, `"TickBitmap.flipTick"`, also when written with escapes) is a name wherever it
@@ -24,9 +25,11 @@ Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test 
    declaration or syntax names (`ALLOWED_NAME_LITERALS`); the registry module may also name its
    `*YulFingerprint` constants. A function, library, contract or Yul variable name of user code
    (`callHook`, `CurrencyLibrary`, ...) is not listed, so writing one fails here.
-   Exempt: literals inside a `theorem` / `lemma` / `example` (up to the next line starting in
-   column 0, or a `where` / `let rec` helper), which are test data of a statement; and the
-   reasoned `FILE_EXCEPTIONS` (EmitVerity's printed names and example model).
+   Exempt: literals outside a selection position inside a `theorem` / `lemma` / `example` (up
+   to the next line starting in column 0 or starting, at any indent, with a command keyword,
+   or a `where` / `let rec` helper), which are test data of a statement; and the reasoned
+   `FILE_EXCEPTIONS` (EmitVerity's printed names and example model). Raw strings (`r"..."`,
+   `r#"..."#`) are read as strings without escapes.
    Not detected, so left to review: a name built at run time (`"call" ++ "Hook"`, `String.mk`),
    a name inside a longer literal outside a selection position, and a listed builtin or JSON
    name that user code may also give its own declaration (e.g. `transfer`, `push`, `add`,
@@ -245,7 +248,11 @@ IDENT_LITERAL = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*")
 HEX_DIGEST = re.compile(r"[0-9a-f]{40,64}")
 # Lean name literals: `` `foo `` and resolved `` ``foo ``.
 NAME_LITERAL = re.compile(r"(?<![`\w])(``?)(?![`(\[])([A-Za-z_][\w.']*)")
-PROOF_END = re.compile(r"(?m)^(?=\S)|^\s*where\b|\blet\s+rec\b")
+PROOF_END = re.compile(
+    r"(?m)^(?=\S)|^\s*(?:where|mutual|def|abbrev|instance|class|structure|inductive|theorem|lemma|"
+    r"example|private|protected|public|noncomputable|partial|unsafe|namespace|section|end|open|"
+    r"set_option|initialize|builtin_initialize|macro|macro_rules|syntax|elab|elab_rules|local|"
+    r"scoped|attribute|opaque|axiom|@\[|#)(?![\w'?!])|\blet\s+rec\b")
 DECL_START = re.compile(
     r"(?m)^(?:/--|@\[|(?:private\s+|partial\s+|protected\s+|noncomputable\s+|unsafe\s+)*"
     r"(?:def|theorem|lemma|example|structure|inductive|abbrev|instance|namespace|end|section|syntax|"
@@ -263,7 +270,7 @@ def importer_files(root: Path) -> list[Path]:
     return sorted(p for p in base.rglob("*.lean") if p.is_file() and not is_test_file(p))
 
 
-INTERESTING = re.compile(r"/-|--|[\"'{}]")
+INTERESTING = re.compile(r"/-|--|(?<![\w'])r#*\"|[\"'{}]")
 
 
 # Lean string escapes: `\xHH`, `\uHHHH`, `\n`, `\t`, `\r`, `\\`, `\"`, `\'`.
@@ -275,6 +282,10 @@ def decode_escape(esc: str) -> str:
     if esc[1] in "xu":
         return chr(int(esc[2:], 16))
     return {"n": "\n", "t": "\t", "r": "\r"}.get(esc[1], esc[1])
+
+
+# Opening of a Lean raw string: `r"..."` or `r#"..."#` (no escapes inside).
+RAW_OPEN = re.compile(r'r(#*)"')
 
 
 class Literal:
@@ -347,7 +358,16 @@ def scan(text: str) -> tuple[str, list[Literal]]:
                 while i < n and text[i] != "\n":
                     blank(i)
                     i += 1
-            elif c == '"':
+            elif c == '"' or (c == "r" and RAW_OPEN.match(text, i) and
+                              (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_'"))):
+                raw = RAW_OPEN.match(text, i) if c == "r" else None
+                if raw is not None:
+                    hashes = raw.group(1)
+                    close = text.find('"' + hashes, raw.end())
+                    close = n if close < 0 else close
+                    literals.append(Literal(i + len(hashes) + 1, close + 1, text[raw.end():close]))
+                    i = close + 1 + len(hashes)
+                    continue
                 interpolated = i >= 2 and text[i - 2:i] in ("s!", "m!", "f!")
                 i = string(i, interpolated)
             elif c == "'" and i + 2 < n and text[i + 2] == "'" and text[i + 1] != "\\":
@@ -485,9 +505,9 @@ def check_names(root: Path, errors: list[str]) -> None:
             if (rel.as_posix(), body) in FILE_EXCEPTIONS:
                 USED.add(("file", f"{rel.as_posix()}:{body}"))
                 continue
-            if any(lo <= m.start < hi for lo, hi in proofs):
-                continue
             kind = selection_kind(code, m.start, m.end, lists)
+            if kind is None and any(lo <= m.start < hi for lo, hi in proofs):
+                continue
             if kind is None:
                 # A literal that is exactly an identifier (or a dotted one) is a name wherever it
                 # is: held in a constant, bound by `let`, matched by `if let`, tested with `∈`,
@@ -608,6 +628,10 @@ def check_registry(root: Path, errors: list[str]) -> None:
 def check_routing(root: Path, errors: list[str]) -> None:
     for path in importer_files(root):
         rel = path.relative_to(root)
+        for imp in re.finditer(r"(?m)^\s*(?:public\s+)?import\s+(?:all\s+)?([\w.]+)", path.read_text(encoding="utf-8")):
+            if imp.group(1).endswith(("Test", "Tests")):
+                errors.append(f"{rel}: imports the test module {imp.group(1)}, which this check "
+                              f"skips; importer code must not depend on a test module")
         if rel == REGISTRY_FILE:
             continue
         code, literals = scan(path.read_text(encoding="utf-8"))
