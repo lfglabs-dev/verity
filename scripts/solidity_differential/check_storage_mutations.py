@@ -1395,7 +1395,7 @@ def run(directory, output, name):
         argv[argv.index('--shrink-attempts') + 1] = '200'
         if fixture == 'ModifierPlaceholderLegacySequence':
             argv.extend(['--solc-version', '0.8.10'])
-        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 3, 3, 9, 20, 14, 1, 8, 8, 4, 6, 2 ** 256 - 1])])
+        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 3, 3, 9, 20, 14, 1, 8, 8, 4, 6, 11, 31, 2 ** 256 - 1])])
     if fixture == 'MappingWriteOrderSequence':
         # x = 16 * y + c selects assignment c; y = 0 makes key and right-hand side revert.
         argv[argv.index('--transactions') + 1] = '32'

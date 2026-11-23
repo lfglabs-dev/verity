@@ -294,9 +294,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     # Modifiers whose `_;` sits in a branch or appears more than once (#2846), lowered by
     # substitution: ModifierPlaceholderSequence is via-IR (0.8.34), its twin
     # ModifierPlaceholderLegacySequence is legacy (0.8.10). The prefix makes the first copy of
-    # the body skip `gate` (0), the second copy skip it (3 after 5 3, 14, 8 after 8), both copies
-    # run it (2, 9, 6), takes both `split` branches, reverts in the body (20) and overflows
-    # `gate`'s argument (2**256 - 1).
+    # the body skip `gate` (0), the second copy skip it (14, 8 after 8), both copies run it (2, 6),
+    # takes every `split` branch (even; odd with x % 5 == 1; the skipping `else`), runs `again`'s
+    # branch `_;` too (11, 31), reverts in the body (20) and overflows `gate`'s argument (2**256 - 1).
     for name, fixture, extra in (('modifier-placeholder', 'ModifierPlaceholderSequence', []),
                                  ('modifier-placeholder-legacy', 'ModifierPlaceholderLegacySequence',
                                   ['--solc-version', '0.8.10'])):
@@ -304,7 +304,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
-            '--change-prefix', *map(str, [0, 2, 5, 3, 3, 9, 20, 14, 1, 8, 8, 4, 6, 2 ** 256 - 1]),
+            '--change-prefix', *map(str, [0, 2, 5, 3, 3, 9, 20, 14, 1, 8, 8, 4, 6, 11, 31, 2 ** 256 - 1]),
             '--output', str(output / name)]))
     # `assert` and discarded expression statements (AssertStatementSequence): x = 8 * y + c
     # selects case c. The prefix runs each assert holding and failing (Panic(0x01)), the

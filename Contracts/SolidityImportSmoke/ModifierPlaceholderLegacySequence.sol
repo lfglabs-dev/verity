@@ -5,7 +5,8 @@ pragma solidity 0.8.10;
 // remaining modifiers and the body at each `_;` it reaches: `twice` runs `gate` and the body
 // twice, `gate` evaluates its argument at each entry (copy 2 sees `runs` + 100, which flips
 // `x % 3`), `tally` is a single-`_;` modifier inside the chain, `split` runs the body in either
-// branch with code before or after it, and `evenRuns` skips the body of `read`. Both copies write `total` and `tail`. The named return
+// branch with code before or after it through an `else if` chain whose last branch skips it,
+// `again` mixes a branch `_;` with a top-level one, and `evenRuns` skips the body of `read`. Both copies write `total` and `tail`. The named return
 // `out` is shared across the copies under legacy (this file, solc 0.8.10 legacy), and starts at
 // zero at each `_;` under via-IR (`ModifierPlaceholderSequence`, the same contract on 0.8.34).
 contract SequenceFixture {
@@ -36,13 +37,22 @@ contract SequenceFixture {
         skipped += tail % 5;
     }
 
+    modifier again(uint256 x) {
+        if (x % 4 == 3) {
+            _;
+        }
+        _;
+    }
+
     modifier split(uint256 x) {
         if (x % 2 == 0) {
             _;
             tail += 1;
-        } else {
+        } else if (x % 5 == 1) {
             tail += 10;
             _;
+        } else {
+            skipped += 2;
         }
     }
 
@@ -50,7 +60,7 @@ contract SequenceFixture {
         if (runs % 2 == 0) _;
     }
 
-    function change(uint256 input) external twice gate(input + runs) tally split(input) returns (uint256 out) {
+    function change(uint256 input) external twice gate(input + runs) tally again(input) split(input) returns (uint256 out) {
         uint256 seed = input % 100000;
         uint256 local;
         local += seed + runs;
