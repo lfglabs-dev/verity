@@ -6,9 +6,10 @@ open Contracts
 open Verity hiding pure bind
 open Verity.EVM.Uint256
 
--- More than `defaultMaxStackLocals` live locals force stack spilling to the fixed spill
--- area; the bytes payload is copied to free memory before the call. The spilled locals
--- must survive a payload larger than the gap between the free pointer and the spill area
+-- More than `defaultMaxStackLocals` live locals, and a bytes payload copied to free memory
+-- with a runtime size before the call. The runtime section therefore fails the static
+-- memory gate of the spill pass and is not spilled; the locals stay on the stack and must
+-- survive any payload size, including one larger than 4 KiB
 -- (`test/SpillFreeMemorySmoke.t.sol`).
 verity_contract SpillFreeMemorySmoke where
   storage

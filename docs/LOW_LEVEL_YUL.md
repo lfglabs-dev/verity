@@ -53,10 +53,12 @@ deploy and runtime code sections separately:
   function defined in the same section (`sectionMemoryStaticBelow`). An unknown builtin, a
   computed address or length (free-pointer allocations, ABI encodings written from address 0
   with a runtime size, `calldatacopy` of a dynamic argument), and a call to a linked library
-  function all fail the gate. A section that fails the gate is emitted **unchanged**; if it is
-  too deep for the stack, `solc` rejects it with `StackTooDeep` instead of the compiler
+  function all fail the gate. A section that fails the gate is emitted **unchanged** (no dead
+  variable reuse either); if it is too deep for the stack, `solc` rejects it with `StackTooDeep` instead of the compiler
   emitting spill words that runtime-sized memory traffic could overwrite. The free-memory
-  pointer is never moved.
+  pointer is never moved. Gas is not preserved: a spilling section expands memory to just
+  above its highest spill word (about 4.1 KB) and adds `mstore`/`mload`s, so `gas()` values and
+  out-of-gas margins differ from the unspilled code.
 - **Fast path**: inside a gated section, a block with at most `maxStackLocals` `let` bindings
   (default `12`) is returned unchanged. (`reuseBlockTemps_eq_self_of_le` in
   `Compiler/Proofs/YulGeneration/TempReuseSoundness.lean` states this for the single-block

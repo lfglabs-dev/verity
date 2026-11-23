@@ -13,8 +13,9 @@ contract PayloadSink {
     }
 }
 
-/// Spilled locals survive a runtime-sized copy to free memory: the free pointer starts above
-/// the spill area whenever the function spills.
+/// Locals survive a runtime-sized copy to free memory. The function has more locals than the
+/// spill threshold, but its section copies runtime-sized data, so it is not spilled (static
+/// memory gate); a payload larger than 4 KiB must leave every local intact.
 contract SpillFreeMemorySmokeTest is Test, YulTestBase {
     address internal smoke;
     PayloadSink internal sink;

@@ -248,8 +248,8 @@ unsafe def runFlagAndUnitTests : IO Unit := do
       (List.range n).map fun i => .exprStmt (.call "sstore" [.lit i, .ident s!"{p}{i}"])
   let topSpillSlots (stmts : List Compiler.Yul.YulStmt) : List Nat :=
     stmts.filterMap fun
-      | .exprStmt (.call "mstore" [.lit addr, _]) =>
-          if Compiler.Yul.TempReuse.defaultSpillBase ≤ addr then some addr else none
+      | .exprStmt (.call "mstore" [.lit offset, _]) =>
+          if Compiler.Yul.TempReuse.defaultSpillBase ≤ offset then some offset else none
       | _ => none
   -- An outer block whose spilled locals stay live across a nested block that also spills:
   -- the outer slots must lie above every slot of the nested block (#2831).
@@ -261,8 +261,8 @@ unsafe def runFlagAndUnitTests : IO Unit := do
   expectTrue "nested block and enclosing block both spill"
     (!(topSpillSlots nestedOut).isEmpty && !(innerOut.flatMap topSpillSlots).isEmpty)
   expectTrue "enclosing-block spill slots lie above the nested block's slots"
-    ((topSpillSlots nestedOut).all fun addr =>
-      Compiler.Yul.TempReuse.spillHighWaterStmts innerOut.flatten ≤ addr)
+    ((topSpillSlots nestedOut).all fun offset =>
+      Compiler.Yul.TempReuse.spillHighWaterStmts innerOut.flatten ≤ offset)
   -- Function bodies and `for` initialisers never spill to fixed slots (callers, recursion and
   -- loop bodies would share them); they only reuse dead stack temporaries.
   let funcOut := Compiler.Yul.TempReuse.reuseAndSpillTemps 12 [] true
