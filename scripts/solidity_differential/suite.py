@@ -310,6 +310,18 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(40, transactions)), '--seed', str(seed),
         '--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 2 ** 256 - 1]),
         '--output', str(output / 'struct-copy-write-order')]))
+    # String/bytes results among several helper results (MultiReturnBufferSequence):
+    # x = 8 * n + c selects case c with length n. The prefix runs (bool, bytes) of length
+    # 0, 31, 32, 33, 40 and the reverting 41, both (string, string) helpers (short and
+    # 57-byte names), the twice-returned buffer, the returned parameter written after the
+    # call, the storage snapshot, the tuple assignment and the forwarded helper.
+    checks.append(('multi-return-buffers', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/MultiReturnBufferSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/MultiReturnBufferSequenceModel.lean',
+        '--transactions', str(max(32, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, [0, 248, 256, 264, 320, 328, 1, 2, 10, 3, 251, 331, 4, 260,
+            332, 5, 6, 5, 7, 263, 335, 2 ** 256 - 1]),
+        '--output', str(output / 'multi-return-buffers')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',

@@ -230,6 +230,26 @@ MUTANTS.update({
     'import-storage-pointer-mapping-helper-yul-slot-guard': (
         '              yul := yul.erase pname |>.erase s!"{pname}.slot"\n',
         '              yul := yul.erase pname\n')})
+# `string` / `bytes memory` among several helper results (#2844): one mutant per binding
+# site (helper result slots, the initial empty buffer, the return capture, the tuple
+# declaration and the tuple assignment); MultiReturnBufferSequence observes each.
+MUTANTS.update({
+    'import-multi-return-buffer-result-slot': (
+        'results := results.push (ptr, rty, rname != "") |>.push (len, "uint256", rname != "")',
+        'results := results.push (ptr, rty, rname != "") |>.push (ptr, "uint256", rname != "")'),
+    'import-multi-return-buffer-initial-size': (
+        '      pre := pre ++ #[.letVar ptr (.literal 96), .letVar len (.literal 0)]\n      if rname != "" then\n        -- A named result is a rebindable buffer',
+        '      pre := pre ++ #[.letVar ptr (.literal 96), .letVar len (.literal 1)]\n      if rname != "" then\n        -- A named result is a rebindable buffer'),
+    'import-multi-return-buffer-return-size': (
+        'pre := pre ++ buf.pre ++ #[.letVar ptrSnap buf.pointer, .letVar sizeSnap buf.size]',
+        'pre := pre ++ buf.pre ++ #[.letVar ptrSnap buf.pointer, .letVar sizeSnap (.literal 0)]'),
+    'import-multi-return-buffer-declaration-size': (
+        'out := out ++ #[.letVar pointer retExpr, .letVar size sizeExpr]',
+        'out := out ++ #[.letVar pointer retExpr, .letVar size retExpr]'),
+    'import-multi-return-buffer-assignment-size': (
+        'assigns := assigns ++ #[.assignVar ptrBinding ptrExpr, .assignVar sizeBinding sizeExpr]',
+        'assigns := assigns ++ #[.assignVar ptrBinding ptrExpr]'),
+})
 # Assignment evaluates and captures the right-hand side before the target's keys and index
 # (solc, legacy and via-IR). Each mutant puts one site's key prelude back first.
 MUTANTS.update({
@@ -1103,6 +1123,8 @@ def run(directory, output, name):
         fixture = "StoragePointerMappingHelperSequence"
     if name.startswith("import-copy-order-") and not name.endswith("-guard"):
         fixture = "StructCopyWriteOrderSequence"
+    if name.startswith("import-multi-return-buffer-"):
+        fixture = "MultiReturnBufferSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
         fixture = "SignedEventSequence"
     if name.startswith("import-constant-array-"):
@@ -1196,6 +1218,12 @@ def run(directory, output, name):
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [8, 16, 24, 1, 23612620949129, 10, 2, 171, 19, 251, 3, 12, 20, 4,
                      14, 6, 16367, 1375, 7, 35184372088817, 18, 13, 105, 10, 12, 14, 303, 8, 2473, 12, 2 ** 256 - 1])])
+    if fixture == 'MultiReturnBufferSequence':
+        # The `stateful_campaign` prefix (`multi-return-buffers`): x = 8 * n + c.
+        argv[argv.index('--transactions') + 1] = '32'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [0, 248, 256, 264, 320, 328, 1, 2, 10, 3, 251, 331, 4, 260, 332, 5, 6, 5, 7, 263, 335, 2 ** 256 - 1])])
     if fixture == 'EmptyPushSequence':
         # Push three elements onto each array (x % 4 == 1), lower every length to 0 (x = 0),
         # push() (2), read stale elements into `last` and `lastWord` (3), lower to 1 (4, 16) and
