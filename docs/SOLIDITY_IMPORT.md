@@ -539,7 +539,8 @@ scripts/check_solidity_differential.sh --reduce --reduce-seconds 120 --output .l
   `import-mutations` job runs 24 shards from the prepared `build` workspace.
 
 CI runs fixed seeds on every PR (10 minutes) and longer input, program and
-mutant campaigns nightly and on demand (60 minutes), archiving the evidence.
+mutant campaigns on manual `workflow_dispatch` runs (60 minutes; the nightly
+schedule is currently paused), archiving the evidence.
 A timeout fails the job.
 
 ## Adding a construct

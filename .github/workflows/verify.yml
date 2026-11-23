@@ -1,8 +1,10 @@
 name: Verify proofs
 
 on:
-  schedule:
-    - cron: '17 3 * * *'
+  # Nightly 03:17 UTC schedule paused (approved cost pause); restore with:
+  #   schedule:
+  #     - cron: '17 3 * * *'
+  # Equivalent manual run: workflow_dispatch with clean_build + force_full_run.
   push:
     branches: [main]
     paths:

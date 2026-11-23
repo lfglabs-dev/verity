@@ -72,7 +72,6 @@
     "main"
   ],
   "expected_trigger_keys": [
-    "schedule",
     "push",
     "pull_request",
     "workflow_dispatch"

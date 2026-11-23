@@ -117,7 +117,7 @@ them only for temporary debugging or deliberate host pinning via
   threads can shrink later VMs down to the floor of 2 (slower, not weaker):
   the step prints MemTotal and the chosen count. The lean.ci-side fix is to
   count exec/fork ENOMEM as an OOM so the label learns a bigger size. The
-  nightly `import-mutations` (24 shards, ~30 host-hours) needs ~12-14 h on
+  full `import-mutations` run (24 shards, ~30 host-hours) needs ~12-14 h on
   the build-medium hosts when routed there.
   Ephemeral runners automatically fall back to GitHub Actions caches and
   `$RUNNER_TEMP` when `/srv/verity-ci-cache` is absent.
