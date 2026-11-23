@@ -110,9 +110,10 @@ them only for temporary debugging or deliberate host pinning via
   min(vCPUs, 8))`, 3 GiB being the 2.7 GiB peak of a heavy module plus
   headroom. lean.ci learns memory per label and can boot an 8-vCPU VM with
   ~11 GiB (3 threads there) or burst it to 32 vCPUs; one Lean/clang process
-  per vCPU failed with ENOMEM (error code 12). No repo-side knob requests
-  more memory for a GitHub Actions label (`memory_mib` exists only for
-  lean.ci Custom VMs). Because lean.ci learns from recent peaks, fewer
+  per vCPU failed with ENOMEM (error code 12). lean.ci has no memory-only
+  knob for a label (`memory_mib` exists only for Custom VMs); larger labels
+  such as `boost-32vcpu-96gb` cost proportionally more vCPU-minutes and still
+  learn their memory. Because lean.ci learns from recent peaks, fewer
   threads can shrink later VMs down to the floor of 2 (slower, not weaker):
   the step prints MemTotal and the chosen count. The lean.ci-side fix is to
   count exec/fork ENOMEM as an OOM so the label learns a bigger size. The
