@@ -34,8 +34,9 @@ one, so skipped code cannot reach the importer):
    or a `where` / `let rec` helper), which are test data of a statement; and the reasoned
    `FILE_EXCEPTIONS` (EmitVerity's printed names and example model, solc 0.7.6's long version
    string, the model responder's program id), each an exact literal in one file; Legacy's ABI
-   coder pragma tokens, only inside the exact `literals == some #[Json.str ..., Json.str ...]`
-   comparisons of a guarded PragmaDirective expression (`PRAGMA_PAIRS`); and the importer's
+   coder pragma tokens, only where they are compared with the output of Legacy's verbatim
+   `pragmaLiterals` reader, the only importer code that names `"PragmaDirective"` or
+   `"literals"` (`PRAGMA_PAIRS`); and the importer's
    synthetic statement kinds (`NODE_KIND_MARKERS`), only where Import.lean builds them as a
    `nodeType` or matches them on `mKind`. Raw strings (`r"..."`, `r#"..."#`) are read as
    strings without escapes; string gaps (`\` at a line end) and interpolations of nothing or of a
@@ -285,8 +286,14 @@ FILE_EXCEPTIONS = {
 # only in the `abicoderPragma` body. Every other occurrence of `pragmaLiterals` or
 # `abicoderPragma` in Legacy.lean (or any occurrence in another importer file) turns all of these
 # allowances off, so a rebinding or a second use (e.g. comparing a name with
-# `(abicoderPragma "v2")[1]!`) fails closed. Elsewhere, even in Legacy.lean, each token is an
-# ordinary (user-nameable) identifier and is checked as such.
+# `(abicoderPragma "v2")[1]!`) fails closed. So does a `"PragmaDirective"` or `"literals"` literal
+# anywhere in the importer outside the `pragmaLiterals` body: the importer then cannot hand-build a
+# PragmaDirective node (e.g. `Json.mkObj [("nodeType", Json.str "PragmaDirective"), ("literals",
+# Json.arr #[fn.getObjValD "name", ...])]`) whose `literals` carry user names into the comparison,
+# so the compared `literals` are solc's. Each comparison chain must end at `||`'s end (a `)`, a
+# line end or the end of the file), so `V ++ #[name]` is not V. Left to review: such a node built
+# from strings computed at run time. Elsewhere, even in Legacy.lean, each token is an ordinary
+# (user-nameable) identifier and is checked as such.
 PRAGMA_PAIRS = {_LEGACY: (("experimental", "ABIEncoderV2"), ("abicoder", "v1"), ("abicoder", "v2"))}
 _DEF_END = r'(?=\s*\n(?=\S)|\s*\Z)'
 _PRAGMA_LITERALS_DEF = re.compile(
@@ -304,7 +311,7 @@ _PRAGMA_HELPER = re.compile(r'\b(?:pragmaLiterals|abicoderPragma)\b')
 
 def _pragma_value(pair: tuple[str, str]) -> str:
     if pair[0] == "abicoder":
-        return r'abicoderPragma\s+"' + pair[1] + '"'
+        return r'abicoderPragma\s+"' + pair[1] + '"(?![\\w"])'
     return r'#\[\s*Json\.str\s+"' + pair[0] + r'"\s*,\s*Json\.str\s+"' + pair[1] + r'"\s*\]'
 
 
@@ -313,16 +320,21 @@ def _pragma_uses(pairs: tuple[tuple[str, str], ...]) -> re.Pattern[str]:
     return re.compile(
         r'\(\s*pragmaLiterals\s+\w+\s*\)\s*(?:\.contains\s*\(\s*' + val + r'\s*\)'
         r'|\.any\s+fun\s+(?P<l>\w+)\s*=>\s*(?P=l)\s*==\s*' + val
-        + r'(?:\s*\|\|\s*(?P=l)\s*==\s*' + val + r')*)')
+        + r'(?:\s*\|\|\s*(?P=l)\s*==\s*' + val + r')*(?=[ \t]*(?:\)|\n|\Z)))')
+
+
+# Literals that only `pragmaLiterals` may contain (see PRAGMA_PAIRS).
+PRAGMA_VOCABULARY = {"PragmaDirective", "literals"}
 
 
 def pragma_literal_spans(rel: str, code: str, literals: list["Literal"],
-                         other_files_use_helpers: bool) -> list[tuple[int, int]]:
+                         elsewhere: bool) -> list[tuple[int, int]]:
     """Spans of the allowed pragma token uses in `code` (comments blanked, so a comment cannot
-    keep an entry in use). Empty unless both helper definitions are present verbatim and every
-    other mention of them is one of the allowed uses."""
+    keep an entry in use). Empty unless both helper definitions are present verbatim, every
+    other mention of them is one of the allowed uses, and PRAGMA_VOCABULARY appears only inside
+    `pragmaLiterals` (`elsewhere`: a helper or that vocabulary occurs in another importer file)."""
     pairs = PRAGMA_PAIRS.get(rel, ())
-    if not pairs or other_files_use_helpers:
+    if not pairs or elsewhere:
         return []
 
     def in_literal(pos: int) -> bool:
@@ -333,6 +345,10 @@ def pragma_literal_spans(rel: str, code: str, literals: list["Literal"],
     if len(defs) != 2 or {m.re for m in defs} != {_PRAGMA_LITERALS_DEF, _ABICODER_DEF}:
         return []
     uses = [m for m in _pragma_uses(pairs).finditer(code) if not in_literal(m.start())]
+    reader = next(m for m in defs if m.re is _PRAGMA_LITERALS_DEF)
+    if any(lit.text in PRAGMA_VOCABULARY and not (reader.start() <= lit.start < reader.end())
+           for lit in literals):
+        return []
     covered = [(m.start(), m.end()) for m in defs + uses]
     if any(not any(lo <= h.start() and h.end() <= hi for lo, hi in covered)
            for h in _PRAGMA_HELPER.finditer(code)):
@@ -738,11 +754,13 @@ def is_allowed(ident: str) -> bool:
 
 
 def check_names(root: Path, errors: list[str]) -> None:
-    # The pragma helpers must not be mentioned in any importer file outside PRAGMA_PAIRS.
-    helpers_elsewhere = any(
-        _PRAGMA_HELPER.search(scan(path.read_text(encoding="utf-8"))[0])
-        for path in importer_files(root)
-        if path.relative_to(root).as_posix() not in PRAGMA_PAIRS)
+    # The pragma helpers and PRAGMA_VOCABULARY must not occur in any importer file outside
+    # PRAGMA_PAIRS.
+    def pragma_elsewhere(path: Path) -> bool:
+        code, lits = scan(path.read_text(encoding="utf-8"))
+        return bool(_PRAGMA_HELPER.search(code)) or any(l.text in PRAGMA_VOCABULARY for l in lits)
+    helpers_elsewhere = any(pragma_elsewhere(path) for path in importer_files(root)
+                            if path.relative_to(root).as_posix() not in PRAGMA_PAIRS)
     for path in importer_files(root):
         rel = path.relative_to(root)
         raw = path.read_text(encoding="utf-8")

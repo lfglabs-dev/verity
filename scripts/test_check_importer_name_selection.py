@@ -433,6 +433,29 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.assertFails("`ABIEncoderV2`")
                 path.write_text(text, encoding="utf-8")
 
+    def test_hand_built_pragma_node_fails(self) -> None:
+        node = ('  let ast := Json.mkObj [("nodes", Json.arr #[Json.mkObj [("nodeType", '
+                'Json.str "PragmaDirective"),\n'
+                '    ("literals", Json.arr #[c.getObjValD "name", fn.getObjValD "name"])]])]\n')
+        for use in ('  (pragmaLiterals ast).contains (abicoderPragma "v2")\n',
+                    '  (pragmaLiterals ast).any fun l => l == #[Json.str "experimental", '
+                    'Json.str "ABIEncoderV2"]\n'):
+            with self.subTest(use=use):
+                path = self.root / LEGACY
+                text = path.read_text(encoding="utf-8")
+                self.append(LEGACY, '\ndef zzA (c fn : Json) : Bool :=\n' + node + use)
+                self.assertFails("`ABIEncoderV2`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_pragma_vocabulary_in_another_file_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (n : Json) : Bool := optStr n "nodeType" == some "PragmaDirective"\n')
+        self.assertFails("`v2`")
+
+    def test_pragma_comparison_with_a_tail_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (ast fn : Json) : Bool :=\n'
+                    '  (pragmaLiterals ast).any fun l => l == abicoderPragma "v2" ++ #[fn.getObjValD "name"]\n')
+        self.assertFails("`v2`")
+
     def test_tampered_abicoder_def_fails(self) -> None:
         self.edit(LEGACY, '#[Json.str "abicoder", Json.str version]',
                   '#[Json.str "abicoder", Json.str version, Json.str "callHook"]')
