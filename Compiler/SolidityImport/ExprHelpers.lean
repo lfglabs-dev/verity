@@ -235,6 +235,11 @@ structure Env where
   yulNames : RBMap String Expr compare
   yulMemoryArrays : RBMap String String compare := RBMap.empty
   yulMemoryStructs : RBMap String Nat compare := RBMap.empty
+  /-- Name-keyed scope (`yulNames`, `yulMemoryArrays`, `yulMemoryStructs`) at the start of
+      each `unchecked` helper block flattened into its continuation, indexed by the
+      `scope` field of that block's `VerityUncheckedEnd` marker, which restores it. -/
+  helperBlockScopes : Array (RBMap String Expr compare × RBMap String String compare ×
+    RBMap String Nat compare) := #[]
   yulScratch0 : Bool := false
   yulScratch32 : Bool := false
   /-- Bytes below `0x80` that the current inline-assembly block wrote unconditionally

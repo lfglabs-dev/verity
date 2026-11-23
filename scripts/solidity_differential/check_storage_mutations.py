@@ -802,8 +802,8 @@ MUTANTS.update({
 })
 
 MUTANTS.update({
-    'import-unchecked-block-end': ('    | "VerityUncheckedEnd" =>\n        -- `unchecked` blocks cannot nest; restore the compiler default.\n        modify fun e => { e with unchecked := e.legacyWrapping }\n',
-                                   '    | "VerityUncheckedEnd" =>\n        -- `unchecked` blocks cannot nest; restore the compiler default.\n'),
+    'import-unchecked-block-end': ('modify fun e => { e with unchecked := e.legacyWrapping, yulNames, yulMemoryArrays, yulMemoryStructs }',
+                                   'modify fun e => { e with yulNames, yulMemoryArrays, yulMemoryStructs }'),
     'import-unchecked-block-if-restore': ('yulMemoryStructs := saved.yulMemoryStructs,\n                   unchecked := saved.unchecked }\n        let restReturns',
                                           'yulMemoryStructs := saved.yulMemoryStructs }\n        let restReturns'),
 })

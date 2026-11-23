@@ -1424,12 +1424,16 @@ supported constructs: narrow `uint8`/`uint64` wrapping, unchecked mapping
 decrements, `require` inside unchecked helper blocks, checked helpers called
 from unchecked code, elided tuple components, conditional tuple selection,
 literal tuple declarations, and multi-value root returns. An `unchecked` block
-in a value helper may now contain a returning `if` when the block has no
-block-level declarations: its statements are lowered into the helper
-continuation followed by a synthetic block-end marker that restores checked
-arithmetic, and each `if` branch restores the lexical `unchecked` flag. Plain
-helper blocks with partial returns and such unchecked blocks with declarations
-still reject with located diagnostics. Each fixture has
+in a value helper may now contain a returning `if`: its statements are lowered
+into the helper continuation followed by a synthetic block-end marker that
+restores checked arithmetic and the name-keyed scope of the block's start
+(`yulNames`, `yulMemoryArrays`, `yulMemoryStructs`), so a block-level
+declaration is not visible to inline assembly after the block, which names the
+outer local or constant it shadows; each `if` branch restores the lexical
+`unchecked` flag. Block-level declarations are admitted whatever the
+state-variable count (#2830; `UncheckedBlockDeclarationStateCountChecks`).
+Plain helper blocks with partial returns still reject with located
+diagnostics. Each fixture has
 metamorphic source variants (`check_storage --fixture unchecked-blocks` /
 `tuple-destructuring`) and scheduled importer mutants
 (`import-unchecked-block-*`, `import-tuple-destructuring-*`). Literal tuples on

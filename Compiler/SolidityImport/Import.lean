@@ -2763,8 +2763,10 @@ private def helperListReturns (stmts : Array Json) : M Bool := do
 
 /-- Synthetic statement closing an `unchecked` helper block whose statements were
     flattened into the helper continuation, so that a returning `if` inside the
-    block carries the end of the block into each copied continuation. -/
-private def uncheckedEnd : Json := Json.mkObj [("nodeType", Json.str "VerityUncheckedEnd")]
+    block carries the end of the block into each copied continuation. `scope`
+    indexes the block's entry in `helperBlockScopes`. -/
+private def uncheckedEnd (scope : Nat) : Json :=
+  Json.mkObj [("nodeType", Json.str "VerityUncheckedEnd"), ("scope", toJson scope)]
 
 private def readAbiDecodeWord (fromCalldata : Bool) (addr : Expr) : Expr :=
   if fromCalldata then
@@ -12928,21 +12930,26 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         else if ← listContainsReturn blockStmts then
           unless isUnchecked do
             failAt s "partial return inside a helper block is outside this slice"
-          -- Flattening drops the block scope, so block-level declarations stay
-          -- rejected; nested blocks and `if` branches keep their own scopes.
-          if !((← get).stateVars.size > 1) then
-            for b in blockStmts do
-              if (← mKind b) == "VariableDeclarationStatement" then
-                failAt b "declarations in a partially returning unchecked helper block are outside this slice"
-          lowerHelperFrom (blockStmts.toList ++ uncheckedEnd :: rest) retName
+          -- Flattening keeps the block's declarations visible to the continuation
+          -- lowering. Their ids are out of Solidity scope after the block, but Yul
+          -- resolves identifiers by name: the end marker restores the name-keyed
+          -- scope from the block's start, as the `restore` of a nested block does.
+          let scope := (← get).helperBlockScopes.size
+          let blockScope := (saved.yulNames, saved.yulMemoryArrays, saved.yulMemoryStructs)
+          modify fun e => { e with helperBlockScopes := e.helperBlockScopes.push blockScope }
+          lowerHelperFrom (blockStmts.toList ++ uncheckedEnd scope :: rest) retName
         else
           let (inner, _) ← lowerHelperFrom blockStmts.toList retName
           restore
           let (tail, res) ← lowerHelperFrom rest retName
           pure (inner ++ tail, res)
     | "VerityUncheckedEnd" =>
-        -- `unchecked` blocks cannot nest; restore the compiler default.
-        modify fun e => { e with unchecked := e.legacyWrapping }
+        -- `unchecked` blocks cannot nest; restore the compiler default and the
+        -- block's name-keyed scope.
+        let some (yulNames, yulMemoryArrays, yulMemoryStructs) :=
+            (← get).helperBlockScopes[(← mNat (← mField s "scope"))]?
+          | failAt s "unchecked helper block end without a recorded scope"
+        modify fun e => { e with unchecked := e.legacyWrapping, yulNames, yulMemoryArrays, yulMemoryStructs }
         lowerHelperFrom rest retName
     | "VariableDeclarationStatement" =>
         let pre ← lowerLocal s
