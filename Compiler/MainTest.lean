@@ -286,8 +286,8 @@ unsafe def runFlagAndUnitTests : IO Unit := do
       [.exprStmt (.call "sstore" [.lit 99, .ident "t"])]]
   expectTrue "a deep for initialiser keeps every variable it declares"
     (Compiler.Yul.TempReuse.reuseAndSpillTemps 12 [] true forInitProbe == forInitProbe)
-  -- The import model drivers spill a section only when its spill words are provably disjoint
-  -- from every other memory access (literal addresses below the spill base, no `msize`, no
+  -- The compile paths spill a section only when its spill words are statically checked to be
+  -- disjoint from every other memory access (literal addresses below the spill base, no `msize`, no
   -- call leaving the section); otherwise the section is returned unchanged.
   let staticDeep : List Compiler.Yul.YulStmt :=
     [.exprStmt (.call "mstore" [.lit 64, .lit 128])] ++ longLived "s" 14 ++

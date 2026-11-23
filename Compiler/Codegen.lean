@@ -21,9 +21,9 @@ def emitYul := Compiler.CodegenCommon.emitYul
 /-- `emitYul` followed by temporary reuse and scratch-memory spilling
 (`Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject`), for Yul that is handed to solc
 (import model drivers): blocks with many live temporaries otherwise fail with StackTooDeep
-(#2831). A code section is spilled only when its spill words are provably disjoint from all of
-its other memory accesses, so its memory layout and allocation bounds stay exactly as
-emitted; other sections are left unchanged. -/
+(#2831). A code section is spilled only when its spill words are statically checked to be
+disjoint from all of its other memory accesses, so its memory layout and allocation bounds stay
+exactly as emitted; other sections are left unchanged. -/
 def emitYulSpilled (contract : IRContract) : YulObject :=
   Yul.TempReuse.reuseAndSpillTempsStaticObject Yul.TempReuse.defaultMaxStackLocals
     (emitYul contract)
