@@ -401,10 +401,12 @@ entry's fixed lowering:
 A shortcut is selected only by the exact code fingerprint of the block, never by a function,
 library, contract or variable name. The shortcut lowerings take a `TrustedShortcutMatch`, which
 only a registry fingerprint match can build. `scripts/check_importer_name_selection.py` (in
-`make check`) fails on the forms of name comparison and registry bypass it lists (string
-literals of user-chosen names in comparisons, patterns and membership tests; fingerprint
-constants or comparisons outside the registry); it is a text check, and the cases it lists as
-undetected are left to review. For a replaced block
+`make check`) fails when importer code contains a name literal that is not a Solidity or Yul
+builtin, a solc AST or JSON name, or one of the importer's own names (wherever the literal is
+used), or names a fingerprint constant, compares a fingerprint or defines a shortcut lowering
+outside the registry. It is a text check: what it cannot see (names built at run time, a
+builtin name that user code also gives its own declaration) is listed in the script and left to
+review. For a replaced block
 the model is the fixed lowering, not a translation of the block, and no Lean proof relates the
 two: each entry names the tests that compare the lowering's results with solc's on the block
 (`TrustedShortcut.evidence`). A proof about a root whose model uses a shortcut therefore says
