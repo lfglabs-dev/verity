@@ -412,16 +412,18 @@ MUTANTS.update({
     'import-encoding-order-abi-encode-storage-deferral': (
         '        if args.size > 1 then\n          if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then\n',
         '        if false then\n          if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then\n'),
-    'import-encoding-order-storage-slot-capture': (
-        '          return some (refPre.push (.letVar slot slotExpr), name, .localVar slot)\n',
-        '          let _ := slot\n          return some (refPre, name, slotExpr)\n'),
+    # The reference (keys, index checks) stays at the argument's position; the mutant lowers
+    # the whole argument again at the read, so its keys see a later argument's writes.
+    'import-encoding-order-storage-key-position': (
+        '    let buffer ← lowerStorageBytesRead #[] name slot arg\n',
+        '    let _ := (name, slot)\n    let buffer ← lowerEncodedBytes arg\n'),
     # Located rejections: a storage conditional before a sibling that can revert, and a calldata
     # array before a deferred storage read.
     'import-encoding-order-storage-conditional-guard': (
         '        unless ← orderInert later do\n          failAt arg "storage bytes/string encoding argument',
         '        unless true do\n          failAt arg "storage bytes/string encoding argument'),
     'import-encoding-order-calldata-array-guard': (
-        '              if earlierTy.contains "calldata" && (scalarArrayElement? earlierTy).isSome then\n',
+        '              if earlierTy.contains "calldata" &&\n                  ((scalarArrayElement? earlierTy).isSome || earlierTy.startsWith "struct ") then\n',
         '              if false then\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
@@ -2095,7 +2097,7 @@ contract C {
 }
 ''')
     elif name == 'import-encoding-order-calldata-array-guard':
-        diagnostic = 'calldata array ABI encoding argument before a storage bytes/string argument is unsupported'
+        diagnostic = 'calldata array or struct ABI encoding argument before a storage bytes/string argument is unsupported'
         signature = 'checked(«uint8[]»)'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
