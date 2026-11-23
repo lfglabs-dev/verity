@@ -340,5 +340,65 @@ class DeploymentWorld(unittest.TestCase):
             instrument.constructor_arguments([], [1], {}, 'C')
 
 
+class ProbeDeployment(unittest.TestCase):
+    """Constructor writes must equal the configured initial storage of the deployed account."""
+
+    def run_probe(self, post, status='0x1', moved=False):
+        account = instrument.create_address(instrument.SENDERS[0])
+        slot = '0x' + '00' * 31 + '03'
+        tracers = []
+
+        class Node:
+            def __init__(self, directory):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *unused):
+                return False
+
+            def rpc(self, method, *params):
+                if method == 'eth_accounts':
+                    return [instrument.SENDERS[0]]
+                if method == 'debug_traceTransaction':
+                    tracers.append(params[1])
+                    return {'pre': {}, 'post': post(account, slot)}
+                if method == 'eth_getCode':
+                    return '0x60'
+                raise AssertionError(method)
+
+            def transact(self, request):
+                return {'receipt': {'status': status, 'transactionHash': '0x01',
+                                    'contractAddress': '0x' + '99' * 20 if moved else account}}
+
+        initial = [[account, slot, '0x' + '00' * 31 + '05']]
+        with unittest.mock.patch.object(instrument, 'Anvil', Node):
+            result = instrument.probe_deployment(Path('unused'), [('C', account, '0x00')], initial)
+        # Only a diff-mode prestate trace lists the constructor's post-state writes.
+        self.assertEqual(tracers, [{'tracer': 'prestateTracer', 'tracerConfig': {'diffMode': True}}])
+        return result
+
+    def test_configured_write_passes_and_returns_runtime(self):
+        self.assertEqual(self.run_probe(lambda a, s: {a: {'storage': {s: '0x05'}, 'nonce': 1}}),
+                         ['0x60'])
+        self.assertEqual(self.run_probe(lambda a, s: {a: {'nonce': 1}}), ['0x60'])
+
+    def test_unconfigured_wrong_or_foreign_writes_fail(self):
+        other = '0x' + '00' * 31 + '04'
+        with self.assertRaisesRegex(HarnessError, 'constructor writes slot .* configured initial storage'):
+            self.run_probe(lambda a, s: {a: {'storage': {other: '0x05'}}})
+        with self.assertRaisesRegex(HarnessError, 'constructor writes slot'):
+            self.run_probe(lambda a, s: {a: {'storage': {s: '0x06'}}})
+        with self.assertRaisesRegex(HarnessError, 'foreign account'):
+            self.run_probe(lambda a, s: {'0x' + '77' * 20: {'storage': {s: '0x05'}}})
+
+    def test_failed_or_moved_deployment_fails(self):
+        with self.assertRaisesRegex(HarnessError, 'deployment failed or moved'):
+            self.run_probe(lambda a, s: {}, status='0x0')
+        with self.assertRaisesRegex(HarnessError, 'deployment failed or moved'):
+            self.run_probe(lambda a, s: {}, moved=True)
+
+
 if __name__ == '__main__':
     unittest.main()

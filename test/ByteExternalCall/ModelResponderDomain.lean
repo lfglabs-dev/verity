@@ -24,6 +24,7 @@ private def model : CompilationModel :=
       { name := "set", params := [{ name := "v", ty := .uint256 }], returnType := none,
         body := [.setStorage "x" (.param "v"), .stop] },
       getter "peek" false [.return (.storage "x")],
+      getter "ownBalance" true [.return .selfBalance],
       getter "viewWrites" true [.setStorage "x" (.literal 7), .return (.literal 1)],
       getter "viewLogs" true [.emit "Seen" [], .return (.literal 1)]] }
 
@@ -33,12 +34,18 @@ private def selectorBytes (name : String) : List UInt8 :=
     | none => 0
   (List.range 4).map fun index => UInt8.ofNat (selector / 2 ^ (8 * (3 - index)) % 256)
 
+/-- The caller (900) holds balance 9 and slot 0 = 5; the callee (1000) holds
+balance 3 and slot 0 = 42. -/
 private def world : Verity.ContractState :=
-  { Verity.defaultState with
+  let base : Verity.ContractState := { Verity.defaultState with
     thisAddress := Verity.Core.Address.ofNat 900
+    selfBalance := Verity.Core.Uint256.ofNat 9
     storageWords := fun key => Verity.Core.Uint256.ofNat
       (if key == Verity.StorageKey.contractSlot 1000 0 then 42 else
        if key == Verity.StorageKey.slot 0 then 5 else 0) }
+  let callee := Verity.Core.Address.ofNat 1000
+  base.writeAccount callee
+    { base.accountWorld callee with balance := Verity.Core.Uint256.ofNat 3 }
 
 private def request (kind : Kind) (target value : Nat) (calldata : List UInt8) : Request :=
   { kind, caller := 900, target, value, calldata, gas := 100000 }
@@ -52,6 +59,11 @@ def main : IO UInt32 := do
   | some (true, data, [.contractSlot 1000 0]) =>
       unless data == wordBytes 42 do throw (IO.userError "responder read the wrong storage")
   | _ => throw (IO.userError "in-domain static request was not answered")
+  -- The callee's balance is its own account's, not the caller's.
+  match answerOf (request .staticcall 1000 0 (selectorBytes "ownBalance")) with
+  | some (true, data, []) =>
+      unless data == wordBytes 3 do throw (IO.userError "responder read the caller's balance")
+  | _ => throw (IO.userError "in-domain balance request was not answered")
   let env := environment oracle [(1000, model)] 100000
   let some adversary := env.adversary | throw (IO.userError "responder has no adversary")
   unless adversary.accepts (request .staticcall 1000 0 (selectorBytes "get")) world do
