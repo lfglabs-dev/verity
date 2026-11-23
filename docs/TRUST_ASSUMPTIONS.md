@@ -629,6 +629,10 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   address 0, free-pointer allocations, copies of dynamic arguments, linked library calls) keep
   the section from spilling. The free-memory pointer is never changed. Function bodies and
   `for` initialisers never spill, and a `for` initialiser never reuses its own variables.
+  A section that fails the gate is not rewritten at all (no dead-variable reuse either).
+- **Not preserved**: gas. A spilling section expands memory to just above its highest spill word
+  (about 4.1 KB) and executes extra `mstore`/`mload`s, so `gas()` and out-of-gas behaviour can
+  differ from the emitted Yul (see "EVM/Yul Semantics and Gas": gas is not modeled).
 - **Mitigation**: `Compiler/MainTest.lean` spill cases (gate rejections, nested slots,
   functions, `for` initialisers), the Foundry regression `test/SpillReturnArraySmoke.t.sol`
   (return data written from address 0 past the spill words), the Solidity import differential

@@ -33,7 +33,9 @@ This module formalizes:
 2. **Layer 2 Core Optimization Passes (`G1`–`G8`) & Family-Indexed `BitVec 256` Rewrites**:
    Replaces the flat 55-constructor `Nat` catalog with:
    - The **8 core pipeline passes (`GasOptimizationPassId`)** wired into `Codegen`/`Profile`:
-     - **G1 (`G1_tempReuseStackScheduling`)**: Dead-temp reuse & dynamic watermark spill avoidance,
+     - **G1 (`G1_tempReuseStackScheduling`)**: Dead-temp reuse & dynamic watermark spill avoidance
+       (not certified: the shipped spill pass is a trusted, tested-only component, see
+       `docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"),
      - **G2 (`G2_slotCoalescingPackedWords`)**: Packed `SLOAD`/`SSTORE` fusion (`SlotCoalescingShim`),
      - **G3 (`G3_mappingSlotCSE`)**: Intra-block `mappingSlot(base, key)` common subexpression elimination,
      - **G4 (`G4_checkedArithIntervalElision`)**: Checked-arithmetic overflow guard elision,
@@ -87,7 +89,7 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. Layer 2 Rewrite Families & The 8 Core Certified Gas Optimization Passes (`G1`–`G8`) -/
+/-! ## 2. Layer 2 Rewrite Families & The 8 Core Gas Passes (`G1`–`G8`; `G1` not certified) -/
 
 /-- Compositional rewrite families (Layer 2), avoiding flat per-lemma constructor blowup. -/
 inductive RewriteFamily where
@@ -99,7 +101,8 @@ inductive RewriteFamily where
   | zeroElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Enumeration of the 8 core certified gas & algebraic optimization passes in Verity 2.0. -/
+/-- Enumeration of the 8 core gas & algebraic optimization passes in Verity 2.0
+    (`G2`–`G8` certified; `G1`, the `TempReuse` spill pass, is trusted and tested only). -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
