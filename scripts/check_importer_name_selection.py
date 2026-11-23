@@ -314,7 +314,7 @@ def pragma_literal_spans(rel: str, code: str) -> list[tuple[int, int]]:
 # set a `nodeType`, and solc never emits these. A marker literal is allowed only in its file and
 # only in two forms: built as `("nodeType", Json.str "<marker>")`, or as a `match` arm pattern
 # whose enclosing `match` is `match ← mKind <stmt> with` (no earlier arm or deeper line opens
-# alternatives that could own the arm, and the file does not rebind `mKind`). Left to review: a
+# alternatives that could own the arm, and every `mKind` in the file is read as `← mKind`). Left to review: a
 # node the importer builds with a non-literal `nodeType` (every synthetic `nodeType` in Import.lean
 # is a literal today), a use of a marker-building `def` (e.g. `scopeEnd`) other than splicing it
 # into a statement list, and a change to `mKind` itself (ExprHelpers.lean) or an `open` that
@@ -326,12 +326,17 @@ NODE_KIND_MARKERS = {(_IMPORT, "VerityScopeEnd"), (_IMPORT, "VerityUncheckedEnd"
 # "<marker>"), ...]`: the marker is then a node's `nodeType` and nothing else (not a tuple or
 # object projected, compared or tested for membership).
 _MARKER_CREATE = re.compile(
-    r'(?:^|\n)[ \t]*(?:private\s+)?def\s+\w+[^\n]*:\s*Json\s*:=\s*'
+    r'(?:^|\n)[ \t]*(?:private\s+)?def\s+\w+(?:(?!:=)[^\n])*:\s*Json\s*:=\s*'
     r'Json\.mkObj\s*\[\s*\(\s*"nodeType"\s*,\s*Json\.str\s*\Z')
 _MARKER_CREATE_END = re.compile(r'\s*\)\s*[,\]]')
-# A local binding that could shadow `mKind` (ExprHelpers.lean's AST `nodeType` reader).
-_MKIND_BINDING = re.compile(
-    r'\b(?:let|have|fun|λ|def|abbrev|where)\s+(?:rec\s+)?mKind\b|\(\s*mKind\s*:|\bmKind\s*:=')
+# Every `mKind` (ExprHelpers.lean's AST `nodeType` reader) in the file must be read as `← mKind`:
+# any other occurrence (a binder, `let mut`, a pattern, a `where` helper) could shadow it.
+_MKIND_TOKEN = re.compile(r'\bmKind\b')
+
+
+def mkind_rebound(code: str) -> bool:
+    return any(not re.search(r'←\s*\Z', code[max(0, m.start() - 8):m.start()])
+               for m in _MKIND_TOKEN.finditer(code))
 # A line that opens alternatives on the following lines (`match ... with`, `fun`, `function`).
 _OPENS_ALTS = re.compile(r'(?:\bwith|\bfun|\bfunction|λ)\s*\Z')
 _MATCH_ARM = re.compile(r'\s*\|\s*(?:"\w+"\s*\|\s*)*\Z')
@@ -357,7 +362,7 @@ def node_kind_marker_form(code: str, start: int, end: int) -> str | None:
         return None
     if not (_MATCH_ARM.fullmatch(before) and _MATCH_ARM_END.match(after)):
         return None
-    if _MKIND_BINDING.search(code):
+    if mkind_rebound(code):
         return None
     indent = len(before) - len(before.lstrip())
     lines = code[:line_start].split("\n")
