@@ -61,6 +61,11 @@ def main : IO UInt32 := do
   | some (true, data, [.contractSlot 1000 0]) =>
       unless data == wordBytes 42 do throw (IO.userError "responder read the wrong storage")
   | _ => throw (IO.userError "in-domain static request was not answered")
+  -- Arguments bind as in a top-level call (positive control of the unbindable case).
+  match answerOf (request .staticcall 1000 0 (selectorBytes "echo" ++ wordBytes 77)) with
+  | some (true, data, []) =>
+      unless data == wordBytes 77 do throw (IO.userError "responder bound the wrong argument")
+  | _ => throw (IO.userError "in-domain argument request was not answered")
   -- The callee's balance is its own account's, not the caller's.
   match answerOf (request .staticcall 1000 0 (selectorBytes "ownBalance")) with
   | some (true, data, []) =>
