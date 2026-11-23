@@ -118,7 +118,9 @@ contracts of a pinned corpus project live only in that project's `sequences` in
 `project`/`revision`, which come from the project's clean checkout at its full
 commit SHA. Every prefix step there states its documented source outcome
 (`expect`), which the source route must reproduce, and every imported signature
-must succeed once in the prefix. `check_pinned_sequence_corpus --fetch` runs the
+must succeed once in the prefix. A solc-only compile first requires the
+imported signatures to be exactly the contract's function entry points and
+rejects `receive`/`fallback`. `check_pinned_sequence_corpus --fetch` then runs the
 positive campaign and the `drop-events` mutant for each of them; it is part of
 the stateful suite. Other benchmark-specific configurations belong in
 downstream verification repositories.
