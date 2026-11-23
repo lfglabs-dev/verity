@@ -3,6 +3,7 @@
 a lowering by name, or around the trusted shortcut registry, fails."""
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import tempfile
@@ -18,6 +19,8 @@ import check_importer_name_selection as lint
 REPO = SCRIPT_DIR.parent
 IMPORT = "Compiler/SolidityImport/Import.lean"
 REGISTRY = "Compiler/SolidityImport/InlineAssemblyShims.lean"
+LEGACY = "Compiler/SolidityImport/Legacy.lean"
+RESPONDERS = "Compiler/SolidityImport/ModelResponders.lean"
 EVIDENCE = [
     "Contracts/SolidityImportSmoke/RootArrayReturnStateCountChecks.lean",
     "Contracts/SolidityImportSmoke/TailAssemblyArrayReadChecks.lean",
@@ -303,6 +306,334 @@ class ImporterNameSelectionTests(unittest.TestCase):
         self.append(REGISTRY, '\ndef callHookYulFingerprint : String :=\n  "'
                     + "0" * 64 + '"\n')
         self.assertFails("callHookYulFingerprint is defined but no registry entry uses it")
+
+    # Solidity 0.7.6 slice (Legacy.lean): solc AST node types and ABI coder pragma tokens.
+    def test_legacy_node_types_and_pragma_tokens_pass(self) -> None:
+        self.append(LEGACY, '\ndef zzA (kind : String) : Bool :=\n'
+                    '  #["ParameterList", "OverrideSpecifier", "StructuredDocumentation"].contains kind\n'
+                    'def zzB (ast : Json) : Bool :=\n'
+                    '  (pragmaLiterals ast).contains (#[Json.str "experimental", Json.str "ABIEncoderV2"])\n'
+                    'def zzC (ast : Json) : Bool :=\n'
+                    '  (pragmaLiterals ast).any fun l => l == abicoderPragma "v1"\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    def test_user_name_next_to_an_ast_node_type_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (kind : String) : Bool :=\n'
+                    '  #["ParameterList", "callHook"].contains kind\n')
+        self.assertFails("`callHook`")
+
+    def test_user_name_beside_a_pragma_directive_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (node : Json) : Bool :=\n'
+                    '  optStr node "nodeType" == some "PragmaDirective" &&\n'
+                    '    optStr node "name" == some "callHook"\n')
+        self.assertFails("`callHook`")
+
+    def test_user_name_as_a_pragma_token_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (literals : Option (Array Json)) : Bool :=\n'
+                    '  literals == some #[Json.str "experimental", Json.str "CurrencyLibrary"]\n')
+        self.assertFails("`CurrencyLibrary`")
+
+    # Pinned solc release strings: exact `<major>.<minor>.<patch>+commit.<8 hex>` only.
+    def test_pinned_solc_release_passes(self) -> None:
+        self.append(IMPORT, '\ndef zzA (v : String) : Bool := v == "0.7.6+commit.7338295f"\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    def test_other_solc_release_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (v : String) : Bool := v == "0.8.33+commit.64118f21"\n')
+        self.assertFails("`commit`")
+
+    def test_pinned_solc_release_outside_import_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (v : String) : Bool := v == "0.7.6+commit.7338295f"\n')
+        self.assertFails("`commit`")
+
+    def test_word_commit_alone_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (v : String) : Bool := v == "commit"\n')
+        self.assertFails("`commit`")
+
+    def test_release_lookalikes_fail(self) -> None:
+        for lit, ident in (("0.7.6+commit.callHook", "callHook"),
+                           ("0.7.6+commit.7338295f.callHook", "callHook"),
+                           ("callHook+commit.7338295f", "callHook"),
+                           ("0.7.6+commit.7338295", "commit"),
+                           ("0.7.6+commit.7338295F", "commit"),
+                           ("0.7+commit.7338295f", "commit")):
+            with self.subTest(lit=lit):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, f'\ndef zzA (v : String) : Bool := v == "{lit}"\n')
+                self.assertFails(f"`{ident}`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_pragma_token_as_a_name_in_legacy_fails(self) -> None:
+        for tok in ("v2", "experimental", "abicoder", "ABIEncoderV2"):
+            with self.subTest(tok=tok):
+                path = self.root / LEGACY
+                text = path.read_text(encoding="utf-8")
+                self.append(LEGACY, f'\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "{tok}"\n')
+                self.assertFails(f"`{tok}`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_pragma_tokens_in_another_pair_fail(self) -> None:
+        for code in ('def zzA (literals : Option (Array Json)) : Bool :=\n'
+                     '  literals == some #[Json.str "abicoder", Json.str "ABIEncoderV2"]\n',
+                     'def zzA (ast : Json) : Bool :=\n'
+                     '  (pragmaLiterals ast).any fun l => l == #[Json.str "abicoder", Json.str "ABIEncoderV2"]\n'):
+            with self.subTest(code=code):
+                path = self.root / LEGACY
+                text = path.read_text(encoding="utf-8")
+                self.append(LEGACY, "\n" + code)
+                self.assertFails("`ABIEncoderV2`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_unused_pragma_pair_fails(self) -> None:
+        self.edit(LEGACY, 'abicoderPragma "v2"', 'abicoderPragma "v3"')
+        self.assertFails("PRAGMA_PAIRS entry")
+
+    def test_pragma_pair_in_a_comment_is_unused(self) -> None:
+        self.edit(LEGACY, 'abicoderPragma "v2"', 'abicoderPragma "v3"')
+        self.append(LEGACY, '\n-- (pragmaLiterals ast).any fun l => l == abicoderPragma "v2"\n')
+        self.assertFails("PRAGMA_PAIRS entry")
+
+    def test_pragma_pair_against_other_literals_fails(self) -> None:
+        for code in ('def zzA (fn : Json) : Bool :=\n'
+                     '  let literals := #[Json.str "abicoder", Json.str ((optStr fn "name").getD "")]\n'
+                     '  literals == #[Json.str "experimental", Json.str "ABIEncoderV2"]\n',
+                     'def zzA (names : Array (Array Json)) : Bool :=\n'
+                     '  names.any fun l => l == #[Json.str "experimental", Json.str "ABIEncoderV2"]\n'):
+            with self.subTest(code=code):
+                path = self.root / LEGACY
+                text = path.read_text(encoding="utf-8")
+                self.append(LEGACY, "\n" + code)
+                self.assertFails("`experimental`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_pragma_helper_compared_with_a_name_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (fn : Json) : Bool :=\n'
+                    '  some ((abicoderPragma "v2")[1]!) == (optStr fn "name").map Json.str\n')
+        self.assertFails("`v2`")
+
+    def test_pragma_helper_rebound_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (fn : Json) : Bool :=\n'
+                    '  let pragmaLiterals := fun (_ : Json) => #[#[Json.str ((optStr fn "name").getD "")]]\n'
+                    '  (pragmaLiterals fn).contains (abicoderPragma "v2")\n')
+        self.assertFails("`v2`")
+
+    def test_pragma_helper_mentioned_in_another_file_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (ast : Json) : Bool := (pragmaLiterals ast).isEmpty\n')
+        self.assertFails("`ABIEncoderV2`")
+
+    def test_tampered_pragma_literals_def_fails(self) -> None:
+        for old, new in (('some "PragmaDirective" then', 'some "FunctionDefinition" then'),
+                         ('(field? node "literals")', '(field? node "names")'),
+                         ('else none', 'else some #[optStr node "name" |>.getD "" |> Json.str]')):
+            with self.subTest(old=old):
+                path = self.root / LEGACY
+                text = path.read_text(encoding="utf-8")
+                self.edit(LEGACY, old, new)
+                self.assertFails("`ABIEncoderV2`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_tampered_abicoder_def_fails(self) -> None:
+        self.edit(LEGACY, '#[Json.str "abicoder", Json.str version]',
+                  '#[Json.str "abicoder", Json.str version, Json.str "callHook"]')
+        self.assertFails("`abicoder`")
+
+    def test_responder_program_id_passes_in_its_file(self) -> None:
+        self.append(RESPONDERS, '\ndef zzA (p : String) : Bool := p == "imported-model-static-v1"\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    # Importer synthetic statement kinds: built as a nodeType, matched on mKind, in Import.lean.
+    def test_scope_marker_kind_forms_pass(self) -> None:
+        self.append(IMPORT, '\ndef zzMark : Json := Json.mkObj [("nodeType", Json.str "VerityScopeEnd")]\n'
+                    'def zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" => pure false\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    def test_scope_marker_as_a_name_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "VerityScopeEnd"\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_of_a_name_match_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (n : String) : Bool :=\n'
+                    '  match n with\n'
+                    '  | "VerityScopeEnd" => true\n'
+                    '  | _ => false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_in_a_lambda_inside_a_kind_arm_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" =>\n'
+                    '      let f : String → Bool := fun\n'
+                    '        | "VerityUncheckedEnd" => true\n'
+                    '        | _ => false\n'
+                    '      pure (f (optStr s "name" |>.getD ""))\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityUncheckedEnd`")
+
+    def test_scope_marker_in_another_field_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzMark : Json := Json.mkObj [("name", Json.str "VerityScopeEnd")]\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_outside_import_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_of_a_nested_name_match_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" => pure false\n'
+                    '  | _ => match optStr s "name" |>.getD "" with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_of_a_deeper_opened_match_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" =>\n'
+                    '      match optStr s "name" |>.getD "" with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_after_a_lambda_arm_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | _ => pure ((fun\n'
+                    '  | "VerityUncheckedEnd" => true\n'
+                    '  | _ => false) (optStr s "name" |>.getD ""))\n')
+        self.assertFails("`VerityUncheckedEnd`")
+
+    def test_scope_marker_with_a_shadowed_mkind_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  let mKind := fun (_ : Json) => (pure (optStr s "name" |>.getD "") : M String)\n'
+                    '  match ← mKind s with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_with_a_rebound_mkind_fails(self) -> None:
+        arm = ('  match ← mKind s with\n  | "VerityScopeEnd" => pure true\n  | _ => pure false\n')
+        for head in ('def zzA (s : Json) (n mKind : Json → M String) : M Bool := do\n',
+                     'def zzA (s : Json) {mKind : Json → M String} : M Bool := do\n',
+                     'def zzA (s : Json) : M Bool := do\n'
+                     '  let mut mKind : Json → M String := fun j => pure ((optStr j "name").getD "")\n',
+                     'def zzA (s : Json) : M Bool := do\n'
+                     '  let ⟨mKind, _⟩ : (Json → M String) × Nat := (fun j => pure ((optStr j "name").getD ""), 0)\n'):
+            with self.subTest(head=head):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, "\n" + head + arm)
+                self.assertFails("`VerityScopeEnd`")
+                path.write_text(text, encoding="utf-8")
+
+    def test_scope_marker_built_in_a_where_helper_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := fn.getObjValD "name" == mk.getObjValD "nodeType" '
+                    'where mk : Json := Json.mkObj [("nodeType", Json.str "VerityScopeEnd")]\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_of_a_let_by_cases_fails(self) -> None:
+        for body in ('  | _ =>\n      let f : String → Bool\n'
+                     '  | "VerityScopeEnd" => true\n'
+                     '  | _ => false; pure (f ((optStr s "name").getD ""))\n',
+                     '  | _ => let rec f : String → Bool\n'
+                     '  | "VerityUncheckedEnd" => true\n'
+                     '  | _ => false; pure (f ((optStr s "name").getD ""))\n',
+                     '  | _ =>\n      have f : String → Bool\n'
+                     '  | "VerityScopeEnd" => true\n'
+                     '  | _ => false; pure (f ((optStr s "name").getD ""))\n'):
+            with self.subTest(body=body):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                            '  match ← mKind s with\n  | "Block" => pure false\n' + body)
+                self.assertFails("`Verity")
+                path.write_text(text, encoding="utf-8")
+
+    def test_scope_marker_arm_after_an_open_line_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" => pure <|\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_tuple_compared_fails(self) -> None:
+        for code in ('def zzA (fn : Json) : Bool := (optStr fn "name").map Json.str == '
+                     'some ("nodeType", Json.str "VerityScopeEnd").2\n',
+                     'def zzA (fn : Json) : Bool := fn.getObjValD "name" == '
+                     '(("nodeType", Json.str "VerityUncheckedEnd")).2\n'):
+            with self.subTest(code=code):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, "\n" + code)
+                self.assertFails("`Verity")
+                path.write_text(text, encoding="utf-8")
+
+    def test_scope_marker_object_compared_fails(self) -> None:
+        for code in ('def zzA (fn : Json) : Bool :=\n'
+                     '  Json.mkObj [("nodeType", Json.str "VerityScopeEnd")] ==\n'
+                     '    Json.mkObj [("nodeType", Json.str ((optStr fn "name").getD ""))]\n',
+                     'def zzA (fn : Json) : Bool :=\n'
+                     '  (optStr fn "name").map Json.str ==\n'
+                     '    some ((Json.mkObj [("nodeType", Json.str "VerityScopeEnd")]).getObjValD "nodeType")\n',
+                     'def zzA (fn : Json) : Bool :=\n'
+                     '  [Json.mkObj [("nodeType", Json.str "VerityUncheckedEnd")]].contains\n'
+                     '    (Json.mkObj [("nodeType", fn.getObjValD "name")])\n',
+                     'def zzA (fn : Json) : Json := Json.mkObj [("nodeType", Json.str "VerityScopeEnd")] |>.mergeObj fn\n'):
+            with self.subTest(code=code):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, "\n" + code)
+                self.assertFails("`Verity")
+                path.write_text(text, encoding="utf-8")
+
+    def test_scope_marker_without_its_creation_fails(self) -> None:
+        self.edit(IMPORT, '("nodeType", Json.str "VerityScopeEnd")', '("kind", Json.str "VerityScopeEnd")')
+        self.assertFails('"VerityScopeEnd" has no create site')
+
+    def test_pragma_token_outside_legacy_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "v2"\n')
+        self.assertFails("`v2`")
+
+    # Imported-model static responder: one exact harness id, in that file only.
+    def test_responder_program_id_is_exact(self) -> None:
+        self.append(RESPONDERS, '\ndef zzA (p : String) : Bool := p == "imported-model-static-v2"\n')
+        self.assertFails("`imported`")
+
+    def test_responder_program_id_outside_its_file_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (p : String) : Bool := p == "imported-model-static-v1"\n')
+        self.assertFails("`imported`")
+
+    def test_name_selection_in_the_responder_still_fails(self) -> None:
+        self.append(RESPONDERS, '\ndef zzA (n : String) : Bool := n == "callHook"\n')
+        self.assertFails("`callHook`")
+
+    def test_model_responders_is_not_imported_by_the_importer(self) -> None:
+        """ModelResponders is a validation instrument: no module Import.lean reaches through
+        imports (any form: modifiers, several per line, `«»` parts) is it."""
+        target = "Compiler.SolidityImport.ModelResponders"
+        seen, queue = set(), ["Compiler.SolidityImport.Import"]
+        while queue:
+            mod = queue.pop()
+            if mod in seen:
+                continue
+            seen.add(mod)
+            path = REPO / Path(*mod.split(".")).with_suffix(".lean")
+            if not path.is_file():
+                continue
+            text = re.sub(r"/-.*?-/|--[^\n]*", " ", path.read_text(encoding="utf-8"), flags=re.S)
+            for imp in re.finditer(r"\bimport\s+(?:all\s+)?([\w.«»']+)", text):
+                queue.append(imp.group(1).replace("«", "").replace("»", ""))
+        self.assertIn("Compiler.SolidityImport.Legacy", seen)
+        self.assertNotIn(target, seen)
 
     def test_comments_are_ignored(self) -> None:
         self.append(IMPORT, '\n-- optStr callee "name" == some "callHook"\n'

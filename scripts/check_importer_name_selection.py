@@ -32,9 +32,14 @@ one, so skipped code cannot reach the importer):
    Exempt: literals outside a selection position inside a `theorem` / `lemma` / `example` (up
    to the next line starting in column 0 or starting, at any indent, with a command keyword,
    or a `where` / `let rec` helper), which are test data of a statement; and the reasoned
-   `FILE_EXCEPTIONS` (EmitVerity's printed names and example model). Raw strings (`r"..."`,
-   `r#"..."#`) are read as strings without escapes; string gaps (`\` at a line end) and
-   interpolations of nothing or of a literal are joined, so a name split by them is one name.
+   `FILE_EXCEPTIONS` (EmitVerity's printed names and example model, solc 0.7.6's long version
+   string, the model responder's program id), each an exact literal in one file; Legacy's ABI
+   coder pragma tokens, only inside the exact `literals == some #[Json.str ..., Json.str ...]`
+   comparisons of a guarded PragmaDirective expression (`PRAGMA_PAIRS`); and the importer's
+   synthetic statement kinds (`NODE_KIND_MARKERS`), only where Import.lean builds them as a
+   `nodeType` or matches them on `mKind`. Raw strings (`r"..."`, `r#"..."#`) are read as
+   strings without escapes; string gaps (`\` at a line end) and interpolations of nothing or of a
+   literal are joined, so a name split by them is one name.
    Scope: only `Compiler/SolidityImport/`; a helper elsewhere under `Compiler/` is not read.
    Not detected, so left to review: a selection by a function selector or other hash of a name
    (`sel == 0xa9059cbb`: number literals are not names to this check, and the importer compares
@@ -72,6 +77,10 @@ REGISTRY_FILE = IMPORTER_DIR / "InlineAssemblyShims.lean"
 
 # Identifiers that may appear in a selection literal. Grouped by where they come from; none is a
 # name chosen by the author of the imported code.
+# `nodeType` values of solc's AST JSON (libsolidity/ast/ASTJsonExporter.cpp, `ASTJsonConverter.cpp`
+# before 0.8.10): the node kinds the importer reads, including those the Solidity 0.7.6 slice
+# (`Legacy.lean`) admits or inspects (`ParameterList`, `OverrideSpecifier`,
+# `StructuredDocumentation`, `PragmaDirective`), all emitted by both solc 0.7.6 and 0.8.x.
 SOLC_AST_NODE_TYPES = {
     "ArrayTypeName", "Assignment", "BinaryOperation", "Block", "Break", "Conditional", "Continue",
     "ContractDefinition", "ElementaryTypeName", "ElementaryTypeNameExpression", "EmitStatement",
@@ -136,7 +145,7 @@ SOLC_JSON_KEYS = {
 # Names the importer itself generates for bindings, temporaries and model fields.
 IMPORTER_GENERATED = {
     "__solidity_struct_array_", "_verity_memret_", "_verity_raw_storage",
-    "_verity_slice_tmp", "_verity_struct_", "VerityUncheckedEnd", "VerityScopeEnd", "_calldata_ptr",
+    "_verity_slice_tmp", "_verity_struct_", "_calldata_ptr",
     "_memory_ptr", "_storage", "_storage_ptr", "_pure", "_view", "none", "ok",
     # Binder names of generated Verity code that a source name must not take (`EmitVerity`).
     "oracle", "world",
@@ -183,8 +192,6 @@ SOLC_JSON_FIELDS |= {
     # `PragmaDirective.literals`, the pragma's tokens.
     "literals",
 }
-# Tokens of the `pragma experimental ABIEncoderV2;` / `pragma abicoder v2;` directives.
-SOLIDITY_PRAGMA_WORDS = {"ABIEncoderV2", "abicoder", "experimental", "v2"}
 # EVM hard-fork names (solc `evmVersion` values).
 EVM_VERSIONS = {
     "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul", "london", "osaka",
@@ -220,7 +227,7 @@ ALLOWED_IDENTIFIERS = (
     SOLC_AST_NODE_TYPES | SOLC_AST_FIELD_VALUES | SOLC_TYPE_WORDS | SOLIDITY_BUILTINS
     | YUL_BUILTINS | SOLC_JSON_KEYS | IMPORTER_GENERATED | BUILD_TOOL_NAMES | INSTRUMENT_NAMES
     | DRIVER_COMMANDS | SOLIDITY_LITERAL_SYNTAX | SOLC_JSON_FIELDS | EVM_VERSIONS | YUL_KEYWORDS | IMPORTER_BINDINGS
-    | IMPORTER_JSON_KEYS | SOLIDITY_PRAGMA_WORDS
+    | IMPORTER_JSON_KEYS
 )
 
 # Lean name literals of the declarations `solidity_import` generates (`x.model`, `x.report`, ...).
@@ -235,6 +242,7 @@ ALLOWED_NAME_LITERALS = {
 # Exact literals allowed in one file, with why. Each is a name of something other than imported
 # Solidity code; a new one needs a new entry here, reviewed with its reason.
 _EMIT = "Compiler/SolidityImport/EmitVerity.lean"
+_LEGACY = "Compiler/SolidityImport/Legacy.lean"
 FILE_EXCEPTIONS = {
     **{(_EMIT, lit): (
         "EmitVerity (CompilationModel -> verity_contract printer) matches CompilationModel "
@@ -258,6 +266,188 @@ FILE_EXCEPTIONS = {
         "the program id of the importer's own byte-call responder configuration, written by the "
         "differential harness; not a name in the imported code"),
 }
+
+# ABI coder pragma tokens: allowed only in Legacy.lean, and only where they are compared with
+# the `literals` of a PragmaDirective. solc splits `pragma experimental ABIEncoderV2;` into
+# ["experimental", "ABIEncoderV2"] and, from 0.7.5, `pragma abicoder v1;` / `pragma abicoder v2;`
+# into ["abicoder", "v1"] / ["abicoder", "v2"] (Solidity docs, "Layout of a Source File" >
+# Pragmas). Legacy.lean reads them through two definitions, each required verbatim (up to
+# whitespace and binder names) as the whole body of its `def`:
+#   def pragmaLiterals (ast : Json) : Array (Array Json) :=   -- `literals` of PragmaDirective
+#     match (field? ast "nodes").bind (·.getArr?.toOption) with   -- nodes only
+#     | none => #[] | some nodes => nodes.filterMap fun node =>
+#       if optStr node "nodeType" == some "PragmaDirective" then
+#         (field? node "literals").bind (·.getArr?.toOption) else none
+#   def abicoderPragma (version : String) : Array Json := #[Json.str "abicoder", Json.str version]
+# A pair's tokens count only in a comparison with that output: `(pragmaLiterals x).contains V`
+# or `(pragmaLiterals x).any fun l => l == V || l == V ...`, where V is `abicoderPragma "<v>"`
+# for an `abicoder` pair and `#[Json.str "<a>", Json.str "<b>"]` otherwise; `"abicoder"` counts
+# only in the `abicoderPragma` body. Every other occurrence of `pragmaLiterals` or
+# `abicoderPragma` in Legacy.lean (or any occurrence in another importer file) turns all of these
+# allowances off, so a rebinding or a second use (e.g. comparing a name with
+# `(abicoderPragma "v2")[1]!`) fails closed. Elsewhere, even in Legacy.lean, each token is an
+# ordinary (user-nameable) identifier and is checked as such.
+PRAGMA_PAIRS = {_LEGACY: (("experimental", "ABIEncoderV2"), ("abicoder", "v1"), ("abicoder", "v2"))}
+_DEF_END = r'(?=\s*\n(?=\S)|\s*\Z)'
+_PRAGMA_LITERALS_DEF = re.compile(
+    r'(?:^|\n)def\s+pragmaLiterals\s*\(\s*(\w+)\s*:\s*Json\s*\)\s*:\s*Array\s*\(\s*Array\s+Json\s*\)'
+    r'\s*:=\s*match\s*\(\s*field\?\s+\1\s+"nodes"\s*\)\.bind\s*\(\s*·\.getArr\?\.toOption\s*\)\s*with'
+    r'\s*\|\s*none\s*=>\s*#\[\s*\]\s*\|\s*some\s+(\w+)\s*=>\s*\2\.filterMap\s+fun\s+(\w+)\s*=>'
+    r'\s*if\s+optStr\s+\3\s+"nodeType"\s*==\s*some\s+"PragmaDirective"\s+then'
+    r'\s*\(\s*field\?\s+\3\s+"literals"\s*\)\.bind\s*\(\s*·\.getArr\?\.toOption\s*\)\s*else\s+none'
+    + _DEF_END)
+_ABICODER_DEF = re.compile(
+    r'(?:^|\n)def\s+abicoderPragma\s*\(\s*(\w+)\s*:\s*String\s*\)\s*:\s*Array\s+Json\s*:=\s*'
+    r'#\[\s*Json\.str\s+(?P<tok>"abicoder")\s*,\s*Json\.str\s+\1\s*\]' + _DEF_END)
+_PRAGMA_HELPER = re.compile(r'\b(?:pragmaLiterals|abicoderPragma)\b')
+
+
+def _pragma_value(pair: tuple[str, str]) -> str:
+    if pair[0] == "abicoder":
+        return r'abicoderPragma\s+"' + pair[1] + '"'
+    return r'#\[\s*Json\.str\s+"' + pair[0] + r'"\s*,\s*Json\.str\s+"' + pair[1] + r'"\s*\]'
+
+
+def _pragma_uses(pairs: tuple[tuple[str, str], ...]) -> re.Pattern[str]:
+    val = "(?:" + "|".join(_pragma_value(pair) for pair in pairs) + ")"
+    return re.compile(
+        r'\(\s*pragmaLiterals\s+\w+\s*\)\s*(?:\.contains\s*\(\s*' + val + r'\s*\)'
+        r'|\.any\s+fun\s+(?P<l>\w+)\s*=>\s*(?P=l)\s*==\s*' + val
+        + r'(?:\s*\|\|\s*(?P=l)\s*==\s*' + val + r')*)')
+
+
+def pragma_literal_spans(rel: str, code: str, literals: list["Literal"],
+                         other_files_use_helpers: bool) -> list[tuple[int, int]]:
+    """Spans of the allowed pragma token uses in `code` (comments blanked, so a comment cannot
+    keep an entry in use). Empty unless both helper definitions are present verbatim and every
+    other mention of them is one of the allowed uses."""
+    pairs = PRAGMA_PAIRS.get(rel, ())
+    if not pairs or other_files_use_helpers:
+        return []
+
+    def in_literal(pos: int) -> bool:
+        return any(lit.start <= pos < lit.end for lit in literals)
+
+    defs = [m for rx in (_PRAGMA_LITERALS_DEF, _ABICODER_DEF) for m in rx.finditer(code)
+            if not in_literal(m.start() + 1)]
+    if len(defs) != 2 or {m.re for m in defs} != {_PRAGMA_LITERALS_DEF, _ABICODER_DEF}:
+        return []
+    uses = [m for m in _pragma_uses(pairs).finditer(code) if not in_literal(m.start())]
+    covered = [(m.start(), m.end()) for m in defs + uses]
+    if any(not any(lo <= h.start() and h.end() <= hi for lo, hi in covered)
+           for h in _PRAGMA_HELPER.finditer(code)):
+        return []
+    spans = []
+    for m in defs:
+        if m.re is _ABICODER_DEF:
+            spans.append(m.span("tok"))
+    for use in uses:
+        for pair in pairs:
+            for v in re.finditer(_pragma_value(pair), use.group(0)):
+                USED.add(("pragma", f"{rel}:{pair[0]} {pair[1]}"))
+                spans.append((use.start() + v.start(), use.start() + v.end()))
+    return spans
+
+
+# The importer's own synthetic statement kinds (`uncheckedEnd`, `scopeEnd` in Import.lean): marker
+# nodes it splices into a flattened statement list to restore a recorded scope. The AST reaches the
+# importer only as `solc --standard-json` output (the compiler's sha256 is checked before and after
+# the run), so every `nodeType` it reads is one of solc's fixed node kinds: Solidity source cannot
+# set a `nodeType`, and solc never emits these. A marker literal is allowed only in its file and
+# only in two forms: built as `("nodeType", Json.str "<marker>")`, or as a `match` arm pattern
+# whose enclosing `match` is `match ← mKind <stmt> with` (no earlier arm or deeper line opens
+# alternatives that could own the arm, and every `mKind` in the file is read as `← mKind`). Left to review: a
+# node the importer builds with a non-literal `nodeType` (every synthetic `nodeType` in Import.lean
+# is a literal today), a use of a marker-building `def` (e.g. `scopeEnd`) other than splicing it
+# into a statement list, and a change to `mKind` itself (ExprHelpers.lean) or an `open` that
+# replaces it. Anywhere else (a name comparison, a
+# `nodeType` read of another field, another file) it is an ordinary identifier and is checked.
+_IMPORT = "Compiler/SolidityImport/Import.lean"
+NODE_KIND_MARKERS = {(_IMPORT, "VerityScopeEnd"), (_IMPORT, "VerityUncheckedEnd")}
+# Built only as the whole body of a `def ... : Json :=` that is `Json.mkObj [("nodeType", Json.str
+# "<marker>"), ...]`: the marker is then a node's `nodeType` and nothing else (not a tuple or
+# object projected, compared or tested for membership).
+_MARKER_CREATE = re.compile(
+    r'(?:^|\n)[ \t]*(?:private\s+)?def\s+\w+(?:(?!:=)[^\n])*:\s*Json\s*:=\s*'
+    r'Json\.mkObj\s*\[\s*\(\s*"nodeType"\s*,\s*Json\.str\s*\Z')
+_MARKER_CREATE_END = re.compile(r'\s*\)\s*[,\]]')
+# Every `mKind` (ExprHelpers.lean's AST `nodeType` reader) in the file must be read as `← mKind`:
+# any other occurrence (a binder, `let mut`, a pattern, a `where` helper) could shadow it.
+_MKIND_TOKEN = re.compile(r'\bmKind\b')
+
+
+def mkind_rebound(code: str) -> bool:
+    return any(not re.search(r'←\s*\Z', code[max(0, m.start() - 8):m.start()])
+               for m in _MKIND_TOKEN.finditer(code))
+# Declarations that may be written by cases (`let f : T` followed by `| ... => ...` lines).
+_DECL_KEYWORD = re.compile(r'\b(?:let|have|where|show|suffices)\b')
+# A line end that leaves a construct open for a following `|` line: a keyword or operator that
+# needs more, or a match / lambda opener; also any `match`, `fun`, `function` or `λ` on the line.
+_OPEN_END = re.compile(
+    r'(?:\bwith|\bfun|\bfunction|λ|\bdo|\bthen|\belse|:=|←|=>|[(\[{,:|$<>=+\-*/&^.]|<\|)\Z'
+    r'|\bmatch\b|\bfun\b|\bfunction\b|λ')
+_MATCH_ARM = re.compile(r'\s*\|\s*(?:"\w+"\s*\|\s*)*\Z')
+_MATCH_ARM_END = re.compile(r'(?:\s*\|\s*"\w+")*\s*=>')
+_KIND_MATCH_HEAD = re.compile(r'^\s*match\s+←\s*mKind\s+\w+\s+with\s*\Z')
+
+
+def node_kind_marker_form(code: str, start: int, end: int) -> str | None:
+    """`create` or `kind arm` when the literal at code[start:end] is in an allowed marker form."""
+    line_start = code.rfind("\n", 0, start) + 1
+    line_end = code.find("\n", end)
+    line_end = len(code) if line_end < 0 else line_end
+    before, after = code[line_start:start], code[end:line_end]
+    if _MARKER_CREATE.search(code[max(0, start - 300):start]) and _MARKER_CREATE_END.match(after):
+        # The list must close the definition: nothing but whitespace after its `]` up to the
+        # next line starting in column 0 (or the end of the file).
+        depth, i = 1, code.rfind("[", 0, start) + 1
+        while i < len(code) and depth:
+            depth += {"[": 1, "]": -1}.get(code[i], 0)
+            i += 1
+        if not depth and re.match(r"[ \t]*(?:\n[ \t]*)*(?:\n(?=\S)|\Z)", code[i:]):
+            return "create"
+        return None
+    if not (_MATCH_ARM.fullmatch(before) and _MATCH_ARM_END.match(after)):
+        return None
+    if mkind_rebound(code):
+        return None
+    indent = len(before) - len(before.lstrip())
+    lines = code[:line_start].split("\n")
+    # Find this arm's `match` head: walk up over earlier arms (`|` at the arm's indent) and their
+    # bodies (deeper); the first other line must be `match ← mKind <stmt> with`.
+    head = None
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        if not line.strip():
+            continue
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent > indent or (line_indent == indent and line.lstrip().startswith("|")):
+            continue
+        head = i
+        break
+    if head is None or not _KIND_MATCH_HEAD.match(lines[head]):
+        return None
+    span = lines[head + 1:] + [code[line_start:line_end]]
+    # Lean gives a `|` line to the innermost open construct whose first `|` is at or left of it.
+    # Another construct can own an arm at this column only if that arm is its first alternative,
+    # i.e. the line before it leaves a construct open. So the line before every `|` line at the
+    # arm's column must end a term, and no `let` / `have` / `where` / `show` in the span may be
+    # written by cases (without `:=` or `←` on its line).
+    for line in span[:-1]:
+        for m in _DECL_KEYWORD.finditer(line):
+            if not re.search(r":=|←", line[m.end():]):
+                return None
+    prev = None  # the head line itself opens this arm's alternatives
+    for line in span:
+        if not line.strip():
+            continue
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent == indent and line.lstrip().startswith("|"):
+            if prev is not None and _OPEN_END.search(prev.rstrip()):
+                return None
+        prev = line
+    return "kind arm"
+
 
 # Yul variable names of the registered range-read block (`extsloadRangeYulFingerprint`), read
 # only after `rangeReadBindings?` matched the block through the registry.
@@ -548,12 +738,18 @@ def is_allowed(ident: str) -> bool:
 
 
 def check_names(root: Path, errors: list[str]) -> None:
+    # The pragma helpers must not be mentioned in any importer file outside PRAGMA_PAIRS.
+    helpers_elsewhere = any(
+        _PRAGMA_HELPER.search(scan(path.read_text(encoding="utf-8"))[0])
+        for path in importer_files(root)
+        if path.relative_to(root).as_posix() not in PRAGMA_PAIRS)
     for path in importer_files(root):
         rel = path.relative_to(root)
         raw = path.read_text(encoding="utf-8")
         code, literals = scan(raw)
         lists = membership_list_spans(code, literals)
         proofs = proof_spans(code)
+        pragmas = pragma_literal_spans(rel.as_posix(), code, literals, helpers_elsewhere)
         for m in literals:
             body = m.text
             idents = literal_identifiers(body)
@@ -562,6 +758,13 @@ def check_names(root: Path, errors: list[str]) -> None:
             if (rel.as_posix(), body) in FILE_EXCEPTIONS:
                 USED.add(("file", f"{rel.as_posix()}:{body}"))
                 continue
+            if any(lo <= m.start and m.end <= hi for lo, hi in pragmas):
+                continue
+            if (rel.as_posix(), body) in NODE_KIND_MARKERS:
+                form = node_kind_marker_form(code, m.start, m.end)
+                if form is not None:
+                    USED.add(("marker", f"{rel.as_posix()}:{body}:{form}"))
+                    continue
             kind = selection_kind(code, m.start, m.end, lists)
             if kind is None and any(lo <= m.start < hi for lo, hi in proofs):
                 continue
@@ -719,6 +922,17 @@ def check_unused(errors: list[str]) -> None:
     for name in sorted(ALLOWED_NAME_LITERALS):
         if ("name", name) not in USED:
             errors.append(f"ALLOWED_NAME_LITERALS entry `{name}` is not used: remove it")
+    for file, marker in sorted(NODE_KIND_MARKERS):
+        for form in ("create", "kind arm"):
+            if ("marker", f"{file}:{marker}:{form}") not in USED:
+                errors.append(f"NODE_KIND_MARKERS entry {file}: \"{marker}\" has no {form} "
+                              f"site: a marker is built as a nodeType and matched on mKind")
+    for file, pairs in sorted(PRAGMA_PAIRS.items()):
+        for pair in pairs:
+            if ("pragma", f"{file}:{pair[0]} {pair[1]}") not in USED:
+                errors.append(f"PRAGMA_PAIRS entry {file}: {pair} is not used in a comparison "
+                              f"with `pragmaLiterals` (both pragma helpers defined verbatim, no "
+                              f"other mention of them): remove it or restore the form")
     for file, lit in sorted(FILE_EXCEPTIONS):
         if ("file", f"{file}:{lit}") not in USED:
             errors.append(f"FILE_EXCEPTIONS entry {file}: \"{lit}\" is not used: remove it")
