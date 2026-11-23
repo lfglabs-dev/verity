@@ -256,6 +256,37 @@ unsafe def runFlagAndUnitTests : IO Unit := do
           .if_ (.lit 1) [.exprStmt (.call "mstore" [.lit 64, .lit 4160])]])]
         (some [.block [.exprStmt (.call "mstore" [.lit 64, .lit 4160])]]),
        .funcDef "f" [] [] [.exprStmt (.call "mstore" [.lit 64, .lit 5000])]])
+  -- `n` long-lived locals `p_i := calldataload(i)`, all read by one final `sstore` each.
+  let longLived (p : String) (n : Nat) : List Compiler.Yul.YulStmt :=
+    ((List.range n).map fun i => .let_ s!"{p}{i}" (.call "calldataload" [.lit (32 * i)])) ++
+      (List.range n).map fun i => .exprStmt (.call "sstore" [.lit i, .ident s!"{p}{i}"])
+  let topSpillSlots (stmts : List Compiler.Yul.YulStmt) : List Nat :=
+    stmts.filterMap fun
+      | .exprStmt (.call "mstore" [.lit slot, _]) =>
+          if Compiler.Yul.TempReuse.defaultSpillBase ≤ slot then some slot else none
+      | _ => none
+  -- An outer block whose spilled locals stay live across a nested block that also spills:
+  -- the outer slots must lie above every slot of the nested block (#2831).
+  let outer := longLived "o" 14
+  let nestedProbe : List Compiler.Yul.YulStmt :=
+    outer.take 14 ++ [.block (longLived "i" 14)] ++ outer.drop 14
+  let nestedOut := Compiler.Yul.TempReuse.reuseAndSpillTemps 12 [] true nestedProbe
+  let innerOut := nestedOut.filterMap fun | .block b => some b | _ => none
+  expectTrue "nested block and enclosing block both spill"
+    (!(topSpillSlots nestedOut).isEmpty && !(innerOut.flatMap topSpillSlots).isEmpty)
+  expectTrue "enclosing-block spill slots lie above the nested block's slots"
+    ((topSpillSlots nestedOut).all fun slot =>
+      Compiler.Yul.TempReuse.spillHighWaterStmts innerOut.flatten ≤ slot)
+  -- Function bodies and `for` initialisers never spill to fixed slots (callers, recursion and
+  -- loop bodies would share them); they only reuse dead stack temporaries.
+  let funcOut := Compiler.Yul.TempReuse.reuseAndSpillTemps 12 [] true
+    [.funcDef "f" [] [] (longLived "f" 14)]
+  expectTrue "function bodies do not spill"
+    (Compiler.Yul.TempReuse.spillHighWaterStmts funcOut == 0)
+  let forOut := Compiler.Yul.TempReuse.reuseAndSpillTemps 12 [] true
+    [.for_ (longLived "l" 14) (.lit 0) [] []]
+  expectTrue "for initialisers do not spill"
+    (Compiler.Yul.TempReuse.spillHighWaterStmts forOut == 0)
 
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do
