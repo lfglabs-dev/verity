@@ -344,30 +344,76 @@ class CiInfraMaintenanceTests(unittest.TestCase):
                                            VERITY_CI_ARTIFACT_ROOT=str(tmp / "store")))
             self.assertEqual(r.returncode, 2)
 
-    def test_ephemeral_heavy_build_jobs_use_all_vm_cores(self) -> None:
+    def _lean_threads(self, mem_total_kib: int | None, nproc: int) -> tuple[subprocess.CompletedProcess, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            meminfo = Path(tmp) / "meminfo"
+            lines = ["MemFree:         1000 kB"]
+            if mem_total_kib is not None:
+                lines.insert(0, f"MemTotal:       {mem_total_kib} kB")
+            meminfo.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            github_env = Path(tmp) / "github_env"
+            github_env.write_text("", encoding="utf-8")
+            r = subprocess.run(
+                ["bash", str(ROOT / "scripts" / "ci_lean_threads.sh")],
+                env=dict(os.environ, CI_LEAN_THREADS_MEMINFO=str(meminfo),
+                         CI_LEAN_THREADS_NPROC=str(nproc), GITHUB_ENV=str(github_env)),
+                capture_output=True, text=True, check=False,
+            )
+            return r, github_env.read_text(encoding="utf-8")
+
+    def test_lean_threads_follow_vm_memory(self) -> None:
+        # MemTotal values printed by lean.ci `build` VMs on 2026-11-23.
+        for mem_mib, nproc, expected in (
+            (10941, 8, 4),    # 8 vCPUs / ~11 GiB: ENOMEM at 8 processes
+            (14973, 24, 5),
+            (15981, 16, 6),
+            (20997, 24, 8),   # never above 8 (burst VMs)
+            (65536, 4, 4),    # never above the VM's vCPUs
+            (3072, 8, 2),     # floor of 2
+            (65536, 1, 2),
+        ):
+            r, env = self._lean_threads(mem_mib * 1024, nproc)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(env, f"LEAN_NUM_THREADS={expected}\n", (mem_mib, nproc))
+            self.assertIn(f"LEAN_NUM_THREADS={expected}", r.stdout)
+
+    def test_lean_threads_fail_closed_without_memtotal(self) -> None:
+        r, env = self._lean_threads(None, 8)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(env, "")
+
+    def test_ephemeral_heavy_build_jobs_bound_lean_threads_by_memory(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
         def job_body(job: str) -> str:
             match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
             self.assertIsNotNone(match, job)
             return match.group("body")
 
-        for job in (
-            "build-audits",
-            "build-compiler-binaries",
-            "compiler-audits",
-            "compiler-regressions",
-            "lean-profile",
+        bound_step = (
+            "      - name: Bound Lean threads by VM memory\n"
+            "{cond}"
+            "        run: scripts/ci_lean_threads.sh\n"
+        )
+        routed_cond = "        if: needs.route.outputs.on_lean == 'true'\n"
+        for job, cond in (
+            ("build", ""),
+            ("build-audits", routed_cond),
+            ("build-compiler-binaries", ""),
+            ("compiler-audits", routed_cond),
+            ("compiler-regressions", ""),
+            ("lean-profile", ""),
         ):
             body = job_body(job)
-            # lean.ci sizes and grows these VMs; Lean must use the cores it gets.
+            # lean.ci can boot an 8-vCPU VM with ~11 GiB, where one Lean/clang
+            # process per vCPU failed with ENOMEM: Lake parallelism follows the
+            # VM's memory, set once after checkout and before any Lean step.
+            step = bound_step.format(cond=cond)
+            self.assertEqual(body.count(step), 1, job)
+            self.assertLess(body.index("actions/checkout@"), body.index(step), job)
+            self.assertLess(body.index(step), body.index("uses: ./.github/actions/setup-lean"), job)
+            # A job-level `LEAN_NUM_THREADS:` would hide the $GITHUB_ENV value.
             self.assertNotIn("LEAN_NUM_THREADS:", body, job)
-        # `build` is the exception: a burst VM (more vCPUs than its 8-vCPU label,
-        # memory scaled by half the ratio) ran one Lean per vCPU and hit ENOMEM,
-        # so its Lake parallelism stays at the label's 8.
-        self.assertRegex(job_body("build"), r"\n    env:\n(?:      #.*\n)*      LEAN_NUM_THREADS: 8\n")
-        # No step may set it again (step env or $GITHUB_ENV).
-        self.assertEqual(len(re.findall(r"^\s+LEAN_NUM_THREADS:", job_body("build"), re.M)), 1)
-        self.assertNotIn("LEAN_NUM_THREADS=", job_body("build"))
+        self.assertEqual(len(re.findall(r"^\s+LEAN_NUM_THREADS", job_body("build"), re.M)), 0)
         for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
             self.assertIn("runs-on: lean-", job_body(job), job)
 
