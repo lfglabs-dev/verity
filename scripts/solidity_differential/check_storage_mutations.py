@@ -397,6 +397,32 @@ MUTANTS.update({
     'import-narrow-copy-v1-return-guard': (
         '        if memoryCopy && !(← get).viaIR && (← get).abiCoderV1 then\n',
         '        if false then\n')})
+# Encoding arguments (EncodingArgumentOrderSequence): the concat builtins evaluate their
+# arguments left to right, and a storage `bytes` / `string` argument of a multi-argument
+# encoding is read after every argument has run, at the slot its keys had at its position.
+# Each mutant restores one site's previous behaviour or drops a guard.
+MUTANTS.update({
+    'import-encoding-order-concat-source-order': (
+        '  for idx in List.range args.size do\n    let arg := args[idx]!\n',
+        '  for idx in (if sourceOrder then List.range args.size else (List.range args.size).reverse) do\n'
+        '    let arg := args[idx]!\n'),
+    'import-encoding-order-packed-storage-deferral': (
+        '    if args.size > 1 then\n      if let some (refPre, name, slot) ← deferredStorageBytesArgument? args idx then\n',
+        '    if false then\n      if let some (refPre, name, slot) ← deferredStorageBytesArgument? args idx then\n'),
+    'import-encoding-order-abi-encode-storage-deferral': (
+        '        if args.size > 1 then\n          if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then\n',
+        '        if false then\n          if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then\n'),
+    'import-encoding-order-storage-slot-capture': (
+        '          return some (refPre.push (.letVar slot slotExpr), name, .localVar slot)\n',
+        '          let _ := slot\n          return some (refPre, name, slotExpr)\n'),
+    # Located rejections: a storage conditional before a sibling that can revert, and a calldata
+    # array before a deferred storage read.
+    'import-encoding-order-storage-conditional-guard': (
+        '        unless ← orderInert later do\n          failAt arg "storage bytes/string encoding argument',
+        '        unless true do\n          failAt arg "storage bytes/string encoding argument'),
+    'import-encoding-order-calldata-array-guard': (
+        '              if earlierTy.contains "calldata" && (scalarArrayElement? earlierTy).isSome then\n',
+        '              if false then\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1213,6 +1239,8 @@ def run(directory, output, name):
         fixture = "StoragePointerMappingHelperSequence"
     if name.startswith("import-copy-order-") and not name.endswith("-guard"):
         fixture = "StructCopyWriteOrderSequence"
+    if name.startswith("import-encoding-order-") and not name.endswith("-guard"):
+        fixture = "EncodingArgumentOrderSequence"
     if name.startswith("import-multi-return-buffer-"):
         fixture = "MultiReturnBufferSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
@@ -1302,6 +1330,14 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 2 ** 256 - 1])])
+    if fixture == 'EncodingArgumentOrderSequence':
+        # x = 8 * y + c selects case c; y = 0 makes two arguments revert, an even y corrupts the
+        # storage argument (the suite's `encoding-argument-order` prefix).
+        argv[argv.index('--transactions') + 1] = '32'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [0, 8, 24, 1, 9, 2, 10, 18, 3, 11, 4, 12, 20, 5, 13, 21, 6, 14,
+            22, 7, 15, 2 ** 256 - 1])])
     if fixture == 'MappingWriteOrderSequence':
         # x = 16 * y + c selects assignment c; y = 0 makes key and right-hand side revert.
         argv[argv.index('--transactions') + 1] = '32'
@@ -2046,6 +2082,29 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-encoding-order-storage-conditional-guard':
+        diagnostic = 'storage bytes/string encoding argument before a sibling that can revert or write is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ bytes private a;
+ bytes private b;
+ bool private flag;
+ function checked(uint256 x) external view returns (uint256) {
+  return bytes.concat(flag ? a : b, abi.encodePacked(10 / x)).length;
+ }
+}
+''')
+    elif name == 'import-encoding-order-calldata-array-guard':
+        diagnostic = 'calldata array ABI encoding argument before a storage bytes/string argument is unsupported'
+        signature = 'checked(«uint8[]»)'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ string private label;
+ function checked(uint8[] calldata xs) external view returns (bytes32) {
+  return keccak256(abi.encode(xs, label));
+ }
+}
+''')
     elif name == 'import-copy-order-storage-bytes-source-guard':
         diagnostic = 'keyed storage bytes/string source beside a target key prelude is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2435,6 +2494,8 @@ def mutation_campaign(output, selected=None):
                                   'import-copy-order-reverting-source-guard',
                                   'import-narrow-copy-v1-helper-guard',
                                   'import-narrow-copy-v1-return-guard',
+                                  'import-encoding-order-storage-conditional-guard',
+                                  'import-encoding-order-calldata-array-guard',
                                   'import-assignment-argument-hash-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)

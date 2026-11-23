@@ -37,6 +37,8 @@ STRING_MEMBER_BOX = 'struct Box { uint128 bitmap; string label; uint64 tail; } m
 
 # Root ABI parameter controls: the `function` line of each case's import.
 ROOT_PARAM_SIGNATURES = {
+    'encoding-calldata-array-before-storage-string-rejected': 'checked(«uint8[]»)',
+    'encoding-storage-string-before-calldata-array-accepted': 'checked(«uint8[]»)',
     'root-param-string-member-accepted': 'checked(S)',
     'root-param-string-member-staticcall-rejected': 'checked(S)',
     'root-param-struct-array-accepted': 'checked(«S[]»)',
@@ -1780,6 +1782,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          "Identifier: [solidity-import:unsupported] storage reference argument of a typed external call without return values: via-IR checks the callee's code size before encoding it"),
+        # Encoding arguments (EncodingArgumentOrderSequence): solc reads a storage `bytes` /
+        # `string` argument while encoding, after every argument has run. A storage conditional
+        # (its slot is not deferred) before a sibling that can revert, and a calldata array
+        # (validated while encoding, in argument order) before a deferred storage read, are
+        # located rejections; inert siblings and the other order import.
+        ('encoding-storage-conditional-before-reverting-sibling-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  bytes private a;\n  bytes private b;\n  bool private flag;\n  function checked(uint256 x) external view returns (uint256) {\n    return bytes.concat(flag ? a : b, abi.encodePacked(10 / x)).length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Conditional: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported'),
+        ('encoding-storage-conditional-before-inert-sibling-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  bytes private a;\n  bytes private b;\n  bool private flag;\n  function checked(uint256 x) external view returns (uint256) {\n    return bytes.concat(flag ? a : b, hex\"01\", b).length + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('encoding-calldata-array-before-storage-string-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  string private label;\n  function checked(uint8[] calldata xs) external view returns (bytes32) {\n    return keccak256(abi.encode(xs, label));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] calldata array ABI encoding argument before a storage bytes/string argument is unsupported'),
+        ('encoding-storage-string-before-calldata-array-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  string private label;\n  function checked(uint8[] calldata xs) external view returns (bytes32) {\n    return keccak256(abi.encode(label, xs));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
         ('memory-struct-array-flat-local-element-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 v; uint256 w; }\n  function checked(uint256 x) external pure returns (uint256) {\n    S[] memory a = new S[](1);\n    S memory s = S(x, 1);\n    a[0] = s;\n    return a[0].v;\n  }\n}\n",
          None,

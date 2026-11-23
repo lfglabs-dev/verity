@@ -40,6 +40,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "ecrecover-rejections",
     "emit-rejections",
     "encoding-arg-super-override",
+    "encoding-argument-order",
     "environment",
     "errors",
     "event-mutations",

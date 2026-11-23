@@ -5578,9 +5578,9 @@ private partial def assignmentAbiEncodeIn (j : Json) : Bool :=
   abiEncodeArgIn assignmentIn j
 
 /-- A `bytes.concat` / `string.concat` call with more than one argument, one of which may
-revert, in `j` or in an internal function it calls. `lowerPacked` lowers the concat
-arguments last to first while both solc pipelines evaluate them left to right, so the
-revert data of such a call would be the wrong one. -/
+revert, in `j` or in an internal function it calls. `lowerPacked` now lowers the concat
+arguments left to right, as both solc pipelines evaluate them; such a call as a reverting
+`abi.encode` argument stays a located rejection (fail-closed: no differential coverage). -/
 private partial def revertingConcatIn (env : Env) (seen : List Nat) (j : Json) : Bool :=
   match j with
   | .arr xs => xs.any (revertingConcatIn env seen)
@@ -5981,6 +5981,34 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
     return { pre, pointer := .localVar pointer, size := .literal size }
   lowerEncodedBytes j
 
+/-- A storage `bytes` / `string` argument `args[idx]` of a multi-argument encoding
+(`abi.encode`, `abi.encodePacked`, `bytes.concat`, `string.concat`). Both solc 0.8.34 pipelines
+evaluate such a reference (its keys, index checks, storage-pointer local) at its position but
+read the bytes (length, Panic 0x22 on a corrupt encoding, data) only while encoding, after
+every argument has run. Returns the reference prelude, with the slot bound to a fresh local,
+and the field and slot of the read the caller defers. A storage-typed argument whose slot does
+not resolve here (a storage conditional) is read at its position, so it is a located rejection
+before a later sibling that can revert, call or write. `none`: not deferred. -/
+private partial def deferredStorageBytesArgument? (args : Array Json) (idx : Nat) :
+    M (Option (Array Stmt × String × Expr)) := do
+  let arg := args[idx]!
+  let ty ← mType arg
+  unless (ty.startsWith "bytes " || ty.startsWith "string ") &&
+      (ty.splitOn " storage").length > 1 do
+    return none
+  match ← resolveStorageBytesTarget? arg with
+  | some (refPre, name, slotExpr, _) =>
+      match slotExpr with
+      | .literal _ => return some (refPre, name, slotExpr)
+      | _ =>
+          let slot ← fresh
+          return some (refPre.push (.letVar slot slotExpr), name, .localVar slot)
+  | none =>
+      for later in args.extract (idx + 1) args.size do
+        unless ← orderInert later do
+          failAt arg "storage bytes/string encoding argument before a sibling that can revert or write is unsupported"
+      return none
+
 private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false) : M EncodedBytes := do
   let env ← get
   if env.forwardingBytesTuple && args.size > 1 then
@@ -5991,24 +6019,36 @@ private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false
       for k in [i + 1:args.size] do
         if memoryWriteOrderHazard arg args[k]! env then
           failAt arg "memory-writing packed arguments in a forwarded tuple require explicit evaluation-order support"
-  -- An ordered `abi.encode` runs its helpers in place, but the concat builtins walk their
-  -- arguments last to first and a storage `bytes` sibling is copied before solc copies it.
-  -- A scalar write (`x++`, `m[k] = v`) cannot reach a `bytes` sibling, and `abi.encodePacked`
-  -- (`sourceOrder`) writes each scalar sibling at its own position, as both solc pipelines
-  -- evaluate them, so there only the concat builtins must reject it.
+  -- An ordered `abi.encode` runs its helpers in place, beside storage `bytes` siblings whose
+  -- reads are deferred below. A scalar write (`x++`, `m[k] = v`) cannot reach a `bytes`
+  -- sibling, and `abi.encodePacked` (`sourceOrder`) writes each scalar sibling at its own
+  -- position, as both solc pipelines evaluate them; the concat builtins keep rejecting it
+  -- (fail-closed: no differential coverage).
   if args.size > 1 then
     for arg in args do
       if statefulAbiEncodeIn arg env || (!sourceOrder && assignmentAbiEncodeIn arg) then
         failAt arg "effectful ABI encoding argument is unsupported"
-  let mut buffers : Array EncodedBytes := #[]
+  let mut buffers : Array EncodedBytes :=
+    Array.replicate args.size { pre := #[], pointer := .literal 0, size := .literal 0 }
   let mut pre := #[]
-  -- For abi.encodePacked the first argument's panic takes precedence in both solc
-  -- pipelines. Keep the existing traversal for the separate bytes/string.concat builtins.
-  for arg in (if sourceOrder then args else args.reverse) do
+  let mut deferred : Array (Nat × String × Expr × Json) := #[]
+  -- Both solc 0.8.34 pipelines evaluate the arguments of `abi.encodePacked`, `bytes.concat` and
+  -- `string.concat` left to right (the first panic, revert or state write comes first), and read
+  -- a storage `bytes` / `string` argument only while encoding, after every argument has run.
+  for idx in List.range args.size do
+    let arg := args[idx]!
+    if args.size > 1 then
+      if let some (refPre, name, slot) ← deferredStorageBytesArgument? args idx then
+        pre := pre ++ refPre
+        deferred := deferred.push (idx, name, slot, arg)
+        continue
     let buffer ← lowerPackedArgument arg
     pre := pre ++ buffer.pre
-    buffers := buffers.push buffer
-  if !sourceOrder then buffers := buffers.reverse
+    buffers := buffers.set! idx buffer
+  for (idx, name, slot, arg) in deferred do
+    let buffer ← lowerStorageBytesRead #[] name slot arg
+    pre := pre ++ buffer.pre
+    buffers := buffers.set! idx buffer
   let sizeName ← fresh
   let size := Expr.localVar sizeName
   let length := buffers.foldl (fun total buffer => Expr.add total buffer.size) (.literal 0)
@@ -7533,6 +7573,9 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
     let mut pre : Array Stmt := #[]
     let mut headWords : Array (Option Expr) := #[]
     let mut dynTails : Array (Nat × Sum (Nat × List AbiSchema.Member × Json) (Sum (Expr × Expr) Nat)) := #[]
+    -- Storage `bytes` / `string` reads deferred to encoding time (`deferredStorageBytesArgument?`):
+    -- the `dynTails` index, the head index, the field, the slot and the argument.
+    let mut deferred : Array (Nat × Nat × String × Expr × Json) := #[]
     for argIdx in [:args.size] do
       let arg := args[argIdx]!
       let ty ← mType arg
@@ -7556,6 +7599,20 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
               failAt args[otherIdx]! "calldata ABI encoding argument beside a reverting helper is unsupported"
             if otherIdx != argIdx && (← mType args[otherIdx]!).contains " storage" then
               failAt args[otherIdx]! "storage ABI encoding argument beside a reverting helper is unsupported"
+        if args.size > 1 then
+          if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then
+            -- solc validates a calldata array argument while encoding it, in argument order;
+            -- an earlier one would be validated before this deferred read.
+            for earlier in args.extract 0 argIdx do
+              let earlierTy ← mType earlier
+              if earlierTy.contains "calldata" && (scalarArrayElement? earlierTy).isSome then
+                failAt earlier "calldata array ABI encoding argument before a storage bytes/string argument is unsupported"
+            pre := pre ++ refPre
+            let headIdx := headWords.size
+            headWords := headWords.push none
+            deferred := deferred.push (dynTails.size, headIdx, name, slot, arg)
+            dynTails := dynTails.push (headIdx, .inr (.inl (.literal 0, .literal 0)))
+            continue
         let buf ← lowerEncodedBytes arg
         let ptrVal ← if isAtom buf.pointer then pure { pre := #[], expr := buf.pointer } else atom { pre := #[], expr := buf.pointer }
         let sizeVal ← if isAtom buf.size then pure { pre := #[], expr := buf.size } else atom { pre := #[], expr := buf.size }
@@ -7628,6 +7685,11 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         let value ← if raw.pre.isEmpty then pure raw else atom raw
         pre := pre ++ value.pre
         headWords := headWords.push (some (cleanHelperResultExpr targetTy value))
+    for (tailIdx, headIdx, name, slot, arg) in deferred do
+      -- The read binds its pointer and length to fresh locals.
+      let buf ← lowerStorageBytesRead #[] name slot arg
+      pre := pre ++ buf.pre
+      dynTails := dynTails.set! tailIdx (headIdx, .inr (.inl (buf.pointer, buf.size)))
     let pointer ← fresh
     let headFinish ← fresh
     let base := Expr.localVar pointer
