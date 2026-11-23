@@ -1264,6 +1264,12 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, SIGNED_COMPOUND_PREFIX if fixture == 'SignedCompoundAssignmentSequence'
                                                    else SIGNED_STRUCT_COMPOUND_PREFIX)])
+    if fixture == 'YulMcopySequence':
+        # Every copy shape (x % 8 in 0..5) and calls that only store, as
+        # `check_storage --fixture yul-mcopy` runs them.
+        from solidity_differential.check_storage import YUL_MCOPY_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, YUL_MCOPY_PREFIX)])
     if fixture == 'SignedStructMemberReadSequence':
         from solidity_differential.check_storage import SIGNED_STRUCT_MEMBER_READ_PREFIX
         argv[argv.index('--transactions') + 1] = '24'

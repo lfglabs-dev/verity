@@ -68,6 +68,12 @@ contract SequenceFixture {
         return total;
     }
 
+    // The stateful harness's reverting call: its write is rolled back.
+    function fail() external {
+        total = total + 1;
+        revert();
+    }
+
     function read() external view returns (uint256) {
         return total;
     }
