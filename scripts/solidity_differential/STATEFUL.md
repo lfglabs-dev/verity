@@ -109,16 +109,19 @@ calls). Tracked-file edits, untracked sources, symlinks escaping the checkout
 and revision drift are rejected before and after execution. All routes start
 from the same explicit storage world. The source route runs the source
 constructor with the configured `constructorArgs`; a probe deployment requires
-every storage word a constructor writes to equal the configured initial storage
+every storage word a constructor changes to equal the configured initial storage
 of its account (initial rows may also name word-valued mapping entries by
-`keys`), and rejects a constructor that writes another account. The tested
-contract's immutables are read back from its deployed runtime
-(`immutableReferences`), installed by name in the model route, and passed in
-order to the compiled model's synthesized constructor, whose storage writes are
+`keys`; a write that leaves a word unchanged is not traced, and the configured
+world is set after deployment on every route), and rejects a constructor that
+changes another account's storage, code or nonce. The tested contract's
+immutables are read back from its deployed runtime (`immutableReferences`) and
+installed by name on the model route; those the model binds to constructor
+arguments are passed in order to the compiled model's synthesized constructor,
+and the others are recomputed by that constructor, whose storage writes are
 probed under the same rule. Every replay must reproduce the probed runtime code
 of each deployed account, so a constructor whose result differs between
 deployments fails instead of diverging. The model's own constructor logic is
-not run: immutables are copied, and constructor equivalence beyond this storage
+not run on the model route, and constructor equivalence beyond this storage
 world and these immutables is not claimed. A configuration
 may deploy `dependencies` first (the first sender deploys them at nonces 0, 1, …
 and the tested contract after them; `dependency:<i>` and `contract` name their
@@ -128,12 +131,15 @@ differ only in the tested contract. The model route cannot execute bytecode: it
 gets the dependency's runtime code and storage, and the dependency's own
 imported model answers the tested model's `STATICCALL`s
 (`Compiler/SolidityImport/ModelResponders.lean`, program
-`imported-model-static-v1`). Any other request, an execution that writes or
-logs, or a selector that is not one imported view/pure function is an
+`imported-model-static-v1`). Any other request, calldata the model cannot bind,
+an execution that changes a stored word or logs, or a selector that is not one
+imported view/pure function is an
 instrumentation error (`test/ByteExternalCall/ModelResponderDomain.lean`, run by
 the corpus check before any campaign with a dependency). The dependency's
 accessed storage is observed on every
-route, so a wrong answer is a divergence, not a hidden assumption. The
+route, so a wrong answer is a divergence, not a hidden assumption. This
+instrument does not validate the dependency model itself; the corpus check
+below requires it to be another corpus sequence with its own campaign. The
 `drop-events` mutant filters every model `emit`; it must
 diverge and shrink to a replayed deletion-minimal witness.
 `check_pinned_sequence_fixture` commits the generic `fixtures/pinned-sequence`

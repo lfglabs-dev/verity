@@ -6,14 +6,16 @@ model route runs the actual imported multi-entry-point model through Denote;
 the compiled route deploys the Verity-compiled model. Every route starts from
 the same explicit storage world, deployed by the first sender. The source
 constructor runs with the configured arguments on the source route; a probe
-deployment requires every storage word it writes to equal the configured initial
+deployment requires every storage word it changes to equal the configured initial
 storage (so the model route, which runs no constructor, starts from the same
 world), and the immutables it stores are read from the deployed runtime code and
-installed in the model and passed to the compiled model's constructor. A
-configured dependency is compiled from the same checkout and settings and
-deployed first, from its source bytecode, on the source and compiled routes; on
-the model route its own imported model answers the tested contract's static
-calls (`ModelResponders`). Transactions are a deterministic prefix
+installed in the model; those bound to constructor arguments are passed to the
+compiled model's constructor, which recomputes the others. A configured
+dependency is compiled from the same checkout and settings and deployed first,
+from its source bytecode, on the source and compiled routes; on the model route
+its own imported model answers the tested contract's static calls
+(`ModelResponders`). This instrument does not validate that dependency model;
+`check_pinned_sequence_corpus` requires it to have its own campaign. Transactions are a deterministic prefix
 followed by seeded random calls drawn from per-argument pools, and divergences
 are shrunk to replayed witnesses. Sources, compiler identity and receipts are
 retained.
@@ -431,9 +433,11 @@ def deployed_immutables(runtime, references, names):
 def probe_deployment(directory, deployments, initial):
     """Deploy every contract once on an owned node and check its constructor world.
 
-    Every storage word a constructor writes must equal the configured initial storage
-    of the deployed account, and no constructor may write another account. Returns
-    the deployed runtime code of each account."""
+    Every storage word a constructor changes must equal the configured initial storage
+    of the deployed account (the diff-mode trace omits writes that leave a word as it
+    was, which the configured world then sets on every route anyway). No constructor
+    may change another account's storage, code or nonce (creating a contract does);
+    only balances may move, for fees. Returns the deployed runtime code of each account."""
     configured = {(account, slot): value for account, slot, value in initial}
     runtimes = []
     with Anvil(directory) as node:
@@ -447,9 +451,12 @@ def probe_deployment(directory, deployments, initial):
             diff = node.rpc('debug_traceTransaction', record['receipt']['transactionHash'],
                             {'tracer': 'prestateTracer', 'tracerConfig': {'diffMode': True}})
             for account, state in diff['post'].items():
+                # The deployer's nonce advances; any account's balance may move for fees.
+                forbidden = (set() if account == address else {'storage', 'code'} if account == deployer
+                             else {'storage', 'code', 'nonce'})
+                if forbidden & set(state):
+                    raise HarnessError(f'{name}: constructor writes foreign account {account}')
                 for slot, value in state.get('storage', {}).items():
-                    if account != address:
-                        raise HarnessError(f'{name}: constructor writes foreign account {account}')
                     expected = configured.get((address, slot), word_hex(0))
                     if int(value, 16) != int(expected, 16):
                         raise HarnessError(f'{name}: constructor writes slot {slot} = {value}, '
@@ -481,7 +488,8 @@ def deployment_world(config, entry, dependencies, compiled, immutable_names, out
     The first sender deploys the dependencies at nonces 0.. and the tested contract
     after them, on every route. The source route runs the source constructor with the
     configured arguments; its immutables, read back from the deployed runtime, are
-    installed in the model and passed to the compiled model's constructor."""
+    installed in the model, and those bound to constructor arguments are passed to
+    the compiled model's constructor."""
     count = len(dependencies)
     address = create_address(SENDERS[0], count)
     addresses = {'contract': address, **{f'dependency:{index}': create_address(SENDERS[0], index)
@@ -560,10 +568,10 @@ def campaign(config_path, output, count, seed, shrink_attempts, mutant=None):
         'verityHead': revision, 'seed': seed, 'transactions': calls,
         'signatures': config['signatures'], 'mutant': mutant,
         # No route compares constructors: the model route runs none. Both constructors'
-        # storage writes are checked against the initial storage, and the immutables are
-        # copied from the source deployment, not computed by the model.
+        # storage changes are checked against the initial storage, and the model route's
+        # immutables are copied from the source deployment, not computed by the model.
         'constructorValidated': False,
-        'constructorWorld': 'storage-writes-checked; immutables-copied-from-source',
+        'constructorWorld': 'storage-changes-checked; model-route-immutables-copied-from-source',
         'addresses': world['addresses'],
         'immutables': world['immutables'], 'initialStorage': initial,
         'compilerSha256': digest, 'implementation': identity.manifest,

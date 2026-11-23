@@ -392,6 +392,16 @@ class ProbeDeployment(unittest.TestCase):
             self.run_probe(lambda a, s: {a: {'storage': {s: '0x06'}}})
         with self.assertRaisesRegex(HarnessError, 'foreign account'):
             self.run_probe(lambda a, s: {'0x' + '77' * 20: {'storage': {s: '0x05'}}})
+        # A constructor that creates a contract changes that account's code and nonce.
+        with self.assertRaisesRegex(HarnessError, 'foreign account'):
+            self.run_probe(lambda a, s: {'0x' + '77' * 20: {'code': '0x00', 'nonce': 1}})
+        with self.assertRaisesRegex(HarnessError, 'foreign account'):
+            self.run_probe(lambda a, s: {instrument.SENDERS[0]: {'storage': {s: '0x05'}}})
+
+    def test_fee_balances_may_move(self):
+        self.assertEqual(self.run_probe(lambda a, s: {
+            instrument.SENDERS[0]: {'balance': '0x1', 'nonce': 1},
+            '0x' + '00' * 20: {'balance': '0x2'}, a: {'nonce': 1, 'code': '0x60'}}), ['0x60'])
 
     def test_failed_or_moved_deployment_fails(self):
         with self.assertRaisesRegex(HarnessError, 'deployment failed or moved'):

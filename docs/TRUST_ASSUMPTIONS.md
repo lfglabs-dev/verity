@@ -2163,9 +2163,9 @@ exact return or revert bytes and qualified storage accesses without changing the
 caller world. It is a validation instrument, not an importer feature and not a
 semantic claim about external calls: no Solidity construct is admitted by it.
 Requests outside its domain (value-carrying or non-static calls, other targets,
-calldata that is not a selector plus whole words, selectors that do not pick one
-imported read-only function, executions that log, write, access another storage
-channel through a traced read or do not finish) are instrumentation errors, never a Solidity success or
+calldata that is not a selector plus whole words or does not bind, selectors that
+do not pick one imported read-only function, executions that log, change a stored
+word, access another storage channel through a traced read or do not finish) are instrumentation errors, never a Solidity success or
 revert. Models with immutables are rejected.
 `test/ByteExternalCall/ModelResponderDomain.lean` checks each of these
 rejections and an in-domain answer from the callee's own storage. The responder's answers are trusted
