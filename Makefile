@@ -162,6 +162,7 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/check_compiler_boundaries.py
 	python3 scripts/check_lake_default_coverage.py
 	python3 scripts/check_foundry_yul_dirs.py
+	python3 scripts/check_import_driver_yul_emission.py
 	python3 scripts/check_importer_move_equivalence.py anchors
 	python3 scripts/lean_lint.py --only split_compiler_test_artifacts
 	python3 scripts/check_yul.py --builtin-boundary-only
