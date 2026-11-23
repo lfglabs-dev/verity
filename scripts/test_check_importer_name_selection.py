@@ -494,6 +494,32 @@ class ImporterNameSelectionTests(unittest.TestCase):
                     'where mk : Json := Json.mkObj [("nodeType", Json.str "VerityScopeEnd")]\n')
         self.assertFails("`VerityScopeEnd`")
 
+    def test_scope_marker_arm_of_a_let_by_cases_fails(self) -> None:
+        for body in ('  | _ =>\n      let f : String → Bool\n'
+                     '  | "VerityScopeEnd" => true\n'
+                     '  | _ => false; pure (f ((optStr s "name").getD ""))\n',
+                     '  | _ => let rec f : String → Bool\n'
+                     '  | "VerityUncheckedEnd" => true\n'
+                     '  | _ => false; pure (f ((optStr s "name").getD ""))\n',
+                     '  | _ =>\n      have f : String → Bool\n'
+                     '  | "VerityScopeEnd" => true\n'
+                     '  | _ => false; pure (f ((optStr s "name").getD ""))\n'):
+            with self.subTest(body=body):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                            '  match ← mKind s with\n  | "Block" => pure false\n' + body)
+                self.assertFails("`Verity")
+                path.write_text(text, encoding="utf-8")
+
+    def test_scope_marker_arm_after_an_open_line_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" => pure <|\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
     def test_scope_marker_tuple_compared_fails(self) -> None:
         for code in ('def zzA (fn : Json) : Bool := (optStr fn "name").map Json.str == '
                      'some ("nodeType", Json.str "VerityScopeEnd").2\n',

@@ -337,8 +337,13 @@ _MKIND_TOKEN = re.compile(r'\bmKind\b')
 def mkind_rebound(code: str) -> bool:
     return any(not re.search(r'←\s*\Z', code[max(0, m.start() - 8):m.start()])
                for m in _MKIND_TOKEN.finditer(code))
-# A line that opens alternatives on the following lines (`match ... with`, `fun`, `function`).
-_OPENS_ALTS = re.compile(r'(?:\bwith|\bfun|\bfunction|λ)\s*\Z')
+# Declarations that may be written by cases (`let f : T` followed by `| ... => ...` lines).
+_DECL_KEYWORD = re.compile(r'\b(?:let|have|where|show|suffices)\b')
+# A line end that leaves a construct open for a following `|` line: a keyword or operator that
+# needs more, or a match / lambda opener; also any `match`, `fun`, `function` or `λ` on the line.
+_OPEN_END = re.compile(
+    r'(?:\bwith|\bfun|\bfunction|λ|\bdo|\bthen|\belse|:=|←|=>|[(\[{,:|$<>=+\-*/&^.]|<\|)\Z'
+    r'|\bmatch\b|\bfun\b|\bfunction\b|λ')
 _MATCH_ARM = re.compile(r'\s*\|\s*(?:"\w+"\s*\|\s*)*\Z')
 _MATCH_ARM_END = re.compile(r'(?:\s*\|\s*"\w+")*\s*=>')
 _KIND_MATCH_HEAD = re.compile(r'^\s*match\s+←\s*mKind\s+\w+\s+with\s*\Z')
@@ -366,27 +371,40 @@ def node_kind_marker_form(code: str, start: int, end: int) -> str | None:
         return None
     indent = len(before) - len(before.lstrip())
     lines = code[:line_start].split("\n")
-    # Walk up over the earlier arms (`|` at the arm's indent) and their bodies (deeper); the first
-    # other line must be the head of this arm's `match`, and that head must match on `mKind`. An
-    # earlier arm that opens a `match`, `fun` or `function` itself, or a deeper line opening
-    # alternatives that could reach this arm's column, could own this arm: rejected.
+    # Find this arm's `match` head: walk up over earlier arms (`|` at the arm's indent) and their
+    # bodies (deeper); the first other line must be `match ← mKind <stmt> with`.
+    head = None
     for i in range(len(lines) - 1, -1, -1):
         line = lines[i]
         if not line.strip():
             continue
         line_indent = len(line) - len(line.lstrip())
-        if line_indent == indent and line.lstrip().startswith("|"):
-            if re.search(r"\bmatch\b|\bfun\b|\bfunction\b|λ", line):
+        if line_indent > indent or (line_indent == indent and line.lstrip().startswith("|")):
+            continue
+        head = i
+        break
+    if head is None or not _KIND_MATCH_HEAD.match(lines[head]):
+        return None
+    span = lines[head + 1:] + [code[line_start:line_end]]
+    # Lean gives a `|` line to the innermost open construct whose first `|` is at or left of it.
+    # Another construct can own an arm at this column only if that arm is its first alternative,
+    # i.e. the line before it leaves a construct open. So the line before every `|` line at the
+    # arm's column must end a term, and no `let` / `have` / `where` / `show` in the span may be
+    # written by cases (without `:=` or `←` on its line).
+    for line in span[:-1]:
+        for m in _DECL_KEYWORD.finditer(line):
+            if not re.search(r":=|←", line[m.end():]):
                 return None
+    prev = None  # the head line itself opens this arm's alternatives
+    for line in span:
+        if not line.strip():
             continue
-        if line_indent > indent:
-            if _OPENS_ALTS.search(line.rstrip()):
-                nxt = next((l for l in lines[i + 1:] if l.strip()), None)
-                if nxt is None or len(nxt) - len(nxt.lstrip()) <= indent:
-                    return None
-            continue
-        return "kind arm" if _KIND_MATCH_HEAD.match(line) else None
-    return None
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent == indent and line.lstrip().startswith("|"):
+            if prev is not None and _OPEN_END.search(prev.rstrip()):
+                return None
+        prev = line
+    return "kind arm"
 
 
 # A pinned solc release, `<major>.<minor>.<patch>+commit.<8 hex digits>` (solc `--version`, the
