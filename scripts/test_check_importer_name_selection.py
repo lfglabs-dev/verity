@@ -95,6 +95,36 @@ class ImporterNameSelectionTests(unittest.TestCase):
         self.append(IMPORT, '\ndef lowerSwapStepShortcut : Nat := 0\n')
         self.assertFails("lowerSwapStepShortcut defined outside the registry module")
 
+    def test_name_literal_in_any_position_fails(self) -> None:
+        forms = [
+            'def a (n : String) : Bool := decide (n ∈ ["callHook"])',
+            'def a (ns : List String) : Bool := decide ("callHook" ∈ ns)',
+            'def a (n : String) : Bool := if let "callHook" := n then true else false',
+            'def a (n : String) : Bool :=\n  match n with\n  | "callHook"\n    => true\n  | _ => false',
+            'def zzs : List String := ["callHook", "flipTick"]',
+            'def zz : String × Nat := ("callHook", 2)',
+            'def a (n : String) : Bool :=\n  let h := "callHook"\n  n == h',
+            'def a (n : String) : Bool := String.isPrefixOf "callHook" n',
+            'def a (n : String) : Bool := bne n "callHook"',
+        ]
+        original = (self.root / IMPORT).read_text(encoding="utf-8")
+        for form in forms:
+            with self.subTest(form=form):
+                (self.root / IMPORT).write_text(original + "\n" + form + "\n", encoding="utf-8")
+                self.assertFails("`callHook`")
+        (self.root / IMPORT).write_text(original, encoding="utf-8")
+
+    def test_lean_name_literal_fails(self) -> None:
+        self.append(IMPORT, '\ndef a (n : Lean.Name) : Bool := n == `callHook\n')
+        self.assertFails("Lean name literal `callHook")
+
+    def test_attributed_or_local_shim_lowering_fails(self) -> None:
+        for form in ['@[inline] def lowerMyShim : Nat := 0', 'noncomputable def lowerMyShim : Nat := 0',
+                     'def b : Nat := c where lowerMyShim : Nat := 0']:
+            with self.subTest(form=form):
+                self.append(IMPORT, "\n" + form + "\n")
+                self.assertFails("lowerMyShim defined outside the registry module")
+
     def test_yul_variable_lookup_outside_registry_gate_fails(self) -> None:
         self.append(IMPORT, '\ndef startOf (env : Env) : Option Expr :=\n'
                     '  env.yulNames.find? "startSlot"\n')

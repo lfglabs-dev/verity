@@ -9,21 +9,26 @@ an inline-assembly block by the exact fingerprint of its Yul AST.
 Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test files end in
 `Test.lean` or `Tests.lean`, as in `SourceDigest.lean`):
 
-1. Name selection. A string literal in a selection position (either operand of `==`, `!=`,
-   `=` or `≠`, a `match` pattern, the receiver of `.isPrefixOf` / `.isSuffixOf`, the argument
-   of `.contains` / `.startsWith` / `.endsWith` / `.find?`, an element of a literal list tested
-   with `.contains` / `.elem` / `.any` / `.all`, the name argument of `inlineAssemblyIdentDecl?`
-   / `yulIdentifierSrcs`, or the value of an identifier-shaped `def`/`abbrev` string constant)
-   may contain only identifiers listed in `ALLOWED_IDENTIFIERS`: the solc AST node types, AST
-   field values, Solidity and Yul builtins, type words, importer-generated names and build-tool
-   names the importer compares today (the list holds no unused entry). A function, library,
-   contract or Yul variable name of user code (`callHook`, `CurrencyLibrary`, ...) is not
-   there, so comparing one fails here.
-   Not detected, so left to review: a literal passed to a helper that compares it inside (only
-   the helpers above are known); a comparison with a value built at run time; and a listed
-   builtin name that user code may also choose for its own declaration (e.g. `transfer`,
-   `push`, `add`): the importer compares those only for builtins (e.g. members without a
-   `referencedDeclaration`), which this text check cannot see.
+1. Name selection. A string literal that is exactly an identifier or a dotted identifier
+   (`"callHook"`, `"TickBitmap.flipTick"`) is a name wherever it occurs: compared, matched,
+   bound by `let` or `if let`, held in a constant, tested with `∈`, passed to a helper. Every
+   such literal may name only what `ALLOWED_IDENTIFIERS` lists: the solc AST node types, AST
+   and standard-JSON field names and values, Solidity and Yul builtins and keywords, type words,
+   EVM versions, and the importer's own generated bindings, JSON keys, build-tool and driver
+   names (each list holds only what the importer uses today). Exempt: the key argument of a JSON
+   reader (`field? j "key"`, `mField`, `optStr`, ...), literals inside `theorem` / `example`
+   declarations, and the reasoned `FILE_EXCEPTIONS`. Any other literal (with spaces or
+   punctuation) is checked the same way, token by token, in a selection position: either operand
+   of `==`, `!=`, `=` or `≠`, a `match` pattern, `.isPrefixOf` / `.isSuffixOf`, `.contains` /
+   `.startsWith` / `.endsWith` / `.find?`, an element of a literal list tested for membership.
+   Lean name literals (`` `foo ``) must be generated declaration names
+   (`ALLOWED_NAME_LITERALS`). A function, library, contract or Yul variable name of user code
+   (`callHook`, `CurrencyLibrary`, ...) is not listed, so writing one fails here.
+   Not detected, so left to review: a name built at run time (`"call" ++ "Hook"`, `String.mk`),
+   a name hidden in a longer literal outside a selection position, and a listed builtin name
+   that user code may also give its own declaration (e.g. `transfer`, `push`, `add`): the
+   importer compares those only for builtins (e.g. members without a `referencedDeclaration`),
+   which this text check cannot see.
 2. Registry-gated names. `startSlot` and `nSlots` are the Yul variable names of the registered
    range-read block. They may occur only in `rangeReadBindings?`, after it has matched the block
    through the registry (`matchTrustedShortcut?`, then `guard` on `.rangeStorageRead`): there
@@ -34,7 +39,8 @@ Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test 
    type `TrustedShortcutMatch` keeps a private constructor, and every `lower*` definition of the
    registry module takes one and records the shortcut (`recordShortcut m decl_name%`).
 4. Routing. Outside the registry module, no importer code names a `*YulFingerprint` constant,
-   compares a `yulBlockFingerprint`, or defines a `lower...Shim...` / `lower...Shortcut...`.
+   compares a `yulBlockFingerprint`, or defines (`def`, `abbrev`, with any attributes or
+   modifiers, or a `where` / `let rec` helper) a `lower...Shim...` / `lower...Shortcut...`.
    A fixed lowering that is not named as one and is selected by code shape cannot be told
    from a translation by text; the registry's lowerings are bound to it by type (they take a
    `TrustedShortcutMatch`), and anything else is for review.
@@ -134,21 +140,75 @@ INSTRUMENT_NAMES = {
 }
 # Subcommands of the importer's own differential driver (`Differential.run`).
 DRIVER_COMMANDS = {"status", "describe", "run"}
+# Keys of solc's AST and storage-layout JSON read as data, and of solc's standard JSON input.
+SOLC_JSON_FIELDS = {
+    "AST", "Solidity", "arguments", "ast", "baseType", "body", "bytecodeHash", "components",
+    "condition", "content", "declarations", "enabled", "evmVersion", "expression", "falseBody",
+    "indexed", "initialValue", "initializationExpression", "isInlineArray", "label", "language",
+    "leftHandSide", "members", "metadata", "names", "optimizer", "outputSelection", "parameterTypes",
+    "parameters", "runs", "settings", "sources", "statements", "storageLayout", "subExpression",
+    "transientStorageLayout", "trueBody", "typeDescriptions", "typeName", "typeString", "types",
+    "variableNames", "viaIR",
+}
+# EVM hard-fork names (solc `evmVersion` values).
+EVM_VERSIONS = {
+    "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul", "london", "osaka",
+    "paris", "petersburg", "prague", "shanghai", "spuriousDragon", "tangerineWhistle",
+}
+# Yul keywords.
+YUL_KEYWORDS = {"break", "case", "continue", "default", "for", "function", "if", "leave", "let", "switch"}
+# Stems, prefixes and binding names the importer generates for model locals, parameters and
+# fields; theorem-family tags it attaches; and its own syntax keywords.
+IMPORTER_BINDINGS = {
+    "$", "E", "e", "_", "_$", "__solidity_value", "_array", "_bytes", "_calldata", "_data",
+    "_element", "_element_next", "_head", "_header", "_index", "_len", "_length", "_memory",
+    "_memory_ptr_$dyn_memory_ptr", "_next", "_offset", "_source", "_struct", "_val", "arr_len",
+    "arr_ptr", "array", "bytes_ptr", "key1", "key2", "param", "raw_slot", "ret_struct", "str_ptr",
+    "struct_param", "node", "mutable", "denote_prefix", "denote_step", "solidity_closed_transport_cei",
+    "solidity_create2_initcode_reentrancy", "solidity_explicit_abi", "solidity_scalar_abi_entry",
+    "solidity_static_call_cei", "solidity_trailing_low_level_call_reentrancy", "entry",
+}
+# Keys of the importer's own JSON (report, differential driver, sequence runner, remapping scan).
+IMPORTER_JSON_KEYS = {
+    "account", "accounts", "blockNumber", "compilable", "compileError", "compilerProof",
+    "configs", "creator", "denoteCovered", "deployment", "digest", "events", "full", "functions",
+    "importable", "importerSources", "importerVersion", "member", "modelParam", "nonce",
+    "panicPayloadObserved", "parameter", "params", "projections", "shortcuts", "solcInput",
+    "solcVersion", "target", "topics", "touched", "words", "libs", "script", "lakefile",
+}
 
 ALLOWED_IDENTIFIERS = (
     SOLC_AST_NODE_TYPES | SOLC_AST_FIELD_VALUES | SOLC_TYPE_WORDS | SOLIDITY_BUILTINS
     | YUL_BUILTINS | SOLC_JSON_KEYS | IMPORTER_GENERATED | BUILD_TOOL_NAMES | INSTRUMENT_NAMES
-    | DRIVER_COMMANDS
+    | DRIVER_COMMANDS | SOLC_JSON_FIELDS | EVM_VERSIONS | YUL_KEYWORDS | IMPORTER_BINDINGS
+    | IMPORTER_JSON_KEYS
 )
+
+# Lean name literals of the declarations `solidity_import` generates (`x.model`, `x.report`, ...).
+ALLOWED_NAME_LITERALS = {
+    "_root_", "model", "report", "covered", "sourceDigest", "Lean.Parser.Term.structInstField",
+    "Compiler.SolidityImport.Import",
+}
 
 # Exact literals allowed in one file, with why. Each is a name of something other than imported
 # Solidity code; a new one needs a new entry here, reviewed with its reason.
+_EMIT = "Compiler/SolidityImport/EmitVerity.lean"
 FILE_EXCEPTIONS = {
-    ("Compiler/SolidityImport/EmitVerity.lean", lit): (
+    **{(_EMIT, lit): (
         "EmitVerity (CompilationModel -> verity_contract printer) matches CompilationModel "
         "`.externalCall` names of linked external functions, which a model author names; the "
         "importer never lowers Solidity source to these names")
-    for lit in ("SafeERC20.safeTransfer", "SafeERC20.safeTransferFrom", "ERC20.balanceOf")
+       for lit in ("SafeERC20.safeTransfer", "SafeERC20.safeTransferFrom", "ERC20.balanceOf")},
+    **{(_EMIT, lit): "EmitVerity prints these Verity type and VerifiedCompilerShim API names"
+       for lit in ("Address", "Bool", "Bytes", "Bytes32", "Int256", "String", "Uint16",
+                   "Uint256", "Uint8", "Unit", "VerifiedCompilerShim.keccak256Pair",
+                   "VerifiedCompilerShim.mulDivDown", "VerifiedCompilerShim.mulDivUp",
+                   "VerifiedCompilerShim.safeTransfer", "VerifiedCompilerShim.safeTransferFrom",
+                   "VerifiedCompilerShim.staticBalanceOf", "VerifiedCompilerShim.wDivUp",
+                   "VerifiedCompilerShim.wMulDown")},
+    **{(_EMIT, lit): "names in the hand-written example model `canonicalVaultImportModel`"
+       for lit in ("ImportedVaultV2", "totalSupply", "feeAccrued", "paused", "balances",
+                   "accrueWadFee", "assets", "feeRateWad", "fee")},
 }
 
 # Yul variable names of the registered range-read block (`extsloadRangeYulFingerprint`), read
@@ -158,6 +218,19 @@ REGISTRY_GATE = re.compile(
     r"let\s+(\w+)\s*←\s*matchTrustedShortcut\?\s+\w+\s*\n\s*guard\s*\(\s*\1\.shortcut\.lowering\s*==\s*\.rangeStorageRead\s*\)"
 )
 
+IDENT_LITERAL = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*")
+HEX_DIGEST = re.compile(r"[0-9a-f]{40,64}")
+# A key argument of a JSON reader: `field? j "key"`, `mField j "key"`, `optStr j "key"`, ...
+JSON_KEY_ARGUMENT = re.compile(
+    r"\b(?:mField|field\?|field|stringField|optStr|getWord|getObjVal\?|getObjValD|"
+    r"getObjValAs\?\s+\w+|jsonField\?|jsonStrField\?|jsonNatField\?|jsonIntField\?)"
+    r"\s+(?:\([^()\n]*\)|[\w.!?'·]+)?\s*\Z")
+# Lean name literals (`` `foo ``, not double-backtick resolved names).
+NAME_LITERAL = re.compile(r"(?<![`\w])`(?![`(\[])([A-Za-z_][\w.']*)")
+DECL_START = re.compile(
+    r"(?m)^(?:/--|@\[|(?:private\s+|partial\s+|protected\s+|noncomputable\s+|unsafe\s+)*"
+    r"(?:def|theorem|lemma|example|structure|inductive|abbrev|instance|namespace|end|section|syntax|"
+    r"macro|elab|open|set_option|#)\b)")
 IDENT = re.compile(r"(?<![0-9A-Za-z_$])[A-Za-z_$][A-Za-z0-9_$]*")
 NUMBER = re.compile(r"\b0x[0-9a-fA-F]*\b|\b\d\w*")
 
@@ -336,23 +409,49 @@ def def_span(code: str, name: str) -> tuple[int, int] | None:
     return m.start(), (m.end() + nxt.start()) if nxt else len(code)
 
 
+def proof_spans(code: str) -> list[tuple[int, int]]:
+    """Spans of `theorem` / `lemma` / `example` declarations: their literals are test data of a
+    statement and cannot select a lowering."""
+    spans = []
+    for m in re.finditer(r"(?m)^(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+)?(?:theorem|lemma|example)\b",
+                         code):
+        nxt = DECL_START.search(code, m.end())
+        spans.append((m.start(), nxt.start() if nxt else len(code)))
+    return spans
+
+
+def is_allowed(ident: str) -> bool:
+    return ident in ALLOWED_IDENTIFIERS or ident.startswith(SOLC_TYPE_PREFIXES) \
+        or bool(SOLC_SIZED_TYPE.match(ident))
+
+
 def check_names(root: Path, errors: list[str]) -> None:
     for path in importer_files(root):
         rel = path.relative_to(root)
         raw = path.read_text(encoding="utf-8")
         code, literals = scan(raw)
         lists = membership_list_spans(code, literals)
+        proofs = proof_spans(code)
         for m in literals:
             body = m.text
             idents = literal_identifiers(body)
-            if not idents:
+            if not idents or (rel.as_posix(), body) in FILE_EXCEPTIONS:
+                continue
+            if any(lo <= m.start < hi for lo, hi in proofs):
                 continue
             kind = selection_kind(code, m.start, m.end, lists)
-            if kind is None or (rel.as_posix(), body) in FILE_EXCEPTIONS:
-                continue
+            if kind is None:
+                # A literal that is exactly an identifier (or a dotted one) is a name wherever it
+                # is: held in a constant, bound by `let`, matched by `if let`, tested with `∈`,
+                # passed to a helper. Only a JSON key read from solc's or the importer's own JSON
+                # is exempt.
+                if not IDENT_LITERAL.fullmatch(body) or HEX_DIGEST.fullmatch(body):
+                    continue
+                if JSON_KEY_ARGUMENT.search(code, max(0, m.start - 80), m.start):
+                    continue
+                kind = "identifier-shaped string literal"
             for ident in idents:
-                if ident in ALLOWED_IDENTIFIERS or ident.startswith(SOLC_TYPE_PREFIXES) \
-                        or SOLC_SIZED_TYPE.match(ident):
+                if is_allowed(ident):
                     continue
                 where = f"{rel}:{line_of(code, m.start)}"
                 gate = REGISTRY_GATED.get(ident)
@@ -376,7 +475,16 @@ def check_names(root: Path, errors: list[str]) -> None:
                     f"solc AST, Solidity or Yul builtin, type or importer name: the importer must not "
                     f"select a lowering by a user-chosen name. A fixed lowering of user code goes "
                     f"through trustedImporterShortcuts ({REGISTRY_FILE}), keyed by fingerprint. If "
-                    f"`{ident}` is a builtin, add it to scripts/check_importer_name_selection.py.")
+                    f"`{ident}` is a builtin or the importer's own name, add it to "
+                    f"scripts/check_importer_name_selection.py with its category.")
+        bare = without_strings(code, literals)
+        for nm in NAME_LITERAL.finditer(bare):
+            if any(lo <= nm.start() < hi for lo, hi in proofs) or nm.group(1) in ALLOWED_NAME_LITERALS:
+                continue
+            errors.append(
+                f"{rel}:{line_of(code, nm.start())}: Lean name literal `{nm.group(1)} is not one of "
+                f"the importer's generated declaration names (ALLOWED_NAME_LITERALS): a name "
+                f"literal must not select a lowering")
 
 
 def check_registry(root: Path, errors: list[str]) -> None:
@@ -461,8 +569,10 @@ def check_routing(root: Path, errors: list[str]) -> None:
             if re.search(r"==|!=|\.contains|\.find\?", code_no_strings[lo:hi if hi >= 0 else None]):
                 errors.append(f"{rel}:{line_of(code, m.start())}: compares a yulBlockFingerprint "
                               f"outside the registry: select a shortcut with matchTrustedShortcut?")
-        for m in re.finditer(r"(?m)^(?:private\s+|partial\s+)*def\s+(lower\w*(?:Shim|Shortcut)\w*)",
-                             code_no_strings):
+        for m in re.finditer(r"\b(lower\w*(?:Shim|Shortcut)\w*)(?=[\s(:])", code_no_strings):
+            head = code_no_strings[code_no_strings.rfind("\n", 0, m.start()) + 1:m.start()]
+            if not re.search(r"(?:\bdef|\babbrev|\bwhere|\blet\s+rec)\s+\Z|\A\s*\Z", head):
+                continue
             errors.append(f"{rel}:{line_of(code, m.start())}: {m.group(1)} defined outside the "
                           f"registry module {REGISTRY_FILE}")
 

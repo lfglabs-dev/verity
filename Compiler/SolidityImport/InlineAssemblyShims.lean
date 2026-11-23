@@ -22,8 +22,8 @@ the block agreeing. The import report lists the shortcuts each root uses
 A lowering can only be applied through a `TrustedShortcutMatch`, which only
 `matchTrustedShortcut?` builds, from a block whose fingerprint is registered. Applying it
 records the shortcut in the current root's report. `scripts/check_importer_name_selection.py`
-(`make check`) rejects the forms of name selection and registry bypass it lists (a text check;
-what it cannot see is listed there and left to review).
+(`make check`) rejects name literals of user code and registry bypasses in importer code (a text
+check; what it cannot see is listed there and left to review).
 -/
 
 /-- The fixed lowering a trusted shortcut replaces its block with. -/

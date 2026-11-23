@@ -328,9 +328,10 @@ lowering: `extsloadBatchYulFingerprint` and `exttloadBatchYulFingerprint` (the
 `lowerBatchArrayLoadShim`, and `extsloadRangeYulFingerprint` (`Extsload.extsload(bytes32,
 uint256)`) by `lowerBatchRangeSloadShim`. Selection is by exact code fingerprint only, never by
 a name: the lowerings take a `TrustedShortcutMatch`, which only a registry fingerprint match
-builds, and `scripts/check_importer_name_selection.py` (in `make check`) rejects the forms of
-name comparison and registry bypass it lists (a text check; what it cannot see is listed in the
-script and left to review). The model of a replaced
+builds, and `scripts/check_importer_name_selection.py` (in `make check`) rejects importer code
+holding a name literal that is not a builtin, a solc AST or JSON name or one of the importer's own
+names, and any fingerprint use or shortcut lowering outside the registry (a text check; what it
+cannot see is listed in the script and left to review). The model of a replaced
 block is the fixed lowering. No Lean proof relates it to the block; each registry entry names
 the tests that compare the lowering's results with solc's (`TrustedShortcut.evidence`). A proof
 about an imported root whose model uses a shortcut relies on the lowering and the block
