@@ -69,6 +69,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "nested-dynamic-struct-abi-rejections",
     "nested-storage-struct",
     "pinned-sequence",
+    "pinned-sequence-corpus",
     "protocol",
     "reference-arguments",
     "reference-rejections",
