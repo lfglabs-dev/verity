@@ -40,6 +40,7 @@ import Contracts.Smoke.MemoryHashSmoke
 import Contracts.Smoke.ExternalCallFramesSmoke
 import Contracts.Smoke.Create2AddressSmoke
 import Contracts.Smoke.SpillFreeMemorySmoke
+import Contracts.Smoke.SpillReturnArraySmoke
 import Contracts.Smoke.LoopSemanticsSmoke
 import Contracts.Smoke.FallbackNonReentrantSmoke
 import Contracts.Smoke.ScalarAbiValidationSmoke

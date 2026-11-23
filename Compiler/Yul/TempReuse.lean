@@ -383,7 +383,8 @@ def reuseBlockTempsLoop
           stmt :: reuseBlockTempsLoop stackCap spillBase protectedNames allowSpill fuel stackVars spillSlots inUnsafe rest
 
 /-- Rewrite a single lexical block: fast-path identity when `countLetBindings stmts ≤ maxStackLocals`.
-New spill slots start above any spill slot already used inside `stmts`. -/
+New spill slots start above any spill slot already used inside `stmts`. Not used by any compile
+path (they use `reuseAndSpillTempsStaticObject`). -/
 def reuseBlockTemps
     (maxStackLocals : Nat := defaultMaxStackLocals)
     (protectedNames : List String := [])
@@ -396,7 +397,8 @@ def reuseBlockTemps
       stmts.length [] [] false stmts
 
 /-- Rewrite a single lexical block using an explicit dynamic scratch-memory `spillBase`:
-    fast-path identity when `countLetBindings stmts ≤ maxStackLocals`. -/
+    fast-path identity when `countLetBindings stmts ≤ maxStackLocals`. Not used by any compile
+    path (they use `reuseAndSpillTempsStaticObject`). -/
 def reuseBlockTempsWithSpillBase
     (maxStackLocals : Nat := defaultMaxStackLocals)
     (spillBase : Nat := defaultSpillBase)
@@ -425,6 +427,13 @@ def reuseBlockTempsNested
     reuseBlockTempsLoop stackCap (max defaultSpillBase (spillHighWaterStmts stmts))
       protectedNames allowSpill stmts.length [] [] false stmts
 
+/-- Names declared by the top-level `let`s of a statement list. -/
+def stmtsLetNames : List YulStmt → List String
+  | [] => []
+  | .let_ name _ :: rest => name :: stmtsLetNames rest
+  | .letMany names _ :: rest => names ++ stmtsLetNames rest
+  | _ :: rest => stmtsLetNames rest
+
 mutual
 /-- Recursively apply temporary reuse and spilling across a `YulStmt`.
 
@@ -433,7 +442,9 @@ touch the same words. A function body never spills: it runs while its caller's s
 are live and may recurse into itself, and its slots would not be disjoint from either. A `for`
 initialiser never spills: its variables stay live while the body and post blocks run. Both
 still reuse dead stack temporaries; a body that remains too deep fails closed in solc
-(StackTooDeep) instead of aliasing memory. -/
+(StackTooDeep) instead of aliasing memory. The initialiser's own variables are protected:
+liveness is judged on the rest of the initialiser only, so reusing one of them as a dead
+temporary would clobber a value the condition, body or post block still reads. -/
 def reuseAndSpillTempsInStmt
     (maxStackLocals : Nat)
     (protectedNames : List String)
@@ -448,7 +459,7 @@ def reuseAndSpillTempsInStmt
       .if_ cond (reuseAndSpillTemps maxStackLocals protectedNames allowSpill body)
   | .for_ init cond post body =>
       .for_
-        (reuseAndSpillTemps maxStackLocals protectedNames false init)
+        (reuseAndSpillTemps maxStackLocals (protectedNames ++ stmtsLetNames init) false init)
         cond
         (reuseAndSpillTemps maxStackLocals protectedNames allowSpill post)
         (reuseAndSpillTemps maxStackLocals protectedNames allowSpill body)
@@ -497,30 +508,17 @@ end
 
 
 /-- Raise the free-memory-pointer initialisation `mstore(64, 128)` (top level of a code
-section) to `minFree` when that is higher. Spill slots live at fixed addresses from
-`defaultSpillBase`; unless the free pointer starts above them, a runtime-sized allocation
-(a `calldatacopy` of a `bytes` argument, an ABI encoding) can overwrite spilled locals. -/
+section) to `minFree` when that is higher.
+
+No compile path uses this any more. Raising the free pointer does not protect spill words from
+memory written at fixed low addresses with a runtime size (return data encoded from address 0),
+nor from a free-pointer reset nested inside a dispatch case; the compile paths instead spill
+only statically gated sections (`reuseAndSpillTempsStaticObject`). -/
 def raiseFreePointerInit (minFree : Nat) : List YulStmt → List YulStmt
   | [] => []
   | (.exprStmt (.call "mstore" [.lit 64, .lit init])) :: rest =>
       .exprStmt (.call "mstore" [.lit 64, .lit (max init minFree)]) :: raiseFreePointerInit minFree rest
   | s :: rest => s :: raiseFreePointerInit minFree rest
-
-/-- Spill a code section, then start its free memory above the spill slots it uses. -/
-def reuseAndSpillTempsSection (maxStackLocals : Nat) (code : List YulStmt) : List YulStmt :=
-  let spilled := reuseAndSpillTemps maxStackLocals [] true code
-  let highWater := spillHighWaterStmts spilled
-  if highWater = 0 then spilled else raiseFreePointerInit highWater spilled
-
-/-- Apply temporary reuse and scratch-memory spilling to a full `YulObject`. When a code
-section spills, its free-memory pointer starts above the spill slots, so memory allocated
-at runtime never aliases a spilled local. -/
-def reuseAndSpillTempsObject
-    (maxStackLocals : Nat := defaultMaxStackLocals)
-    (obj : YulObject) : YulObject :=
-  { obj with
-    deployCode := reuseAndSpillTempsSection maxStackLocals obj.deployCode
-    runtimeCode := reuseAndSpillTempsSection maxStackLocals obj.runtimeCode }
 
 /-- Literal byte range `[offset, offset + len)` ends at or below `bound`; a non-literal offset or
 length is never accepted. A zero-length range touches no memory. -/
@@ -657,7 +655,10 @@ def reuseAndSpillTempsStaticSection (maxStackLocals : Nat) (code : List YulStmt)
   else
     code
 
-/-- `reuseAndSpillTempsStaticSection` on the deploy and runtime code of a `YulObject`. -/
+/-- `reuseAndSpillTempsStaticSection` on the deploy and runtime code of a `YulObject`. This is
+the only spill entry point of the compile paths: `writeContract` (every contract the CLI
+compiles) and `Compiler.emitYulSpilled` (Solidity import model drivers). It is a trusted,
+tested-only pass (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 def reuseAndSpillTempsStaticObject
     (maxStackLocals : Nat := defaultMaxStackLocals)
     (obj : YulObject) : YulObject :=
