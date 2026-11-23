@@ -104,15 +104,20 @@ them only for temporary debugging or deliberate host pinning via
   `lean-8vcpu-ubuntu-2604` once it backs up (`LEAN_NUM_THREADS=2` per worker
   on sharded `import-mutations` on either pool). On lean.ci, the
   Lake-building jobs (`build`, `build-audits`, `build-compiler-binaries`,
-  `compiler-audits`, `compiler-regressions`, `lean-profile`) set
-  `LEAN_NUM_THREADS` from the VM's memory with `scripts/ci_lean_threads.sh`:
-  `clamp(floor(MemTotal / 2.5 GiB), 2, min(vCPUs, 8))`. lean.ci learns memory
-  per label and can boot an 8-vCPU VM with ~11 GiB (4 threads there) or burst
-  it to 32 vCPUs; one Lean/clang process (1.7-2.7 GiB) per vCPU failed with
-  ENOMEM (error code 12). No repo-side knob requests more memory for a
-  GitHub Actions label (`memory_mib` exists only for lean.ci Custom VMs), so
-  the bound is the fix until lean.ci counts exec/fork ENOMEM as an OOM. The
-  nightly `import-mutations` (24 shards, ~30 host-hours) needs ~12-14 h on the build-medium hosts when routed there.
+  `compiler-audits`, `compiler-regressions`, `importer-differential`,
+  `lean-profile`) set `LEAN_NUM_THREADS` from the VM's memory with
+  `scripts/ci_lean_threads.sh`: `clamp(floor(MemTotal / 3 GiB), 2,
+  min(vCPUs, 8))`, 3 GiB being the 2.7 GiB peak of a heavy module plus
+  headroom. lean.ci learns memory per label and can boot an 8-vCPU VM with
+  ~11 GiB (3 threads there) or burst it to 32 vCPUs; one Lean/clang process
+  per vCPU failed with ENOMEM (error code 12). No repo-side knob requests
+  more memory for a GitHub Actions label (`memory_mib` exists only for
+  lean.ci Custom VMs). Because lean.ci learns from recent peaks, fewer
+  threads can shrink later VMs down to the floor of 2 (slower, not weaker):
+  the step prints MemTotal and the chosen count. The lean.ci-side fix is to
+  count exec/fork ENOMEM as an OOM so the label learns a bigger size. The
+  nightly `import-mutations` (24 shards, ~30 host-hours) needs ~12-14 h on
+  the build-medium hosts when routed there.
   Ephemeral runners automatically fall back to GitHub Actions caches and
   `$RUNNER_TEMP` when `/srv/verity-ci-cache` is absent.
 - Prefer one full Verity build runner per 8-core host when using self-hosted

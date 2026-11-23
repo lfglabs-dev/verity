@@ -910,6 +910,12 @@
           "ROUTE_POOLS": "${{ vars.ROUTE_POOLS }}"
         }
       }
+    ],
+    "importer-differential": [
+      {
+        "name": "Bound Lean threads by VM memory",
+        "run": "scripts/ci_lean_threads.sh"
+      }
     ]
   },
   "expected_checks_commands": [

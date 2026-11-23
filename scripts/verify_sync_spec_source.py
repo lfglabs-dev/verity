@@ -1083,11 +1083,12 @@ SPEC['expected_step_contracts']['build-audits'].insert(0, {
     'if': "needs.route.outputs.on_lean != 'true'",
     'run': 'echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"',
 })
-# Lake parallelism follows the VM's memory on lean.ci (2.5 GiB per Lean/clang
+# Lake parallelism follows the VM's memory on lean.ci (3 GiB per Lean/clang
 # process, clamped to [2, min(vCPUs, 8)]): an 8-vCPU VM with ~11 GiB failed
 # with ENOMEM at 8. build-medium keeps its own per-host caps.
-for _job in ('build', 'build-compiler-binaries', 'compiler-regressions', 'lean-profile'):
-    SPEC['expected_step_contracts'][_job].append({
+for _job in ('build', 'build-compiler-binaries', 'compiler-regressions', 'lean-profile',
+             'importer-differential'):
+    SPEC['expected_step_contracts'].setdefault(_job, []).append({
         'name': 'Bound Lean threads by VM memory',
         'run': 'scripts/ci_lean_threads.sh',
     })
