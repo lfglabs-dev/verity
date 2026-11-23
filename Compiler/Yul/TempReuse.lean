@@ -456,15 +456,41 @@ def spillHighWaterCases : List (Nat × List YulStmt) → Nat
   | (_, body) :: rest => max (spillHighWaterStmts body) (spillHighWaterCases rest)
 end
 
-/-- Raise the free-memory-pointer initialisation `mstore(64, 128)` (top level of a code
-section) to `minFree` when that is higher. Spill slots live at fixed addresses from
-`defaultSpillBase`; unless the free pointer starts above them, a runtime-sized allocation
-(a `calldatacopy` of a `bytes` argument, an ABI encoding) can overwrite spilled locals. -/
+mutual
+/-- Raise every literal free-memory-pointer store `mstore(64, n)` in a statement (at any
+depth: nested blocks, branches, switch cases, loops and function bodies) to `minFree` when
+that is higher. Spill slots live at fixed addresses from `defaultSpillBase`; unless every
+free-pointer (re)initialisation starts above them, a runtime-sized allocation (a
+`calldatacopy` of a `bytes` argument, an ABI encoding) can overwrite spilled locals. Imported
+function bodies reset the pointer inside their dispatch case, not only at the top level. -/
+def raiseFreePointerInitStmt (minFree : Nat) : YulStmt → YulStmt
+  | .exprStmt (.call "mstore" [.lit 64, .lit init]) =>
+      .exprStmt (.call "mstore" [.lit 64, .lit (max init minFree)])
+  | .if_ cond body => .if_ cond (raiseFreePointerInit minFree body)
+  | .for_ init cond post body =>
+      .for_ (raiseFreePointerInit minFree init) cond
+        (raiseFreePointerInit minFree post) (raiseFreePointerInit minFree body)
+  | .switch expr cases default =>
+      .switch expr (raiseFreePointerInitCases minFree cases)
+        (match default with
+         | none => none
+         | some body => some (raiseFreePointerInit minFree body))
+  | .block stmts => .block (raiseFreePointerInit minFree stmts)
+  | .funcDef name params rets body => .funcDef name params rets (raiseFreePointerInit minFree body)
+  | s => s
+
+/-- `raiseFreePointerInitStmt` over a statement list. -/
 def raiseFreePointerInit (minFree : Nat) : List YulStmt → List YulStmt
   | [] => []
-  | (.exprStmt (.call "mstore" [.lit 64, .lit init])) :: rest =>
-      .exprStmt (.call "mstore" [.lit 64, .lit (max init minFree)]) :: raiseFreePointerInit minFree rest
-  | s :: rest => s :: raiseFreePointerInit minFree rest
+  | s :: rest => raiseFreePointerInitStmt minFree s :: raiseFreePointerInit minFree rest
+
+/-- `raiseFreePointerInitStmt` over switch cases. -/
+def raiseFreePointerInitCases (minFree : Nat) :
+    List (Nat × List YulStmt) → List (Nat × List YulStmt)
+  | [] => []
+  | (tag, body) :: rest =>
+      (tag, raiseFreePointerInit minFree body) :: raiseFreePointerInitCases minFree rest
+end
 
 /-- Spill a code section, then start its free memory above the spill slots it uses. -/
 def reuseAndSpillTempsSection (maxStackLocals : Nat) (code : List YulStmt) : List YulStmt :=
