@@ -24,7 +24,9 @@ that does not arrive whole on one line is a harness error, as is a failing side 
 
 A case passes when both sides import with identical normalized models, or both sides reject
 with the same diagnostic. It fails when only one side imports (an admission discrepancy) or
-when both import with different models (a model discrepancy).
+when both import with different models (a model discrepancy). A case rejected on every profile
+fails unless it declares `expect='same-rejection'`: a construct that must stay rejected,
+with the same diagnostic, whatever the state-variable count.
 
 Negative controls run with every invocation (unless `--only` filters them out):
 
@@ -192,6 +194,36 @@ contract C {
     }
 }
 ''', ['run(uint256,bytes)']),
+    inline('event-helper-prelude', '''contract C {
+    uint256 private total;
+    event Pair(uint256 indexed a, uint256 indexed b);
+
+    function mix(uint256 a) internal pure returns (uint256 r) {
+        r = a;
+        r = r ^ 0x55;
+    }
+
+    function run(uint256 x, uint256 y) external {
+        total = x;
+        emit Pair(mix(x), mix(y));
+    }
+}
+''', ['run(uint256,uint256)']),
+    inline('conditional-modifier', '''contract C {
+    uint256 private total;
+
+    modifier when(bool on) {
+        if (on) {
+            _;
+        }
+    }
+
+    function run(uint256 x) external when(x > 1) returns (uint256) {
+        total = x;
+        return x;
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;
@@ -245,6 +277,10 @@ contract C {
                 'helperArg(uint256)', 'calldataArg(bytes)', 'storageArg(uint256)',
                 'staticSiblings(uint256,bytes,address)', 'dynamicSiblings(bytes,uint256,uint256)',
                 'helperRevert(uint256,uint256)', 'returned(uint256)']),
+    fixture('fixture-event-helper-prelude', 'Contracts/SolidityImportSmoke/EventHelperPreludeOneSlot.sol',
+            'EventHelperPreludeOneSlot', [
+                'helperTwice(uint256,uint256)', 'helperAndLocal(uint256)', 'storedPair(uint256,uint256)',
+                'guardedPair(uint256,uint256)', 'assembledMixed(uint256,uint256)']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]

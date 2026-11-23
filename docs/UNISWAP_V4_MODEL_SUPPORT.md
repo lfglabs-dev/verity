@@ -46,7 +46,7 @@ Alongside the shims in `InlineAssemblyShims.lean`, `Compiler/SolidityImport/Impo
 3. **Internal Storage-Struct Pointer Root Parameters & Returns (`_getPool`)**:
    - `bindRoot` and `lowerRootStatements` lower internal functions taking or returning `Pool.State storage` as raw base-slot `uint256` words without shadowing `SPath.rawSlot` in `env.values`.
 4. **Conditional Placeholder Modifiers (`Hooks.noSelfCall`)**:
-   - `lowerModifier` and `inlineVoidFn` lower `modifier noSelfCall() { if (msg.sender != address(this)) _; }` into a conditional statement wrapping the modified helper body.
+   - Rejected at the modifier (`only a single top-level _; placeholder is supported in modifiers`) whatever the state-variable count (#2830). With more than one state variable, `lowerModifier` used to lower `if (msg.sender != address(this)) _;` to a no-op `if` after the body, which only `inlineVoidFn` turned into a conditional around a void helper body; roots and value helpers ran the body unconditionally. Every v4 function using `noSelfCall` also reaches `Hooks.callHook`, which already rejects (see above), so no probe that imported depended on it. Not re-measured.
 5. **Dynamic `bytes` Arguments in `abi.encodeCall` (the hook calldata built for `Hooks.callHook`)**:
    - `lowerEncodedBytes` encodes `abi.encodeCall(IHooks.beforeInitialize, (...))` and dynamic `bytes calldata hookData` arguments using `AbiEncoding.Spec` (`AbiEncoding.Field.word` + `AbiEncoding.Field.bytes`).
 6. **`msg.value` Support in `Coverage.lean` and `Quote.lean`**:

@@ -10749,16 +10749,9 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none }
   noteProfiledFn fn
   let (modStmts, modPost) ← lowerModifiers mods
-  let condModExpr? : Option Expr := match modPost.toList with
-    | [.ite condExpr [] []] => some condExpr
-    | _ => none
-  let effModPost := if condModExpr?.isSome then #[] else modPost
-  modify fun e => { e with helperPost := effModPost }
+  modify fun e => { e with helperPost := modPost }
   let stmts ← mArr (← mField body "statements")
-  let rawBodyStmts ← lowerVoidHelperFrom stmts.toList (pure effModPost)
-  let bodyStmts := match condModExpr? with
-    | some condExpr => #[.ite condExpr rawBodyStmts.toList []]
-    | none => rawBodyStmts
+  let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
@@ -11211,45 +11204,6 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
       if placeholderIdx?.isSome then
         failAt modDecl "only a single top-level _; placeholder is supported in modifiers"
       placeholderIdx? := some i
-  if placeholderIdx?.isNone && (← get).stateVars.size > 1 && stmts.size == 1 &&
-      (← mKind stmts[0]!) == "IfStatement" &&
-      (field? stmts[0]! "falseBody" |>.getD Json.null).isNull then
-    let tBody ← mField stmts[0]! "trueBody"
-    let tStmts ← if (← mKind tBody) == "Block" then mArr (← mField tBody "statements") else pure #[tBody]
-    if tStmts.size == 1 && (← mKind tStmts[0]!) == "PlaceholderStatement" then
-      let params ← mArr (← mField (← mField modDecl "parameters") "parameters")
-      let args ← match field? modInv "arguments" with
-        | some j => if j.isNull then pure #[] else mArr j
-        | none => pure #[]
-      unless params.size == args.size do
-        failAt modInv s!"modifier arity {args.size} does not match declaration {params.size}"
-      let mut argVals : Array Val := #[]
-      for i in [:args.size] do
-        argVals := argVals.push (← lowerExpr args[i]!)
-      let saved ← get
-      let savedYul := saved.yulNames
-      let frameFile := saved.nodeFile.find? modId |>.getD saved.currentFile
-      modify fun e => { e with
-        stack := modId :: saved.stack, currentFile := frameFile,
-        unchecked := e.legacyWrapping, bodyAssigned := bodyAssignedIds body }
-      let mut pre : Array Stmt := #[]
-      for i in [:params.size] do
-        let p := params[i]!
-        let pid ← mNat (← mField p "id")
-        let pty ← mType p
-        let argNode := args[i]!
-        let argTy ← mType argNode
-        let some argVal := argVals[i]? | failAt argNode s!"missing modifier argument {i}"
-        let converted ← convert pty argTy argVal argNode
-        let bound ← atom converted
-        pre := pre ++ bound.pre
-        modify fun e => { e with values := e.values.insert pid bound.expr }
-      noteProfiledFn modDecl
-      let condVal ← atom (← lowerExpr (← mField stmts[0]! "condition"))
-      modify fun e =>
-        { e with stack := saved.stack, yulNames := savedYul, currentFile := saved.currentFile, unchecked := saved.unchecked,
-                 values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, bodyAssigned := saved.bodyAssigned, scalarTy := saved.scalarTy }
-      return (pre ++ condVal.pre, #[.ite condVal.expr [] []])
   let some placeholderIdx := placeholderIdx?
     | failAt modDecl "only a single top-level _; placeholder is supported in modifiers"
   let preStmts := stmts.extract 0 placeholderIdx
@@ -16015,7 +15969,6 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     let parameter := parameters[index]!
     let ty ← mType parameter
     discard (validateEnumTypeIfNeeded parameter ty)
-    let multiSlot := (← get).stateVars.size > 1
     let some modelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
     -- Signed parameters keep their type: it names them in the event signature (topic 0),
     -- and the ABI word is the sign-extended value.
@@ -16048,10 +16001,21 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     -- Normalization certified these scalar expressions read-only, with at most one
     -- potential panic. Its prelude cannot compete with another argument's revert.
     let reorderedReadOnly := field? call "reorderedReadOnlyArguments" == some (.bool true)
-    unless reorderedReadOnly || value.pre.all (fun
-        | .letVar _ _ => true
-        | .assignVar _ _ => multiSlot
-        | s => isScratch s || isGuard s) do
+    -- An inlined helper reassigns its own result, parameter and local bindings. Such a write
+    -- is admitted only to a binding this argument's prelude declared earlier: those are
+    -- fresh, so no other argument's value reads them, and the write commutes with every
+    -- other argument whichever order the pipeline evaluates them in.
+    let ownWritesOnly : Array Stmt → Bool := fun pre => Id.run do
+      let mut declared : Array String := #[]
+      for s in pre do
+        match s with
+        | .letVar name _ => declared := declared.push name
+        | .assignVar name _ => if !declared.contains name then return false
+        | _ => pure ()
+      return true
+    unless reorderedReadOnly || (value.pre.all (fun
+        | .letVar _ _ | .assignVar _ _ => true
+        | s => isScratch s || isGuard s) && ownWritesOnly value.pre) do
       failAt argument "event arguments currently require total scalar expressions"
     if value.pre.any isGuard then
       guardedArguments := guardedArguments.push argument
