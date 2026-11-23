@@ -32,7 +32,9 @@ one, so skipped code cannot reach the importer):
    `r#"..."#`) are read as strings without escapes; string gaps (`\` at a line end) and
    interpolations of nothing or of a literal are joined, so a name split by them is one name.
    Scope: only `Compiler/SolidityImport/`; a helper elsewhere under `Compiler/` is not read.
-   Not detected, so left to review: a name built at run time (`"call" ++ "Hook"`, `String.mk`),
+   Not detected, so left to review: a selection by a function selector or other hash of a name
+   (`sel == 0xa9059cbb`: number literals are not names to this check, and the importer compares
+   selectors such as `Error(string)`'s); a name built at run time (`"call" ++ "Hook"`, `String.mk`),
    a name inside a longer literal outside a selection position, and a listed builtin or JSON
    name that user code may also give its own declaration (e.g. `transfer`, `push`, `add`,
    `target`): the importer compares those only as builtins or reads them as JSON keys, which
@@ -87,6 +89,7 @@ SOLC_AST_FIELD_VALUES = {
     "interface", "internal", "library", "memory", "modifierInvocation", "nonpayable", "number",
     "payable", "private", "public", "pure", "storage", "string", "structConstructorCall",
     "transient", "typeConversion", "unicodeString", "view", "virtual",
+    "mutable",
 }
 # solc's `typeString` / `typeIdentifier` vocabulary.
 SOLC_TYPE_WORDS = {
@@ -146,6 +149,8 @@ INSTRUMENT_NAMES = {
     "checked", "static", "oracle", "v1", "ecrecover", "precompile", "recording", "call",
     "responder", "selector", "word", "raw",
 }
+# Exponent markers of Solidity number literals (`1e18`, `2E3`).
+SOLIDITY_LITERAL_SYNTAX = {"E", "e"}
 # Subcommands of the importer's own differential driver (`Differential.run`).
 DRIVER_COMMANDS = {"status", "describe", "run"}
 # Keys of solc's AST and storage-layout JSON read as data, and of solc's standard JSON input.
@@ -181,11 +186,11 @@ YUL_KEYWORDS = {"break", "case", "continue", "default", "for", "function", "if",
 # Stems, prefixes and binding names the importer generates for model locals, parameters and
 # fields; theorem-family tags it attaches; and its own syntax keywords.
 IMPORTER_BINDINGS = {
-    "$", "E", "e", "_$", "__solidity_value", "_array", "_bytes", "_calldata", "_data",
+    "$", "_$", "__solidity_value", "_array", "_bytes", "_calldata", "_data",
     "_element", "_element_next", "_head", "_header", "_index", "_len", "_length", "_memory",
     "_memory_ptr_$dyn_memory_ptr", "_next", "_offset", "_source", "_struct", "_val", "arr_len",
     "arr_ptr", "array", "bytes_ptr", "key1", "key2", "param", "raw_slot", "ret_struct", "str_ptr",
-    "struct_param", "node", "mutable", "denote_prefix", "denote_step", "solidity_closed_transport_cei",
+    "struct_param", "node", "denote_prefix", "denote_step", "solidity_closed_transport_cei",
     "solidity_create2_initcode_reentrancy", "solidity_explicit_abi", "solidity_scalar_abi_entry",
     "solidity_static_call_cei", "solidity_trailing_low_level_call_reentrancy", "entry",
 }
@@ -205,7 +210,7 @@ IMPORTER_JSON_KEYS = {
 ALLOWED_IDENTIFIERS = (
     SOLC_AST_NODE_TYPES | SOLC_AST_FIELD_VALUES | SOLC_TYPE_WORDS | SOLIDITY_BUILTINS
     | YUL_BUILTINS | SOLC_JSON_KEYS | IMPORTER_GENERATED | BUILD_TOOL_NAMES | INSTRUMENT_NAMES
-    | DRIVER_COMMANDS | SOLC_JSON_FIELDS | EVM_VERSIONS | YUL_KEYWORDS | IMPORTER_BINDINGS
+    | DRIVER_COMMANDS | SOLIDITY_LITERAL_SYNTAX | SOLC_JSON_FIELDS | EVM_VERSIONS | YUL_KEYWORDS | IMPORTER_BINDINGS
     | IMPORTER_JSON_KEYS
 )
 
@@ -415,7 +420,8 @@ def line_of(text: str, offset: int) -> int:
 def selection_kind(code: str, start: int, end: int,
                    membership_lists: list[tuple[int, int]]) -> str | None:
     """Why the string literal at `code[start:end]` is in a selection position, if it is."""
-    before = code[max(0, start - 80):start]
+    # An interpolated literal's `s!` / `m!` / `f!` stands between it and an operator before it.
+    before = re.sub(r"(?<![\w'])[smf]!\Z", "", code[max(0, start - 80):start])
     after = code[end:end + 40]
     if re.search(r"(?:==|!=|≠|(?<![:=!<>])=(?![=>]))\s*(?:\.?some\s+)?\(?\s*\Z", before):
         return "compared with == / != / = / ≠"

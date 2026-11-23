@@ -187,6 +187,14 @@ class ImporterNameSelectionTests(unittest.TestCase):
                         + path.read_text(encoding="utf-8"), encoding="utf-8")
         self.assertFails("imports the test module Compiler.SolidityImport.ShortcutTest")
 
+    def test_comparison_with_an_interpolated_string_fails(self) -> None:
+        for form in ['def zzA (n f : String) : Bool := n == s!"TickBitmap.{f}"',
+                     'def zzA (n lib : String) : Bool := n == s!"{lib}.flipTick"',
+                     'def zzA (n lib : String) : Bool := n.startsWith s!"{lib}.flip"']:
+            with self.subTest(form=form):
+                self.append(IMPORT, "\n" + form + "\n")
+                self.assertFails("which is not a solc AST")
+
     def test_theorem_literals_are_exempt(self) -> None:
         self.append(IMPORT, '\ntheorem zzT : ("callHook" : String).length = 8 := by decide\n')
         self.assertEqual(lint.run(self.root), [])
