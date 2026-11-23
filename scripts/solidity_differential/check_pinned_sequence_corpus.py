@@ -23,7 +23,7 @@ import json
 from pathlib import Path
 import re
 
-from .engine import ROOT, HarnessError, run_bounded, solc_compile, write_json
+from .engine import ROOT, HarnessError, command, run_bounded, solc_compile, write_json
 from .pinned_sequence import (argument_types, campaign, compiler_checksum, import_command,
                               load_config, pinned_sources)
 
@@ -148,6 +148,17 @@ def check_rejections(config_path, rejected, output, lean=('lake', 'env', 'lean')
             raise HarnessError(f'{row["signature"]}: rejection differs: {errors[line]}')
 
 
+RESPONDER_DOMAIN = 'test/ByteExternalCall/ModelResponderDomain.lean'
+
+
+def check_responder_domain(output):
+    """The dependency responder answers in domain and rejects every out-of-domain request."""
+    stdout = command(['lake', 'env', 'lean', '--run', RESPONDER_DOMAIN], timeout=900,
+                     log=output / 'model-responder-domain.log')
+    if stdout.strip().splitlines()[-1:] != ['model responder domain checks passed']:
+        raise HarnessError('model responder domain checks did not pass')
+
+
 def run_sequence(project, sequence, config, root, transactions, seed,
                  entry_points=compiled_entry_points, run=campaign, rejections=check_rejections):
     """Entry points, located rejections, then the positive campaign, then the mutant."""
@@ -206,6 +217,8 @@ def main():
     pairs = corpus_sequences(json.loads(args.manifest.read_text()), args.project)
     if not pairs:
         raise HarnessError('no corpus sequences configured')
+    if any(sequence.get('dependencies') for _, sequence in pairs):
+        check_responder_domain(output)
     summary = []
     for project, sequence in pairs:
         root = output / f'{project["id"]}-{sequence["contract"]}'

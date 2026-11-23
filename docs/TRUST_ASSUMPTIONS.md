@@ -2164,7 +2164,9 @@ Requests outside its domain (value-carrying or non-static calls, other targets,
 calldata that is not a selector plus whole words, selectors that do not pick one
 imported read-only function, executions that log, write, touch another storage
 channel or do not finish) are instrumentation errors, never a Solidity success or
-revert. Models with immutables are rejected. The responder's answers are trusted
+revert. Models with immutables are rejected.
+`test/ByteExternalCall/ModelResponderDomain.lean` checks each of these
+rejections and an in-domain answer from the callee's own storage. The responder's answers are trusted
 only as far as the dependency's imported model is: corpus configurations require
 the dependency to be another sequence of the same project and settings, whose own
 A/B/C campaign runs in the same check, and every dependency slot the source or

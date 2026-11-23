@@ -114,8 +114,12 @@ of its account (initial rows may also name word-valued mapping entries by
 `keys`), and rejects a constructor that writes another account. The tested
 contract's immutables are read back from its deployed runtime
 (`immutableReferences`), installed by name in the model route, and passed in
-order to the compiled model's synthesized constructor. Constructor equivalence
-beyond this storage world and these immutables is not claimed. A configuration
+order to the compiled model's synthesized constructor, whose storage writes are
+probed under the same rule. Every replay must reproduce the probed runtime code
+of each deployed account, so a constructor whose result differs between
+deployments fails instead of diverging. The model's own constructor logic is
+not run: immutables are copied, and constructor equivalence beyond this storage
+world and these immutables is not claimed. A configuration
 may deploy `dependencies` first (the first sender deploys them at nonces 0, 1, …
 and the tested contract after them; `dependency:<i>` and `contract` name their
 addresses). A dependency is compiled from the same checkout and settings and
@@ -126,7 +130,9 @@ imported model answers the tested model's `STATICCALL`s
 (`Compiler/SolidityImport/ModelResponders.lean`, program
 `imported-model-static-v1`). Any other request, an execution that writes or
 logs, or a selector that is not one imported view/pure function is an
-instrumentation error. The dependency's accessed storage is observed on every
+instrumentation error (`test/ByteExternalCall/ModelResponderDomain.lean`, run by
+the corpus check before any campaign with a dependency). The dependency's
+accessed storage is observed on every
 route, so a wrong answer is a divergence, not a hidden assumption. The
 `drop-events` mutant filters every model `emit`; it must
 diverge and shrink to a replayed deletion-minimal witness.

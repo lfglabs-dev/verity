@@ -429,7 +429,7 @@ def deployed_immutables(runtime, references, names):
 
 
 def probe_deployment(directory, deployments, initial):
-    """Deploy every contract once on the source route and check its constructor world.
+    """Deploy every contract once on an owned node and check its constructor world.
 
     Every storage word a constructor writes must equal the configured initial storage
     of the deployed account, and no constructor may write another account. Returns
@@ -507,11 +507,18 @@ def deployment_world(config, entry, dependencies, compiled, immutable_names, out
         raise HarnessError(f'model immutables absent from the source deployment: {missing}')
     immutables = [(name, observed[name]) for name in declared]
     arguments = ''.join(observed[name].to_bytes(32, 'big').hex() for name in params)
+    # The compiled model's constructor is held to the same storage rule as the source one.
+    compiled_deployments = deployments[:-1] + [(config['contract'], address, compiled + arguments)]
+    compiled_runtimes = probe_deployment(output / 'compiled-deployment', compiled_deployments, initial)
+    accounts = [account for _, account, _ in deployments]
     return {'address': address, 'addresses': addresses, 'initial': initial,
-            'immutables': immutables, 'dependencyCode': list(zip(
-                [addresses[f'dependency:{i}'] for i in range(count)], runtimes[:-1])),
+            'immutables': immutables, 'dependencyCode': list(zip(accounts[:-1], runtimes[:-1])),
             'source': [code for _, _, code in deployments],
-            'compiled': [code for _, _, code in deployments[:-1]] + [compiled + arguments]}
+            'compiled': [code for _, _, code in compiled_deployments],
+            # Every replay must reproduce the probed runtimes (and so the immutables read
+            # from them): a constructor whose result differs between deployments fails.
+            'sourceCode': list(zip(accounts, runtimes)),
+            'compiledCode': list(zip(accounts, compiled_runtimes))}
 
 
 def campaign(config_path, output, count, seed, shrink_attempts, mutant=None):
@@ -538,10 +545,11 @@ def campaign(config_path, output, count, seed, shrink_attempts, mutant=None):
             'accounts': [str(int(account, 16)) for account, _ in world['dependencyCode']]},
             'account_code': world['dependencyCode']}
     adapters = {
-        'source': EVM(output / 'A', world['source'], initial),
+        'source': EVM(output / 'A', world['source'], initial, expected_code=world['sourceCode']),
         'model': Denote(output / 'B', driver, address, initial, identity=identity,
                         immutables=world['immutables'], **responders),
-        'compiled': EVM(output / 'C', world['compiled'], initial),
+        'compiled': EVM(output / 'C', world['compiled'], initial,
+                        expected_code=world['compiledCode']),
     }
     result = replay_three_routes(calls, adapters)
     check_prefix_expectations(config['prefix'], result['observations']['source'])
@@ -551,10 +559,10 @@ def campaign(config_path, output, count, seed, shrink_attempts, mutant=None):
     write_json(output / 'campaign.json', {**result, 'revision': config['revision'],
         'verityHead': revision, 'seed': seed, 'transactions': calls,
         'signatures': config['signatures'], 'mutant': mutant,
-        # Constructor storage writes are checked against the initial storage, and the
-        # model's immutables are the source deployment's; the compiled model's own
-        # constructor is not compared beyond the configured slots it is overwritten at.
-        'constructorValidated': 'storage-and-immutables', 'addresses': world['addresses'],
+        # Both constructors' storage writes are checked against the initial storage; the
+        # immutables are copied from the source deployment, not computed by the model.
+        'constructorValidated': 'constructor-storage-checked; immutables-copied-from-source',
+        'addresses': world['addresses'],
         'immutables': world['immutables'], 'initialStorage': initial,
         'compilerSha256': digest, 'implementation': identity.manifest,
         'sourceSha256': {name: hashlib.sha256(row['content'].encode()).hexdigest()
