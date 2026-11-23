@@ -142,6 +142,7 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
   let mut dynamicArrays : Array StructDynamicArrayInfo := #[]
   let mut subStructs : Array RawStructSubStructInfo := #[]
   let mut opaqueMemberNames : Array String := #[]
+  let mut fixedArrays : Array StructFixedArrayInfo := #[]
   for mNode in sMembers do
     let mName ← mStr (← mField mNode "name")
     let mTy ← mType mNode
@@ -251,6 +252,35 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
         abiKind
         elemStructId := elemStructId?
       }
+    else if optStr mTyNode "nodeType" == some "ArrayTypeName" then
+      -- `T[N]` with a value type `T`: in place from a fresh slot, `32 / bytes(T)` elements per
+      -- word from the lowest-order lane, `ceil(N / perWord)` words; the next member starts a
+      -- new slot. Never enumerated slot by slot, so `N` may be arbitrarily large.
+      let baseTy ← mType (← mField mTyNode "baseType")
+      let elem? := if baseTy.contains '[' then none else dynamicStorageArrayElement? baseTy
+      let length? : Option Nat :=
+        if mTy.startsWith (baseTy ++ "[") && mTy.endsWith "]" then
+          (((mTy.drop (baseTy.length + 1)).toString.dropEnd 1).toString.toNat?).filter (· > 0)
+        else none
+      let (some (elemTy, _, _), some length) := (elem?, length?)
+        | failAt mNode s!"unsupported storage struct member {mName} : {mTy}"
+      let (bits, perWord, _) := dynamicStorageArrayElemLayout elemTy
+      if currByte > 0 then
+        currWord := currWord + 1
+        currByte := 0
+      let wordOffset := currWord
+      currWord := currWord + (length + perWord - 1) / perWord
+      fixedArrays := fixedArrays.push {
+        member := mName
+        solcType := mTy
+        wordOffset
+        byteOffset := 0
+        length
+        elementWidth := bits
+        arrayType := mTy
+        elemType := elemTy
+      }
+      opaqueMemberNames := opaqueMemberNames.push mName
     else if mTy.startsWith "struct " && !mTy.contains "[" then
       let subSid ← refInt mTyNode
       unless subSid >= 0 && (← get).structs.contains subSid.toNat do
@@ -303,7 +333,8 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
         isBool
       }
   let wordCount := if currByte > 0 then currWord + 1 else currWord
-  return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, wordCount, opaqueMemberNames }
+  return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, wordCount, opaqueMemberNames,
+           fixedArrays }
 
 partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat) (types structTy : Json) :
     M (Array StructMember × Array String × Array String × Array String × Array StructFixedArrayInfo × Array StructMappingInfo × Array StructDynamicArrayInfo × Array (String × Nat) × Array (String × Nat)) := do

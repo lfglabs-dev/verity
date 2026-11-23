@@ -47,6 +47,10 @@ structure StructFixedArrayInfo where
   length : Nat
   elementWidth : Nat
   arrayType : String
+  /-- The element type of a raw-slot struct's fixed array member (`uint8`, `bool`, `address`,
+  ...), laid out and accessed as a storage array element of that type. Empty for the
+  per-element layout of a top-level struct's `uintN[N]` member. -/
+  elemType : String := ""
 
 structure StructMappingInfo where
   member : String
@@ -91,8 +95,13 @@ structure RawStructInfo where
   subStructs : Array RawStructSubStructInfo := #[]
   wordCount : Nat := 0
   /-- Members whose storage type is outside this slice. Each keeps the slot solc assigns it,
-  so later members are placed correctly, and any access to it is rejected. -/
+  so later members are placed correctly, and any access to it is rejected. Fixed-size array
+  members are listed here too: only their elements are accessible (`fixedArrays`), so every
+  whole-struct operation that requires no opaque member rejects them. -/
   opaqueMemberNames : Array String := #[]
+  /-- Fixed-size array members `T[N]` of a value type `T`, laid out in place from a fresh slot
+  as solc does; their elements are read and written at a computed index. -/
+  fixedArrays : Array StructFixedArrayInfo := #[]
 
 /-- A fixed-size memory array `T[N] memory` with a scalar element `T`: a binding
 holding a pointer to `N` consecutive words, without a length word. Every
