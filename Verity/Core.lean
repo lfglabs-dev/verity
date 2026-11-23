@@ -10,6 +10,7 @@ import Verity.Core.AccountState
 import Verity.Core.Int256
 import Verity.Core.NarrowTypes
 import Verity.Core.Panic
+import Verity.Core.RevertPayload
 import Verity.Core.Uint16
 import Verity.Core.Uint256
 import Verity.Core.FiniteSet
