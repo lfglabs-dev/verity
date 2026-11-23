@@ -443,7 +443,7 @@ def probe_deployment(directory, deployments, initial):
     configured = {(account, slot): value for account, slot, value in initial}
     runtimes = []
     with Anvil(directory) as node:
-        deployer = node.rpc('eth_accounts')[0]
+        deployer = node.rpc('eth_accounts')[0].lower()
         if deployer != SENDERS[0]:
             raise HarnessError('unexpected deployment account')
         for name, address, code in deployments:

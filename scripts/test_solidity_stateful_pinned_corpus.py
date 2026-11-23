@@ -340,7 +340,8 @@ class DeploymentWorld(unittest.TestCase):
             instrument.constructor_arguments([], [1], {}, 'C')
 
 
-MINER = '0x' + '00' * 20
+# A nonzero fee recipient, so the allowance must come from the queried block.
+MINER = '0x' + 'c0' * 20
 
 
 class ProbeDeployment(unittest.TestCase):
@@ -411,6 +412,9 @@ class ProbeDeployment(unittest.TestCase):
             self.run_probe(lambda a, s: {'0x' + '77' * 20: {'balance': '0x1'}})
         with self.assertRaisesRegex(HarnessError, 'foreign account'):
             self.run_probe(lambda a, s: {MINER: {'balance': '0x1', 'nonce': 1}})
+        # The zero address is not the fee recipient here.
+        with self.assertRaisesRegex(HarnessError, 'foreign account'):
+            self.run_probe(lambda a, s: {'0x' + '00' * 20: {'balance': '0x1'}})
 
     def test_fee_balances_may_move(self):
         self.assertEqual(self.run_probe(lambda a, s: {
