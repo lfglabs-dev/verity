@@ -340,6 +340,35 @@ contract C {
                 'runOuterBranchDeclares(uint256)', 'runShadowsConstant(uint256)', 'runAssignsOuter(uint256)',
                 'runUncheckedBranch(uint256)', 'runBlockDeclaresString(uint256)',
                 'runBlockDeclaresArray(uint256)']),
+    fixture('fixture-effect-core', 'Contracts/SolidityImportSmoke/EffectCoreOneSlot.sol',
+            'EffectCoreOneSlot', [
+                'discardNamed(uint256)', 'discardDividing(uint256)', 'discardEarly(uint256)',
+                'discardUnassigned(uint256)', 'discardUnnamed(uint256)', 'voidWord(address,uint256)']),
+    # Imports on legacy; rejected on via-IR (extcodesize before encoding) with either count.
+    inline('void-call-storage-argument', '''interface ISink {
+    function put(bytes calldata data) external;
+}
+
+contract C {
+    bytes private stored;
+
+    function run(address target) external {
+        ISink(target).put(stored);
+    }
+}
+''', ['run(address)']),
+    inline('external-bytes-assignment', '''interface ISource {
+    function get(uint256 n) external returns (bytes memory);
+}
+
+contract C {
+    uint256 private total;
+
+    function run(address source, uint256 n) external returns (bytes memory result) {
+        result = ISource(source).get(n);
+    }
+}
+''', ['run(address,uint256)'], expect='same-rejection'),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]
