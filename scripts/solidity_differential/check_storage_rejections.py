@@ -1430,7 +1430,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          "pragma solidity 0.8.34;\ncontract C {\n  uint256 internal stored;\n  function pair(uint256 x) internal pure returns (bool, bytes memory) {\n    return (x > 1, abi.encode(x));\n  }\n  function checked(uint256 x) external returns (uint256) {\n    stored = x;\n    (bool ok, ) = pair(x);\n    return ok ? 1 : 0;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'VariableDeclarationStatement: [solidity-import:unsupported] tuple declaration arity 2 does not match helper return arity 3'),
+         'VariableDeclarationStatement: [solidity-import:unsupported] an elided string/bytes tuple component is outside this slice'),
         ('multi-return-string-tuple-literal-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  uint256 internal stored;\n  function checked(uint256 x) external returns (uint256) {\n    stored = x;\n    (string memory a, string memory b) = (\"x\", \"yz\");\n    return bytes(a).length + bytes(b).length;\n  }\n}\n",
          None,
@@ -1455,7 +1455,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          "pragma solidity 0.8.34;\ncontract C {\n  uint256 internal stored;\n  function dec(bytes memory d) internal pure returns (bool ok, bytes memory r) {\n    (ok, r) = abi.decode(d, (bool, bytes));\n  }\n  function checked(uint256 x) external returns (uint256) {\n    stored = x;\n    (bool ok, bytes memory r) = dec(abi.encode(true, abi.encode(x)));\n    return ok ? r.length : 0;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'Assignment: [solidity-import:unsupported] tuple assignment arity 3 does not match helper return arity 2'),
+         'FunctionCall: [solidity-import:unsupported] string/bytes tuple assignment components require a multi-return helper call with matching results'),
         # Mapping helper arguments in one-state-variable contracts (#2830): packed and
         # nested member values and top-level mappings keep their located rejection.
         ('storage-mapping-argument-packed-value-rejected',
