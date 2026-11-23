@@ -46,6 +46,15 @@ This module resolves Phase C1 of the unified architectural roadmap:
    `computedSpillBase highWaterMark := defaultSpillBase + highWaterMark + 64`
    and proves that every spill slot `computedSpillBase hw + 32 * k` lies strictly above
    both `defaultSpillBase` (`4096`) and `highWaterMark + 32`.
+
+**Scope of these theorems.** `computedSpillBase`, `applyDynamicTempReuseToObject`,
+`applyTempReuseToObject` and `emitYulWithProfile` are not called by any compile path: the CLI
+(`writeContract`) and the Solidity import model drivers (`Compiler.emitYulSpilled`) both use
+`Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject`, whose spill words start at the fixed
+`defaultSpillBase`. The C1.1–C1.3 theorems below are arithmetic facts about `computedSpillBase`
+and C1.6 is about `applyTempReuseToObject`; none of them says anything about the Yul that
+`solc` compiles. The spill pass is a trusted, tested-only component
+(`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass").
 -/
 
 /-! ## 1. Dynamic Spill Watermark Algebra (Fixing the `0x1000` Hardcoded Spill Seam) -/
@@ -193,7 +202,9 @@ theorem certifiedOptimized_preserves_slotCoalescing_semantics
 
 /-- **Theorem C1.6 (`TempReuse` Fast-Path Identity on `YulObject`)**:
     Whenever `obj.runtimeCode` has `≤ maxStackLocals` `let` bindings,
-    `applyTempReuseToObject` returns `obj` unchanged. -/
+    `applyTempReuseToObject` returns `obj` unchanged. `applyTempReuseToObject` is not on any
+    compile path (see the module docstring), so this does not cover the spill pass that the
+    compiler runs. -/
 theorem applyTempReuseToObject_eq_self_of_le
     (maxStackLocals : Nat)
     (obj : YulObject)

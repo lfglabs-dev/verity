@@ -114,4 +114,10 @@ contract StringErrorSmokeTest is Test, YulTestBase {
             "the second string should retain its own offset and bytes"
         );
     }
+
+    /// The revert payload is encoded from memory address 0 with a runtime size; a prefix longer
+    /// than 4 KiB makes it cover memory from 4096 up before the second string is encoded.
+    function testCheckSecondMessagePayloadPastFourKiB() public {
+        _assertCheckSecondMessageParity(false, string(new bytes(5000)), "encoded after the long prefix");
+    }
 }

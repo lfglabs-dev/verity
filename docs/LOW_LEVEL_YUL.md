@@ -38,33 +38,46 @@ proofs or audits.
 
 ## Yul Temporary Slot Reuse and Scratch-Memory Spilling (`--max-stack-locals`)
 
-To keep large unrolled functions (such as 8-tier `quoteTier` functions with 48+
-`let` bindings) within the EVM's 16-slot `DUP`/`SWAP` reach under both
-`solc --strict-assembly` and `solc --strict-assembly --optimize`, the compiler
-applies `Compiler.Yul.TempReuse.reuseAndSpillTempsObject` (`Compiler/Yul/TempReuse.lean`):
+The spill pass is a **trusted, tested-only** component (see
+[TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md#12-yul-stack-spill-pass-tempreuse)): no theorem
+states that its output means the same as its input. It exists to keep blocks with many
+`let` bindings within the EVM's 16-slot `DUP`/`SWAP` reach under `solc --strict-assembly`.
+Both compile paths, the CLI (`verity-compiler`, every Verity contract) and the Solidity import
+model drivers (`Compiler.emitYulSpilled`), apply the same entry point,
+`Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject` (`Compiler/Yul/TempReuse.lean`), to the
+deploy and runtime code sections separately:
 
-- **Fast-path identity (`countLetBindings stmts ≤ maxStackLocals`, default `12`)**:
-  Blocks with at most `maxStackLocals` `let` bindings are returned definitionally
-  unchanged (`reuseBlockTemps_eq_self_of_le` in
-  `Compiler/Proofs/YulGeneration/TempReuseSoundness.lean`), preserving existing
-  artifacts and Layer 2/3 proofs verbatim.
-- **Short-lived dead-slot reuse (`letSpanInStmts v rest ≤ 2`)**:
-  Intra-tier temporaries whose last use is within 2 subsequent `let` bindings
-  reuse dead stack variables via `YulStmt.assign` (`t := rhs`) instead of
-  allocating new `let` slots (`reuseDeadLetStep_eval_eq`).
-- **Cross-tier scratch-memory spilling (`letSpanInStmts v rest > 2`)**:
-  Longer-lived accumulators (whose SSA splitting and expression inlining under
-  `solc --strict-assembly --optimize` would otherwise trigger
-  `StackTooDeepError`) spill to reusable 32-byte scratch memory slots starting
-  at `0x1000` (`4096`) via `mstore(slot, rhs)` / `mload(slot)`
-  (`spillLetStep_eval_eq`), whenever the block does not touch linear memory at
-  or above `0x1000`.
-- **Free memory above the spill slots**: the per-block check above is static, while
-  runtime-sized allocations (a `bytes` argument copied by an ECM, an ABI encoding) start
-  at the free-memory pointer. So when a code section spills, its free-pointer
-  initialisation `mstore(64, 128)` is raised to one past its highest spill slot
-  (`spillHighWaterStmts`, `raiseFreePointerInit`), and allocated memory never aliases a
-  spilled local (`test/SpillFreeMemorySmoke.t.sol`). Sections that do not spill are
-  unchanged.
+- **Static memory gate (per code section)**: a section is rewritten only if every memory access
+  in it, functions included, has a literal address and a literal length ending at or below
+  `0x1000` (`4096`); it does not use `msize`; and every call is a memory-free builtin or a
+  function defined in the same section (`sectionMemoryStaticBelow`). An unknown builtin, a
+  computed address or length (free-pointer allocations, ABI encodings written from address 0
+  with a runtime size, `calldatacopy` of a dynamic argument), and a call to a linked library
+  function all fail the gate. A section that fails the gate is emitted **unchanged**; if it is
+  too deep for the stack, `solc` rejects it with `StackTooDeep` instead of the compiler
+  emitting spill words that runtime-sized memory traffic could overwrite. The free-memory
+  pointer is never moved.
+- **Fast path**: inside a gated section, a block with at most `maxStackLocals` `let` bindings
+  (default `12`) is returned unchanged. (`reuseBlockTemps_eq_self_of_le` in
+  `Compiler/Proofs/YulGeneration/TempReuseSoundness.lean` states this for the single-block
+  function `reuseBlockTemps`, which no compile path calls; it is not a theorem about the
+  pass.)
+- **Short-lived dead-slot reuse**: a `let` whose value is used within the next 2 `let`
+  bindings may reuse a dead stack variable of the same block via `t := rhs`.
+- **Scratch-memory spilling**: other `let`s past the stack budget spill to 32-byte words from
+  `0x1000` via `mstore(slot, rhs)` / `mload(slot)`. A block's new words start above every word
+  its (already rewritten) nested blocks use, so a nested block never overwrites a live word of
+  an enclosing block; sibling blocks may share words.
+- **Never spilled**: function bodies (and blocks inside them), because a word would be shared by
+  a caller and its callee or by recursive frames; and `for` initialisers, whose variables stay
+  live in the condition, body and post block. They only reuse dead stack variables, and a
+  `for` initialiser never reuses its own variables, which are live after the initialiser.
+- **Not proven**: slot selection, liveness (`findDeadStackVar`, `findFreeSpillSlot`), the
+  nested-block rule, function and loop handling, and the gate itself are covered by
+  `Compiler/MainTest.lean` cases, the Foundry tests `test/SpillReturnArraySmoke.t.sol` and
+  `test/SpillFreeMemorySmoke.t.sol`, and differential tests only.
+  `reuseDeadLetStep_eval_eq` and `spillLetStep_eval_eq` are single-step lemmas over a toy
+  word-keyed state; the `computedSpillBase` theorems in `Compiler/Codegen/Profile.lean` are
+  about a spill base that no compile path uses.
 - **CLI control**: Pass `--max-stack-locals <n>` (default: `12`) to adjust the
   per-block `let`-binding threshold before temporary reuse and spilling kick in.

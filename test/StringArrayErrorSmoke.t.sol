@@ -157,4 +157,19 @@ contract StringArrayErrorSmokeTest is Test, YulTestBase {
 
         _assertCheckSecondBatchParity(false, prefix, messages);
     }
+
+    /// The revert payload is encoded from memory address 0 with a runtime size. A first string
+    /// longer than 4 KiB makes that encoding cover memory from 4096 up while later elements are
+    /// still being encoded, so every value read after it must stay on the stack.
+    function testCheckSecondBatchPayloadPastFourKiB() public {
+        string[] memory prefix = new string[](3);
+        prefix[0] = string(new bytes(5000));
+        prefix[1] = "read after the long element";
+        prefix[2] = "and one more";
+
+        string[] memory messages = new string[](1);
+        messages[0] = "messages after the long prefix";
+
+        _assertCheckSecondBatchParity(false, prefix, messages);
+    }
 }
