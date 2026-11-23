@@ -2148,6 +2148,28 @@ Trust boundary changes:
   differential evidence (`InterfaceVoidCallSequence` against recording call responders
   of every response shape, an account without code and an EOA), not a proof.
 
+### Validation instrument: imported-model static responder
+
+`imported-model-static-v1` (`ModelResponders.lean`) lets the Denote route of a
+pinned-sequence campaign (`scripts/solidity_differential/pinned_sequence.py`)
+answer `STATICCALL`s from the tested contract to a dependency deployed next to it.
+The dependency runs as its solc bytecode on the source and compiled routes; on the
+model route its own imported model executes the selected external `view`/`pure`
+function in Denote over the dependency account's storage (`.contractSlot account _`
+read as that model's plain slots), with fresh transient storage, and returns its
+exact return or revert bytes and qualified storage accesses without changing the
+caller world. It is a validation instrument, not an importer feature and not a
+semantic claim about external calls: no Solidity construct is admitted by it.
+Requests outside its domain (value-carrying or non-static calls, other targets,
+calldata that is not a selector plus whole words, selectors that do not pick one
+imported read-only function, executions that log, write, touch another storage
+channel or do not finish) are instrumentation errors, never a Solidity success or
+revert. Models with immutables are rejected. The responder's answers are trusted
+only as far as the dependency's imported model is: corpus configurations require
+the dependency to be another sequence of the same project and settings, whose own
+A/B/C campaign runs in the same check, and every dependency slot the source or
+compiled route touches is observed and compared on the model route too.
+
 ### Validation instrument: selector-dispatched call responder
 
 `selector-call-responder-v1` (`SelectorResponderMocks.lean`) is the Denote twin of

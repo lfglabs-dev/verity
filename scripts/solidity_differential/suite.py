@@ -59,7 +59,8 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     command(['lake', 'build', 'SolidityImportSmoke', 'Compiler.Codegen',
              'Compiler.Yul.PrettyPrint', 'Compiler.SolidityImport.SequenceRunner',
              'Compiler.SolidityImport.StaticOracleMocks',
-             'Compiler.SolidityImport.CallResponderMocks'], timeout=1800, log=output / 'build.log')
+             'Compiler.SolidityImport.CallResponderMocks',
+             'Compiler.SolidityImport.ModelResponders'], timeout=1800, log=output / 'build.log')
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
             log=output / 'transaction-smoke.log')

@@ -8,20 +8,30 @@ or a dirty tree). Each prefix step states its documented source outcome
 prefix before seeded calls start. Before any campaign, a solc-only compile
 requires the imported signatures to be exactly the contract's function entry
 points, and rejects a `receive` or `fallback` entry point, which the instrument
-cannot call. The positive campaign must agree across
-A/B/C; the `drop-events` model mutant must diverge and shrink to a reproduced
+cannot call. A function the importer rejects is listed under `rejected` with
+its located rejection; the compile counts it as an entry point, and a separate
+import of exactly that function must fail with exactly that first error line.
+A sequence may pass `constructorArgs` and deploy `dependencies` first: each names
+another sequence of the same project (same settings), whose own campaign in this
+check validates the imported model that answers the tested contract's static
+calls on the model route. The positive campaign must agree across A/B/C; the
+`drop-events` model mutant must diverge and shrink to a reproduced
 deletion-minimal witness.
 """
 import argparse
 import json
 from pathlib import Path
+import re
 
-from .engine import ROOT, HarnessError, solc_compile, write_json
-from .pinned_sequence import campaign, compiler_checksum, load_config, pinned_sources
+from .engine import ROOT, HarnessError, run_bounded, solc_compile, write_json
+from .pinned_sequence import (argument_types, campaign, compiler_checksum, import_command,
+                              load_config, pinned_sources)
 
 MANIFEST = ROOT / 'scripts/solidity_import_corpus/manifest.json'
 SEQUENCE_KEYS = {'entry', 'contract', 'settings', 'signatures', 'initialStorage',
                  'prefix', 'arguments'}
+OPTIONAL_KEYS = {'constructorArgs', 'dependencies', 'rejected'}
+DEPENDENCY_KEYS = {'contract', 'constructorArgs', 'initialStorage'}
 
 
 def corpus_sequences(manifest, selected=None):
@@ -30,10 +40,32 @@ def corpus_sequences(manifest, selected=None):
     for project in manifest['projects']:
         if selected is not None and project['id'] not in selected:
             continue
+        contracts = [sequence.get('contract') for sequence in project.get('sequences', [])]
+        if len(set(contracts)) != len(contracts):
+            raise HarnessError('corpus sequences must name distinct contracts per project')
         for sequence in project.get('sequences', []):
             name = f'{project["id"]}:{sequence.get("contract")}'
-            if set(sequence) != SEQUENCE_KEYS:
-                raise HarnessError(f'{name}: sequence keys must be exactly {sorted(SEQUENCE_KEYS)}')
+            if not SEQUENCE_KEYS <= set(sequence) <= SEQUENCE_KEYS | OPTIONAL_KEYS:
+                raise HarnessError(f'{name}: sequence keys must be {sorted(SEQUENCE_KEYS)} '
+                                   f'plus optional {sorted(OPTIONAL_KEYS)}')
+            rejected = [row.get('signature') for row in sequence.get('rejected', [])]
+            if any(set(row) != {'signature', 'rejection'} or not row['rejection']
+                   for row in sequence.get('rejected', [])):
+                raise HarnessError(f'{name}: each rejected function needs a signature and its rejection')
+            if len(set(rejected)) != len(rejected) or set(rejected) & set(sequence['signatures']):
+                raise HarnessError(f'{name}: rejected functions must be distinct and not imported')
+            for signature in rejected:
+                argument_types(signature)
+            for row in sequence.get('dependencies', []):
+                if set(row) != DEPENDENCY_KEYS:
+                    raise HarnessError(f'{name}: dependency keys must be exactly {sorted(DEPENDENCY_KEYS)}')
+                validated = [s for s in project['sequences'] if s.get('contract') == row['contract']]
+                if row['contract'] == sequence['contract'] or len(validated) != 1:
+                    raise HarnessError(f'{name}: dependency {row["contract"]} must be another '
+                                       f'sequence of the project')
+                if validated[0]['settings'] != sequence['settings'] or validated[0].get('dependencies'):
+                    raise HarnessError(f'{name}: dependency {row["contract"]} must share the settings '
+                                       f'and deploy no dependency of its own')
             if len(set(sequence['signatures'])) != len(sequence['signatures']):
                 raise HarnessError(f'{name}: duplicate imported signatures')
             missing = [index for index, row in enumerate(sequence['prefix']) if 'expect' not in row]
@@ -53,14 +85,15 @@ def corpus_sequences(manifest, selected=None):
 
 
 def check_entry_points(sequence, solc_output):
-    """Imported signatures equal the compiled contract's entry points, none left out."""
+    """Imported and rejected signatures equal the compiled contract's entry points."""
     contract = solc_output['contracts'][sequence['entry']][sequence['contract']]
     special = sorted({row['type'] for row in contract['abi']} & {'receive', 'fallback'})
     if special:
         raise HarnessError(f'{sequence["contract"]}: unsupported {special} entry point')
     methods = contract['evm']['methodIdentifiers']
-    missing = sorted(set(methods) - set(sequence['signatures']))
-    extra = sorted(set(sequence['signatures']) - set(methods))
+    listed = set(sequence['signatures']) | {row['signature'] for row in sequence.get('rejected', [])}
+    missing = sorted(set(methods) - listed)
+    extra = sorted(listed - set(methods))
     if missing or extra:
         raise HarnessError(f'{sequence["contract"]}: signatures differ from compiled entry points: '
                            f'missing {missing}, unknown {extra}')
@@ -76,11 +109,51 @@ def compiled_entry_points(config_path, output):
                          'settings': settings}, config['project'], output / 'entry-points')
 
 
+ERROR_LINE = re.compile(r'^(?P<file>[^\n]*?):(?P<line>[0-9]+):[0-9]+: error: (?P<message>[^\n]*)$',
+                        re.MULTILINE)
+
+
+def rejection_source(config, rejected):
+    """One `solidity_import` of exactly one rejected function per command; first lines."""
+    commands, lines, line = ['import Compiler.SolidityImport.Import'], [], 2
+    for index, row in enumerate(rejected):
+        text = import_command(f'rejected{index}', config['project'], config, config['entry'],
+                              config['contract'], [row['signature']])
+        commands.append(text)
+        lines.append(line)
+        line += text.count('\n') + 1
+    return '\n'.join(commands) + '\n', lines
+
+
+def check_rejections(config_path, rejected, output, lean=('lake', 'env', 'lean')):
+    """Each rejected function alone fails to import with exactly its located rejection."""
+    if not rejected:
+        return
+    config = load_config(config_path)
+    pinned_sources(config['project'], config['revision'], config['entry'])
+    source, lines = rejection_source(config, rejected)
+    path = output / 'Rejections.lean'
+    path.write_text(source)
+    result = run_bounded([*lean, path], timeout=1800)
+    log = result.stdout + result.stderr
+    (output / 'rejections.log').write_text(log)
+    errors = {}
+    for match in ERROR_LINE.finditer(log):
+        if Path(match['file']).name == path.name:
+            errors.setdefault(int(match['line']), []).append(match['message'])
+    if result.returncode == 0 or set(errors) != set(lines):
+        raise HarnessError(f'rejected functions: errors at lines {sorted(errors)}, expected {lines}')
+    for line, row in zip(lines, rejected):
+        if errors[line] != [row['rejection']]:
+            raise HarnessError(f'{row["signature"]}: rejection differs: {errors[line]}')
+
+
 def run_sequence(project, sequence, config, root, transactions, seed,
-                 entry_points=compiled_entry_points, run=campaign):
-    """Entry-point completeness, then the positive campaign, then the mutant."""
+                 entry_points=compiled_entry_points, run=campaign, rejections=check_rejections):
+    """Entry points, located rejections, then the positive campaign, then the mutant."""
     name = f'{project["id"]}:{sequence["contract"]}'
     check_entry_points(sequence, entry_points(config, root))
+    rejections(config, sequence.get('rejected', []), root)
     if run(config, root / 'positive', transactions, seed, 200) != 0:
         raise HarnessError(f'{name}: pinned A/B/C campaign diverged; '
                            f'witness in {root / "positive/reduced.json"}')
@@ -91,14 +164,28 @@ def run_sequence(project, sequence, config, root, transactions, seed,
         raise HarnessError(f'{name}: mutant lacks a minimal witness')
     return {'project': project['id'], 'revision': project['commit'],
             'contract': sequence['contract'], 'transactions': transactions,
-            'seed': seed, 'mutantWitness': len(reduced['transactions'])}
+            'seed': seed, 'mutantWitness': len(reduced['transactions']),
+            'rejected': [row['signature'] for row in sequence.get('rejected', [])],
+            'dependencies': [row['contract'] for row in sequence.get('dependencies', [])]}
 
 
 def materialize(project, sequence, checkout, output):
-    """Write the complete instrument configuration for one corpus sequence."""
+    """Write the complete instrument configuration for one corpus sequence.
+
+    A dependency takes its entry and imported signatures from its own sequence."""
     path = output / 'config.json'
+    config = {key: value for key, value in sequence.items() if key != 'rejected'}
+    dependencies = []
+    for row in sequence.get('dependencies', []):
+        validated = next(s for s in project['sequences'] if s['contract'] == row['contract'])
+        dependencies.append({'entry': validated['entry'], 'contract': row['contract'],
+                             'signatures': validated['signatures'],
+                             'constructorArgs': row['constructorArgs'],
+                             'initialStorage': row['initialStorage']})
+    if dependencies:
+        config['dependencies'] = dependencies
     write_json(path, {'project': str(Path(checkout).resolve()), 'revision': project['commit'],
-                      **sequence})
+                      **config})
     return path
 
 

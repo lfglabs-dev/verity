@@ -106,9 +106,29 @@ a clean Git checkout at an exact revision, selected by a JSON configuration
 (entry, contract, imported signatures, solc settings, labelled initial storage,
 a deterministic transaction prefix and per-argument pools for seeded random
 calls). Tracked-file edits, untracked sources, symlinks escaping the checkout
-and revision drift are rejected before and after execution. Constructor
-equivalence is outside the instrument: all routes start from the same explicit
-storage world. The `drop-events` mutant filters every model `emit`; it must
+and revision drift are rejected before and after execution. All routes start
+from the same explicit storage world. The source route runs the source
+constructor with the configured `constructorArgs`; a probe deployment requires
+every storage word a constructor writes to equal the configured initial storage
+of its account (initial rows may also name word-valued mapping entries by
+`keys`), and rejects a constructor that writes another account. The tested
+contract's immutables are read back from its deployed runtime
+(`immutableReferences`), installed by name in the model route, and passed in
+order to the compiled model's synthesized constructor. Constructor equivalence
+beyond this storage world and these immutables is not claimed. A configuration
+may deploy `dependencies` first (the first sender deploys them at nonces 0, 1, …
+and the tested contract after them; `dependency:<i>` and `contract` name their
+addresses). A dependency is compiled from the same checkout and settings and
+runs as its source bytecode on the source and compiled routes, so those routes
+differ only in the tested contract. The model route cannot execute bytecode: it
+gets the dependency's runtime code and storage, and the dependency's own
+imported model answers the tested model's `STATICCALL`s
+(`Compiler/SolidityImport/ModelResponders.lean`, program
+`imported-model-static-v1`). Any other request, an execution that writes or
+logs, or a selector that is not one imported view/pure function is an
+instrumentation error. The dependency's accessed storage is observed on every
+route, so a wrong answer is a divergence, not a hidden assumption. The
+`drop-events` mutant filters every model `emit`; it must
 diverge and shrink to a replayed deletion-minimal witness.
 `check_pinned_sequence_fixture` commits the generic `fixtures/pinned-sequence`
 role-registry fixture with a fixed identity, so its revision is reproducible,
@@ -120,7 +140,13 @@ commit SHA. Every prefix step there states its documented source outcome
 (`expect`), which the source route must reproduce, and every imported signature
 must succeed once in the prefix. A solc-only compile first requires the
 imported signatures to be exactly the contract's function entry points and
-rejects `receive`/`fallback`. `check_pinned_sequence_corpus --fetch` then runs the
+rejects `receive`/`fallback`; a function the importer rejects is listed under
+`rejected` with its located rejection, counts as an entry point, and must fail
+alone with exactly that first error line, so it is never silently skipped. A
+corpus `dependencies` row names another sequence of the same project and
+settings (entry and imports are taken from it), so the dependency model that
+answers on the model route is validated by its own campaign in the same check.
+`check_pinned_sequence_corpus --fetch` then runs the
 positive campaign and the `drop-events` mutant for each of them; it is part of
 the stateful suite. Other benchmark-specific configurations belong in
 downstream verification repositories.

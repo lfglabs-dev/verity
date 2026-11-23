@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import unittest.mock
 
 from solidity_differential import check_pinned_sequence_corpus as corpus
 from solidity_differential import pinned_sequence as instrument
@@ -165,6 +166,178 @@ class PrefixExpectations(unittest.TestCase):
             path = corpus.materialize(project, sequence, temp, Path(temp))
             with self.assertRaisesRegex(HarnessError, 'prefix step 0: expect'):
                 instrument.load_config(path)
+
+
+def dependent():
+    """The committed project and its first sequence that deploys a dependency."""
+    for project, sequence in corpus.corpus_sequences(manifest()):
+        if sequence.get('dependencies'):
+            return project, sequence
+    raise AssertionError('no corpus sequence deploys a dependency')
+
+
+class Dependencies(unittest.TestCase):
+    def mutated(self, change):
+        data = manifest()
+        for project in data['projects']:
+            for sequence in project.get('sequences', []):
+                if sequence.get('dependencies'):
+                    change(project, sequence)
+                    return data
+        raise AssertionError('no dependent sequence')
+
+    def test_dependency_must_be_a_validated_sibling_with_its_settings(self):
+        def unknown(project, sequence):
+            sequence['dependencies'][0]['contract'] = 'Absent'
+        with self.assertRaisesRegex(HarnessError, 'must be another sequence'):
+            corpus.corpus_sequences(self.mutated(unknown))
+
+        def itself(project, sequence):
+            sequence['dependencies'][0]['contract'] = sequence['contract']
+        with self.assertRaisesRegex(HarnessError, 'must be another sequence'):
+            corpus.corpus_sequences(self.mutated(itself))
+
+        def settings(project, sequence):
+            sequence['settings'] = {**sequence['settings'], 'viaIR': False}
+        with self.assertRaisesRegex(HarnessError, 'must share the settings'):
+            corpus.corpus_sequences(self.mutated(settings))
+
+        def extra(project, sequence):
+            sequence['dependencies'][0]['entry'] = 'x.sol'
+        with self.assertRaisesRegex(HarnessError, 'dependency keys'):
+            corpus.corpus_sequences(self.mutated(extra))
+
+    def test_materialized_dependency_takes_its_validated_imports(self):
+        project, sequence = dependent()
+        with tempfile.TemporaryDirectory() as temp:
+            config = instrument.load_config(corpus.materialize(project, sequence, temp, Path(temp)))
+        dependency = config['dependencies'][0]
+        validated = next(s for s in project['sequences'] if s['contract'] == dependency['contract'])
+        self.assertEqual(dependency['entry'], validated['entry'])
+        self.assertEqual(dependency['signatures'], validated['signatures'])
+        self.assertNotIn('rejected', config)
+        # The tested contract is deployed after its dependency; blocks shift by one.
+        rows = instrument.transaction_sequence(config, len(config['prefix']), 2449, '0x' + '12' * 20)
+        self.assertEqual(rows[0]['blockNumber'], 3)
+        driver = instrument.driver_source(Path(temp), config)
+        mutant = instrument.driver_source(Path(temp), config, 'drop-events')
+        self.assertIn('import Compiler.SolidityImport.ModelResponders\n', driver)
+        self.assertIn(f'solidity_import dependency0 ', driver)
+        self.assertIn(f'  contract {dependency["contract"]}\n', driver)
+        self.assertIn('ModelResponders.configure', driver)
+        self.assertIn('[dependency0.model])', driver)
+        self.assertEqual(driver.split('def model')[0], mutant.split('def model')[0])
+        self.assertEqual(driver.split('def main')[1], mutant.split('def main')[1])
+
+    def test_rejected_functions_are_entry_points_and_never_imported(self):
+        _, sequence = dependent()
+        rejected = [row['signature'] for row in sequence['rejected']]
+        self.assertTrue(rejected)
+        output = solc_output(sequence)
+        methods = output['contracts'][sequence['entry']][sequence['contract']]['evm']['methodIdentifiers']
+        methods.update({signature: '00000000' for signature in rejected})
+        corpus.check_entry_points(sequence, output)
+        del methods[rejected[0]]
+        with self.assertRaisesRegex(HarnessError, 'unknown'):
+            corpus.check_entry_points(sequence, output)
+
+        def imported(project, sequence):
+            sequence['rejected'][0]['signature'] = sequence['signatures'][0]
+        with self.assertRaisesRegex(HarnessError, 'distinct and not imported'):
+            corpus.corpus_sequences(Dependencies.mutated(self, imported))
+
+        def unlocated(project, sequence):
+            sequence['rejected'][0]['rejection'] = ''
+        with self.assertRaisesRegex(HarnessError, 'signature and its rejection'):
+            corpus.corpus_sequences(Dependencies.mutated(self, unlocated))
+
+
+class Rejections(unittest.TestCase):
+    """Each rejected function alone must fail with exactly its located first error line."""
+
+    def setUp(self):
+        project, sequence = dependent()
+        self.rejected = sequence['rejected'][:2]
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.config = corpus.materialize(project, sequence, self.root, self.root)
+        loaded = instrument.load_config(self.config)
+        _, self.lines = corpus.rejection_source(loaded, self.rejected)
+        # The pinned-source check runs against the real checkout; it is not under test here.
+        self.patch = unittest.mock.patch.object(corpus, 'pinned_sources', lambda *args: None)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def fake_lean(self, errors, code=1):
+        script = self.root / 'lean.sh'
+        lines = ''.join(f'echo "$1:{line}:0: error: {message}"\n' for line, message in errors)
+        script.write_text('#!/bin/sh\n' + lines + f'echo "closure: trailing detail"\nexit {code}\n')
+        script.chmod(0o755)
+        return (str(script),)
+
+    def check(self, errors, code=1):
+        out = self.root / 'out'
+        out.mkdir(exist_ok=True)
+        corpus.check_rejections(self.config, self.rejected, out, lean=self.fake_lean(errors, code))
+
+    def test_exact_located_rejections_pass(self):
+        self.check([(line, row['rejection']) for line, row in zip(self.lines, self.rejected)])
+
+    def test_changed_message_missing_error_or_success_fail(self):
+        good = [(line, row['rejection']) for line, row in zip(self.lines, self.rejected)]
+        with self.assertRaisesRegex(HarnessError, 'rejection differs'):
+            self.check([good[0], (good[1][0], 'other.sol:1:1: X: [solidity-import:unsupported] y')])
+        with self.assertRaisesRegex(HarnessError, 'errors at lines'):
+            self.check(good[:1])
+        with self.assertRaisesRegex(HarnessError, 'errors at lines'):
+            self.check(good, code=0)
+        with self.assertRaisesRegex(HarnessError, 'rejection differs'):
+            self.check(good + [(good[0][0], 'second error')])
+
+
+class DeploymentWorld(unittest.TestCase):
+    def test_nonce_addresses(self):
+        deployer = instrument.SENDERS[0]
+        self.assertEqual(instrument.create_address(deployer, 1),
+                         '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512')
+        self.assertEqual(instrument.create_address(deployer, 0), instrument.create_address(deployer))
+        with self.assertRaisesRegex(HarnessError, 'nonce'):
+            instrument.create_address(deployer, 256)
+
+    def test_mapping_entry_slot(self):
+        layout = {'storage': [{'label': 'balances', 'slot': '3', 'offset': 0, 'type': 'm'}],
+                  'types': {'m': {'encoding': 'mapping', 'key': 'a', 'value': 'u'},
+                            'a': {'encoding': 'inplace', 'label': 'address', 'numberOfBytes': '20'},
+                            'u': {'encoding': 'inplace', 'label': 'uint256', 'numberOfBytes': '32'}}}
+        holder = '0x' + '12' * 20
+        slot = instrument.storage_slot(layout, {'label': 'balances', 'keys': ['contract']},
+                                       {'contract': holder})
+        expected = instrument.keccak(bytes(12) + bytes.fromhex('12' * 20) + (3).to_bytes(32, 'big'))
+        self.assertEqual(slot, int.from_bytes(expected, 'big'))
+        with self.assertRaisesRegex(HarnessError, 'more keys'):
+            instrument.storage_slot(layout, {'label': 'balances', 'keys': [holder, holder]}, {})
+        with self.assertRaisesRegex(HarnessError, 'unknown deployed address'):
+            instrument.storage_slot(layout, {'label': 'balances', 'keys': ['dependency:0']}, {})
+
+    def test_deployed_immutables_are_read_back_consistently(self):
+        code = '0x' + '00' * 4 + (7).to_bytes(32, 'big').hex() + (7).to_bytes(32, 'big').hex()
+        refs = {'5': [{'start': 4, 'length': 32}, {'start': 36, 'length': 32}]}
+        self.assertEqual(instrument.deployed_immutables(code, refs, {'5': 'X'}), {'X': 7})
+        refs['5'][1]['start'] = 0
+        with self.assertRaisesRegex(HarnessError, 'inconsistent'):
+            instrument.deployed_immutables(code, refs, {'5': 'X'})
+
+    def test_constructor_arguments_match_the_source_constructor(self):
+        abi = [{'type': 'constructor', 'inputs': [{'type': 'address'}]}]
+        holder = '0x' + '12' * 20
+        self.assertEqual(instrument.constructor_arguments(abi, ['dependency:0'],
+                                                          {'dependency:0': holder}, 'C'),
+                         '00' * 12 + '12' * 20)
+        with self.assertRaisesRegex(HarnessError, 'takes 1 arguments, 0 configured'):
+            instrument.constructor_arguments(abi, [], {}, 'C')
+        with self.assertRaisesRegex(HarnessError, 'takes 0 arguments'):
+            instrument.constructor_arguments([], [1], {}, 'C')
 
 
 if __name__ == '__main__':
