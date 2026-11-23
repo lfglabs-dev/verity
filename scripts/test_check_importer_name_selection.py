@@ -486,6 +486,24 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.assertFails("`Verity")
                 path.write_text(text, encoding="utf-8")
 
+    def test_scope_marker_object_compared_fails(self) -> None:
+        for code in ('def zzA (fn : Json) : Bool :=\n'
+                     '  Json.mkObj [("nodeType", Json.str "VerityScopeEnd")] ==\n'
+                     '    Json.mkObj [("nodeType", Json.str ((optStr fn "name").getD ""))]\n',
+                     'def zzA (fn : Json) : Bool :=\n'
+                     '  (optStr fn "name").map Json.str ==\n'
+                     '    some ((Json.mkObj [("nodeType", Json.str "VerityScopeEnd")]).getObjValD "nodeType")\n',
+                     'def zzA (fn : Json) : Bool :=\n'
+                     '  [Json.mkObj [("nodeType", Json.str "VerityUncheckedEnd")]].contains\n'
+                     '    (Json.mkObj [("nodeType", fn.getObjValD "name")])\n',
+                     'def zzA (fn : Json) : Json := Json.mkObj [("nodeType", Json.str "VerityScopeEnd")] |>.mergeObj fn\n'):
+            with self.subTest(code=code):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, "\n" + code)
+                self.assertFails("`Verity")
+                path.write_text(text, encoding="utf-8")
+
     def test_scope_marker_without_its_creation_fails(self) -> None:
         self.edit(IMPORT, '("nodeType", Json.str "VerityScopeEnd")', '("kind", Json.str "VerityScopeEnd")')
         self.assertFails('"VerityScopeEnd" has no create site')

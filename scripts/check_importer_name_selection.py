@@ -314,13 +314,20 @@ def pragma_literal_spans(rel: str, code: str) -> list[tuple[int, int]]:
 # set a `nodeType`, and solc never emits these. A marker literal is allowed only in its file and
 # only in two forms: built as `("nodeType", Json.str "<marker>")`, or as a `match` arm pattern
 # whose enclosing `match` is `match ← mKind <stmt> with` (no earlier arm or deeper line opens
-# alternatives that could own the arm, and the file does not rebind `mKind`). Anywhere else (a name comparison, a
+# alternatives that could own the arm, and the file does not rebind `mKind`). Left to review: a
+# node the importer builds with a non-literal `nodeType` (every synthetic `nodeType` in Import.lean
+# is a literal today), a use of a marker-building `def` (e.g. `scopeEnd`) other than splicing it
+# into a statement list, and a change to `mKind` itself (ExprHelpers.lean) or an `open` that
+# replaces it. Anywhere else (a name comparison, a
 # `nodeType` read of another field, another file) it is an ordinary identifier and is checked.
 _IMPORT = "Compiler/SolidityImport/Import.lean"
 NODE_KIND_MARKERS = {(_IMPORT, "VerityScopeEnd"), (_IMPORT, "VerityUncheckedEnd")}
-# Built only as the first field of a `Json.mkObj [...]` list: the marker is then a node's
-# `nodeType` and nothing else (not a tuple projected or compared).
-_MARKER_CREATE = re.compile(r'Json\.mkObj\s*\[\s*\(\s*"nodeType"\s*,\s*Json\.str\s*\Z')
+# Built only as the whole body of a `def ... : Json :=` that is `Json.mkObj [("nodeType", Json.str
+# "<marker>"), ...]`: the marker is then a node's `nodeType` and nothing else (not a tuple or
+# object projected, compared or tested for membership).
+_MARKER_CREATE = re.compile(
+    r'(?:^|\n)[ \t]*(?:private\s+)?def\s+\w+[^\n]*:\s*Json\s*:=\s*'
+    r'Json\.mkObj\s*\[\s*\(\s*"nodeType"\s*,\s*Json\.str\s*\Z')
 _MARKER_CREATE_END = re.compile(r'\s*\)\s*[,\]]')
 # A local binding that could shadow `mKind` (ExprHelpers.lean's AST `nodeType` reader).
 _MKIND_BINDING = re.compile(
@@ -338,8 +345,16 @@ def node_kind_marker_form(code: str, start: int, end: int) -> str | None:
     line_end = code.find("\n", end)
     line_end = len(code) if line_end < 0 else line_end
     before, after = code[line_start:start], code[end:line_end]
-    if _MARKER_CREATE.search(code[max(0, start - 200):start]) and _MARKER_CREATE_END.match(after):
-        return "create"
+    if _MARKER_CREATE.search(code[max(0, start - 300):start]) and _MARKER_CREATE_END.match(after):
+        # The list must close the definition: nothing but whitespace after its `]` up to the
+        # next line starting in column 0 (or the end of the file).
+        depth, i = 1, code.rfind("[", 0, start) + 1
+        while i < len(code) and depth:
+            depth += {"[": 1, "]": -1}.get(code[i], 0)
+            i += 1
+        if not depth and re.match(r"[ \t]*(?:\n[ \t]*)*(?:\n(?=\S)|\Z)", code[i:]):
+            return "create"
+        return None
     if not (_MATCH_ARM.fullmatch(before) and _MATCH_ARM_END.match(after)):
         return None
     if _MKIND_BINDING.search(code):
