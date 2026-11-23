@@ -450,6 +450,14 @@ MUTANTS.update({
                                              '      | some bits => if bits < 256 then masked else masked'),
     'import-signed-struct-member-layout-read': ('      | some (_, bits) => Expr.signextend (.literal (bits / 8 - 1)) read',
                                                 '      | some (_, bits) => read'),
+    # Extending from one byte too low changes the member's own bits (for int16 and wider); the
+    # fixture's bit-65 calls store values that use each member's top byte.
+    'import-signed-struct-member-raw-read-width': (
+        '      | some bits => if bits < 256 then Expr.signextend (.literal (bits / 8 - 1)) masked else masked',
+        '      | some bits => if bits < 256 then Expr.signextend (.literal (bits / 8 - 2)) masked else masked'),
+    'import-signed-struct-member-layout-read-width': (
+        '      | some (_, bits) => Expr.signextend (.literal (bits / 8 - 1)) read',
+        '      | some (_, bits) => Expr.signextend (.literal (bits / 8 - 2)) read'),
     'import-packed-signed-width': ('    let bits := (bitsOf ty).getD ((signedBitsOf ty).getD 256)',
                                    '    let bits := (bitsOf ty).getD 256'),
     'import-bytes-named-slice-default': ('let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 0)]', 'let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 1)]'),
@@ -856,6 +864,9 @@ MUTANTS.update({
     # solc-vs-compiled comparison sees the argument bytes a dropped mask leaks.
     'import-msg-sig-unmasked': ('| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))',
         '| "sig" => pure (.calldataload (.literal 0))'),
+    # A mask one byte short clears the selector's last byte.
+    'import-msg-sig-mask-width': ('| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 32 - 1) * 2 ^ 224)))',
+        '| "sig" => pure (Expr.bitAnd (.calldataload (.literal 0)) (.literal ((2 ^ 24 - 1) * 2 ^ 232)))'),
 })
 
 

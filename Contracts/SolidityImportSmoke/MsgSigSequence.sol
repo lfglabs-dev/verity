@@ -33,6 +33,12 @@ contract SequenceFixture {
         bytes4 s = _selector();
         lastSig = bytes32(s);
         total += uint256(uint32(s)) + (x % 1000);
+        // Inline assembly sees `msg.sig` as solc leaves it on the stack: the selector word alone, even
+        // when the argument bytes of calldata word 0 are nonzero.
+        bytes4 stackSig = msg.sig;
+        uint256 sigWord;
+        assembly { sigWord := stackSig }
+        total += sigWord % 65521;
         uint256 counted = _count(msg.sig, x);
         callDigest = keccak256(abi.encodeCall(IAccessGate.permits, (msg.sender, address(this), msg.sig)));
         emit Called(msg.sig, msg.sig, x);
