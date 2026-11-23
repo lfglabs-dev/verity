@@ -302,6 +302,14 @@ def stateful_campaign(output, transactions, seed, jobs=1):
                                        14, 6, 16367, 1375, 7, 35184372088817, 18, 13, 105, 10, 12, 14,
                                        303, 8, 2473, 12, 2 ** 256 - 1]),
         '--output', str(output / 'storage-pointer-mapping-helper')]))
+    # Struct copy and `string` write order (StructCopyWriteOrderSequence): x = 8 * y + c selects
+    # case c. The prefix runs every case with y = 0 (key and source both revert), 1, 2 and 3.
+    checks.append(('struct-copy-write-order', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/StructCopyWriteOrderSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/StructCopyWriteOrderSequenceModel.lean',
+        '--transactions', str(max(40, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 2 ** 256 - 1]),
+        '--output', str(output / 'struct-copy-write-order')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',
