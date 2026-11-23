@@ -14204,6 +14204,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       return ← lowerRequire statement
     if (← mKind callee) == "Identifier" && optStr callee "name" == some "revert" then
       return ← lowerBuiltinRevert statement
+    if (← mKind callee) == "Identifier" &&
+        (field? callee "referencedDeclaration").bind (·.getInt?.toOption) == some (-3) then
+      return ← lowerAssert statement
     if (← mKind callee) == "FunctionCallOptions" then
       failAt callee "external contract calls are outside this slice"
     if isLibraryDelegateCall callee then
@@ -14355,8 +14358,15 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         -- read storage or fail. The helper's effect prelude remains ordered.
         let result ← atom (← lowerCall expression)
         return result.pre
+  if kind == "FunctionCall" && optStr expression "kind" != some "functionCall" then
+    return ← lowerDiscardedValue expression
   if kind != "Assignment" && kind != "UnaryOperation" then
-    return ← lowerRequire statement
+    if kind == "FunctionCall" then
+      return ← lowerRequire statement
+    return ← lowerDiscardedValue expression
+  if kind == "UnaryOperation" &&
+      !["delete", "++", "--"].contains (optStr expression "operator" |>.getD "") then
+    return ← lowerDiscardedValue expression
   let deleting := kind == "UnaryOperation"
   let operator ← mStr (← mField expression "operator")
   if deleting && (operator == "++" || operator == "--") then
@@ -15855,6 +15865,51 @@ private partial def lowerRequireWith (statement : Json) (lowerCondition : Json �
   let value ← extractStringLiteralOrConstant message false
   let condition ← atom (← lowerCondition args[0]!)
   return condition.pre.push (.require condition.expr value)
+
+/-- Builtin `assert(c)` (solc declaration id `-3`): both solc 0.8.34 pipelines evaluate
+`c` once and, when it is false, revert with `Panic(0x01)`. -/
+private partial def lowerAssert (statement : Json) : M (Array Stmt) := do
+  let call ← mField statement "expression"
+  let callee ← mField call "expression"
+  unless (← mType callee) == "function (bool) pure" do
+    failAt callee "assert must resolve to the Solidity builtin assert(bool)"
+  unless (← mArr (← mField callee "overloadedDeclarations")).isEmpty do
+    failAt callee "assert overload set contains a non-builtin declaration"
+  unless optStr call "kind" == some "functionCall" do
+    failAt call "assert must be a function call"
+  unless (← mArr (← mField call "names")).isEmpty do
+    failAt call "named assert arguments are unsupported"
+  let args ← mArr (← mField call "arguments")
+  unless args.size == 1 do failAt call "assert(bool) requires one argument"
+  let condition ← atom (← lowerExpr args[0]!)
+  return condition.pre.push (.ite condition.expr [] [.panicCode (.literal 0x01)])
+
+/-- An expression statement whose value is discarded (`x;`, `this;`, `a / b;`, `-x;`,
+`arr[i];`). Both solc 0.8.34 pipelines still evaluate it: identifiers and literals do
+nothing, while a computed value's checks run (`a / b;` panics with `0x12` when `b` is
+zero), so it is lowered as a value and bound to a fresh local. Other statement kinds
+reject with their node kind. -/
+private partial def lowerDiscardedValue (expression : Json) : M (Array Stmt) := do
+  let kind ← mKind expression
+  match kind with
+  | "Identifier" | "Literal" => return #[]
+  | "BinaryOperation" | "UnaryOperation" | "IndexAccess" | "MemberAccess" | "Conditional"
+  | "TupleExpression" =>
+      if kind == "Conditional" then
+        if (← mType expression) == "tuple()" then
+          failAt expression
+            "a conditional expression statement between calls without return values is unsupported"
+      if kind == "TupleExpression" then
+        if (← mBool (← mField expression "isInlineArray")) ||
+            (← mArr (← mField expression "components")).size != 1 then
+          failAt expression "a tuple or inline array expression statement is unsupported"
+      return (← atom (← lowerExpr expression)).pre
+  | "FunctionCall" =>
+      let callKind := optStr expression "kind" |>.getD "function call"
+      unless callKind == "typeConversion" do
+        failAt expression s!"a {callKind} expression statement is unsupported"
+      return (← atom (← lowerExpr expression)).pre
+  | _ => failAt expression s!"{kind} expression statements are unsupported"
 
 private partial def lowerBuiltinRevert (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "expression"

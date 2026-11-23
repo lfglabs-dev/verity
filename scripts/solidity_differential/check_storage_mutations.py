@@ -183,6 +183,18 @@ MUTANTS.update({
     'import-assignment-argument-hash-guard': (
         'if !ordered && (statefulAbiEncodeIn j (← get) || assignmentAbiEncodeIn j) then',
         'if !ordered && statefulAbiEncodeIn j (← get) then')})
+# `assert(c)` reverts with Panic(0x01), and a discarded expression statement is still
+# evaluated: its checks (`10 / y;`, an enum conversion `Mode(y);`) keep their panics.
+MUTANTS.update({
+    'import-assert-panic-code': (
+        'return condition.pre.push (.ite condition.expr [] [.panicCode (.literal 0x01)])',
+        'return condition.pre.push (.ite condition.expr [] [.revertEmpty])'),
+    'import-discarded-value-evaluate': (
+        '      return (← atom (← lowerExpr expression)).pre\n  | "FunctionCall" =>',
+        '      return #[]\n  | "FunctionCall" =>'),
+    'import-discarded-conversion-evaluate': (
+        '      return (← atom (← lowerExpr expression)).pre\n  | _ => failAt expression',
+        '      return #[]\n  | _ => failAt expression')})
 # A storage array push panics with 0x41 once the length reaches 2^64, as solc's does, for
 # value and struct elements; and not one element earlier or later.
 MUTANTS.update({
@@ -1025,6 +1037,8 @@ def run(directory, output, name):
         fixture = "DividingWhileSequence"
     if name.startswith("import-assignment-argument-") and not name.endswith("-guard"):
         fixture = "AssignmentArgumentSequence"
+    if name.startswith(("import-assert-", "import-discarded-")):
+        fixture = "AssertStatementSequence"
     if name.startswith("import-named-arguments-"):
         fixture = "NamedArgumentsSequence"
     if name.startswith("import-storage-struct-param-slot-"):
@@ -1130,6 +1144,11 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [2, 0, 3, 0, 1, 7, 4, 1, 25, 10, 5, 11])])
+    if fixture == 'AssertStatementSequence':
+        # The holding/failing asserts and discarded-value panics of `assert-statement`.
+        argv[argv.index('--transactions') + 1] = '24'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv.extend(['--change-prefix', *map(str, [0, 8, 1, 9, 17, 2, 26, 10, 4, 12, 6, 30, 7, 111])])
     if fixture == 'NamedArgumentsSequence':
         argv[argv.index('--transactions') + 1] = '16'
         argv[argv.index('--seed') + 1] = '2490'
