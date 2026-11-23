@@ -9,9 +9,14 @@ def main():
     output = Path(tempfile.mkdtemp(prefix='abi-rejections-', dir='.lake')).resolve()
     # Narrow signed parameters are admitted since signedBitsOf reached paramType
     # (#2577/#2609): int8 is a positive control now.
+    # bytes1..bytes31 parameters are admitted since #2864 (7b5d501a6): bytes16 is a positive
+    # control; storage-fixed-bytes-widths checks `width16(bytes16,uint256)` on all three routes
+    # (clean words, dirty low padding reverts, returns). `bytes16[2] calldata` is the near-miss:
+    # like `uint8[2] calldata` below it falls through to the scalar parameter fallback
+    # (localParamType none), and bytes16 array elements are not admitted in any location (#2831).
     cases = [(ty, ty, True) for ty in ('uint8', 'uint16', 'uint248', 'uint256', 'int256', 'int8',
-                                       'address', 'bool')]
-    cases += [(ty, ty, False) for ty in ('bytes16',)]
+                                       'address', 'bool', 'bytes16')]
+    cases += [('bytes16[2]', 'bytes16[2] calldata', False)]
     cases += [('bytes', 'bytes memory', True), ('string', 'string memory', True),
               ('uint256[]', 'uint256[] calldata', True), ('uint8[2]', 'uint8[2] calldata', False),
               # Static memory arrays are decoded eagerly to memory (#2625).

@@ -71,6 +71,7 @@ from .programs import (
     stateful_overload_const_error_cond_tuple_tload_source,
     stateful_packed_member_write_source,
     stateful_packed_signed_int_source,
+    stateful_signed_narrow_value_source,
     stateful_packed_struct_mapping_ternary_tuple_source,
     stateful_public_getters_and_builtins_source,
     stateful_root_param_source,
@@ -150,6 +151,12 @@ SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 128 | (0xffff << 8) | (0xff << 24) | (0xf
 PACKED_SIGNED_INT_PREFIX = [0, (1 << 256) - 1,
                             127 | (8388603 << 8) | ((2 ** 127 - 2) << 32) | (0xdead << 160),
                             129 | (8388609 << 8) | ((2 ** 127 + 1) << 32), 1 << 255]
+# Words whose int128 / int64 truncations hit both ends of each range, -1, -2, zero and small
+# positives, with dirty bits above bit 128 / 64; 20 reverts at the message-less `require`.
+SIGNED_NARROW_VALUE_PREFIX = [0, 1, 2, 20, 21, 2**127 - 1, 2**127, 2**128 - 1, 2**128, 2**255,
+                              2**256 - 1, 2**256 - 2, 2**63, 2**63 - 1, 2**64 - 1, 2**64,
+                              (1 << 200) | 5, (0xabcdef << 128) | (2**127 + 7),
+                              (0x1234 << 64) | (2**63 + 9), 3 * 2**127 + 3]
 
 STORAGE_STRING_MEMBER_PREFIX = [0, 1, 2, 255, 256, 257, (0xab << 200) | (0x1234 << 136) | (0xff << 8) | 3,
                                 (1 << 255) | (1 << 136) | 4, (1 << 256) - 1, (1 << 256) - 2]
@@ -260,6 +267,7 @@ FIXTURE_CONTRACTS = {
     'signed-modulo': 'SignedModuloSequence',
     'signed-struct-compound': 'SignedStructCompoundSequence',
     'signed-struct-member-read': 'SignedStructMemberReadSequence',
+    'signed-narrow-values': 'SignedNarrowValueSequence',
     'solc-0810': 'Solc0810Sequence',
     'storage-string-members': 'StorageStringMemberSequence',
     'nested-memory-struct-return': 'NestedMemoryStructReturnSequence',
@@ -460,6 +468,9 @@ def main():
         variants = ('baseline', 'renamed', 'hex-literals')
     if args.fixture == 'fixed-bytes-widths':
         variants = ('baseline', 'renamed', 'word-arithmetic')
+        # 3 seed calls, 7 prefix calls, 24 root calls (check_stateful's _fixed_bytes_width_calls,
+        # including every dirty bytes16 word) and read(): never fewer transactions (#2831).
+        args.transactions = max(args.transactions, 35)
     if args.fixture == 'call-arg-side-effects':
         variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'struct-param-slot':
@@ -484,6 +495,8 @@ def main():
         variants = ('baseline', 'renamed', 'direct-members')
     if args.fixture == 'packed-signed-int':
         variants = ('baseline', 'renamed', 'split-buffer')
+    if args.fixture == 'signed-narrow-values':
+        variants = ('baseline', 'renamed', 'locals')
     if args.fixture in ('bytes-named-return-slice-struct', 'bytes-named-return-stateless', 'named-string-return',
                         'dynamic-array-root-returns', 'dynamic-array-root-returns-stateless'):
         variants = ('baseline', 'renamed', 'unnamed-returns')
@@ -588,6 +601,7 @@ def main():
                           else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
                           else stateful_storage_string_member_source(fixture, variant) if args.fixture == "storage-string-members"
                           else stateful_packed_signed_int_source(fixture, variant) if args.fixture == "packed-signed-int"
+                          else stateful_signed_narrow_value_source(fixture, variant) if args.fixture == "signed-narrow-values"
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
@@ -637,6 +651,8 @@ def main():
         if args.fixture == 'packed-signed-int':
             # Both ends of every signed width, small negatives, and high-word operands.
             extra = ['--change-prefix', *map(str, PACKED_SIGNED_INT_PREFIX)]
+        if args.fixture == 'signed-narrow-values':
+            extra = ['--change-prefix', *map(str, SIGNED_NARROW_VALUE_PREFIX)]
         if args.fixture == 'signed-modulo':
             # Centered-reduction boundaries (ALPHA / 2, ALPHA, the 8380417
             # reduction), the narrow int8 range, and both min % -1 parities.

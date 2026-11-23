@@ -488,7 +488,7 @@ def _struct_memory_array_root_calls():
 
 
 def _fixed_bytes_width_calls():
-    """`bytes1` / `bytes19` / `bytes31` root parameters (#2832): clean left-aligned
+    """`bytes1` / `bytes19` / `bytes31` / `bytes16` root parameters (#2832): clean left-aligned
     words (zero, mixed, every value byte set), then a nonzero low padding byte in
     each parameter, including the highest padding bit of `bytes19`, which solc's
     ABI decoder rejects with empty revert data; and a `bytes1` hex-digit parser."""
@@ -500,6 +500,14 @@ def _fixed_bytes_width_calls():
              (sig, [a, b, c | 1])]
     calls += [('nibble(bytes1)', [ch << 248]) for ch in (0x30, 0x39, 0x61, 0x66, 0x67, 0xff)]
     calls.append(('nibble(bytes1)', [(0x61 << 248) | 1]))
+    # `bytes16` (a width with its own lowering): clean words, then a nonzero low padding
+    # byte and the highest padding bit (both revert in solc's decoder); k reaches every
+    # byte of the Yul-assigned `bytes16` local, including its dirty low half.
+    h = 0x00112233445566778899aabbccddeeff << 128
+    sig16 = 'width16(bytes16,uint256)'
+    calls += [(sig16, [h, k]) for k in (0, 1, (1 << 128) - 1, 1 << 128, (1 << 256) - 1)]
+    calls += [(sig16, [0, 0]), (sig16, [((1 << 128) - 1) << 128, 7]),
+              (sig16, [h | 1, 0]), (sig16, [h | (1 << 127), 0]), (sig16, [(1 << 256) - 1, 0])]
     return calls
 
 
@@ -547,12 +555,13 @@ def main():
                              'model:N gives the model N and appends it to the compiled '
                              "constructor's arguments only, for an immutable the source writes "
                              "without a constructor argument (`X++`, a state variable initializer)")
-    parser.add_argument('--dirty-constructor-word', action='append', default=[],
+    parser.add_argument('--reverting-constructor-word', action='append', default=[],
                         metavar='INDEX=WORD',
-                        help='deploy the compiled model with constructor word INDEX replaced by '
-                             'WORD (SENDER<i>|N ors N into sender i), keeping the clean word for '
-                             'the source and the model: the compiled constructor must clean it '
-                             'to the immutable value of its type')
+                        help='control, on a separate Anvil node: deploying the source and the '
+                             'compiled model with constructor word INDEX replaced by WORD '
+                             '(SENDER<i>|N ors N into sender i), a word that is not a valid ABI '
+                             'encoding of that argument, must revert on both routes with the same '
+                             'revert data, as solc validates constructor arguments')
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
@@ -811,9 +820,12 @@ def main():
                 raise HarnessError(f'invalid --immutable {spec!r}')
             immutables.append((name, word))
             constructor_words += format(word, '064x')
+        # Bytecode without constructor arguments, for the reverting-constructor-word control.
+        source_base, compiled_base = source_code, compiled_code
         source_code += constructor_words
-        compiled_words = [constructor_words[i:i + 64] for i in range(0, len(constructor_words), 64)]
-        for spec in args.dirty_constructor_word:
+        clean_words = [constructor_words[i:i + 64] for i in range(0, len(constructor_words), 64)]
+        reverting = []
+        for spec in args.reverting_constructor_word:
             index, _, word = spec.partition('=')
             base, _, extra = word.partition('|')
             if base.startswith('SENDER') and base[6:].isdigit() and int(base[6:]) < len(senders):
@@ -821,13 +833,34 @@ def main():
             elif base.isdigit() and not extra:
                 dirty = int(base)
             else:
-                raise HarnessError(f'invalid --dirty-constructor-word {spec!r}')
-            if not index.isdigit() or int(index) >= len(compiled_words) or dirty >= 2 ** 256:
-                raise HarnessError(f'invalid --dirty-constructor-word {spec!r}')
-            compiled_words[int(index)] = format(dirty, '064x')
+                raise HarnessError(f'invalid --reverting-constructor-word {spec!r}')
+            if not index.isdigit() or int(index) >= len(clean_words) or dirty >= 2 ** 256:
+                raise HarnessError(f'invalid --reverting-constructor-word {spec!r}')
+            if format(dirty, '064x') == clean_words[int(index)]:
+                raise HarnessError(f'--reverting-constructor-word {spec!r} is the clean word')
+            reverting.append((int(index), format(dirty, '064x')))
         # The synthesized constructor takes every argument immutable, so the model-only ones
         # follow the source constructor's arguments (list them in declaration order after those).
-        compiled_code += ''.join(compiled_words + model_only_words)
+        compiled_code += ''.join(clean_words + model_only_words)
+        if reverting:
+            # Each dirty word alone, on its own node so the discovery node's nonces do not move.
+            with Anvil(output / 'reverting-constructor-words') as control:
+                for index, dirty in reverting:
+                    words = clean_words[:index] + [dirty] + clean_words[index + 1:]
+                    outcomes = []
+                    for route, data in (('source', source_base + ''.join(words)),
+                                        ('compiled', compiled_base + ''.join(words + model_only_words))):
+                        record = control.transact({'from': sender, 'data': data, 'gas': hex(10000000)})
+                        if (record['receipt'].get('status') != '0x0' or
+                                record['call'].get('error') != 'execution reverted'):
+                            raise HarnessError(f'{route} deployment with constructor word {index} = '
+                                               f'0x{dirty} did not revert')
+                        outcomes.append(record['call'].get('output', '0x'))
+                    if outcomes[0] != outcomes[1]:
+                        raise HarnessError(f'constructor word {index} = 0x{dirty}: source and compiled '
+                                           f'revert data differ ({outcomes[0]} vs {outcomes[1]})')
+            print(f'{len(reverting)} dirty constructor words revert on the source and compiled routes',
+                  flush=True)
         deployed = node.transact({'from': sender, 'data': source_code, 'gas': hex(10000000)})
         if deployed['receipt']['status'] != '0x1':
             raise HarnessError('source fixture deployment failed')

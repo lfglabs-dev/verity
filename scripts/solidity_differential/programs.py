@@ -1346,6 +1346,38 @@ def stateful_packed_signed_int_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown packed-signed-int variant: {variant}')
 
 
+def stateful_signed_narrow_value_source(fixture: str, variant: str) -> str:
+    """Narrow signed truncations, bounds, signed struct members and signed mapping keys agree
+    with renamed identifiers and with the same values bound to typed locals first."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        out = fixture
+        for old, new in (('boxes', 'cells'), ('byWide', 'wideKeyed'), ('byNarrow', 'narrowKeyed'),
+                         ('Box', 'Cell'), ('low', 'signedPart'), ('high', 'unsignedPart'),
+                         ('w', 'wide'), ('n', 'narrow'), ('k', 'key'), ('a', 'first'),
+                         ('b', 'second'), ('edges', 'flags'), ('total', 'sum')):
+            if len(re.findall(rf'\b{old}\b', out)) < 2:
+                raise ValueError(f'missing signed-narrow-values anchor {old}')
+            out = re.sub(rf'\b{old}\b', new, out)
+        return out
+    if variant == 'locals':
+        out = fixture
+        for old, new in (
+                ('        byWide[w] = byWide[w] + 1;\n',
+                 '        uint256 seen = byWide[w];\n        byWide[w] = seen + 1;\n'),
+                ('        uint256 edges = (w == type(int128).max ? 1 : 0) + (w == type(int128).min ? 2 : 0) +\n',
+                 '        int128 upper = type(int128).max;\n        int128 lower = type(int128).min;\n'
+                 '        uint256 edges = (w == upper ? 1 : 0) + (w == lower ? 2 : 0) +\n'),
+                ('        (a, b) = (b, a);\n',
+                 '        uint256 swapped = a;\n        a = b;\n        b = swapped;\n')):
+            if out.count(old) != 1:
+                raise ValueError(f'missing signed-narrow-values anchor {old!r}')
+            out = out.replace(old, new)
+        return out
+    raise ValueError(f'unknown signed-narrow-values variant: {variant}')
+
+
 def stateful_signed_modulo_source(fixture: str, variant: str) -> str:
     """Compare signed remainder with its truncated-quotient identity."""
     if variant == 'baseline':

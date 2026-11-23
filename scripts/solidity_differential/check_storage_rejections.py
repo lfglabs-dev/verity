@@ -65,6 +65,7 @@ def main():
     ordinal = iter(range(10**9))
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
+    failures = []
     cases = [
         ('empty-revert-positive', 'uint256 value;', 'value = x; revert();', 'uint256', None),
         ('empty-revert-dynamic-message', 'string private reason;', 'revert(reason);', 'uint256',
@@ -165,7 +166,9 @@ def main():
         ('member-opaque', 'struct Box { uint8 low; int128[] values; } mapping(uint256 => Box) private boxes;', 'delete boxes[1].values; return x;', 'uint256', 'member values is opaque'),
         ('member-address', 'struct Box { address owner; } mapping(uint256 => Box) private boxes;', 'boxes[1].owner = address(0); return x;', 'uint256', None),
         ('member-bytes16', 'struct Box { bytes16 tag; } mapping(uint256 => Box) private boxes;', 'boxes[1].tag = bytes16(0); return x;', 'uint256', 'unsupported layout member'),
-        ('member-signed', 'struct Box { int128 low; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = 1; return x;', 'uint256', 'unsupported layout member'),
+        # Signed struct members import since e0375de09 (#2619); storage-signed-narrow-values (SignedNarrowValueSequence) checks the values on all three routes,
+        # an int128 first member below an unsigned neighbour in one slot (#2831).
+        ('member-signed', 'struct Box { int128 low; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = 1; return x;', 'uint256', None),
         # A `string` / `bytes` struct member is opaque: its scalar siblings import at
         # solc's offsets; the member itself and whole-struct operations reject.
         ('member-string-sibling', STRING_MEMBER_BOX, 'uint8 id = uint8(x); boxes[id].bitmap = uint128(x); boxes[id].tail += 1; return uint256(boxes[id].bitmap) + boxes[id].tail;', 'uint256', None),
@@ -332,8 +335,10 @@ def main():
         ('mapping-bytes16-value', 'mapping(uint256 => bytes16) value;', 'return value[x];', 'bytes16', 'unsupported scalar mapping value type'),
         ('mapping-signed-key', 'mapping(int256 => uint256) value;', 'return value[0];', 'uint256', None),
         ('mapping-narrow-key', 'mapping(uint128 => uint256) value;', 'return value[uint128(x)];', 'uint256', None),
-        ('mapping-narrow-signed-key', 'mapping(int128 => uint256) value;', 'return value[0];', 'uint256', 'unsupported mapping key'),
-        ('mapping-int64-key', 'mapping(int64 => uint256) value;', 'return value[0];', 'uint256', 'unsupported mapping key'),
+        # Signed mapping keys import since e0375de09 (#2619); storage-signed-narrow-values (SignedNarrowValueSequence) checks the values on all three routes,
+        # negative and truncated int128 / int64 keys hashed sign-extended (#2831).
+        ('mapping-narrow-signed-key', 'mapping(int128 => uint256) value;', 'return value[0];', 'uint256', None),
+        ('mapping-int64-key', 'mapping(int64 => uint256) value;', 'return value[0];', 'uint256', None),
         ('mapping-dynamic-value', 'mapping(uint256 => bytes) value;', 'delete value[x]; return x;', 'uint256', 'unsupported mapping value encoding'),
         ('mapping-compound', 'mapping(uint256 => uint256) value;', 'value[x] += x; return value[x];', 'uint256', None),
         ('literal-constant-product', '', 'return x + (2 * 3);', 'uint256', None),
@@ -461,10 +466,14 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         (directory / 'check.log').write_text(text)
         if expected is None:
             if result.returncode or not artifact.exists():
-                raise RuntimeError(f'{name}: positive control failed\n{text}')
+                failures.append(f'{name}: positive control failed\n{text}')
+                print(f'FAIL storage-{name}', flush=True)
+                continue
         elif (result.returncode == 0 or artifact.exists() or expected not in text or
               not re.search(r'Fixture\.sol:\d+:\d+:', text)):
-            raise RuntimeError(f'{name}: expected located rejection {expected!r}\n{text}')
+            failures.append(f'{name}: expected located rejection {expected!r}\n{text}')
+            print(f'FAIL storage-{name}', flush=True)
+            continue
         print(f'pass storage-{name}', flush=True)
     solc_0810_cases = [
         ('solc-0810-single-quote-import',
@@ -782,11 +791,16 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'TryStatement: [solidity-import:unsupported] try/catch in a forwarded tuple requires call-success semantics'),
-        ('tuple-assignment-literal-rejected',
+        # Imports since e0375de09 (#2619), evaluating the whole right-hand side first, as solc;
+        # storage-signed-narrow-values (SignedNarrowValueSequence) checks the values on all three routes,
+        # including the swap `(a, b) = (b, a)` (#2831). lowerMultiCall's 'tuple destructuring requires a
+        # multi-return helper call' stays as a fail-closed fallback: every tuple-valued expression is now a
+        # call, a conditional or a tuple literal routed before it (probed, #2831).
+        ('tuple-assignment-literal-imports',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 a;\n    uint256 b;\n    (a, b) = (x, x + 1);\n    return a + b;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'TupleExpression: [solidity-import:unsupported] tuple destructuring requires a multi-return helper call'),
+         None),
         ('tuple-destructure-literal-stateful-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  uint256 private v;\n  function bump() internal returns (uint256) { v += 1; return v; }\n  function checked(uint256 x) external returns (uint256) {\n    (uint256 a, uint256 b) = (x, bump());\n    return a + b;\n  }\n}\n",
          None,
@@ -817,16 +831,33 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
-        ('int256-narrow-cast-rejected',
+        # Imports since 11af6b70b (#2577); storage-signed-narrow-values (SignedNarrowValueSequence) checks the values on all three routes:
+        # int128(int256(x)) and int64(w) truncate dirty words, uint128(w) reinterprets (#2831). The
+        # 'unsupported cast target' guard keeps the bool-identity-cast near-miss below.
+        ('int256-narrow-cast-imports',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    return uint256(uint128(int128(int256(x))));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'FunctionCall: [solidity-import:unsupported] unsupported cast target int128'),
-        ('int256-type-bound-narrow-rejected',
+         None),
+        # Imports since 11af6b70b (#2577); storage-signed-narrow-values (SignedNarrowValueSequence) checks the values on all three routes,
+        # comparing truncated values with type(int128).max / .min (#2831). 'unsupported type().max' is
+        # only reachable for types solc rejects in type(T).min/max (integers and enums are handled).
+        ('int256-type-bound-narrow-imports',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    return type(int128).max > 0 ? x : 0;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'MemberAccess: [solidity-import:unsupported] unsupported type().max int128'),
+         None),
+        # Near-misses that still reach the guards the flipped cases above used to test (#2831).
+        ('bool-identity-cast-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    bool ok = bool(x > 7);\n    return ok ? x : 0;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] unsupported cast target bool'),
+        ('require-user-defined-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function require(bool ok) internal pure { if (!ok) revert(); }\n  function checked(uint256 x) external pure returns (uint256) {\n    require(x > 7);\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] require must resolve to a supported Solidity builtin signature'),
         ('function-pointer-identifier-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function _helper(uint256 y) internal pure returns (uint256) { return y; }\n  function checked(uint256 x) external pure returns (uint256) {\n    return _helper == _helper ? x : 0;\n  }\n}\n",
          None,
@@ -1141,8 +1172,24 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] external contract calls are outside this slice'),
-        ('array-string-params-and-context-positive',
+        # Yul `basefee()` / `gasprice()` never imported: c4e34760d (#2567) added their lowerYul
+        # arms but not their arity, so `unsupported Yul builtin` rejects them first, and this case
+        # (a positive control until #2831) failed since. They stay rejected (#2831). Note: no
+        # differential route pins a base fee or gas price, so the Solidity forms `block.basefee` /
+        # `tx.gasprice`, which still import (kept in the positive case below), are not value-checked
+        # by any A/B/C fixture either; ArrayStringParamsAndContextSequence checks the rest of the source.
+        ('array-string-params-and-context-yul-basefee-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function _yulCtx() internal view returns (uint256 r) {\n    assembly (\"memory-safe\") {\n      r := add(add(selfbalance(), origin()), add(basefee(), gasprice()))\n    }\n  }\n  function _concat(string memory a, string memory b) internal pure returns (string memory) {\n    return string(abi.encodePacked(a, b));\n  }\n  function _sumMem(uint256[] memory vals, address[] memory addrs) internal pure returns (uint256) {\n    uint256 acc = 0;\n    for (uint256 i = 0; i < vals.length; i++) {\n      acc += vals[i] + uint256(uint160(addrs[i]));\n    }\n    return acc;\n  }\n  function checked(uint256[] calldata vals, address[] calldata addrs, string calldata label, uint256 x) external view returns (uint256) {\n    require(vals.length == addrs.length, \"len\");\n    bytes32 rolling = keccak256(bytes(label));\n    for (uint256 i = 0; i < vals.length; i++) {\n      address addr = addrs[i];\n      uint256 val = vals[i];\n      rolling = keccak256(abi.encode(rolling, addr, val));\n    }\n    string memory full = _concat(label, \":ok\");\n    uint256 ctx = address(this).balance + payable(address(this)).balance + uint256(uint160(tx.origin)) + block.basefee + tx.gasprice + _yulCtx();\n    return _sumMem(vals, addrs) + bytes(full).length + uint256(rolling) + ctx + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin basefee'),
+        ('array-string-params-and-context-yul-gasprice-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function _yulCtx() internal view returns (uint256 r) {\n    assembly (\"memory-safe\") {\n      r := add(add(selfbalance(), origin()), gasprice())\n    }\n  }\n  function _concat(string memory a, string memory b) internal pure returns (string memory) {\n    return string(abi.encodePacked(a, b));\n  }\n  function _sumMem(uint256[] memory vals, address[] memory addrs) internal pure returns (uint256) {\n    uint256 acc = 0;\n    for (uint256 i = 0; i < vals.length; i++) {\n      acc += vals[i] + uint256(uint160(addrs[i]));\n    }\n    return acc;\n  }\n  function checked(uint256[] calldata vals, address[] calldata addrs, string calldata label, uint256 x) external view returns (uint256) {\n    require(vals.length == addrs.length, \"len\");\n    bytes32 rolling = keccak256(bytes(label));\n    for (uint256 i = 0; i < vals.length; i++) {\n      address addr = addrs[i];\n      uint256 val = vals[i];\n      rolling = keccak256(abi.encode(rolling, addr, val));\n    }\n    string memory full = _concat(label, \":ok\");\n    uint256 ctx = address(this).balance + payable(address(this)).balance + uint256(uint160(tx.origin)) + block.basefee + tx.gasprice + _yulCtx();\n    return _sumMem(vals, addrs) + bytes(full).length + uint256(rolling) + ctx + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin gasprice'),
+        ('array-string-params-and-context-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  function _yulCtx() internal view returns (uint256 r) {\n    assembly (\"memory-safe\") {\n      r := add(selfbalance(), origin())\n    }\n  }\n  function _concat(string memory a, string memory b) internal pure returns (string memory) {\n    return string(abi.encodePacked(a, b));\n  }\n  function _sumMem(uint256[] memory vals, address[] memory addrs) internal pure returns (uint256) {\n    uint256 acc = 0;\n    for (uint256 i = 0; i < vals.length; i++) {\n      acc += vals[i] + uint256(uint160(addrs[i]));\n    }\n    return acc;\n  }\n  function checked(uint256[] calldata vals, address[] calldata addrs, string calldata label, uint256 x) external view returns (uint256) {\n    require(vals.length == addrs.length, \"len\");\n    bytes32 rolling = keccak256(bytes(label));\n    for (uint256 i = 0; i < vals.length; i++) {\n      address addr = addrs[i];\n      uint256 val = vals[i];\n      rolling = keccak256(abi.encode(rolling, addr, val));\n    }\n    string memory full = _concat(label, \":ok\");\n    uint256 ctx = address(this).balance + payable(address(this)).balance + uint256(uint160(tx.origin)) + block.basefee + tx.gasprice + _yulCtx();\n    return _sumMem(vals, addrs) + bytes(full).length + uint256(rolling) + ctx + x;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
@@ -1187,11 +1234,20 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] abi.encodeCall target must be a function declaration'),
-        ('abi-encode-call-unsupported-param-type-rejected',
+        # Imports since 11af6b70b (#2577); storage-signed-narrow-values (SignedNarrowValueSequence) checks the values on all three routes,
+        # hashing abi.encodeCall(f, (int128, int64)) of truncated values and of the literals (-1, -2), (0, 0) (#2831).
+        ('abi-encode-call-int128-param-imports',
          "pragma solidity 0.8.34;\ninterface IBad { function f(int128 a) external; }\ncontract C {\n  function checked(uint256) external pure returns (bytes32) {\n    return keccak256(abi.encodeCall(IBad.f, (0)));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'VariableDeclaration: [solidity-import:unsupported] unsupported ABI encoding argument type int128'),
+         None),
+        # bytes16 is admitted as a root parameter (#2864) but not as an abi.encodeCall argument:
+        # paramType has no bytesN, so the scalar encodeCall guard still rejects it (#2831).
+        ('abi-encode-call-bytes16-param-rejected',
+         "pragma solidity 0.8.34;\ninterface IBad { function f(bytes16 a) external; }\ncontract C {\n  function checked(uint256) external pure returns (bytes32) {\n    return keccak256(abi.encodeCall(IBad.f, (bytes16(0))));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported ABI encoding argument type bytes16'),
         ('abi-encode-with-signature-expr-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (bytes memory) {\n    return abi.encodeWithSignature(\"f(uint256)\", x);\n  }\n}\n",
          None,
@@ -1954,13 +2010,28 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] external or bound function pointers are outside this slice'),
+        # Single struct returns with a `bytes` member import since 2b63b08f1 (#2678); a literal
+        # member now stops at the bytes-member guard (fresh-buffer sharing is not modelled).
+        # The same constructor in a return tuple still reaches the call-kind guard (#2831).
         ('root-struct-return-dynamic-member-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct Dyn { uint256 a; bytes b; }\n  function checked(uint256 x) external pure returns (Dyn memory) {\n    return Dyn(x, hex\"01\");\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Literal: [solidity-import:unsupported] a bytes struct member must be a calldata value, a calldata slice, or a builtin encoding; an existing memory buffer would be shared'),
+        ('root-struct-return-dynamic-member-tuple-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Dyn { uint256 a; bytes b; }\n  function checked(uint256 x) external pure returns (Dyn memory, uint256) {\n    return (Dyn(x, hex\"01\"), 1);\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'FunctionCall: [solidity-import:unsupported] unsupported call kind structConstructorCall'),
         ('root-struct-return-calldata-location-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; uint256 b; }\n  function checked(S calldata s) external pure returns (S calldata) {\n    return s;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] ABI returns of calldata structs are unsupported'),
+        # The single struct return above now stops at the root struct-return guard (2b63b08f1,
+        # #2678); a calldata struct in a return tuple still reaches the value guard (#2831).
+        ('root-struct-return-calldata-tuple-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; uint256 b; }\n  function checked(S calldata s) external pure returns (S calldata, uint256) {\n    return (s, 1);\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] storage or memory path used as a value'),
@@ -2186,8 +2257,16 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'BinaryOperation: [solidity-import:unsupported] a while loop condition must test v != 0 or v > 0'),
+        # A free-memory-pointer read that the CREATE2 address pattern does not match (length 84,
+        # not 85) now stops at the pointer-read guard (1cdc9e631); the same block reading the
+        # pointer through a computed address still reaches the generic mload guard (#2831).
         ('create2-clones-msgdata-deque-bad-create2-length-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    bytes32 salt = bytes32(x);\n    bytes32 bytecodeHash = bytes32(x + 1);\n    address deployer = address(this);\n    address addr;\n    assembly (\"memory-safe\") {\n      let ptr := mload(0x40)\n      mstore(add(ptr, 0x40), bytecodeHash)\n      mstore(add(ptr, 0x20), salt)\n      mstore(ptr, deployer)\n      let start := add(ptr, 0x0b)\n      mstore8(start, 0xff)\n      addr := keccak256(start, 84)\n    }\n    return uint256(uint160(addr));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulFunctionCall: [solidity-import:unsupported] Yul reads of the free-memory pointer may only restore it or place a bubbled revert'),
+        ('create2-clones-msgdata-deque-bad-create2-computed-pointer-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    bytes32 salt = bytes32(x);\n    bytes32 bytecodeHash = bytes32(x + 1);\n    address deployer = address(this);\n    address addr;\n    assembly (\"memory-safe\") {\n      let ptr := mload(add(0x20, 0x20))\n      mstore(add(ptr, 0x40), bytecodeHash)\n      mstore(add(ptr, 0x20), salt)\n      mstore(ptr, deployer)\n      let start := add(ptr, 0x0b)\n      mstore8(start, 0xff)\n      addr := keccak256(start, 84)\n    }\n    return uint256(uint160(addr));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
@@ -2291,12 +2370,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
-            else 'checked(S)' if name in {'struct-local-reassigned-rejected', 'abi-encode-root-bytes-field-rejected', 'root-struct-return-calldata-location-rejected', 'abi-encode-call-dynamic-struct-rejected'}
+            else 'checked(S)' if name in {'struct-local-reassigned-rejected', 'abi-encode-root-bytes-field-rejected', 'root-struct-return-calldata-location-rejected', 'root-struct-return-calldata-tuple-rejected', 'abi-encode-call-dynamic-struct-rejected'}
             else 'checked(Outer)' if name == 'abi-schema-static-nested-struct-rejected'
             else 'checked(Bundle,uint256)' if name == 'abi-encode-struct-array-effectful-index-rejected'
             else 'checked(Envelope,uint256)' if name == 'struct-hash-and-domain-separator-positive'
             else 'checked(Envelope,bytes,uint256)' if name == 'abi-decode-and-verifier-positive'
-            else 'checked(«uint256[]»,«address[]»,string,uint256)' if name == 'array-string-params-and-context-positive'
+            else 'checked(«uint256[]»,«address[]»,string,uint256)' if name.startswith('array-string-params-and-context-')
             else 'checked(bytes,bytes,string,uint256)' if name == 'bytes-memory-and-abi-encode-call-positive'
             else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'
             else 'checked(string,bytes,uint256)' if name == 'bytes-and-string-storage-positive'
@@ -2334,11 +2413,18 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         (directory / 'check.log').write_text(text)
         if expected is None:
             if result.returncode or not artifact.exists():
-                raise RuntimeError(f'{name}: positive control failed\n{text}')
+                failures.append(f'{name}: positive control failed\n{text}')
+                print(f'FAIL storage-{name}', flush=True)
+                continue
         elif result.returncode == 0 or artifact.exists() or expected not in text:
-            raise RuntimeError(f'{name}: expected rejection {expected!r}\n{text}')
+            failures.append(f'{name}: expected rejection {expected!r}\n{text}')
+            print(f'FAIL storage-{name}', flush=True)
+            continue
         print(f'pass storage-{name}', flush=True)
     print(output)
+    # Every case runs; one failure must not hide the others (#2831).
+    if failures:
+        raise RuntimeError(f'{len(failures)} storage rejection cases failed:\n\n' + '\n\n'.join(failures))
 
 
 if __name__ == '__main__':
