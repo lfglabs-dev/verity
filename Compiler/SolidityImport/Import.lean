@@ -14571,7 +14571,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         lowerMultiBranch right (some expectedTypes)
       else lowerMultiCall right (some expectedTypes)
     unless expectedTypes.size == retExprs.size do
-      failAt expression s!"tuple assignment arity {expectedTypes.size} does not match helper return arity {retExprs.size}"
+      if expectedTypes.size != cs.size then
+        failAt right "string/bytes tuple assignment components require a multi-return helper call with matching results"
+      failAt expression s!"tuple assignment arity {cs.size} does not match helper return arity {retExprs.size}"
     let mut seenIds : Array Nat := #[]
     let mut assigns : Array Stmt := #[]
     for k in [:cs.size] do
@@ -16693,6 +16695,10 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
         lowerMultiBranch init (some expectedTypes)
       else lowerMultiCall init (some expectedTypes)
     unless expectedTypes.size == retExprs.size do
+      -- A helper's string/bytes result takes two slots; an elided component
+      -- takes one, so an elided string/bytes result cannot line up.
+      if decls.any (·.isNull) && retExprs.any (fun (_, ty) => ty == "bytes" || ty == "string") then
+        failAt s "an elided string/bytes tuple component is outside this slice"
       failAt s s!"tuple declaration arity {decls.size} does not match helper return arity {retExprs.size}"
     let mut out := callPre
     -- A memory struct component takes one result per member, so the results of
