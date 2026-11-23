@@ -299,11 +299,16 @@ MUTANTS.update({
     # Located rejections: a reference conditional and a keyed storage `string` source beside
     # a target key prelude.
     'import-copy-order-struct-conditional-guard': (
-        '  if !pre.isEmpty && (← mKind stripped) == "Conditional" && !(← isStructValueSource stripped) then\n',
+        '  if (← mKind stripped) == "Conditional" && !(← isStructValueSource stripped) &&\n      (← keyOrderObservable pre target stripped rightFirst) then\n',
         '  if false then\n'),
     'import-copy-order-storage-bytes-source-guard': (
-        '  if !pre.isEmpty && ((← mType right).splitOn " storage").length > 1 &&\n      (← mKind right) != "Identifier" then\n',
-        '  if false then\n')})
+        '  if ((← mType right).splitOn " storage").length > 1 && (← mKind right) != "Identifier" &&\n      (← keyOrderObservable pre target right) then\n',
+        '  if false then\n'),
+    # Without effects in the target's keys, the order is still observable when both the keys
+    # and the right-hand side can revert.
+    'import-copy-order-reverting-source-guard': (
+        '  return !(← orderInert right)\n',
+        '  return false\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1874,6 +1879,17 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-copy-order-reverting-source-guard':
+        diagnostic = 'keyed storage bytes/string source beside a target key prelude is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ mapping(uint256 => string) private labels;
+ function checked(uint256 x) external returns (uint256) {
+  labels[x - 1] = labels[10 / x];
+  return bytes(labels[x - 1]).length;
+ }
+}
+''')
     elif name == 'import-copy-order-storage-bytes-source-guard':
         diagnostic = 'keyed storage bytes/string source beside a target key prelude is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2247,6 +2263,7 @@ def mutation_campaign(output, selected=None):
                                   'import-assignment-argument-concat-guard',
                                   'import-copy-order-struct-conditional-guard',
                                   'import-copy-order-storage-bytes-source-guard',
+                                  'import-copy-order-reverting-source-guard',
                                   'import-assignment-argument-hash-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)

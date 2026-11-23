@@ -14057,13 +14057,60 @@ private partial def isStructValueSource (j : Json) : M Bool := do
       return onTrue && onFalse
   | _ => return false
 
+/-- An expression whose evaluation cannot revert, call or write: identifiers, literals, member
+reads, mapping lookups, comparisons, logical and bitwise operators, conditionals and struct
+constructors of such. Evaluated
+before or after a target key prelude without effects, it gives the same result. -/
+private partial def orderInert (j : Json) : M Bool := do
+  let j ← stripParens j
+  match ← mKind j with
+  | "Identifier" | "Literal" => return true
+  | "MemberAccess" =>
+      if (← mType j).startsWith "function " then return false
+      orderInert (← mField j "expression")
+  | "IndexAccess" =>
+      let base ← mField j "baseExpression"
+      unless (← mType base).startsWith "mapping(" do return false
+      let some index := field? j "indexExpression" | return false
+      return (← orderInert base) && (← orderInert index)
+  | "Conditional" =>
+      return (← orderInert (← mField j "condition")) &&
+        (← orderInert (← mField j "trueExpression")) && (← orderInert (← mField j "falseExpression"))
+  | "BinaryOperation" =>
+      -- Comparisons, logical and bitwise operators cannot revert (unless user-defined).
+      if (field? j "function").isSome then return false
+      let op := optStr j "operator" |>.getD ""
+      unless ["==", "!=", "<", "<=", ">", ">=", "&&", "||", "&", "|", "^"].contains op do
+        return false
+      return (← orderInert (← mField j "leftExpression")) &&
+        (← orderInert (← mField j "rightExpression"))
+  | "UnaryOperation" =>
+      unless optStr j "operator" == some "!" && (field? j "function").isNone do return false
+      orderInert (← mField j "subExpression")
+  | "FunctionCall" =>
+      unless optStr j "kind" == some "structConstructorCall" do return false
+      (← mArr (← mField j "arguments")).allM orderInert
+  | _ => return false
+
+/-- Whether the lowering's order of `right` and the target's key prelude `pre` can differ
+observably from solc's: the target's keys call or write (state the right-hand side may read),
+or, unless the lowering already evaluates `right` first (`rightFirst`), the right-hand side
+itself can revert, call or write (a panic in both, or a write the keys read). -/
+private partial def keyOrderObservable (pre : Array Stmt) (target right : Json)
+    (rightFirst : Bool := false) : M Bool := do
+  if pre.isEmpty then return false
+  if statefulCallIn target (← get) || assignmentIn target then return true
+  if rightFirst then return false
+  return !(← orderInert right)
+
 /-- solc evaluates a storage `bytes`/`string` source's own keys before the target's and copies
-it after them. The lowering reads such a source in one step, so beside a target key prelude a
+it after them. The lowering reads such a source in one step, so when the order is observable a
 source that is not a storage variable or storage pointer local is rejected. -/
-private partial def checkStorageBytesSourceOrder (pre : Array Stmt) (right : Json) : M Unit := do
+private partial def checkStorageBytesSourceOrder (pre : Array Stmt) (target right : Json) :
+    M Unit := do
   let right ← stripParens right
-  if !pre.isEmpty && ((← mType right).splitOn " storage").length > 1 &&
-      (← mKind right) != "Identifier" then
+  if ((← mType right).splitOn " storage").length > 1 && (← mKind right) != "Identifier" &&
+      (← keyOrderObservable pre target right) then
     failAt right "keyed storage bytes/string source beside a target key prelude is unsupported"
 
 /-- A storage struct source of a whole-struct copy beside a target key prelude. solc evaluates
@@ -14105,10 +14152,13 @@ private partial def lowerStructStorageSource? (right : Json) (sid : Nat) :
 
 /-- A conditional struct right-hand side that is not a value (`isStructValueSource`) beside a
 target key prelude: solc evaluates its condition and selects a branch reference before the
-target's keys and copies the branch after them; the lowering cannot split the two. -/
-private partial def checkStructConditionalSource (pre : Array Stmt) (right : Json) : M Unit := do
+target's keys and copies the branch after them; the lowering cannot split the two, so it is
+rejected when that order is observable (`keyOrderObservable`). -/
+private partial def checkStructConditionalSource (pre : Array Stmt) (target right : Json)
+    (rightFirst : Bool := false) : M Unit := do
   let stripped ← stripParens right
-  if !pre.isEmpty && (← mKind stripped) == "Conditional" && !(← isStructValueSource stripped) then
+  if (← mKind stripped) == "Conditional" && !(← isStructValueSource stripped) &&
+      (← keyOrderObservable pre target stripped rightFirst) then
     failAt right "struct conditional with a reference branch beside a target key prelude is unsupported"
 
 private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (deleting : Bool)
@@ -14144,7 +14194,8 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
     let right ← mField expression "rightHandSide"
     if !pre.isEmpty && (statefulCallIn right (← get) || assignmentIn right) then
       failAt target "struct storage write key prelude with stateful RHS is unsupported"
-    checkStructConditionalSource pre right
+    -- The raw-slot lowering evaluates a conditional in full before the keys.
+    checkStructConditionalSource pre target right (rightFirst := true)
     -- A storage source: its slot before the target's keys, its members after them.
     let source? ← if pre.isEmpty then pure none else lowerStructStorageSource? right rawSid
     let (slotPre, rhsPre, memberVals) ← match source? with
@@ -14204,7 +14255,7 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   let right ← mField expression "rightHandSide"
   if !pre.isEmpty && (statefulCallIn right (← get) || assignmentIn right) then
     failAt target "struct storage write key prelude with stateful RHS is unsupported"
-  checkStructConditionalSource pre right
+  checkStructConditionalSource pre target right
   -- solc evaluates a struct value before the target's keys, so with a key prelude its member
   -- values are captured first. A reference (storage or memory variable, element or storage
   -- pointer) is read at the copy, after the keys; a storage source's own slot comes first.
@@ -14762,7 +14813,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let right ← mField expression "rightHandSide"
           if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
             failAt target "StorageSlot bytes/string write prelude with stateful RHS is unsupported"
-          checkStorageBytesSourceOrder pre right
+          checkStorageBytesSourceOrder pre target right
           return ← lowerStorageBytesWrite fieldName pre target right slotExpr (some isString)
         let (rawField, count, write) ← match path with
           | .zero rawField =>
@@ -15078,7 +15129,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       let (slotStmts, slotExpr) ← computeSPathBaseSlot path info 0 target
       if deleting then
         return ← lowerStorageBytesDelete (pre ++ slotStmts) "" slotExpr
-      checkStorageBytesSourceOrder pre (← mField expression "rightHandSide")
+      checkStorageBytesSourceOrder pre target (← mField expression "rightHandSide")
       let right ← mField expression "rightHandSide"
       if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
         failAt target "mapping bytes/string write key prelude with stateful RHS is unsupported"
@@ -15104,7 +15155,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       let right ← mField expression "rightHandSide"
       if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
         failAt target "storage bytes/string write prelude with stateful RHS is unsupported"
-      checkStorageBytesSourceOrder pre right
+      checkStorageBytesSourceOrder pre target right
       return ← lowerStorageBytesWrite fieldName pre target right slotExpr (some isString)
   | .path pre path =>
       return ← writeWholeStorageStruct pre path deleting target expression
