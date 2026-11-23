@@ -18,12 +18,15 @@ def buildSwitch := Compiler.CodegenCommon.buildSwitch
 def runtimeCode := Compiler.CodegenCommon.runtimeCode
 def emitYul := Compiler.CodegenCommon.emitYul
 
-/-- `emitYul` followed by the temporary-reuse and scratch-memory spill pass
-(`Compiler.Yul.TempReuse.reuseAndSpillTempsObject` at `defaultMaxStackLocals`), the same pass
-`CompileDriverCommon.writeContract` applies before rendering. Use it wherever emitted Yul is
-handed to solc: blocks with many live temporaries otherwise fail with StackTooDeep (#2831). -/
+/-- `emitYul` followed by temporary reuse and scratch-memory spilling
+(`Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject`), for Yul that is handed to solc
+(import model drivers): blocks with many live temporaries otherwise fail with StackTooDeep
+(#2831). A code section is spilled only when its spill words are provably disjoint from all of
+its other memory accesses, so its memory layout and allocation bounds stay exactly as
+emitted; other sections are left unchanged. -/
 def emitYulSpilled (contract : IRContract) : YulObject :=
-  Yul.TempReuse.reuseAndSpillTempsObject Yul.TempReuse.defaultMaxStackLocals (emitYul contract)
+  Yul.TempReuse.reuseAndSpillTempsStaticObject Yul.TempReuse.defaultMaxStackLocals
+    (emitYul contract)
 
 private def patchBackend : Compiler.CodegenCommon.PatchBackend :=
   { apply := fun base options =>
