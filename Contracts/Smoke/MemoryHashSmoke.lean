@@ -38,24 +38,42 @@ theorem hashBytes_is_keccak (data : ByteArray) (s : ContractState)
   exact ⟨_, rfl⟩
 
 open Contracts.ProofKit in
-/-- `mstore` + `keccak256`: `hashWords a b` returns `keccak256(abi.encode(a, b))`. -/
+/-- `mstore` + `keccak256`: `hashWords a b` returns `keccak256(abi.encode(a, b))`
+(`keccak_after_mstores`). -/
 theorem hashWords_is_keccak (a b : Uint256) (s : ContractState) :
     ∃ s', MemoryHashSmoke.hashWords a b s =
-      .success (Verity.Core.Uint256.ofNat (keccakBytes (toBE 32 a.val ++ toBE 32 b.val))) s' := by
+      .success (Verity.Core.Uint256.ofNat (keccakBytes (encodeWords [a.val, b.val]))) s' := by
   unfold MemoryHashSmoke.hashWords
   obtain ⟨u0, s1, h0⟩ : ∃ u s1, Contracts.mstore 0 a s = .success u s1 := ⟨_, _, mstore_eq _ _ _⟩
   obtain ⟨u1, s2, h1⟩ : ∃ u s2, Contracts.mstore 32 b s1 = .success u s2 :=
     ⟨_, _, mstore_eq _ _ _⟩
   rw [bind_step h0, bind_step h1, bind_step (keccak256Live_eq _ _ _)]
-  have hk : Compiler.Keccak.MemorySlice.keccak (fun a => (s2.memory a).val) 0 64 =
-      keccakBytes (toBE 32 a.val ++ toBE 32 b.val) := by
-    apply keccak_eq_keccakBytes
-    rw [mstore_ok h1, mstore_ok h0, bytesBE_of_words _ _ _ [a.val, b.val] rfl]
-    · simp
-    · intro i hi
-      simp at hi
-      have h32 : (32 : Uint256).val = 32 := rfl
-      interval_cases i <;> simp [h32]
-  exact ⟨s2, by rw [← hk]; rfl⟩
+  have hk := keccak_after_mstores 0 [a, b] (fun i => [s, s1, s2].getD i s) (fun i => 32 * i)
+    (by intro i hi; simp at hi; interval_cases i <;> rfl)
+    (by intro i hi; simp at hi; interval_cases i <;> assumption)
+    (by norm_num)
+  exact ⟨s2, by
+    rw [show encodeWords [a.val, b.val] = encodeWords ([a, b].map (·.val)) from rfl, ← hk]; rfl⟩
+
+open Contracts.ProofKit in
+/-- The digest word `hashWords` returns is the Keccak-256 of `abi.encode(a, b)`, unreduced. -/
+theorem hashWords_digest_val (a b : Uint256) (s : ContractState) :
+    ∃ d s', MemoryHashSmoke.hashWords a b s = .success d s' ∧
+      d.val = keccakBytes (encodeWords [a.val, b.val]) := by
+  obtain ⟨s', h⟩ := hashWords_is_keccak a b s
+  exact ⟨_, s', h, val_ofNat_keccakBytes _⟩
+
+open Contracts.ProofKit in
+/-- `hashWords` only writes memory: it keeps storage, chain id and address. -/
+theorem hashWords_keepsStorage (a b : Uint256) (s s' : ContractState) (d : Uint256)
+    (h : MemoryHashSmoke.hashWords a b s = .success d s') : KeepsStorage s s' := by
+  obtain ⟨u0, s1, h0⟩ : ∃ u s1, Contracts.mstore 0 a s = .success u s1 := ⟨_, _, mstore_eq _ _ _⟩
+  obtain ⟨u1, s2, h1⟩ : ∃ u s2, Contracts.mstore 32 b s1 = .success u s2 :=
+    ⟨_, _, mstore_eq _ _ _⟩
+  unfold MemoryHashSmoke.hashWords at h
+  rw [bind_step h0, bind_step h1, bind_step (keccak256Live_eq _ _ _)] at h
+  injection h with _ hs
+  subst hs
+  exact (keepsStorage_of_mstore h0).trans (keepsStorage_of_mstore h1)
 
 end Contracts.Smoke

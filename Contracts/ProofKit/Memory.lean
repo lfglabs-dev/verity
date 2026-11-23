@@ -16,8 +16,11 @@ which bytes that is after `copyBytes` and `mstore`, so a theorem can state "this
   `dest` are `data`, provided `dest + data.size + 32 < 2^256`.
 - `bytesBE_of_words`: words written at `b, b + 32, …` read back as their concatenation.
 - `keccak_eq_keccakBytes`: `MemorySlice.keccak` of a slice equals `keccakBytes` of its bytes.
+- `encodeWords ws`: `abi.encode` of words; `keccak_of_words`: words at `b, b + 32, …` hash to
+  `keccakBytes (encodeWords ws)`.
 - `eip712_pack`: the three aligned words for `"\x19\x01" ‖ a ‖ b` read as 66 bytes are that string.
-- Word arithmetic: `add_val`, `shl_val`, `shr_val`, `bitOr_val_of_lt`.
+- Word arithmetic: `add_val`, `shl_val`, `shr_val`, `bitOr_val_of_lt`, `ofNat_val`,
+  `val_ofNat_keccakBytes`.
 
 Memory is word-addressed (`Nat → Uint256`, one word per byte offset written); unaligned reads and
 writes are outside the model.
@@ -343,7 +346,34 @@ theorem keccak_eq_keccakBytes (mem : Nat → Nat) (o z : Nat) (l : List UInt8)
   cases hb : bytesBE mem o z with
   | mk d => rw [hb] at h; simp at h; subst h; simp
 
+/-- The ABI encoding of words: each word as 32 big-endian bytes (`abi.encode` of `uint256`s). -/
+def encodeWords (ws : List Nat) : List UInt8 := ws.flatMap (toBE 32)
+
+@[simp] theorem length_encodeWords (ws : List Nat) : (encodeWords ws).length = 32 * ws.length := by
+  induction ws with
+  | nil => rfl
+  | cons w ws ih =>
+    simp only [encodeWords, List.flatMap_cons, List.length_append, toBE_length] at ih ⊢
+    rw [ih, List.length_cons]; ring
+
+open Compiler.Keccak.MemorySlice in
+/-- Words `ws` at `b, b + 32, …`, hashed over `32 * ws.length` bytes, give
+`keccakBytes (encodeWords ws)`. -/
+theorem keccak_of_words (mem : Nat → Nat) (b : Nat) (ws : List Nat)
+    (h : ∀ i (hi : i < ws.length), mem ((b + i * 32) % Compiler.Constants.evmModulus) = ws[i]) :
+    keccak mem b (32 * ws.length) = keccakBytes (encodeWords ws) := by
+  apply keccak_eq_keccakBytes
+  rw [bytesBE_of_words mem b _ ws (by simp only [byteWordCount]; omega) h]
+  exact List.take_of_length_le (by rw [← encodeWords, length_encodeWords])
+
 /-! ## Word arithmetic -/
+
+theorem ofNat_val (x : Verity.Core.Uint256) : Verity.Core.Uint256.ofNat x.val = x :=
+  Verity.Core.Uint256.ext (Nat.mod_eq_of_lt x.isLt)
+
+theorem val_ofNat_keccakBytes (l : List UInt8) :
+    (Verity.Core.Uint256.ofNat (keccakBytes l)).val = keccakBytes l :=
+  Nat.mod_eq_of_lt (keccakBytes_lt l)
 
 theorem add_val (b : Verity.Core.Uint256) (c : Nat) (hc : c < 2 ^ 256) :
     (Verity.EVM.Uint256.add b (Verity.Core.Uint256.ofNat c)).val = (b.val + c) % 2 ^ 256 := by

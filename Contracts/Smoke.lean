@@ -37,6 +37,7 @@ import Contracts.Smoke.UnitReturnSmoke
 import Contracts.Smoke.InterfaceCompositeReturnSmoke
 import Contracts.Smoke.WholeCompositeValueSmoke
 import Contracts.Smoke.MemoryHashSmoke
+import Contracts.Smoke.ExternalCallFramesSmoke
 import Contracts.Smoke.Create2AddressSmoke
 import Contracts.Smoke.SpillFreeMemorySmoke
 import Contracts.Smoke.LoopSemanticsSmoke
