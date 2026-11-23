@@ -7594,17 +7594,20 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
               failAt args[otherIdx]! "calldata ABI encoding argument beside a reverting helper is unsupported"
             if otherIdx != argIdx && (← mType args[otherIdx]!).contains " storage" then
               failAt args[otherIdx]! "storage ABI encoding argument beside a reverting helper is unsupported"
+        if args.size > 1 && (ty.splitOn " storage").length > 1 then
+          -- solc validates a calldata array or struct argument while encoding it, in argument
+          -- order, whereas the lowering validates it at its position (a static struct) or in
+          -- the tails (an array, a struct with a dynamic member), and reads a storage bytes /
+          -- string argument after every argument (deferred) or at its position (a storage
+          -- conditional): either order can differ from solc's, so such a sibling, on either
+          -- side, is rejected.
+          for otherIdx in [:args.size] do
+            let otherTy ← mType args[otherIdx]!
+            if otherIdx != argIdx && otherTy.contains "calldata" &&
+                ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then
+              failAt args[otherIdx]! "calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported"
         if args.size > 1 then
           if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then
-            -- solc validates a calldata array or struct argument while encoding it, in argument
-            -- order, whereas the lowering validates it at its position (a static struct) or in
-            -- the tails (an array, a struct with a dynamic member): either can differ from this
-            -- deferred read's order, so such a sibling, on either side, is rejected.
-            for otherIdx in [:args.size] do
-              let otherTy ← mType args[otherIdx]!
-              if otherIdx != argIdx && otherTy.contains "calldata" &&
-                  ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then
-                failAt args[otherIdx]! "calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported"
             pre := pre ++ refPre
             let headIdx := headWords.size
             headWords := headWords.push none

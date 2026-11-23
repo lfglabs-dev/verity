@@ -423,8 +423,8 @@ MUTANTS.update({
         '        unless ← orderInert later do\n          failAt arg "storage bytes/string encoding argument',
         '        unless true do\n          failAt arg "storage bytes/string encoding argument'),
     'import-encoding-order-calldata-array-guard': (
-        '              if otherIdx != argIdx && otherTy.contains "calldata" &&\n                  ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then\n',
-        '              if false then\n')})
+        '            if otherIdx != argIdx && otherTy.contains "calldata" &&\n                ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then\n',
+        '            if false then\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
