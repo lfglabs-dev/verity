@@ -38,9 +38,10 @@ STRING_MEMBER_BOX = 'struct Box { uint128 bitmap; string label; uint64 tail; } m
 # Root ABI parameter controls: the `function` line of each case's import.
 ROOT_PARAM_SIGNATURES = {
     'encoding-calldata-array-before-storage-string-rejected': 'checked(«uint8[]»)',
-    'encoding-storage-string-before-calldata-array-accepted': 'checked(«uint8[]»)',
+    'encoding-storage-string-before-calldata-array-rejected': 'checked(«uint8[]»)',
     'encoding-calldata-struct-before-storage-string-rejected': 'checked(Item)',
-    'encoding-storage-string-before-calldata-struct-accepted': 'checked(Item)',
+    'encoding-storage-string-before-calldata-struct-rejected': 'checked(Item)',
+    'encoding-storage-string-before-calldata-static-struct-rejected': 'checked(Pair)',
     'root-param-string-member-accepted': 'checked(S)',
     'root-param-string-member-staticcall-rejected': 'checked(S)',
     'root-param-struct-array-accepted': 'checked(«S[]»)',
@@ -1786,9 +1787,10 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          "Identifier: [solidity-import:unsupported] storage reference argument of a typed external call without return values: via-IR checks the callee's code size before encoding it"),
         # Encoding arguments (EncodingArgumentOrderSequence): solc reads a storage `bytes` /
         # `string` argument while encoding, after every argument has run. A storage conditional
-        # (its slot is not deferred) before a sibling that can revert, and a calldata array
-        # (validated while encoding, in argument order) before a deferred storage read, are
-        # located rejections; inert siblings and the other order import.
+        # (its slot is not deferred) before a sibling that can revert is a located rejection;
+        # inert siblings import. A calldata array or struct on either side of a deferred storage
+        # read is a located rejection: solc validates it while encoding, in argument order, the
+        # lowering at its position (a static struct) or in the tails.
         ('encoding-storage-conditional-before-reverting-sibling-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  bytes private a;\n  bytes private b;\n  bool private flag;\n  function checked(uint256 x) external view returns (uint256) {\n    return bytes.concat(flag ? a : b, abi.encodePacked(10 / x)).length;\n  }\n}\n",
          None,
@@ -1803,22 +1805,27 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          "pragma solidity 0.8.34;\ncontract C {\n  string private label;\n  function checked(uint8[] calldata xs) external view returns (bytes32) {\n    return keccak256(abi.encode(xs, label));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'Identifier: [solidity-import:unsupported] calldata array or struct ABI encoding argument before a storage bytes/string argument is unsupported'),
-        ('encoding-storage-string-before-calldata-array-accepted',
+         'Identifier: [solidity-import:unsupported] calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported'),
+        ('encoding-storage-string-before-calldata-array-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  string private label;\n  function checked(uint8[] calldata xs) external view returns (bytes32) {\n    return keccak256(abi.encode(label, xs));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         None),
+         'Identifier: [solidity-import:unsupported] calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported'),
         ('encoding-calldata-struct-before-storage-string-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct Item { uint256 a; bytes b; }\n  string private label;\n  function checked(Item calldata c) external view returns (bytes32) {\n    return keccak256(abi.encode(c, label));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'Identifier: [solidity-import:unsupported] calldata array or struct ABI encoding argument before a storage bytes/string argument is unsupported'),
-        ('encoding-storage-string-before-calldata-struct-accepted',
+         'Identifier: [solidity-import:unsupported] calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported'),
+        ('encoding-storage-string-before-calldata-struct-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct Item { uint256 a; bytes b; }\n  string private label;\n  function checked(Item calldata c) external view returns (bytes32) {\n    return keccak256(abi.encode(label, c));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         None),
+         'Identifier: [solidity-import:unsupported] calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported'),
+        ('encoding-storage-string-before-calldata-static-struct-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Pair { uint8 a; uint256 b; }\n  string private label;\n  function checked(Pair calldata c) external view returns (bytes32) {\n    return keccak256(abi.encode(label, c));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported'),
         ('memory-struct-array-flat-local-element-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 v; uint256 w; }\n  function checked(uint256 x) external pure returns (uint256) {\n    S[] memory a = new S[](1);\n    S memory s = S(x, 1);\n    a[0] = s;\n    return a[0].v;\n  }\n}\n",
          None,
