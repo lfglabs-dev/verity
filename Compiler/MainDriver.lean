@@ -7,11 +7,12 @@ import Verity.Core.Intrinsics
 /-!
 ## CLI Argument Parsing
 
-Single canonical compiler entrypoint. By default, Verity 2.0 runs the
-**certified optimized profile** (`PipelineConfig.certifiedOptimized`, enabling the
-deterministic Yul patch pass and certified acceleration plugins). Each optimization
-pass is wrapped in its own speculative soundness gate (`evalWithUntrustedAccelPlugin`),
-so any individual guard failure automatically falls back to identity for that pass alone.
+Single canonical compiler entrypoint. By default it runs Yul emission with the
+deterministic Yul patch pass enabled (`--disable-patches` turns it off), followed by the
+`TempReuse` stack spill pass (`writeContract`). It does not use
+`PipelineConfig.certifiedOptimized` or the `AccelPlugin` catalog. Neither the patch pass nor
+the spill pass has a semantic-preservation theorem: both are trusted, tested components
+(`docs/TRUST_ASSUMPTIONS.md`, "Yul Patch Pass" and "Yul Stack Spill Pass").
 
 Supports:
 - `--link <path>` : Link external Yul library (can be specified multiple times)
@@ -126,7 +127,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --parity-pack <id> Versioned parity-pack tuple (see docs/PARITY_PACKS.md)"
         IO.println "  --target-fork <cancun|prague|osaka|fusaka>  EVM fork target for intrinsic min_fork checks (default: cancun; fusaka is an alias for osaka)"
         IO.println "  --allow-future-fork-intrinsics  Allow intrinsics whose min_fork is newer than --target-fork"
-        IO.println "  --enable-patches   Enable deterministic Yul patch pass (default: enabled in certifiedOptimized)"
+        IO.println "  --enable-patches   Enable deterministic Yul patch pass (default: enabled)"
         IO.println "  --disable-patches  Disable deterministic Yul patch pass"
         IO.println "  --patch-max-iterations <n>  Max patch-pass fixpoint iterations (default: 2)"
         IO.println "  --patch-report <path>       Write TSV patch coverage report"

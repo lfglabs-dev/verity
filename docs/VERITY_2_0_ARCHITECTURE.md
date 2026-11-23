@@ -27,7 +27,7 @@ Verity 2.0 unifies contract specifications and eliminates silent specification b
 - **Typed `StorageSlot` Lenses & `@[storage_simps]` (`Verity/Core.lean`)**:
   - First-class typed storage lenses (`StorageSlot.readUint`/`writeUint`, `readAddr`/`writeAddr`, `readMap`/`writeMap`, `readMap2`/`writeMap2`) and `@[storage_simps]` read-over-write rules eliminate hardcoded numeric slot indices (`slot 0`, `slot 1`) and prevent slot drift between contracts and specifications.
 - **Non-Truncating $\mathbb{N}$ Conservation (`sumBalancesNat` in `Verity/Specs/Common/Sum.lean`)**:
-  - Complements modular `Uint256` sums with exact natural-number balance conservation (`sumBalancesNat`), proving `sumBalancesNat_WriteTransfer` and `no_phantom_mint_nat` (no $2^{256}$ wraparound phantom minting is possible when recipient addition is overflow-checked).
+  - Complements modular `Uint256` sums with exact natural-number balance conservation (`sumBalancesNat`), with `sumBalancesNat_transfer_eq` proving that a sender-to-recipient transfer leaves `sumBalancesNat` unchanged when the amount is at most the sender's balance and the recipient's addition does not exceed `MAX_UINT256` (so no $2^{256}$ wraparound phantom minting under those hypotheses).
 - **Automated Specification Proof Tactics (`verity_prove_spec` in `Verity/Proofs/Stdlib/Automation.lean`)**:
   - `verity_step`, `verity_frame`, and `verity_prove_spec` automate monadic unfolding, branch splitting, and `unchangedExcept` frame discharge, complemented by Poka-Yoke compile-time guards (`checkDeclaredWritesCoverActual`, `checkNoSlotDrift` in `Verity/Macro/EffectAnalysis.lean`) and `ValueType.normalize` canonicalization (`Verity/Macro/Types.lean`).
 

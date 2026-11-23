@@ -640,6 +640,55 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   campaigns, and `solc` itself, which rejects a section that is still too deep.
 - **Reference**: [LOW_LEVEL_YUL.md](LOW_LEVEL_YUL.md#yul-temporary-slot-reuse-and-scratch-memory-spilling---max-stack-locals).
 
+### 13. Yul Patch Pass (`foundation` rewrite rules)
+- **Role**: With patches enabled (the CLI default; `--disable-patches` turns it off),
+  `Compiler.emitYulWithOptionsReport` (`Compiler/Codegen.lean`) runs
+  `Yul.runPatchPassWithBlocks` / `Yul.runPatchPassWithObjects` over the emitted Yul with the
+  `foundation` bundle (`Compiler/Yul/PatchRulesCatalog/Base.lean`): 15 expression rules such as
+  `or(x, 0) → x`, `mul(x, 1) → x`, `and(and(x, m₁), m₂) → and(x, m₁ & m₂)` and
+  `iszero(iszero(eq(a, b))) → eq(a, b)`. Its output is what the spill pass and `solc` see.
+- **Trust**: Trusted, not proved.
+  - Each of the 15 rules' `proofId` points at a stated but unproved obligation: a `Prop`
+    *definition* in `Compiler/Proofs/YulGeneration/PatchRulesProofs.lean`
+    (`or_zero_right_preserves`, …, gathered in `foundation_patch_pack_obligations`), not a
+    theorem. No theorem proves any of them. They are also stated relative to an abstract
+    evaluator assumed to satisfy `FoundationEvaluatorLaws`, not relative to EVMYulLean or EVM
+    semantics.
+  - The activation check (`PatchPassConfig.requiredProofRefs`) compares each rule's `proofId`
+    with a list built from the `proofId`s of the same rules (`rewriteProofAllowlistForId` /
+    `foundationProofAllowlist`), so every shipped rule passes it.
+    `scripts/check_rewrite_proof_metadata.py` checks that each `proofId` names some declaration.
+    Neither checks that a proof exists.
+  - No theorem relates patched Yul to unpatched Yul, and the Layer 3 theorems do not cover the
+    patch pass.
+- **Mitigation**: each rule is a local algebraic identity on 256-bit words with a syntactic
+  matcher. CI runs the Foundry suites against a Yul artifact set compiled with `--enable-patches`
+  (`generated-yul-patched`). There is no per-rule semantic test.
+
+### 14. Optimization Catalog Assurance Labels (`AccelPlugin`)
+- **What the labels are**: `Compiler/Codegen/AccelPlugin.lean` lists `G2`–`G8` in
+  `defaultCertifiedPluginCatalog` with `assurance := .kernelVerified` and a `theoremRef`
+  string. `verifyAccelCertGate` accepts a `.kernelVerified` certificate when its `theoremRef` is
+  a member of the string list `verifiedAccelTheoremAllowlist`; membership is not checked
+  against the Lean environment. These labels are **not** proofs.
+- **G3, G5 and G6 cite theorems that do not exist**:
+  `Compiler.Proofs.MappingSlot.mappingSlot_cse_sound` (G3),
+  `Compiler.Proofs.KeccakBound.scratchSpace_keccak_disjoint_freeMemPtr` (G5) and
+  `Compiler.Proofs.IRGeneration.ParamLoading.calldataload_direct_sound` (G6).
+- **G2, G4, G7 and G8 cite real theorems that are not about a pass the compiler runs**:
+  `execCoalescedPackedWrites_eq_uncoalesced` (G2) is about the abstract `SlotStorageState`
+  model; `g4_checkedAdd_elision_sound_and_saves_gas` (G4) and
+  `g8_mathlib_tauceti_mulDiv_cancel_sound_and_saves_176_gas` (G8) are `Nat` identities plus gas
+  arithmetic; `binary_search_selector_dispatch_sound` (G7) is about `buildSelectorDispatchTree`,
+  which codegen does not use (`CodegenCommon.buildSwitch` emits a flat `switch`).
+- **No G2–G8 pass runs on any compile path.** The catalog and
+  `applyCertifiedAstPassesToObject` are only read by `Compiler.Codegen.Profile.emitYulWithProfile`
+  (`PipelineConfig.certifiedOptimized`), which neither the CLI (`writeContract`) nor the
+  Solidity import drivers call. `G1` is the spill pass of section 12 (trusted, tested only).
+- **Status**: the labels are still in the source, where
+  `defaultCertifiedPluginCatalog_all_verified` and `accelCertMetaGateSpec` consume them.
+  Read every catalog entry as *unverified*, whatever its label says.
+
 ## Semantic Caveats
 
 ### Wrapping Arithmetic
