@@ -136,12 +136,14 @@ class SequenceAdapter:
     emitted events are observed without normalization.
     """
     def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', observer=None,
-                 code_size_limit=None, deploy_gas=10000000):
+                 code_size_limit=None, deploy_gas=10000000, expected_code=()):
         self.directory = Path(directory)
         self.code_size_limit = code_size_limit
         self.deploy_gas = int(deploy_gas)
         self.bytecodes = tuple(bytecodes)
         self.initial_storage = tuple(tuple(row) for row in initial_storage)
+        # Optional (account, runtime) pairs every replay's deployments must reproduce exactly.
+        self.expected_code = tuple(tuple(row) for row in expected_code)
         self.calldata_key = calldata_key
         self.observer = observer
         self.runs = 0
@@ -159,6 +161,9 @@ class SequenceAdapter:
                 deployment = node.transact({'from': deployer, 'data': code, 'gas': hex(self.deploy_gas)})
                 if deployment['receipt']['status'] != '0x1':
                     raise HarnessError('fixture deployment failed')
+            for account, code in self.expected_code:
+                if node.rpc('eth_getCode', account, 'latest') != code:
+                    raise HarnessError(f'deployed runtime of {account} differs from the probe deployment')
             for account, slot, value in self.initial_storage:
                 node.rpc('anvil_setStorageAt', account, slot, value)
             for transaction, slots in zip(transactions, plan):
