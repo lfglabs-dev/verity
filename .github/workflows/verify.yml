@@ -575,7 +575,7 @@ jobs:
         run: git reset --hard HEAD
 
       # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
-      # the VM's memory (2.5 GiB each, at most min(vCPUs, 8)): lean.ci can boot
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
         run: scripts/ci_lean_threads.sh
@@ -672,7 +672,7 @@ jobs:
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
     steps:
       # Audit/package checks stay below the 50 GiB build-medium cgroup cap;
-      # lean.ci VMs keep the default (every core the VM gets).
+      # on lean.ci the VM's memory bounds it (step after checkout).
       - name: Cap Lean threads on build-medium
         if: needs.route.outputs.on_lean != 'true'
         run: echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"
@@ -682,7 +682,7 @@ jobs:
           submodules: recursive
 
       # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
-      # the VM's memory (2.5 GiB each, at most min(vCPUs, 8)): lean.ci can boot
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
         if: needs.route.outputs.on_lean == 'true'
@@ -862,12 +862,16 @@ jobs:
     timeout-minutes: 45
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.importer == 'true'
-    env:
-      LEAN_NUM_THREADS: 8
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
+
+      # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
+      # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
+      - name: Bound Lean threads by VM memory
+        run: scripts/ci_lean_threads.sh
 
       - name: Setup Lean
         uses: ./.github/actions/setup-lean
@@ -939,8 +943,9 @@ jobs:
             .lake/import-differential/**
 
   build-compiler-binaries:
-    # Ephemeral 16-vCPU lean.ci runner (64 GiB RAM) builds compiler targets
-    # without serializing behind a single self-hosted build-heavy host.
+    # Ephemeral lean.ci runner (8-vCPU label; memory is learned, ~11 GiB at
+    # times) builds compiler targets without serializing behind a single
+    # self-hosted build-heavy host.
     runs-on: lean-8vcpu-ubuntu-2604
     timeout-minutes: 360
     needs: [changes, checks, build]
@@ -957,7 +962,7 @@ jobs:
           submodules: recursive
 
       # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
-      # the VM's memory (2.5 GiB each, at most min(vCPUs, 8)): lean.ci can boot
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
         run: scripts/ci_lean_threads.sh
@@ -1384,7 +1389,7 @@ jobs:
           submodules: recursive
 
       # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
-      # the VM's memory (2.5 GiB each, at most min(vCPUs, 8)): lean.ci can boot
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
         if: needs.route.outputs.on_lean == 'true'
@@ -1599,7 +1604,7 @@ jobs:
           submodules: recursive
 
       # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
-      # the VM's memory (2.5 GiB each, at most min(vCPUs, 8)): lean.ci can boot
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
         run: scripts/ci_lean_threads.sh
@@ -1771,7 +1776,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
-      # the VM's memory (2.5 GiB each, at most min(vCPUs, 8)): lean.ci can boot
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
         run: scripts/ci_lean_threads.sh

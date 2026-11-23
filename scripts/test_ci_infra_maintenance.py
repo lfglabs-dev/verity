@@ -364,10 +364,11 @@ class CiInfraMaintenanceTests(unittest.TestCase):
     def test_lean_threads_follow_vm_memory(self) -> None:
         # MemTotal values printed by lean.ci `build` VMs on 2026-11-23.
         for mem_mib, nproc, expected in (
-            (10941, 8, 4),    # 8 vCPUs / ~11 GiB: ENOMEM at 8 processes
-            (14973, 24, 5),
-            (15981, 16, 6),
-            (20997, 24, 8),   # never above 8 (burst VMs)
+            (10941, 8, 3),    # 8 vCPUs / ~11 GiB: ENOMEM at 8 processes
+            (14973, 24, 4),
+            (15981, 16, 5),
+            (20997, 24, 6),
+            (24576, 32, 8),   # never above 8 (burst VMs)
             (65536, 4, 4),    # never above the VM's vCPUs
             (3072, 8, 2),     # floor of 2
             (65536, 1, 2),
@@ -402,6 +403,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             ("compiler-audits", routed_cond),
             ("compiler-regressions", ""),
             ("lean-profile", ""),
+            ("importer-differential", ""),
         ):
             body = job_body(job)
             # lean.ci can boot an 8-vCPU VM with ~11 GiB, where one Lean/clang
