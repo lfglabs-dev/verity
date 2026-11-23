@@ -102,6 +102,37 @@ def emitEvent (name : String) (args : List Uint256) (indexedArgs : List Uint256 
 emitEvent "Transfer" [amount] [fromAddr, toAddr]
 ```
 
+### Composite arguments built in the body
+
+An unindexed array, struct, tuple or `bytes` event parameter can take an ABI
+literal of fixed shape, in any function body (internal ones included):
+`[..]` for an array, `⟨..⟩` for a struct, tuple or fixed array, and
+`emptyBytes` for an empty `bytes`/`string`. Literals nest; each leaf is a word
+expression, cleaned to its declared type as solc does (`address` to 160 bits,
+`uint8` to 8 bits, `bytes4` to its high 4 bytes, `bool` to 0/1).
+
+```verity
+struct Cut where
+  target : Address,
+  action : Uint8,
+  selectors : Array Bytes4
+
+event_defs
+  event Cuts(cuts : Array Cut, init : Address, data : Bytes)
+
+function internal emitOne (target : Uint256, action : Uint256, sel : Uint256) : Unit := do
+  emit "Cuts" [[⟨target, action, [sel]⟩], NO_INIT, emptyBytes]
+```
+
+The shape is fixed at compile time, so every offset and length word is a
+constant; the log data equals solc's `abi.encode` of the same values
+(`test/EventCompositeLiteralSmoke.t.sol`). Both the compiler and the
+executable `emit` use one encoder, `Compiler.CompilationModel.abiLitEncode`,
+and the executable event records each literal's encoded words, so a theorem can
+state the payload (`Contracts.Smoke.cutOne_logs_abi_encoding`). Arrays whose
+length is only known at run time, and indexed composite parameters, still
+need a direct parameter reference.
+
 For raw, multi-topic logs, `rawLog` lowers to `Stmt.rawLog` and supports 0–4
 topics (`log0`–`log4`):
 

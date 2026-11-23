@@ -224,7 +224,7 @@ def exprUsesArrayElementKind (includePlain includeWord : Bool) : Expr → Bool
       exprUsesArrayElementKind includePlain includeWord cond ||
         exprUsesArrayElementKind includePlain includeWord thenVal ||
         exprUsesArrayElementKind includePlain includeWord elseVal
-  | Expr.adtConstruct _ _ args => exprListUsesArrayElementKind includePlain includeWord args
+  | Expr.adtConstruct _ _ args | Expr.abiLiteral args => exprListUsesArrayElementKind includePlain includeWord args
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
@@ -392,7 +392,7 @@ def exprUsesArrayElement : Expr → Bool
       exprUsesArrayElement addr
   | Expr.keccak256 offset size =>
       exprUsesArrayElement offset || exprUsesArrayElement size
-  | Expr.externalCall _ args | Expr.internalCall _ args | Expr.adtConstruct _ _ args =>
+  | Expr.externalCall _ args | Expr.internalCall _ args | Expr.adtConstruct _ _ args | Expr.abiLiteral args =>
       exprListUsesArrayElement args
   | Expr.dynamicBytesEq _ _ | Expr.adtField _ _ _ _ _ =>
       false
@@ -608,7 +608,7 @@ def exprUsesParamDynamicHeadWord : Expr → Bool
       exprUsesParamDynamicHeadWord a
   | Expr.keccak256 a b =>
       exprUsesParamDynamicHeadWord a || exprUsesParamDynamicHeadWord b
-  | Expr.externalCall _ args | Expr.internalCall _ args | Expr.adtConstruct _ _ args =>
+  | Expr.externalCall _ args | Expr.internalCall _ args | Expr.adtConstruct _ _ args | Expr.abiLiteral args =>
       exprListUsesParamDynamicHeadWord args
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b
@@ -760,7 +760,7 @@ def exprUsesMulDiv512 : Expr → Bool
       exprUsesMulDiv512 a
   | Expr.keccak256 a b =>
       exprUsesMulDiv512 a || exprUsesMulDiv512 b
-  | Expr.externalCall _ args | Expr.internalCall _ args | Expr.adtConstruct _ _ args =>
+  | Expr.externalCall _ args | Expr.internalCall _ args | Expr.adtConstruct _ _ args | Expr.abiLiteral args =>
       exprListUsesMulDiv512 args
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b
@@ -947,7 +947,7 @@ def exprUsesStorageArrayElement : Expr → Bool
       exprUsesStorageArrayElement a
   | Expr.ite cond thenVal elseVal =>
       exprUsesStorageArrayElement cond || exprUsesStorageArrayElement thenVal || exprUsesStorageArrayElement elseVal
-  | Expr.adtConstruct _ _ args => exprListUsesStorageArrayElement args
+  | Expr.adtConstruct _ _ args | Expr.abiLiteral args => exprListUsesStorageArrayElement args
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
@@ -1119,7 +1119,7 @@ def exprUsesDynamicBytesEq : Expr → Bool
       exprUsesDynamicBytesEq a
   | Expr.ite cond thenVal elseVal =>
       exprUsesDynamicBytesEq cond || exprUsesDynamicBytesEq thenVal || exprUsesDynamicBytesEq elseVal
-  | Expr.adtConstruct _ _ args => exprListUsesDynamicBytesEq args
+  | Expr.adtConstruct _ _ args | Expr.abiLiteral args => exprListUsesDynamicBytesEq args
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp

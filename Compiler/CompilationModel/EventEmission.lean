@@ -1,4 +1,5 @@
 import Compiler.CompilationModel.Types
+import Compiler.CompilationModel.AbiLiteral
 import Compiler.CompilationModel.AbiHelpers
 import Compiler.CompilationModel.AbiEncoding
 import Compiler.CompilationModel.DynamicData
@@ -187,6 +188,36 @@ def compileScalarEmitFromCompiledArgs
   [YulStmt.block ([storePtr] ++ sigStores ++ [topic0Store] ++
     unindexedStores ++ [logStmt])]
 
+/-- Yul stores for an unindexed `emit` argument written as an ABI literal (`Expr.abiLiteral`):
+its `abiLitEncode` words at constant offsets, leaves normalized to their ABI type. A dynamic
+parameter's words go to the data tail (its head word gets the tail offset); a static one's fill
+its head words. -/
+def compileAbiLiteralEventStores (fields : List Field) (dynamicSource : DynamicDataSource)
+    (internalFunctions : List FunctionSpec) (eventName : String) (p : EventParam)
+    (srcExpr : Expr) (argIdx : Nat) (curHeadPtr : YulExpr) : Except String (List YulStmt) := do
+  let words ←
+    match abiLitEncode p.ty (exprAbiLit srcExpr) with
+    | .ok ws => pure ws
+    | .error msg => throw s!"Compilation error: event '{eventName}' param '{p.name}': {msg}"
+  let wordExprs ← words.mapM fun
+    | .const n => pure (YulExpr.lit n)
+    | .leaf ty e => do
+        pure (normalizeEventWord ty (← compileExprWithInternals fields dynamicSource internalFunctions e))
+  let storeAt (base : YulExpr) : List YulStmt :=
+    wordExprs.zipIdx.map fun (w, i) =>
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [base, YulExpr.lit (32 * i)], w])
+  if eventIsDynamicType p.ty then
+    let dstName := s!"__evt_arg{argIdx}_dst"
+    pure ([
+      YulStmt.exprStmt (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
+      YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.ident "__evt_data_tail"])
+    ] ++ storeAt (YulExpr.ident dstName) ++ [
+      YulStmt.assign "__evt_data_tail"
+        (YulExpr.call "add" [YulExpr.ident "__evt_data_tail", YulExpr.lit (32 * wordExprs.length)])
+    ])
+  else
+    pure (storeAt curHeadPtr)
+
 def compileEmit (fields : List Field) (events : List EventDef)
     (dynamicSource : DynamicDataSource := .calldata)
     (eventName : String) (args : List Expr) (internalFunctions : List FunctionSpec := []) :
@@ -198,7 +229,11 @@ def compileEmit (fields : List Field) (events : List EventDef)
     | none => throw s!"Compilation error: unknown event '{eventName}'"
   if args.length != eventDef.params.length then
     throw s!"Compilation error: event '{eventName}' expects {eventDef.params.length} args, got {args.length}"
-  let compiledArgs ← compileExprListWithInternals fields dynamicSource internalFunctions args
+  -- An ABI literal is not a word: `compileAbiLiteralEventStores` encodes it. Scalar-only events
+  -- take no literals (`validateEventArgShapesNode`), so their arguments compile unchanged.
+  let compiledArgs ← compileExprListWithInternals fields dynamicSource internalFunctions
+    (if eventDefScalarCompileSupported eventDef then args
+      else args.map fun | Expr.abiLiteral _ => Expr.literal 0 | arg => arg)
   let zippedWithSource := eventZippedWithSource eventDef args compiledArgs
   let indexed := eventIndexedArgs zippedWithSource
   let unindexed := eventUnindexedArgs zippedWithSource
@@ -230,6 +265,12 @@ def compileEmit (fields : List Field) (events : List EventDef)
       Except String (List YulStmt) := do
     match remaining with
     | [] => pure []
+    | (p, srcExpr@(Expr.abiLiteral _), _) :: rest =>
+        let curHeadPtr := YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit headOffset]
+        let current ← compileAbiLiteralEventStores fields dynamicSource internalFunctions
+          eventName p srcExpr argIdx curHeadPtr
+        let tail ← compileUnindexedStores rest (argIdx + 1) (headOffset + eventHeadWordSize p.ty)
+        pure (current ++ tail)
     | (p, srcExpr, argExpr) :: rest =>
         let curHeadPtr := YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit headOffset]
         let current ←

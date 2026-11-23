@@ -935,7 +935,7 @@ def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
         exprTouchesUnsupportedConstructorRawCalldataSurface is ||
         exprTouchesUnsupportedConstructorRawCalldataSurface oo ||
         exprTouchesUnsupportedConstructorRawCalldataSurface os
-  | .adtConstruct _ _ args =>
+  | .adtConstruct _ _ args | .abiLiteral args =>
       exprListTouchesUnsupportedConstructorRawCalldataSurface args
   | .adtTag _ _ | .adtField _ _ _ _ _ => false
 
@@ -1097,7 +1097,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
   | .storageArrayLength _ | .storageArrayElement _ _
   | .intrinsic _ _ _ _
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Stateful expression surfaces not yet carried by the generic Layer 2 body
 interface. These are the next storage/layout-style widening targets. -/
@@ -1157,7 +1157,7 @@ def exprTouchesUnsupportedStateSurface : Expr → Bool
   | .dynamicBytesEq _ _ => false
   | .mload a | .tload a | .calldataload a | .extcodesize a
   | .returndataOptionalBoolAt a => exprTouchesUnsupportedStateSurface a
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Call-related surfaces that still sit outside the current generic Layer 2
 body theorem: internal helper reuse, low-level calls, and foreign call hooks. -/
@@ -1225,7 +1225,7 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
       exprTouchesUnsupportedCallSurface a || exprTouchesUnsupportedCallSurface b
   | .arrayLength _ | .arrayElement _ _ | .dynamicBytesEq _ _ => true
   | .intrinsic _ _ _ _ => true
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Internal helper-call surfaces not yet modeled compositionally in the current
 generic whole-contract theorem. -/
@@ -1293,7 +1293,7 @@ def exprTouchesUnsupportedHelperSurface : Expr → Bool
       exprTouchesUnsupportedHelperSurface a || exprTouchesUnsupportedHelperSurface b
   | .arrayLength _ | .arrayElement _ _ | .dynamicBytesEq _ _ => true
   | .intrinsic _ _ _ _ => true
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 def exprListTouchesUnsupportedHelperSurface : List Expr → Bool
   | [] => false
@@ -1371,7 +1371,7 @@ def exprTouchesInternalHelperSurface : Expr → Bool
       exprTouchesInternalHelperSurface a || exprTouchesInternalHelperSurface b
   | .dynamicBytesEq _ _ => false
   | .intrinsic _ _ _ _ => true
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Foreign-call/library-hook surfaces still outside the current generic
 whole-contract theorem. -/
@@ -1442,7 +1442,7 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
       exprTouchesUnsupportedForeignSurface a || exprTouchesUnsupportedForeignSurface b
   | .dynamicBytesEq _ _ => false
   | .intrinsic _ _ _ _ => true
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Low-level call/runtime-mechanic surfaces still outside the current generic
 whole-contract theorem. -/
@@ -1509,7 +1509,7 @@ def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
       exprTouchesUnsupportedLowLevelSurface a || exprTouchesUnsupportedLowLevelSurface b
   | .dynamicBytesEq _ _ => false
   | .intrinsic _ _ _ _ => true
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Compatibility expression scan retained for the current generic-induction
 proofs. This intentionally preserves the pre-interface split meaning so the
@@ -1574,7 +1574,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
   | .storageArrayLength _ | .storageArrayElement _ _
   | .dynamicBytesEq _ _ | .intrinsic _ _ _ _
-  | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
+  | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 mutual
 /-- Observable/effect-rich surfaces outside the current generic whole-contract
@@ -2562,7 +2562,7 @@ mutual
           exprInternalHelperCallNames elseVal
     | .forkIfAtLeast _ thenExpr elseExpr =>
         exprInternalHelperCallNames thenExpr ++ exprInternalHelperCallNames elseExpr
-    | .externalCall _ args | .intrinsic _ _ _ args =>
+    | .externalCall _ args | .intrinsic _ _ _ args | .abiLiteral args =>
         exprListInternalHelperCallNames args
     -- Pure leaves: no internal helper calls. Listed explicitly (rather than
     -- via `| _ => []`) so the equation-lemma deriver does not have to

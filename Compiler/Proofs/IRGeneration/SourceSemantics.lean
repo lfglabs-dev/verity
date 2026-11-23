@@ -3580,7 +3580,7 @@ mutual
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .forkIfAtLeast _ _ _
-    | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => none
+    | .abiLiteral _ | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => none
   termination_by expr => (fuel, sizeOf expr)
   decreasing_by all_goals (simp_wf; omega)
   def evalExprListWithHelpers

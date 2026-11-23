@@ -490,6 +490,8 @@ def compileExprWithInternals (fields : List Field)
         YulExpr.ident s!"{name}_data_offset",
         YulExpr.lit (wordOffset * 32)
       ])
+  | Expr.abiLiteral _ =>
+      throw "Compilation error: an ABI literal ([..], ⟨..⟩, emptyBytes) is only valid as an emit argument for a composite event parameter"
   | Expr.arrayElementDynamicMemberLength name index wordOffset => do
       let indexExpr ← compileExprWithInternals fields dynamicSource internalFunctions index
       let helperName := match dynamicSource with

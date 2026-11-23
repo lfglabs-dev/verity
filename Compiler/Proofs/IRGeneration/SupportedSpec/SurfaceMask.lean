@@ -136,6 +136,8 @@ def exprSurfaceMask : Expr → SurfaceMask
         exprSurfaceMask a ||| exprSurfaceMask b ||| exprSurfaceMask c
   | .adtConstruct _ _ args =>
       bitCoreGap ||| bitStateRead ||| bitAdtSurface ||| exprListSurfaceMask args
+  | .abiLiteral args =>
+      bitCoreGap ||| exprListSurfaceMask args
   | .adtTag _ _ | .adtField _ _ _ _ _ =>
       bitCoreGap ||| bitStateRead ||| bitAdtSurface
   | .bitNot a | .logicalNot a =>

@@ -404,7 +404,7 @@ def validateScopedExprIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount cond
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount thenVal
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount elseVal
-  | Expr.adtConstruct _ _ args =>
+  | Expr.adtConstruct _ _ args | Expr.abiLiteral args =>
       validateScopedExprIdentifiersList context params paramScope dynamicParams immutableNames localScope constructorArgCount args
   | Expr.adtTag _ _ =>
       pure ()

@@ -103,7 +103,7 @@ def exprLowLevelMechanicsStructural : Expr → List String
       exprLowLevelMechanicsStructural a ++ exprLowLevelMechanicsStructural b ++
         exprLowLevelMechanicsStructural c
   | .mappingChain _ args | .externalCall _ args | .internalCall _ args
-  | .intrinsic _ _ _ args | .adtConstruct _ _ args =>
+  | .intrinsic _ _ _ args | .adtConstruct _ _ args | .abiLiteral args =>
       exprListLowLevelMechanicsStructural args
 
 /-- Structural low-level mechanic collector over an expression list. -/

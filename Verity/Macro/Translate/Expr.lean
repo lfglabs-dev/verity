@@ -5317,6 +5317,80 @@ def expectEcmExprList
       pure out
   | _ => throwErrorAt stx "expected list literal [..]"
 
+/-- The items of an ABI literal written as an `emit` argument: `[..]` (array elements), `⟨..⟩`
+(tuple, struct or fixed-array members) or `emptyBytes` (the empty `bytes`/`string`). -/
+def emitAbiLiteralItems? (stx : Term) : Option (Array Term) :=
+  match stripParens stx with
+  | `(term| [ $[$xs],* ]) => some xs
+  | `(term| ⟨ $[$xs],* ⟩) => some xs
+  | `(term| emptyBytes) => some #[]
+  | _ => none
+
+/-- Value types an ABI literal leaf may have: one-word values (`Compiler.CompilationModel.abiLitLeafType?`). -/
+def emitAbiLiteralLeafType : ValueType → Bool
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .bytesN _ | .address | .bytes32 | .bool
+  | .enum _ _ => true
+  | .newtype _ base => emitAbiLiteralLeafType base
+  | _ => false
+
+/-- Check an ABI literal against the event parameter's declared type: arity of every array,
+tuple and struct node, emptiness of `bytes`, and each leaf (a word expression, typed by
+`inferLeaf`). -/
+partial def validateEmitAbiLiteral (inferLeaf : Term → CommandElabM ValueType)
+    (ty : ValueType) (stx : Term) : CommandElabM Unit := do
+  let checkItems (items : Array Term) (tys : List ValueType) (what : String) : CommandElabM Unit := do
+    if items.size != tys.length then
+      throwErrorAt stx s!"{what} literal has {items.size} items, its type {renderValueType ty} has {tys.length}"
+    for (item, itemTy) in items.toList.zip tys do
+      validateEmitAbiLiteral inferLeaf itemTy item
+  match emitAbiLiteralItems? stx, ty with
+  | _, .newtype _ base => validateEmitAbiLiteral inferLeaf base stx
+  | some items, .array elemTy =>
+      for item in items do validateEmitAbiLiteral inferLeaf elemTy item
+  | some items, .fixedArray elemTy n => checkItems items (List.replicate n elemTy) "fixed array"
+  | some items, .tuple tys => checkItems items tys "tuple"
+  | some items, .struct _ fields => checkItems items (fields.map (·.2)) "struct"
+  | some items, .bytes | some items, .string =>
+      unless items.isEmpty do
+        throwErrorAt stx s!"a {renderValueType ty} literal can only be emptyBytes"
+  | some _, _ =>
+      throwErrorAt stx s!"an ABI literal cannot have type {renderValueType ty}"
+  | none, _ =>
+      if emitAbiLiteralLeafType ty then
+        let _ ← inferLeaf stx
+      else
+        throwErrorAt stx s!"inside an ABI literal, a {renderValueType ty} value must itself be a literal ([..], ⟨..⟩ or emptyBytes)"
+
+/-- Check every leaf of an ABI literal is a valid word expression (when the event type is not
+at hand; `validateEmitAbiLiteral` checks the shape). -/
+partial def validateEmitAbiLiteralLeaves (inferLeaf : Term → CommandElabM ValueType)
+    (stx : Term) : CommandElabM Unit := do
+  match emitAbiLiteralItems? stx with
+  | some items => for item in items do validateEmitAbiLiteralLeaves inferLeaf item
+  | none => let _ ← inferLeaf stx
+
+/-- An ABI literal as a CompilationModel expression (`Expr.abiLiteral` nodes, translated leaves). -/
+partial def translateEmitAbiLiteral (translateLeaf : Term → CommandElabM Term)
+    (stx : Term) : CommandElabM Term := do
+  match emitAbiLiteralItems? stx with
+  | some items =>
+      let terms ← items.mapM (translateEmitAbiLiteral translateLeaf)
+      `(Compiler.CompilationModel.Expr.abiLiteral [ $[$terms],* ])
+  | none => translateLeaf stx
+
+/-- An ABI literal as an executable `AbiLit Nat` term (leaves through `Contracts.AbiLitLeafWord`). -/
+partial def executableEmitAbiLiteral (stx : Term) : CommandElabM Term := do
+  match emitAbiLiteralItems? stx with
+  | some items =>
+      let terms ← items.mapM executableEmitAbiLiteral
+      `(Compiler.CompilationModel.AbiLit.composite [ $[$terms],* ])
+  | none => `(Compiler.CompilationModel.AbiLit.leaf (_root_.Contracts.AbiLitLeafWord.abiLitLeafWord $stx))
+
+/-- Name of the per-event list of ABI parameter types the macro defines in the contract
+namespace, read by executable `emit`s with ABI literal arguments. -/
+def eventParamTypesName (eventName : String) : String :=
+  s!"__eventParamTypes_{eventName}"
+
 def translateEmitArgExpr
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
@@ -5329,7 +5403,9 @@ def translateEmitArgExpr
     match translateExpr? with
     | some translate => translate x
     | none => translatePureExprWithTypes fields constDecls immutableDecls params locals x
-  if let some (name, _) := localMemoryArray? locals stx then
+  if (emitAbiLiteralItems? stx).isSome then
+    translateEmitAbiLiteral translateExpr stx
+  else if let some (name, _) := localMemoryArray? locals stx then
     `(Compiler.CompilationModel.Expr.memoryArrayLength $(strTerm name))
   else if let some (paramName, index, _fieldTy, _elemTy, wordOffset) :=
       localArrayElementDynamicMemberProjection? locals stx then

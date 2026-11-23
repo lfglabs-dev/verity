@@ -6037,6 +6037,55 @@ set_option maxRecDepth 4096 in
     | .ok _ => true
     | .error _ => false
   expectTrue "string[] event emission compiles for indexed and unindexed params" stringArrayEventsCompile
+  -- `emit` ABI literals (`Expr.abiLiteral`, `abiLitEncode`): solc's head/tail layout, by hand.
+  let cutTy : ParamType := .array (.tuple [.address, .uint8, .array (.bytesN 4)])
+  let sel : Nat := 0x11223344 * 2 ^ 224
+  expectTrue "abi literal: one (address,uint8,bytes4[]) cut of one selector, leaves cleaned"
+    (abiLitWords cutTy (.composite [.composite [.leaf (2 ^ 160 + 0xaa), .leaf 257, .composite [.leaf (sel + 7)]]]) ==
+      [1, 0x20, 0xaa, 1, 0x60, 1, sel])
+  expectTrue "abi literal: two cuts get element offsets 0x40 and 0xe0"
+    (abiLitWords cutTy (.composite [.composite [.leaf 1, .leaf 0, .composite [.leaf 0]],
+        .composite [.leaf 2, .leaf 2, .composite [.leaf 0, .leaf 0, .leaf 0]]]) ==
+      [2, 0x40, 0xe0, 1, 0, 0x60, 1, 0, 2, 2, 0x60, 3, 0, 0, 0])
+  expectTrue "abi literal: a static tuple is its inline words"
+    (abiLitWords (.tuple [.uint256, .address, .bool]) (.composite [.leaf 5, .leaf (2 ^ 160 + 3), .leaf 9]) ==
+      [5, 3, 1])
+  expectTrue "abi literal: emptyBytes is one zero length word"
+    (abiLitWords .bytes (.composite []) == [0])
+  let litError (ty : ParamType) (lit : AbiLit Nat) : Bool :=
+    match abiLitEncode ty lit with | .ok _ => false | .error _ => true
+  expectTrue "abi literal: wrong fixed-array arity, non-empty bytes, a leaf for an array, a node for a word are rejected"
+    (litError (.fixedArray .uint256 2) (.composite [.leaf 1]) && litError .bytes (.composite [.leaf 1]) &&
+      litError (.array .uint256) (.leaf 1) && litError .uint256 (.composite []) &&
+      litError (.tuple [.uint256, .uint256]) (.composite [.leaf 1]))
+  let literalSmokeYul ← expectCompileToYul "abi literal emit smoke"
+    Contracts.Smoke.EventCompositeLiteralSmoke.spec
+  expectTrue "abi literal emit smoke writes the literal's words at constant offsets of its tail"
+    (contains literalSmokeYul "mstore(add(__evt_arg0_dst, 192), and(sel,")
+  let indexedLiteralSpec : CompilationModel := {
+    name := "IndexedAbiLiteral"
+    fields := []
+    «constructor» := none
+    functions := [
+      { name := "log"
+        params := []
+        returnType := none
+        body := [Stmt.emit "Amounts" [Expr.abiLiteral [Expr.literal 1]], Stmt.stop] }
+    ]
+    events := [
+      { name := "Amounts"
+        params := [{ name := "values", ty := ParamType.array ParamType.uint256, kind := EventParamKind.indexed }] }
+    ]
+  }
+  expectCompileErrorContains "abi literal for an indexed event param is rejected"
+    indexedLiteralSpec "cannot take an ABI literal"
+  let wrongShapeParam : EventParam :=
+    { name := "values", ty := ParamType.fixedArray ParamType.uint256 2,
+      kind := EventParamKind.unindexed }
+  let wrongShapeEvent : EventDef := { name := "Amounts", params := [wrongShapeParam] }
+  let wrongShapeSpec : CompilationModel := { indexedLiteralSpec with events := [wrongShapeEvent] }
+  expectCompileErrorContains "abi literal of the wrong shape is rejected with its reason"
+    wrongShapeSpec "fixed array literal has 1 items, its type has 2"
   let stringArrayErrorsCompile :=
     match Compiler.CompilationModel.compile Contracts.StringArrayErrorSmoke.spec
         (selectorsFor Contracts.StringArrayErrorSmoke.spec) with

@@ -129,7 +129,7 @@ def collectLowLevelExprMechanics : Expr → List String
         have := List.sizeOf_lt_of_mem hchild
         collectLowLevelExprMechanics child)
   | .internalCall _ args
-  | .adtConstruct _ _ args =>
+  | .adtConstruct _ _ args | .abiLiteral args =>
       args.attach.flatMap (fun ⟨child, hchild⟩ =>
         have := List.sizeOf_lt_of_mem hchild
         collectLowLevelExprMechanics child)
@@ -214,7 +214,7 @@ private partial def collectAxiomatizedExprPrimitives : Expr → List String
       collectAxiomatizedExprPrimitives key ++ collectAxiomatizedExprPrimitives innerKey
   | .externalCall _ args
   | .internalCall _ args
-  | .adtConstruct _ _ args =>
+  | .adtConstruct _ _ args | .abiLiteral args =>
       args.flatMap collectAxiomatizedExprPrimitives
   | .forkIfAtLeast _ thenExpr elseExpr =>
       collectAxiomatizedExprPrimitives thenExpr ++ collectAxiomatizedExprPrimitives elseExpr

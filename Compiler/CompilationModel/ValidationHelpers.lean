@@ -142,7 +142,7 @@ def collectExprNames : Expr → List String
   | Expr.min a b => collectExprNames a ++ collectExprNames b
   | Expr.max a b => collectExprNames a ++ collectExprNames b
   | Expr.ite cond thenVal elseVal => collectExprNames cond ++ collectExprNames thenVal ++ collectExprNames elseVal
-  | Expr.adtConstruct _ _ args => collectExprListNames args
+  | Expr.adtConstruct _ _ args | Expr.abiLiteral args => collectExprListNames args
   | Expr.adtTag _ field => [field]
   | Expr.adtField _ _ _ _ field => [field]
 termination_by expr => sizeOf expr
