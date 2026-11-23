@@ -20,8 +20,10 @@ one, so skipped code cannot reach the importer):
    on an entry no literal needs, so the lists hold only what the importer uses. Any other
    literal (with spaces or punctuation) is checked the same way, token by token, in a selection
    position: either operand of `==`, `!=`, `=` or `≠`, a `match` pattern, `.isPrefixOf` /
-   `.isSuffixOf`, `.contains` / `.startsWith` / `.endsWith` / `.find?`, an element of a literal
-   list tested for membership. Lean name literals (`` `foo ``, `` ``foo ``) must be generated
+   `.isSuffixOf` (also `String.startsWith n "..."` and the like), `.contains` / `.startsWith` /
+   `.endsWith` / `.find?`, an element of a literal list tested for membership (`.contains`,
+   `.elem`, `.any`, `.all`, `.find?`, `∈`); an operand may be built with `++` and parentheses
+   (`n == lib ++ ".flipTick"`). Lean name literals (`` `foo ``, `` ``foo ``) must be generated
    declaration or syntax names (`ALLOWED_NAME_LITERALS`); the registry module may also name its
    `*YulFingerprint` constants. A function, library, contract or Yul variable name of user code
    (`callHook`, `CurrencyLibrary`, ...) is not listed, so writing one fails here.
@@ -417,11 +419,22 @@ def line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
+def operand_head(before: str) -> str:
+    """`before` (the text up to a literal) without what still belongs to the literal's operand: an
+    interpolation prefix (`s!`), opening parentheses, and leading `x ++` pieces, so that in
+    `n == lib ++ ".f"` or `n.endsWith (".f")` the literal is seen next to the operator."""
+    while True:
+        trimmed = re.sub(r"(?<![\w'])[smf]!\Z|\(\s*\Z", "", before)
+        trimmed = re.sub(r"(?:[\w.?!']+|\([^()\n]*\)|\"(?:[^\"\\\n]|\\.)*\")\s*\+\+\s*\Z", "", trimmed)
+        if trimmed == before:
+            return before
+        before = trimmed
+
+
 def selection_kind(code: str, start: int, end: int,
                    membership_lists: list[tuple[int, int]]) -> str | None:
     """Why the string literal at `code[start:end]` is in a selection position, if it is."""
-    # An interpolated literal's `s!` / `m!` / `f!` stands between it and an operator before it.
-    before = re.sub(r"(?<![\w'])[smf]!\Z", "", code[max(0, start - 80):start])
+    before = operand_head(code[max(0, start - 200):start])
     after = code[end:end + 40]
     if re.search(r"(?:==|!=|≠|(?<![:=!<>])=(?![=>]))\s*(?:\.?some\s+)?\(?\s*\Z", before):
         return "compared with == / != / = / ≠"
@@ -432,7 +445,8 @@ def selection_kind(code: str, start: int, end: int,
             re.search(r"(?m)^(?:private\s+|protected\s+)?(?:def|abbrev)\s+\S+\s*(?::\s*String\s*)?:=\s*\Z",
                       code[max(0, start - 200):start]):
         return "named string constant (its uses are not traced)"
-    if re.search(r"\.(?:contains|startsWith|endsWith|find\?|findD|contains\?|elem)\s+\Z", before):
+    if re.search(r"\.(?:contains|startsWith|endsWith|find\?|findD|contains\?|elem)\s+\Z", before) or \
+            re.search(r"\bString\.(?:startsWith|endsWith|isPrefixOf|isSuffixOf)\s+(?:\S+\s+)?\Z", before):
         return "argument of a name lookup or membership test"
     if re.search(r"(?:inlineAssemblyIdentDecl\?\s+\S+|yulIdentifierSrcs)\s+\Z", before):
         return "Yul identifier name lookup"
@@ -462,6 +476,16 @@ def membership_list_spans(code: str, literals: list[Literal]) -> list[tuple[int,
     """Spans of literal lists tested for membership: `[...]` in `["a", "b"].contains x`."""
     bare = without_strings(code, literals)
     spans = []
+    for m in re.finditer(r"∈\s*\[", bare):
+        depth = 0
+        for j in range(m.end() - 1, len(bare)):
+            if bare[j] == "[":
+                depth += 1
+            elif bare[j] == "]":
+                depth -= 1
+                if depth == 0:
+                    spans.append((m.end() - 1, j))
+                    break
     for m in re.finditer(r"\]\s*\.(?:contains|elem|any|all|find\?)\b", bare):
         depth = 0
         for j in range(m.start(), -1, -1):
