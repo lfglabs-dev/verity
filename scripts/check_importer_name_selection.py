@@ -10,25 +10,28 @@ Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test 
 `Test.lean` or `Tests.lean`, as in `SourceDigest.lean`):
 
 1. Name selection. A string literal that is exactly an identifier or a dotted identifier
-   (`"callHook"`, `"TickBitmap.flipTick"`) is a name wherever it occurs: compared, matched,
-   bound by `let` or `if let`, held in a constant, tested with `∈`, passed to a helper. Every
-   such literal may name only what `ALLOWED_IDENTIFIERS` lists: the solc AST node types, AST
-   and standard-JSON field names and values, Solidity and Yul builtins and keywords, type words,
-   EVM versions, and the importer's own generated bindings, JSON keys, build-tool and driver
-   names (each list holds only what the importer uses today). Exempt: the key argument of a JSON
-   reader (`field? j "key"`, `mField`, `optStr`, ...), literals inside `theorem` / `example`
-   declarations, and the reasoned `FILE_EXCEPTIONS`. Any other literal (with spaces or
-   punctuation) is checked the same way, token by token, in a selection position: either operand
-   of `==`, `!=`, `=` or `≠`, a `match` pattern, `.isPrefixOf` / `.isSuffixOf`, `.contains` /
-   `.startsWith` / `.endsWith` / `.find?`, an element of a literal list tested for membership.
-   Lean name literals (`` `foo ``) must be generated declaration names
-   (`ALLOWED_NAME_LITERALS`). A function, library, contract or Yul variable name of user code
+   (`"callHook"`, `"TickBitmap.flipTick"`, also when written with escapes) is a name wherever it
+   occurs: compared, matched, bound by `let` or `if let`, held in a constant, tested with `∈`,
+   passed to a helper or used as a JSON key. Every such literal may name only what
+   `ALLOWED_IDENTIFIERS` lists: the solc AST node types, AST, storage-layout and standard-JSON
+   field names and values, Solidity and Yul builtins and keywords, type words, EVM versions, and
+   the importer's own generated bindings, JSON keys, build-tool and driver names. The run fails
+   on an entry no literal needs, so the lists hold only what the importer uses. Any other
+   literal (with spaces or punctuation) is checked the same way, token by token, in a selection
+   position: either operand of `==`, `!=`, `=` or `≠`, a `match` pattern, `.isPrefixOf` /
+   `.isSuffixOf`, `.contains` / `.startsWith` / `.endsWith` / `.find?`, an element of a literal
+   list tested for membership. Lean name literals (`` `foo ``, `` ``foo ``) must be generated
+   declaration or syntax names (`ALLOWED_NAME_LITERALS`); the registry module may also name its
+   `*YulFingerprint` constants. A function, library, contract or Yul variable name of user code
    (`callHook`, `CurrencyLibrary`, ...) is not listed, so writing one fails here.
+   Exempt: literals inside a `theorem` / `lemma` / `example` (up to the next line starting in
+   column 0, or a `where` / `let rec` helper), which are test data of a statement; and the
+   reasoned `FILE_EXCEPTIONS` (EmitVerity's printed names and example model).
    Not detected, so left to review: a name built at run time (`"call" ++ "Hook"`, `String.mk`),
-   a name hidden in a longer literal outside a selection position, and a listed builtin name
-   that user code may also give its own declaration (e.g. `transfer`, `push`, `add`): the
-   importer compares those only for builtins (e.g. members without a `referencedDeclaration`),
-   which this text check cannot see.
+   a name inside a longer literal outside a selection position, and a listed builtin or JSON
+   name that user code may also give its own declaration (e.g. `transfer`, `push`, `add`,
+   `target`): the importer compares those only as builtins or reads them as JSON keys, which
+   this text check cannot tell apart.
 2. Registry-gated names. `startSlot` and `nSlots` are the Yul variable names of the registered
    range-read block. They may occur only in `rangeReadBindings?`, after it has matched the block
    through the registry (`matchTrustedShortcut?`, then `guard` on `.rangeStorageRead`): there
@@ -82,11 +85,11 @@ SOLC_AST_FIELD_VALUES = {
 }
 # solc's `typeString` / `typeIdentifier` vocabulary.
 SOLC_TYPE_WORDS = {
-    "address", "block", "bool", "byte", "bytes", "calldata", "contract", "delegatecall",
-    "dynamic_array", "enum", "external", "function", "inplace", "int", "int_const", "interface",
+    "address", "block", "bool", "byte", "calldata", "contract", "delegatecall",
+    "dynamic_array", "enum", "external", "function", "inplace", "int_const", "interface",
     "internal", "library", "literal_string", "mapping", "memory", "nonpayable", "payable",
     "pointer", "pure", "ref", "returns", "slice", "storage", "string", "struct", "super", "tuple",
-    "type", "uint", "view",
+    "type", "view",
 }
 SOLC_TYPE_PREFIXES = ("t_",)
 SOLC_SIZED_TYPE = re.compile(r"(?:u?int|bytes|u?fixed)(?:\d+(?:x\d+)?)?\Z")
@@ -150,6 +153,19 @@ SOLC_JSON_FIELDS = {
     "transientStorageLayout", "trueBody", "typeDescriptions", "typeName", "typeString", "types",
     "variableNames", "viaIR",
 }
+# Keys of solc's AST, storage-layout and compiler-output JSON read by the importer.
+SOLC_JSON_FIELDS |= {
+    "abstract", "anonymous", "astId", "base", "baseContracts", "baseExpression", "baseFunctions",
+    "clauses", "commonType", "contractKind", "encoding", "endExpression", "errorCall",
+    "errorSelector", "errors", "eventCall", "eventSelector", "externalCall", "externalReferences",
+    "falseExpression", "functionName", "functionReturnParameters", "functionSelector", "hexValue",
+    "immutables", "implemented", "indexExpression", "isOffset", "isSlot", "key", "keyName",
+    "keyType", "leftExpression", "linearizedBaseContracts", "loopExpression", "modifierName",
+    "nodes", "numberOfBytes", "offset", "overloadedDeclarations", "overrides", "prefix",
+    "returnParameters", "rightExpression", "rightHandSide", "scope", "severity",
+    "startExpression", "stateVariable", "subdenomination", "trueExpression", "underlyingType",
+    "valueSize", "valueType", "variables",
+}
 # EVM hard-fork names (solc `evmVersion` values).
 EVM_VERSIONS = {
     "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul", "london", "osaka",
@@ -160,7 +176,7 @@ YUL_KEYWORDS = {"break", "case", "continue", "default", "for", "function", "if",
 # Stems, prefixes and binding names the importer generates for model locals, parameters and
 # fields; theorem-family tags it attaches; and its own syntax keywords.
 IMPORTER_BINDINGS = {
-    "$", "E", "e", "_", "_$", "__solidity_value", "_array", "_bytes", "_calldata", "_data",
+    "$", "E", "e", "_$", "__solidity_value", "_array", "_bytes", "_calldata", "_data",
     "_element", "_element_next", "_head", "_header", "_index", "_len", "_length", "_memory",
     "_memory_ptr_$dyn_memory_ptr", "_next", "_offset", "_source", "_struct", "_val", "arr_len",
     "arr_ptr", "array", "bytes_ptr", "key1", "key2", "param", "raw_slot", "ret_struct", "str_ptr",
@@ -175,6 +191,10 @@ IMPORTER_JSON_KEYS = {
     "importable", "importerSources", "importerVersion", "member", "modelParam", "nonce",
     "panicPayloadObserved", "parameter", "params", "projections", "shortcuts", "solcInput",
     "solcVersion", "target", "topics", "touched", "words", "libs", "script", "lakefile",
+    # Differential driver and sequence-runner input (`args`, `observe`, account setup, mocks).
+    "accountBalance", "accountCode", "accountNonce", "args", "byteCallEnvironment",
+    "emptyAccounts", "externalStorage", "foreignNonce", "observe", "observeAccounts", "program",
+    "transactions",
 }
 
 ALLOWED_IDENTIFIERS = (
@@ -188,6 +208,9 @@ ALLOWED_IDENTIFIERS = (
 ALLOWED_NAME_LITERALS = {
     "_root_", "model", "report", "covered", "sourceDigest", "Lean.Parser.Term.structInstField",
     "Compiler.SolidityImport.Import",
+    # Resolved syntax and type names the importer's commands build terms with.
+    "CompilationModel", "Profile", "ImportReport", "Lean.Parser.Command.docComment",
+    "Lean.Parser.Term.bracketedBinder",
 }
 
 # Exact literals allowed in one file, with why. Each is a name of something other than imported
@@ -220,13 +243,9 @@ REGISTRY_GATE = re.compile(
 
 IDENT_LITERAL = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*")
 HEX_DIGEST = re.compile(r"[0-9a-f]{40,64}")
-# A key argument of a JSON reader: `field? j "key"`, `mField j "key"`, `optStr j "key"`, ...
-JSON_KEY_ARGUMENT = re.compile(
-    r"\b(?:mField|field\?|field|stringField|optStr|getWord|getObjVal\?|getObjValD|"
-    r"getObjValAs\?\s+\w+|jsonField\?|jsonStrField\?|jsonNatField\?|jsonIntField\?)"
-    r"\s+(?:\([^()\n]*\)|[\w.!?'·]+)?\s*\Z")
-# Lean name literals (`` `foo ``, not double-backtick resolved names).
-NAME_LITERAL = re.compile(r"(?<![`\w])`(?![`(\[])([A-Za-z_][\w.']*)")
+# Lean name literals: `` `foo `` and resolved `` ``foo ``.
+NAME_LITERAL = re.compile(r"(?<![`\w])(``?)(?![`(\[])([A-Za-z_][\w.']*)")
+PROOF_END = re.compile(r"(?m)^(?=\S)|^\s*where\b|\blet\s+rec\b")
 DECL_START = re.compile(
     r"(?m)^(?:/--|@\[|(?:private\s+|partial\s+|protected\s+|noncomputable\s+|unsafe\s+)*"
     r"(?:def|theorem|lemma|example|structure|inductive|abbrev|instance|namespace|end|section|syntax|"
@@ -245,6 +264,17 @@ def importer_files(root: Path) -> list[Path]:
 
 
 INTERESTING = re.compile(r"/-|--|[\"'{}]")
+
+
+# Lean string escapes: `\xHH`, `\uHHHH`, `\n`, `\t`, `\r`, `\\`, `\"`, `\'`.
+ESCAPE = re.compile(r"\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|[ntr\\\"'])")
+
+
+def decode_escape(esc: str) -> str:
+    """The character a Lean string escape stands for, so an escaped name is checked as a name."""
+    if esc[1] in "xu":
+        return chr(int(esc[2:], 16))
+    return {"n": "\n", "t": "\t", "r": "\r"}.get(esc[1], esc[1])
 
 
 class Literal:
@@ -273,8 +303,13 @@ def scan(text: str) -> tuple[str, list[Literal]]:
         body: list[str] = []
         while i < n and text[i] != '"':
             if text[i] == "\\":
-                body.append(" ")
-                i += 2
+                esc = ESCAPE.match(text, i)
+                if esc is None:
+                    body.append(" ")
+                    i += 2
+                else:
+                    body.append(decode_escape(esc.group(0)))
+                    i = esc.end()
             elif interpolated and text[i] == "{":
                 i = code(i + 1, closing="}")
                 body.append(" ")
@@ -411,18 +446,28 @@ def def_span(code: str, name: str) -> tuple[int, int] | None:
 
 def proof_spans(code: str) -> list[tuple[int, int]]:
     """Spans of `theorem` / `lemma` / `example` declarations: their literals are test data of a
-    statement and cannot select a lowering."""
+    statement and cannot select a lowering. A span ends at the next line that starts in column 0
+    (the next command, whatever it is) or at a `where` / `let rec` helper, which is checked."""
     spans = []
-    for m in re.finditer(r"(?m)^(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+)?(?:theorem|lemma|example)\b",
+    for m in re.finditer(r"(?m)^(?:@\[[^\]\n]*\]\s*)?(?:private\s+|protected\s+)?(?:theorem|lemma|example)\b",
                          code):
-        nxt = DECL_START.search(code, m.end())
+        nxt = PROOF_END.search(code, m.end())
         spans.append((m.start(), nxt.start() if nxt else len(code)))
     return spans
 
 
+# Allowlist entries a run has needed: the run fails on an entry it never needed, so each list
+# holds only what the importer uses.
+USED: set[tuple[str, str]] = set()
+
+
 def is_allowed(ident: str) -> bool:
-    return ident in ALLOWED_IDENTIFIERS or ident.startswith(SOLC_TYPE_PREFIXES) \
-        or bool(SOLC_SIZED_TYPE.match(ident))
+    if ident.startswith(SOLC_TYPE_PREFIXES) or SOLC_SIZED_TYPE.match(ident):
+        return True
+    if ident in ALLOWED_IDENTIFIERS:
+        USED.add(("ident", ident))
+        return True
+    return False
 
 
 def check_names(root: Path, errors: list[str]) -> None:
@@ -435,7 +480,10 @@ def check_names(root: Path, errors: list[str]) -> None:
         for m in literals:
             body = m.text
             idents = literal_identifiers(body)
-            if not idents or (rel.as_posix(), body) in FILE_EXCEPTIONS:
+            if not idents:
+                continue
+            if (rel.as_posix(), body) in FILE_EXCEPTIONS:
+                USED.add(("file", f"{rel.as_posix()}:{body}"))
                 continue
             if any(lo <= m.start < hi for lo, hi in proofs):
                 continue
@@ -446,8 +494,6 @@ def check_names(root: Path, errors: list[str]) -> None:
                 # passed to a helper. Only a JSON key read from solc's or the importer's own JSON
                 # is exempt.
                 if not IDENT_LITERAL.fullmatch(body) or HEX_DIGEST.fullmatch(body):
-                    continue
-                if JSON_KEY_ARGUMENT.search(code, max(0, m.start - 80), m.start):
                     continue
                 kind = "identifier-shaped string literal"
             for ident in idents:
@@ -479,12 +525,18 @@ def check_names(root: Path, errors: list[str]) -> None:
                     f"scripts/check_importer_name_selection.py with its category.")
         bare = without_strings(code, literals)
         for nm in NAME_LITERAL.finditer(bare):
-            if any(lo <= nm.start() < hi for lo, hi in proofs) or nm.group(1) in ALLOWED_NAME_LITERALS:
+            quote, name = nm.group(1), nm.group(2)
+            if any(lo <= nm.start() < hi for lo, hi in proofs):
+                continue
+            if quote == "``" and rel == REGISTRY_FILE and name.endswith("YulFingerprint"):
+                continue  # the registry names its fingerprint constants (checked below)
+            if name in ALLOWED_NAME_LITERALS:
+                USED.add(("name", name))
                 continue
             errors.append(
-                f"{rel}:{line_of(code, nm.start())}: Lean name literal `{nm.group(1)} is not one of "
-                f"the importer's generated declaration names (ALLOWED_NAME_LITERALS): a name "
-                f"literal must not select a lowering")
+                f"{rel}:{line_of(code, nm.start())}: Lean name literal {quote}{name} is not one of "
+                f"the importer's generated declaration or syntax names (ALLOWED_NAME_LITERALS): a "
+                f"name literal must not select a lowering")
 
 
 def check_registry(root: Path, errors: list[str]) -> None:
@@ -577,9 +629,24 @@ def check_routing(root: Path, errors: list[str]) -> None:
                           f"registry module {REGISTRY_FILE}")
 
 
+def check_unused(errors: list[str]) -> None:
+    for ident in sorted(ALLOWED_IDENTIFIERS):
+        if ("ident", ident) not in USED:
+            errors.append(f"allowlist entry `{ident}` is not needed by any importer literal: "
+                          f"remove it from scripts/check_importer_name_selection.py")
+    for name in sorted(ALLOWED_NAME_LITERALS):
+        if ("name", name) not in USED:
+            errors.append(f"ALLOWED_NAME_LITERALS entry `{name}` is not used: remove it")
+    for file, lit in sorted(FILE_EXCEPTIONS):
+        if ("file", f"{file}:{lit}") not in USED:
+            errors.append(f"FILE_EXCEPTIONS entry {file}: \"{lit}\" is not used: remove it")
+
+
 def run(root: Path) -> list[str]:
     errors: list[str] = []
+    USED.clear()
     check_names(root, errors)
+    check_unused(errors)
     check_registry(root, errors)
     check_routing(root, errors)
     return errors

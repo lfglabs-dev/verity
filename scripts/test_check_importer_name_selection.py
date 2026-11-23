@@ -125,6 +125,38 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.append(IMPORT, "\n" + form + "\n")
                 self.assertFails("lowerMyShim defined outside the registry module")
 
+    def test_code_after_a_theorem_is_checked(self) -> None:
+        for form in ['mutual\n  def zzA (n : String) : Bool := n == "callHook"\nend',
+                     'public def zzA (n : String) : Bool := n == "callHook"',
+                     '  where zzA (n : String) : Bool := n == "callHook"',
+                     'initialize zzR : IO.Ref String ← IO.mkRef "callHook"']:
+            with self.subTest(form=form):
+                self.append(IMPORT, "\ntheorem zzT : True := trivial\n" + form + "\n")
+                self.assertFails("`callHook`")
+
+    def test_theorem_literals_are_exempt(self) -> None:
+        self.append(IMPORT, '\ntheorem zzT : ("callHook" : String).length = 8 := by decide\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    def test_escaped_name_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (n : String) : Bool := n == "call\\x48ook"\n')
+        self.assertFails("`callHook`")
+
+    def test_json_key_of_a_user_name_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (j : Json) : Bool := (field? j "callHook").isSome\n')
+        self.assertFails("`callHook`")
+
+    def test_resolved_name_literal_outside_registry_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (n : Lean.Name) : Bool := n == (``callHook)\n')
+        self.assertFails("Lean name literal ``callHook")
+
+    def test_unused_allowlist_entry_fails(self) -> None:
+        lint.ALLOWED_IDENTIFIERS.add("zzUnusedName")
+        try:
+            self.assertFails("allowlist entry `zzUnusedName` is not needed")
+        finally:
+            lint.ALLOWED_IDENTIFIERS.discard("zzUnusedName")
+
     def test_yul_variable_lookup_outside_registry_gate_fails(self) -> None:
         self.append(IMPORT, '\ndef startOf (env : Env) : Option Expr :=\n'
                     '  env.yulNames.find? "startSlot"\n')
