@@ -134,6 +134,32 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.append(IMPORT, "\ntheorem zzT : True := trivial\n" + form + "\n")
                 self.assertFails("`callHook`")
 
+    def test_indented_command_after_a_theorem_is_checked(self) -> None:
+        self.append(IMPORT, '\ntheorem zzT : True := trivial\n'
+                    '  def zzA (n : String) : Bool := n == "callHook"\n')
+        self.assertFails("`callHook`")
+
+    def test_selection_inside_a_theorem_is_checked(self) -> None:
+        self.append(IMPORT, '\ntheorem zzT : ("callHook" == "x") = false := by decide\n')
+        self.assertFails("`callHook`")
+
+    def test_raw_strings_keep_the_scanner_in_step(self) -> None:
+        self.append(IMPORT, '\nprivate def zzSlash : String := r"\\"\n'
+                    'def zzA (n : String) : Bool := n == "callHook" || n == r"\\"\n')
+        self.assertFails("`callHook`")
+
+    def test_raw_string_name_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (n : String) : Bool := n == r#"callHook"#\n')
+        self.assertFails("`callHook`")
+
+    def test_importing_a_test_module_fails(self) -> None:
+        (self.root / "Compiler/SolidityImport/ShortcutTest.lean").write_text(
+            'def zzA (n : String) : Bool := n == "callHook"\n', encoding="utf-8")
+        path = self.root / IMPORT
+        path.write_text("import Compiler.SolidityImport.ShortcutTest\n"
+                        + path.read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertFails("imports the test module Compiler.SolidityImport.ShortcutTest")
+
     def test_theorem_literals_are_exempt(self) -> None:
         self.append(IMPORT, '\ntheorem zzT : ("callHook" : String).length = 8 := by decide\n')
         self.assertEqual(lint.run(self.root), [])

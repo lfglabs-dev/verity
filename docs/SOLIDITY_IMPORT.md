@@ -461,8 +461,8 @@ only a registry fingerprint match can build. `scripts/check_importer_name_select
 `make check`) fails when importer code contains a name literal that is not a Solidity or Yul
 builtin, a solc AST or JSON name, or one of the importer's own names (wherever the literal is
 used), or names a fingerprint constant, compares a fingerprint or defines a shortcut lowering
-outside the registry. It is a text check with listed exemptions (literals inside theorems and
-examples, and EmitVerity's printed names) and blind spots (names built at run time, a builtin or
+outside the registry. It is a text check with listed exemptions (test-data literals inside theorems
+and examples, outside any comparison, and EmitVerity's printed names) and blind spots (names built at run time, a builtin or
 JSON name that user code also gives its own declaration); the script lists both, and they are
 left to review. For a replaced block the model is the fixed lowering, not a translation of the
 block, and no Lean proof relates the two: each entry names the tests that compare the lowering's results with solc's on the block
