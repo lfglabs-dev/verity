@@ -27,17 +27,24 @@ namespace Compiler.CompilationModel.SolidityImport.ModelResponders
 
 open Denote DenoteByteExternalCalls ByteExternalCall Transactions
 
-/-- The world a callee model sees: its plain slots are the account's
-contract-qualified words and its balance is the account's; every other storage
-channel, including storage arrays, starts empty. -/
+/-- The world a callee model sees, built from the empty state: its plain slots are
+the account's contract-qualified words and its balance is the account's; the
+account world (code, balances, nonces) and the block's fee environment are the
+caller's; every other storage channel, including storage arrays, starts empty.
+Sender, origin, address and the remaining block fields come from the request's
+transaction context. -/
 def calleeWorld (world : Verity.ContractState) (account : Nat) : Verity.ContractState :=
-  let words := world.withStorageWords fun key =>
+  let fresh : Verity.ContractState :=
+    { Verity.defaultState with
+      accountWorld := world.accountWorld
+      codeSize := world.codeSize
+      baseFee := world.baseFee
+      gasPrice := world.gasPrice
+      selfBalance := (world.accountWorld (Verity.Core.Address.ofNat account)).balance }
+  fresh.withStorageWords fun key =>
     match key with
     | .slot slot => world.storageWords (.contractSlot account slot)
     | _ => 0
-  { words with
-    storageArray := fun _ => []
-    selfBalance := (world.accountWorld (Verity.Core.Address.ofNat account)).balance }
 
 /-- Selector and argument words of calldata made of a selector and whole words. -/
 def calldataWords (calldata : Bytes) : Option (Nat × List Nat) :=
