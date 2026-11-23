@@ -17930,13 +17930,18 @@ private def sameVariableRead : Expr → Expr → Bool
   | .param a, .param b => a == b
   | _, _ => false
 
-/-- The start slot and slot count that `lowerBatchRangeSloadShim` reads, when `asm` is the
-contiguous-range read block it replaces (`extsloadRangeYulFingerprint`). The block's Yul
-identifiers `startSlot` and `nSlots` must each resolve, through `externalReferences`, to one
-distinct unshadowed `bytes32` / `uint256` Solidity variable, and the block must reference no
-other declaration. `none` otherwise: the block then takes the ordinary assembly lowering. -/
-private def rangeReadBindings? (env : Env) (asm : Json) : Option (Expr × Expr) := do
-  guard (yulBlockFingerprint asm == extsloadRangeYulFingerprint)
+/-- The trusted range-read shortcut and the start slot and slot count it reads, when `asm` is
+the contiguous-range read block it replaces (`.rangeStorageRead` in `trustedImporterShortcuts`).
+The block's Yul identifiers `startSlot` and `nSlots` must each resolve, through
+`externalReferences`, to one distinct unshadowed `bytes32` / `uint256` Solidity variable, and the
+block must reference no other declaration. `none` otherwise: the block then takes the ordinary
+assembly lowering. -/
+private def rangeReadBindings? (env : Env) (asm : Json) :
+    Option (TrustedShortcutMatch × Expr × Expr) := do
+  let m ← matchTrustedShortcut? asm
+  guard (m.shortcut.lowering == .rangeStorageRead)
+  -- `startSlot` and `nSlots` are the Yul names of the registered block, read only once its
+  -- fingerprint matched: they locate its inputs, they do not select the shortcut.
   let startId ← inlineAssemblyIdentDecl? asm "startSlot"
   let countId ← inlineAssemblyIdentDecl? asm "nSlots"
   guard (startId != countId && inlineAssemblyRefsWithin asm [startId, countId])
@@ -17946,7 +17951,7 @@ private def rangeReadBindings? (env : Env) (asm : Json) : Option (Expr × Expr) 
   let startYul ← env.yulNames.find? "startSlot"
   let countYul ← env.yulNames.find? "nSlots"
   guard (sameVariableRead startExpr startYul && sameVariableRead countExpr countYul)
-  pure (startExpr, countExpr)
+  pure (m, startExpr, countExpr)
 
 private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := false) : M (Array Stmt × Bool) := do
   let mut out : Array Stmt := #[]
@@ -18017,27 +18022,22 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
               | [(arrId, arr)] => if inlineAssemblyRefsDecl s arrId then some (arrId, arr) else none
               | _ => none
             if let some (arrId, arr) := batchArr? then
-              -- The shim replaces the block: apply it only to the exact v4 `extsload`/`exttload`
-              -- code, whose every Solidity reference resolves to the bound calldata array.
-              let fingerprint := yulBlockFingerprint s
-              let refsArr := inlineAssemblyRefsOnlyDecl s arrId
-              let isTransient ←
-                if refsArr && fingerprint == extsloadBatchYulFingerprint then pure false
-                else if refsArr && fingerprint == exttloadBatchYulFingerprint then pure true
-                else failAt s s!"shortcut fingerprint mismatch: tail assembly of a bytes32[]-returning function is not a registered calldata-keyed batch slot read (fingerprint {fingerprint.take 12})"
-              let shimStmts ← lowerBatchArrayLoadShim arr isTransient
-              if isTransient then
-                recordShortcut s "exttloadBatchYulFingerprint" fingerprint "lowerBatchArrayLoadShim"
-              else
-                recordShortcut s "extsloadBatchYulFingerprint" fingerprint "lowerBatchArrayLoadShim"
+              -- The shortcut replaces the block: apply it only to a registered batch read
+              -- (`trustedImporterShortcuts`) whose every Solidity reference resolves to the bound
+              -- calldata array.
+              let batchRead? := (matchTrustedShortcut? s).filter fun m =>
+                (m.shortcut.lowering == .batchStorageRead ||
+                  m.shortcut.lowering == .batchTransientRead) &&
+                inlineAssemblyRefsOnlyDecl s arrId
+              let some m := batchRead?
+                | failAt s s!"shortcut fingerprint mismatch: tail assembly of a bytes32[]-returning function is not a registered calldata-keyed batch slot read (fingerprint {(yulBlockFingerprint s).take 12})"
+              let shimStmts ← lowerBatchArrayLoadShim m arr
               modify fun e => { e with yulNames := savedAsmYul }
               out := out ++ extPre ++ shimStmts
               returned := true
               handledScratchReturn := true
-            else if let some (startExpr, nSlotsExpr) := rangeReadBindings? env s then
-              let shimStmts ← lowerBatchRangeSloadShim startExpr nSlotsExpr
-              recordShortcut s "extsloadRangeYulFingerprint" extsloadRangeYulFingerprint
-                "lowerBatchRangeSloadShim"
+            else if let some (m, startExpr, nSlotsExpr) := rangeReadBindings? env s then
+              let shimStmts ← lowerBatchRangeSloadShim m startExpr nSlotsExpr
               modify fun e => { e with yulNames := savedAsmYul }
               out := out ++ extPre ++ shimStmts
               returned := true
