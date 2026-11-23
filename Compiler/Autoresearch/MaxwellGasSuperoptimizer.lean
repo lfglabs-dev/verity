@@ -19,7 +19,7 @@ open Compiler.Autoresearch.EvmYulGasAdapter
 open Compiler.Proofs.SlotCoalescingShim
 
 /-!
-# Automated `SolcoreBridge` Witness Synthesis & Maxwell Certified Gas Superoptimizer (G1–G8)
+# Automated `SolcoreBridge` Witness Synthesis & Maxwell Gas Superoptimizer (G1–G8)
 ## Verity 2.0 Unified Roadmap — Layer 2 Compositional Rewrite Families & Core Passes
 
 This module formalizes:
@@ -274,7 +274,8 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
 /-- **Executable Witness Suite (`by decide`, `0 native_decide`)**:
-    Verifies the core G1–G8 (`PoolManager.swap` + `SlotCoalescingShim` + `mappingSlot` CSE +
+    Gas accounting only (G1 is not semantically certified): checks the core G1–G8
+    (`PoolManager.swap` + `SlotCoalescingShim` + `mappingSlot` CSE +
     checked arithmetic interval elision + scratch-space hashing + lazy calldata decoding +
     logarithmic `SelectorDispatchTree` + `Mathlib`/`TauCeti` algebraic simplifier)
     optimization bundle, yielding `1,281` gas saved per call across the 8 active passes. -/
