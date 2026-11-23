@@ -140,8 +140,7 @@ structure PassStepCert where
 /-- Allowlist of kernel-verified soundness theorems for Verity's core G2–G8, patch, and
     `BitVec 256` / `Mathlib` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
-  [ "Compiler.Codegen.Profile.dynamicSpillSlotAddr_disjoint_from_active_memory"
-  , "Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_eq_uncoalesced"
+  [ "Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_eq_uncoalesced"
   , "Compiler.Proofs.MappingSlot.mappingSlot_cse_sound"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g4_checkedAdd_elision_sound_and_saves_gas"
   , "Compiler.Proofs.KeccakBound.scratchSpace_keccak_disjoint_freeMemPtr"
