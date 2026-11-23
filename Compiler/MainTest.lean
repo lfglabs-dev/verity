@@ -287,6 +287,32 @@ unsafe def runFlagAndUnitTests : IO Unit := do
     [.for_ (longLived "l" 14) (.lit 0) [] []]
   expectTrue "for initialisers do not spill"
     (Compiler.Yul.TempReuse.spillHighWaterStmts forOut == 0)
+  -- The import model drivers spill a section only when its spill words are provably disjoint
+  -- from every other memory access (literal addresses below the spill base, no `msize`, no
+  -- call leaving the section); otherwise the section is returned unchanged.
+  let staticDeep : List Compiler.Yul.YulStmt :=
+    [.exprStmt (.call "mstore" [.lit 64, .lit 128])] ++ longLived "s" 14 ++
+      [.exprStmt (.call "return" [.lit 0, .lit 32])]
+  let staticOut := Compiler.Yul.TempReuse.reuseAndSpillTempsStaticSection 12 staticDeep
+  expectTrue "a static-memory section is spilled and keeps its free-pointer initialisation"
+    (staticOut != staticDeep && staticOut.head? == staticDeep.head?)
+  let withAlloc := staticDeep ++
+    [.let_ "ptr" (.call "mload" [.lit 64]), .exprStmt (.call "mstore" [.ident "ptr", .lit 1])]
+  expectTrue "a section that writes runtime-allocated memory is not spilled"
+    (Compiler.Yul.TempReuse.reuseAndSpillTempsStaticSection 12 withAlloc == withAlloc)
+  let withDynamic := staticDeep ++
+    [.exprStmt (.call "return" [.lit 0, .call "calldataload" [.lit 0]])]
+  expectTrue "a section with a non-literal memory range is not spilled"
+    (Compiler.Yul.TempReuse.reuseAndSpillTempsStaticSection 12 withDynamic == withDynamic)
+  let withMsize := staticDeep ++ [.exprStmt (.call "pop" [.call "msize" []])]
+  expectTrue "a section that reads msize is not spilled"
+    (Compiler.Yul.TempReuse.reuseAndSpillTempsStaticSection 12 withMsize == withMsize)
+  let withExternal := staticDeep ++ [.exprStmt (.call "linkedHelper" [])]
+  expectTrue "a section that calls a function it does not define is not spilled"
+    (Compiler.Yul.TempReuse.reuseAndSpillTempsStaticSection 12 withExternal == withExternal)
+  let withHighLiteral := staticDeep ++ [.exprStmt (.call "mstore" [.lit 4096, .lit 1])]
+  expectTrue "a section that touches memory at or above the spill base is not spilled"
+    (Compiler.Yul.TempReuse.reuseAndSpillTempsStaticSection 12 withHighLiteral == withHighLiteral)
 
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do

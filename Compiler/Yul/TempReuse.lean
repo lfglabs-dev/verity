@@ -548,4 +548,147 @@ def reuseAndSpillTempsObject
     deployCode := reuseAndSpillTempsSection maxStackLocals obj.deployCode
     runtimeCode := reuseAndSpillTempsSection maxStackLocals obj.runtimeCode }
 
+/-- Literal byte range `[offset, offset + len)` ends at or below `bound`; a non-literal offset or
+length is never accepted. A zero-length range touches no memory. -/
+def literalRangeBelow (bound : Nat) : YulExpr → YulExpr → Bool
+  | .lit _, .lit 0 => true
+  | .lit offset, .lit len => offset + len ≤ bound
+  | _, _ => false
+
+/-- The memory byte ranges `(offset, length)` a builtin call touches, by argument position, or
+`none` when the call does not touch memory. `msize` reads the memory size, so it is reported
+as touching an unknown range. -/
+def builtinMemoryRanges : String → List YulExpr → Option (List (YulExpr × YulExpr))
+  | "mload", [p] => some [(p, .lit 32)]
+  | "mstore", [p, _] => some [(p, .lit 32)]
+  | "mstore8", [p, _] => some [(p, .lit 1)]
+  | "keccak256", [p, n] | "return", [p, n] | "revert", [p, n] => some [(p, n)]
+  | "log0", p :: n :: _ | "log1", p :: n :: _ | "log2", p :: n :: _
+  | "log3", p :: n :: _ | "log4", p :: n :: _ => some [(p, n)]
+  | "calldatacopy", [d, _, n] | "codecopy", [d, _, n] | "returndatacopy", [d, _, n]
+  | "datacopy", [d, _, n] => some [(d, n)]
+  | "extcodecopy", [_, d, _, n] => some [(d, n)]
+  | "mcopy", [d, s, n] => some [(d, n), (s, n)]
+  | "call", [_, _, _, i, iLen, o, oLen] | "callcode", [_, _, _, i, iLen, o, oLen] =>
+      some [(i, iLen), (o, oLen)]
+  | "delegatecall", [_, _, i, iLen, o, oLen] | "staticcall", [_, _, i, iLen, o, oLen] =>
+      some [(i, iLen), (o, oLen)]
+  | "create", [_, p, n] | "create2", [_, p, n, _] => some [(p, n)]
+  | "msize", _ => some [(.ident "msize", .ident "msize")]
+  | _, _ => none
+
+/-- EVM builtins that read or write no memory. -/
+def memoryFreeBuiltins : List String :=
+  [ "stop", "add", "sub", "mul", "div", "sdiv", "mod", "smod", "exp", "not", "lt", "gt", "slt",
+    "sgt", "eq", "iszero", "and", "or", "xor", "byte", "shl", "shr", "sar", "addmod", "mulmod",
+    "signextend", "pop", "sload", "sstore", "tload", "tstore", "calldataload", "calldatasize",
+    "callvalue", "caller", "origin", "address", "balance", "selfbalance", "gas", "gasprice",
+    "chainid", "coinbase", "timestamp", "number", "difficulty", "prevrandao", "gaslimit",
+    "basefee", "blobbasefee", "blobhash", "blockhash", "codesize", "extcodesize", "extcodehash",
+    "returndatasize", "datasize", "dataoffset", "invalid", "selfdestruct" ]
+
+mutual
+/-- Every memory access in an expression has a literal address and length ending at or below
+`bound`, the expression does not use `msize`, and every other call is a memory-free builtin
+or a function named in `fns` (whose body is checked separately). -/
+def exprMemoryStaticBelow (bound : Nat) (fns : List String) : YulExpr → Bool
+  | .call func args =>
+      (match builtinMemoryRanges func args with
+       | some ranges => ranges.all fun (offset, len) => literalRangeBelow bound offset len
+       | none => memoryFreeBuiltins.contains func || fns.contains func) &&
+        exprsMemoryStaticBelow bound fns args
+  | _ => true
+
+/-- `exprMemoryStaticBelow` over a list of expressions. -/
+def exprsMemoryStaticBelow (bound : Nat) (fns : List String) : List YulExpr → Bool
+  | [] => true
+  | e :: es => exprMemoryStaticBelow bound fns e && exprsMemoryStaticBelow bound fns es
+end
+
+mutual
+/-- `exprMemoryStaticBelow` over every expression of a statement, nested blocks and function
+bodies included. -/
+def stmtMemoryStaticBelow (bound : Nat) (fns : List String) : YulStmt → Bool
+  | .comment _ | .leave => true
+  | .let_ _ value | .letMany _ value | .assign _ value | .exprStmt value =>
+      exprMemoryStaticBelow bound fns value
+  | .if_ cond body =>
+      exprMemoryStaticBelow bound fns cond && stmtsMemoryStaticBelow bound fns body
+  | .for_ init cond post body =>
+      stmtsMemoryStaticBelow bound fns init && exprMemoryStaticBelow bound fns cond &&
+        stmtsMemoryStaticBelow bound fns post && stmtsMemoryStaticBelow bound fns body
+  | .switch expr cases default =>
+      exprMemoryStaticBelow bound fns expr && casesMemoryStaticBelow bound fns cases &&
+        match default with
+        | none => true
+        | some body => stmtsMemoryStaticBelow bound fns body
+  | .block stmts => stmtsMemoryStaticBelow bound fns stmts
+  | .funcDef _ _ _ body => stmtsMemoryStaticBelow bound fns body
+
+/-- `stmtMemoryStaticBelow` over a statement list. -/
+def stmtsMemoryStaticBelow (bound : Nat) (fns : List String) : List YulStmt → Bool
+  | [] => true
+  | s :: ss => stmtMemoryStaticBelow bound fns s && stmtsMemoryStaticBelow bound fns ss
+
+/-- `stmtMemoryStaticBelow` over switch cases. -/
+def casesMemoryStaticBelow (bound : Nat) (fns : List String) :
+    List (Nat × List YulStmt) → Bool
+  | [] => true
+  | (_, body) :: rest =>
+      stmtsMemoryStaticBelow bound fns body && casesMemoryStaticBelow bound fns rest
+end
+
+mutual
+/-- Names of the functions defined anywhere in a statement. -/
+def stmtFuncDefNames : YulStmt → List String
+  | .if_ _ body | .block body => stmtsFuncDefNames body
+  | .for_ init _ post body =>
+      stmtsFuncDefNames init ++ stmtsFuncDefNames post ++ stmtsFuncDefNames body
+  | .switch _ cases default =>
+      casesFuncDefNames cases ++
+        match default with
+        | none => []
+        | some body => stmtsFuncDefNames body
+  | .funcDef name _ _ body => name :: stmtsFuncDefNames body
+  | _ => []
+
+/-- `stmtFuncDefNames` over a statement list. -/
+def stmtsFuncDefNames : List YulStmt → List String
+  | [] => []
+  | s :: ss => stmtFuncDefNames s ++ stmtsFuncDefNames ss
+
+/-- `stmtFuncDefNames` over switch cases. -/
+def casesFuncDefNames : List (Nat × List YulStmt) → List String
+  | [] => []
+  | (_, body) :: rest => stmtsFuncDefNames body ++ casesFuncDefNames rest
+end
+
+/-- Every memory access in a code section (all its functions included) has a literal address
+and length ending at or below `bound`, `msize` is unused, and no call leaves the section
+except to a memory-free builtin. -/
+def sectionMemoryStaticBelow (bound : Nat) (code : List YulStmt) : Bool :=
+  stmtsMemoryStaticBelow bound (stmtsFuncDefNames code) code
+
+/-- Spill a code section only when the spill words are provably disjoint from every other
+memory access: each access in `code` has a literal address and length below
+`defaultSpillBase`, `msize` is unused, and every call stays inside the section or is a
+memory-free builtin. The free-memory pointer is left untouched, so the
+memory layout (and every allocation bound) stays exactly as emitted. Any other section is
+returned unchanged: if it is too deep for the stack, solc rejects it (StackTooDeep) instead of
+the spill words aliasing runtime-allocated memory or shifting the allocation bounds. -/
+def reuseAndSpillTempsStaticSection (maxStackLocals : Nat) (code : List YulStmt) :
+    List YulStmt :=
+  if sectionMemoryStaticBelow defaultSpillBase code then
+    reuseAndSpillTemps maxStackLocals [] true code
+  else
+    code
+
+/-- `reuseAndSpillTempsStaticSection` on the deploy and runtime code of a `YulObject`. -/
+def reuseAndSpillTempsStaticObject
+    (maxStackLocals : Nat := defaultMaxStackLocals)
+    (obj : YulObject) : YulObject :=
+  { obj with
+    deployCode := reuseAndSpillTempsStaticSection maxStackLocals obj.deployCode
+    runtimeCode := reuseAndSpillTempsStaticSection maxStackLocals obj.runtimeCode }
+
 end Compiler.Yul.TempReuse
