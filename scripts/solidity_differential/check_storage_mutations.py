@@ -166,7 +166,13 @@ MUTANTS.update({
         'if false then'),
     'import-abi-encode-string-helper-storage-guard': (
         'if otherIdx != argIdx && (← mType args[otherIdx]!).contains " storage" then',
-        'if false then')})
+        'if false then'),
+    # A string literal against a declared `bytesN` component (`hex"0f"` as the `bytes1` of
+    # an `eip712Domain()` return tuple) encoded as a dynamic `string` instead of its static
+    # head word: the fixture's `read()` returns a different tuple.
+    'import-abi-encode-string-helper-literal-fixed-bytes': (
+        'return (← mType args[argIdx]!).startsWith "literal_string " &&',
+        'return false &&')})
 # `x++` / `--m[k]` / `x = v` as call and `abi.encode` arguments: each sibling is bound at its
 # own position (both solc pipelines evaluate the arguments left to right), and a hashed
 # assignment encoding stays rejected where its siblings are walked out of order.
@@ -733,7 +739,7 @@ MUTANTS.update({
     'import-timelock-and-bytes4-cast-literal-zero': ('      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal (n * 16 ^ 56) }', '      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal 0 }'),
     'import-timelock-and-bytes4-cast-abi-encode-tail-len-zero': ('          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) bufSize\n          ]', '          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) (.literal 0)\n          ]'),
     'import-timelock-and-bytes4-cast-const-error-eval-zero': ('      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some n => { pre := #[], expr := .literal n }\n        | none => rawConverted', '      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some _ => { pre := #[], expr := .literal 0 }\n        | none => rawConverted'),
-    'import-timelock-and-bytes4-cast-encode-stateful-bytes-guard': ('      if isDynamicBytesOrString ty then\n        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then\n          failAt arg "effectful ABI encoding argument is unsupported"', '      if isDynamicBytesOrString ty then\n        if false then\n          failAt arg "effectful ABI encoding argument is unsupported"'),
+    'import-timelock-and-bytes4-cast-encode-stateful-bytes-guard': ('      if ← isDynamicArg argIdx then\n        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then\n          failAt arg "effectful ABI encoding argument is unsupported"', '      if ← isDynamicArg argIdx then\n        if false then\n          failAt arg "effectful ABI encoding argument is unsupported"'),
     'import-string-bytes-mappings-uri-storage-strings-mstore8-zero': ('          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let newByte := Expr.shl shift (.bitAnd valVal.expr (.literal 0xff))\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))', '          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let _ := valVal.expr\n          let newByte := Expr.shl shift (.literal 0)\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))'),
     'import-string-bytes-mappings-uri-storage-strings-mapping-slot-zero': ('              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, slotExpr) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", slotExpr, info.stringStorage)', '              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, _) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", .literal 0, info.stringStorage)'),
     'import-string-bytes-mappings-uri-storage-strings-while-true-break-immediately': ('    let iterStmts := bodyOut.toList ++ [Stmt.ite breakCondVal.expr [.assignVar doneVar (.literal 1)] []]\n    return #[\n      .letVar doneVar (.literal 0),\n      .forEach loopVar (.literal bits) [.ite (.eq (.localVar doneVar) (.literal 0)) iterStmts []]\n    ]', '    let _ := breakCondVal.expr\n    let iterStmts := bodyOut.toList ++ [Stmt.assignVar doneVar (.literal 1)]\n    return #[\n      .letVar doneVar (.literal 0),\n      .forEach loopVar (.literal bits) [.ite (.eq (.localVar doneVar) (.literal 0)) iterStmts []]\n    ]'),
@@ -1070,6 +1076,8 @@ def run(directory, output, name):
         fixture = "EmptyPushSequence"
     if name.startswith("import-assign-order-"):
         fixture = "MappingWriteOrderSequence"
+    if name == "import-abi-encode-string-helper-literal-fixed-bytes":
+        fixture = "AbiEncodeStringHelperSequence"
     if name.startswith("import-storage-pointer-mapping-helper-"):
         fixture = "StoragePointerMappingHelperSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
