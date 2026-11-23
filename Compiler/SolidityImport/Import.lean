@@ -8275,9 +8275,11 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
 
 /-- `I(a).f(args...)` as a whole expression statement, for a `nonpayable` or
 `payable` external function without return values, called without value.
-solc 0.8.34 (via-IR) evaluates the receiver, then the arguments in source order;
-reverts with no data when `extcodesize(a)` is zero; writes the selector and the
-ABI-encoded arguments at the free pointer; emits `call(gas(), a, 0, p, len, p, 0)`;
+solc 0.8.34 evaluates the receiver, then the arguments in source order; writes the
+selector and the ABI-encoded arguments at the free pointer; reverts with no data when
+`extcodesize(a)` is zero (legacy order, modelled here; via-IR checks the code size
+before encoding, so a storage reference argument is rejected under via-IR, see
+below); emits `call(gas(), a, 0, p, len, p, 0)`;
 forwards a failed call's complete return data as the revert payload; and ignores
 the return data of a successful call. Here the calldata is assembled in a fresh
 allocation (solc writes it above the free pointer without advancing it, so only
@@ -8313,6 +8315,19 @@ private partial def lowerInterfaceVoidCallStatus (j decl : Json) : M (Array Stmt
   for operand in #[receiver] ++ args do
     if statefulCallIn operand (← get) || assignmentIn operand then
       failAt operand "typed interface call operands require explicit evaluation-order support"
+  -- Both pipelines evaluate the receiver and the arguments first. Legacy then ABI-encodes
+  -- the arguments and checks `extcodesize(a)` just before the CALL, as modelled below;
+  -- via-IR checks `extcodesize(a)` before encoding. Encoding a storage reference reads it
+  -- then and can revert with data (Panic 0x22 on a corrupt byte-array length), where a
+  -- codeless callee gives an empty revert, so on via-IR a storage reference argument is
+  -- rejected (#2830). Encoding any other admitted argument either cannot revert or only
+  -- reverts with no data (calldata validation), which a codeless callee also gives.
+  if (← get).viaIR then
+    for arg in args do
+      let argTy ← mType arg
+      if argTy.endsWith " storage ref" || argTy.endsWith " storage pointer" then
+        failAt arg ("storage reference argument of a typed external call without return " ++
+          "values: via-IR checks the callee's code size before encoding it")
   let target ← atom (← lowerExpr receiver)
   let mut pre := target.pre
   let mut payloadPtr := Expr.literal 0
@@ -14536,7 +14551,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let r := rets[0]!
           let rloc := optStr r "storageLocation" |>.getD "default"
           let rty ← mType r
-          if ((← mStr (← mField r "name")) == "" || (← get).stateVars.size > 1) && rloc == "memory" && (rty == "string" || rty == "bytes") then
+          -- A discarded `string` / `bytes memory` helper inlines through `inlineStringFn`
+          -- whether its result is named or not, for every state-variable count (#2830).
+          if rloc == "memory" && (rty == "string" || rty == "bytes") then
             let (fnId, vals) ← resolveCallTargetAndArgs expression
             let buf ← inlineStringFn fnId vals expression
             let ptrAtom ← atom { pre := #[], expr := buf.pointer }
@@ -14813,28 +14830,15 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             if let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) then
               let rhsBuf ← lowerEncodedBytes right
               return rhsBuf.pre ++ #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
-          if (← get).stateVars.size > 1 && (← isInterfaceExternalCall right) && (← mType right) == "bytes memory" then
+          -- `buf = I(a).f(args)` with a `bytes memory` result needs the selector, the
+          -- arguments encoded against the declared parameter types and dynamic return
+          -- decoding (offset, length, data). It is rejected here for every state-variable
+          -- count (#2830). With more than one state variable it used to be modelled as a
+          -- CALL with selector 0 whose first return word became a 32-byte buffer.
+          if (← isInterfaceExternalCall right) && (← mType right) == "bytes memory" then
             if (← get).forwardingBytesTuple then
               failAt right "external bytes assignment in a forwarded tuple requires dynamic return decoding"
-            if let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) then
-              let callee ← mField right "expression"
-              let base ← mField callee "expression"
-              let convArgs ← mArr (← mField base "arguments")
-              let callArgs ← mArr (← mField right "arguments")
-              let rawTarget ← lowerExpr convArgs[0]!
-              let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
-              let payload ← lowerAbiEncodeArgs callArgs
-              let payloadPtr ← atom { pre := payload.pre, expr := payload.pointer }
-              let payloadSize ← atom { pre := #[], expr := payload.size }
-              let resVar ← fresh
-              let ptr ← fresh
-              let finish ← fresh
-              modify fun e => { e with encodingMemory := true }
-              let callMod := Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resVar 0
-              let encStmts := (AbiEncoding.staticWords ptr finish [.localVar resVar]).toArray
-              return target.pre ++ payloadPtr.pre ++ payloadSize.pre ++
-                #[.ecm callMod [target.expr, payloadPtr.expr, payloadSize.expr]] ++ encStmts ++
-                #[.assignVar ptrBinding (.localVar ptr), .assignVar sizeBinding (.literal 32)]
+            failAt right "external bytes result assigned to a byte buffer requires dynamic return decoding"
           -- A writable `bytes memory` local (a named result, or a local whose
           -- binding is not a literal) is rebound to the right-hand buffer, as
           -- solc's memory pointer assignment does; a calldata source is copied.
