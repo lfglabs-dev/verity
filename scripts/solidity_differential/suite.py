@@ -277,6 +277,16 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(32, transactions)), '--seed', str(seed),
         '--change-prefix', *map(str, [0, 2, 5, 8, 10, 11, 13, 14, 15, 17, 19, 20, 22, 23, 25, 28, 29, 30, 31, 47, 49, 50, 60, 75, 62, 144, 2 ** 256 - 1]),
         '--output', str(output / 'mapping-write-order')]))
+    # `assert` and discarded expression statements (AssertStatementSequence): x = 8 * y + c
+    # selects case c. The prefix runs each assert holding and failing (Panic(0x01)), the
+    # state-changing condition until it fails, a panicking condition, every discarded-value
+    # panic (0x11, 0x12, 0x21, 0x32) and its passing twin, and the helper assert.
+    checks.append(('assert-statement', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/AssertStatementSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/AssertStatementSequenceModel.lean',
+        '--transactions', str(max(32, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, [0, 8, 1, 9, 17, 2, 26, 10, 3, 11, 4, 12, 5, 21, 6, 30, 7, 111, 1, 2 ** 256 - 1]),
+        '--output', str(output / 'assert-statement')]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',

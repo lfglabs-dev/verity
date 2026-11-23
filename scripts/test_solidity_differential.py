@@ -24,6 +24,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "abi-event-composition",
     "abi-rejections",
     "anvil",
+    "assert-statement",
     "assignment-arguments",
     "baseline",
     "block-rejections",
