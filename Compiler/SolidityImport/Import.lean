@@ -3687,6 +3687,10 @@ private partial def lowerRef (j : Json) : M Ref := do
               booleanValue := false
               valueStructId := if valSid == 0 then none else some valSid
             })
+          else if let .zero name := path then
+            -- A `mapping(...) storage` parameter bound to a mapping state variable
+            -- (`lowerCallArgs`): the parameter is that variable.
+            pure (.state name #[])
           else
             pure (.path #[] path)
         else
@@ -7835,6 +7839,18 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
           let valSid := mapInfo.valueStructId.getD 0
           vals := vals.push (.storagePath valSid (.rawSlot valSid (.localVar binding))
             ((pre ++ slotPre).push (.letVar binding mapSlotExpr)))
+      | .state name pre =>
+          -- A one-key mapping state variable of structs: the parameter aliases the variable
+          -- itself (`SPath.zero name` on a mapping-typed parameter; see `lowerRef`), so
+          -- `m[k]` in the helper is the same `.one name k` path as a direct `name[k]`.
+          -- Scalar-valued, nested and array-valued mappings keep the rejection below.
+          let info ← resolveField name arg
+          let valueTy := (argTy.splitOn " => ").drop 1 |> " => ".intercalate
+          unless info.keyCount == 1 && !info.scalarMapping && info.fixedArrayLength.isNone &&
+              info.dynamicArrayElemType.isNone && info.dynamicArrayStructId.isNone &&
+              valueTy.startsWith "struct " && !valueTy.contains "[" && !valueTy.contains "mapping(" do
+            failAt arg "only struct mapping storage arguments are supported"
+          vals := vals.push (.storagePath 0 (.zero name) pre)
       | _ => failAt arg "only struct mapping storage arguments are supported"
     else if let some (sid, _) ← structMemArrayOf? arg then
       -- `S[] memory`: the array pointer is passed (no copy), as solc does.
@@ -9105,6 +9121,10 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           if pname != "" then
             if let .rawSlot _ baseSlot := path then
               yul := yul.erase pname |>.insert s!"{pname}.slot" baseSlot
+            else
+              -- A mapping state variable binding has no Yul name: `<param>.slot` in the
+              -- helper's assembly stays unresolved, never a caller's same-named binding.
+              yul := yul.erase pname |>.erase s!"{pname}.slot"
           continue
         unless pty.startsWith "struct " && !pty.contains "[" do
           failAt p "storage struct argument requires a struct parameter"
