@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail if the Solidity importer selects a lowering by a user-chosen name (#2828).
+r"""Fail if the Solidity importer selects a lowering by a user-chosen name (#2828).
 
 The importer must lower what the source does, not what it is called. A lowering that is not a
 translation of the source (a "shortcut") is allowed only through the trusted shortcut registry
@@ -29,7 +29,9 @@ one, so skipped code cannot reach the importer):
    to the next line starting in column 0 or starting, at any indent, with a command keyword,
    or a `where` / `let rec` helper), which are test data of a statement; and the reasoned
    `FILE_EXCEPTIONS` (EmitVerity's printed names and example model). Raw strings (`r"..."`,
-   `r#"..."#`) are read as strings without escapes.
+   `r#"..."#`) are read as strings without escapes; string gaps (`\` at a line end) and
+   interpolations of nothing or of a literal are joined, so a name split by them is one name.
+   Scope: only `Compiler/SolidityImport/`; a helper elsewhere under `Compiler/` is not read.
    Not detected, so left to review: a name built at run time (`"call" ++ "Hook"`, `String.mk`),
    a name inside a longer literal outside a selection position, and a listed builtin or JSON
    name that user code may also give its own declaration (e.g. `transfer`, `push`, `add`,
@@ -250,9 +252,9 @@ HEX_DIGEST = re.compile(r"[0-9a-f]{40,64}")
 NAME_LITERAL = re.compile(r"(?<![`\w])(``?)(?![`(\[])([A-Za-z_][\w.']*)")
 PROOF_END = re.compile(
     r"(?m)^(?=\S)|^\s*(?:where|mutual|def|abbrev|instance|class|structure|inductive|theorem|lemma|"
-    r"example|private|protected|public|noncomputable|partial|unsafe|namespace|section|end|open|"
+    r"example|private|protected|public|noncomputable|nonrec|partial|unsafe|namespace|section|end|open|"
     r"set_option|initialize|builtin_initialize|macro|macro_rules|syntax|elab|elab_rules|local|"
-    r"scoped|attribute|opaque|axiom|@\[|#)(?![\w'?!])|\blet\s+rec\b")
+    r"scoped|attribute|opaque|axiom|@\[|#)(?![\w'?!])|\blet\s+rec\b|\bwhere[ \t]*$")
 DECL_START = re.compile(
     r"(?m)^(?:/--|@\[|(?:private\s+|partial\s+|protected\s+|noncomputable\s+|unsafe\s+)*"
     r"(?:def|theorem|lemma|example|structure|inductive|abbrev|instance|namespace|end|section|syntax|"
@@ -313,7 +315,12 @@ def scan(text: str) -> tuple[str, list[Literal]]:
         i += 1
         body: list[str] = []
         while i < n and text[i] != '"':
-            if text[i] == "\\":
+            if text[i] == "\\" and i + 1 < n and text[i + 1] == "\n":
+                # String gap: `\` at a line end drops the newline and the next line's indent.
+                i += 2
+                while i < n and text[i] in " \t\n":
+                    i += 1
+            elif text[i] == "\\":
                 esc = ESCAPE.match(text, i)
                 if esc is None:
                     body.append(" ")
@@ -322,8 +329,14 @@ def scan(text: str) -> tuple[str, list[Literal]]:
                     body.append(decode_escape(esc.group(0)))
                     i = esc.end()
             elif interpolated and text[i] == "{":
+                inner = i + 1
                 i = code(i + 1, closing="}")
-                body.append(" ")
+                # An interpolation of nothing or of a literal adds no separator, so a name split
+                # around it (`s!"call{""}Hook"`) is still read as one name.
+                hole = text[inner:i - 1].strip()
+                body.append("" if hole == "" or re.fullmatch(r'"[^"\\]*"', hole) else " ")
+                if re.fullmatch(r'"[^"\\]*"', hole):
+                    body.append(hole[1:-1])
             else:
                 body.append(text[i])
                 i += 1
@@ -628,7 +641,7 @@ def check_registry(root: Path, errors: list[str]) -> None:
 def check_routing(root: Path, errors: list[str]) -> None:
     for path in importer_files(root):
         rel = path.relative_to(root)
-        for imp in re.finditer(r"(?m)^\s*(?:public\s+)?import\s+(?:all\s+)?([\w.]+)", path.read_text(encoding="utf-8")):
+        for imp in re.finditer(r"(?m)^\s*(?:(?:public|private|meta)\s+)*import\s+(?:all\s+)?([\w.]+)", path.read_text(encoding="utf-8")):
             if imp.group(1).endswith(("Test", "Tests")):
                 errors.append(f"{rel}: imports the test module {imp.group(1)}, which this check "
                               f"skips; importer code must not depend on a test module")

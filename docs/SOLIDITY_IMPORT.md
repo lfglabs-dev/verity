@@ -458,7 +458,7 @@ entry's fixed lowering:
 A shortcut is selected only by the exact code fingerprint of the block, never by a function,
 library, contract or variable name. The shortcut lowerings take a `TrustedShortcutMatch`, which
 only a registry fingerprint match can build. `scripts/check_importer_name_selection.py` (in
-`make check`) fails when importer code contains a name literal that is not a Solidity or Yul
+`make check`) fails when importer code (`Compiler/SolidityImport/`) contains a name literal that is not a Solidity or Yul
 builtin, a solc AST or JSON name, or one of the importer's own names (wherever the literal is
 used), or names a fingerprint constant, compares a fingerprint or defines a shortcut lowering
 outside the registry. It is a text check with listed exemptions (test-data literals inside theorems
