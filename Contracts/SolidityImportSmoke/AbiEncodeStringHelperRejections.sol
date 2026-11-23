@@ -64,3 +64,24 @@ contract StorageBesideC is NamedBase {
         return keccak256(abi.encode(label, x, _name()));
     }
 }
+
+// A string literal as event data for a `bytesN` parameter: solc encodes the static `bytes1`
+// word, the event data encoder (by argument types) would encode a dynamic `string`.
+contract EventLiteralFixedBytesC {
+    event Tagged(bytes1 fields, string note);
+
+    function tag(string memory note) external {
+        emit Tagged(hex"0f", note);
+    }
+}
+
+interface ITagged {
+    function tagged(bytes1 fields) external view returns (uint256);
+}
+
+// A string literal for a `bytesN` parameter of an all-static typed interface call.
+contract InterfaceLiteralFixedBytesC {
+    function probe(address target) external view returns (uint256) {
+        return ITagged(target).tagged(hex"0f");
+    }
+}

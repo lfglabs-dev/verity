@@ -172,7 +172,12 @@ MUTANTS.update({
     # head word: the fixture's `read()` returns a different tuple.
     'import-abi-encode-string-helper-literal-fixed-bytes': (
         'return (← mType args[argIdx]!).startsWith "literal_string " &&',
-        'return false &&')})
+        'return false &&'),
+    # Event data is encoded by the arguments' own types: a string literal for a `bytesN`
+    # parameter stays rejected.
+    'import-abi-encode-string-helper-event-literal-guard': (
+        'if (← mType argument).startsWith "literal_string " && (fixedBytesWidth? ty).isSome then',
+        'if false then')})
 # `x++` / `--m[k]` / `x = v` as call and `abi.encode` arguments: each sibling is bound at its
 # own position (both solc pipelines evaluate the arguments left to right), and a hashed
 # assignment encoding stays rejected where its siblings are walked out of order.
@@ -1975,6 +1980,17 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-abi-encode-string-helper-event-literal-guard':
+        diagnostic = 'string literal event data argument for a bytes1 parameter is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ event Tagged(bytes1 fields, string note);
+ function checked(uint256 x) external returns (uint256) {
+  emit Tagged(hex"0f", "note");
+  return x;
+ }
+}
+''')
     elif name == 'import-abi-encode-string-helper-storage-guard':
         diagnostic = 'storage ABI encoding argument beside a reverting helper is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2193,6 +2209,7 @@ def mutation_campaign(output, selected=None):
                                   'import-abi-encode-string-helper-calldata-guard',
                                   'import-abi-encode-string-helper-concat-guard',
                                   'import-abi-encode-string-helper-storage-guard',
+                                  'import-abi-encode-string-helper-event-literal-guard',
                                   'import-assignment-argument-concat-guard',
                                   'import-assignment-argument-hash-guard'}
             if order_guard:
