@@ -25,6 +25,8 @@ private def model : CompilationModel :=
         body := [.setStorage "x" (.param "v"), .stop] },
       getter "peek" false [.return (.storage "x")],
       getter "ownBalance" true [.return .selfBalance],
+      { name := "echo", params := [{ name := "i", ty := .uint256 }], returnType := some .uint256,
+        isView := true, body := [.return (.param "i")] },
       getter "viewWrites" true [.setStorage "x" (.literal 7), .return (.literal 1)],
       getter "viewLogs" true [.emit "Seen" [], .return (.literal 1)]] }
 
@@ -76,6 +78,7 @@ def main : IO UInt32 := do
     ("partial word", request .staticcall 1000 0 (selectorBytes "get" ++ [0])),
     ("short calldata", request .staticcall 1000 0 [1, 2]),
     ("non-view function", request .staticcall 1000 0 (selectorBytes "set" ++ wordBytes 1)),
+    ("arguments that do not bind", request .staticcall 1000 0 (selectorBytes "echo")),
     ("non-view function that only reads", request .staticcall 1000 0 (selectorBytes "peek")),
     ("read-only function that writes", request .staticcall 1000 0 (selectorBytes "viewWrites")),
     ("read-only function that logs", request .staticcall 1000 0 (selectorBytes "viewLogs")),

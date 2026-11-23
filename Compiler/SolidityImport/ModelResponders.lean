@@ -9,7 +9,8 @@ import Lean.Data.Json
 that reads another deployed contract through `STATICCALL`. Each configured
 account answers with an imported model of the contract deployed there: the
 calldata selector picks one external `view`/`pure` function, its word-aligned
-arguments are bound as in a top-level transaction, and its body runs in Denote
+arguments are bound as in a top-level transaction (calldata that does not bind
+is out of domain), and its body runs in Denote
 over the account's own storage (the caller world's `.contractSlot account _`
 words, read as that model's plain slots) and the account's own balance; every
 other storage channel, including storage arrays, starts empty. Return or revert bytes and the
@@ -17,7 +18,7 @@ account's accessed slots are the response; the caller world is never changed.
 
 The request domain fails closed: anything other than a value-free `STATICCALL`
 of a configured account whose calldata is a selector plus whole words and selects
-exactly one imported read-only function, or an execution that logs, writes,
+exactly one imported read-only function, or an execution that logs, changes a word,
 has a traced access to a channel other than plain storage or does not finish in
 Denote, is an
 instrumentation error, never a Solidity success or revert. Gas equivalence is not
@@ -82,9 +83,8 @@ def answer (oracle : DenoteOracle) (models : List (Nat × CompilationModel))
       chainId := world.chainId.val, blobBaseFee := world.blobBaseFee.val,
       functionSelector := selector, args }
   let initial := withTransactionContext (calleeWorld world request.target) tx
-  -- Solidity's ABI decoder reverts with empty data on calldata it cannot decode.
-  let some bindings := bindExternalParams selector fn.bindingParams args
-    | some (false, [], [])
+  -- Calldata the model cannot bind is out of domain, not an invented revert.
+  let bindings ← bindExternalParams selector fn.bindingParams args
   let .ok result := executeTracedBody oracle (effectiveFields model) initial bindings fn.body
       model.events model.errors selector {} | none
   -- A static frame cannot log or write; such an execution is out of domain.
