@@ -1173,7 +1173,7 @@ def run(directory, output, name):
         argv.extend(['--change-prefix', *map(str, [0, 1, 5, 9, 13, 2, 6, 10, 0, 3, 7, 11, 4, 1])])
     if fixture == 'StructCopyWriteOrderSequence':
         # x = 8 * y + c selects case c; y = 0 makes key and right-hand side revert.
-        argv[argv.index('--transactions') + 1] = '32'
+        argv[argv.index('--transactions') + 1] = '40'
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 2 ** 256 - 1])])
