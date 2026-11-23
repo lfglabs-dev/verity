@@ -2768,6 +2768,31 @@ private def helperListReturns (stmts : Array Json) : M Bool := do
 private def uncheckedEnd (scope : Nat) : Json :=
   Json.mkObj [("nodeType", Json.str "VerityUncheckedEnd"), ("scope", toJson scope)]
 
+/-- Synthetic statement closing a helper scope whose statements are lowered in front of the
+    continuation after it: an `if` branch that falls through while the other branch returns,
+    or a plain block flattened by a string or array helper. It restores the name-keyed scope
+    recorded in `helperBlockScopes` at index `scope` (the scope before the `if` or block) and
+    carries the source range of that `if` or block, so diagnostics stay located. -/
+private def scopeEnd (scope : Nat) (node : Json) : Json :=
+  Json.mkObj [("nodeType", Json.str "VerityScopeEnd"), ("scope", toJson scope),
+    ("src", (field? node "src").getD Json.null)]
+
+/-- Records the current name-keyed scope in `helperBlockScopes` and returns the
+    `scopeEnd` marker that restores it. -/
+private def pushScopeEnd (node : Json) : M Json := do
+  let e ← get
+  let scope := (e.yulNames, e.yulMemoryArrays, e.yulMemoryStructs)
+  set { e with helperBlockScopes := e.helperBlockScopes.push scope }
+  pure (scopeEnd e.helperBlockScopes.size node)
+
+/-- Restores the name-keyed scope a `scopeEnd` marker names; fails closed when the
+    scope was not recorded. -/
+private def restoreScopeEnd (marker : Json) : M Unit := do
+  let some (yulNames, yulMemoryArrays, yulMemoryStructs) :=
+      (← get).helperBlockScopes[(← mNat (← mField marker "scope"))]?
+    | failAt marker "helper scope end without a recorded scope"
+  modify fun e => { e with yulNames, yulMemoryArrays, yulMemoryStructs }
+
 private def readAbiDecodeWord (fromCalldata : Bool) (addr : Expr) : Expr :=
   if fromCalldata then
     .calldataload addr
@@ -9566,8 +9591,13 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
           let tailBuf ← lowerStringHelperStmts (asmStmt :: rest)
           return { tailBuf with pre := uPre ++ tailBuf.pre }
       | "Block" =>
+          -- Flattened into the continuation; the block end restores the name-keyed scope.
           let inner ← mArr (← mField declStmt "statements")
-          lowerStringHelperStmts (inner.toList ++ asmStmt :: rest)
+          let blockEnd ← pushScopeEnd declStmt
+          lowerStringHelperStmts (inner.toList ++ blockEnd :: asmStmt :: rest)
+      | "VerityScopeEnd" =>
+          restoreScopeEnd declStmt
+          lowerStringHelperStmts (asmStmt :: rest)
       | "IfStatement" =>
           if !(← stmtContainsReturn declStmt) then
             let iPre ← lowerHelperLoopBody declStmt
@@ -9825,8 +9855,13 @@ private partial def lowerArrayHelperStmts (expectedElemTy : String) (stmts : Lis
             let (tailPre, desc) ← lowerArrayHelperStmts expectedElemTy (asmStmt :: rest)
             return (sPre ++ tailPre, desc)
         | "Block" =>
+            -- Flattened into the continuation; the block end restores the name-keyed scope.
             let inner ← mArr (← mField declStmt "statements")
-            lowerArrayHelperStmts expectedElemTy (inner.toList ++ asmStmt :: rest)
+            let blockEnd ← pushScopeEnd declStmt
+            lowerArrayHelperStmts expectedElemTy (inner.toList ++ blockEnd :: asmStmt :: rest)
+        | "VerityScopeEnd" =>
+            restoreScopeEnd declStmt
+            lowerArrayHelperStmts expectedElemTy (asmStmt :: rest)
         | _ => failAt declStmt "unsupported statement before return in array helper"
   | [s] =>
       match ← mKind s with
@@ -12971,6 +13006,10 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           | failAt s "unchecked helper block end without a recorded scope"
         modify fun e => { e with unchecked := e.legacyWrapping, yulNames, yulMemoryArrays, yulMemoryStructs }
         lowerHelperFrom rest retName
+    | "VerityScopeEnd" =>
+        -- The branch's declarations go out of scope; Yul resolves identifiers by name.
+        restoreScopeEnd s
+        lowerHelperFrom rest retName
     | "VariableDeclarationStatement" =>
         let pre ← lowerLocal s
         let (tail, result) ← lowerHelperFrom rest retName
@@ -13113,8 +13152,12 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           let (tail, result) ← lowerHelperFrom rest retName
           pure (condition.pre.push (.ite condition.expr yesPre.toList noPre.toList) ++ tail, result)
         else
-          let yesList := if yesReturns then yes.toList else yes.toList ++ rest
-          let noList := if noReturns then no.toList else no.toList ++ rest
+          -- The continuation is lowered inside each branch that falls through. That
+          -- branch's declarations keep their ids out of Solidity scope, but Yul resolves
+          -- identifiers by name: the branch end restores the name-keyed scope of the `if`.
+          let branchEnd ← pushScopeEnd s
+          let yesList := if yesReturns then yes.toList else yes.toList ++ branchEnd :: rest
+          let noList := if noReturns then no.toList else no.toList ++ branchEnd :: rest
           let (yesPre, yesResult) ← lowerHelperFrom yesList retName
           restore
           let (noPre, noResult) ← lowerHelperFrom noList retName

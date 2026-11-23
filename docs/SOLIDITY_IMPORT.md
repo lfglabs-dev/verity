@@ -1433,6 +1433,14 @@ declaration is not visible to inline assembly after the block, which names the
 outer local or constant it shadows; each `if` branch restores the lexical
 `unchecked` flag. Block-level declarations are admitted whatever the
 state-variable count (#2830; `UncheckedBlockDeclarationStateCountChecks`).
+The same holds for an `if` in a value helper whose other branch returns:
+the continuation is lowered inside the branch that falls through, after a
+branch-end marker restoring the name-keyed scope of the `if`, so a declaration
+in that branch does not shadow the outer local or constant for inline assembly
+after the `if`. A plain block that a string or array helper flattens into its
+continuation ends with the same marker (`HelperBranchScopeStateCountChecks`;
+before, the assembly read the branch's or string helper block's declaration in
+every contract).
 Plain helper blocks with partial returns still reject with located
 diagnostics. Each fixture has
 metamorphic source variants (`check_storage --fixture unchecked-blocks` /
