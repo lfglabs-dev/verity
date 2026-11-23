@@ -63,12 +63,17 @@ contract SequenceFixture {
         if (c == 1) {
             labels[bump(k)] = string(abi.encodePacked(stamp + 100));
             out = uint256(keccak256(bytes(labels[k]))) % 1000;
+            // An inert storage source beside a key without effects: order not observable.
+            labels[k + 4] = labels[k];
         }
         // Storage struct source into a storage array element (raw-slot target): read after the
         // key helper; its own index runs before the target's.
         if (c == 2) {
             pairs[touchPairs(k + 1)] = pairs[0];
             out = pairs[k + 1].a * 1000 + pairs[k + 1].b;
+            // Conditionals of references beside keys without effects.
+            pairs[k] = y > 1 ? pairs[0] : pairs[1];
+            held[k + 20] = y > 1 ? held[0] : held[1];
         }
         if (c == 3) {
             uint256 i = k;
