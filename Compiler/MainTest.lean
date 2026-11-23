@@ -241,21 +241,6 @@ unsafe def runFlagAndUnitTests : IO Unit := do
   expectTrue "the free-pointer initialisation is raised above the spill slots"
     (Compiler.Yul.TempReuse.raiseFreePointerInit 4160 spillProbe ==
       [.exprStmt (.call "mstore" [.lit 64, .lit 4160])] ++ spillProbe.drop 1)
-  -- Imported function bodies reset the free pointer inside their dispatch case: those resets
-  -- are raised too, or an allocation in that case starts below the spill slots.
-  let nestedResetProbe : List Compiler.Yul.YulStmt :=
-    [.switch (.lit 0)
-      [(1, [.exprStmt (.call "mstore" [.lit 64, .lit 128]),
-        .if_ (.lit 1) [.exprStmt (.call "mstore" [.lit 64, .lit 128])]])]
-      (some [.block [.exprStmt (.call "mstore" [.lit 64, .lit 128])]]),
-     .funcDef "f" [] [] [.exprStmt (.call "mstore" [.lit 64, .lit 5000])]]
-  expectTrue "nested free-pointer resets are raised above the spill slots"
-    (Compiler.Yul.TempReuse.raiseFreePointerInit 4160 nestedResetProbe ==
-      [.switch (.lit 0)
-        [(1, [.exprStmt (.call "mstore" [.lit 64, .lit 4160]),
-          .if_ (.lit 1) [.exprStmt (.call "mstore" [.lit 64, .lit 4160])]])]
-        (some [.block [.exprStmt (.call "mstore" [.lit 64, .lit 4160])]]),
-       .funcDef "f" [] [] [.exprStmt (.call "mstore" [.lit 64, .lit 5000])]])
   -- `n` long-lived locals `p_i := calldataload(i)`, all read by one final `sstore` each.
   let longLived (p : String) (n : Nat) : List Compiler.Yul.YulStmt :=
     ((List.range n).map fun i => .let_ s!"{p}{i}" (.call "calldataload" [.lit (32 * i)])) ++

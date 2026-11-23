@@ -30,11 +30,17 @@ class ImportDriverYulEmissionTests(unittest.TestCase):
             "      IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))\n"})
         self.assertEqual(len(offending_lines(root)), 1)
 
+    def test_other_spellings_are_reported(self) -> None:
+        root = self._tree({"Contracts/X/BarModel.lean":
+            "open Compiler in\nIO.FS.writeFile o (Yul.render <| emitYul compiled)\n"})
+        self.assertEqual(len(offending_lines(root)), 1)
+
     def test_spilled_emit_and_unit_tests_pass(self) -> None:
         root = self._tree({
             "Contracts/X/FooModel.lean":
                 "IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYulSpilled compiled))\n",
             "Compiler/FooTest.lean": "pure (Compiler.Yul.render (Compiler.emitYul ir))\n",
+            "Contracts/X/Proofs/Native.lean": "(Compiler.emitYul c).runtimeCode = x\n",
         })
         self.assertEqual(offending_lines(root), [])
 

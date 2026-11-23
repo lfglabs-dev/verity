@@ -18,16 +18,16 @@ import re
 import sys
 from pathlib import Path
 
-_PLAIN_EMIT = re.compile(r"Compiler\.Yul\.render\s*\(\s*Compiler\.emitYul\s")
+_PLAIN_EMIT = re.compile(r"\bemitYul\b")
 _SCOPES = (
-    ("Contracts", "*.lean"),
+    ("Contracts", "*Model.lean"),
     ("Compiler/SolidityImport", "*.lean"),
     ("scripts/solidity_differential", "*.py"),
 )
 
 
 def offending_lines(root: Path) -> list[str]:
-    """`path:line: text` for every driver line rendering plain `Compiler.emitYul`."""
+    """`path:line: text` for every driver line naming plain `emitYul` (any spelling)."""
     out: list[str] = []
     for directory, pattern in _SCOPES:
         for path in sorted((root / directory).rglob(pattern)):
