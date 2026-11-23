@@ -16,7 +16,10 @@ rw [getStorage_eq] at h1; injection h1 with e1 hs1; subst hs1   -- learn n, s1
 
 Rewriting the whole remaining block instead (`rw [...] at h`) re-elaborates it at every step and
 gets slow quickly. The `*_eq` lemmas give each executable primitive's result; `mstore_ok` and
-`copyBytes_ok` give the state after a memory write.
+`copyBytes_ok` give the state after a memory write. `keccak_after_mstores`: `mstore`s of words at
+`b, b + 32, …` then `keccak256` hash `encodeWords` of them; `keccak_after_copyBytes` does the same
+for a copied byte string. Storage frames of these steps and of external calls are in
+`Contracts.ProofKit.Frames`.
 -/
 
 namespace Contracts.ProofKit
@@ -113,5 +116,56 @@ theorem keccak_after_copyBytes {data : ByteArray} {b : Uint256} {s0 s1 : Contrac
   apply keccak_eq_keccakBytes
   rw [copyBytes_ok h0]
   exact bytesBE_copyMem data b.val s0.memory hb
+
+/-- Offsets `b + 32 i` and `b + 32 j` differ mod `2^256` when `i < j` and `32 j < 2^256`. -/
+theorem word_offsets_ne (b i j : Nat) (hij : i < j) (hj : j * 32 < 2 ^ 256) :
+    (b + i * 32) % 2 ^ 256 ≠ (b + j * 32) % 2 ^ 256 := by
+  intro h
+  have h' : i * 32 = j * 32 := by
+    have := Nat.ModEq.add_left_cancel' b h
+    unfold Nat.ModEq at this
+    rwa [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt hj] at this
+  omega
+
+/-- After `mstore`s of `ws[0], ws[1], …` at `off 0, off 1, …` (offsets `b + 32 i`), word `i` is
+still at `off i` in every later state. -/
+theorem memory_after_mstores (b : Uint256) (ws : List Uint256) (st : Nat → ContractState)
+    (off : Nat → Uint256)
+    (hoff : ∀ i, i < ws.length → (off i).val = (b.val + i * 32) % 2 ^ 256)
+    (hstep : ∀ i (hi : i < ws.length),
+      Contracts.mstore (off i) ws[i] (st i) = .success () (st (i + 1)))
+    (hlen : ws.length * 32 ≤ 2 ^ 256) (i : Nat) (hi : i < ws.length) :
+    ∀ j, i < j → j ≤ ws.length → (st j).memory (off i).val = ws[i] := by
+  intro j
+  induction j with
+  | zero => intro h; omega
+  | succ j ih =>
+    intro hij hj
+    rw [mstore_ok (hstep j (by omega))]
+    by_cases hji : i = j
+    · subst hji; simp
+    · have hne : (off i).val ≠ (off j).val := by
+        rw [hoff i hi, hoff j (by omega)]
+        exact word_offsets_ne b.val i j (by omega) (by omega)
+      simp only [hne, if_false]
+      exact ih (by omega) (by omega)
+
+/-- `mstore`s of `ws` at `b, b + 32, …`, then `keccak256(b, 32 * ws.length)`, hash
+`abi.encode` of the words. -/
+theorem keccak_after_mstores (b : Uint256) (ws : List Uint256) (st : Nat → ContractState)
+    (off : Nat → Uint256)
+    (hoff : ∀ i, i < ws.length → (off i).val = (b.val + i * 32) % 2 ^ 256)
+    (hstep : ∀ i (hi : i < ws.length),
+      Contracts.mstore (off i) ws[i] (st i) = .success () (st (i + 1)))
+    (hlen : ws.length * 32 ≤ 2 ^ 256) :
+    Compiler.Keccak.MemorySlice.keccak (fun a => ((st ws.length).memory a).val) b.val
+        (32 * ws.length) = keccakBytes (encodeWords (ws.map (·.val))) := by
+  rw [show 32 * ws.length = 32 * (ws.map (·.val)).length by simp]
+  apply keccak_of_words
+  intro i hi
+  simp only [List.length_map] at hi
+  have hmem := memory_after_mstores b ws st off hoff hstep hlen i hi ws.length hi le_rfl
+  rw [show Compiler.Constants.evmModulus = 2 ^ 256 from rfl, ← hoff i hi, hmem]
+  simp
 
 end Contracts.ProofKit
