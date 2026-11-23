@@ -5,7 +5,8 @@ A corpus project's `sequences` are pinned-sequence configurations without
 commit SHA (`solidity_import_coverage.checkout`, which rejects a wrong revision
 or a dirty tree). Each prefix step states its documented source outcome
 (`expect`), and every imported signature must succeed at least once in the
-prefix before seeded calls start. The positive campaign must agree across
+prefix before seeded calls start, and the imported signatures must be exactly
+the compiled contract's external entry points. The positive campaign must agree across
 A/B/C; the `drop-events` model mutant must diverge and shrink to a reproduced
 deletion-minimal witness.
 """
@@ -47,6 +48,16 @@ def corpus_sequences(manifest, selected=None):
     return pairs
 
 
+def check_entry_points(sequence, solc_output):
+    """Imported signatures equal the compiled contract's entry points, none left out."""
+    methods = solc_output['contracts'][sequence['entry']][sequence['contract']]['evm']['methodIdentifiers']
+    missing = sorted(set(methods) - set(sequence['signatures']))
+    extra = sorted(set(sequence['signatures']) - set(methods))
+    if missing or extra:
+        raise HarnessError(f'{sequence["contract"]}: signatures differ from compiled entry points: '
+                           f'missing {missing}, unknown {extra}')
+
+
 def materialize(project, sequence, checkout, output):
     """Write the complete instrument configuration for one corpus sequence."""
     path = output / 'config.json'
@@ -80,6 +91,7 @@ def main():
         if campaign(config, root / 'positive', args.transactions, args.seed, 200) != 0:
             raise HarnessError(f'{project["id"]}:{sequence["contract"]}: pinned A/B/C campaign diverged; '
                                f'witness in {root / "positive/reduced.json"}')
+        check_entry_points(sequence, json.loads((root / 'positive/source-solc.output.json').read_text()))
         if campaign(config, root / 'drop-events', args.transactions, args.seed, 200,
                     mutant='drop-events') != 1:
             raise HarnessError(f'{project["id"]}:{sequence["contract"]}: event-deletion mutant escaped')

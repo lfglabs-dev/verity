@@ -69,6 +69,16 @@ class CorpusSequences(unittest.TestCase):
         with self.assertRaisesRegex(HarnessError, 'no corpus sequence'):
             corpus.corpus_sequences(manifest(), ['no-such-project'])
 
+    def test_entry_points_must_all_be_imported(self):
+        _, sequence = corpus.corpus_sequences(manifest())[0]
+        methods = {s: '00000000' for s in sequence['signatures']}
+        output = {'contracts': {sequence['entry']: {sequence['contract']: {'evm': {
+            'methodIdentifiers': methods}}}}}
+        corpus.check_entry_points(sequence, output)
+        methods['permit()'] = '00000000'
+        with self.assertRaisesRegex(HarnessError, r"missing \['permit\(\)'\]"):
+            corpus.check_entry_points(sequence, output)
+
 
 class PrefixExpectations(unittest.TestCase):
     prefix = [{'signature': 'f()', 'expect': 'ok'}, {'signature': 'g()'},
