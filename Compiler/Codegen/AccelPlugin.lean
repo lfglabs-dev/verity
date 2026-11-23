@@ -584,8 +584,9 @@ def accelCertMetaGateSpec :
   tight := by decide
 
 /-- **Theorem AP.10 (`accelCertMetaGateSpec_valid_and_tight`)**:
-    Certifies that `accelCertMetaGateSpec` accepts the positive G2–G8 witness (`costAfter = 800 ≤ 1000`)
-    and rejects the negative mutant witness (`costAfter = 1000 > 800`, `.unverifiedFallback`). -/
+    Certifies that `accelCertMetaGateSpec` accepts the positive G2–G8 witness
+    (`costAfter = 800 ≤ 1000`) and rejects the negative mutant witness
+    (`costAfter = 1000 > 800`, `.unverifiedFallback`). -/
 theorem accelCertMetaGateSpec_valid_and_tight :
     accelCertMetaGateSpec.gate accelCertMetaGateSpec.posWitness = true ∧
     accelCertMetaGateSpec.gate accelCertMetaGateSpec.negWitness = false :=

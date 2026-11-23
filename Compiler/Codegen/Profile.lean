@@ -100,7 +100,7 @@ theorem dynamicSpillSlotAddr_nonOverlapping
 /-! ## 2. Proof-Carrying `PipelineConfig` & Active `Codegen` Integration -/
 
 /-- Declarative configuration for the Verity 2.0 Layer 3 Yul codegen pipeline.
-    Defaults to the certified optimized setup (`certifiedOptimized`, passes G1–G7). -/
+    Defaults to the `certifiedOptimized` setup (certified plugin catalog G2–G8). -/
 structure PipelineConfig where
   yulOptions : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } }
   enableSlotCoalescingShim : Bool := true
@@ -120,8 +120,9 @@ def PipelineConfig.unoptimized (opts : YulEmitOptions := {}) : PipelineConfig wh
   memoryHighWaterMark := 0
   activePlugins := []
 
-/-- Certified optimized profile enabling `SlotCoalescingShim`, `TempReuse`, dynamic
-    spill watermarks, and the G1–G7 certified acceleration plugin catalog. -/
+/-- Optimized profile enabling `SlotCoalescingShim`, the certified acceleration plugin catalog
+    (G2–G8) and the dynamic spill watermark. `TempReuse` (G1) is not certified: it is a trusted,
+    tested-only pass (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 def PipelineConfig.certifiedOptimized
     (opts : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } })
     (memoryHighWaterMark : Nat := 512) : PipelineConfig where
@@ -132,7 +133,7 @@ def PipelineConfig.certifiedOptimized
   memoryHighWaterMark := memoryHighWaterMark
   activePlugins := defaultCertifiedPluginCatalog
 
-/-- Canonical default `PipelineConfig` for Verity 2.0: `certifiedOptimized` (G1–G7 enabled). -/
+/-- Canonical default `PipelineConfig` for Verity 2.0: `certifiedOptimized`. -/
 def PipelineConfig.default : PipelineConfig :=
   PipelineConfig.certifiedOptimized
 
@@ -141,7 +142,7 @@ instance : Inhabited PipelineConfig where
 
 /-- **Theorem C1.0 (`PipelineConfig.default` is `certifiedOptimized`)**:
     Verity's default compilation profile is definitionally `PipelineConfig.certifiedOptimized`,
-    with `patchConfig.enabled = true` and all 7 certified G1–G7 acceleration plugins active. -/
+    with `patchConfig.enabled = true` and the certified G2–G8 acceleration plugins active. -/
 @[simp]
 theorem default_eq_certifiedOptimized :
     PipelineConfig.default = PipelineConfig.certifiedOptimized := rfl
