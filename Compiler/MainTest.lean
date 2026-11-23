@@ -228,8 +228,9 @@ unsafe def runFlagAndUnitTests : IO Unit := do
   expectTrue "referenced-library closure follows spaced and line-split calls"
     ((Compiler.Linker.selectDirectlyReferencedLibraries spacedRuntimeObj spacedParsed).map
       (·.name) == ["libA", "libC", "libE"])
-  -- Spilled locals live at fixed slots from `defaultSpillBase`; a spilling code section must
-  -- start its free memory above them (else a runtime-sized copy overwrites spilled locals).
+  -- `raiseFreePointerInit` (no longer on a compile path: raising the free pointer does not
+  -- protect spill words from runtime-sized writes at fixed low addresses, so the compile paths
+  -- spill only statically gated sections).
   let spillProbe : List Compiler.Yul.YulStmt :=
     [.exprStmt (.call "mstore" [.lit 64, .lit 128]),
      .block [.exprStmt (.call "mstore" [.lit 4128, .lit 7]),
@@ -272,6 +273,19 @@ unsafe def runFlagAndUnitTests : IO Unit := do
     [.for_ (longLived "l" 14) (.lit 0) [] []]
   expectTrue "for initialisers do not spill"
     (Compiler.Yul.TempReuse.spillHighWaterStmts forOut == 0)
+  -- A `for` initialiser variable that the rest of the initialiser no longer reads is still live
+  -- in the condition, body and post block: it must never be reused as a dead temporary.
+  let forInitLive : List Compiler.Yul.YulStmt :=
+    .let_ "t" (.lit 5) ::
+      (List.range 13).flatMap fun i =>
+        [.let_ s!"l{i}" (.call "calldataload" [.lit (32 * i)]),
+         .exprStmt (.call "sstore" [.lit i, .ident s!"l{i}"])]
+  let forInitProbe : List Compiler.Yul.YulStmt :=
+    [.for_ forInitLive (.call "lt" [.ident "t", .lit 6])
+      [.assign "t" (.call "add" [.ident "t", .lit 1])]
+      [.exprStmt (.call "sstore" [.lit 99, .ident "t"])]]
+  expectTrue "a deep for initialiser keeps every variable it declares"
+    (Compiler.Yul.TempReuse.reuseAndSpillTemps 12 [] true forInitProbe == forInitProbe)
   -- The import model drivers spill a section only when its spill words are provably disjoint
   -- from every other memory access (literal addresses below the spill base, no `msize`, no
   -- call leaving the section); otherwise the section is returned unchanged.

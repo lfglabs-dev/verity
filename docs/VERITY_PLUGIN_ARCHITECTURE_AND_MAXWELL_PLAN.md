@@ -34,7 +34,7 @@ Inspirée directement de `lean-native` (`LeanNative/Spec.lean` et `LeanNative/Tr
    - `verifyCertChain` vérifie que chaque maillon est valide (`verifyAccelCertGate`), que `c₁.outputHash = c₂.inputHash` tout au long de la chaîne, et que le gaz est monotone décroissant (`costAfter ≤ costBefore`).
 
 3. **Catalogue de Plugins Substituables (`G1`–`G8` + Plugins Externes)** :
-   - Les 7 passes d'optimisation de gaz certifiées (`G1_tempReuseStackScheduling` à `G7_selectorDispatchTreeLogN`) ainsi que le plugin de simplification algébrique `G8:mathlib-tauceti-algebraic-simplifier` (`scope := .mathAlgebraic`) sont instanciés dans `defaultCertifiedPluginCatalog` comme des descripteurs `.kernelVerified` adossés à leurs théorèmes respectifs du noyau (`defaultCertifiedPluginCatalog_all_verified`).
+   - Les passes d'optimisation de gaz `G2_slotCoalescingPackedWords` à `G7_selectorDispatchTreeLogN` ainsi que le plugin de simplification algébrique `G8:mathlib-tauceti-algebraic-simplifier` (`scope := .mathAlgebraic`) sont instanciés dans `defaultCertifiedPluginCatalog` comme des descripteurs `.kernelVerified` adossés à leurs théorèmes respectifs du noyau (`defaultCertifiedPluginCatalog_all_verified`). `G1_tempReuseStackScheduling` (la passe de spill `TempReuse`) n'y figure pas : aucun théorème de préservation ne la couvre, c'est un composant de confiance testé seulement (voir [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md#12-yul-stack-spill-pass-tempreuse)).
    - Tout plugin externe (moteur de simplification algébrique `Tau Ceti`, solveur `egglog`, SMT, ou superoptimiseur stochastique/LLM) s'intègre via `VerifiedAccelContract.fromGatedPlugin` sans modifier ni les passes existantes ni la preuve de préservation `runAccelPluginChain_sound`.
 
 ---

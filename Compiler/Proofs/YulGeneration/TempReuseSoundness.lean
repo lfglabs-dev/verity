@@ -6,7 +6,13 @@ open Compiler.Yul
 open Compiler.Yul.TempReuse
 
 /-- Fast-path identity theorem: any lexical block with `≤ maxStackLocals` `let` bindings
-    is returned definitionally unchanged by `reuseBlockTemps`. -/
+    is returned definitionally unchanged by `reuseBlockTemps`.
+
+    Scope: `reuseBlockTemps` is a single-block entry point that no compile path calls. The
+    compiler runs `reuseAndSpillTempsStaticObject`, which rewrites nested blocks through
+    `reuseBlockTempsNested` and is gated per code section; this theorem says nothing about it.
+    No theorem in this file states semantic preservation of the spill pass, which is a trusted,
+    tested-only component (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 theorem reuseBlockTemps_eq_self_of_le
     (maxStackLocals : Nat)
     (protectedNames : List String)
@@ -128,7 +134,9 @@ end
 
 /-- Step preservation for dead-temporary reuse: executing `newName := rhs` followed by
     evaluating any renamed expression `e` (free of `newName`) produces the exact same result
-    as executing `let oldName := rhs` followed by evaluating `e`. -/
+    as executing `let oldName := rhs` followed by evaluating `e`.
+    Scope: one step on a toy word-keyed state; it does not cover choosing `newName`
+    (`findDeadStackVar` liveness), control flow, nested blocks or the whole pass. -/
 theorem reuseDeadLetStep_eval_eq
     (s : YulBlockState)
     (callEval : String → List Nat → Nat)
@@ -188,7 +196,10 @@ end
 
 /-- Step preservation for scratch-memory spilling: executing `mstore(slot, rhs)` followed by
     evaluating `e[oldName := mload(slot)]` produces the exact same word as executing
-    `let oldName := rhs` followed by evaluating `e`. -/
+    `let oldName := rhs` followed by evaluating `e`.
+    Scope: one step on a toy word-keyed state (no byte overlap), with a continuation that reads
+    no memory; it does not cover slot choice (`findFreeSpillSlot`), other memory writes between
+    the store and the loads, nesting, functions, or the whole pass. -/
 theorem spillLetStep_eval_eq
     (s : YulBlockState)
     (callEval : String → List Nat → Nat)

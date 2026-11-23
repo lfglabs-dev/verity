@@ -137,11 +137,10 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's core G1–G8, patch, and
+/-- Allowlist of kernel-verified soundness theorems for Verity's core G2–G8, patch, and
     `BitVec 256` / `Mathlib` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
-  [ "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound"
-  , "Compiler.Codegen.Profile.dynamicSpillSlotAddr_disjoint_from_active_memory"
+  [ "Compiler.Codegen.Profile.dynamicSpillSlotAddr_disjoint_from_active_memory"
   , "Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_eq_uncoalesced"
   , "Compiler.Proofs.MappingSlot.mappingSlot_cse_sound"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g4_checkedAdd_elision_sound_and_saves_gas"
@@ -461,7 +460,7 @@ theorem rewriteCertifiedYulExprStep_double_iszero_eq (a b : YulExpr) :
     rewriteCertifiedYulExprStep (.call "iszero" [.call "iszero" [.call "eq" [a, b]]]) =
       .call "eq" [a, b] := rfl
 
-/-! ## 5. Default Certified G1–G8 Plugin Catalog & Semantic MetaGate Witness -/
+/-! ## 5. Default Certified G2–G8 Plugin Catalog & Semantic MetaGate Witness -/
 
 /-- Declarative descriptor for a replaceable optimization plugin in Verity's default catalog. -/
 structure AccelPluginDescriptor where
@@ -473,15 +472,12 @@ structure AccelPluginDescriptor where
   enabledByDefault : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- The 8 core certified gas & algebraic optimization plugins (`G1`–`G8`)
-    enabled by default in Verity 2.0. -/
+/-- The certified gas & algebraic optimization plugins (`G2`–`G8`) enabled by default in
+    Verity 2.0. `G1` (`TempReuse` temporary reuse and stack spilling) is not listed: no kernel
+    theorem covers that pass, which is a trusted, tested-only component
+    (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
-  [ { pluginName := "G1:temp-reuse-stack-scheduling"
-      scope := .yul
-      passId := some .G1_tempReuseStackScheduling
-      assurance := .kernelVerified
-      theoremRef := "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound" }
-  , { pluginName := "G2:slot-coalescing-packed-words"
+  [ { pluginName := "G2:slot-coalescing-packed-words"
       scope := .ir
       passId := some .G2_slotCoalescingPackedWords
       assurance := .kernelVerified
@@ -533,8 +529,8 @@ def AccelPluginDescriptor.mkStepCert
     costAfter := costAfter
     boundaryChecked := true }
 
-/-- **Theorem AP.8 (All Default G1–G8 Catalog Plugins Pass `verifyAccelCertGate`)**:
-    Every plugin in `defaultCertifiedPluginCatalog` (`G1`–`G8`) produces a valid `PassStepCert`
+/-- **Theorem AP.8 (All Default G2–G8 Catalog Plugins Pass `verifyAccelCertGate`)**:
+    Every plugin in `defaultCertifiedPluginCatalog` (`G2`–`G8`) produces a valid `PassStepCert`
     whenever `costAfter ≤ costBefore`. -/
 theorem defaultCertifiedPluginCatalog_all_verified :
     (defaultCertifiedPluginCatalog.all (fun d =>
@@ -588,7 +584,7 @@ def accelCertMetaGateSpec :
   tight := by decide
 
 /-- **Theorem AP.10 (`accelCertMetaGateSpec_valid_and_tight`)**:
-    Certifies that `accelCertMetaGateSpec` accepts the positive G1–G8 witness (`costAfter = 800 ≤ 1000`)
+    Certifies that `accelCertMetaGateSpec` accepts the positive G2–G8 witness (`costAfter = 800 ≤ 1000`)
     and rejects the negative mutant witness (`costAfter = 1000 > 800`, `.unverifiedFallback`). -/
 theorem accelCertMetaGateSpec_valid_and_tight :
     accelCertMetaGateSpec.gate accelCertMetaGateSpec.posWitness = true ∧

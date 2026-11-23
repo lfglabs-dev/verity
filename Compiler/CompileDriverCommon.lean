@@ -487,8 +487,12 @@ private def writeContract
   let linkModeComments :=
     spec.externals.map fun ext =>
       YulStmt.comment s!"verity linked external {ext.name} linkMode={ext.linkMode.toJsonString}"
+  -- Spill only code sections whose every memory access is literal and below the spill words
+  -- (`reuseAndSpillTempsStaticObject`); any other section reaches solc unchanged and fails
+  -- with StackTooDeep if it is too deep, instead of runtime-sized memory traffic (return data
+  -- encoded from address 0, free-pointer allocations) overwriting spilled locals.
   let yulObj :=
-    Compiler.Yul.TempReuse.reuseAndSpillTempsObject maxStackLocals
+    Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject maxStackLocals
       { baseYulObj with
         runtimeCode := linkModeComments ++ baseYulObj.runtimeCode }
 

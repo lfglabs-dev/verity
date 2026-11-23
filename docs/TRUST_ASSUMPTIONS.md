@@ -602,6 +602,39 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   `--allow-future-fork-intrinsics` is passed.
 - **Reference**: See [docs/INTRINSICS.md](INTRINSICS.md).
 
+### 12. Yul Stack Spill Pass (`TempReuse`)
+- **Role**: After Yul emission and before `solc`,
+  `Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject` (`Compiler/Yul/TempReuse.lean`) rewrites blocks with more than `--max-stack-locals` (default
+  12) `let` bindings: it turns some `let`s into assignments to dead stack variables of the same
+  block, and moves others to fixed 32-byte memory words from `0x1000`
+  (`mstore(slot, rhs)`, uses become `mload(slot)`). It runs on every contract the CLI compiles
+  (`writeContract` in `Compiler/CompileDriverCommon.lean`) and on the Solidity import model
+  drivers (`Compiler.emitYulSpilled`). Its output is what `solc` compiles, so it sits between
+  the Layer 3 Yul and the bytecode.
+- **Trust**: Trusted and tested only. No theorem states that the rewritten Yul means the same as
+  the emitted Yul. Not proven: the choice of slots and dead variables (`findFreeSpillSlot`,
+  `findDeadStackVar`, liveness by syntactic use), the nested-block slot rule, the handling of
+  functions, loops and `for` initialisers, the static memory gate, and the absence of overlap
+  between spill words and the program's own memory, including the free-memory pointer region.
+  `reuseBlockTemps_eq_self_of_le` and `applyTempReuseToObject_eq_self_of_le` are about functions
+  no compile path calls; `reuseDeadLetStep_eval_eq` and `spillLetStep_eval_eq` are single-step
+  lemmas over a word-keyed toy state; the `computedSpillBase` theorems in
+  `Compiler/Codegen/Profile.lean` are about a spill base no compile path uses.
+- **Bound (fail-closed static gate)**: a code section is rewritten only when every memory access
+  in it, its functions included, has a literal address and literal length ending at or below
+  `0x1000`, `msize` is unused, and every call is a memory-free builtin or a function defined in
+  the section (`sectionMemoryStaticBelow`). Otherwise the section reaches `solc` unchanged and a
+  section that is too deep fails with `StackTooDeep`. So spill words can only collide with
+  memory the gate saw as literal and below `0x1000`; runtime-sized writes (ABI encodings from
+  address 0, free-pointer allocations, copies of dynamic arguments, linked library calls) keep
+  the section from spilling. The free-memory pointer is never changed. Function bodies and
+  `for` initialisers never spill, and a `for` initialiser never reuses its own variables.
+- **Mitigation**: `Compiler/MainTest.lean` spill cases (gate rejections, nested slots,
+  functions, `for` initialisers), the Foundry regression `test/SpillReturnArraySmoke.t.sol`
+  (return data written from address 0 past the spill words), the Solidity import differential
+  campaigns, and `solc` itself, which rejects a section that is still too deep.
+- **Reference**: [LOW_LEVEL_YUL.md](LOW_LEVEL_YUL.md#yul-temporary-slot-reuse-and-scratch-memory-spilling---max-stack-locals).
+
 ## Semantic Caveats
 
 ### Wrapping Arithmetic
