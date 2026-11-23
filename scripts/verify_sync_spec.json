@@ -468,6 +468,10 @@
           "path": ".lake",
           "key": "lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}"
         }
+      },
+      {
+        "name": "Bound Lean threads by VM memory",
+        "run": "scripts/ci_lean_threads.sh"
       }
     ],
     "build-audits": [
@@ -512,6 +516,11 @@
           "name": "axiom-dependency-report",
           "path": "axiom-report.md\naxiom-report-raw.log"
         }
+      },
+      {
+        "name": "Bound Lean threads by VM memory",
+        "if": "needs.route.outputs.on_lean == 'true'",
+        "run": "scripts/ci_lean_threads.sh"
       }
     ],
     "build-compiler-binaries": [
@@ -635,6 +644,10 @@
           "name": "static-gas-report-patched",
           "path": "gas-report-static-patched.tsv"
         }
+      },
+      {
+        "name": "Bound Lean threads by VM memory",
+        "run": "scripts/ci_lean_threads.sh"
       }
     ],
     "compiler-audits": [
@@ -683,6 +696,11 @@
       {
         "name": "Setup solc",
         "uses": "./.github/actions/setup-solc"
+      },
+      {
+        "name": "Bound Lean threads by VM memory",
+        "if": "needs.route.outputs.on_lean == 'true'",
+        "run": "scripts/ci_lean_threads.sh"
       }
     ],
     "compiler-regressions": [
@@ -743,6 +761,10 @@
       {
         "name": "Build panic-code regression module",
         "run": "stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest"
+      },
+      {
+        "name": "Bound Lean threads by VM memory",
+        "run": "scripts/ci_lean_threads.sh"
       }
     ],
     "lean-profile": [
@@ -757,6 +779,10 @@
           "sticky-disk-key-prefix": "verify",
           "disable-lake-cache-restore": "${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}"
         }
+      },
+      {
+        "name": "Bound Lean threads by VM memory",
+        "run": "scripts/ci_lean_threads.sh"
       }
     ],
     "foundry-gas-calibration": [
