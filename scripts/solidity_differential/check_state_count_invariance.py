@@ -244,6 +244,34 @@ contract C {
     }
 }
 ''', ['run(uint256)']),
+    # Contract creation and `try this.f()` reject at the construct in every contract: the
+    # multi-slot lowerings were a staticcall to this contract and an oracle call success bit.
+    inline('contract-creation', '''contract Child {
+    constructor(uint256 a) { require(a != 0); }
+}
+
+contract C {
+    uint256 private total;
+
+    function make(uint256 x) external returns (uint256) {
+        total = x;
+        return uint256(uint160(address(new Child(x))));
+    }
+}
+''', ['make(uint256)'], expect='same-rejection'),
+    inline('self-try-call', '''contract C {
+    uint256 private total;
+
+    function poke(uint256 x) external {
+        total = x;
+        require(x != 0);
+    }
+
+    function run(uint256 x) external returns (uint256 r) {
+        try this.poke(x) { r = 1; } catch { r = 2; }
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;

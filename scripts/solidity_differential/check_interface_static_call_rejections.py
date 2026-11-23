@@ -25,6 +25,7 @@ MESSAGES = {
     'try-clause': 'external try/catch supports exactly one catch-all `catch { }` clause',
     'try-shape': 'unsupported statement TryStatement',
     'try-named': 'named arguments in an external try call are unsupported',
+    'try-self': 'try/catch of an external self-call `this.f(...)` requires call semantics and is outside this slice',
     'post-call': 'storage reads, storage writes, logs and other interactions after an external CALL are unsupported: the call may re-enter this contract',
 }
 HOOK = 'interface IHook {\n    function hook() external;\n}\n'
@@ -156,10 +157,11 @@ CASES = [
     ('try-void-checked-arithmetic', HOOK, 'uint256 s;',
      's = 1; uint256 n = 1; try IHook(oracle).hook() { n = n + 1; } catch { return 0; } '
      'return n * 3;', None),
-    # The self-call form (contracts with more than one state variable) follows the same rule.
+    # The self-call form rejects at the `try` in every contract, whatever its state count
+    # (here two state variables; `try-self` below has none).
     ('try-self-success-write', HOOK, 'uint256 s;\n    uint256 t;\n    function hook() external {}',
      'try this.hook() { s = 1; } catch {} return 1;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+     ('try', 0, 'TryStatement', 'try-self')),
     ('void-call-then-write', HOOK, 'uint256 s;', 'IHook(oracle).hook(); s = 1; return 1;',
      ('function checked', 0, 'FunctionDefinition', 'post-call')),
     ('void-call-then-read', HOOK, 'uint256 s;', 'IHook(oracle).hook(); return s;',
@@ -186,7 +188,7 @@ CASES = [
      ('try', 0, 'TryStatement', 'try-shape')),
     ('try-self', HOOK, 'function hook() external {}',
      'try this.hook() { return 1; } catch { return 0; }',
-     ('try', 0, 'TryStatement', 'try-shape')),
+     ('try', 0, 'TryStatement', 'try-self')),
     ('void-return',
      'interface IPriceOracle {\n    function price() external view;\n}\n', '',
      'IPriceOracle(oracle).price(); return 1;',

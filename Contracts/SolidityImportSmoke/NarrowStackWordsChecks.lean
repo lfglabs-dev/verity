@@ -45,7 +45,6 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWo
   function widenedError(uint8)
   function explicitWideError(uint8)
   function constantError()
-  function tryBytesLiteral()
   function prefixInc(uint8)
   function prefixDec(uint8)
   function finalBoolWord(uint256)
@@ -92,7 +91,6 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.
   function widenedError(uint8)
   function explicitWideError(uint8)
   function constantError()
-  function tryBytesLiteral()
   function prefixInc(uint8)
   function prefixDec(uint8)
   function finalBoolWord(uint256)
@@ -182,15 +180,6 @@ private def revertsWith (m : CompilationModel) (name : String) (args : List Nat)
       { sender := 1, functionSelector := 0, args } Verity.defaultState
     !r.success && r.revertData == some payload
 
-private def isSelfCallWithWord (expected : Nat) : Stmt → Bool
-  | .ecm _ [.contractAddress, .literal word] => word == expected
-  | _ => false
-
-#guard [legacy.model, ir.model].all fun m =>
-  match m.functions.find? (·.name == "tryBytesLiteral") with
-  | none => false
-  | some f => f.body.any (isSelfCallWithWord (0x11223344 * 2 ^ 224))
-
 #guard [legacy.model, ir.model].all fun m => revertsWith m "widenedError" [17]
   ([0x40, 0x61, 0x3a, 0x9f] ++ List.replicate 31 0 ++ [17])
 #guard [legacy.model, ir.model].all fun m => revertsWith m "explicitWideError" [17]
@@ -255,6 +244,29 @@ solidity_import badEmitIr from "Contracts/SolidityImportSmoke" entry "NarrowStac
 #guard observesWords ir.model "prefixInc" [255] [0, 0]
 #guard observesWords legacy.model "prefixDec" [0] [2 ^ 256 - 1, 255]
 #guard observesWords ir.model "prefixDec" [0] [255, 255]
+
+-- `try this.f(...)` rejects in every contract: CALL semantics are not modelled.
+/--
+error: NarrowStackWords.sol:275:9: TryStatement: [solidity-import:unsupported] try/catch of an external self-call `this.f(...)` requires call semantics and is outside this slice
+closure: NarrowStackWords.tryBytesLiteral
+try this.receiveWord(0x11223344) { return 1; } catch { return 0; }
+-/
+#guard_msgs in
+solidity_import tryBytesLiteralLegacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function tryBytesLiteral()
+
+/--
+error: NarrowStackWords.sol:275:9: TryStatement: [solidity-import:unsupported] try/catch of an external self-call `this.f(...)` requires call semantics and is outside this slice
+closure: NarrowStackWords.tryBytesLiteral
+try this.receiveWord(0x11223344) { return 1; } catch { return 0; }
+-/
+#guard_msgs in
+solidity_import tryBytesLiteralIr from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function tryBytesLiteral()
 
 /--
 error: NarrowStackWords.sol:296:13: FunctionCall: [solidity-import:unsupported] named arguments in a try self-call are unsupported
