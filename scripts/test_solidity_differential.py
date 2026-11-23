@@ -64,6 +64,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "mapping-dirty",
     "mapping-write-order",
     "mocks",
+    "modifier-placeholder",
+    "modifier-placeholder-legacy",
     "multi-return-buffers",
     "multiple-dynamic-abi",
     "mutations",

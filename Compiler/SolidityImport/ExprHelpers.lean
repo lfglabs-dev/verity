@@ -200,6 +200,13 @@ structure Env where
   rootDynamicTupleReturn : Option (Array Json) := none
   publicVarGetterReturns : Array ParamType := #[]
   rootPost : Array Stmt := #[]
+  /-- While a modifier whose `_;` sits in a branch or appears more than once is lowered
+  (#2846): the modifier's declaration id and the marker statement name that each `_;` of
+  that modifier's own body lowers to, before the marker is replaced by a lowered copy of the
+  remaining modifiers and the function body. -/
+  placeholderMarker : Option (Nat × String) := none
+  /-- Markers emitted for `placeholderMarker` so far. -/
+  placeholderMarkers : Nat := 0
   modifiers : RBMap Nat Json compare := RBMap.empty
   /-- Function boundaries restore the selected compiler's arithmetic default. -/
   legacyWrapping : Bool := false

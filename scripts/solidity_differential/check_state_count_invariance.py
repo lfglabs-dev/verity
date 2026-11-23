@@ -223,6 +223,27 @@ contract C {
         return x;
     }
 }
+''', ['run(uint256)']),
+    # On an internal helper the substitution of #2846 is not available: still the same
+    # located rejection whatever the state-variable count.
+    inline('conditional-modifier-helper', '''contract C {
+    uint256 private total;
+
+    modifier when(bool on) {
+        if (on) {
+            _;
+        }
+    }
+
+    function store(uint256 x) internal when(x > 1) {
+        total = x;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        store(x);
+        return x;
+    }
+}
 ''', ['run(uint256)'], expect='same-rejection'),
     inline('unchecked-block-declaration', '''contract C {
     uint256 private total;
