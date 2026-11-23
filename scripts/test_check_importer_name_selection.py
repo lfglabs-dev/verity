@@ -440,6 +440,52 @@ class ImporterNameSelectionTests(unittest.TestCase):
                     '  | _ => pure false\n')
         self.assertFails("`VerityScopeEnd`")
 
+    def test_scope_marker_arm_of_a_nested_name_match_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" => pure false\n'
+                    '  | _ => match optStr s "name" |>.getD "" with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_of_a_deeper_opened_match_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" =>\n'
+                    '      match optStr s "name" |>.getD "" with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_after_a_lambda_arm_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | _ => pure ((fun\n'
+                    '  | "VerityUncheckedEnd" => true\n'
+                    '  | _ => false) (optStr s "name" |>.getD ""))\n')
+        self.assertFails("`VerityUncheckedEnd`")
+
+    def test_scope_marker_with_a_shadowed_mkind_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  let mKind := fun (_ : Json) => (pure (optStr s "name" |>.getD "") : M String)\n'
+                    '  match ← mKind s with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_tuple_compared_fails(self) -> None:
+        for code in ('def zzA (fn : Json) : Bool := (optStr fn "name").map Json.str == '
+                     'some ("nodeType", Json.str "VerityScopeEnd").2\n',
+                     'def zzA (fn : Json) : Bool := fn.getObjValD "name" == '
+                     '(("nodeType", Json.str "VerityUncheckedEnd")).2\n'):
+            with self.subTest(code=code):
+                path = self.root / IMPORT
+                text = path.read_text(encoding="utf-8")
+                self.append(IMPORT, "\n" + code)
+                self.assertFails("`Verity")
+                path.write_text(text, encoding="utf-8")
+
     def test_scope_marker_without_its_creation_fails(self) -> None:
         self.edit(IMPORT, '("nodeType", Json.str "VerityScopeEnd")', '("kind", Json.str "VerityScopeEnd")')
         self.assertFails('"VerityScopeEnd" has no create site')

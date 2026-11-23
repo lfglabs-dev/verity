@@ -313,12 +313,20 @@ def pragma_literal_spans(rel: str, code: str) -> list[tuple[int, int]]:
 # the run), so every `nodeType` it reads is one of solc's fixed node kinds: Solidity source cannot
 # set a `nodeType`, and solc never emits these. A marker literal is allowed only in its file and
 # only in two forms: built as `("nodeType", Json.str "<marker>")`, or as a `match` arm pattern
-# whose enclosing `match` is `match ← mKind <stmt> with`. Anywhere else (a name comparison, a
+# whose enclosing `match` is `match ← mKind <stmt> with` (no earlier arm or deeper line opens
+# alternatives that could own the arm, and the file does not rebind `mKind`). Anywhere else (a name comparison, a
 # `nodeType` read of another field, another file) it is an ordinary identifier and is checked.
 _IMPORT = "Compiler/SolidityImport/Import.lean"
 NODE_KIND_MARKERS = {(_IMPORT, "VerityScopeEnd"), (_IMPORT, "VerityUncheckedEnd")}
-_MARKER_CREATE = re.compile(r'\(\s*"nodeType"\s*,\s*Json\.str\s*\Z')
-_MARKER_CREATE_END = re.compile(r'\s*\)')
+# Built only as the first field of a `Json.mkObj [...]` list: the marker is then a node's
+# `nodeType` and nothing else (not a tuple projected or compared).
+_MARKER_CREATE = re.compile(r'Json\.mkObj\s*\[\s*\(\s*"nodeType"\s*,\s*Json\.str\s*\Z')
+_MARKER_CREATE_END = re.compile(r'\s*\)\s*[,\]]')
+# A local binding that could shadow `mKind` (ExprHelpers.lean's AST `nodeType` reader).
+_MKIND_BINDING = re.compile(
+    r'\b(?:let|have|fun|λ|def|abbrev|where)\s+(?:rec\s+)?mKind\b|\(\s*mKind\s*:|\bmKind\s*:=')
+# A line that opens alternatives on the following lines (`match ... with`, `fun`, `function`).
+_OPENS_ALTS = re.compile(r'(?:\bwith|\bfun|\bfunction|λ)\s*\Z')
 _MATCH_ARM = re.compile(r'\s*\|\s*(?:"\w+"\s*\|\s*)*\Z')
 _MATCH_ARM_END = re.compile(r'(?:\s*\|\s*"\w+")*\s*=>')
 _KIND_MATCH_HEAD = re.compile(r'^\s*match\s+←\s*mKind\s+\w+\s+with\s*\Z')
@@ -334,15 +342,28 @@ def node_kind_marker_form(code: str, start: int, end: int) -> str | None:
         return "create"
     if not (_MATCH_ARM.fullmatch(before) and _MATCH_ARM_END.match(after)):
         return None
+    if _MKIND_BINDING.search(code):
+        return None
     indent = len(before) - len(before.lstrip())
     lines = code[:line_start].split("\n")
     # Walk up over the earlier arms (`|` at the arm's indent) and their bodies (deeper); the first
-    # other line must be the head of this arm's `match`, and that head must match on `mKind`.
-    for line in reversed(lines):
+    # other line must be the head of this arm's `match`, and that head must match on `mKind`. An
+    # earlier arm that opens a `match`, `fun` or `function` itself, or a deeper line opening
+    # alternatives that could reach this arm's column, could own this arm: rejected.
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
         if not line.strip():
             continue
         line_indent = len(line) - len(line.lstrip())
-        if line_indent > indent or (line_indent == indent and line.lstrip().startswith("|")):
+        if line_indent == indent and line.lstrip().startswith("|"):
+            if re.search(r"\bmatch\b|\bfun\b|\bfunction\b|λ", line):
+                return None
+            continue
+        if line_indent > indent:
+            if _OPENS_ALTS.search(line.rstrip()):
+                nxt = next((l for l in lines[i + 1:] if l.strip()), None)
+                if nxt is None or len(nxt) - len(nxt.lstrip()) <= indent:
+                    return None
             continue
         return "kind arm" if _KIND_MATCH_HEAD.match(line) else None
     return None
