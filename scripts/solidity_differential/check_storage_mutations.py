@@ -425,6 +425,47 @@ MUTANTS.update({
     'import-encoding-order-calldata-array-guard': (
         '            if otherIdx != argIdx && otherTy.contains "calldata" &&\n                ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then\n',
         '            if false then\n')})
+# Modifiers whose `_;` sits in a branch or appears more than once are lowered by substitution
+# (#2846): ModifierPlaceholderSequence (via-IR), ModifierPlaceholderLegacySequence (legacy).
+MUTANTS.update({
+    # The #2882 bug: the body runs whether or not the modifier's condition holds.
+    'import-modifier-placeholder-skip-condition': (
+        "            pure ([Stmt.ite c yes' no'], ny + nn)\n",
+        "            pure (yes' ++ [Stmt.ite c [] no'], ny + nn)\n"),
+    # Only the first `_;` of a modifier runs the body (`_; _;` runs it once).
+    'import-modifier-placeholder-body-once': (
+        '        modify fun e => { e with placeholderMarkers := e.placeholderMarkers + 1 }\n'
+        '        let tailStmts ← kRest\n'
+        '        pure (#[Stmt.letVar marker (.literal 0)] ++ tailStmts)\n',
+        '        let first := env.placeholderMarkers == 0\n'
+        '        modify fun e => { e with placeholderMarkers := 1 }\n'
+        '        let tailStmts ← kRest\n'
+        '        pure ((if first then #[Stmt.letVar marker (.literal 0)] else #[]) ++ tailStmts)\n'),
+    # via-IR return variables keep the previous copy's value.
+    'import-modifier-placeholder-ir-reset': (
+        '    let resets := if (← get).viaIR then retBindings.map fun (b, _) => Stmt.assignVar b (.literal 0) else #[]\n',
+        '    let resets : Array Stmt := #[]\n'),
+    # Legacy return variables restart at zero at each `_;`.
+    'import-modifier-placeholder-legacy-shared': (
+        '    let resets := if (← get).viaIR then retBindings.map fun (b, _) => Stmt.assignVar b (.literal 0) else #[]\n',
+        '    let resets := retBindings.map fun (b, _) => Stmt.assignVar b (.literal 0)\n'),
+    # The body's tail `return` no longer assigns the return variables.
+    'import-modifier-placeholder-tail-return': (
+        '  | .returnValues values => assign values\n',
+        '  | .returnValues _ => pure init\n'),
+    # A single-`_;` modifier inside a substituted chain runs its post-statements first.
+    'import-modifier-placeholder-simple-order': (
+        '        pure (pre ++ inner ++ post)\n',
+        '        pure (pre ++ post ++ inner)\n'),
+    # Located rejections: a body that assigns a parameter (legacy shares it across the copies,
+    # via-IR does not) and a body with inline assembly.
+    'import-modifier-placeholder-parameter-write-guard': (
+        '      if assigned.contains p.id then\n        failAt fn s!"assigning parameter',
+        '      if false then\n        failAt fn s!"assigning parameter'),
+    'import-modifier-placeholder-assembly-guard': (
+        '    if containsNodeKind "InlineAssembly" body then\n      failAt fn "inline assembly in a function whose modifier',
+        '    if false then\n      failAt fn "inline assembly in a function whose modifier'),
+})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1239,6 +1280,9 @@ def run(directory, output, name):
         fixture = "EmptyPushSequence"
     if name.startswith("import-assign-order-"):
         fixture = "MappingWriteOrderSequence"
+    if name.startswith("import-modifier-placeholder-"):
+        fixture = ("ModifierPlaceholderLegacySequence" if name == "import-modifier-placeholder-legacy-shared"
+                   else "ModifierPlaceholderSequence")
     if name == "import-abi-encode-string-helper-literal-fixed-bytes":
         fixture = "AbiEncodeStringHelperSequence"
     if name.startswith("import-storage-pointer-mapping-helper-"):
@@ -1344,6 +1388,14 @@ def run(directory, output, name):
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 8, 24, 1, 9, 2, 10, 18, 3, 11, 4, 12, 20, 5, 13, 21, 6, 14,
             22, 46, 54, 7, 15, 2 ** 256 - 1])])
+    if fixture in ('ModifierPlaceholderSequence', 'ModifierPlaceholderLegacySequence'):
+        # The `stateful_campaign` prefix (`modifier-placeholder`, `modifier-placeholder-legacy`).
+        argv[argv.index('--transactions') + 1] = '32'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        if fixture == 'ModifierPlaceholderLegacySequence':
+            argv.extend(['--solc-version', '0.8.10'])
+        argv.extend(['--change-prefix', *map(str, [0, 2, 5, 3, 3, 9, 20, 14, 1, 8, 8, 4, 6, 2 ** 256 - 1])])
     if fixture == 'MappingWriteOrderSequence':
         # x = 16 * y + c selects assignment c; y = 0 makes key and right-hand side revert.
         argv[argv.index('--transactions') + 1] = '32'
@@ -2080,6 +2132,24 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-modifier-placeholder-parameter-write-guard':
+        diagnostic = 'assigning parameter x of a function whose modifier has _; in a branch or repeated is outside this slice'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ uint256 private total;
+ modifier twice() { _; _; }
+ function checked(uint256 x) external twice returns (uint256) { x += 1; total += x; return x; }
+}
+''')
+    elif name == 'import-modifier-placeholder-assembly-guard':
+        diagnostic = 'inline assembly in a function whose modifier has _; in a branch or repeated is outside this slice'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ uint256 private total;
+ modifier twice() { _; _; }
+ function checked(uint256 x) external twice returns (uint256 r) { total += x; assembly { r := add(x, 1) } }
+}
+''')
     elif name == 'import-copy-order-reverting-source-guard':
         diagnostic = 'keyed storage bytes/string source beside a target key prelude is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2505,6 +2575,8 @@ def mutation_campaign(output, selected=None):
                                   'import-narrow-copy-v1-return-guard',
                                   'import-encoding-order-storage-conditional-guard',
                                   'import-encoding-order-calldata-array-guard',
+                                  'import-modifier-placeholder-parameter-write-guard',
+                                  'import-modifier-placeholder-assembly-guard',
                                   'import-assignment-argument-hash-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)

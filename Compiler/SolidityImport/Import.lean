@@ -11393,7 +11393,37 @@ private partial def lowerMultiCall (j : Json) (expectedTypes : Option (Array (Op
   let (fnId, vals) ← resolveCallTargetAndArgs j
   inlineMultiFn fnId vals j
 
-private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt) := do
+private partial def jsonHasPlaceholder : Json → Bool
+  | j@(.obj kvs) =>
+      optStr j "nodeType" == some "PlaceholderStatement" ||
+        kvs.foldl (fun acc _ v => acc || jsonHasPlaceholder v) false
+  | .arr items => items.any jsonHasPlaceholder
+  | _ => false
+
+/-- A modifier lowered by substitution (#2846) may place `_;` in statement lists reached
+through blocks and `if`/`else` branches. A `_;` under a loop (solc runs the body once per
+iteration), an `unchecked` block or any other statement is a located rejection. -/
+private partial def placeholderPositionsSupported (s : Json) : M Unit := do
+  match ← mKind s with
+  | "PlaceholderStatement" => pure ()
+  | "Block" =>
+      for t in ← mArr (← mField s "statements") do
+        placeholderPositionsSupported t
+  | "IfStatement" =>
+      placeholderPositionsSupported (← mField s "trueBody")
+      match field? s "falseBody" with
+      | some j => unless j.isNull do placeholderPositionsSupported j
+      | none => pure ()
+  | kind =>
+      if jsonHasPlaceholder s then
+        failAt s s!"a _; placeholder inside {kind} is outside this slice"
+
+/-- Lowers one modifier invocation. Without `marker?`, the body must have a single
+top-level `_;`, and the result is the statements before and after it. With `marker?`
+(#2846), the whole body is lowered and each `_;` becomes `let <marker> := 0`; the third
+component counts those markers. -/
+private partial def lowerModifier (modInv : Json) (marker? : Option String := none) :
+    M (Array Stmt × Array Stmt × Nat) := do
   let kind? := optStr modInv "kind"
   if kind?.isSome && kind? != some "modifierInvocation" then
     failAt modInv "base constructor calls are outside this slice"
@@ -11423,20 +11453,28 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
     | failAt modDecl "modifier has no body"
   unless implemented do failAt modDecl "modifier has no body"
   let stmts ← mArr (← mField body "statements")
-  let mut placeholderIdx? : Option Nat := none
-  for i in [:stmts.size] do
-    if (← mKind stmts[i]!) == "PlaceholderStatement" then
-      if placeholderIdx?.isSome then
+  let (preStmts, postStmts) ← if marker?.isSome then do
+      for st in stmts do
+        placeholderPositionsSupported st
+      if ← stmts.anyM stmtContainsReturn then
+        failAt modDecl "return inside a modifier is outside this slice"
+      pure (stmts, #[])
+    else do
+      let mut placeholderIdx? : Option Nat := none
+      for i in [:stmts.size] do
+        if (← mKind stmts[i]!) == "PlaceholderStatement" then
+          if placeholderIdx?.isSome then
+            failAt modDecl "only a single top-level _; placeholder is supported in modifiers"
+          placeholderIdx? := some i
+      let some placeholderIdx := placeholderIdx?
+        | failAt modDecl "only a single top-level _; placeholder is supported in modifiers"
+      let preStmts := stmts.extract 0 placeholderIdx
+      let postStmts := stmts.extract (placeholderIdx + 1) stmts.size
+      if (← preStmts.anyM stmtContainsPlaceholder) || (← postStmts.anyM stmtContainsPlaceholder) then
         failAt modDecl "only a single top-level _; placeholder is supported in modifiers"
-      placeholderIdx? := some i
-  let some placeholderIdx := placeholderIdx?
-    | failAt modDecl "only a single top-level _; placeholder is supported in modifiers"
-  let preStmts := stmts.extract 0 placeholderIdx
-  let postStmts := stmts.extract (placeholderIdx + 1) stmts.size
-  if (← preStmts.anyM stmtContainsPlaceholder) || (← postStmts.anyM stmtContainsPlaceholder) then
-    failAt modDecl "only a single top-level _; placeholder is supported in modifiers"
-  if (← preStmts.anyM stmtContainsReturn) || (← postStmts.anyM stmtContainsReturn) then
-    failAt modDecl "return inside a modifier is outside this slice"
+      if (← preStmts.anyM stmtContainsReturn) || (← postStmts.anyM stmtContainsReturn) then
+        failAt modDecl "return inside a modifier is outside this slice"
+      pure (preStmts, postStmts)
   let params ← mArr (← mField (← mField modDecl "parameters") "parameters")
   let args ← match field? modInv "arguments" with
     | some j => if j.isNull then pure #[] else mArr j
@@ -11510,14 +11548,19 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
       yul := yul.insert pname expr
   modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none, helperPost := #[] }
   noteProfiledFn modDecl
+  let savedMarker := saved.placeholderMarker
+  let savedMarkers := saved.placeholderMarkers
+  modify fun e => { e with placeholderMarker := marker?.map (modId, ·), placeholderMarkers := 0 }
   let preBodyStmts ← lowerVoidHelperFrom preStmts.toList (pure #[])
   let postBodyStmts ← lowerVoidHelperFrom postStmts.toList (pure #[])
+  let markerCount := (← get).placeholderMarkers
+  modify fun e => { e with placeholderMarker := savedMarker, placeholderMarkers := savedMarkers }
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned,
              helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-  pure (pre ++ preBodyStmts, postBodyStmts)
+  pure (pre ++ preBodyStmts, postBodyStmts, markerCount)
 
 private partial def lowerModifiers (mods : Array Json) : M (Array Stmt × Array Stmt) := do
   let mut outPre : Array Stmt := #[]
@@ -11525,7 +11568,7 @@ private partial def lowerModifiers (mods : Array Json) : M (Array Stmt × Array 
   for modInv in mods do
     if (← get).forwardingBytesTuple then
       failAt modInv "modifiers in a forwarded tuple call tree are unsupported"
-    let (preStmts, postStmts) ← lowerModifier modInv
+    let (preStmts, postStmts, _) ← lowerModifier modInv
     outPre := outPre ++ preStmts
     outPost := postStmts ++ outPost
   pure (outPre, outPost)
@@ -13691,6 +13734,17 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
           let noStmts ← lowerVoidHelperFrom no.toList (if noAll then pure #[] else kBranch)
           restore
           pure (condition.pre.push (.ite condition.expr yesStmts.toList noStmts.toList))
+    | "PlaceholderStatement" =>
+        -- Only the body of the modifier being lowered by substitution (#2846) emits a marker;
+        -- `lowerSubstitutedModifiers` replaces each one and checks the count.
+        let env ← get
+        let some (modId, marker) := env.placeholderMarker
+          | failAt s "only a single top-level _; placeholder is supported in modifiers"
+        unless env.stack.head? == some modId do
+          failAt s "only a single top-level _; placeholder is supported in modifiers"
+        modify fun e => { e with placeholderMarkers := e.placeholderMarkers + 1 }
+        let tailStmts ← kRest
+        pure (#[Stmt.letVar marker (.literal 0)] ++ tailStmts)
     | kind => failAt s s!"unsupported void helper statement {kind}"
 
 private partial def resolveStructDeclFromType (j : Json) : M (Nat × Json) := do
@@ -19214,6 +19268,122 @@ private partial def containsForwardedReturn : Json → Bool
   | .arr xs => xs.any containsForwardedReturn
   | _ => false
 
+/-! ### Modifiers lowered by substitution (#2846)
+
+solc runs the rest of the modifier chain and the function body at each `_;` it reaches, so
+a modifier whose `_;` sits in a branch or appears more than once is lowered with a marker at
+each `_;`, and each marker is replaced by its own lowering of the remaining modifiers and the
+body. Measured on solc 0.8.34 / Anvil, legacy and via-IR: body locals are fresh in each copy;
+the arguments of an inner modifier are evaluated at each entry; a `return` in the body ends
+only that copy, and the modifier continues. The return variables differ by pipeline: legacy
+shares them across copies (a copy that assigns nothing keeps the previous value), via-IR
+calls the inner code as a function whose return variables start at zero at each `_;`. The
+function's parameters also differ (legacy shares them, via-IR passes each `_;` a copy), so a
+body that assigns a parameter is rejected. -/
+
+/-- Whether the modifier `modInv` invokes has exactly one `_;`, at the top level of its body
+(the pre/post lowering of `lowerModifiers`). Unresolved invocations count as single so that
+`lowerModifier` reports them. -/
+private def modifierPlaceholderSimple (modInv : Json) : M Bool := do
+  let some modNode := field? modInv "modifierName" | return true
+  let refId ← refInt modNode
+  if refId < 0 then return true
+  let some modDecl := (← get).modifiers.find? refId.toNat | return true
+  let some body := (field? modDecl "body").filter (!·.isNull) | return true
+  let stmts ← mArr (← mField body "statements")
+  let mut top := 0
+  for st in stmts do
+    if (← mKind st) == "PlaceholderStatement" then
+      top := top + 1
+    else if jsonHasPlaceholder st then
+      return false
+  pure (top == 1)
+
+/-- Statements that end the call (or cannot be inspected for one). -/
+private partial def stmtEndsCall : Stmt → Bool
+  | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
+  | .returnCodeData _ | .stop | .unsafeBlock _ _ | .unsafeYul _ => true
+  | .ite _ yes no => yes.any stmtEndsCall || no.any stmtEndsCall
+  | .forEach _ _ body | .forEachSetBit _ _ body => body.any stmtEndsCall
+  | _ => false
+
+/-- Replaces each `let <marker> := 0` (at the top level or in `if` branches) by `inner`,
+lowered once per marker, and counts the replacements. -/
+private partial def substitutePlaceholderMarkers (marker : String) (inner : M (Array Stmt)) :
+    List Stmt → M (List Stmt × Nat)
+  | [] => pure ([], 0)
+  | st :: rest => do
+      let (here, n) ← match st with
+        | .letVar name _ =>
+            if name == marker then do pure ((← inner).toList, 1) else pure ([st], 0)
+        | .ite c yes no => do
+            let (yes', ny) ← substitutePlaceholderMarkers marker inner yes
+            let (no', nn) ← substitutePlaceholderMarkers marker inner no
+            pure ([Stmt.ite c yes' no'], ny + nn)
+        | _ => pure ([st], 0)
+      let (rest', nr) ← substitutePlaceholderMarkers marker inner rest
+      pure (here ++ rest', n + nr)
+
+/-- Lowers the modifiers `mods` around `bodyCopy`: a single-placeholder modifier as its
+statements before and after `_;`, any other one by substitution. `resets` runs at each
+substituted `_;` before the inner code (via-IR's zeroed return variables). -/
+private partial def lowerSubstitutedModifiers (mods : List Json) (resets : Array Stmt)
+    (bodyCopy : M (Array Stmt)) : M (Array Stmt) := do
+  match mods with
+  | [] => bodyCopy
+  | m :: rest =>
+      if (← get).forwardingBytesTuple then
+        failAt m "modifiers in a forwarded tuple call tree are unsupported"
+      if ← modifierPlaceholderSimple m then
+        let (pre, post, _) ← lowerModifier m
+        let inner ← lowerSubstitutedModifiers rest resets bodyCopy
+        pure (pre ++ inner ++ post)
+      else
+        let marker ← fresh
+        let (code, _, count) ← lowerModifier m (some marker)
+        let (out, replaced) ← substitutePlaceholderMarkers marker
+          (do pure (resets ++ (← lowerSubstitutedModifiers rest resets bodyCopy))) code.toList
+        unless count > 0 && replaced == count do
+          failAt m s!"modifier placeholder substitution found {replaced} of {count} placeholders"
+        pure out.toArray
+
+/-- One copy of the function body for `lowerSubstitutedModifiers`. The body may return
+only at its last top-level statement; that return assigns the return variables
+`retBindings` and falls through to the modifier code after `_;`. -/
+private def lowerSubstitutedBodyCopy (fn : Json) (stmts : Array Json)
+    (retBindings : Array (String × String)) : M (Array Stmt) := do
+  let saved ← get
+  let (lowered, _) ← lowerRootStatements stmts false
+  -- Each copy starts from the function's lexical scope; fresh names and dependencies stay.
+  modify fun e =>
+    { e with values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+  let some last := lowered.back? | return lowered
+  let init := lowered.pop
+  if init.any stmtEndsCall then
+    failAt fn "a function body that ends the call before its last statement is outside this slice under a modifier whose _; is in a branch or repeated"
+  let assign (values : List Expr) : M (Array Stmt) := do
+    unless values.length == retBindings.size do
+      failAt fn "return arity does not match the function's return parameters"
+    let mut temps : Array Stmt := #[]
+    let mut assigns : Array Stmt := #[]
+    for (v, (b, _)) in values.zip retBindings.toList do
+      let t ← fresh
+      temps := temps.push (.letVar t v)
+      assigns := assigns.push (.assignVar b (.localVar t))
+    pure (init ++ temps ++ assigns)
+  match last with
+  | .returnValues values => assign values
+  | .return value => assign [value]
+  | .stop =>
+      unless retBindings.isEmpty do
+        failAt fn "stop in a function with return values"
+      pure init
+  | other =>
+      if stmtEndsCall other then
+        failAt fn "a function body that ends the call this way is outside this slice under a modifier whose _; is in a branch or repeated"
+      pure lowered
+
 private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   if (← mKind fn) == "VariableDeclaration" then
     return ← lowerPublicVarGetter fn
@@ -19329,6 +19499,40 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
                rootReturnTypes[1]? == some "bytes" && containsForwardedReturn body,
              rootDynamicTupleReturn := dynamicTupleRet?.map fun _ => returns }
   rejectForwardedAssembly body
+  if ← mods.anyM (fun m => do pure !(← modifierPlaceholderSimple m)) then
+    -- #2846: substitute the remaining modifiers and the body at each `_;`.
+    unless emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && flatStructRet?.isNone && !msgDataRet &&
+        dynamicBytesRet?.isNone && dynamicStructRet?.isNone && dynamicTupleRet?.isNone do
+      failAt fn "a function whose modifier has _; in a branch or repeated must return scalar values"
+    if containsNodeKind "InlineAssembly" body then
+      failAt fn "inline assembly in a function whose modifier has _; in a branch or repeated is outside this slice"
+    let assigned := bodyAssignedIds body
+    for p in srcParams do
+      if assigned.contains p.id then
+        failAt fn s!"assigning parameter {p.name} of a function whose modifier has _; in a branch or repeated is outside this slice (legacy shares it across the copies of the body, via-IR does not)"
+    for i in [:stmts.size] do
+      let st := stmts[i]!
+      unless i + 1 == stmts.size && (← mKind st) == "Return" do
+        if ← stmtContainsReturn st then
+          failAt st "return before the last statement of a function whose modifier has _; in a branch or repeated is outside this slice"
+    let mut retBindings : Array (String × String) := #[]
+    for r in returns do
+      let rty ← mType r
+      if (← mStr (← mField r "name")) != "" then
+        let some b := (← get).writableLocals.find? (← mNat (← mField r "id"))
+          | failAt r "missing named return binding"
+        retBindings := retBindings.push (b, rty)
+      else
+        unless (paramType rty).isSome do
+          failAt r s!"unsupported root return type {rty}"
+        let b ← fresh
+        rootInit := rootInit.push (.letVar b (.literal 0))
+        retBindings := retBindings.push (b, rty)
+    let resets := if (← get).viaIR then retBindings.map fun (b, _) => Stmt.assignVar b (.literal 0) else #[]
+    let lowered ← lowerSubstitutedModifiers mods.toList resets (lowerSubstitutedBodyCopy fn stmts retBindings)
+    let final := if returns.isEmpty then Stmt.stop else
+      .returnValues (retBindings.toList.map fun (b, ty) => cleanHelperResultExpr ty { pre := #[], expr := .localVar b })
+    return ((rootInit ++ lowered).push final, srcParams)
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with rootPost := modPost }
   let (bodyOut, returned) ← lowerRootStatements stmts true
