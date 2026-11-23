@@ -195,6 +195,27 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.append(IMPORT, "\n" + form + "\n")
                 self.assertFails("which is not a solc AST")
 
+    def test_operand_built_with_append_fails(self) -> None:
+        for form in ['def zzA (n lib : String) : Bool := n == lib ++ ".flipTick"',
+                     'def zzA (n lib : String) : Bool := n.endsWith (lib ++ ".flipTick")',
+                     'def zzA (n lib : String) : Bool := n == lib ++ ".flipTick(int24,int24,int24)"',
+                     'def zzA (n lib : String) : Bool := n == lib ++ s!".flipTick"',
+                     'def zzA (n : String) : Bool := n.endsWith (".flipTick")']:
+            with self.subTest(form=form):
+                self.append(IMPORT, "\n" + form + "\n")
+                self.assertFails("`flipTick`")
+
+    def test_membership_with_elem_sign_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (n : String) : Bool := decide (n ∈ ["flipTick(int24)", "x y"])\n')
+        self.assertFails("`flipTick`")
+
+    def test_prefix_form_string_functions_fail(self) -> None:
+        for form in ['def zzA (n : String) : Bool := String.startsWith n "TickBitmap."',
+                     'def zzA (n : String) : Bool := String.isPrefixOf "TickBitmap." n']:
+            with self.subTest(form=form):
+                self.append(IMPORT, "\n" + form + "\n")
+                self.assertFails("`TickBitmap`")
+
     def test_theorem_literals_are_exempt(self) -> None:
         self.append(IMPORT, '\ntheorem zzT : ("callHook" : String).length = 8 := by decide\n')
         self.assertEqual(lint.run(self.root), [])
