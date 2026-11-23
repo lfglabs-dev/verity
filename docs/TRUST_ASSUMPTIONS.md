@@ -641,7 +641,8 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Reference**: [LOW_LEVEL_YUL.md](LOW_LEVEL_YUL.md#yul-temporary-slot-reuse-and-scratch-memory-spilling---max-stack-locals).
 
 ### 13. Yul Patch Pass (`foundation` rewrite rules)
-- **Role**: With patches enabled (the CLI default; `--disable-patches` turns it off),
+- **Role**: With patches enabled (the CLI default; `--disable-patches` turns it off unless
+  `--backend-profile solidity-parity` or a parity pack with `forcePatches` forces it),
   `Compiler.emitYulWithOptionsReport` (`Compiler/Codegen.lean`) runs
   `Yul.runPatchPassWithBlocks` / `Yul.runPatchPassWithObjects` over the emitted Yul with the
   `foundation` bundle (`Compiler/Yul/PatchRulesCatalog/Base.lean`): 15 expression rules such as

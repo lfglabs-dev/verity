@@ -15,16 +15,17 @@ open Compiler.Yul
 open Compiler.Autoresearch.MaxwellGasSuperoptimizer
 
 /-!
-# Segregated Acceleration Plugin Architecture, Semantic `MetaGateSpec` & AST Passes
+# Segregated Acceleration Plugin Architecture, `MetaGateSpec` & AST Passes
 ## Layer 2 & Layer 3 Unified Architecture (`Verity 2.0`)
 
 This module implements:
 
 1. **Meta-Specification & Speculative Gate (`MetaGateSpec`, `evalWithUntrustedAccelPlugin`)**:
    Defines `verifyAccelCertGate` and `evalWithUntrustedAccelPlugin` and proves facts about
-   them abstractly; no compile path runs this gate or any pass behind it. Unlike nominal
-   self-specifications, `accelCertMetaGateSpec` is proved sound and complete
-   against the independent semantic safety proposition `AccelCertSafe`.
+   them abstractly; no compile path runs this gate or any pass behind it.
+   `accelCertMetaGateSpec` is proved equivalent to `AccelCertSafe`, a `Prop` restatement of
+   the same checks (theorem-name string-list membership, hashes, flags and gas), not a
+   semantic property of any program.
 
 2. **Compositional Verified Acceleration Contracts (`VerifiedAccelContract`, `AccelChain`)**:
    Proof-carrying transformations over any program carrier `Prog` with refinement `Refines`.
@@ -165,12 +166,13 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
   , "Verity.Proofs.Stdlib.Math.modField_eq_self_of_lt" ]
 
-/-- Check whether `thmRef` is registered in the kernel theorem allowlist. -/
+/-- Check whether `thmRef` is a member of the theorem-name string allowlist. -/
 def isAllowedAccelTheorem (thmRef : String) : Bool :=
   verifiedAccelTheoremAllowlist.contains thmRef
 
-/-- Independent semantic safety predicate (`AccelCertSafe`) characterizing a valid
-    `PassStepCert` across hash coherence, assurance level, boundary checking, and gas monotonicity. -/
+/-- Certificate well-formedness predicate (`AccelCertSafe`): a `Prop` restatement of the
+    `verifyAccelCertGate` checks (hash coherence, assurance level with theorem-name string
+    membership, boundary flag, gas monotonicity). It is not a semantic property. -/
 def AccelCertSafe (requireStrictGain : Bool) (c : PassStepCert) : Prop :=
   (c.changed = false → c.inputHash = c.outputHash) ∧
   ((c.assurance = .kernelVerified ∧ isAllowedAccelTheorem c.theoremRef = true) ∨
@@ -193,7 +195,7 @@ def verifyAccelCertGate (requireStrictGain : Bool) (c : PassStepCert) : Bool :=
   hashCoherent && symbolicOk && c.boundaryChecked && gasOk
 
 /-- **Theorem AP.4a (`verifyAccelCertGate_sound`)**:
-    Whenever `verifyAccelCertGate requireStrictGain c = true`, the semantic safety predicate
+    Whenever `verifyAccelCertGate requireStrictGain c = true`, the well-formedness predicate
     `AccelCertSafe requireStrictGain c` holds. -/
 theorem verifyAccelCertGate_sound
     (requireStrictGain : Bool) (c : PassStepCert)
@@ -524,7 +526,7 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       assurance := .kernelVerified
       theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_mathlib_tauceti_mulDiv_cancel_sound_and_saves_176_gas" } ]
 
-/-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
+/-- Build a `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
     (d : AccelPluginDescriptor)
     (inputHash outputHash costBefore costAfter : Nat) : PassStepCert :=
@@ -580,9 +582,9 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8:mathlib-tauceti-algebraic-simplifier" = false := by
   decide
 
-/-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false` against the independent
-    semantic safety proposition `AccelCertSafe false` (with non-tautological `sound` and `complete`
-    proofs `verifyAccelCertGate_sound` and `verifyAccelCertGate_complete`). -/
+/-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false` against
+    `AccelCertSafe false`, a `Prop` restatement of the same checks (proofs
+    `verifyAccelCertGate_sound` and `verifyAccelCertGate_complete`). -/
 def accelCertMetaGateSpec :
     MetaGateSpec PassStepCert (AccelCertSafe false) where
   gate := verifyAccelCertGate false
@@ -595,7 +597,7 @@ def accelCertMetaGateSpec :
   tight := by decide
 
 /-- **Theorem AP.10 (`accelCertMetaGateSpec_valid_and_tight`)**:
-    Certifies that `accelCertMetaGateSpec` accepts the positive G2–G8 witness
+    States that `accelCertMetaGateSpec` accepts the positive catalog-head (G2) witness
     (`costAfter = 800 ≤ 1000`) and rejects the negative mutant witness
     (`costAfter = 1000 > 800`, `.unverifiedFallback`). -/
 theorem accelCertMetaGateSpec_valid_and_tight :

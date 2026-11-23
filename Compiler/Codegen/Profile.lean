@@ -25,10 +25,10 @@ open Compiler.Proofs.YulGeneration.TempReuseSoundness
 
 This module resolves Phase C1 of the unified architectural roadmap:
 
-1. **Proof-Carrying `PipelineConfig` (`certifiedOptimized`)**:
+1. **`PipelineConfig` (`certifiedOptimized`)**:
    Wraps Yul emission (`emitYulWithOptionsReport`) in `emitYulWithProfile`, which no compile
    path calls, parameterized by a declarative `PipelineConfig` specifying:
-   - whether `SlotCoalescingShim` packed storage read/write coalescing is enabled,
+   - whether `enableSlotCoalescingShim` forces the patch pass on (no coalescing rewrite runs),
    - the dynamic spill watermark base (`computedSpillBase`) used by `TempReuse`
      (fixing the hardcoded `defaultSpillBase := 0x1000` seam),
    - the `PatchPassConfig` rewrite packs (`exprRules`, `stmtRules`, `blockRules`, `objectRules`),

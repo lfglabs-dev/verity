@@ -8,7 +8,8 @@ import Verity.Core.Intrinsics
 ## CLI Argument Parsing
 
 Single canonical compiler entrypoint. By default it runs Yul emission with the
-deterministic Yul patch pass enabled (`--disable-patches` turns it off), followed by the
+deterministic Yul patch pass enabled (`--disable-patches` turns it off unless
+`--backend-profile solidity-parity` or a parity pack with `forcePatches` forces it), then the
 `TempReuse` stack spill pass (`writeContract`). It does not use
 `PipelineConfig.certifiedOptimized` or the `AccelPlugin` catalog. Neither the patch pass nor
 the spill pass has a semantic-preservation theorem: both are trusted, tested components

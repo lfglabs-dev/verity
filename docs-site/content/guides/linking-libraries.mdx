@@ -96,7 +96,7 @@ lake exe verity-compiler [options]
 --help
 ```
 
-Patch passes are built into the single `verity-compiler` binary and are on by default (`--disable-patches` turns them off). They are trusted, not proved: see [`TRUST_ASSUMPTIONS.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) ("Yul Patch Pass").
+Patch passes are built into the single `verity-compiler` binary and are on by default (`--disable-patches` turns them off unless `--backend-profile solidity-parity` or a parity pack forces them). They are trusted, not proved: see [`TRUST_ASSUMPTIONS.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) ("Yul Patch Pass").
 
 ```bash
 lake exe verity-compiler --backend-profile solidity-parity
