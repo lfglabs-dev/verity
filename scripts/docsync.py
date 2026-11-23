@@ -862,9 +862,11 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
         "(`mload`, `mstore`, `returndataOptionalBoolAt`).",
         "`revertReturndata` is fully proved in the proof-oriented source semantics: the copy and "
         "the following `revert` both land in a reverting result whatever the EIP-211 buffer holds, "
-        "so it models the exact revert. The executable source interpreter remains unsupported "
-        "because `Contracts.revertReturndata` is still a no-op, and `Contracts.returndataSize` is "
-        "still the constant-zero EDSL stub; wider copies remain downstream work because only the "
+        "so it models the exact revert. The executable EDSL `Contracts.revertReturndata` reverts "
+        "too (with the marker reason `revertReturndataReason`, since a `String` reason cannot "
+        "carry the bytes), so EDSL control flow after a failed call matches the compiled code; "
+        "the executable source interpreter remains unsupported because `Contracts.returndataSize` "
+        "is still the constant-zero EDSL stub; wider copies remain downstream work because only the "
         "zero-extent shape is admitted to the generic proof fragment, not because the EVM rejects "
         "them.",
         "Fully not-modeled features currently include `keccak256`, low-level call plumbing "

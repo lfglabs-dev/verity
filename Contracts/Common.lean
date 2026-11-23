@@ -486,7 +486,18 @@ def calldatacopyLive (destOffset sourceOffset size : Uint256) : Contract Unit :=
         (Compiler.CompilationModel.Denote.calldatacopyMemoryPadded state.selector state.calldata
           destOffset.val sourceOffset.val size.val (fun a => (state.memory a).val) offset) }
 def returndataCopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
-def revertReturndata : Contract Unit := pure ()
+/-- The revert reason `revertReturndata` records. The compiled code reverts with the last
+call's returndata bytes; the EDSL's `String` reason cannot carry them, so it only marks the
+revert as bubbled. -/
+def revertReturndataReason : String := "revertReturndata"
+
+/-- `returndatacopy(0, 0, returndatasize())` then `revert(0, returndatasize())`: the call ends
+with a revert, as in the compiled code (`Stmt.revertReturndata`). -/
+def revertReturndata : Contract Unit := fun state =>
+  ContractResult.revert revertReturndataReason state
+
+@[simp] theorem revertReturndata_run (state : ContractState) :
+    revertReturndata.run state = ContractResult.revert revertReturndataReason state := rfl
 /-- Executable length surface for `arrayLength`: dynamic ABI values that
 carry a length word (`bytes`, `string`, `T[]`). Deliberately not
 instantiated for word types: `Bytes32` is a reducible abbrev of `Uint256`,
