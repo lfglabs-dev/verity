@@ -7434,6 +7434,14 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
     ty == "string" || ty == "string memory" || ty == "string calldata" ||
     ty == "string storage ref" || ty == "string storage pointer" ||
     ty.startsWith "literal_string "
+  -- A string literal against a declared `bytesN` parameter or return component is that
+  -- static `bytesN` value (its bytes left-aligned in one head word), not a dynamic `string`.
+  let literalAsFixedBytes (argIdx : Nat) : M Bool := do
+    let some ps := params? | return false
+    return (← mType args[argIdx]!).startsWith "literal_string " &&
+      (fixedBytesWidth? (← mType ps[argIdx]!)).isSome
+  let isDynamicArg (argIdx : Nat) : M Bool := do
+    return isDynamicBytesOrString (← mType args[argIdx]!) && !(← literalAsFixedBytes argIdx)
   let dynamicStructMem? (arg : Json) : M (Option (Nat × Array Stmt × List AbiSchema.Member)) := do
     let ty ← mType arg
     unless ty.startsWith "struct " && !ty.contains "[" do return none
@@ -7446,9 +7454,10 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         | some mem => return mem.schema.map fun schema => (id, effects, schema)
         | none => return none
     | _ => return none
-  let hasDynamic ← args.anyM fun arg => do
+  let hasDynamic ← (List.range args.size).anyM fun argIdx => do
+    let arg := args[argIdx]!
     let ty ← mType arg
-    return isDynamicBytesOrString ty || (scalarArrayElement? ty).isSome ||
+    return (← isDynamicArg argIdx) || (scalarArrayElement? ty).isSome ||
       (← dynamicStructMem? arg).isSome
   if hasDynamic then
     let mut pre : Array Stmt := #[]
@@ -7460,7 +7469,7 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       let targetTy ← match params? with
         | some ps => mType ps[argIdx]!
         | none => pure ty
-      if isDynamicBytesOrString ty then
+      if ← isDynamicArg argIdx then
         if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then
           failAt arg "effectful ABI encoding argument is unsupported"
         -- A pure or view helper that may revert (`string` / `bytes` result) runs here, at its
@@ -7539,7 +7548,7 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         unless (paramType targetTy).isSome do
           failAt arg s!"unsupported ABI encoding argument type {targetTy}"
         checkEncodingScalar arg
-        let raw ← convert targetTy ty (← lowerExpr arg) arg
+        let raw ← convert targetTy ty (← lowerExprAs targetTy arg) arg
         let value ← if raw.pre.isEmpty then pure raw else atom raw
         pre := pre ++ value.pre
         headWords := headWords.push (some (cleanHelperResultExpr targetTy value))
