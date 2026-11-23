@@ -131,6 +131,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-yul-numeric",
     "struct-abi",
     "struct-abi-rejections",
+    "struct-copy-write-order",
     "yul-memory-call",
     "yul-memory-call-rejections",
 )

@@ -6612,9 +6612,8 @@ private partial def lowerStorageBytesWrite (name : String) (pre : Array Stmt)
       [],
     rawWrite (.bitOr (.localVar shortWord) (.mul (.localVar newLen) (.literal 2)))
   ]
+  let capture : Array Stmt := #[.letVar ptr buf.pointer, .letVar newLen buf.size]
   let stmts : Array Stmt := #[
-    .letVar ptr buf.pointer,
-    .letVar newLen buf.size,
     .ite (.gt (.localVar newLen) (.literal 0xffffffffffffffff))
       [.panicCode (.literal 0x41)]
       [],
@@ -6632,7 +6631,11 @@ private partial def lowerStorageBytesWrite (name : String) (pre : Array Stmt)
       writeLongStmts
       writeShortStmts
   ]
-  return pre ++ buf.pre ++ stmts
+  -- solc builds a value right-hand side (literal, memory or calldata bytes, a call, an encoding)
+  -- before the target's keys; a storage source is a reference it copies after them.
+  if ((← mType right).splitOn " storage").length > 1 then
+    return pre ++ buf.pre ++ capture ++ stmts
+  return buf.pre ++ capture ++ pre ++ stmts
 
 private partial def isAbiDecodeCall (j : Json) : M Bool := do
   let j ← stripParens j
@@ -13712,7 +13715,8 @@ private partial def inlineBytesStructFn (fnId : Nat) (args : Array CallArg) (at_
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperBytesSize := saved.helperBytesSize, helperStructSid := saved.helperStructSid, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (boundPre.push (.letVar ptrBinding (.literal 0)) ++ bodyPre, resultPtr)
 
-private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) (allowFlatLocalSource : Bool) :
+private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) (allowFlatLocalSource : Bool)
+    (ref? : Option Ref := none) :
     M (Nat × String × Array Stmt × Array (String × String × Expr)) := do
   let j ← stripParens j
   if (← mKind j) == "FunctionCall" && optStr j "kind" == some "structConstructorCall" then
@@ -13853,7 +13857,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
       memberVals := memberVals.push (tName, tTy, .localVar tmp)
     pre := pre.push (.ite condVal.expr tBranch.toList fBranch.toList)
     return (tSid, sName, pre, memberVals)
-  match ← lowerRef j with
+  match ← (match ref? with | some ref => pure ref | none => lowerRef j) with
   | .path pathPre path =>
       let (sid, sDecl) ← resolveStructDeclFromType j
       if let some expectedSid := expectedSid? then
@@ -14053,6 +14057,60 @@ private partial def isStructValueSource (j : Json) : M Bool := do
       return onTrue && onFalse
   | _ => return false
 
+/-- solc evaluates a storage `bytes`/`string` source's own keys before the target's and copies
+it after them. The lowering reads such a source in one step, so beside a target key prelude a
+source that is not a storage variable or storage pointer local is rejected. -/
+private partial def checkStorageBytesSourceOrder (pre : Array Stmt) (right : Json) : M Unit := do
+  let right ← stripParens right
+  if !pre.isEmpty && ((← mType right).splitOn " storage").length > 1 &&
+      (← mKind right) != "Identifier" then
+    failAt right "keyed storage bytes/string source beside a target key prelude is unsupported"
+
+/-- A storage struct source of a whole-struct copy beside a target key prelude. solc evaluates
+the source's slot (its own keys and index checks, a storage-pointer helper call) before the
+target's keys and reads its members at the copy, after them. Returns the slot prelude, with the
+slot's keys bound to fresh locals, and the member reads. Sources that are not storage-typed
+references: `none`. -/
+private partial def lowerStructStorageSource? (right : Json) (sid : Nat) :
+    M (Option (Array Stmt × Array Stmt × Array (String × String × Expr))) := do
+  let right ← stripParens right
+  unless ((← mType right).splitOn " storage").length > 1 do return none
+  unless ["Identifier", "IndexAccess", "MemberAccess", "FunctionCall"].contains (← mKind right) do
+    return none
+  let ref ← lowerRef right
+  let .path pathPre path := ref | do
+    -- Lowered once: other references take `lowerFlatStructValue`'s own path.
+    let (_, _, readPre, members) ← lowerFlatStructValue right (some sid) true (some ref)
+    return some (#[], readPre, members)
+  let bind (e : Expr) : M (Array Stmt × Expr) := do
+    match e with
+    | .literal _ => pure (#[], e)
+    | _ => do
+        let name ← fresh
+        pure (#[.letVar name e], .localVar name)
+  let (keyPre, path) ← match path with
+    | .one field key => do
+        let (p, key) ← bind key
+        pure (p, SPath.one field key)
+    | .two field key1 key2 => do
+        let (p1, key1) ← bind key1
+        let (p2, key2) ← bind key2
+        pure (p1 ++ p2, SPath.two field key1 key2)
+    | .rawSlot rawSid slot => do
+        let (p, slot) ← bind slot
+        pure (p, SPath.rawSlot rawSid slot)
+    | other => pure (#[], other)
+  let (_, _, readPre, members) ← lowerFlatStructValue right (some sid) true (some (.path #[] path))
+  return some (pathPre ++ keyPre, readPre, members)
+
+/-- A conditional struct right-hand side that is not a value (`isStructValueSource`) beside a
+target key prelude: solc evaluates its condition and selects a branch reference before the
+target's keys and copies the branch after them; the lowering cannot split the two. -/
+private partial def checkStructConditionalSource (pre : Array Stmt) (right : Json) : M Unit := do
+  let stripped ← stripParens right
+  if !pre.isEmpty && (← mKind stripped) == "Conditional" && !(← isStructValueSource stripped) then
+    failAt right "struct conditional with a reference branch beside a target key prelude is unsupported"
+
 private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (deleting : Bool)
     (target expression : Json) : M (Array Stmt) := do
   if let .rawSlot rawSid baseSlot := path then
@@ -14086,10 +14144,17 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
     let right ← mField expression "rightHandSide"
     if !pre.isEmpty && (statefulCallIn right (← get) || assignmentIn right) then
       failAt target "struct storage write key prelude with stateful RHS is unsupported"
-    let (_, _, rhsPre, memberVals) ← lowerFlatStructValue right (some rawSid) true
+    checkStructConditionalSource pre right
+    -- A storage source: its slot before the target's keys, its members after them.
+    let source? ← if pre.isEmpty then pure none else lowerStructStorageSource? right rawSid
+    let (slotPre, rhsPre, memberVals) ← match source? with
+      | some source => pure source
+      | none => do
+          let (_, _, rhsPre, memberVals) ← lowerFlatStructValue right (some rawSid) true
+          pure (#[], rhsPre, memberVals)
     unless memberVals.size == rawInfo.scalars.size do
       failAt target "struct assignment member count mismatch"
-    let mut out := rhsPre ++ pre
+    let mut out := if source?.isSome then slotPre ++ pre ++ rhsPre else rhsPre ++ pre
     for (mName, _, mExpr) in memberVals do
       let some mInfo := rawInfo.scalars.find? (·.member == mName)
         | failAt target s!"unknown struct layout member {mName}"
@@ -14139,15 +14204,22 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   let right ← mField expression "rightHandSide"
   if !pre.isEmpty && (statefulCallIn right (← get) || assignmentIn right) then
     failAt target "struct storage write key prelude with stateful RHS is unsupported"
-  let (_, _, rhsPre, memberVals) ← lowerFlatStructValue right (some targetSid) true
+  checkStructConditionalSource pre right
+  -- solc evaluates a struct value before the target's keys, so with a key prelude its member
+  -- values are captured first. A reference (storage or memory variable, element or storage
+  -- pointer) is read at the copy, after the keys; a storage source's own slot comes first.
+  let isValue ← isStructValueSource right
+  let valueFirst := !pre.isEmpty && isValue
+  let source? ← if pre.isEmpty || valueFirst then pure none
+    else lowerStructStorageSource? right targetSid
+  let (slotPre, rhsPre, memberVals) ← match source? with
+    | some source => pure source
+    | none => do
+        let (_, _, rhsPre, memberVals) ← lowerFlatStructValue right (some targetSid) true
+        pure (#[], rhsPre, memberVals)
   unless memberVals.size == info.memberNames.size do
     failAt target "struct assignment member count mismatch"
   markField name
-  -- solc evaluates a struct value before the target's keys, so with a key prelude its member
-  -- values are captured first. A reference (storage or memory variable, element or storage
-  -- pointer) is read at the copy, after the keys.
-  let isValue ← isStructValueSource right
-  let valueFirst := !pre.isEmpty && isValue
   let mut valuePre := rhsPre
   let mut values : Array (String × Expr) := #[]
   for (mName, _, mExpr) in memberVals do
@@ -14160,6 +14232,7 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
     else
       values := values.push (mName, mExpr)
   let mut out := if valueFirst then valuePre ++ pre else pre ++ valuePre
+  out := slotPre ++ out
   for (mName, mExpr) in values do
     let stored := if info.booleanMembers.contains mName then Expr.logicalNot (.logicalNot mExpr) else mExpr
     out := out.push (writeMember mName stored)
@@ -14689,6 +14762,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           let right ← mField expression "rightHandSide"
           if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
             failAt target "StorageSlot bytes/string write prelude with stateful RHS is unsupported"
+          checkStorageBytesSourceOrder pre right
           return ← lowerStorageBytesWrite fieldName pre target right slotExpr (some isString)
         let (rawField, count, write) ← match path with
           | .zero rawField =>
@@ -15004,6 +15078,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       let (slotStmts, slotExpr) ← computeSPathBaseSlot path info 0 target
       if deleting then
         return ← lowerStorageBytesDelete (pre ++ slotStmts) "" slotExpr
+      checkStorageBytesSourceOrder pre (← mField expression "rightHandSide")
       let right ← mField expression "rightHandSide"
       if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
         failAt target "mapping bytes/string write key prelude with stateful RHS is unsupported"
@@ -15029,6 +15104,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       let right ← mField expression "rightHandSide"
       if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
         failAt target "storage bytes/string write prelude with stateful RHS is unsupported"
+      checkStorageBytesSourceOrder pre right
       return ← lowerStorageBytesWrite fieldName pre target right slotExpr (some isString)
   | .path pre path =>
       return ← writeWholeStorageStruct pre path deleting target expression

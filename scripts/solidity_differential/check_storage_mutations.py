@@ -280,6 +280,30 @@ MUTANTS.update({
     'import-assign-order-whole-struct-storage-branch': (
         '        if ← isStorageTyped b then return true\n',
         '        if ← isStorageTyped b then return false\n')})
+# `string` values and storage struct sources (StructCopyWriteOrderSequence): a `string` value is
+# built before the target's keys; a storage struct source's slot (and keys) before them and its
+# members after them. Each mutant restores one site's previous order.
+MUTANTS.update({
+    'import-copy-order-string-value': (
+        '  return buf.pre ++ capture ++ pre ++ stmts\n',
+        '  return pre ++ buf.pre ++ capture ++ stmts\n'),
+    'import-copy-order-raw-struct-source': (
+        '    let mut out := if source?.isSome then slotPre ++ pre ++ rhsPre else rhsPre ++ pre\n',
+        '    let mut out := if source?.isSome then slotPre ++ rhsPre ++ pre else rhsPre ++ pre\n'),
+    'import-copy-order-struct-source-slot': (
+        '  out := slotPre ++ out\n',
+        '  out := if source?.isSome then pre ++ slotPre ++ valuePre else out\n'),
+    'import-copy-order-struct-source-key-capture': (
+        '        pure (#[.letVar name e], .localVar name)\n',
+        '        pure (#[], e)\n'),
+    # Located rejections: a reference conditional and a keyed storage `string` source beside
+    # a target key prelude.
+    'import-copy-order-struct-conditional-guard': (
+        '  if !pre.isEmpty && (← mKind stripped) == "Conditional" && !(← isStructValueSource stripped) then\n',
+        '  if false then\n'),
+    'import-copy-order-storage-bytes-source-guard': (
+        '  if !pre.isEmpty && ((← mType right).splitOn " storage").length > 1 &&\n      (← mKind right) != "Identifier" then\n',
+        '  if false then\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1072,6 +1096,8 @@ def run(directory, output, name):
         fixture = "MappingWriteOrderSequence"
     if name.startswith("import-storage-pointer-mapping-helper-"):
         fixture = "StoragePointerMappingHelperSequence"
+    if name.startswith("import-copy-order-") and not name.endswith("-guard"):
+        fixture = "StructCopyWriteOrderSequence"
     if name in ("import-signed-event-type", "observe-event-signed-narrow"):
         fixture = "SignedEventSequence"
     if name.startswith("import-constant-array-"):
@@ -1145,6 +1171,12 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 1, 5, 9, 13, 2, 6, 10, 0, 3, 7, 11, 4, 1])])
+    if fixture == 'StructCopyWriteOrderSequence':
+        # x = 8 * y + c selects case c; y = 0 makes key and right-hand side revert.
+        argv[argv.index('--transactions') + 1] = '32'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 2 ** 256 - 1])])
     if fixture == 'MappingWriteOrderSequence':
         # x = 16 * y + c selects assignment c; y = 0 makes key and right-hand side revert.
         argv[argv.index('--transactions') + 1] = '32'
@@ -1828,6 +1860,33 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-copy-order-struct-conditional-guard':
+        diagnostic = 'struct conditional with a reference branch beside a target key prelude is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ struct Pair { uint256 a; uint256 b; }
+ mapping(uint256 => Pair) private held;
+ bool private flag;
+ function flip(uint256 v) internal returns (uint256) { flag = !flag; return v; }
+ function checked(uint256 x) external returns (uint256) {
+  held[flip(x)] = flag ? held[0] : held[1];
+  return held[x].a;
+ }
+}
+''')
+    elif name == 'import-copy-order-storage-bytes-source-guard':
+        diagnostic = 'keyed storage bytes/string source beside a target key prelude is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ uint256 private stamp;
+ mapping(uint256 => string) private labels;
+ function bump(uint256 v) internal returns (uint256) { stamp += 1; return v; }
+ function checked(uint256 x) external returns (uint256) {
+  labels[bump(x)] = labels[stamp];
+  return bytes(labels[x]).length;
+ }
+}
+''')
     elif name == 'import-string-bytes-mappings-uri-storage-strings-mapping-write-stateful-rhs-guard':
         diagnostic = 'mapping bytes/string write key prelude with stateful RHS is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2186,6 +2245,8 @@ def mutation_campaign(output, selected=None):
                                   'import-abi-encode-string-helper-concat-guard',
                                   'import-abi-encode-string-helper-storage-guard',
                                   'import-assignment-argument-concat-guard',
+                                  'import-copy-order-struct-conditional-guard',
+                                  'import-copy-order-storage-bytes-source-guard',
                                   'import-assignment-argument-hash-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
