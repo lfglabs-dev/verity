@@ -3,6 +3,7 @@
 a lowering by name, or around the trusted shortcut registry, fails."""
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import tempfile
@@ -355,36 +356,41 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.assertFails(f"`{ident}`")
                 path.write_text(text, encoding="utf-8")
 
-    # Validation instruments: skipped by the name check, so never reachable from the importer.
-    def test_model_responders_is_an_instrument_not_imported_by_the_importer(self) -> None:
-        self.assertIn(Path(RESPONDERS), lint.INSTRUMENT_MODULES)
-        errors: list[str] = []
-        lint.check_instruments(REPO, errors)
-        self.assertEqual(errors, [])
-        self.assertNotIn("ModelResponders", (REPO / IMPORT).read_text(encoding="utf-8"))
+    def test_pragma_token_outside_legacy_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "v2"\n')
+        self.assertFails("`v2`")
 
-    def test_importing_an_instrument_fails(self) -> None:
-        path = self.root / IMPORT
-        path.write_text("import Compiler.SolidityImport.ModelResponders\n"
-                        + path.read_text(encoding="utf-8"), encoding="utf-8")
-        self.assertFails(f"imports the validation instrument {RESPONDERS}")
+    # Imported-model static responder: one exact harness id, in that file only.
+    def test_responder_program_id_is_exact(self) -> None:
+        self.append(RESPONDERS, '\ndef zzA (p : String) : Bool := p == "imported-model-static-v2"\n')
+        self.assertFails("`imported`")
 
-    def test_importing_an_instrument_transitively_fails(self) -> None:
-        bridge = self.root / "Compiler/ZzBridge.lean"
-        bridge.write_text("import Compiler.SolidityImport.ModelResponders\n", encoding="utf-8")
-        self.edit(LEGACY, "import Compiler.SolidityImport.ExprHelpers\n",
-                  "import Compiler.SolidityImport.ExprHelpers\nimport Compiler.ZzBridge\n")
-        self.assertFails(f"{LEGACY}: imports the validation instrument {RESPONDERS} "
-                         f"({RESPONDERS} <- Compiler/ZzBridge.lean <- {LEGACY})")
+    def test_responder_program_id_outside_its_file_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (p : String) : Bool := p == "imported-model-static-v1"\n')
+        self.assertFails("`imported`")
 
-    def test_missing_instrument_fails(self) -> None:
-        (self.root / RESPONDERS).unlink()
-        self.assertFails(f"INSTRUMENT_MODULES entry {RESPONDERS} does not exist")
-
-    def test_name_selection_in_a_non_instrument_responder_still_fails(self) -> None:
-        self.append("Compiler/SolidityImport/StaticOracleMocks.lean",
-                    '\ndef zzA (n : String) : Bool := n == "callHook"\n')
+    def test_name_selection_in_the_responder_still_fails(self) -> None:
+        self.append(RESPONDERS, '\ndef zzA (n : String) : Bool := n == "callHook"\n')
         self.assertFails("`callHook`")
+
+    def test_model_responders_is_not_imported_by_the_importer(self) -> None:
+        """ModelResponders is a validation instrument: no module Import.lean reaches through
+        imports (any form: modifiers, several per line, `«»` parts) is it."""
+        target = "Compiler.SolidityImport.ModelResponders"
+        seen, queue = set(), ["Compiler.SolidityImport.Import"]
+        while queue:
+            mod = queue.pop()
+            if mod in seen:
+                continue
+            seen.add(mod)
+            path = REPO / Path(*mod.split(".")).with_suffix(".lean")
+            if not path.is_file():
+                continue
+            text = re.sub(r"/-.*?-/|--[^\n]*", " ", path.read_text(encoding="utf-8"), flags=re.S)
+            for imp in re.finditer(r"\bimport\s+(?:all\s+)?([\w.«»']+)", text):
+                queue.append(imp.group(1).replace("«", "").replace("»", ""))
+        self.assertIn("Compiler.SolidityImport.Legacy", seen)
+        self.assertNotIn(target, seen)
 
     def test_comments_are_ignored(self) -> None:
         self.append(IMPORT, '\n-- optStr callee "name" == some "callHook"\n'
