@@ -4,7 +4,9 @@ on:
   # Nightly 03:17 UTC schedule paused (approved cost pause); restore with:
   #   schedule:
   #     - cron: '17 3 * * *'
-  # Equivalent manual run: workflow_dispatch with clean_build + force_full_run.
+  # Equivalent manual run: workflow_dispatch on main with clean_build +
+  # force_full_run. Unlike the cron it shares main's push concurrency group, so
+  # a push to main cancels it: start it in a quiet window.
   push:
     branches: [main]
     paths:
@@ -76,8 +78,9 @@ env:
   SOLC_VERSION: "0.8.33"
   SOLC_URL: "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.33+commit.64118f21"
   SOLC_SHA256: "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468"
-  # The daily main run is the periodic cold exact-head receipt. Manual clean
-  # dispatches use the same path; ordinary push/PR runs retain warm caches.
+  # The daily main run (schedule currently paused) is the periodic cold
+  # exact-head receipt. Manual clean dispatches use the same path; ordinary
+  # push/PR runs retain warm caches.
   VERIFY_CLEAN_BUILD: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}
   VERIFY_FORCE_FULL_RUN: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_full_run)) && 'true' || 'false' }}
   VERIFY_USE_STICKY_DISKS: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'false' || 'true' }}
