@@ -1036,6 +1036,11 @@ inductive Expr
       dynamic tuple parameter. Event lowering uses this as the start of the
       projected tuple's ABI words and then encodes each static leaf. -/
   | paramDynamicStaticComposite (name : String) (wordOffset : Nat)
+  /-- A fixed-shape ABI literal, valid only as an `emit` argument for a composite parameter:
+      the elements of an array, the members of a tuple or fixed array, or (no items) the
+      empty `bytes`/`string`. Items are word expressions or nested literals; the event's
+      declared type gives the encoding (`Compiler.CompilationModel.abiLitEncode`). -/
+  | abiLiteral (items : List Expr)
   /-- Length of a dynamic member inside a struct-array element.  Given a
       struct-array parameter `name` indexed at `index`, dereferences the
       head pointer at `wordOffset` (relative to the element's head
@@ -1188,7 +1193,7 @@ def children : Expr → List Expr
   | .staticcall gas target inOffset inSize outOffset outSize
   | .delegatecall gas target inOffset inSize outOffset outSize =>
       [gas, target, inOffset, inSize, outOffset, outSize]
-  | .externalCall _ args | .internalCall _ args
+  | .externalCall _ args | .internalCall _ args | .abiLiteral args
   | .intrinsic _ _ _ args | .adtConstruct _ _ args => args
   | .arrayElement _ index | .memoryArrayElement _ index
   | .arrayElementWord _ index _ _ | .arrayElementDynamicWord _ index _

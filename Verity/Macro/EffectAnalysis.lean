@@ -203,7 +203,7 @@ def exprEffectSummary (helperEffects : String → MacroEffectSummary) :
       MacroEffectSummary.join
         (helperEffects fnName)
         (exprListEffectSummary helperEffects args)
-  | .intrinsic _ _ _ args | .adtConstruct _ _ args =>
+  | .intrinsic _ _ _ args | .adtConstruct _ _ args | .abiLiteral args =>
       exprListEffectSummary helperEffects args
   | .arrayElement _ idx | .memoryArrayElement _ idx
   | .arrayElementWord _ idx _ _ | .arrayElementDynamicWord _ idx _

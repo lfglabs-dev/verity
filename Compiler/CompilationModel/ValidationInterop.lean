@@ -120,7 +120,7 @@ def validateInteropExpr (context : String) : Expr → Except String Unit
       validateInteropExpr context cond
       validateInteropExpr context thenVal
       validateInteropExpr context elseVal
-  | Expr.adtConstruct _ _ args =>
+  | Expr.adtConstruct _ _ args | Expr.abiLiteral args =>
       validateInteropExprList context args
   -- Pure leaves and constant scalars: nothing to validate. Listed explicitly
   -- (rather than via `| _ => pure ()`) so the equation-lemma deriver does

@@ -527,14 +527,37 @@ def returnCodeData {α : Type} [Inhabited α] (_pointer : Address) : Contract α
 inductive EventArg where
   | word (value : Contract Uint256)
   | dynamicArray (length : Contract Uint256)
+  /-- An ABI literal argument's encoded data words (`Compiler.CompilationModel.abiLitWords`);
+  only `emitEncoded` records them in full. -/
+  | encoded (words : List Nat)
 
 namespace EventArg
 
 def toWord : EventArg → Contract Uint256
   | .word value => value
   | .dynamicArray length => length
+  | .encoded words => pure (Core.Uint256.ofNat (words.headD 0))
+
+/-- The words an argument contributes to an event: one, or an ABI literal's whole encoding. -/
+def toWords : EventArg → Contract (List Uint256)
+  | .encoded words => pure (words.map Core.Uint256.ofNat)
+  | arg => do pure [← arg.toWord]
 
 end EventArg
+
+/-- A word an ABI literal leaf stands for (`emit E [[⟨target, action, [sel]⟩], …]`). -/
+class AbiLitLeafWord (α : Type) where
+  abiLitLeafWord : α → Nat
+
+instance : AbiLitLeafWord Nat := ⟨id⟩
+instance : AbiLitLeafWord Uint256 := ⟨fun w => w.val⟩
+instance : AbiLitLeafWord Address := ⟨fun a => (addressToWord a).val⟩
+instance : AbiLitLeafWord Bool := ⟨fun b => if b then 1 else 0⟩
+
+@[simp] theorem abiLitLeafWord_nat (n : Nat) : AbiLitLeafWord.abiLitLeafWord n = n := rfl
+@[simp] theorem abiLitLeafWord_uint256 (w : Uint256) : AbiLitLeafWord.abiLitLeafWord w = w.val := rfl
+@[simp] theorem abiLitLeafWord_address (a : Address) :
+    AbiLitLeafWord.abiLitLeafWord a = (addressToWord a).val := rfl
 
 instance : Coe Uint256 EventArg where
   coe value := EventArg.word (pure value)
@@ -557,7 +580,13 @@ def emit (name : String) (args : List EventArg) : Contract Unit := do
   let words ← args.mapM EventArg.toWord
   emitEvent name words
 
-attribute [verity_unfold_simps] emit EventArg.toWord
+/-- `emit` for an event with ABI literal arguments: records every argument's words, a literal's
+whole encoding included, in order. -/
+def emitEncoded (name : String) (args : List EventArg) : Contract Unit := do
+  let words ← args.mapM EventArg.toWords
+  emitEvent name words.flatten
+
+attribute [verity_unfold_simps] emit EventArg.toWord emitEncoded EventArg.toWords
 def setPackedStorage {α : Type} (rootSlot : StorageSlot α) (wordOffset : Nat)
     (word : Uint256) : Contract Unit := fun state =>
   let targetSlot := (rootSlot.slot + wordOffset) % Compiler.Constants.evmModulus

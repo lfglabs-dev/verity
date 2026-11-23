@@ -3,6 +3,7 @@
 -/
 import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.AbiTypeLayout
+import Compiler.CompilationModel.AbiLiteral
 import Compiler.CompilationModel.EventAbiHelpers
 import Compiler.CompilationModel.IssueRefs
 import Compiler.CompilationModel.ScopeValidation
@@ -99,6 +100,14 @@ def validateEventArgShapesNode (fnName : String) (params : List Param)
       if eventDef.params.length != args.length then
         throw s!"Compilation error: event '{eventName}' expects {eventDef.params.length} args, got {args.length}"
       for (eventParam, arg) in eventDef.params.zip args do
+        if let Expr.abiLiteral _ := arg then
+          if eventParam.kind != EventParamKind.unindexed then
+            throw s!"Compilation error: function '{fnName}' event '{eventName}' indexed param '{eventParam.name}' cannot take an ABI literal ({issue586Ref})."
+          match abiLitEncode eventParam.ty (exprAbiLit arg) with
+          | .ok _ => pure ()
+          | .error msg =>
+              throw s!"Compilation error: function '{fnName}' event '{eventName}' param '{eventParam.name}': {msg} ({issue586Ref})."
+          continue
         match eventParam.ty with
         | .uintN bits =>
             match arg with

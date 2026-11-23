@@ -388,6 +388,13 @@ private partial def validateDoElemExprTypes
                   s!"event '{eventNameString}' expects {eventDecl.params.size} args, got {args.size}"
               let mut branchLocals := locals
               for (arg, eventParam) in args.zip eventDecl.params do
+                if (emitAbiLiteralItems? arg).isSome then
+                  if eventParam.isIndexed then
+                    throwErrorAt arg s!"event '{eventNameString}' indexed parameter '{eventParam.name}' cannot take an ABI literal"
+                  validateEmitAbiLiteral
+                    (inferPureExprType fields constDecls immutableDecls externalDecls params branchLocals)
+                    eventParam.ty arg
+                  continue
                 match ← localInternalArrayReturnBind? fields constDecls immutableDecls externalDecls functions params branchLocals arg with
                 | some (_, _, elemTy) =>
                     let tempName := freshSyntheticLocalName "emit_array" params branchLocals #[]
@@ -539,7 +546,11 @@ private partial def validateEffectStmtExprTypes
       match stripParens values with
       | `(term| [ $[$xs],* ]) =>
           for x in xs do
-            let _ ← inferEmitArgExprType fields constDecls immutableDecls externalDecls params locals x
+            if (emitAbiLiteralItems? x).isSome then
+              validateEmitAbiLiteralLeaves
+                (inferPureExprType fields constDecls immutableDecls externalDecls params locals) x
+            else
+              let _ ← inferEmitArgExprType fields constDecls immutableDecls externalDecls params locals x
       | _ => throwErrorAt values "expected list literal [..]"
       pure ()
   | `(term| ecmDo $_module:term $args:term) => do
@@ -2575,8 +2586,24 @@ private partial def rewriteForEachExecutableDoElem
       let body ← rewriteForEachExecutableDoSeq fields externalDecls params locals body
       pure (#[← `(doElem| do $body)], locals)
   | `(doElem| emit $eventName:term [ $[$args:term],* ]) =>
-      let args ← args.mapM (annotateExecutableLinkedCall? externalDecls)
-      pure (#[← `(doElem| emit $eventName [ $[$args],* ])], locals)
+      if args.any (fun arg => (emitAbiLiteralItems? arg).isSome) then
+        -- ABI literal arguments: record their encoding (`Contracts.emitEncoded`), typed by the
+        -- event's parameter list the macro defines in the contract namespace.
+        let evName ← expectStringOrIdent eventName
+        let typesIdent := mkIdent (Name.mkSimple (eventParamTypesName evName))
+        let mut encodedArgs : Array Term := #[]
+        for (arg, idx) in args.zipIdx do
+          if (emitAbiLiteralItems? arg).isSome then
+            let lit ← executableEmitAbiLiteral arg
+            encodedArgs := encodedArgs.push (← `(_root_.Contracts.EventArg.encoded
+              (Compiler.CompilationModel.abiLitWords
+                (List.getD $typesIdent $(Lean.quote idx) Compiler.CompilationModel.ParamType.uint256) $lit)))
+          else
+            encodedArgs := encodedArgs.push (← annotateExecutableLinkedCall? externalDecls arg)
+        pure (#[← `(doElem| _root_.Contracts.emitEncoded $eventName [ $[$encodedArgs],* ])], locals)
+      else
+        let args ← args.mapM (annotateExecutableLinkedCall? externalDecls)
+        pure (#[← `(doElem| emit $eventName [ $[$args],* ])], locals)
   | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
       let args ← args.getElems.mapM (annotateExecutableLinkedCall? externalDecls)
       pure (#[← `(doElem| requireError $cond $errorName:ident($args,*))], locals)
@@ -6946,6 +6973,17 @@ def mkStructDefCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
   `(command| structure $structId where
       $[$fieldIds:ident : $fieldTys:term]*
       deriving Repr, Inhabited)
+
+/-- Whether an event has a parameter an ABI literal could encode (a composite type). -/
+def eventHasCompositeParam (ev : EventDecl) : Bool :=
+  ev.params.any fun p => !emitAbiLiteralLeafType p.ty
+
+/-- `def __eventParamTypes_<Event> : List ParamType`, the event's ABI parameter types, which an
+executable `emit` with ABI literal arguments encodes against (`Contracts.emitEncoded`). -/
+def mkEventParamTypesCommandPublic (ev : EventDecl) : CommandElabM Cmd := do
+  let tys ← ev.params.mapM fun p => modelParamTypeTerm p.ty
+  let ident := mkIdent (Name.mkSimple (eventParamTypesName ev.name))
+  `(command| def $ident : List Compiler.CompilationModel.ParamType := [ $[$tys],* ])
 
 def mkStructEventArgInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
   let structId := decl.ident
