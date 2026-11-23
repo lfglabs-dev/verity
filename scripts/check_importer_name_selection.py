@@ -79,7 +79,8 @@ SOLC_AST_NODE_TYPES = {
     "FunctionCall", "FunctionCallOptions", "FunctionDefinition", "FunctionTypeName", "Identifier",
     "IfStatement", "IndexAccess", "IndexRangeAccess", "InlineAssembly", "Literal", "Mapping",
     "MemberAccess", "ModifierDefinition", "ModifierInvocation", "NewExpression",
-    "PlaceholderStatement", "Return", "RevertStatement", "StructDefinition", "TryStatement",
+    "OverrideSpecifier", "ParameterList", "PlaceholderStatement", "PragmaDirective",
+    "StructuredDocumentation", "Return", "RevertStatement", "StructDefinition", "TryStatement",
     "TupleExpression", "UnaryOperation", "UncheckedBlock", "UserDefinedTypeName",
     "UserDefinedValueTypeDefinition", "VariableDeclaration", "VariableDeclarationStatement",
     "WhileStatement", "YulAssignment", "YulBlock", "YulExpressionStatement", "YulFunctionCall",
@@ -135,7 +136,7 @@ SOLC_JSON_KEYS = {
 # Names the importer itself generates for bindings, temporaries and model fields.
 IMPORTER_GENERATED = {
     "__solidity_struct_array_", "_verity_memret_", "_verity_raw_storage",
-    "_verity_slice_tmp", "_verity_struct_", "VerityUncheckedEnd", "_calldata_ptr",
+    "_verity_slice_tmp", "_verity_struct_", "VerityUncheckedEnd", "VerityScopeEnd", "_calldata_ptr",
     "_memory_ptr", "_storage", "_storage_ptr", "_pure", "_view", "none", "ok",
     # Binder names of generated Verity code that a source name must not take (`EmitVerity`).
     "oracle", "world",
@@ -179,7 +180,11 @@ SOLC_JSON_FIELDS |= {
     "returnParameters", "rightExpression", "rightHandSide", "scope", "severity",
     "startExpression", "stateVariable", "subdenomination", "trueExpression", "underlyingType",
     "valueSize", "valueType", "variables",
+    # `PragmaDirective.literals`, the pragma's tokens.
+    "literals",
 }
+# Tokens of the `pragma experimental ABIEncoderV2;` / `pragma abicoder v2;` directives.
+SOLIDITY_PRAGMA_WORDS = {"ABIEncoderV2", "abicoder", "experimental", "v2"}
 # EVM hard-fork names (solc `evmVersion` values).
 EVM_VERSIONS = {
     "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul", "london", "osaka",
@@ -215,7 +220,7 @@ ALLOWED_IDENTIFIERS = (
     SOLC_AST_NODE_TYPES | SOLC_AST_FIELD_VALUES | SOLC_TYPE_WORDS | SOLIDITY_BUILTINS
     | YUL_BUILTINS | SOLC_JSON_KEYS | IMPORTER_GENERATED | BUILD_TOOL_NAMES | INSTRUMENT_NAMES
     | DRIVER_COMMANDS | SOLIDITY_LITERAL_SYNTAX | SOLC_JSON_FIELDS | EVM_VERSIONS | YUL_KEYWORDS | IMPORTER_BINDINGS
-    | IMPORTER_JSON_KEYS
+    | IMPORTER_JSON_KEYS | SOLIDITY_PRAGMA_WORDS
 )
 
 # Lean name literals of the declarations `solidity_import` generates (`x.model`, `x.report`, ...).
@@ -246,6 +251,12 @@ FILE_EXCEPTIONS = {
     **{(_EMIT, lit): "names in the hand-written example model `canonicalVaultImportModel`"
        for lit in ("ImportedVaultV2", "totalSupply", "feeAccrued", "paused", "balances",
                    "accrueWadFee", "assets", "feeRateWad", "fee")},
+    ("Compiler/SolidityImport/Import.lean", "0.7.6+commit.7338295f"): (
+        "solc 0.7.6's long version string, which selects the legacy (wrapping, unchecked) "
+        "lowering profile; a compiler release, not a name in the imported code"),
+    ("Compiler/SolidityImport/ModelResponders.lean", "imported-model-static-v1"): (
+        "the program id of the importer's own byte-call responder configuration, written by the "
+        "differential harness; not a name in the imported code"),
 }
 
 # Yul variable names of the registered range-read block (`extsloadRangeYulFingerprint`), read
