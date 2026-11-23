@@ -18,7 +18,7 @@ MUTANTS = {
     'request-domain': ('let observed ← ByteExternalCall.executeChecked adversary preparation.request prepared.world',
                        'let observed := ByteExternalCall.execute adversary preparation.request prepared.world',
                        'unmodeled mock target fabricated an EVM response'),
-    'selector-shift': ('selector * 2^224', 'selector * 2^216', 'unaligned ABI scratch encoding differs'),
+    'selector-shift': ('let selectorWorld := initialized.world.writePhysicalMemoryValue\n    pointer (Verity.Core.Uint256.ofNat (selector * 2^224))\n  let selectorState := { initialized with world := selectorWorld }', 'let selectorWorld := initialized.world.writePhysicalMemoryValue\n    pointer (Verity.Core.Uint256.ofNat (selector * 2^216))\n  let selectorState := { initialized with world := selectorWorld }', 'unaligned ABI scratch encoding differs'),
     'argument-offset': ('pointer + 4 + index * 32', 'pointer + 5 + index * 32', 'unaligned ABI scratch encoding differs'),
     'short-success': ('observed.returndata.length < 32', 'observed.returndata.length < 1', 'short success must revert empty'),
     'truncate-buffer': ('rawReturndata := some observed.returndata', 'rawReturndata := some (observed.returndata.take 32)', 'oversized response buffer truncated'),

@@ -814,9 +814,14 @@ jobs:
         with:
           name: lean-workspace-build
 
+      # The downloaded tarball is an untracked file in the checkout root. The
+      # creation, opcode and account-storage campaigns require
+      # `git status --porcelain` to be empty and fail closed otherwise.
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
+        run: |
+          tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
+          rm lean-workspace-build.tar.zst
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
@@ -841,6 +846,8 @@ jobs:
       - name: Check Solidity import mutation regressions
         run: |
           rm -rf .lake/import-mutations
+          # Any path listed here makes the clean-checkout campaigns fail closed.
+          git status --porcelain
           python3 scripts/solidity_import_mutations.py \
             --shard "${{ matrix.shard }}/${IMPORT_MUTATION_SHARDS}" \
             --jobs "${IMPORT_MUTATION_JOBS}"
