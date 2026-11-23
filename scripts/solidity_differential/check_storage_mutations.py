@@ -341,6 +341,38 @@ MUTANTS.update({
     'import-copy-order-reverting-source-guard': (
         '  return !(← orderInert right)\n',
         '  return false\n')})
+# Narrow `T[] calldata` arrays copied to memory (CalldataNarrowArrayCopy*Sequence): legacy codegen
+# cleans each element of the copy, via-IR validates it. `-legacy` mutants run on the solc 0.8.10
+# (legacy) fixture, `-viair` ones on the 0.8.34 (via-IR) fixture; `clean-*` drop one cleanup.
+MUTANTS.update({
+    'import-narrow-copy-helper-legacy': (
+        '            (legacyClean := !(← get).viaIR)\n',
+        '            (legacyClean := false)\n'),
+    'import-narrow-copy-helper-viair': (
+        '            (legacyClean := !(← get).viaIR)\n',
+        '            (legacyClean := true)\n'),
+    'import-narrow-copy-return-legacy': (
+        '          let legacyCopy := memoryCopy && !arr.inMemory && !(← get).viaIR\n',
+        '          let legacyCopy := false\n'),
+    'import-narrow-copy-return-viair': (
+        '          let legacyCopy := memoryCopy && !arr.inMemory && !(← get).viaIR\n',
+        '          let legacyCopy := memoryCopy && !arr.inMemory\n'),
+    'import-narrow-copy-clean-bool': (
+        '    | .bool => .logicalNot (.logicalNot value)\n',
+        '    | .bool => value\n'),
+    'import-narrow-copy-clean-mask': (
+        '        if bound < 2^256 then .bitAnd value (.literal (bound - 1)) else value\n',
+        '        if bound < 2^256 then value else value\n'),
+    'import-narrow-copy-clean-pad': (
+        '  if rightPadMask != 0 then .bitAnd value (.literal (2^256 - 1 - rightPadMask))\n',
+        '  if rightPadMask != 0 then value\n'),
+    # Legacy ABI coder v1 copies the words raw: located rejections at both sites.
+    'import-narrow-copy-v1-helper-guard': (
+        '          if !(← get).viaIR && (← get).abiCoderV1 &&\n              AbiLowering.legacyCleanNarrows descriptor.abiKind padMask then\n',
+        '          if false then\n'),
+    'import-narrow-copy-v1-return-guard': (
+        '        if memoryCopy && !(← get).viaIR && (← get).abiCoderV1 then\n',
+        '        if false then\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1116,6 +1148,9 @@ def run(directory, output, name):
         fixture = "PackedSignedIntSequence"
     if name.startswith("import-bytes-named-slice-"):
         fixture = "BytesNamedReturnSliceStructSequence"
+    if name.startswith("import-narrow-copy-"):
+        fixture = ("CalldataNarrowArrayCopySequence" if name.endswith("-viair")
+                   else "CalldataNarrowArrayCopySolc0810Sequence")
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         fixture = ROOT_PARAM_MUTANT_FIXTURES[name]
     if name.startswith("import-immutable-"):
@@ -1293,6 +1328,13 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '40'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--senders', '3', '--change-prefix', '0', '1', '2', '15', '16'])
+    if fixture.startswith('CalldataNarrowArrayCopy'):
+        # check_stateful's NARROW_COPY_CALLS prefix (19 calls and `read()`) and a few `change` calls.
+        argv[argv.index('--transactions') + 1] = '32'
+        argv[argv.index('--seed') + 1] = '2490'
+        if fixture == 'CalldataNarrowArrayCopySolc0810Sequence':
+            argv.extend(['--solc-version', '0.8.10'])
+        argv.extend(['--change-prefix', '0', '1', '999', str((1 << 256) - 1)])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'NarrowForCounterSequence':
@@ -1448,6 +1490,7 @@ def helper_order_control(directory, name, mutated):
     target.mkdir(exist_ok=True)
     using_clause = '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }'
     require_located = True
+    signature = 'checked(uint256)'
     if name == 'import-yul-result-id-guard':
         diagnostic = 'Yul assigns result, not the return declaration result'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1922,6 +1965,20 @@ contract C {
  }
 }
 ''')
+    elif name in ('import-narrow-copy-v1-helper-guard', 'import-narrow-copy-v1-return-guard'):
+        # Legacy ABI coder v1 copies `[1, 256]` raw (`return xs` gives `[1, 256]`), so the
+        # v2 cleanup the model applies would be wrong.
+        diagnostic = 'narrow calldata array copied to memory under ABI coder v1 is outside this slice'
+        using_clause = '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }'
+        signature = 'checked(«uint8[]»)'
+        body = ('return h(xs);' if name == 'import-narrow-copy-v1-helper-guard' else 'return xs;')
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+pragma abicoder v1;
+contract C {
+ function h(uint8[] memory a) internal pure returns (uint8[] memory) { return a; }
+ function checked(uint8[] calldata xs) external pure returns (uint8[] memory) { ''' + body + ''' }
+}
+''')
     elif name == 'import-copy-order-struct-conditional-guard':
         diagnostic = 'struct conditional with a reference branch beside a target key prelude is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2223,7 +2280,7 @@ contract C {
 solidity_import tested from "{target}" entry "Fixture.sol"
   using {using_clause}
   contract C
-  function checked(uint256)
+  function {signature}
 ''')
     artifact = target / ('mutated.olean' if mutated else 'baseline.olean')
     result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],
@@ -2244,6 +2301,7 @@ def mutation_source(directory, name):
     return directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
                                   else 'Compiler/SolidityImport/Quote.lean' if name == 'import-modulo-quote'
                                   else 'Compiler/SolidityImport/AbiLowering.lean' if name == 'import-empty-array-bytes-calldata-tail-bound'
+                                  else 'Compiler/SolidityImport/AbiLowering.lean' if name.startswith('import-narrow-copy-clean-')
                                   else 'Compiler/SolidityImport/AbiRootLowering.lean' if name.startswith('import-root-param-lowering-')
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                                   else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
@@ -2333,6 +2391,8 @@ def mutation_campaign(output, selected=None):
                                   'import-copy-order-struct-conditional-guard',
                                   'import-copy-order-storage-bytes-source-guard',
                                   'import-copy-order-reverting-source-guard',
+                                  'import-narrow-copy-v1-helper-guard',
+                                  'import-narrow-copy-v1-return-guard',
                                   'import-assignment-argument-hash-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)

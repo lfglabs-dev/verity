@@ -7442,7 +7442,8 @@ temporary at its own position and every effect runs once, in source order. A str
 argument is read by solc only while encoding, after every later argument has run, so it
 stays rejected beside such a helper, as do the dynamic and other encoding forms. -/
 private partial def lowerAbiEncodeArgs (args : Array Json)
-    (params? : Option (Array Json) := none) (orderedEffects : Bool := false) : M EncodedBytes := do
+    (params? : Option (Array Json) := none) (orderedEffects : Bool := false)
+    (memoryCopy : Bool := false) : M EncodedBytes := do
   if args.size == 1 && params?.isNone then
     if (← mType args[0]!).startsWith "struct " && !(← mType args[0]!).contains "[" then
       let isMemRoot ← if (← mKind args[0]!) != "FunctionCall" && (← mKind args[0]!) != "Conditional" && (← mKind args[0]!) != "TupleExpression" then
@@ -7554,6 +7555,12 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           failAt arg s!"unsupported ABI encoding argument type {ty}"
         let .scalarArray arrId arrPre ← lowerRef arg
           | failAt arg s!"unsupported ABI encoding argument type {ty}"
+        -- A root result's copy of a calldata array: legacy ABI coder v1 copies the words raw.
+        if memoryCopy && !(← get).viaIR && (← get).abiCoderV1 then
+          if let some arr := (← get).scalarArrays.find? arrId then
+            if !arr.inMemory && AbiLowering.legacyCleanNarrows arr.abiKind
+                (if arr.elementType == "bytes4" then 2 ^ 224 - 1 else 0) then
+              failAt arg "narrow calldata array copied to memory under ABI coder v1 is outside this slice"
         pre := pre ++ arrPre
         let headIdx := headWords.size
         headWords := headWords.push none
@@ -7627,9 +7634,14 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
               Expr.calldataload (.add (.localVar arr.dataBinding) (.mul (.localVar elemIdx) (.literal 32)))
             else
               Expr.mload (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul (.localVar elemIdx) (.literal 32)))
-          let mut loopBody : List Stmt := [.letVar elemVal srcVal]
+          let rightPadMask := if arr.elementType == "bytes4" then 2 ^ 224 - 1 else 0
+          -- A root return converts a calldata array to its `T[] memory` result first:
+          -- legacy codegen cleans each element of that copy, via-IR validates it.
+          let legacyCopy := memoryCopy && !arr.inMemory && !(← get).viaIR
+          let mut loopBody : List Stmt := [.letVar elemVal
+            (if legacyCopy then AbiLowering.legacyCleanScalar arr.abiKind rightPadMask srcVal else srcVal)]
           let bound := SolidityAbi.scalarBound arr.abiKind
-          if !arr.inMemory then
+          if !arr.inMemory && !legacyCopy then
             if arr.elementType == "bytes4" then
               loopBody := loopBody ++ [AbiLowering.guard (.eq (.bitAnd (.localVar elemVal) (.literal (2 ^ 224 - 1))) (.literal 0))]
             else if bound < 2^256 then
@@ -8999,10 +9011,17 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             if (← get).sourceNames.contains reserved then
               failAt p s!"generated ABI helper name {reserved} collides with a source identifier"
             modify fun e => { e with bound := reserved :: e.bound }
+          -- Legacy codegen cleans each element of the copy; via-IR validates it. Legacy ABI
+          -- coder v1 copies the words raw, which the model does not represent.
+          let padMask := if descriptor.elementType == "bytes4" then 2 ^ 224 - 1 else 0
+          if !(← get).viaIR && (← get).abiCoderV1 &&
+              AbiLowering.legacyCleanNarrows descriptor.abiKind padMask then
+            failAt p "narrow calldata array copied to memory under ABI coder v1 is outside this slice"
           let convStmts := AbiLowering.materializeCalldataScalarArray
             (.localVar descriptor.dataBinding) (.localVar descriptor.lengthBinding)
             arrayPtr nextFree namePrefix descriptor.abiKind
             (if descriptor.elementType == "bytes4" then 2 ^ 224 - 1 else 0)
+            (legacyClean := !(← get).viaIR)
           let memDesc : ScalarArrayParam :=
             { descriptor with
               param := pname
@@ -18283,7 +18302,7 @@ private def lowerDynamicTupleReturn (components retDecls : Array Json) (at_ : Js
     for k in [i + 1:components.size] do
       if memoryWriteOrderHazard components[i]! components[k]! (← get) then
         failAt components[k]! "memory-writing helper beside a memory read in a root return tuple"
-  let payload ← lowerAbiEncodeArgs components (some retDecls)
+  let payload ← lowerAbiEncodeArgs components (some retDecls) (memoryCopy := true)
   let pointer ← atom { pre := payload.pre, expr := payload.pointer }
   let size ← atom { pre := #[], expr := payload.size }
   -- The transport halts the frame; the unreachable empty revert closes the path
@@ -19800,6 +19819,8 @@ private def importSlice
   for (logical, _) in sources do
     let unit ← field sourcesOut logical
     asts := asts.push (logical, ← field unit "ast")
+  env := { env with abiCoderV1 := asts.any fun (_, ast) =>
+    abiCoderV1Pragma ast || (legacy && !legacyAbiV2 ast) }
   -- Named arguments in declaration order become positional before any lowering sees them.
   let declared := asts.foldl (fun acc (_, ast) => declaredArgumentNames acc ast) {}
   for (logical, ast) in asts do

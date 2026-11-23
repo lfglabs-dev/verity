@@ -50,6 +50,11 @@ ROOT_PARAM_SIGNATURES = {
     'root-array-return-calldata-named-rejected': 'checked(«uint256[]»)',
     'root-array-return-calldata-tuple-rejected': 'checked(«uint256[]»)',
     'root-array-return-tail-assembly-rejected': 'checked(«bytes32[]»)',
+    'narrow-copy-abicoder-v1-return-rejected': 'checked(«uint8[]»)',
+    'narrow-copy-abicoder-v1-helper-rejected': 'checked(«uint8[]»)',
+    'narrow-copy-abicoder-v1-wide-accepted': 'checked(«uint256[]»)',
+    'narrow-copy-abicoder-v1-via-ir-accepted': 'checked(«uint8[]»)',
+    'narrow-copy-legacy-accepted': 'checked(«uint8[]»)',
 }
 
 
@@ -1613,6 +1618,35 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] member write key prelude is unsupported'),
+        # A narrow `T[] calldata` array copied to memory: legacy ABI coder v2 cleans each element
+        # (modeled), legacy ABI coder v1 copies the words raw (`return xs` of `[1, 256]` gives
+        # `[1, 256]`), so v1 legacy imports reject both copy sites; full-word elements and via-IR
+        # (which validates whatever the pragma) import.
+        ('narrow-copy-abicoder-v1-return-rejected',
+         "pragma solidity 0.8.34;\npragma abicoder v1;\ncontract C {\n  function checked(uint8[] calldata xs) external pure returns (uint8[] memory) {\n    return xs;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] narrow calldata array copied to memory under ABI coder v1 is outside this slice'),
+        ('narrow-copy-abicoder-v1-helper-rejected',
+         "pragma solidity 0.8.34;\npragma abicoder v1;\ncontract C {\n  function h(uint8[] memory a) internal pure returns (uint8[] memory) { return a; }\n  function checked(uint8[] calldata xs) external pure returns (uint8[] memory) {\n    return h(xs);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] narrow calldata array copied to memory under ABI coder v1 is outside this slice'),
+        ('narrow-copy-abicoder-v1-wide-accepted',
+         "pragma solidity 0.8.34;\npragma abicoder v1;\ncontract C {\n  function h(uint256[] memory a) internal pure returns (uint256) { return a.length; }\n  function checked(uint256[] calldata xs) external pure returns (uint256[] memory) {\n    h(xs);\n    return xs;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('narrow-copy-abicoder-v1-via-ir-accepted',
+         "pragma solidity 0.8.34;\npragma abicoder v1;\ncontract C {\n  function h(uint8[] memory a) internal pure returns (uint256) { return a.length; }\n  function checked(uint8[] calldata xs) external pure returns (uint8[] memory) {\n    h(xs);\n    return xs;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('narrow-copy-legacy-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  function h(uint8[] memory a) internal pure returns (uint256) { return a.length; }\n  function checked(uint8[] calldata xs) external pure returns (uint8[] memory) {\n    h(xs);\n    return xs;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
         # Root scalar-array results in one-state-variable contracts (#2830): a `T[] calldata`
         # result and tail assembly other than the exact batch slot read are located rejections.
         ('root-array-return-calldata-rejected',

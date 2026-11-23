@@ -105,15 +105,40 @@ def materializeStaticStructArray (data length arrayPointer nextFree : Expr)
           (.mul (.localVar index) (.literal 32))) (.localVar element)
       ] ++ fieldStores) ]
 
+/-- Legacy codegen's cleanup of a calldata element word that it copies to memory
+(solc's `cleanup_t_*`): mask to the low `N` bits for `uintN` and `address`, keep the
+high bytes of a right-padded `bytesN` (`rightPadMask` is its nonzero low-byte mask),
+`iszero(iszero(x))` for `bool`; a full-word element is unchanged. -/
+def legacyCleanScalar (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat) (value : Expr) : Expr :=
+  if rightPadMask != 0 then .bitAnd value (.literal (2^256 - 1 - rightPadMask))
+  else match kind with
+    | .bool => .logicalNot (.logicalNot value)
+    | .bytes32 => value
+    | kind =>
+        let bound := SolidityAbi.scalarBound kind
+        if bound < 2^256 then .bitAnd value (.literal (bound - 1)) else value
+
+/-- `legacyCleanScalar` changes some word: the element is narrower than a full word. -/
+def legacyCleanNarrows (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat) : Bool :=
+  rightPadMask != 0 || match kind with
+    | .bytes32 => false
+    | kind => SolidityAbi.scalarBound kind < 2^256
+
 /-- Fill a validated scalar-array allocation. Unlike an array of structs,
-scalar elements occupy the array payload directly, without element pointers. -/
+scalar elements occupy the array payload directly, without element pointers.
+With `legacyClean`, each element is cleaned (`legacyCleanScalar`) instead of
+validated: the legacy pipeline's calldata-to-memory array copy truncates an
+out-of-range element where via-IR's (and every ABI decoder) reverts. -/
 def materializeStaticScalarArray (data length arrayPointer nextFree : Expr)
-    (namePrefix : String) (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat := 0) : List Stmt :=
+    (namePrefix : String) (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat := 0)
+    (legacyClean : Bool := false) : List Stmt :=
   let index := namePrefix ++ "_index"
   let value := Expr.calldataload (.add data (.mul (.localVar index) (.literal 32)))
+  let value := if legacyClean then legacyCleanScalar kind rightPadMask value else value
   let bound := SolidityAbi.scalarBound kind
   let checks :=
-    if rightPadMask != 0 then
+    if legacyClean then []
+    else if rightPadMask != 0 then
       [guard (.eq (.bitAnd value (.literal rightPadMask)) (.literal 0))]
     else if bound = 2^256 then []
     else [guard (.lt value (.literal bound))]
@@ -196,11 +221,11 @@ def bytesMemoryHead
       [.mstore (.add (.add freePointer (.literal 32)) (.mul (.localVar copyIndexBinding) (.literal 32)))
         (.calldataload (.add (.localVar dataBinding) (.mul (.localVar copyIndexBinding) (.literal 32))))] ]
 
-/-- Allocate and materialize a validated calldata scalar array into memory when
-passed to a `T[] memory` helper parameter. -/
+/-- Allocate and materialize a calldata scalar array into memory when passed to a
+`T[] memory` helper parameter: validated (via-IR) or cleaned (`legacyClean`). -/
 def materializeCalldataScalarArray (data length : Expr)
     (arrayPointerBinding nextFreeBinding namePrefix : String)
-    (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat := 0) : List Stmt :=
+    (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat := 0) (legacyClean : Bool := false) : List Stmt :=
   let allocationGuard := fun condition =>
     Stmt.ite condition [] [.panicCode (.literal 0x41)]
   [ .letVar arrayPointerBinding (.mload (.literal 64))
@@ -209,7 +234,7 @@ def materializeCalldataScalarArray (data length : Expr)
       (.add (.localVar arrayPointerBinding) (.mul (.literal 32) (.add length (.literal 1))))
   , allocationGuard (.le (.localVar nextFreeBinding) (.literal (2^64-1)))
   , allocationGuard (.ge (.localVar nextFreeBinding) (.localVar arrayPointerBinding)) ] ++
-  materializeStaticScalarArray data length (.localVar arrayPointerBinding) (.localVar nextFreeBinding) namePrefix kind rightPadMask
+  materializeStaticScalarArray data length (.localVar arrayPointerBinding) (.localVar nextFreeBinding) namePrefix kind rightPadMask legacyClean
 
 /-- Eager memory materialization of the `bytes` whose offset (relative to
 `tuplePointer`) is the word at `slot`, matching `solc`'s

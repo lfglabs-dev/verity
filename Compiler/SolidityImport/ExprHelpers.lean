@@ -103,6 +103,10 @@ structure UnsupportedSink where
 structure Env where
   /-- Selected solc pipeline: eager operand order and raw narrow stack words can differ. -/
   viaIR : Bool := true
+  /-- Some collected source unit is decoded with ABI coder v1 (`pragma abicoder v1`, or solc
+  0.7.6 without `pragma abicoder v2`). Legacy ABI coder v1 copies a calldata array to memory
+  raw, without the v2 copy's cleanup. -/
+  abiCoderV1 : Bool := false
   sourceNames : List String
   nodeFile : RBMap Nat String compare
   files : RBMap String ByteArray compare

@@ -516,6 +516,20 @@ ROOT_PARAM_CALLS = (_struct_string_member_calls, _struct_array_param_calls, _byt
 ROOT_PARAM_SIGNATURES = {sig: gen for gen in ROOT_PARAM_CALLS for sig, _ in gen()}
 
 
+# `T[] calldata` arrays with narrow elements copied to memory (CalldataNarrowArrayCopy*Sequence):
+# clean, in-range edge and out-of-range elements. Legacy codegen cleans the copy
+# (uint8 256 -> 0, bool 2 -> 1, address / uint64 / bytes4 masked); via-IR reverts.
+NARROW_COPY_CALLS = {
+    'keepNarrow(uint8[])': [[32, 0], [32, 3, 7, 0, 255], [32, 3, 1, 256, 3], [32, 2, 1, (1 << 256) - 1]],
+    'keepWide(uint64[])': [[32, 2, 5, (1 << 64) - 1], [32, 3, 1, 1 << 64, 9], [32, 1, (1 << 64) + 7]],
+    'keepAddrs(address[])': [[32, 2, 0x1234, (1 << 160) - 1], [32, 2, 0x1234, (1 << 160) + 0x55]],
+    'keepFlags(bool[])': [[32, 3, 1, 0, 1], [32, 3, 1, 2, 0], [32, 1, (1 << 256) - 1]],
+    'keepSelectors(bytes4[])': [[32, 2, 0x11223344 << 224, 0xdeadbeef << 224],
+                                [32, 2, 0x11223344 << 224, (0xdeadbeef << 224) | 1],
+                                [32, 1, (1 << 224) - 1]],
+    'weighOnly(uint8[])': [[32, 2, 3, 4], [32, 2, 3, 260]],
+    'passFlags(bool[])': [[32, 2, 0, 1], [32, 2, 1, 3]],
+}
 FIXED_ARRAY_ARGUMENTS = [
     [1, 2, 3, 4, 5, 6],
     [10, 20, 30, 40, 3, 9],
@@ -754,6 +768,7 @@ def main():
         'readNamedPart(address)',
         'labelled()',
         'echoNarrow(uint8[])',
+        *NARROW_COPY_CALLS,
         'isGuard()',
         'payeeCredit()',
         'notDelegated()',
@@ -993,6 +1008,11 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(echo_prefix[:remaining_budget])
+    if 'keepNarrow(uint8[])' in source['methodIdentifiers']:
+        narrow_copy_prefix = [(sig, words) for sig, cases in NARROW_COPY_CALLS.items() for words in cases]
+        narrow_copy_prefix.append(('read()', []))
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(narrow_copy_prefix[:remaining_budget])
     if 'inspectBytesMemory(bytes,bytes,string,uint256)' in source['methodIdentifiers']:
         bytes_mem_prefix = [
             ('inspectBytesMemory(bytes,bytes,string,uint256)', [128, 160, 192, 7, 0, 0, 0]),
@@ -1602,6 +1622,8 @@ def main():
             call_args = [rng.choice((0, 1, 2, 255, (1 << 256) - 1))]
         elif name in ('run(uint256)', 'runShadow(uint256)', 'runBranch(uint256)'):
             call_args = [rng.choice((0, 1, 3, 4, 255, (1 << 256) - 2, (1 << 256) - 1))]
+        elif name in NARROW_COPY_CALLS:
+            call_args = rng.choice(NARROW_COPY_CALLS[name])
         elif name == 'echoNarrow(uint8[])':
             call_args = rng.choice([
                 [32, 0],

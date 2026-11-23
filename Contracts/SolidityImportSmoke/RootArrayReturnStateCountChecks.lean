@@ -18,9 +18,9 @@ both sides with different diagnostics; they now share one located rejection at t
 parameter (`check_storage_rejections.py`, `root-array-return-*-rejected`).
 
 Values: solc 0.8.34 on Anvil (osaka, runs 466), both contracts and both pipelines, from the
-storage the constructor leaves (`initial`). Not checked here: `narrowCopied` of a dirty `uint8`
-element (`[1, 256]`) returns `[1, 0]` on legacy and reverts on via-IR, while the model reverts on
-both (the calldata-to-memory copy, unchanged by #2830).
+storage the constructor leaves (`initial`). `narrowCopied` of a dirty `uint8` element
+(`[1, 256]`) returns `[1, 0]` on legacy (the calldata-to-memory copy cleans it) and reverts with
+empty data on via-IR (`CalldataNarrowArrayCopyChecks` covers that copy).
 -/
 namespace SolidityImportSmoke.RootArrayReturnStateCountChecks
 open Compiler.CompilationModel Denote Verity.Core
@@ -161,6 +161,7 @@ private def maxWord : Nat := 2 ^ 256 - 1
   some (true, [32, 3, 1, maxWord, 0])
 #guard observe oneLegacy.model "copied" [32, 0] == some (true, [32, 0])
 #guard observe oneLegacy.model "narrowCopied" [32, 2, 255, 0] == some (true, [32, 2, 255, 0])
+#guard observe oneLegacy.model "narrowCopied" [32, 2, 1, 256] == some (true, [32, 2, 1, 0])
 #guard observe oneLegacy.model "fromStorage" [] == some (true, [32, 2, 7, 9])
 #guard observe oneLegacy.model "built" [5] == some (true, [32, 2, 5, 14])
 #guard reverts oneLegacy.model "loadSlots" [32, 3, 0]
@@ -189,6 +190,7 @@ private def maxWord : Nat := 2 ^ 256 - 1
   some (true, [32, 3, 1, maxWord, 0])
 #guard observe twoLegacy.model "copied" [32, 0] == some (true, [32, 0])
 #guard observe twoLegacy.model "narrowCopied" [32, 2, 255, 0] == some (true, [32, 2, 255, 0])
+#guard observe twoLegacy.model "narrowCopied" [32, 2, 1, 256] == some (true, [32, 2, 1, 0])
 #guard observe twoLegacy.model "fromStorage" [] == some (true, [32, 2, 7, 9])
 #guard observe twoLegacy.model "built" [5] == some (true, [32, 2, 5, 14])
 #guard reverts twoLegacy.model "loadSlots" [32, 3, 0]
@@ -215,6 +217,7 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard observe oneIr.model "copied" [32, 3, 1, maxWord, 0] == some (true, [32, 3, 1, maxWord, 0])
 #guard observe oneIr.model "copied" [32, 0] == some (true, [32, 0])
 #guard observe oneIr.model "narrowCopied" [32, 2, 255, 0] == some (true, [32, 2, 255, 0])
+#guard reverts oneIr.model "narrowCopied" [32, 2, 1, 256]
 #guard observe oneIr.model "fromStorage" [] == some (true, [32, 2, 7, 9])
 #guard observe oneIr.model "built" [5] == some (true, [32, 2, 5, 14])
 #guard reverts oneIr.model "loadSlots" [32, 3, 0]
@@ -241,6 +244,7 @@ private def maxWord : Nat := 2 ^ 256 - 1
 #guard observe twoIr.model "copied" [32, 3, 1, maxWord, 0] == some (true, [32, 3, 1, maxWord, 0])
 #guard observe twoIr.model "copied" [32, 0] == some (true, [32, 0])
 #guard observe twoIr.model "narrowCopied" [32, 2, 255, 0] == some (true, [32, 2, 255, 0])
+#guard reverts twoIr.model "narrowCopied" [32, 2, 1, 256]
 #guard observe twoIr.model "fromStorage" [] == some (true, [32, 2, 7, 9])
 #guard observe twoIr.model "built" [5] == some (true, [32, 2, 5, 14])
 #guard reverts twoIr.model "loadSlots" [32, 3, 0]
