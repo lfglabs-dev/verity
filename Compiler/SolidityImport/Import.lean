@@ -7596,13 +7596,15 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
               failAt args[otherIdx]! "storage ABI encoding argument beside a reverting helper is unsupported"
         if args.size > 1 then
           if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then
-            -- solc may validate a calldata array or struct argument while encoding it, in
-            -- argument order; an earlier one would be validated before this deferred read.
-            for earlier in args.extract 0 argIdx do
-              let earlierTy ← mType earlier
-              if earlierTy.contains "calldata" &&
-                  ((scalarArrayElement? earlierTy).isSome || earlierTy.startsWith "struct ") then
-                failAt earlier "calldata array or struct ABI encoding argument before a storage bytes/string argument is unsupported"
+            -- solc validates a calldata array or struct argument while encoding it, in argument
+            -- order, whereas the lowering validates it at its position (a static struct) or in
+            -- the tails (an array, a struct with a dynamic member): either can differ from this
+            -- deferred read's order, so such a sibling, on either side, is rejected.
+            for otherIdx in [:args.size] do
+              let otherTy ← mType args[otherIdx]!
+              if otherIdx != argIdx && otherTy.contains "calldata" &&
+                  ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then
+                failAt args[otherIdx]! "calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported"
             pre := pre ++ refPre
             let headIdx := headWords.size
             headWords := headWords.push none

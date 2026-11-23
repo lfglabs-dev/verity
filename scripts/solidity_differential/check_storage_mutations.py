@@ -423,7 +423,7 @@ MUTANTS.update({
         '        unless ← orderInert later do\n          failAt arg "storage bytes/string encoding argument',
         '        unless true do\n          failAt arg "storage bytes/string encoding argument'),
     'import-encoding-order-calldata-array-guard': (
-        '              if earlierTy.contains "calldata" &&\n                  ((scalarArrayElement? earlierTy).isSome || earlierTy.startsWith "struct ") then\n',
+        '              if otherIdx != argIdx && otherTy.contains "calldata" &&\n                  ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then\n',
         '              if false then\n')})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
@@ -1339,7 +1339,7 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv[argv.index('--shrink-attempts') + 1] = '200'
         argv.extend(['--change-prefix', *map(str, [0, 8, 24, 1, 9, 2, 10, 18, 3, 11, 4, 12, 20, 5, 13, 21, 6, 14,
-            22, 7, 15, 2 ** 256 - 1])])
+            22, 46, 54, 7, 15, 2 ** 256 - 1])])
     if fixture == 'MappingWriteOrderSequence':
         # x = 16 * y + c selects assignment c; y = 0 makes key and right-hand side revert.
         argv[argv.index('--transactions') + 1] = '32'
@@ -2097,7 +2097,7 @@ contract C {
 }
 ''')
     elif name == 'import-encoding-order-calldata-array-guard':
-        diagnostic = 'calldata array or struct ABI encoding argument before a storage bytes/string argument is unsupported'
+        diagnostic = 'calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported'
         signature = 'checked(«uint8[]»)'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {

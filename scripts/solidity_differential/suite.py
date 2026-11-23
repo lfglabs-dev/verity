@@ -322,13 +322,14 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'struct-copy-write-order')]))
     # Encoding arguments (EncodingArgumentOrderSequence): x = 8 * y + c selects case c; y = 0
     # makes two arguments revert, an even y corrupts the storage `bytes` / `string` argument.
-    # The prefix runs every case at y = 0, 1 and (for the corrupt cases) 2.
+    # The prefix runs every case at y = 0, 1 and (for the corrupt cases) 2; case 6 also at
+    # y = 5 and 6 (its event form without the overflow).
     checks.append(('encoding-argument-order', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/EncodingArgumentOrderSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/EncodingArgumentOrderSequenceModel.lean',
         '--transactions', str(max(32, transactions)), '--seed', str(seed),
         '--change-prefix', *map(str, [0, 8, 24, 1, 9, 2, 10, 18, 3, 11, 4, 12, 20, 5, 13, 21, 6, 14,
-            22, 7, 15, 2 ** 256 - 1]),
+            22, 46, 54, 7, 15, 2 ** 256 - 1]),
         '--output', str(output / 'encoding-argument-order')]))
     # String/bytes results among several helper results (MultiReturnBufferSequence):
     # x = 8 * n + c selects case c with length n. The prefix runs (bool, bytes) of length

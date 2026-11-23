@@ -34,6 +34,7 @@ contract SequenceFixture {
     bytes32 internal constant LABEL_SLOT = bytes32(uint256(1));
 
     event Written(uint256 selector, uint256 out);
+    event Labeled(string label, uint256 value);
 
     function stampOne() internal returns (bytes memory) {
         stamp = stamp * 10 + 1;
@@ -98,11 +99,17 @@ contract SequenceFixture {
             corrupt(BLOB_SLOT, y % 2 == 0);
             out = abi.encodePacked(blob, 10 / y).length;
         }
-        // `abi.encode` with a corrupt storage `string` beside a later overflow (y = 0).
+        // `abi.encode` (y % 4 < 2) or event data (y % 4 >= 2) with a corrupt storage `string`
+        // (even y) beside a later overflow (y < 4).
         if (c == 6) {
             corrupt(LABEL_SLOT, y % 2 == 0);
             uint256 top = type(uint256).max;
-            out = uint256(keccak256(abi.encode(label, (top - y) + 1))) % 1000;
+            if (y % 4 < 2) {
+                out = uint256(keccak256(abi.encode(label, (top - y / 4) + 1))) % 1000;
+            } else {
+                emit Labeled(label, (top - y / 4) + 1);
+                out = y;
+            }
         }
         // Valid storage arguments beside pure siblings keep their values.
         if (c == 7) {
