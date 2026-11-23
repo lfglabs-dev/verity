@@ -168,6 +168,7 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/lean_lint.py --only split_compiler_test_artifacts
 	python3 scripts/check_yul.py --builtin-boundary-only
 	python3 scripts/lean_lint.py --only rewrite_proof_metadata
+	python3 scripts/check_theorem_citations.py
 	python3 scripts/generate_evmyullean_capability_report.py --check
 	python3 scripts/generate_evmyullean_native_lowering_report.py --check
 	python3 scripts/generate_evmyullean_fork_audit.py --check

@@ -28,6 +28,7 @@ Partially implemented:
 11. **Proof-Carrying `CertifiedPatchRule` & `CertifiedPatchPack` (`Compiler/Yul/PatchFramework.lean`)**:
     - `CertifiedPatchRule α EvalState Cost` bundles a syntactic rewrite rule with machine-checked proof fields (`preserves_eval : ∀ env st x, matcher ctx x = true → eval env st (rewrite ctx x) = eval env st x` and `improves_cost : ∀ x, matcher ctx x = true → cost (rewrite ctx x) ≤ cost x`).
     - `VerifiedCompilerShim.applyCertified` (`Compiler/Proofs/VerifiedECMShims.lean`) and `SlotCoalescingShim` (`Compiler/Proofs/SlotCoalescingShim.lean`) instantiate certified rules across all 8 verified ECM shim families and intra-block `SLOAD` CSE / packed-write coalescing passes.
+12. **Proof status of the shipped `foundation` bundle**: its 15 rules (`Compiler/Yul/PatchRulesCatalog/Base.lean`) are plain `ExprPatchRule`s, not `CertifiedPatchRule`s. Each `proofId` names a `Prop` definition in `Compiler/Proofs/YulGeneration/PatchRulesProofs.lean` (an obligation such as `or_zero_right_preserves`) that is never proved, so the activation gate below checks that a proof reference is present and allowlisted, not that a proof exists. The patch pass is a trusted component: see [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md#13-yul-patch-pass-foundation-rewrite-rules).
 
 ## Rule Kinds
 
@@ -42,7 +43,7 @@ Partially implemented:
 2. `scope`: where the rule may run (`runtime`, `deploy`, `dispatcher`, `abi`, `helper(name)`).
 3. `matcher`: typed precondition over target subtree plus context.
 4. `rewrite`: transformed subtree.
-5. `proofRef`: theorem establishing semantic preservation under matcher preconditions.
+5. `proofRef`: theorem establishing semantic preservation under matcher preconditions (target model; the shipped `foundation` rules reference unproved obligations, see Status item 12).
 6. `deterministic`: explicit guarantee that output is stable.
 
 ## Rewrite Context (Implemented Foundation)

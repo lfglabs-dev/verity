@@ -33,8 +33,9 @@ This module resolves Phase C1 of the unified architectural roadmap:
    - the dynamic spill watermark base (`computedSpillBase`) used by `TempReuse`
      (fixing the hardcoded `defaultSpillBase := 0x1000` seam),
    - the `PatchPassConfig` rewrite packs (`exprRules`, `stmtRules`, `blockRules`, `objectRules`),
-   - the active catalog of certified acceleration plugins (`activePlugins`), where each
-     pass is individually protected by a speculative soundness gate (`SpeculativeGate`).
+   - the catalog of acceleration plugin descriptors (`activePlugins`). `emitYulWithProfile`
+     only tests whether this list is empty; it does not run a gate per descriptor, and the
+     descriptors' `.kernelVerified` labels are not proofs (see `defaultCertifiedPluginCatalog`).
 
 2. **Internal Definitional Bridge (`emitYulWithProfile_unoptimized_eq_old_codegen : rfl`)**:
    Proves by `rfl` that the internal unoptimized configuration (`PipelineConfig.unoptimized`)
@@ -100,7 +101,8 @@ theorem dynamicSpillSlotAddr_nonOverlapping
 /-! ## 2. Proof-Carrying `PipelineConfig` & Active `Codegen` Integration -/
 
 /-- Declarative configuration for the Verity 2.0 Layer 3 Yul codegen pipeline.
-    Defaults to the `certifiedOptimized` setup (certified plugin catalog G2–G8). -/
+    Defaults to the `certifiedOptimized` setup (plugin catalog G2–G8, whose `.kernelVerified`
+    labels are not proofs: see `defaultCertifiedPluginCatalog`). -/
 structure PipelineConfig where
   yulOptions : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } }
   enableSlotCoalescingShim : Bool := true
@@ -110,8 +112,8 @@ structure PipelineConfig where
   activePlugins : List AccelPluginDescriptor := defaultCertifiedPluginCatalog
 
 /-- Internal proof-anchor configuration matching raw `emitYulWithOptionsReport` by `rfl`.
-    Not exposed as a CLI mode because every pass in `certifiedOptimized` already carries
-    an individual speculative fallback gate (`evalWithUntrustedAccelPlugin`). -/
+    Not exposed as a CLI mode; neither is `certifiedOptimized` (no compile path calls
+    `emitYulWithProfile`). -/
 def PipelineConfig.unoptimized (opts : YulEmitOptions := {}) : PipelineConfig where
   yulOptions := opts
   enableSlotCoalescingShim := false
@@ -120,9 +122,10 @@ def PipelineConfig.unoptimized (opts : YulEmitOptions := {}) : PipelineConfig wh
   memoryHighWaterMark := 0
   activePlugins := []
 
-/-- Optimized profile enabling `SlotCoalescingShim`, the certified acceleration plugin catalog
-    (G2–G8) and the dynamic spill watermark. `TempReuse` (G1) is not certified: it is a trusted,
-    tested-only pass (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
+/-- Optimized profile enabling `SlotCoalescingShim`, the acceleration plugin catalog
+    (G2–G8, labels only: no pass of it has a semantic-preservation theorem) and the dynamic
+    spill watermark. No compile path uses this profile (see the module docstring).
+    `TempReuse` (G1) is not certified: it is a trusted, tested-only pass (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 def PipelineConfig.certifiedOptimized
     (opts : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } })
     (memoryHighWaterMark : Nat := 512) : PipelineConfig where
@@ -141,8 +144,8 @@ instance : Inhabited PipelineConfig where
   default := PipelineConfig.default
 
 /-- **Theorem C1.0 (`PipelineConfig.default` is `certifiedOptimized`)**:
-    Verity's default compilation profile is definitionally `PipelineConfig.certifiedOptimized`,
-    with `patchConfig.enabled = true` and the certified G2–G8 acceleration plugins active. -/
+    `PipelineConfig.default` is definitionally `PipelineConfig.certifiedOptimized`,
+    with `patchConfig.enabled = true` and the G2–G8 catalog descriptors listed. -/
 @[simp]
 theorem default_eq_certifiedOptimized :
     PipelineConfig.default = PipelineConfig.certifiedOptimized := rfl
@@ -193,9 +196,12 @@ theorem emitYulWithProfile_unoptimized_eq_old_codegen
     emitYulWithProfile model (PipelineConfig.unoptimized opts) =
       emitYulWithOptionsReport model opts := rfl
 
-/-- **Theorem C1.5 (`SlotCoalescingShim` Soundness in `certifiedOptimized` Profile)**:
+/-- **Theorem C1.5 (`SlotCoalescingShim` abstract-model equivalence)**:
     For every packed storage state `st` and write list `writes`, coalesced execution
-    produces the exact same `SlotStorageState` as uncoalesced execution. -/
+    produces the exact same `SlotStorageState` as uncoalesced execution. This is a fact about
+    the abstract `SlotStorageState` model; `emitYulWithProfile` does not run any slot-coalescing
+    rewrite (`enableSlotCoalescingShim` only enables the patch pass), so it says nothing about
+    emitted Yul. -/
 theorem certifiedOptimized_preserves_slotCoalescing_semantics
     (st : SlotStorageState) (writes : List PackedFieldWrite) :
     execCoalescedPackedWrites st writes = execUncoalescedPackedWrites st writes :=

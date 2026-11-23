@@ -28,8 +28,11 @@ This module implements:
 2. **Compositional Verified Acceleration Contracts (`VerifiedAccelContract`, `AccelChain`)**:
    Proof-carrying transformations over any program carrier `Prog` with refinement `Refines`.
 
-3. **Active Layer 2/3 Yul AST Rewrite Passes (`applyCertifiedAstPassesToObject`)**:
-   Provides executable, total Yul AST transformations across `RewriteFamily`:
+3. **Layer 2/3 Yul AST Rewrite Passes (`applyCertifiedAstPassesToObject`)**:
+   Provides executable, total Yul AST transformations across `RewriteFamily`. Despite the
+   name, no theorem states that these rewrites preserve Yul semantics (AP.7b/AP.7c below are
+   `rfl` facts about the rewrite function), and they are only called by
+   `Compiler.Codegen.Profile.emitYulWithProfile`, which no compile path calls:
    - **`.bitmask`**: `and(and(x, m₁), m₂) → and(x, m₁ &&& m₂)`, `or(or(x, m₁), m₂) → or(x, m₁ ||| m₂)`,
      and bounded `shr`/`shl` constant-offset fusion (`k₁ + k₂ < 256`),
    - **`.control`**: canonical boolean `iszero(iszero(p)) → p` for `eq`/`lt`/`gt`/`slt`/`sgt`/`iszero`,
@@ -137,8 +140,12 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's core G2–G8, patch, and
-    `BitVec 256` / `Mathlib` algebraic & fixed-point math simplification passes. -/
+/-- Theorem names that `verifyAccelCertGate` accepts for a `.kernelVerified` certificate.
+    This is a string list: membership is not checked against the Lean environment, and an
+    accepted name is not a proof that any compiler pass preserves semantics. The G3, G5 and G6
+    entries name theorems that do not exist, and no pass of `defaultCertifiedPluginCatalog`
+    runs on a compile path (`docs/TRUST_ASSUMPTIONS.md`, "Optimization Catalog Assurance
+    Labels"). -/
 def verifiedAccelTheoremAllowlist : List String :=
   [ "Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_eq_uncoalesced"
   , "Compiler.Proofs.MappingSlot.mappingSlot_cse_sound"
@@ -146,7 +153,6 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Proofs.KeccakBound.scratchSpace_keccak_disjoint_freeMemPtr"
   , "Compiler.Proofs.IRGeneration.ParamLoading.calldataload_direct_sound"
   , "Compiler.Selector.binary_search_selector_dispatch_sound"
-  , "Compiler.Proofs.YulGeneration.PatchRulesProofs.foundation_patch_bundle_sound"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_mathlib_tauceti_mulDiv_cancel_sound_and_saves_176_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_mulDivUp_eq_mulDivDown_of_mod_eq_zero"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.bitvec256_and_assoc_fuse"
@@ -440,8 +446,9 @@ def rewriteCertifiedYulStmts : Nat → List YulStmt → List YulStmt
           s₁' :: rewriteCertifiedYulStmts fuel rest
 end
 
-/-- Apply the certified Layer 2/3 AST passes (`bitmask`, `control`, `storage`) to the runtime
-    code of a `YulObject` with default traversal fuel `64`. -/
+/-- Apply the Layer 2/3 AST passes (`bitmask`, `control`, `storage`) to the runtime
+    code of a `YulObject` with default traversal fuel `64`. No semantic-preservation theorem
+    covers these rewrites, and no compile path calls this function. -/
 def applyCertifiedAstPassesToObject (obj : YulObject) (fuel : Nat := 64) : YulObject :=
   { obj with
     runtimeCode := rewriteCertifiedYulStmts fuel obj.runtimeCode }
@@ -459,7 +466,7 @@ theorem rewriteCertifiedYulExprStep_double_iszero_eq (a b : YulExpr) :
     rewriteCertifiedYulExprStep (.call "iszero" [.call "iszero" [.call "eq" [a, b]]]) =
       .call "eq" [a, b] := rfl
 
-/-! ## 5. Default Certified G2–G8 Plugin Catalog & Semantic MetaGate Witness -/
+/-! ## 5. Default G2–G8 Plugin Catalog (labels only, see below) & MetaGate Witness -/
 
 /-- Declarative descriptor for a replaceable optimization plugin in Verity's default catalog. -/
 structure AccelPluginDescriptor where
@@ -471,10 +478,14 @@ structure AccelPluginDescriptor where
   enabledByDefault : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- The certified gas & algebraic optimization plugins (`G2`–`G8`) enabled by default in
-    Verity 2.0. `G1` (`TempReuse` temporary reuse and stack spilling) is not listed: no kernel
-    theorem covers that pass, which is a trusted, tested-only component
-    (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
+/-- Descriptors for the `G2`–`G8` optimization plugins. The `.kernelVerified` labels are not
+    proofs of these passes: `G3`, `G5` and `G6` cite theorems that do not exist; `G2`, `G4`,
+    `G7` and `G8` cite real theorems about an abstract storage model, a `Nat` identity, a
+    selector-tree lookup and a `Nat` identity, none of which is a pass that the compiler runs;
+    and this catalog is only read by `Compiler.Codegen.Profile.emitYulWithProfile`, which no
+    compile path calls (`docs/TRUST_ASSUMPTIONS.md`, "Optimization Catalog Assurance Labels").
+    `G1` (`TempReuse` temporary reuse and stack spilling) is not listed: it is a trusted,
+    tested-only component (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
   [ { pluginName := "G2:slot-coalescing-packed-words"
       scope := .ir

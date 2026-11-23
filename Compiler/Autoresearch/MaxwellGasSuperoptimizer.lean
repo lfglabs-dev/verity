@@ -32,7 +32,11 @@ This module formalizes:
 
 2. **Layer 2 Core Optimization Passes (`G1`–`G8`) & Family-Indexed `BitVec 256` Rewrites**:
    Replaces the flat 55-constructor `Nat` catalog with:
-   - The **8 core pipeline passes (`GasOptimizationPassId`)** wired into `Codegen`/`Profile`:
+   - The **8 pass identifiers (`GasOptimizationPassId`)**. Only G1 (the `TempReuse` spill pass)
+     runs on a compile path; G2–G8 have no implementation that the compiler runs, and none of
+     them has a semantic-preservation theorem (`docs/TRUST_ASSUMPTIONS.md`, "Optimization
+     Catalog Assurance Labels"). The theorems below are gas-accounting facts and standalone
+     arithmetic, storage-model or selector-lookup lemmas:
      - **G1 (`G1_tempReuseStackScheduling`)**: Dead-temp reuse & dynamic watermark spill avoidance
        (not certified: the shipped spill pass is a trusted, tested-only component, see
        `docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"),
@@ -89,7 +93,7 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. Layer 2 Rewrite Families & The 8 Core Gas Passes (`G1`–`G8`; `G1` not certified) -/
+/-! ## 2. Layer 2 Rewrite Families & The 8 Gas Pass Identifiers (`G1`–`G8`; none certified) -/
 
 /-- Compositional rewrite families (Layer 2), avoiding flat per-lemma constructor blowup. -/
 inductive RewriteFamily where
@@ -101,8 +105,9 @@ inductive RewriteFamily where
   | zeroElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Enumeration of the 8 core gas & algebraic optimization passes in Verity 2.0
-    (`G2`–`G8` certified; `G1`, the `TempReuse` spill pass, is trusted and tested only). -/
+/-- Enumeration of the 8 gas & algebraic optimization pass identifiers in Verity 2.0.
+    None is certified: `G1`, the `TempReuse` spill pass, is trusted and tested only, and
+    `G2`–`G8` are not run by any compile path. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -274,7 +279,7 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
 /-- **Executable Witness Suite (`by decide`, `0 native_decide`)**:
-    Gas accounting only (G1 is not semantically certified): checks the core G1–G8
+    Gas accounting only (no pass is semantically certified): checks the core G1–G8
     (`PoolManager.swap` + `SlotCoalescingShim` + `mappingSlot` CSE +
     checked arithmetic interval elision + scratch-space hashing + lazy calldata decoding +
     logarithmic `SelectorDispatchTree` + `Mathlib`/`TauCeti` algebraic simplifier)
