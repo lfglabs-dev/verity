@@ -320,6 +320,16 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(40, transactions)), '--seed', str(seed),
         '--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 2 ** 256 - 1]),
         '--output', str(output / 'struct-copy-write-order')]))
+    # Encoding arguments (EncodingArgumentOrderSequence): x = 8 * y + c selects case c; y = 0
+    # makes two arguments revert, an even y corrupts the storage `bytes` / `string` argument.
+    # The prefix runs every case at y = 0, 1 and (for the corrupt cases) 2.
+    checks.append(('encoding-argument-order', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/EncodingArgumentOrderSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/EncodingArgumentOrderSequenceModel.lean',
+        '--transactions', str(max(32, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, [0, 8, 24, 1, 9, 2, 10, 18, 3, 11, 4, 12, 20, 5, 13, 21, 6, 14,
+            22, 7, 15, 2 ** 256 - 1]),
+        '--output', str(output / 'encoding-argument-order')]))
     # String/bytes results among several helper results (MultiReturnBufferSequence):
     # x = 8 * n + c selects case c with length n. The prefix runs (bool, bytes) of length
     # 0, 31, 32, 33, 40 and the reverting 41, both (string, string) helpers (short and
