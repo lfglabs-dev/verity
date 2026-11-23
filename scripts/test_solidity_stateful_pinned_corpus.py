@@ -340,10 +340,13 @@ class DeploymentWorld(unittest.TestCase):
             instrument.constructor_arguments([], [1], {}, 'C')
 
 
+MINER = '0x' + '00' * 20
+
+
 class ProbeDeployment(unittest.TestCase):
     """Constructor writes must equal the configured initial storage of the deployed account."""
 
-    def run_probe(self, post, status='0x1', moved=False):
+    def run_probe(self, post, status='0x1', moved=False, pre=lambda a, s: {}):
         account = instrument.create_address(instrument.SENDERS[0])
         slot = '0x' + '00' * 31 + '03'
         tracers = []
@@ -363,13 +366,15 @@ class ProbeDeployment(unittest.TestCase):
                     return [instrument.SENDERS[0]]
                 if method == 'debug_traceTransaction':
                     tracers.append(params[1])
-                    return {'pre': {}, 'post': post(account, slot)}
+                    return {'pre': pre(account, slot), 'post': post(account, slot)}
+                if method == 'eth_getBlockByNumber':
+                    return {'miner': MINER}
                 if method == 'eth_getCode':
                     return '0x60'
                 raise AssertionError(method)
 
             def transact(self, request):
-                return {'receipt': {'status': status, 'transactionHash': '0x01',
+                return {'receipt': {'status': status, 'transactionHash': '0x01', 'blockNumber': '0x1',
                                     'contractAddress': '0x' + '99' * 20 if moved else account}}
 
         initial = [[account, slot, '0x' + '00' * 31 + '05']]
@@ -397,11 +402,22 @@ class ProbeDeployment(unittest.TestCase):
             self.run_probe(lambda a, s: {'0x' + '77' * 20: {'code': '0x00', 'nonce': 1}})
         with self.assertRaisesRegex(HarnessError, 'foreign account'):
             self.run_probe(lambda a, s: {instrument.SENDERS[0]: {'storage': {s: '0x05'}}})
+        # A foreign word set to zero is listed only under `pre`.
+        with self.assertRaisesRegex(HarnessError, 'foreign account'):
+            self.run_probe(lambda a, s: {'0x' + '77' * 20: {}},
+                           pre=lambda a, s: {'0x' + '77' * 20: {'storage': {s: '0x05'}}})
+        # Value sent to another account.
+        with self.assertRaisesRegex(HarnessError, 'foreign account'):
+            self.run_probe(lambda a, s: {'0x' + '77' * 20: {'balance': '0x1'}})
+        with self.assertRaisesRegex(HarnessError, 'foreign account'):
+            self.run_probe(lambda a, s: {MINER: {'balance': '0x1', 'nonce': 1}})
 
     def test_fee_balances_may_move(self):
         self.assertEqual(self.run_probe(lambda a, s: {
             instrument.SENDERS[0]: {'balance': '0x1', 'nonce': 1},
-            '0x' + '00' * 20: {'balance': '0x2'}, a: {'nonce': 1, 'code': '0x60'}}), ['0x60'])
+            MINER: {'balance': '0x2'}, a: {'nonce': 1, 'code': '0x60'}},
+            pre=lambda a, s: {instrument.SENDERS[0]: {'balance': '0x3', 'nonce': 0},
+                              MINER: {'balance': '0x0'}}), ['0x60'])
 
     def test_failed_or_moved_deployment_fails(self):
         with self.assertRaisesRegex(HarnessError, 'deployment failed or moved'):

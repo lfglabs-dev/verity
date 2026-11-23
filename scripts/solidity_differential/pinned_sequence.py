@@ -436,8 +436,10 @@ def probe_deployment(directory, deployments, initial):
     Every storage word a constructor changes must equal the configured initial storage
     of the deployed account (the diff-mode trace omits writes that leave a word as it
     was, which the configured world then sets on every route anyway). No constructor
-    may change another account's storage, code or nonce (creating a contract does);
-    only balances may move, for fees. Returns the deployed runtime code of each account."""
+    may change another account in any way (storage, including a word set to zero,
+    which the diff lists only under `pre`; code; nonce; balance), except that the
+    deployer's nonce and balance and the block's fee recipient's balance move for
+    the deployment and its fees. Returns the deployed runtime code of each account."""
     configured = {(account, slot): value for account, slot, value in initial}
     runtimes = []
     with Anvil(directory) as node:
@@ -450,12 +452,20 @@ def probe_deployment(directory, deployments, initial):
                 raise HarnessError(f'{name}: source deployment failed or moved')
             diff = node.rpc('debug_traceTransaction', record['receipt']['transactionHash'],
                             {'tracer': 'prestateTracer', 'tracerConfig': {'diffMode': True}})
+            miner = node.rpc('eth_getBlockByNumber', record['receipt']['blockNumber'], False)['miner']
+            allowed = {deployer: {'nonce', 'balance'}, miner.lower(): {'balance'}}
+            for account in set(diff['pre']) | set(diff['post']):
+                if account == address:
+                    continue
+                before, after = diff['pre'].get(account, {}), diff['post'].get(account, {})
+                # A storage word set to zero appears only under `pre`.
+                changed = set(after) | ({'storage'} if before.get('storage') else set())
+                if changed - allowed.get(account, set()):
+                    raise HarnessError(f'{name}: constructor writes foreign account {account}: '
+                                       f'{sorted(changed)}')
             for account, state in diff['post'].items():
-                # The deployer's nonce advances; any account's balance may move for fees.
-                forbidden = (set() if account == address else {'storage', 'code'} if account == deployer
-                             else {'storage', 'code', 'nonce'})
-                if forbidden & set(state):
-                    raise HarnessError(f'{name}: constructor writes foreign account {account}')
+                if account != address:
+                    continue
                 for slot, value in state.get('storage', {}).items():
                     expected = configured.get((address, slot), word_hex(0))
                     if int(value, 16) != int(expected, 16):
