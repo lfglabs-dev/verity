@@ -22,8 +22,8 @@ the block agreeing. The import report lists the shortcuts each root uses
 A lowering can only be applied through a `TrustedShortcutMatch`, which only
 `matchTrustedShortcut?` builds, from a block whose fingerprint is registered. Applying it
 records the shortcut in the current root's report. `scripts/check_importer_name_selection.py`
-(`make check`) keeps every shortcut behind this registry and rejects importer code that selects
-a lowering by a user-chosen name.
+(`make check`) rejects the forms of name selection and registry bypass it lists (a text check;
+what it cannot see is listed there and left to review).
 -/
 
 /-- The fixed lowering a trusted shortcut replaces its block with. -/
@@ -44,7 +44,9 @@ structure TrustedShortcut where
   /-- `yulBlockFingerprint` of the only block this entry replaces. -/
   fingerprint : String
   lowering : TrustedShortcutLowering
-  /-- Repository paths of the tests that back the entry (lowering results against solc's). -/
+  /-- Repository paths of the tests that back the entry: tests of the lowering's results
+  against values observed from solc on the block, and tests that the block, and only it, is
+  selected (`TailAssemblyArrayReadChecks` backs selection and the report lines, not values). -/
   evidence : List String
   deriving Repr
 

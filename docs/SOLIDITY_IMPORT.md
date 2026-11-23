@@ -399,8 +399,12 @@ entry's fixed lowering:
 | `extsloadRangeYulFingerprint` | `Extsload.extsload(bytes32, uint256)` | `lowerBatchRangeSloadShim`, consecutive `sload`s |
 
 A shortcut is selected only by the exact code fingerprint of the block, never by a function,
-library, contract or variable name; `scripts/check_importer_name_selection.py` (in `make check`)
-fails if importer code selects a lowering by name or around the registry. For a replaced block
+library, contract or variable name. The shortcut lowerings take a `TrustedShortcutMatch`, which
+only a registry fingerprint match can build. `scripts/check_importer_name_selection.py` (in
+`make check`) fails on the forms of name comparison and registry bypass it lists (string
+literals of user-chosen names in comparisons, patterns and membership tests; fingerprint
+constants or comparisons outside the registry); it is a text check, and the cases it lists as
+undetected are left to review. For a replaced block
 the model is the fixed lowering, not a translation of the block, and no Lean proof relates the
 two: each entry names the tests that compare the lowering's results with solc's on the block
 (`TrustedShortcut.evidence`). A proof about a root whose model uses a shortcut therefore says
