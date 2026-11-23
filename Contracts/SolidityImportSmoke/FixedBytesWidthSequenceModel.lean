@@ -15,6 +15,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "FixedBytesW
   function read()
   function widths(bytes1, bytes19, bytes31)
   function nibble(bytes1)
+  function width16(bytes16, uint256)
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

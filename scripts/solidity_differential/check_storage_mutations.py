@@ -110,7 +110,8 @@ MUTANTS.update({
         '            | some (value, false) => pure (some (.read value))',
         '            | some (_, false) => pure (some (.read (.literal 0)))'),
     # Declaring every immutable's constructor parameter `uint256` drops the compiled
-    # constructor's cleaning; the run feeds the compiled route dirty narrow words.
+    # constructor's ABI validation; the run's reverting-constructor-word control deploys
+    # dirty narrow words, which then no longer revert on the compiled route.
     'import-immutable-scalar-argument-uncleaned': (
         '        ctorParams := ctorParams.push { name, ty }',
         '        ctorParams := ctorParams.push { name, ty := .uint256 }'),
@@ -1121,15 +1122,17 @@ def run(directory, output, name):
                      '--immutable', 'deployer=deployer', '--immutable', 'CHAIN=chainid',
                      '--immutable', 'BUMPED=model:2', '--immutable', f'WRAPPED=model:{2**256 - 1}',
                      '--immutable', 'SEEDED=model:9',
-                     # Dirty high bits in the narrow words the compiled constructor must clean
-                     # (DURATION uint64, DECIMALS uint8, ENABLED bool, OFFSET int16, TAG bytes4,
-                     # PAYEE address); the source and the model get the clean words.
-                     '--dirty-constructor-word', f'1={(0x77 << 200) | 31536000}',
-                     '--dirty-constructor-word', f'2={(0xab << 8) | 6}',
-                     '--dirty-constructor-word', '3=2',
-                     '--dirty-constructor-word', f'6={(0x1234 << 16) | (2**16 - 7)}',
-                     '--dirty-constructor-word', f'7={(0xa1b2c3d4 << 224) | 0x55}',
-                     '--dirty-constructor-word', f'8=SENDER0|{0x99 << 200}',
+                     # Every route deploys with the clean words. Dirty high bits in a narrow
+                     # word (DURATION uint64, DECIMALS uint8, ENABLED bool, OFFSET int16 not
+                     # sign-extended, TAG bytes4 with low bytes, PAYEE address) are not a valid
+                     # ABI encoding: solc's constructor reverts (#2831, since 0a5950cc5 the
+                     # compiled constructor too), so each one alone must revert on both.
+                     '--reverting-constructor-word', f'1={(0x77 << 200) | 31536000}',
+                     '--reverting-constructor-word', f'2={(0xab << 8) | 6}',
+                     '--reverting-constructor-word', '3=2',
+                     '--reverting-constructor-word', f'6={(0x1234 << 16) | (2**16 - 7)}',
+                     '--reverting-constructor-word', f'7={(0xa1b2c3d4 << 224) | 0x55}',
+                     '--reverting-constructor-word', f'8=SENDER0|{0x99 << 200}',
                      '--change-prefix', '0', '1', '15', '16', str((1 << 256) - 1)])
     if fixture == 'SignedEventSequence':
         # Values below and above 500 give negative and positive signed arguments.
@@ -1220,9 +1223,11 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '20'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])])
     if fixture == 'FixedBytesWidthSequence':
-        # The same boundaries as `check_storage --fixture fixed-bytes-widths`, then the
-        # clean and dirty `bytes1` / `bytes19` / `bytes31` root calls.
-        argv[argv.index('--transactions') + 1] = '25'
+        # The same boundaries as `check_storage --fixture fixed-bytes-widths`, then every
+        # clean and dirty `bytes1` / `bytes19` / `bytes31` / `bytes16` root call: 3 seed calls,
+        # 7 prefix calls, 24 root calls and the final read() are 35 transactions, plus one
+        # random call (#2831).
+        argv[argv.index('--transactions') + 1] = '36'
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 7, 255, 256, (1 << 160) - 1, 1 << 255, (1 << 256) - 1])])
     if fixture == 'MsgSigSequence':

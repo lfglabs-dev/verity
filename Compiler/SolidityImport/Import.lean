@@ -1609,6 +1609,8 @@ private partial def lowerYul (j : Json) : M Val := do
       | "chainid", #[] => pure { pre, expr := .chainid }
       | "selfbalance", #[] => pure { pre, expr := .selfBalance }
       | "origin", #[] => pure { pre, expr := .txOrigin }
+      -- Unreachable while the arity table above omits them: Yul basefee() / gasprice() stay
+      -- rejected until a differential route pins a base fee and a gas price (#2831).
       | "basefee", #[] => pure { pre, expr := .baseFee }
       | "gasprice", #[] => pure { pre, expr := .gasPrice }
       | "keccak256", #[a, b] => do
@@ -18379,7 +18381,10 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                   | _ => failAt expr "unsupported storage struct return path"
                 let v ← atom { pre := rpre ++ slotPre, expr := slotExpr }
                 out := out ++ v.pre ++ env.rootPost |>.push (.returnValues [v.expr])
-            | .mem .. => failAt expr "ABI returns of memory structs with bytes members are unsupported"
+            | .mem .. =>
+                if (← mType expr).endsWith " calldata" then
+                  failAt expr "ABI returns of calldata structs are unsupported"
+                failAt expr "ABI returns of memory structs with bytes members are unsupported"
             | _ => failAt expr "storage struct return requires a storage path"
           else
             let ty := env.rootReturnTypes[0]?.getD ""

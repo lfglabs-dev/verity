@@ -46,6 +46,18 @@ contract SequenceFixture {
         return (a, bytes19(c), bytes31(b));
     }
 
+    // A bytes16 root parameter and returns: a computed value, the parameter itself, its
+    // integer view, and a Yul-assigned local with dirty low bits (the encoder cleans it).
+    function width16(bytes16 h, uint256 k) external returns (bytes16, bytes16, uint128, bytes16) {
+        bytes16 mixed = h ^ bytes16(uint128(k));
+        bytes16 raw;
+        assembly {
+            raw := k
+        }
+        seen = bytes32(mixed) ^ bytes32(raw);
+        return (mixed, h, uint128(h), raw);
+    }
+
     function nibble(bytes1 ch) external pure returns (bool, uint8) {
         uint8 v = uint8(ch);
         if (47 < v && v < 58) {

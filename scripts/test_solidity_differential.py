@@ -115,6 +115,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-short-circuit",
     "storage-signed-compound-assignment",
     "storage-signed-modulo",
+    "storage-signed-narrow-values",
     "storage-signed-struct-compound",
     "storage-storage-array-length-bound",
     "storage-struct-array-param",

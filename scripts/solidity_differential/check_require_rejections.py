@@ -12,9 +12,15 @@ def main():
         raise RuntimeError('one-bit generated variables must cover exactly canonical booleans')
     root = Path(__file__).resolve().parents[2]
     output = Path(tempfile.mkdtemp(prefix='require-rejections-', dir=root / '.lake'))
+    failures = []
     cases = [
         ('literal', 'require(value > 7, "message");', None),
-        ('no-message', 'require(value > 7);', 'supported Solidity builtin signature'),
+        # Imports since 8312a1b23 (#2851): the condition, then an empty revert, as solc. A/B/C
+        # value checks: storage-packed-signed-int (`fail()` reverts through a bare require) and
+        # storage-signed-narrow-values (`require(x != 20)` on the reverting and passing paths).
+        # A user-defined `require` still reaches the builtin-signature guard:
+        # check_storage_rejections' require-user-defined-rejected (#2831).
+        ('no-message', 'require(value > 7);', None),
         ('custom-error', 'require(value > 7, Failure(value));', None),
         ('custom-error-expression', 'require(value > 7, Failure(value + 1));', 'literals or scalar bindings'),
         # Named arguments in declaration order lower as the positional call.
@@ -27,7 +33,11 @@ def main():
         ('byte-string-cast', 'require(value > 7, string(hex"61"));', None),
         ('abi-decode', 'abi.decode(abi.encode(value), (uint256));', 'abi.decode is outside this slice'),
         ('other-call', 'helper(value);', None),
-        ('assert-call', 'assert(value > 7);', 'only builtin require calls'),
+        # assert(c) imports since 3c28a3154 (#2880): Panic(0x01) when c is false; the
+        # assert-statement A/B/C check (AssertStatementSequence) checks the values. A discarded
+        # builtin call other than require/assert still reaches the expression-statement guard (#2831).
+        ('assert-call', 'assert(value > 7);', None),
+        ('discarded-builtin-call', 'keccak256(abi.encode(value));', 'only builtin require calls'),
     ]
     for name, statement, expected in cases:
         directory = output / name
@@ -74,11 +84,18 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         (directory / 'check.log').write_text(text)
         if expected is None:
             if result.returncode or not artifact.exists():
-                raise RuntimeError(f'{name}: positive control failed\n{text}')
+                failures.append(f'{name}: positive control failed\n{text}')
+                print(f'FAIL require-{name}', flush=True)
+                continue
         elif (result.returncode == 0 or artifact.exists() or expected not in text or
               not re.search(r'Fixture\.sol:\d+:\d+:', text)):
-            raise RuntimeError(f'{name}: expected located importer rejection {expected!r}\n{text}')
-        print(f'pass require-{name}')
+            failures.append(f'{name}: expected located importer rejection {expected!r}\n{text}')
+            print(f'FAIL require-{name}', flush=True)
+            continue
+        print(f'pass require-{name}', flush=True)
+    # Every case runs; one failure must not hide the others (#2831).
+    if failures:
+        raise RuntimeError(f'{len(failures)} require rejection cases failed:\n\n' + '\n\n'.join(failures))
 
 
 if __name__ == '__main__':
