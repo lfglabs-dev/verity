@@ -142,8 +142,13 @@ SIGNED_STRUCT_COMPOUND_PREFIX = [(1 << 16) | (128 << 8) | 1, (1 << 16) | (128 <<
                                  (1 << 16) | (1 << 18) | (128 << 8) | 4, (1 << 17) | (127 << 8) | 5,
                                  (1 << 17) | (255 << 8) | 6, (1 << 16) | (1 << 17) | (128 << 8) | 7,
                                  (255 << 8) | 8, (1 << 16) | 9, (1 << 256) - 1]
+# Bit 64 skips the writes; bit 65 scales the written values into each member's top byte (the
+# maxima, the minima and mid-range values, read back on the same call).
 SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 128 | (0xffff << 8) | (0xff << 24) | (0xffffffff << 32),
                                     128 | (32763 << 8) | (123 << 24) | (5 << 32),
+                                    (1 << 65) | 128 | (0xffff << 8) | (0xff << 24) | (0xffffffff << 32),
+                                    (1 << 65) | 129,
+                                    (1 << 65) | 130 | (12345 << 8) | (77 << 24) | (123456789 << 32),
                                     (1 << 64) | 2, 1 << 64, (1 << 64) | 1, (1 << 256) - 1]
 # int8 / int24 / int128 at their minimum (0) and maximum (2^256 - 1), at -1 / -5 / -2 with a
 # nonzero address, just above zero (1 / 1 / 1), and a single high bit (int128 at its minimum).
@@ -624,7 +629,7 @@ def main():
             # Every copy shape (x % 8 in 0..5) and calls that only store (x % 8 in 6, 7).
             extra = ['--change-prefix', *map(str, YUL_MCOPY_PREFIX)]
         if args.fixture == 'signed-struct-member-read':
-            # Negative, positive-extreme and read-only calls on every cell and both struct paths.
+            # Negative, positive-extreme, top-byte and read-only calls on every cell and both struct paths.
             extra = ['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)]
         if args.fixture == 'storage-string-members':
             # Ids 0/1/255 (uint8 truncation, both `active` parities), high-word bitmap, tail and
