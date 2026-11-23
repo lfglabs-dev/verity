@@ -10,8 +10,9 @@ Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test 
 `Test.lean` or `Tests.lean`, as in `SourceDigest.lean`; a non-test importer file may not import
 one, so skipped code cannot reach the importer):
 
-1. Name selection. A string literal that is exactly an identifier or a dotted identifier
-   (`"callHook"`, `"TickBitmap.flipTick"`, also when written with escapes) is a name wherever it
+1. Name selection. A string literal that is exactly an identifier, a dotted identifier or a
+   fragment of one with a leading or trailing dot (`"callHook"`, `"TickBitmap.flipTick"`,
+   `".flipTick"`, `"Hooks."`, also when written with escapes) is a name wherever it
    occurs: compared, matched, bound by `let` or `if let`, held in a constant, tested with `∈`,
    passed to a helper or used as a JSON key. Every such literal may name only what
    `ALLOWED_IDENTIFIERS` lists: the solc AST node types, AST, storage-layout and standard-JSON
@@ -22,8 +23,9 @@ one, so skipped code cannot reach the importer):
    position: either operand of `==`, `!=`, `=` or `≠`, a `match` pattern, `.isPrefixOf` /
    `.isSuffixOf` (also `String.startsWith n "..."` and the like), `.contains` / `.startsWith` /
    `.endsWith` / `.find?`, an element of a literal list tested for membership (`.contains`,
-   `.elem`, `.any`, `.all`, `.find?`, `∈`); an operand may be built with `++` and parentheses
-   (`n == lib ++ ".flipTick"`). Lean name literals (`` `foo ``, `` ``foo ``) must be generated
+   `.elem`, `.any`, `.all`, `.find?`, `∈`); the operand after the operator may be built with `++`
+   and parentheses (`n == lib ++ ".flipTick"`); a name or name fragment before it is caught by
+   the rule above wherever it is. Lean name literals (`` `foo ``, `` ``foo ``) must be generated
    declaration or syntax names (`ALLOWED_NAME_LITERALS`); the registry module may also name its
    `*YulFingerprint` constants. A function, library, contract or Yul variable name of user code
    (`callHook`, `CurrencyLibrary`, ...) is not listed, so writing one fails here.
@@ -253,7 +255,8 @@ REGISTRY_GATE = re.compile(
     r"let\s+(\w+)\s*←\s*matchTrustedShortcut\?\s+\w+\s*\n\s*guard\s*\(\s*\1\.shortcut\.lowering\s*==\s*\.rangeStorageRead\s*\)"
 )
 
-IDENT_LITERAL = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*")
+# A name, a dotted name, or a fragment of one (`".flipTick"`, `"Hooks."`).
+IDENT_LITERAL = re.compile(r"\.?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.?")
 HEX_DIGEST = re.compile(r"[0-9a-f]{40,64}")
 # Lean name literals: `` `foo `` and resolved `` ``foo ``.
 NAME_LITERAL = re.compile(r"(?<![`\w])(``?)(?![`(\[])([A-Za-z_][\w.']*)")
@@ -585,7 +588,8 @@ def check_names(root: Path, errors: list[str]) -> None:
                     f"select a lowering by a user-chosen name. A fixed lowering of user code goes "
                     f"through trustedImporterShortcuts ({REGISTRY_FILE}), keyed by fingerprint. If "
                     f"`{ident}` is a builtin or the importer's own name, add it to "
-                    f"scripts/check_importer_name_selection.py with its category.")
+                    f"scripts/check_importer_name_selection.py with its category; if the "
+                    f"literal is a message, write it as a sentence.")
         bare = without_strings(code, literals)
         for nm in NAME_LITERAL.finditer(bare):
             quote, name = nm.group(1), nm.group(2)

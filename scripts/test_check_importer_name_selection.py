@@ -205,6 +205,18 @@ class ImporterNameSelectionTests(unittest.TestCase):
                 self.append(IMPORT, "\n" + form + "\n")
                 self.assertFails("`flipTick`")
 
+    def test_name_fragment_anywhere_fails(self) -> None:
+        for form in ['def zzA (n fn : String) : Bool := "Hooks." ++ fn == n',
+                     'def zzA (n : String) : Bool := (".flipTick") == n',
+                     'def zzA (n lib : String) : Bool := n.endsWith <| lib ++ ".flipTick"',
+                     'def zzSuffixes : List String := [".flipTick", ".callHook"]',
+                     'def zzTable : List (String × Nat) := [(".flipTick", 1)]']:
+            with self.subTest(form=form):
+                self.append(IMPORT, "\n" + form + "\n")
+                errors = lint.run(self.root)
+                self.assertTrue(any("`flipTick`" in e or "`Hooks`" in e for e in errors),
+                                "\n".join(errors) or "no error")
+
     def test_membership_with_elem_sign_fails(self) -> None:
         self.append(IMPORT, '\ndef zzA (n : String) : Bool := decide (n ∈ ["flipTick(int24)", "x y"])\n')
         self.assertFails("`flipTick`")
