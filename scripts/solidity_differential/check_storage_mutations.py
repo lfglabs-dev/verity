@@ -139,6 +139,24 @@ MUTANTS.update({
     'import-namespaced-inner-mapping-member': (
         'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
         'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1)),')})
+# Fixed-size array members of a raw-slot (ERC-7201) struct: each takes ceil(N / perWord)
+# words from a fresh slot, its elements sit at a computed word and lane, and an index >= N
+# raises Panic(0x32) (StructFixedArrayMemberSequence).
+MUTANTS.update({
+    'import-raw-fixed-array-words': (
+        '      currWord := currWord + (length + perWord - 1) / perWord\n',
+        '      currWord := currWord + length / perWord\n'),
+    'import-raw-fixed-array-bound': (
+        '  .ite (.lt indexExpr (.literal arrInfo.length)) [] [.panicCode (.literal 0x32)]',
+        '  .ite (.lt indexExpr (.literal (arrInfo.length + 1))) [] [.panicCode (.literal 0x32)]'),
+    'import-raw-fixed-array-lane': (
+        '    else Expr.shr (.mul (.mod indexExpr (.literal perWord)) (.literal bits)) rawWord\n'
+        '  let masked := if bits < 256',
+        '    else Expr.shr (.mul (.div indexExpr (.literal perWord)) (.literal bits)) rawWord\n'
+        '  let masked := if bits < 256'),
+    'import-raw-fixed-array-member-slot': (
+        '          readRawFixedArrayElement pre (rawStructMemberSlot baseSlot arrInfo.wordOffset) arrInfo index',
+        '          readRawFixedArrayElement pre (rawStructMemberSlot baseSlot (arrInfo.wordOffset + 1)) arrInfo index')})
 # A `while` loop whose only progress divides its unsigned local by a constant >= 2 runs as
 # `bits` guarded iterations.
 MUTANTS.update({
@@ -1159,6 +1177,8 @@ def run(directory, output, name):
         fixture = "ImmutableScalarSequence"
     if name.startswith("import-namespaced-"):
         fixture = "NamespacedStructMembersSequence"
+    if name.startswith("import-raw-fixed-array-"):
+        fixture = "StructFixedArrayMemberSequence"
     if name.startswith("import-dividing-while-"):
         fixture = "DividingWhileSequence"
     if name.startswith("import-assignment-argument-") and not name.endswith("-guard"):
@@ -1323,6 +1343,20 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 1, 1000, 1001, 4095, 4096, 40950, 2 ** 24 - 1,
                      4095 * 10 ** 73, 10 ** 76, 123456789 * 10 ** 60, (1 << 256) - 1])])
+    if fixture == 'StructFixedArrayMemberSequence':
+        # x = 8 * y + c selects case c; y = (value << 8) | index. Lanes 0, 31, 32, 39 of the
+        # uint8[40] (both words) and the out-of-range 40 and 43; a lane incremented past 255;
+        # flags 0, 2 and the out-of-range 3; bitmap words 0, 7 and the out-of-range 8; the
+        # large array's element 599999999, then 600000000 and an index above 2^252; the
+        # mapped struct's members around its reserved array.
+        argv[argv.index('--transactions') + 1] = '40'
+        argv[argv.index('--seed') + 1] = '2490'
+        cases = [(0, (0xab << 8) | 0), (0, (0xcd << 8) | 31), (0, (0xef << 8) | 32), (0, (0x11 << 8) | 39),
+                 (0, 40), (0, 43), (1, (1 << 8) | 31), (1, (0xff << 8) | 31), (1, (5 << 16) | (2 << 8) | 39),
+                 (2, (1 << 8) | 0), (2, (1 << 8) | 2), (2, 3), (2, 0), (3, (0xdead << 8) | 1), (3, (0xbeef << 8) | 0),
+                 (4, 3), (4, (7 << 8) | 0xff), (4, (8 << 8) | 1), (5, 3),
+                 (6, 599999999), (6, 0), (6, 600000000), (6, (1 << 252) + 5), (7, (0x77 << 8) | 1)]
+        argv.extend(['--change-prefix', *(str(8 * y + c) for c, y in cases), str((1 << 256) - 1)])
     if fixture == 'NamespacedStructMembersSequence':
         # The two-key prefix (approvals, reads, spends) needs several senders and room.
         argv[argv.index('--transactions') + 1] = '40'
@@ -2305,6 +2339,7 @@ def mutation_source(directory, name):
                                   else 'Compiler/SolidityImport/AbiRootLowering.lean' if name.startswith('import-root-param-lowering-')
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                                   else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
+                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-raw-fixed-array-words'
                                   else 'Compiler/SolidityImport/ExprHelpers.lean' if name == 'import-encoding-arg-super-revert-guard'
                                   else 'Compiler/SolidityImport/Lowering/EvalOrderHazards.lean' if name == 'import-helper-effect-classifier'
                                   else 'Compiler/SolidityImport/Import.lean')

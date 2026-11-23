@@ -583,6 +583,42 @@ private def readStorageDynamicArrayElement (pre : Array Stmt) (fieldName : Strin
   ]
   pure { pre := lenVal.pre ++ stmts, expr := .localVar dest }
 
+/-- solc's bounds check on a fixed-size storage array `T[N]`: an index `≥ N` raises
+`Panic(0x32)` before any storage access. -/
+private def rawFixedArrayBound (arrInfo : StructFixedArrayInfo) (indexExpr : Expr) : Stmt :=
+  .ite (.lt indexExpr (.literal arrInfo.length)) [] [.panicCode (.literal 0x32)]
+
+/-- Element `index` of a fixed-size array member `T[N]` of a raw-slot storage struct. The
+array sits in place at `arrSlot` (no hash): word `index / perWord`, lane `index % perWord`
+from the lowest-order bits, as solc lays out a static storage array. -/
+private def readRawFixedArrayElement (pre : Array Stmt) (arrSlot : Expr)
+    (arrInfo : StructFixedArrayInfo) (indexExpr : Expr) : M Val := do
+  modify fun e => { e with usedRawStorage := true }
+  let (bits, perWord, isBool) := dynamicStorageArrayElemLayout arrInfo.elemType
+  let elemSlot ← fresh
+  let dest ← fresh
+  let wordOff := if perWord == 1 then indexExpr else Expr.div indexExpr (.literal perWord)
+  let rawWord := Expr.storageArrayElement rawStorageFieldName (.localVar elemSlot)
+  let shifted :=
+    if perWord == 1 then rawWord
+    else Expr.shr (.mul (.mod indexExpr (.literal perWord)) (.literal bits)) rawWord
+  let masked := if bits < 256 then Expr.bitAnd shifted (.literal (2 ^ bits - 1)) else shifted
+  let cleaned := if isBool then Expr.logicalNot (.logicalNot masked) else masked
+  pure { pre := pre ++ #[rawFixedArrayBound arrInfo indexExpr,
+                         .letVar elemSlot (.add arrSlot wordOff), .letVar dest cleaned],
+         expr := .localVar dest }
+
+/-- Write (or, when `deleting`, zero) element `index` of a raw-slot struct's fixed-size array
+member at `arrSlot`, keeping the other lanes of its word. -/
+private def writeRawFixedArrayElement (pre : Array Stmt) (arrSlot : Expr)
+    (arrInfo : StructFixedArrayInfo) (indexExpr valExpr : Expr) (deleting : Bool) :
+    M (Array Stmt) := do
+  modify fun e => { e with usedRawStorage := true }
+  let baseSlot ← fresh
+  let writeStmts ←
+    writeStorageDynamicArrayElementAtUnchecked baseSlot arrInfo.elemType indexExpr valExpr deleting
+  return pre ++ #[rawFixedArrayBound arrInfo indexExpr, .letVar baseSlot arrSlot] ++ writeStmts
+
 /-- solc's guard before a storage array grows, for value and struct elements alike:
 `if iszero(lt(oldLen, 2^64)) { panic_error_0x41() }`, before the new length is written. It
 keeps every element index below `2^64`. -/
@@ -3626,6 +3662,8 @@ private partial def lowerExpr (j : Json) : M Val := do
               [.assignVar dest (read s!"__solidity_element_{i}")] [])
           markField name
           pure { pre, expr := .localVar dest }
+      | .structFixedElement pre (.rawSlot _ baseSlot) arrInfo index =>
+          readRawFixedArrayElement pre (rawStructMemberSlot baseSlot arrInfo.wordOffset) arrInfo index
       | .structFixedElement pre path arrInfo index =>
           let (rawName, count, read) ← match path with
             | .zero name => pure (name, 0, fun member => Expr.storage (topStructMemberFieldName (splitSPathField name).1 member))
@@ -3950,10 +3988,12 @@ private partial def lowerRef (j : Json) : M Ref := do
       | .structFixedArray pre path arrInfo =>
           let rawName ← match path with
             | .zero name | .one name _ | .two name _ _ => pure name
+            | .rawSlot _ _ => pure ""
             | .outer _ _ => failAt j "fixed array element requires both mapping keys"
-            | .rawSlot _ _ | .bytesSlot _ _ => failAt j "fixed array element on raw storage slot struct is outside this slice"
-          let (name, _) := splitSPathField rawName
-          let _ ← resolveField name j
+            | .bytesSlot _ _ => failAt j "fixed array element on raw storage slot struct is outside this slice"
+          if rawName != "" then
+            let (name, _) := splitSPathField rawName
+            let _ ← resolveField name j
           let ty ← mType indexExpression
           unless ty.startsWith "uint" || ty.startsWith "int_const" do
             failAt j "fixed storage array index must be unsigned"
@@ -4351,6 +4391,8 @@ private partial def lowerRef (j : Json) : M Ref := do
                 pure (.structMapping pre path mapInfo)
               else if let some dynInfo := rawInfo.dynamicArrays.find? (·.member == member) then
                 pure (.structDynamicArray pre path dynInfo)
+              else if let some arrInfo := rawInfo.fixedArrays.find? (·.member == member) then
+                pure (.structFixedArray pre path arrInfo)
               else if let some mInfo := rawInfo.scalars.find? (·.member == member) then
                 pure (.expr (← readRawStructScalar pre baseSlot mInfo))
               else if rawInfo.opaqueMemberNames.contains member then
@@ -15180,6 +15222,22 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           [write s!"__solidity_element_{i}" (.localVar capturedValue)] [])
       markField name
       return result
+    if let .structFixedElement pre (.rawSlot _ baseSlot) arrInfo index := reference then
+      -- As the dynamic array element below: the right-hand side first, then the index and
+      -- the bounds check, then the lane write.
+      if !deleting then
+        if memoryWriteOrderHazard target (← mField expression "rightHandSide") (← get) then
+          failAt target "memory-writing helper right-hand side with a memory-reading index or key is unsupported"
+      let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
+        let right ← mField expression "rightHandSide"
+        atom (← lowerConverted arrInfo.elemType right)
+      if !pre.isEmpty && !deleting then
+        let right ← mField expression "rightHandSide"
+        if assignmentIn right || statefulCallIn right (← get) then
+          failAt target "struct fixed array write index prelude with stateful RHS is unsupported"
+      let value ← if deleting then pure value else captureAssignedValue value
+      return ← writeRawFixedArrayElement (value.pre ++ pre)
+        (rawStructMemberSlot baseSlot arrInfo.wordOffset) arrInfo index value.expr deleting
     if let .structFixedElement pre path arrInfo index := reference then
       let (rawName, count, write) ← match path with
         | .zero rawName => pure (rawName, 0, fun member value => Stmt.setStorage (topStructMemberFieldName (splitSPathField rawName).1 member) value)
@@ -15611,6 +15669,18 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
     let reference ← lowerRef target
     if let .fixedElement _ _ _ := reference then
       failAt expression "only scalar storage assignment and delete are supported"
+    if let .structFixedElement pre (.rawSlot _ baseSlot) arrInfo index := reference then
+      let ty ← mType target
+      unless isSupportedCompoundTy ty do
+        failAt target s!"unsupported fixed array compound assignment type {ty}"
+      if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
+        failAt target "compound fixed array write index prelude with stateful RHS is unsupported"
+      let rhsVal ← captureAssignedValue (← lowerRhs ty)
+      let arrSlot := rawStructMemberSlot baseSlot arrInfo.wordOffset
+      let lhsVal ← readRawFixedArrayElement pre arrSlot arrInfo index
+      let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
+      let writeStmts ← writeRawFixedArrayElement #[] arrSlot arrInfo index combined.expr false
+      return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
     if let .structFixedElement _ _ _ _ := reference then
       failAt expression "only scalar storage assignment and delete are supported"
     if let .structDynamicElement pre path dynInfo index := reference then
@@ -15835,6 +15905,19 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
     let reference ← lowerRef target
     if let .fixedElement _ _ _ := reference then
       failAt j "only scalar storage assignment and delete are supported"
+    if let .structFixedElement pre (.rawSlot _ baseSlot) arrInfo index := reference then
+      let ty ← mType target
+      unless isSupportedIncDecTy ty do
+        failAt target s!"unsupported fixed array increment/decrement type {ty}"
+      let arrSlot := rawStructMemberSlot baseSlot arrInfo.wordOffset
+      let lhsVal ← readRawFixedArrayElement pre arrSlot arrInfo index
+      let oldVar ← fresh
+      let newVar ← fresh
+      let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+      let writeStmts ← writeRawFixedArrayElement #[] arrSlot arrInfo index (.localVar newVar) false
+      let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
+        combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
+      return { pre := stmts, expr := storageResult ty oldVar newVar }
     if let .structFixedElement _ _ _ _ := reference then
       failAt j "only scalar storage assignment and delete are supported"
     if let .structDynamicElement pre path dynInfo index := reference then
