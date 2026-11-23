@@ -296,7 +296,9 @@ def main():
         ('unchecked-division', '', 'unchecked { return x / (x - x); }', 'uint256', None),
         ('unchecked-signed', '', 'unchecked { return uint256(int256(x) - 1); }', 'uint256', None),
         ('unchecked-bitwise', 'uint256 value;', 'unchecked { value |= x; } return value;', 'uint256', None),
-        ('unchecked-helper-if-declaration', 'function h(uint256 y) internal pure returns (uint256) { unchecked { uint256 z = y - 1; if (y > 1) { return z; } } return y * 2; }', 'return h(x);', 'uint256', 'declarations in a partially returning unchecked helper block are outside this slice'),
+        # Admitted since the block end restores the block's name-keyed scope, whatever the
+        # state-variable count (#2830); values in UncheckedBlockDeclarationStateCountChecks.
+        ('unchecked-helper-if-declaration', 'function h(uint256 y) internal pure returns (uint256) { unchecked { uint256 z = y - 1; if (y > 1) { return z; } } return y * 2; }', 'return h(x);', 'uint256', None),
         ('helper-block-partial-return', 'function h(uint256 y) internal pure returns (uint256) { { if (y > 1) { return y - 2; } } return y * 2; }', 'return h(x);', 'uint256', 'partial return inside a helper block is outside this slice'),
         ('logical-or', '', 'return x == 0 || 100 / x > 1;', 'bool', None),
         ('logical-and', '', 'return x != 0 && 100 / x > 1;', 'bool', None),

@@ -224,6 +224,26 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    inline('unchecked-block-declaration', '''contract C {
+    uint256 private total;
+
+    function h(uint256 a) internal pure returns (uint256 r) {
+        uint256 v = a;
+        unchecked {
+            uint256 v = a - 1;
+            if (v == 0) return 100;
+        }
+        assembly {
+            r := v
+        }
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        total = x;
+        return h(x);
+    }
+}
+''', ['run(uint256)']),
     # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
     inline('known-encode-conditional', '''contract C {
     uint256 private total;
@@ -281,6 +301,11 @@ contract C {
             'EventHelperPreludeOneSlot', [
                 'helperTwice(uint256,uint256)', 'helperAndLocal(uint256)', 'storedPair(uint256,uint256)',
                 'guardedPair(uint256,uint256)', 'assembledMixed(uint256,uint256)']),
+    fixture('fixture-unchecked-block-declaration',
+            'Contracts/SolidityImportSmoke/UncheckedBlockDeclarationOneSlot.sol',
+            'UncheckedBlockDeclarationOneSlot', [
+                'runBumped(uint256)', 'runCheckedAfter(uint256,uint256)', 'runTwoDeclarations(uint256)',
+                'runRedeclared(uint256)', 'runShadowedLocal(uint256)', 'runShadowedConstant(uint256)']),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
 ]
