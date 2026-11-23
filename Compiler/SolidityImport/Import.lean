@@ -16412,6 +16412,11 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
         else match paramType ty with
           | some modelType => pure modelType
           | none => failAt parameter s!"unsupported event parameter type {ty}"
+      -- The data is encoded by the arguments' own types (`lowerAbiEncodeArgs` without the
+      -- declarations), where a string literal is a dynamic `string`; solc encodes it as the
+      -- static `bytesN` the parameter declares.
+      if (← mType argument).startsWith "literal_string " && (fixedBytesWidth? ty).isSome then
+        failAt argument s!"string literal event data argument for a {ty} parameter is unsupported"
       data := data.push argument
       params := params ++ [{ name := parameterName, ty := modelType, kind := .unindexed }]
   unless topics.size ≤ 4 do failAt declaration "event has more than three indexed parameters"

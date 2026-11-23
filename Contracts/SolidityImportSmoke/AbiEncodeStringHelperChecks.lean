@@ -8,7 +8,7 @@ tuple components (`AbiEncodeStringHelperSequence.sol`, `AbiEncodeStringHelperRej
 Such a helper may revert with a custom error: it runs at its own argument position, as both
 solc pipelines evaluate the arguments left to right. A state-changing helper, a calldata
 sibling, a storage sibling, a reverting scalar helper and a reverting multi-argument concat beside
-it stay located rejections.
+it stay located rejections, as does a string literal as event data for a `bytesN` parameter.
 -/
 namespace SolidityImportSmoke.AbiEncodeStringHelperChecks
 
@@ -110,5 +110,33 @@ solidity_import besideStorageForm from "Contracts/SolidityImportSmoke"
   using stringHelperEncoding
   contract StorageBesideC
   function digest(uint256)
+
+-- 7. A string literal as event data for a `bytesN` parameter: the data is encoded by the
+-- arguments' own types, where the literal is a dynamic `string`; solc encodes a static word.
+/--
+error: AbiEncodeStringHelperRejections.sol:74:21: Literal: [solidity-import:unsupported] string literal event data argument for a bytes1 parameter is unsupported
+closure: EventLiteralFixedBytesC.tag
+hex"0f"
+-/
+#guard_msgs in
+solidity_import eventLiteralForm from "Contracts/SolidityImportSmoke"
+  entry "AbiEncodeStringHelperRejections.sol"
+  using stringHelperEncoding
+  contract EventLiteralFixedBytesC
+  function tag(string)
+
+-- 8. A string literal for a `bytesN` parameter of an all-static typed interface call (the
+-- static encoder lowers its arguments with `lowerExpr`).
+/--
+error: AbiEncodeStringHelperRejections.sol:85:39: Literal: [solidity-import:unsupported] unsupported non-numeric literal
+closure: InterfaceLiteralFixedBytesC.probe
+hex"0f"
+-/
+#guard_msgs in
+solidity_import interfaceLiteralForm from "Contracts/SolidityImportSmoke"
+  entry "AbiEncodeStringHelperRejections.sol"
+  using stringHelperEncoding
+  contract InterfaceLiteralFixedBytesC
+  function probe(address)
 
 end SolidityImportSmoke.AbiEncodeStringHelperChecks
