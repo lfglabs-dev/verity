@@ -10970,6 +10970,26 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
                                yulNames := e.yulNames.erase rname }
       results := results.push (ptr, rty, true)
       retExprs := retExprs ++ #[(buf.pointer, rty), (buf.size, "uint256")]
+    else if rloc == "memory" && (rty == "bytes" || rty == "string") then
+      -- A `string` / `bytes memory` result owns its own pointer and length
+      -- bindings, one buffer per tuple position, starting as solc's empty
+      -- buffer. It takes two result slots: (pointer, rty) then (size, uint256).
+      let ptr ← if rname != "" then freshFor rname else fresh
+      let len ← fresh
+      let buf : EncodedBytes := { pre := #[], pointer := .localVar ptr, size := .localVar len }
+      pre := pre ++ #[.letVar ptr (.literal 96), .letVar len (.literal 0)]
+      if rname != "" then
+        -- A named result is a rebindable buffer; a named `string` result
+        -- shares the `bytes` binding, as a named root string result does.
+        modify fun e =>
+          { e with byteBuffers := e.byteBuffers.insert rid buf,
+                   nonLiteralByteLocals := if e.nonLiteralByteLocals.contains rid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push rid,
+                   encodingMemory := true,
+                   yulNames := e.yulNames.erase rname,
+                   yulMemoryArrays := e.yulMemoryArrays.erase rname,
+                   yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
+      results := results.push (ptr, rty, rname != "") |>.push (len, "uint256", rname != "")
+      retExprs := retExprs ++ #[(buf.pointer, rty), (buf.size, "uint256")]
     else if rloc == "memory" && rty.startsWith "struct " && !rty.contains "[" then
       let (retSid, retDecl) ← resolveStructDeclFromType r
       let retStructName ← mStr (← mField retDecl "name")
@@ -13342,6 +13362,18 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
                 unless resIdx < results.size do
                   failAt expression s!"multi-return helper return arity {cs.size} does not match {results.size}"
                 let (_, rty, _) := results[resIdx]!
+                if rty == "bytes" || rty == "string" then
+                  -- One buffer per tuple position: the pointer and length are
+                  -- captured here, in component order, into fresh bindings.
+                  unless resIdx + 1 < results.size do
+                    failAt expression s!"multi-return helper return arity {cs.size} does not match {results.size}"
+                  let buf ← lowerEncodedBytes c
+                  let ptrSnap ← fresh
+                  let sizeSnap ← fresh
+                  pre := pre ++ buf.pre ++ #[.letVar ptrSnap buf.pointer, .letVar sizeSnap buf.size]
+                  vals := vals.push (.localVar ptrSnap) |>.push (.localVar sizeSnap)
+                  resIdx := resIdx + 2
+                  continue
                 let v ← if (fixedMemArrayType? rty).isSome then do
                     let (arrPre, arr) ← lowerFixedMemArrayValue c
                     let snap ← fresh
@@ -13371,10 +13403,23 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
               pre := pre.push (.assignVar binding (vals.getD i (.literal 0)))
             pure (pre ++ (← get).helperPost)
           else
-            let expectedTypes := results.map fun (_, rty, _) => some rty
+            -- A buffer's two slots carry raw words (no conversion); their types
+            -- are checked against the result positions below.
+            -- Every (pointer, rty) slot is immediately followed by its
+            -- (size, uint256) slot, so the slot after a pointer is a size.
+            let isBufferSlot : Nat → Bool := fun i =>
+              let rty := (results.getD i ("", "", false)).2.1
+              let prevTy := if i == 0 then "" else (results.getD (i - 1) ("", "", false)).2.1
+              rty == "bytes" || rty == "string" || prevTy == "bytes" || prevTy == "string"
+            let expectedTypes := (List.range results.size).toArray.map fun i =>
+              if isBufferSlot i then none else some (results.getD i ("", "", false)).2.1
             let (branchPre, retExprs) ← lowerMultiBranch expression (some expectedTypes)
             unless retExprs.size == results.size do
               failAt expression s!"multi-return helper return arity {retExprs.size} does not match {results.size}"
+            for i in [:results.size] do
+              if isBufferSlot i then
+                unless (retExprs.getD i (.literal 0, "")).2 == (results.getD i ("", "", false)).2.1 do
+                  failAt expression "returned tuple string/bytes positions do not match the helper results"
             let mut pre := branchPre
             for i in [:results.size] do
               let (binding, _, _) := results[i]!
@@ -14498,25 +14543,59 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
     let cs ← mArr (← mField target "components")
     unless cs.size > 1 && cs.any (!·.isNull) do
       failAt target "tuple assignment requires multiple components"
+    let right ← mField expression "rightHandSide"
     let mut expectedTypes : Array (Option String) := #[]
+    -- The first result slot of each component: a `string` / `bytes memory`
+    -- helper result takes two slots (pointer, size).
+    let mut slotOf : Array Nat := #[]
     for c in cs do
+      slotOf := slotOf.push expectedTypes.size
       if c.isNull then
         expectedTypes := expectedTypes.push none
       else
-        expectedTypes := expectedTypes.push (some (← mType c))
-    let right ← mField expression "rightHandSide"
+        let cty ← mType c
+        if cty == "bytes memory" || cty == "string memory" then
+          unless (← mKind right) == "FunctionCall" do
+            failAt right "a string/bytes tuple assignment component requires a multi-return helper call"
+          expectedTypes := expectedTypes.push none |>.push none
+        else
+          expectedTypes := expectedTypes.push (some cty)
     let (callPre, retExprs) ← if (← mKind right) == "TupleExpression" then
         lowerMultiBranch right (some expectedTypes)
       else lowerMultiCall right (some expectedTypes)
-    unless cs.size == retExprs.size do
-      failAt expression s!"tuple assignment arity {cs.size} does not match helper return arity {retExprs.size}"
+    unless expectedTypes.size == retExprs.size do
+      failAt expression s!"tuple assignment arity {expectedTypes.size} does not match helper return arity {retExprs.size}"
     let mut seenIds : Array Nat := #[]
     let mut assigns : Array Stmt := #[]
-    for i in [:cs.size] do
-      let c := cs[i]!
+    for k in [:cs.size] do
+      let c := cs[k]!
+      let i := slotOf.getD k k
       if c.isNull then continue
+      let cty ← mType c
+      if cty == "bytes memory" || cty == "string memory" then
+        -- Rebind a writable buffer local (a named result or a non-literal
+        -- `bytes` local) to the helper's buffer, as `x = <buffer>` does.
+        unless (← mKind c) == "Identifier" do
+          failAt c "a string/bytes tuple assignment target must be a buffer local"
+        let cid ← refInt c
+        unless 0 ≤ cid && !seenIds.contains cid.toNat do
+          failAt c "duplicate or invalid target in tuple assignment"
+        seenIds := seenIds.push cid.toNat
+        let baseTy := if cty == "bytes memory" then "bytes" else "string"
+        let (ptrExpr, ptrTy) := retExprs.getD i (.literal 0, "")
+        let (sizeExpr, sizeTy) := retExprs.getD (i + 1) (.literal 0, "")
+        unless ptrTy == baseTy && sizeTy == "uint256" do
+          failAt c s!"{cty} tuple assignment target does not match the helper result type {ptrTy}"
+        let cname ← mStr (← mField c "name")
+        let some buf := (← get).byteBuffers.find? cid.toNat
+          | failAt c "only a rebindable string/bytes local can be a tuple assignment target"
+        unless (← get).nonLiteralByteLocals.contains cid.toNat && !(← get).yulNames.contains cname do
+          failAt c "only a rebindable string/bytes local can be a tuple assignment target"
+        let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size)
+          | failAt c "only a rebindable string/bytes local can be a tuple assignment target"
+        assigns := assigns ++ #[.assignVar ptrBinding ptrExpr, .assignVar sizeBinding sizeExpr]
+        continue
       if (← mKind c) == "MemberAccess" then
-        let cty ← mType c
         let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
         let converted ← atom (← convert cty retTy { pre := #[], expr := retExpr } c)
         let member ← mStr (← mField c "memberName")
@@ -16593,6 +16672,12 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
           let sMembers ← mArr (← mField sDecl "members")
           for mNode in sMembers do
             expectedTypes := expectedTypes.push (some (← mType mNode))
+        else if loc == "memory" && (dTy == "bytes" || dTy == "string") then
+          -- A helper's `string` / `bytes memory` result is two raw words
+          -- (pointer, size); the binding below checks their types.
+          unless (← mKind init) == "FunctionCall" do
+            failAt init "a string/bytes tuple component requires a multi-return helper call initializer"
+          expectedTypes := expectedTypes.push none |>.push none
         else
           expectedTypes := expectedTypes.push (some dTy)
     -- A literal tuple initializer evaluates every component left to right, as
@@ -16643,6 +16728,29 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
         continue
       if loc == "memory" then
         let (retExpr, retTy) := retExprs.getD off (.literal 0, "")
+        if ty == "bytes" || ty == "string" then
+          -- The local binds the helper's own buffer (pointer and size), as a
+          -- single `string` / `bytes memory` helper result is bound.
+          let (sizeExpr, sizeTy) := retExprs.getD (off + 1) (.literal 0, "")
+          unless retTy == ty && sizeTy == "uint256" do
+            failAt d s!"{ty} tuple component does not match the helper result type {retTy}"
+          let isString := ty == "string"
+          if isString && (← get).bodyAssigned.contains id then
+            failAt d "reassigned string locals are outside this slice"
+          let pointer ← freshFor name
+          let size ← fresh
+          out := out ++ #[.letVar pointer retExpr, .letVar size sizeExpr]
+          let retained : EncodedBytes :=
+            { pre := #[], pointer := .localVar pointer, size := .localVar size }
+          modify fun e =>
+            { e with byteBuffers := if isString then e.byteBuffers else e.byteBuffers.insert id retained,
+                     stringBuffers := if isString then e.stringBuffers.insert id retained else e.stringBuffers,
+                     nonLiteralByteLocals := if e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push id,
+                     yulNames := e.yulNames.erase name,
+                     yulMemoryArrays := e.yulMemoryArrays.erase name,
+                     yulMemoryStructs := e.yulMemoryStructs.insert name id }
+          off := off + 2
+          continue
         if let some fixedTy := fixedMemArrayType? ty then
           unless fixedMemArrayType? retTy == some fixedTy do
             failAt d "fixed-size memory array tuple component type differs"
