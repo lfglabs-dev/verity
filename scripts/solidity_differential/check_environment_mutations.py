@@ -9,7 +9,7 @@ from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, com
 from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
-    'import-msg-sender': ('pure (.expr { pre := #[], expr := .caller })', 'pure (.expr { pre := #[], expr := .literal 0 })'),
+    'import-msg-sender': ('| "sender" => pure Expr.caller', '| "sender" => pure (Expr.literal 0)'),
     'import-address-this': ('return { pre := #[], expr := .contractAddress }', 'return { pre := #[], expr := .literal 0 }'),
     'import-block-number': ('| "number" => pure Expr.blockNumber', '| "number" => pure (Expr.literal 0)'),
     'import-block-chainid': ('| "chainid" => pure Expr.chainid', '| "chainid" => pure (Expr.literal 0)'),

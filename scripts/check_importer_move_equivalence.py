@@ -492,30 +492,11 @@ def collect_anchors(root: Path = ROOT, scripts: Path = SCRIPTS) -> tuple[list[An
     return anchors, problems
 
 
-# Anchors that already do not occur exactly once on main when this check was added
-# (2026-11-21, origin/main 6413bcba2), with the count observed then. These mutants
-# fail as harness errors today; they are pre-existing debt, not move regressions.
-# The check fails if an entry's count changes (fix it, then delete the entry) and
-# for any anchor not listed here, so a move cannot add to the list silently.
-KNOWN_ANCHOR_PROBLEMS = {
-    ("check_byte_call_mutations", "selector-shift"): 3,
-    ("check_create2_struct_emit_mutations", "import-struct-emit-payload"): 2,
-    ("check_environment_mutations", "import-msg-sender"): 0,
-    ("check_external_code_and_low_level_call_mutations", "denote-low-level-call-forward"): 6,
-    ("check_external_code_and_low_level_call_mutations", "denote-low-level-call-short"): 3,
-    ("check_scalar_array_abi_mutations", "import-scalar-array-validation"): 0,
-    ("check_storage_mutations", "import-string-event-data-before-indexed-guard"): 2,
-    ("check_storage_mutations", "import-if-root-swap"): 0,
-    ("check_storage_mutations", "import-local-write-delete"): 0,
-    ("check_storage_mutations", "import-invariant-for-bound"): 0,
-    ("check_storage_mutations", "import-packed-member-delete"): 0,
-    ("check_storage_mutations", "import-named-helper-frame"): 0,
-    ("check_storage_mutations", "import-multiproof-verifiers-bool-member-read-invert"): 0,
-    ("check_storage_mutations", "import-votes-checkpoints-arrays-bitmaps-root-struct-return-zero"): 0,
-    ("check_storage_mutations", "import-public-getters-and-builtins-revert-reason-empty"): 0,
-    ("check_storage_mutations", "import-unchecked-block-root"): 0,
-    ("check_struct_abi_mutations", "import-struct-memory-offset"): 2,
-}
+# Anchors allowed not to occur exactly once, with their count. Empty since #2831
+# re-anchored the 17 stale mutants recorded here on 2026-11-21: every anchor must
+# now occur exactly once. The check also fails if an entry's count changes and for
+# a listed mutant that no longer exists.
+KNOWN_ANCHOR_PROBLEMS: dict[tuple[str, str], int] = {}
 
 
 def anchor_problems(anchors: list[Anchor], root: Path = ROOT,
