@@ -18,7 +18,8 @@ what the importer produces. This script makes that claim checkable:
 * ``compare BASE CANDIDATE`` diffs two dumps byte for byte.
 * ``anchors`` checks that every mutation anchor occurs exactly once in the file
   its script routes it to, so a moved declaration cannot silently turn a
-  mutant into a no-op.
+  mutant into a no-op, and that each table mutant's replacement differs from
+  its anchor.
 
 Allowed differences (the only ones): the 64-hex value of the report field
 ``sourceDigest``. A move changes the hashed importer source files, so every
@@ -371,10 +372,10 @@ def compare(base: Path, candidate: Path, allow_subset: bool = False) -> dict:
 # Mutation anchors
 
 # How each table-driven mutation script routes an anchor to a file:
-#   "path"   MUTANTS[name] = (relative path, anchor, ...)
-#   "import" MUTANTS[name] = (anchor, ...), applied to Import.lean
-#   "router" MUTANTS[name] = (anchor, ...), file from mutation_source(root, name)
-#   a path   MUTANTS[name] = (anchor, ...), applied to that file
+#   "path"   MUTANTS[name] = (relative path, anchor, replacement, ...)
+#   "import" MUTANTS[name] = (anchor, replacement, ...), applied to Import.lean
+#   "router" MUTANTS[name] = (anchor, replacement, ...), file from mutation_source(root, name)
+#   a path   MUTANTS[name] = (anchor, replacement, ...), applied to that file
 MUTANT_TABLES = {
     "check_abi_length_for_mutations": "path",
     "check_abi_mutations": "import",
@@ -419,6 +420,7 @@ class Anchor:
     mutant: str
     file: str
     text: str
+    replacement: str | None = None  # None when the script builds it at run time
 
 
 def inline_anchors(script: str, source: str) -> list[Anchor]:
@@ -444,14 +446,18 @@ def table_anchors(script: str, module, routing: str, root: Path) -> list[Anchor]
         if not isinstance(spec, tuple) or len(spec) < 2:
             raise HarnessError(f"{script}: {name}: unexpected mutant shape {type(spec).__name__}")
         if routing == "path":
-            relative, text = spec[0], spec[1]
+            relative, text, replacement = spec[0], spec[1], spec[2] if len(spec) > 2 else None
         elif routing == "router":
             relative, text = module.mutation_source(root, name).relative_to(root).as_posix(), spec[0]
+            replacement = spec[1]
         else:
-            relative, text = (IMPORT if routing == "import" else routing), spec[0]
+            relative = IMPORT if routing == "import" else routing
+            text, replacement = spec[0], spec[1]
         if not (isinstance(relative, str) and relative.endswith(".lean") and isinstance(text, str)):
             raise HarnessError(f"{script}: {name}: cannot route ({relative!r})")
-        found.append(Anchor(script, name, relative, text))
+        if not isinstance(replacement, str):
+            raise HarnessError(f"{script}: {name}: replacement is not a string")
+        found.append(Anchor(script, name, relative, text, replacement))
     return found
 
 
@@ -502,7 +508,8 @@ KNOWN_ANCHOR_PROBLEMS: dict[tuple[str, str], int] = {}
 def anchor_problems(anchors: list[Anchor], root: Path = ROOT,
                     known: dict[tuple[str, str], int] | None = None) -> list[str]:
     """Anchors that do not occur exactly once in their routed file, except the
-    `known` ones at their recorded count; plus `known` entries that changed."""
+    `known` ones at their recorded count; plus `known` entries that changed, and
+    mutants whose replacement equals their anchor (they cannot change the code)."""
     known = KNOWN_ANCHOR_PROBLEMS if known is None else known
     problems: list[str] = []
     texts: dict[str, str] = {}
@@ -514,6 +521,8 @@ def anchor_problems(anchors: list[Anchor], root: Path = ROOT,
         count = texts[anchor.file].count(anchor.text) if anchor.text else 0
         key = (anchor.script, anchor.mutant)
         seen.add(key)
+        if anchor.replacement == anchor.text:
+            problems.append(f"{anchor.script}: {anchor.mutant}: replacement equals the anchor")
         if key in known:
             if count != known[key]:
                 problems.append(f"{anchor.script}: {anchor.mutant}: known anchor problem changed "
@@ -546,7 +555,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("base", type=Path)
     p.add_argument("candidate", type=Path)
     p.add_argument("--allow-subset", action="store_true", help="accept dumps made with --module")
-    p = sub.add_parser("anchors", help="check that every mutation anchor occurs exactly once")
+    p = sub.add_parser("anchors", help="check that every mutation anchor occurs exactly once "
+                                       "and that its replacement differs from it")
     args = parser.parse_args(argv)
     try:
         if args.command == "targets":

@@ -352,7 +352,9 @@ class AnchorTests(unittest.TestCase):
                        Anchor("s", "missing-file", "Gone.lean", "alpha"),
                        Anchor("s", "empty", "Old.lean", ""),
                        Anchor("s", "known-same", "Old.lean", "beta"),
-                       Anchor("s", "known-changed", "Old.lean", "alpha")]
+                       Anchor("s", "known-changed", "Old.lean", "alpha"),
+                       Anchor("s", "no-op", "New.lean", "gamma", "gamma"),
+                       Anchor("s", "mutates", "New.lean", "gamma", "delta")]
             known = {("s", "known-same"): 2, ("s", "known-changed"): 0, ("s", "retired"): 0}
             problems = harness.anchor_problems(anchors, root, known)
         self.assertEqual(problems, [
@@ -361,6 +363,7 @@ class AnchorTests(unittest.TestCase):
             "s: missing-file: anchor occurs 0 times in Gone.lean",
             "s: empty: anchor occurs 0 times in Old.lean",
             "s: known-changed: known anchor problem changed (0 -> 1 in Old.lean); update KNOWN_ANCHOR_PROBLEMS",
+            "s: no-op: replacement equals the anchor",
             "s: retired: listed in KNOWN_ANCHOR_PROBLEMS but no longer a mutant",
         ])
 
