@@ -90,15 +90,26 @@ def noteProfiledFn (fn : Json) : M Unit := do
       (validateLegacyDeclaration fn).run' { env with stack, currentFile := file }
   noteFn fn
 
+/-- The `literals` of every pragma directive of a source unit. -/
+def pragmaLiterals (ast : Json) : Array (Array Json) :=
+  match (field? ast "nodes").bind (·.getArr?.toOption) with
+  | none => #[]
+  | some nodes => nodes.filterMap fun node =>
+    if optStr node "nodeType" == some "PragmaDirective" then
+      (field? node "literals").bind (·.getArr?.toOption)
+    else none
+
+/-- The literals of `pragma abicoder <version>`. -/
+def abicoderPragma (version : String) : Array Json := #[Json.str "abicoder", Json.str version]
+
+/-- A source unit with `pragma abicoder v1`. -/
+def abiCoderV1Pragma (ast : Json) : Bool :=
+  (pragmaLiterals ast).contains (abicoderPragma "v1")
+
 /-- Solidity 0.7.6 defaults to ABI coder v1. External decoding uses the
 target contract's source unit, including for inherited functions. -/
 def legacyAbiV2 (ast : Json) : Bool :=
-  match (field? ast "nodes").bind (·.getArr?.toOption) with
-  | none => false
-  | some nodes => nodes.any fun node =>
-    optStr node "nodeType" == some "PragmaDirective" &&
-      (let literals := (field? node "literals").bind (·.getArr?.toOption)
-       literals == some #[Json.str "experimental", Json.str "ABIEncoderV2"] ||
-       literals == some #[Json.str "abicoder", Json.str "v2"])
+  (pragmaLiterals ast).any fun literals =>
+    literals == #[Json.str "experimental", Json.str "ABIEncoderV2"] || literals == abicoderPragma "v2"
 
 end Compiler.CompilationModel.SolidityImport

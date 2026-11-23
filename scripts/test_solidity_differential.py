@@ -28,6 +28,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "assignment-arguments",
     "baseline",
     "block-rejections",
+    "calldata-narrow-array-copy",
+    "calldata-narrow-array-copy-solc0810",
     "checked-oracle-mock",
     "create2-parent-opcode",
     "create2-struct-emit",

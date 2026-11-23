@@ -324,6 +324,20 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--change-prefix', *map(str, [0, 248, 256, 264, 320, 328, 1, 2, 10, 3, 251, 331, 4, 260,
             332, 5, 6, 5, 7, 263, 335, 2 ** 256 - 1]),
         '--output', str(output / 'multi-return-buffers')]))
+    # Narrow `T[] calldata` arrays copied to memory (returned as `T[] memory`, passed to a memory
+    # helper) with clean and out-of-range elements (check_stateful's NARROW_COPY_CALLS prefix).
+    # The 0.8.34 fixture runs via-IR (the copy reverts); its solc 0.8.10 twin runs the legacy
+    # pipeline (the copy cleans each element).
+    for check, fixture, extra in (
+            ('calldata-narrow-array-copy', 'CalldataNarrowArrayCopySequence', []),
+            ('calldata-narrow-array-copy-solc0810', 'CalldataNarrowArrayCopySolc0810Sequence',
+             ['--solc-version', '0.8.10'])):
+        checks.append((check, ['-m', 'solidity_differential.check_stateful',
+            '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
+            '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
+            '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
+            '--change-prefix', '0', '1', '999', str(2 ** 256 - 1),
+            '--output', str(output / check)]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',
