@@ -14564,6 +14564,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         if cty == "bytes memory" || cty == "string memory" then
           unless (← mKind right) == "FunctionCall" do
             failAt right "a string/bytes tuple assignment component requires a multi-return helper call"
+          -- `abi.decode` keeps its own diagnostic: only scalar components decode here.
+          if ← isAbiDecodeCall right then
+            failAt right "tuple assignment or return from abi.decode only supports scalar components"
           expectedTypes := expectedTypes.push none |>.push none
         else
           expectedTypes := expectedTypes.push (some cty)
@@ -14571,8 +14574,12 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         lowerMultiBranch right (some expectedTypes)
       else lowerMultiCall right (some expectedTypes)
     unless expectedTypes.size == retExprs.size do
-      if expectedTypes.size != cs.size then
-        failAt right "string/bytes tuple assignment components require a multi-return helper call with matching results"
+      -- A helper's string/bytes result takes two slots: an elided component or
+      -- a target that is not a `string memory` / `bytes memory` local takes one.
+      if retExprs.any (fun (_, ty) => ty == "bytes" || ty == "string") then
+        if cs.any (·.isNull) then
+          failAt expression "an elided string/bytes tuple component is outside this slice"
+        failAt expression "a string/bytes helper result requires a string memory or bytes memory local target"
       failAt expression s!"tuple assignment arity {cs.size} does not match helper return arity {retExprs.size}"
     let mut seenIds : Array Nat := #[]
     let mut assigns : Array Stmt := #[]
