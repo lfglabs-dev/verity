@@ -34,12 +34,12 @@ one, so skipped code cannot reach the importer):
    or a `where` / `let rec` helper), which are test data of a statement; and the reasoned
    `FILE_EXCEPTIONS` (EmitVerity's printed names and example model, the model responder's
    harness id), each an exact literal in one file; Legacy's ABI coder pragma tokens, only inside
-   the exact `literals == some #[Json.str ..., Json.str ...]` comparisons of `PRAGMA_LITERALS`;
-   and a pinned solc
-   release string of the exact shape `<major>.<minor>.<patch>+commit.<8 hex>`
-   (`"0.7.6+commit.7338295f"`), which names a compiler build and cannot be an identifier. Raw strings (`r"..."`,
-   `r#"..."#`) are read as strings without escapes; string gaps (`\` at a line end) and
-   interpolations of nothing or of a literal are joined, so a name split by them is one name.
+   the exact `literals == some #[Json.str ..., Json.str ...]` comparisons of a guarded
+   PragmaDirective expression (`PRAGMA_PAIRS`); and a pinned solc release string of the exact
+   shape `<major>.<minor>.<patch>+commit.<8 hex>` (`"0.7.6+commit.7338295f"`), which names a
+   compiler build and cannot be an identifier. Raw strings (`r"..."`, `r#"..."#`) are read as
+   strings without escapes; string gaps (`\` at a line end) and interpolations of nothing or of a
+   literal are joined, so a name split by them is one name.
    Scope: only `Compiler/SolidityImport/`; a helper elsewhere under `Compiler/` is not read.
    Not detected, so left to review: a selection by a function selector or other hash of a name
    (`sel == 0xa9059cbb`: number literals are not names to this check, and the importer compares
@@ -172,8 +172,9 @@ SOLC_JSON_FIELDS = {
     "AST", "Solidity", "arguments", "ast", "baseType", "body", "bytecodeHash", "components",
     "condition", "content", "declarations", "enabled", "evmVersion", "expression", "falseBody",
     "indexed", "initialValue", "initializationExpression", "isInlineArray", "label", "language",
-    "leftHandSide", "literals", "members", "metadata", "names", "optimizer", "outputSelection", "parameterTypes",
-    "parameters", "runs", "settings", "sources", "statements", "storageLayout", "subExpression",
+    "leftHandSide", "literals", "members", "metadata", "names", "optimizer", "outputSelection",
+    "parameterTypes", "parameters", "runs", "settings", "sources", "statements", "storageLayout",
+    "subExpression",
     "transientStorageLayout", "trueBody", "typeDescriptions", "typeName", "typeString", "types",
     "variableNames", "viaIR",
 }
@@ -264,29 +265,43 @@ FILE_EXCEPTIONS = {
                    "accrueWadFee", "assets", "feeRateWad", "fee")},
 }
 
-# ABI coder pragma tokens: allowed only in Legacy.lean, and only as one of these exact
-# `literals` comparisons. solc splits `pragma experimental ABIEncoderV2;` into
+# ABI coder pragma tokens: allowed only in Legacy.lean, and only as the exact `literals`
+# comparisons of a PragmaDirective. solc splits `pragma experimental ABIEncoderV2;` into
 # ["experimental", "ABIEncoderV2"] and, from 0.7.5, `pragma abicoder v2;` into ["abicoder", "v2"]
-# (Solidity docs, "Layout of a Source File" > Pragmas). Elsewhere, even in Legacy.lean, each token
-# is an ordinary (user-nameable) identifier and is checked as such.
-PRAGMA_LITERALS = {
-    (_LEGACY, pair): re.compile(
-        r'\bliterals\s*==\s*some\s*#\[\s*Json\.str\s+"' + pair[0]
-        + r'"\s*,\s*Json\.str\s+"' + pair[1] + r'"\s*\]')
-    for pair in (("experimental", "ABIEncoderV2"), ("abicoder", "v2"))
-}
+# (Solidity docs, "Layout of a Source File" > Pragmas). The comparisons count only inside the
+# whole guarded expression `optStr n "nodeType" == some "PragmaDirective" && (let literals :=
+# (field? n "literals").bind (·.getArr?.toOption); literals == some #[...] || ...)`, so `literals`
+# is solc's pragma field and nothing else. Elsewhere, even in Legacy.lean, each token is an
+# ordinary (user-nameable) identifier and is checked as such.
+PRAGMA_PAIRS = {_LEGACY: (("experimental", "ABIEncoderV2"), ("abicoder", "v2"))}
+
+
+def _pragma_pair(pair: tuple[str, str]) -> str:
+    return (r'literals\s*==\s*some\s*#\[\s*Json\.str\s+"' + pair[0]
+            + r'"\s*,\s*Json\.str\s+"' + pair[1] + r'"\s*\]')
+
+
+def _pragma_block(pairs: tuple[tuple[str, str], ...]) -> re.Pattern[str]:
+    cmp = "(?:" + "|".join(_pragma_pair(pair) for pair in pairs) + ")"
+    return re.compile(
+        r'optStr\s+(\w+)\s+"nodeType"\s*==\s*some\s+"PragmaDirective"\s*&&\s*'
+        r'\(\s*let\s+literals\s*:=\s*\(\s*field\?\s+\1\s+"literals"\s*\)'
+        r'\.bind\s*\(\s*·\.getArr\?\.toOption\s*\)\s*'
+        + cmp + r'(?:\s*\|\|\s*' + cmp + r')*\s*\)')
 
 
 def pragma_literal_spans(rel: str, code: str) -> list[tuple[int, int]]:
     """Spans of the allowed comparisons in `code` (comments blanked, so a comment cannot keep an
-    entry in use)."""
+    entry in use), each inside a whole guarded PragmaDirective expression."""
+    pairs = PRAGMA_PAIRS.get(rel, ())
+    if not pairs:
+        return []
     spans = []
-    for (file, pair), pattern in PRAGMA_LITERALS.items():
-        if file != rel:
-            continue
-        for m in pattern.finditer(code):
-            USED.add(("pragma", f"{file}:{pair[0]} {pair[1]}"))
-            spans.append((m.start(), m.end()))
+    for block in _pragma_block(pairs).finditer(code):
+        for pair in pairs:
+            for m in re.finditer(_pragma_pair(pair), block.group(0)):
+                USED.add(("pragma", f"{rel}:{pair[0]} {pair[1]}"))
+                spans.append((block.start() + m.start(), block.start() + m.end()))
     return spans
 
 
@@ -760,9 +775,11 @@ def check_unused(errors: list[str]) -> None:
     for name in sorted(ALLOWED_NAME_LITERALS):
         if ("name", name) not in USED:
             errors.append(f"ALLOWED_NAME_LITERALS entry `{name}` is not used: remove it")
-    for file, pair in sorted(PRAGMA_LITERALS):
-        if ("pragma", f"{file}:{pair[0]} {pair[1]}") not in USED:
-            errors.append(f"PRAGMA_LITERALS entry {file}: {pair} is not used: remove it")
+    for file, pairs in sorted(PRAGMA_PAIRS.items()):
+        for pair in pairs:
+            if ("pragma", f"{file}:{pair[0]} {pair[1]}") not in USED:
+                errors.append(f"PRAGMA_PAIRS entry {file}: {pair} is not used in a guarded "
+                              f"PragmaDirective `literals` comparison: remove it")
     for file, lit in sorted(FILE_EXCEPTIONS):
         if ("file", f"{file}:{lit}") not in USED:
             errors.append(f"FILE_EXCEPTIONS entry {file}: \"{lit}\" is not used: remove it")

@@ -372,12 +372,30 @@ class ImporterNameSelectionTests(unittest.TestCase):
 
     def test_unused_pragma_pair_fails(self) -> None:
         self.edit(LEGACY, 'Json.str "abicoder", Json.str "v2"', 'Json.str "abicoder", Json.str "v1"')
-        self.assertFails("PRAGMA_LITERALS entry")
+        self.assertFails("PRAGMA_PAIRS entry")
 
     def test_pragma_pair_in_a_comment_is_unused(self) -> None:
         self.edit(LEGACY, 'Json.str "abicoder", Json.str "v2"', 'Json.str "abicoder", Json.str "v1"')
         self.append(LEGACY, '\n-- literals == some #[Json.str "abicoder", Json.str "v2"]\n')
-        self.assertFails("PRAGMA_LITERALS entry")
+        self.assertFails("PRAGMA_PAIRS entry")
+
+    def test_pragma_pair_on_a_rebound_literals_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (fn : Json) : Bool :=\n'
+                    '  let literals := some #[Json.str ((optStr fn "name").getD ""),\n'
+                    '    Json.str ((optStr fn "kind").getD "")]\n'
+                    '  literals == some #[Json.str "abicoder", Json.str "v2"]\n')
+        self.assertFails("`abicoder`")
+
+    def test_pragma_pair_inside_a_tampered_guard_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (node fn : Json) : Bool :=\n'
+                    '  optStr node "nodeType" == some "PragmaDirective" &&\n'
+                    '    (let literals := (field? fn "literals").bind (·.getArr?.toOption)\n'
+                    '     literals == some #[Json.str "abicoder", Json.str "v2"])\n')
+        self.assertFails("`abicoder`")
+
+    def test_responder_program_id_passes_in_its_file(self) -> None:
+        self.append(RESPONDERS, '\ndef zzA (p : String) : Bool := p == "imported-model-static-v1"\n')
+        self.assertEqual(lint.run(self.root), [])
 
     def test_pragma_token_outside_legacy_fails(self) -> None:
         self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "v2"\n')
