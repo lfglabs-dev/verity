@@ -72,6 +72,29 @@ class ImporterNameSelectionTests(unittest.TestCase):
                     '  ["TickBitmap.flipTick", "flipTick"].contains n\n')
         self.assertFails("`flipTick`")
 
+    def test_literal_on_the_left_fails(self) -> None:
+        self.append(IMPORT, '\ndef isHook (n : String) : Bool := "callHook" == n\n')
+        self.assertFails("`callHook`")
+
+    def test_prop_equality_fails(self) -> None:
+        self.append(IMPORT, '\ndef isCurrency (n : String) : Bool := decide (n = "CurrencyLibrary")\n')
+        self.assertFails("`CurrencyLibrary`")
+        self.append(IMPORT, '\ndef notFlip (n : String) : Prop := n ≠ "flipTick"\n')
+        self.assertFails("`flipTick`")
+
+    def test_prefix_test_fails(self) -> None:
+        self.append(IMPORT, '\ndef isHook (n : String) : Bool := "callHook".isPrefixOf n\n')
+        self.assertFails("`callHook`")
+
+    def test_named_name_constant_fails(self) -> None:
+        self.append(IMPORT, '\ndef hookName : String := "callHook"\n'
+                    'def isHook (n : String) : Bool := n == hookName\n')
+        self.assertFails("named string constant")
+
+    def test_shortcut_lowering_outside_registry_fails(self) -> None:
+        self.append(IMPORT, '\ndef lowerSwapStepShortcut : Nat := 0\n')
+        self.assertFails("lowerSwapStepShortcut defined outside the registry module")
+
     def test_yul_variable_lookup_outside_registry_gate_fails(self) -> None:
         self.append(IMPORT, '\ndef startOf (env : Env) : Option Expr :=\n'
                     '  env.yulNames.find? "startSlot"\n')

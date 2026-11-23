@@ -327,7 +327,10 @@ lowering: `extsloadBatchYulFingerprint` and `exttloadBatchYulFingerprint` (the
 `Extsload`/`Exttload` `bytes32[]` batch reads of `Uniswap/v4-core` `46c6834`) by
 `lowerBatchArrayLoadShim`, and `extsloadRangeYulFingerprint` (`Extsload.extsload(bytes32,
 uint256)`) by `lowerBatchRangeSloadShim`. Selection is by exact code fingerprint only, never by
-a name (`scripts/check_importer_name_selection.py`, in `make check`). The model of a replaced
+a name: the lowerings take a `TrustedShortcutMatch`, which only a registry fingerprint match
+builds, and `scripts/check_importer_name_selection.py` (in `make check`) rejects the forms of
+name comparison and registry bypass it lists (a text check; what it cannot see is listed in the
+script and left to review). The model of a replaced
 block is the fixed lowering. No Lean proof relates it to the block; each registry entry names
 the tests that compare the lowering's results with solc's (`TrustedShortcut.evidence`). A proof
 about an imported root whose model uses a shortcut relies on the lowering and the block

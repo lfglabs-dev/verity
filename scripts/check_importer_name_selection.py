@@ -9,17 +9,21 @@ an inline-assembly block by the exact fingerprint of its Yul AST.
 Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test files end in
 `Test.lean` or `Tests.lean`, as in `SourceDigest.lean`):
 
-1. Name selection. A string literal in a selection position (operand of `==` / `!=`, a `match`
-   pattern, the argument of `.contains` / `.startsWith` / `.endsWith` / `.find?`, an element of
-   a literal list tested with `.contains` / `.elem` / `.any` / `.all`, or the name argument of
-   `inlineAssemblyIdentDecl?` / `yulIdentifierSrcs`) may contain only identifiers listed in
-   `ALLOWED_IDENTIFIERS`: solc AST node types, AST field values, Solidity and Yul builtins,
-   elementary types, importer-generated names and build-tool names. A function, library,
+1. Name selection. A string literal in a selection position (either operand of `==`, `!=`,
+   `=` or `≠`, a `match` pattern, the receiver of `.isPrefixOf` / `.isSuffixOf`, the argument
+   of `.contains` / `.startsWith` / `.endsWith` / `.find?`, an element of a literal list tested
+   with `.contains` / `.elem` / `.any` / `.all`, the name argument of `inlineAssemblyIdentDecl?`
+   / `yulIdentifierSrcs`, or the value of an identifier-shaped `def`/`abbrev` string constant)
+   may contain only identifiers listed in `ALLOWED_IDENTIFIERS`: the solc AST node types, AST
+   field values, Solidity and Yul builtins, type words, importer-generated names and build-tool
+   names the importer compares today (the list holds no unused entry). A function, library,
    contract or Yul variable name of user code (`callHook`, `CurrencyLibrary`, ...) is not
    there, so comparing one fails here.
-   Not detected: a literal passed to a helper that compares it inside (only the helpers above
-   are known), and a builtin name that user code may also choose (e.g. `push`); those are for
-   review.
+   Not detected, so left to review: a literal passed to a helper that compares it inside (only
+   the helpers above are known); a comparison with a value built at run time; and a listed
+   builtin name that user code may also choose for its own declaration (e.g. `transfer`,
+   `push`, `add`): the importer compares those only for builtins (e.g. members without a
+   `referencedDeclaration`), which this text check cannot see.
 2. Registry-gated names. `startSlot` and `nSlots` are the Yul variable names of the registered
    range-read block. They may occur only in `rangeReadBindings?`, after it has matched the block
    through the registry (`matchTrustedShortcut?`, then `guard` on `.rangeStorageRead`): there
@@ -30,7 +34,10 @@ Checks, over every non-test `.lean` file under `Compiler/SolidityImport/` (test 
    type `TrustedShortcutMatch` keeps a private constructor, and every `lower*` definition of the
    registry module takes one and records the shortcut (`recordShortcut m decl_name%`).
 4. Routing. Outside the registry module, no importer code names a `*YulFingerprint` constant,
-   compares a `yulBlockFingerprint`, or defines a `lower*Shim`.
+   compares a `yulBlockFingerprint`, or defines a `lower...Shim...` / `lower...Shortcut...`.
+   A fixed lowering that is not named as one and is selected by code shape cannot be told
+   from a translation by text; the registry's lowerings are bound to it by type (they take a
+   `TrustedShortcutMatch`), and anything else is for review.
 """
 from __future__ import annotations
 
@@ -46,89 +53,73 @@ REGISTRY_FILE = IMPORTER_DIR / "InlineAssemblyShims.lean"
 # Identifiers that may appear in a selection literal. Grouped by where they come from; none is a
 # name chosen by the author of the imported code.
 SOLC_AST_NODE_TYPES = {
-    "ArrayTypeName", "Assignment", "BinaryOperation", "Block", "Break", "Conditional",
-    "Continue", "ContractDefinition", "DoWhileStatement", "ElementaryTypeName",
-    "ElementaryTypeNameExpression", "EmitStatement", "EnumDefinition", "EnumValue",
-    "ErrorDefinition", "EventDefinition", "ExpressionStatement", "ForStatement", "FunctionCall",
-    "FunctionCallOptions", "FunctionDefinition", "FunctionTypeName", "Identifier",
-    "IdentifierPath", "IfStatement", "ImportDirective", "IndexAccess", "IndexRangeAccess",
-    "InheritanceSpecifier", "InlineAssembly", "Literal", "Mapping", "MemberAccess",
-    "ModifierDefinition", "ModifierInvocation", "NewExpression", "ParameterList",
-    "PlaceholderStatement", "PragmaDirective", "Return", "RevertStatement", "SourceUnit",
-    "StructDefinition", "StructuredDocumentation", "TryCatchClause", "TryStatement",
+    "ArrayTypeName", "Assignment", "BinaryOperation", "Block", "Break", "Conditional", "Continue",
+    "ContractDefinition", "ElementaryTypeName", "ElementaryTypeNameExpression", "EmitStatement",
+    "EnumDefinition", "ErrorDefinition", "EventDefinition", "ExpressionStatement", "ForStatement",
+    "FunctionCall", "FunctionCallOptions", "FunctionDefinition", "FunctionTypeName", "Identifier",
+    "IfStatement", "IndexAccess", "IndexRangeAccess", "InlineAssembly", "Literal", "Mapping",
+    "MemberAccess", "ModifierDefinition", "ModifierInvocation", "NewExpression",
+    "PlaceholderStatement", "Return", "RevertStatement", "StructDefinition", "TryStatement",
     "TupleExpression", "UnaryOperation", "UncheckedBlock", "UserDefinedTypeName",
-    "UserDefinedValueTypeDefinition", "UsingForDirective", "VariableDeclaration",
-    "VariableDeclarationStatement", "WhileStatement",
-    "YulAssignment", "YulBlock", "YulBreak", "YulCase", "YulContinue", "YulExpressionStatement",
-    "YulForLoop", "YulFunctionCall", "YulFunctionDefinition", "YulIdentifier", "YulIf",
-    "YulLeave", "YulLiteral", "YulSwitch", "YulTypedName", "YulVariableDeclaration",
+    "UserDefinedValueTypeDefinition", "VariableDeclaration", "VariableDeclarationStatement",
+    "WhileStatement", "YulAssignment", "YulBlock", "YulExpressionStatement", "YulFunctionCall",
+    "YulIdentifier", "YulIf", "YulLiteral", "YulVariableDeclaration",
 }
 # Values of solc AST fields (`kind`, `visibility`, `stateMutability`, `storageLocation`,
 # `mutability`, `contractKind`, literal kinds, ...).
 SOLC_AST_FIELD_VALUES = {
-    "baseConstructorSpecifier", "bool", "constant", "constructor", "contract", "default",
-    "error", "external", "fallback", "freeFunction", "function", "functionCall", "hexString",
-    "immutable", "interface", "internal", "library", "memory", "modifierInvocation",
-    "mutable", "nonpayable", "number", "payable", "private", "public", "pure", "receive",
-    "storage", "string", "structConstructorCall", "calldata", "transient", "typeConversion",
-    "unicodeString", "view", "virtual",
+    "baseConstructorSpecifier", "bool", "calldata", "constant", "constructor", "contract",
+    "default", "error", "external", "function", "functionCall", "hexString", "immutable",
+    "interface", "internal", "library", "memory", "modifierInvocation", "nonpayable", "number",
+    "payable", "private", "public", "pure", "storage", "string", "structConstructorCall",
+    "transient", "typeConversion", "unicodeString", "view", "virtual",
 }
 # solc's `typeString` / `typeIdentifier` vocabulary.
 SOLC_TYPE_WORDS = {
-    "address", "array", "bool", "byte", "bytes", "contract", "dyn", "enum", "fixed", "function",
-    "int", "int_const", "literal_string", "mapping", "payable", "pointer", "ptr", "rational",
-    "string", "struct", "super", "tuple", "type", "ufixed", "uint", "dynamic_array",
-    "barestaticcall", "delegatecall", "event", "external", "internal", "magic", "message",
-    "block", "transaction", "userDefinedValueType", "storage", "memory", "calldata", "ref",
-    "pure", "view", "nonpayable", "library", "interface", "slice", "inplace", "returns",
+    "address", "block", "bool", "byte", "bytes", "calldata", "contract", "delegatecall",
+    "dynamic_array", "enum", "external", "function", "inplace", "int", "int_const", "interface",
+    "internal", "library", "literal_string", "mapping", "memory", "nonpayable", "payable",
+    "pointer", "pure", "ref", "returns", "slice", "storage", "string", "struct", "super", "tuple",
+    "type", "uint", "view",
 }
 SOLC_TYPE_PREFIXES = ("t_",)
 SOLC_SIZED_TYPE = re.compile(r"(?:u?int|bytes|u?fixed)(?:\d+(?:x\d+)?)?\Z")
 # Solidity global names, members and builtin functions.
 SOLIDITY_BUILTINS = {
-    "abi", "addmod", "assert", "balance", "basefee", "blobbasefee", "blobhash", "block",
-    "blockhash", "call", "chainid", "code", "codehash", "coinbase", "concat", "creationCode",
-    "data", "decode", "delegatecall", "difficulty", "ecrecover", "encode", "encodeCall",
-    "encodePacked", "encodeWithSelector", "encodeWithSignature", "gas", "gasleft", "gaslimit",
-    "gasprice", "interfaceId", "keccak256", "length", "max", "min", "msg", "mulmod", "name",
-    "number", "origin", "pop", "prevrandao", "push", "require", "revert", "ripemd160",
-    "runtimeCode", "selector", "send", "sender", "sha256", "sig", "slot", "offset",
-    "staticcall", "super", "this", "timestamp", "transfer", "tx", "type", "unwrap", "value",
-    "wrap", "delete", "return", "new", "selfdestruct", "address",
-    # Units.
-    "wei", "gwei", "ether", "seconds", "minutes", "hours", "days", "weeks",
-    # Literals.
-    "true", "false",
+    "abi", "addmod", "address", "balance", "basefee", "block", "call", "chainid", "code",
+    "codehash", "concat", "data", "days", "decode", "delegatecall", "delete", "ecrecover", "encode",
+    "encodeCall", "encodePacked", "encodeWithSelector", "encodeWithSignature", "ether", "false",
+    "gas", "gasprice", "gwei", "hours", "interfaceId", "keccak256", "length", "max", "min",
+    "minutes", "msg", "mulmod", "name", "number", "origin", "pop", "push", "require", "return",
+    "revert", "seconds", "selector", "send", "sender", "sig", "slot", "staticcall", "super", "this",
+    "timestamp", "transfer", "true", "tx", "type", "unwrap", "value", "weeks", "wei", "wrap",
 }
 # EVM dialect builtins of Yul.
 YUL_BUILTINS = {
-    "stop", "add", "sub", "mul", "div", "sdiv", "mod", "smod", "exp", "not", "lt", "gt", "slt",
-    "sgt", "eq", "iszero", "and", "or", "xor", "byte", "shl", "shr", "sar", "addmod", "mulmod",
-    "signextend", "keccak256", "pc", "pop", "mload", "mstore", "mstore8", "sload", "sstore",
-    "tload", "tstore", "msize", "gas", "address", "balance", "selfbalance", "caller",
-    "callvalue", "calldataload", "calldatasize", "calldatacopy", "codesize", "codecopy",
-    "extcodesize", "extcodecopy", "returndatasize", "returndatacopy", "mcopy", "extcodehash",
-    "create", "create2", "call", "callcode", "delegatecall", "staticcall", "return", "revert",
-    "selfdestruct", "invalid", "log0", "log1", "log2", "log3", "log4", "chainid", "basefee",
-    "blobbasefee", "blobhash", "origin", "gasprice", "blockhash", "coinbase", "timestamp",
-    "number", "difficulty", "prevrandao", "gaslimit", "clz", "datasize", "dataoffset",
-    "datacopy", "setimmutable", "loadimmutable", "linkersymbol", "memoryguard", "verbatim",
+    "add", "addmod", "address", "and", "balance", "basefee", "byte", "call", "callcode",
+    "calldatacopy", "caller", "chainid", "clz", "codecopy", "create2", "delegatecall", "div", "eq",
+    "exp", "extcodecopy", "extcodesize", "gas", "gasprice", "gt", "invalid", "iszero", "keccak256",
+    "lt", "mcopy", "mload", "mod", "mstore", "mstore8", "mul", "mulmod", "not", "number", "or",
+    "origin", "pop", "return", "returndatacopy", "returndatasize", "revert", "sar", "sdiv",
+    "selfbalance", "sgt", "shl", "shr", "signextend", "sload", "slt", "smod", "sstore",
+    "staticcall", "sub", "timestamp", "tload", "tstore", "xor",
 }
 # Operators and keys solc writes into the AST JSON (compared as JSON keys or operator words).
 SOLC_JSON_KEYS = {
-    "declaration", "id", "kind", "memberName", "modifiers", "mutability", "name", "nativeSrc",
-    "nodeType", "operator", "referencedDeclaration", "src", "stateMutability",
-    "storageLocation", "suffix", "typeIdentifier", "visibility", "value", "tryCall",
-    "errorName", "reorderedReadOnlyArguments", "reorderedScalarArguments", "typeDescriptions",
-    "typeString", "type",
+    "declaration", "errorName", "id", "kind", "memberName", "modifiers", "mutability", "name",
+    "nativeSrc", "nodeType", "operator", "referencedDeclaration", "reorderedReadOnlyArguments",
+    "reorderedScalarArguments", "src", "stateMutability", "storageLocation", "suffix", "tryCall",
+    "type", "typeIdentifier", "value", "visibility",
 }
 # Names the importer itself generates for bindings, temporaries and model fields.
 IMPORTER_GENERATED = {
-    "__", "__solidity_struct_array_", "_verity_memret_", "_verity_raw_storage",
+    "__solidity_struct_array_", "_verity_memret_", "_verity_raw_storage",
     "_verity_slice_tmp", "_verity_struct_", "VerityUncheckedEnd", "_calldata_ptr",
     "_memory_ptr", "_storage", "_storage_ptr", "_pure", "_view", "none", "ok",
     # Binder names of generated Verity code that a source name must not take (`EmitVerity`).
     "oracle", "world",
+    # Key of the transient layout the importer stores in its own JSON.
+    "verityTransientLayout",
 }
 # Build-tool names (Foundry remapping inference, source digest file set).
 BUILD_TOOL_NAMES = {
@@ -273,7 +264,7 @@ def scan(text: str) -> tuple[str, list[Literal]]:
 
 
 def literal_identifiers(body: str) -> list[str]:
-    return IDENT.findall(NUMBER.sub(" ", body))
+    return [i for i in IDENT.findall(NUMBER.sub(" ", body)) if i.strip("_")]
 
 
 def line_of(text: str, offset: int) -> int:
@@ -285,8 +276,15 @@ def selection_kind(code: str, start: int, end: int,
     """Why the string literal at `code[start:end]` is in a selection position, if it is."""
     before = code[max(0, start - 80):start]
     after = code[end:end + 40]
-    if re.search(r"(?:==|!=)\s*(?:\.?some\s+)?\(?\s*\Z", before):
-        return "compared with == / !="
+    if re.search(r"(?:==|!=|≠|(?<![:=!<>])=(?![=>]))\s*(?:\.?some\s+)?\(?\s*\Z", before):
+        return "compared with == / != / = / ≠"
+    if re.match(r"\s*(?:==|!=|≠|=(?![=>])|\.isPrefixOf\b|\.isSuffixOf\b)", after):
+        return "compared with == / != / = / ≠ or a prefix test"
+    body = code[start + 1:end - 1]
+    if re.fullmatch(r"[A-Za-z_$][\w$.]*", body) and not re.fullmatch(r"[0-9a-f]{64}", body) and \
+            re.search(r"(?m)^(?:private\s+|protected\s+)?(?:def|abbrev)\s+\S+\s*(?::\s*String\s*)?:=\s*\Z",
+                      code[max(0, start - 200):start]):
+        return "named string constant (its uses are not traced)"
     if re.search(r"\.(?:contains|startsWith|endsWith|find\?|findD|contains\?|elem)\s+\Z", before):
         return "argument of a name lookup or membership test"
     if re.search(r"(?:inlineAssemblyIdentDecl\?\s+\S+|yulIdentifierSrcs)\s+\Z", before):
@@ -463,7 +461,8 @@ def check_routing(root: Path, errors: list[str]) -> None:
             if re.search(r"==|!=|\.contains|\.find\?", code_no_strings[lo:hi if hi >= 0 else None]):
                 errors.append(f"{rel}:{line_of(code, m.start())}: compares a yulBlockFingerprint "
                               f"outside the registry: select a shortcut with matchTrustedShortcut?")
-        for m in re.finditer(r"(?m)^(?:private\s+|partial\s+)*def\s+(lower\w*Shim)\b", code_no_strings):
+        for m in re.finditer(r"(?m)^(?:private\s+|partial\s+)*def\s+(lower\w*(?:Shim|Shortcut)\w*)",
+                             code_no_strings):
             errors.append(f"{rel}:{line_of(code, m.start())}: {m.group(1)} defined outside the "
                           f"registry module {REGISTRY_FILE}")
 
