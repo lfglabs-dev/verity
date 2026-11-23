@@ -329,8 +329,8 @@ class ImporterNameSelectionTests(unittest.TestCase):
         self.assertFails("`callHook`")
 
     def test_user_name_as_a_pragma_token_fails(self) -> None:
-        self.append(LEGACY, '\ndef zzA (l : Array Json) : Bool :=\n'
-                    '  l == #[Json.str "experimental", Json.str "CurrencyLibrary"]\n')
+        self.append(LEGACY, '\ndef zzA (literals : Option (Array Json)) : Bool :=\n'
+                    '  literals == some #[Json.str "experimental", Json.str "CurrencyLibrary"]\n')
         self.assertFails("`CurrencyLibrary`")
 
     # Pinned solc release strings: exact `<major>.<minor>.<patch>+commit.<8 hex>` only.
@@ -372,6 +372,11 @@ class ImporterNameSelectionTests(unittest.TestCase):
 
     def test_unused_pragma_pair_fails(self) -> None:
         self.edit(LEGACY, 'Json.str "abicoder", Json.str "v2"', 'Json.str "abicoder", Json.str "v1"')
+        self.assertFails("PRAGMA_LITERALS entry")
+
+    def test_pragma_pair_in_a_comment_is_unused(self) -> None:
+        self.edit(LEGACY, 'Json.str "abicoder", Json.str "v2"', 'Json.str "abicoder", Json.str "v1"')
+        self.append(LEGACY, '\n-- literals == some #[Json.str "abicoder", Json.str "v2"]\n')
         self.assertFails("PRAGMA_LITERALS entry")
 
     def test_pragma_token_outside_legacy_fails(self) -> None:

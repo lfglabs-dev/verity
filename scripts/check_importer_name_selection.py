@@ -277,12 +277,14 @@ PRAGMA_LITERALS = {
 }
 
 
-def pragma_literal_spans(rel: str, raw: str) -> list[tuple[int, int]]:
+def pragma_literal_spans(rel: str, code: str) -> list[tuple[int, int]]:
+    """Spans of the allowed comparisons in `code` (comments blanked, so a comment cannot keep an
+    entry in use)."""
     spans = []
     for (file, pair), pattern in PRAGMA_LITERALS.items():
         if file != rel:
             continue
-        for m in pattern.finditer(raw):
+        for m in pattern.finditer(code):
             USED.add(("pragma", f"{file}:{pair[0]} {pair[1]}"))
             spans.append((m.start(), m.end()))
     return spans
@@ -588,7 +590,7 @@ def check_names(root: Path, errors: list[str]) -> None:
         code, literals = scan(raw)
         lists = membership_list_spans(code, literals)
         proofs = proof_spans(code)
-        pragmas = pragma_literal_spans(rel.as_posix(), raw)
+        pragmas = pragma_literal_spans(rel.as_posix(), code)
         for m in literals:
             body = m.text
             idents = literal_identifiers(body)
