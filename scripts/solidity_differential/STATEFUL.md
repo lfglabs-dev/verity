@@ -113,8 +113,9 @@ every storage word a constructor changes to equal the configured initial storage
 of its account (initial rows may also name word-valued mapping entries by
 `keys`; a write that leaves a word unchanged is not traced, and the configured
 world is set after deployment on every route), and rejects a constructor that
-changes any other account (storage, including a word set to zero, code, nonce or
-balance), except the deployer's nonce and balance and the fee recipient's balance. The tested contract's
+changes any other account (storage, including a word set to zero, code, nonce
+or balance), except the deployer's nonce and balance and the fee recipient's
+balance. The tested contract's
 immutables are read back from its deployed runtime (`immutableReferences`) and
 installed by name on the model route; those the model binds to constructor
 arguments are passed in order to the compiled model's synthesized constructor,
