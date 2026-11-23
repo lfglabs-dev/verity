@@ -397,6 +397,53 @@ class ImporterNameSelectionTests(unittest.TestCase):
         self.append(RESPONDERS, '\ndef zzA (p : String) : Bool := p == "imported-model-static-v1"\n')
         self.assertEqual(lint.run(self.root), [])
 
+    # Importer synthetic statement kinds: built as a nodeType, matched on mKind, in Import.lean.
+    def test_scope_marker_kind_forms_pass(self) -> None:
+        self.append(IMPORT, '\ndef zzMark : Json := Json.mkObj [("nodeType", Json.str "VerityScopeEnd")]\n'
+                    'def zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" => pure false\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertEqual(lint.run(self.root), [])
+
+    def test_scope_marker_as_a_name_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "VerityScopeEnd"\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_arm_of_a_name_match_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (n : String) : Bool :=\n'
+                    '  match n with\n'
+                    '  | "VerityScopeEnd" => true\n'
+                    '  | _ => false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_in_a_lambda_inside_a_kind_arm_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "Block" =>\n'
+                    '      let f : String → Bool := fun\n'
+                    '        | "VerityUncheckedEnd" => true\n'
+                    '        | _ => false\n'
+                    '      pure (f (optStr s "name" |>.getD ""))\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityUncheckedEnd`")
+
+    def test_scope_marker_in_another_field_fails(self) -> None:
+        self.append(IMPORT, '\ndef zzMark : Json := Json.mkObj [("name", Json.str "VerityScopeEnd")]\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_outside_import_fails(self) -> None:
+        self.append(LEGACY, '\ndef zzA (s : Json) : M Bool := do\n'
+                    '  match ← mKind s with\n'
+                    '  | "VerityScopeEnd" => pure true\n'
+                    '  | _ => pure false\n')
+        self.assertFails("`VerityScopeEnd`")
+
+    def test_scope_marker_without_its_creation_fails(self) -> None:
+        self.edit(IMPORT, '("nodeType", Json.str "VerityScopeEnd")', '("kind", Json.str "VerityScopeEnd")')
+        self.assertFails('"VerityScopeEnd" has no create site')
+
     def test_pragma_token_outside_legacy_fails(self) -> None:
         self.append(IMPORT, '\ndef zzA (fn : Json) : Bool := optStr fn "name" == some "v2"\n')
         self.assertFails("`v2`")

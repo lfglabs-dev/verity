@@ -35,7 +35,9 @@ one, so skipped code cannot reach the importer):
    `FILE_EXCEPTIONS` (EmitVerity's printed names and example model, the model responder's
    harness id), each an exact literal in one file; Legacy's ABI coder pragma tokens, only inside
    the exact `literals == some #[Json.str ..., Json.str ...]` comparisons of a guarded
-   PragmaDirective expression (`PRAGMA_PAIRS`); and a pinned solc release string of the exact
+   PragmaDirective expression (`PRAGMA_PAIRS`); the importer's synthetic statement kinds
+   (`NODE_KIND_MARKERS`), only where Import.lean builds them as a `nodeType` or matches them on
+   `mKind`; and a pinned solc release string of the exact
    shape `<major>.<minor>.<patch>+commit.<8 hex>` (`"0.7.6+commit.7338295f"`), which names a
    compiler build and cannot be an identifier. Raw strings (`r"..."`, `r#"..."#`) are read as
    strings without escapes; string gaps (`\` at a line end) and interpolations of nothing or of a
@@ -145,7 +147,7 @@ SOLC_JSON_KEYS = {
 # Names the importer itself generates for bindings, temporaries and model fields.
 IMPORTER_GENERATED = {
     "__solidity_struct_array_", "_verity_memret_", "_verity_raw_storage",
-    "_verity_slice_tmp", "_verity_struct_", "VerityUncheckedEnd", "_calldata_ptr",
+    "_verity_slice_tmp", "_verity_struct_", "_calldata_ptr",
     "_memory_ptr", "_storage", "_storage_ptr", "_pure", "_view", "none", "ok",
     # Binder names of generated Verity code that a source name must not take (`EmitVerity`).
     "oracle", "world",
@@ -303,6 +305,47 @@ def pragma_literal_spans(rel: str, code: str) -> list[tuple[int, int]]:
                 USED.add(("pragma", f"{rel}:{pair[0]} {pair[1]}"))
                 spans.append((block.start() + m.start(), block.start() + m.end()))
     return spans
+
+
+# The importer's own synthetic statement kinds (`uncheckedEnd`, `scopeEnd` in Import.lean): marker
+# nodes it splices into a flattened statement list to restore a recorded scope. The AST reaches the
+# importer only as `solc --standard-json` output (the compiler's sha256 is checked before and after
+# the run), so every `nodeType` it reads is one of solc's fixed node kinds: Solidity source cannot
+# set a `nodeType`, and solc never emits these. A marker literal is allowed only in its file and
+# only in two forms: built as `("nodeType", Json.str "<marker>")`, or as a `match` arm pattern
+# whose enclosing `match` is `match ← mKind <stmt> with`. Anywhere else (a name comparison, a
+# `nodeType` read of another field, another file) it is an ordinary identifier and is checked.
+_IMPORT = "Compiler/SolidityImport/Import.lean"
+NODE_KIND_MARKERS = {(_IMPORT, "VerityScopeEnd"), (_IMPORT, "VerityUncheckedEnd")}
+_MARKER_CREATE = re.compile(r'\(\s*"nodeType"\s*,\s*Json\.str\s*\Z')
+_MARKER_CREATE_END = re.compile(r'\s*\)')
+_MATCH_ARM = re.compile(r'\s*\|\s*(?:"\w+"\s*\|\s*)*\Z')
+_MATCH_ARM_END = re.compile(r'(?:\s*\|\s*"\w+")*\s*=>')
+_KIND_MATCH_HEAD = re.compile(r'^\s*match\s+←\s*mKind\s+\w+\s+with\s*\Z')
+
+
+def node_kind_marker_form(code: str, start: int, end: int) -> str | None:
+    """`create` or `kind arm` when the literal at code[start:end] is in an allowed marker form."""
+    line_start = code.rfind("\n", 0, start) + 1
+    line_end = code.find("\n", end)
+    line_end = len(code) if line_end < 0 else line_end
+    before, after = code[line_start:start], code[end:line_end]
+    if _MARKER_CREATE.search(code[max(0, start - 200):start]) and _MARKER_CREATE_END.match(after):
+        return "create"
+    if not (_MATCH_ARM.fullmatch(before) and _MATCH_ARM_END.match(after)):
+        return None
+    indent = len(before) - len(before.lstrip())
+    lines = code[:line_start].split("\n")
+    # Walk up over the earlier arms (`|` at the arm's indent) and their bodies (deeper); the first
+    # other line must be the head of this arm's `match`, and that head must match on `mKind`.
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent > indent or (line_indent == indent and line.lstrip().startswith("|")):
+            continue
+        return "kind arm" if _KIND_MATCH_HEAD.match(line) else None
+    return None
 
 
 # A pinned solc release, `<major>.<minor>.<patch>+commit.<8 hex digits>` (solc `--version`, the
@@ -618,6 +661,11 @@ def check_names(root: Path, errors: list[str]) -> None:
                 continue
             if any(lo <= m.start and m.end <= hi for lo, hi in pragmas):
                 continue
+            if (rel.as_posix(), body) in NODE_KIND_MARKERS:
+                form = node_kind_marker_form(code, m.start, m.end)
+                if form is not None:
+                    USED.add(("marker", f"{rel.as_posix()}:{body}:{form}"))
+                    continue
             kind = selection_kind(code, m.start, m.end, lists)
             if kind is None and any(lo <= m.start < hi for lo, hi in proofs):
                 continue
@@ -775,6 +823,11 @@ def check_unused(errors: list[str]) -> None:
     for name in sorted(ALLOWED_NAME_LITERALS):
         if ("name", name) not in USED:
             errors.append(f"ALLOWED_NAME_LITERALS entry `{name}` is not used: remove it")
+    for file, marker in sorted(NODE_KIND_MARKERS):
+        for form in ("create", "kind arm"):
+            if ("marker", f"{file}:{marker}:{form}") not in USED:
+                errors.append(f"NODE_KIND_MARKERS entry {file}: \"{marker}\" has no {form} "
+                              f"site: a marker is built as a nodeType and matched on mKind")
     for file, pairs in sorted(PRAGMA_PAIRS.items()):
         for pair in pairs:
             if ("pragma", f"{file}:{pair[0]} {pair[1]}") not in USED:
