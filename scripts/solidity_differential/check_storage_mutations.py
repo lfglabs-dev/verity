@@ -133,12 +133,12 @@ MUTANTS.update({
         '      opaqueMemberNames := opaqueMemberNames.push mName'),
     'import-namespaced-inner-mapping-order': (
         'Stmt.mstore (.literal 0) key.expr,\n'
-        '              Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
+        '              Stmt.mstore (.literal 32) memberSlot,',
         'Stmt.mstore (.literal 32) key.expr,\n'
-        '              Stmt.mstore (.literal 0) (rawStructMemberSlot baseSlot mapInfo.wordOffset),'),
+        '              Stmt.mstore (.literal 0) memberSlot,'),
     'import-namespaced-inner-mapping-member': (
-        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
-        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1)),')})
+        '| .rawSlot _ baseSlot => pure (#[], rawStructMemberSlot baseSlot mapInfo.wordOffset)',
+        '| .rawSlot _ baseSlot => pure (#[], rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1))')})
 # A `while` loop whose only progress divides its unsigned local by a constant >= 2 runs as
 # `bits` guarded iterations.
 MUTANTS.update({
@@ -751,7 +751,7 @@ MUTANTS.update({
     'import-yul-block-mulmod-tstore-drop': ('          out := out ++ slotVal.pre ++ valVal.pre |>.push (.tstore slotVal.expr valVal.expr)', '          out := out ++ slotVal.pre ++ valVal.pre'),
     'import-yul-block-mulmod-tstore-mulmod-zero': ('  pure { pre := stmts, expr := .localVar accBinding }', '  pure { pre := stmts, expr := .literal 0 }'),
     'import-yul-block-mulmod-tstore-compound-mul-add': ('        checkedMul bits { pre := #[], expr := lhs } { pre := #[], expr := rhs }', '        checkedAdd bits { pre := #[], expr := lhs } { pre := #[], expr := rhs }'),
-    'import-yul-block-mulmod-tstore-narrow-local-guard': ('    unless isFullWordYulScalar scalarType do\n      failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"', '    unless true do\n      failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"'),
+    'import-yul-block-mulmod-tstore-narrow-local-guard': ('    if marked.contains binding then\n      failAt node "Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported"', '    if false then\n      failAt node "Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported"'),
     'import-merkle-and-nonces-scratch-keccak-zero': ('          pure { pre, expr := .keccak256 (.literal off) (.literal size) }', '          pure { pre, expr := .literal 0 }'),
     'import-merkle-and-nonces-mstore-drop': ('          out := out ++ valVal.pre |>.push (.mstore (.literal off) valVal.expr)', '          out := out ++ valVal.pre'),
     'import-merkle-and-nonces-incdec-op-flip': ('  let compoundOp := if operator == "++" then "+=" else "-="', '  let compoundOp := if operator == "++" then "-=" else "+="'),
@@ -969,6 +969,28 @@ MUTANTS.update({
         'materializeFromCalldata calldataPointer stem schema (wrapper := false)',
         'materializeFromCalldata calldataPointer stem schema (wrapper := true)'),
 })
+# Synthetic construct fixtures: a one-slot footprint for static-array struct members, the
+# nested struct mapping's member slot one word off, and an inverted self-code emptiness test
+# each diverge on A/B/C. Storing the dirty Yul word into a `bool` / `address` local instead of
+# its cleanup is an equivalent mutant under via-IR (every Solidity-level consumer cleans it
+# again: branches, comparisons, `!`, conversions, storage, events, mapping keys,
+# `abi.encode` / `abi.encodePacked`); the observable case, a raw Yul read, is covered by
+# `import-yul-block-mulmod-tstore-narrow-local-guard`.
+MUTANTS.update({
+    'import-synthetic-gap-footprint': ('      currWord := currWord + words',
+                                       '      currWord := currWord + 1'),
+    'import-synthetic-nested-mapping-member-slot': (
+        'computeSPathBaseSlot path info mapInfo.wordOffset j',
+        'computeSPathBaseSlot path info (mapInfo.wordOffset + 1) j'),
+    'import-synthetic-self-code-negation': (
+        'expr := if empty then isEmpty else .logicalNot isEmpty',
+        'expr := if empty then .logicalNot isEmpty else isEmpty'),
+})
+SYNTHETIC_MUTANT_FIXTURES = {
+    'import-synthetic-gap-footprint': 'SyntheticGapStorageSequence',
+    'import-synthetic-nested-mapping-member-slot': 'SyntheticNestedMappingSequence',
+    'import-synthetic-self-code-negation': 'SyntheticCodeLengthSequence',
+}
 ROOT_PARAM_MUTANT_FIXTURES = {
     'import-root-param-string-member-pointer': 'StructStringMemberParamSequence',
     'import-root-param-string-calldata-member': 'StructStringMemberParamSequence',
@@ -1153,6 +1175,8 @@ def run(directory, output, name):
                    else "CalldataNarrowArrayCopySolc0810Sequence")
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         fixture = ROOT_PARAM_MUTANT_FIXTURES[name]
+    if name in SYNTHETIC_MUTANT_FIXTURES:
+        fixture = SYNTHETIC_MUTANT_FIXTURES[name]
     if name.startswith("import-immutable-"):
         fixture = "ImmutableAddressSequence"
     if name.startswith("import-immutable-scalar-"):
@@ -1466,6 +1490,11 @@ def run(directory, output, name):
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, FIXED_MEMORY_ARRAY_PREFIX)])
+    if name in SYNTHETIC_MUTANT_FIXTURES:
+        # The storage campaign's deterministic boundary words, then random calls.
+        from solidity_differential.check_storage import SYNTHETIC_STORAGE_PREFIX
+        argv[argv.index('--transactions') + 1] = '32'
+        argv.extend(['--change-prefix', *map(str, SYNTHETIC_STORAGE_PREFIX)])
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         # The deterministic root-parameter call list (`check_stateful.ROOT_PARAM_CALLS`)
         # runs first; the budget covers all of it.
@@ -1686,13 +1715,15 @@ contract C is Base {
 }
 ''')
     elif name == 'import-yul-block-mulmod-tstore-narrow-local-guard':
-        diagnostic = 'Yul assignment to narrow local narrow is unsupported'
+        # A cleaned `address` local read back raw in a later Yul block: solc observes the dirty
+        # word, the model the cleaned one, so the read must be rejected.
+        diagnostic = 'Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
- function checked(uint256 x) external pure returns (uint256) {
+ function checked(uint256 x) external pure returns (uint256 r) {
   address narrow;
   assembly { narrow := x }
-  return uint160(narrow);
+  assembly { r := narrow }
  }
 }
 ''')
@@ -2304,8 +2335,10 @@ def mutation_source(directory, name):
                                   else 'Compiler/SolidityImport/AbiLowering.lean' if name.startswith('import-narrow-copy-clean-')
                                   else 'Compiler/SolidityImport/AbiRootLowering.lean' if name.startswith('import-root-param-lowering-')
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
-                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
-                                  else 'Compiler/SolidityImport/ExprHelpers.lean' if name == 'import-encoding-arg-super-revert-guard'
+                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name in ('import-namespaced-opaque-slot',
+                                                                                                'import-synthetic-gap-footprint')
+                                  else 'Compiler/SolidityImport/ExprHelpers.lean' if name in ('import-encoding-arg-super-revert-guard',
+                                                                                              'import-yul-block-mulmod-tstore-narrow-local-guard')
                                   else 'Compiler/SolidityImport/Lowering/EvalOrderHazards.lean' if name == 'import-helper-effect-classifier'
                                   else 'Compiler/SolidityImport/Import.lean')
 

@@ -48,6 +48,10 @@ STORAGE_FIXTURES = (
     'nested-memory-struct-return',
     'struct-memory-array-helpers',
     'signed-narrow-values',
+    'yul-narrow-bool-address',
+    'struct-static-array-gaps',
+    'struct-nested-mappings',
+    'self-code-emptiness',
 )
 
 def stateful_campaign(output, transactions, seed, jobs=1):

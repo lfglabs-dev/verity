@@ -15,6 +15,46 @@ accompanied by a 3-layer `StorageLayoutMetaSpec` specification bundle.
 
 def rawStorageFieldName : String := "_verity_raw_storage"
 
+/-- Storage bytes of a value-type element of a packed static storage array: `uintN` /
+`intN` take `N / 8`, `bytesN` takes `N`, `address` / contract types `20`, `bool` and
+enums `1`. `none` for every other type. -/
+def storageValueTypeBytes? (ty : String) : Option Nat :=
+  if ty == "bool" || ty.startsWith "enum " then some 1
+  else if ty == "address" || ty == "address payable" || ty.startsWith "contract " then some 20
+  else if ty.startsWith "uint" then
+    (bitsOf ty).bind fun w => if 0 < w && w ≤ 256 && w % 8 == 0 then some (w / 8) else none
+  else if let some w := signedBitsOf ty then some (w / 8)
+  else fixedBytesWidth? ty
+
+/-- Storage slots of a static storage array type `T[N]`, `T[N][M]`, ... (outermost
+dimension static), following solc's layout rules: a static array starts a fresh slot
+and the next member starts a fresh slot after it; `N` value-type elements of `b` bytes
+pack `32 / b` per slot (`ceil(N / (32 / b))` slots); each element of any other type
+takes whole slots (`N * words`), where a dynamic inner dimension `T[]` takes one slot
+and `baseWords?` sizes a non-value element type `T` (a storage struct). `none` when the
+element type is unsized or a dimension is not a positive literal. -/
+def staticArrayStorageWords? (ty : String) (baseWords? : Option Nat) : Option Nat := do
+  let parts := ty.splitOn "["
+  let base ← parts.head?
+  let dims ← parts.tail.mapM fun dim =>
+    if dim.endsWith "]" then some (dim.dropEnd 1).toString else none
+  guard (!dims.isEmpty && dims.getLast? != some "")
+  -- The current element type: its slot count, or its byte size when it is a packable value type.
+  let init : Nat × Option Nat ← match storageValueTypeBytes? base, baseWords? with
+    | some bytes, _ => some (0, some bytes)
+    | none, some words => some (words, none)
+    | none, none => none
+  let (words, _) ← dims.foldlM (init := init) fun (words, packed?) dim => do
+    if dim == "" then return (1, none)
+    let n ← dim.toNat?
+    guard (n > 0)
+    match packed? with
+    | some bytes =>
+        let perSlot := 32 / bytes
+        return ((n + perSlot - 1) / perSlot, none)
+    | none => return (n * words, none)
+  return words
+
 def topStructMemberFieldName (field member : String) : String :=
   let cleanMember := String.intercalate "__" (member.splitOn ".")
   s!"_verity_struct_{field}_{cleanMember}"
@@ -251,6 +291,34 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
         abiKind
         elemStructId := elemStructId?
       }
+    else if optStr mTyNode "nodeType" == some "ArrayTypeName" &&
+        ((field? mTyNode "length").any (!·.isNull)) then
+      -- A static array (`uint256[50] __gap`, `address[2][3]`, `S[4]`): it starts a fresh slot,
+      -- takes solc's footprint, and the next member starts a fresh slot. The member stays
+      -- opaque (any access fails closed); it only places the later members.
+      let mut baseNode := mTyNode
+      for _ in [0:16] do
+        if optStr baseNode "nodeType" == some "ArrayTypeName" then
+          if let some inner := field? baseNode "baseType" then baseNode := inner
+      let baseTy ← mType baseNode
+      let baseWords? ←
+        if baseTy.startsWith "struct " && !baseTy.contains "[" then do
+          let elemSid ← refInt baseNode
+          unless elemSid >= 0 && (← get).structs.contains elemSid.toNat do
+            failAt mNode s!"unsupported storage struct member {mName} : {mTy}"
+          pure (some (← resolveRawStructInfo elemSid.toNat mNode).wordCount)
+        else pure none
+      -- A user-defined value type packs as its underlying type.
+      let resolved := match (← get).userValueTypes.find? baseTy with
+        | some underlying => underlying ++ (mTy.drop baseTy.length).toString
+        | none => mTy
+      let some words := staticArrayStorageWords? resolved baseWords?
+        | failAt mNode s!"unsupported storage struct member {mName} : {mTy}"
+      if currByte > 0 then
+        currWord := currWord + 1
+        currByte := 0
+      currWord := currWord + words
+      opaqueMemberNames := opaqueMemberNames.push mName
     else if mTy.startsWith "struct " && !mTy.contains "[" then
       let subSid ← refInt mTyNode
       unless subSid >= 0 && (← get).structs.contains subSid.toNat do
@@ -304,6 +372,30 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
       }
   let wordCount := if currByte > 0 then currWord + 1 else currWord
   return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, wordCount, opaqueMemberNames }
+
+/-- Width and boolean flag of a scalar storage-layout value type `valKey` stored as the leaf
+of a struct-member mapping: `bool` (8 bits, boolean), `address` / contract types (160),
+`bytes32` / `int256` (256) and `uintN` (`N`), after resolving user-defined value types.
+Enums, signed narrow integers, structs, arrays and nested mappings are `none`. -/
+def structMappingScalarLeaf? (types : Json) (valKey : String) : M (Option (Nat × Bool)) := do
+  if valKey.startsWith "t_enum(" then return none
+  let some leafTy := field? types valKey | return none
+  unless (field? leafTy "members").isNone && (optStr leafTy "base").isNone do return none
+  unless (← mStr (← mField leafTy "encoding")) == "inplace" do return none
+  let rawLeafLabel ← mStr (← mField leafTy "label")
+  let leafLabel := (← get).userValueTypes.find? rawLeafLabel |>.getD rawLeafLabel
+  let width? : Option Nat :=
+    if leafLabel == "bool" then some 8
+    else if leafLabel == "address" || leafLabel == "address payable" || leafLabel.startsWith "contract " then some 160
+    else if leafLabel == "bytes32" || leafLabel == "int256" || leafLabel == "int" then some 256
+    else if leafLabel.startsWith "uint" then
+      match (leafLabel.drop 4).toNat? with
+      | some bits => if bits > 0 && bits ≤ 256 && bits % 8 == 0 then some bits else none
+      | none => none
+    else none
+  let some width := width? | return none
+  unless (← mNat (← mField leafTy "numberOfBytes")) * 8 == width do return none
+  return some (width, leafLabel == "bool")
 
 partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat) (types structTy : Json) :
     M (Array StructMember × Array String × Array String × Array String × Array StructFixedArrayInfo × Array StructMappingInfo × Array StructDynamicArrayInfo × Array (String × Nat) × Array (String × Nat)) := do
@@ -447,6 +539,24 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
         -- An enum key may be dirty in assembly; hashing it requires validation.
         if valKey.startsWith "t_enum(" && keyStr.startsWith "t_enum(" then return none
         let some leafTy := field? types valKey | return none
+        -- `mapping(K1 => mapping(K2 => V))` with a scalar `V`: indexing the member with `K1`
+        -- yields the inner mapping at keccak256(k1 . memberSlot), indexed in turn with `K2`.
+        if (← mStr (← mField leafTy "encoding")) == "mapping" then
+          unless (← mNat (← mField leafTy "numberOfBytes")) == 32 do return none
+          let innerKeyStr := normalizeSolcLayoutType (← get) (← mStr (← mField leafTy "key"))
+          if innerKeyStr.startsWith "t_enum(" then return none
+          let innerKeyType ← try liftM (mappingKey innerKeyStr) catch _ => return none
+          let innerValKey ← mStr (← mField leafTy "value")
+          let some (width, isBool) ← structMappingScalarLeaf? types innerValKey | return none
+          return some {
+            member := qualLabel
+            solcType := rawSolcType
+            wordOffset := word
+            keyType
+            valueWidth := width
+            booleanValue := isBool
+            innerKeyType := some innerKeyType
+          }
         if (normalizeSolcLayoutType (← get) valKey).startsWith "t_struct(" then
           let some valSid := resolveStructIdFromSolcType? (← get) valKey | return none
           let _ ← try resolveRawStructInfo valSid Json.null catch _ => return none

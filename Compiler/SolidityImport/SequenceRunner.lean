@@ -132,8 +132,14 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
   let mut world := storage.foldl
     (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
     { foreignWorld with thisAddress := Address.ofNat account }
+  -- The executing account is deployed on both EVM routes, so its runtime code is nonempty,
+  -- but its bytes and length differ between the routes: the model holds a one-byte
+  -- placeholder. The importer admits only emptiness tests of `address(this).code.length`
+  -- (never its length, bytes or hash), so only the emptiness both routes share is observed.
+  world := world.writeAccount world.thisAddress
+    { world.accountWorld world.thisAddress with code := [0] }
   -- Runtime code of foreign accounts, as deployed on the EVM routes; observed by
-  -- code-length reads. The caller's own code differs between routes and is absent.
+  -- code-length reads.
   if let .ok rows := input.getObjVal? "accountCode" then
     for row in ← rows.getArr? do
       let [owner, code] := (← row.getArr?).toList | throw "expected account/code pair"

@@ -274,6 +274,12 @@ structure Env where
   /-- Result bindings of the code-hash reads lowered so far in the current root, with their
       nodes (`checkCodeReadTargets` rejects those that run after an account change). -/
   codeHashSites : Array (String × Json) := #[]
+  /-- `bool` / `address` bindings that an inline-assembly assignment set to the cleaned
+      form of a possibly dirty word (`cleanYulNarrowWord?`). -/
+  yulCleanedNarrowBindings : Array String := #[]
+  /-- Bindings read by a Yul identifier in the current root, with the reading node
+      (`checkYulCleanedNarrowReads`). -/
+  yulBindingReadSites : Array (String × Json) := #[]
   currentFile : String
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
@@ -1001,6 +1007,50 @@ def checkCodeReadTargets (body : Array Stmt) : M Unit := do
     if late.contains result then
       failAt node "code hash read after an external call or create2 is unsupported"
 
+/-- The cleaned word an inline-assembly assignment stores into a `bool` or `address`
+local whose right-hand side may be dirty: `iszero(iszero(w))` (`cleanup_t_bool`) and
+`and(w, 2^160 - 1)` (`cleanup_t_address`). Under via-IR, solc keeps the dirty word on
+the stack and applies exactly this cleanup at every Solidity-level use (conditions,
+comparisons, conversions, ABI encoding, storage writes, events), so the cleaned binding
+is observationally equal there; only a later raw Yul read could see the difference, and
+`checkYulCleanedNarrowReads` rejects those. Legacy codegen carries dirty bits through
+conversions, so the importer admits this only under via-IR. `none` for every other type. -/
+def cleanYulNarrowWord? (scalarType : ParamType) (word : Expr) : Option Expr :=
+  match scalarType with
+  | .bool => some (.logicalNot (.logicalNot word))
+  | .address => some (.bitAnd word (.literal (2 ^ 160 - 1)))
+  | _ => none
+
+/-- The cleaned word is `some` exactly for `bool` and `address`. -/
+theorem cleanYulNarrowWord?_isSome_iff (p : ParamType) (word : Expr) :
+    (cleanYulNarrowWord? p word).isSome = true ↔ (p = .bool ∨ p = .address) := by
+  cases p <;> simp [cleanYulNarrowWord?]
+
+/-- Reject every raw Yul read of a binding that may hold a word cleaned by
+`cleanYulNarrowWord?`: the binding itself or any binding whose value (a copy, an
+inlined helper parameter, a conditional result, at any nesting depth, including later
+in a loop body) mentions such a binding, computed to a fixpoint over the whole lowered
+root `body`, so statement order does not matter. solc would expose the dirty word to
+such a read; the model holds the cleaned one. -/
+def checkYulCleanedNarrowReads (body : Array Stmt) : M Unit := do
+  let cleaned := (← get).yulCleanedNarrowBindings
+  if cleaned.isEmpty then return
+  let bindings := body.toList.flatMap stmtBindings
+  let mentions (marked : Array String) (value : Expr) : Bool :=
+    value.anyDeep fun
+      | .localVar name => marked.contains name
+      | _ => false
+  let mut marked := cleaned
+  for _ in [0:bindings.length + 1] do
+    let before := marked.size
+    for (binding, value) in bindings do
+      if !marked.contains binding && mentions marked value then
+        marked := marked.push binding
+    if marked.size == before then break
+  for (binding, node) in (← get).yulBindingReadSites do
+    if marked.contains binding then
+      failAt node "Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported"
+
 def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256
   else if ty == "bytes32" then some 256
@@ -1299,6 +1349,11 @@ theorem isFullWordYulScalar_iff (p : ParamType) :
 
 theorem uint8_not_fullWordYulScalar : isFullWordYulScalar .uint8 = false := by
   decide
+
+/-- Only `bool` and `address` words are cleaned; a full-word Yul scalar never is. -/
+theorem cleanYulNarrowWord?_eq_none_of_fullWord (p : ParamType) (word : Expr)
+    (h : isFullWordYulScalar p = true) : cleanYulNarrowWord? p word = none := by
+  cases p <;> first | rfl | simp [isFullWordYulScalar] at h
 
 theorem address_not_fullWordYulScalar : isFullWordYulScalar .address = false := by
   decide

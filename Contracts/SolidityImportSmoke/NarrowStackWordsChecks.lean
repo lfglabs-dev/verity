@@ -314,9 +314,9 @@ private def wordX := 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1
   [(2 ^ 152 - 1) * 2 ^ 104, (2 ^ 56 - 1) * 2 ^ 200, (2 ^ 32 - 1) * 2 ^ 224]
 
 /--
-error: NarrowStackWords.sol:318:33: YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local result is unsupported
+error: NarrowStackWords.sol:318:59: YulIdentifier: [solidity-import:unsupported] Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported
 closure: NarrowStackWords.observedBoolWord
-result := mload(0)
+result
 -/
 #guard_msgs in
 solidity_import observedBool from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"

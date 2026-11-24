@@ -3975,3 +3975,58 @@ def stateful_root_param_source(fixture: str, variant: str, kind: str) -> str:
     token = r'//[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
     return re.sub(token, lambda match: match.group(0) + 'Renamed'
                   if match.group(0) in names else match.group(0), fixture)
+
+
+# Source variants of the synthetic storage fixtures: identifiers renamed (`renamed`), and one
+# semantics-preserving rewrite each (literal anchor replaced once).
+SYNTHETIC_STORAGE_VARIANTS = {
+    'yul-narrow-bool-address': (
+        # The event name stays: it is part of the observed topic.
+        {'ok', 'a', 'total', 'flag', 'owner', 'success', 'w'},
+        ('split-assembly',
+         '        assembly {\n'
+         '            ok := shr(1, x)\n'
+         '            a := not(x)\n'
+         '        }\n',
+         '        assembly { a := not(x) }\n'
+         '        assembly { ok := shr(1, x) }\n')),
+    'struct-static-array-gaps': (
+        {'total', 'tailWord', 'afterWord', 'o', 'head', 'admin', 'paused', 'tail', 'tag', 'after_'},
+        ('reordered-writes',
+         '        $.admin = address(uint160(x >> 8));\n'
+         '        $.paused = x % 2 == 1;\n',
+         '        $.paused = x % 2 == 1;\n'
+         '        $.admin = address(uint160(x >> 8));\n')),
+    'struct-nested-mappings': (
+        {'who', 'spender', 'id', 'total', 'single', 'accounts', 'pairs', 'allowance', 'approved',
+         'packed', 'nonce'},
+        ('reordered-writes',
+         '        accounts[who].allowance[spender][id] = x;\n'
+         '        single.allowance[spender][id] += 1;\n',
+         '        single.allowance[spender][id] += 1;\n'
+         '        accounts[who].allowance[spender][id] = x;\n')),
+    'self-code-emptiness': (
+        {'total', '_isConstructing'},
+        ('negated',
+         '        if (address(this).code.length > 0) total = total + x % 7;\n',
+         '        if (!(address(this).code.length == 0)) total = total + x % 7;\n')),
+}
+
+
+def stateful_synthetic_storage_source(fixture: str, variant: str, kind: str) -> str:
+    """Synthetic storage fixtures: baseline, every listed identifier renamed, or the one listed
+    equivalent rewrite (`SYNTHETIC_STORAGE_VARIANTS`)."""
+    names, (rewrite, old, new) = SYNTHETIC_STORAGE_VARIANTS[kind]
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        for name in names:
+            if not re.search(r'(?<![A-Za-z0-9_$])' + re.escape(name) + r'(?![A-Za-z0-9_$])', fixture):
+                raise ValueError(f'missing {kind} rename anchor {name}')
+        pattern = r'(?<![A-Za-z0-9_$])(' + '|'.join(map(re.escape, sorted(names))) + r')(?![A-Za-z0-9_$])'
+        return re.sub(pattern, r'\1Renamed', fixture)
+    if variant == rewrite:
+        if fixture.count(old) != 1:
+            raise ValueError(f'missing {kind} {rewrite} anchor')
+        return fixture.replace(old, new)
+    raise ValueError(f'unknown {kind} variant: {variant}')
