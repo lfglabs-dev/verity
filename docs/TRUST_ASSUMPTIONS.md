@@ -2275,6 +2275,21 @@ Trust boundary changes:
   checked by the importer, not proved, and such functions do not qualify for
   `CEIProofBackedExecution`. Code-length reads are erased for the CEI check
   (`solidity_closed_transport_cei`) because they hand control to no account.
+- Storage reads, storage writes and logs may follow such a call (and a typed
+  void interface call or its `try`) when every interaction of the function is
+  a closed transport (`onlyClosedCallStateWindows`, checked by the importer,
+  not proved). Denote runs the post-call statements against the world the
+  callee's response committed, which an unconstrained adversary chooses
+  freely, including by re-entering, so the model makes no assumption about
+  the callee. What is trusted is only that the compiled code does not cache
+  storage across the call either, which the A/B/C campaign
+  `check_post_call_state_access.py` checks differentially. Such functions
+  carry `reentrancyTrusted`, `allowPostInteractionWrites` when the body
+  violates CEI, and the unchecked obligation `solidity_post_call_state_access`
+  recording that the source's post-call window is open: a proof about them
+  must assume a callee hypothesis (`Denote.CallKeepsCallerStorage`) or
+  account for re-entry (`ReentrantCallees`). They do not qualify for
+  `CEIProofBackedExecution`.
 - Both transports keep compilation `proofStatus := .assumed`; agreement of the
   compiled model with solc and Denote is differential evidence
   (`ExternalCodeAndLowLevelCallSequence`, three equivalent variants against
