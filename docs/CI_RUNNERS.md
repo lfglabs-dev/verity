@@ -83,7 +83,10 @@ last pool takes the rest:
   `foundry-multi-seed` 1: their `max-parallel` there), its full size
   elsewhere. The workflow token cannot list self-hosted runners (that needs
   repository administration access), so the runner count is configuration:
-  keep `slots` in sync with the build-medium hosts.
+  keep `slots` in sync with the build-medium hosts (today 3:
+  `ashur-verity-build-medium-1`, `nippur-verity-build-1`,
+  `old-agent-verity-build-medium-1`). An offline host, or jobs the router
+  cannot see on those hosts, make it overestimate free capacity.
 - `max_queue`: room while queued plus already-routed jobs stay below it.
 - A pool with both needs both; one with neither always has room.
 
@@ -91,7 +94,8 @@ The default is `build-medium`
 (`["self-hosted","linux","x64","verity","build","build-medium"]`, `slots` 3)
 then `lean-8` (`["lean-8vcpu-ubuntu-2604"]`): build-medium first while it has
 free runners for the whole group, lean-8 instead of queueing. A GitHub API
-error routes every group to the first pool. Adding a pool is a one-line
+error routes every group to the first pool, except a group larger than the
+first pool's `slots` (it could never fit), which takes the last pool. Adding a pool is a one-line
 change to the variable, for example:
 
 ```json
