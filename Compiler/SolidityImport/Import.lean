@@ -8414,12 +8414,12 @@ private partial def lowerInterfaceVoidCall (j decl : Json) : M (Array Stmt) := d
   return pre.push (.ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [])
 
 /-- `I(a).f(args...)` for a `view` interface function returning a single
-`uint256`, `int256`, `bytes32`, `bytes4`, `bool`, `address` or `uint8` over scalar, struct or
-dynamic `bytes`/`string` arguments. solc 0.8.34 ABI-encodes the selector and arguments at the
-free pointer, emits `staticcall(gas(), a, p, len, p, 32)`, forwards a failed
+`uint256`, `int256`, `bytes32`, `bytes4`, `bool`, `address` or `uint8`..`uint248` over scalar,
+struct or dynamic `bytes`/`string` arguments. solc 0.8.34 ABI-encodes the selector and
+arguments at the free pointer, emits `staticcall(gas(), a, p, len, p, 32)`, forwards a failed
 call's complete return data as the revert payload, reverts with no data on fewer
 than 32 return bytes, decodes the first word (reverting with no data on a `bool`,
-`address` or `uint8` word out of range or a `bytes4` word with dirty low bytes)
+`address` or `uintN` word out of range or a `bytes4` word with dirty low bytes)
 and ignores extra bytes. With return data expected, the code-existence check is
 omitted, so an account without code takes the short-return revert. The closed
 `SolidityStaticCall` transports have this exact meaning in Denote and in
@@ -8474,14 +8474,18 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       failAt j "typed interface staticcall parameters must be address, uint256, bytes32 or bool"
   unless args.size == params.size do
     failAt j "typed interface staticcall argument count differs from its declaration"
-  let isSupportedExtraReturn := returnTypes == #["address"] || returnTypes == #["uint8"]
+  -- One narrow unsigned word `uint8` .. `uint248` (#2914): solc reverts with no data unless
+  -- the word is below `2^N`, so on success the raw word is already the value.
+  let isNarrowUnsignedReturn := returnTypes.size == 1 &&
+    (returnTypes[0]!).startsWith "uint" && (bitsOf (returnTypes[0]!)).any (· < 256)
+  let isSupportedExtraReturn := returnTypes == #["address"] || isNarrowUnsignedReturn
   let returnType := returnTypes.getD 0 "uint256"
   unless isSupportedExtraReturn do
     unless returnTypes.size == 1 && ["uint256", "int256", "bytes32", "bytes4", "bool"].contains returnType do
-      failAt callee "typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool"
+      failAt callee "typed interface staticcall must return exactly one uint256, uint8..uint248, int256, bytes32, bytes4, bool or address"
   -- All three transports deliver the first complete return word. solc's ABI decoder
-  -- validates `bytes4`, `address` and `uint8` words (dirty padding reverts with no data)
-  -- even when the value is discarded; on success the raw word is already the value.
+  -- validates `bytes4`, `address` and `uint8`..`uint248` words (dirty padding reverts with
+  -- no data) even when the value is discarded; on success the raw word is already the value.
   let decoded (pre : Array Stmt) (result : String) : Val :=
     let word := Expr.localVar result
     let guard := if returnType == "bytes4" || isSupportedExtraReturn then

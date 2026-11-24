@@ -5,6 +5,11 @@ interface IPriceOracle {
     function price() external view returns (uint256);
 }
 
+// Same selector as `IPriceOracle.price`, decoded as one narrow unsigned word (#2914).
+interface INarrowPriceOracle {
+    function price() external view returns (uint16);
+}
+
 contract InterfaceStaticCallFixture {
     uint256 private saved;
     uint256 private observed;
@@ -43,6 +48,20 @@ contract InterfaceStaticCallFixture {
     function quote(address oracle) internal view returns (uint256) {
         uint256 value = IPriceOracle(oracle).price();
         return value;
+    }
+
+    function capped(address oracle, uint16 cap) external returns (uint256) {
+        uint16 rate = INarrowPriceOracle(oracle).price();
+        if (rate > cap) rate = cap;
+        observed = rate;
+        uint16 bumped = rate + 1;
+        return bumped;
+    }
+
+    function checkNarrow(address oracle, uint256 next) external returns (uint256) {
+        saved = next;
+        INarrowPriceOracle(oracle).price();
+        return next;
     }
 
     function stored() external view returns (uint256, uint256) {

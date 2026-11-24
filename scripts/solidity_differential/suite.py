@@ -194,7 +194,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'errors')]))
     checks.append(('checked-oracle-mock', ['-m', 'solidity_differential.check_checked_static_oracle_mock']))
     checks.append(('interface-static-call', ['-m', 'solidity_differential.check_interface_static_call',
-        '--transactions', str(max(64, transactions)), '--seed', str(seed),
+        '--transactions', str(max(112, transactions)), '--seed', str(seed),
         '--output', str(output / 'interface-static-call')]))
     checks.append(('interface-static-call-rejections', ['-m',
         'solidity_differential.check_interface_static_call_rejections',

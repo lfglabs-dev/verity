@@ -306,7 +306,7 @@ contract C {
                 'nestedReceiver(address,uint256)', 'helperReturn(address,uint256)',
                 'negatedCondition(address,address)', 'equalityRequire(address,uint256)',
                 'helperArguments(address,uint256)', 'discardedOwner(address)',
-                'discardedSmall(address)']),
+                'discardedSmall(address)', 'rateWord(address)', 'discardedRate(address)']),
     fixture('fixture-storage-mapping-argument', 'Contracts/SolidityImportSmoke/StorageMappingArgumentOneSlot.sol',
             'StorageMappingArgumentOneSlot', [
                 'deposit(uint256,address,uint256)', 'forwarded(uint256,address,uint256)',

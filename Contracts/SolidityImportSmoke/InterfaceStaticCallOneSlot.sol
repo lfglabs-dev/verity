@@ -7,12 +7,13 @@ interface IWordFeed {
     function narrow(uint128 amount, int256 delta, bytes4 tag) external view returns (uint256);
     function owner() external view returns (address);
     function small() external view returns (uint8);
+    function rate() external view returns (uint16);
     function allowed(address account) external view returns (bool);
 }
 
 // A typed interface staticcall lowers the same way whatever else the contract declares
 // (#2830): contract-typed parameters and receivers, narrow and signed parameters, `address`
-// and `uint8` returns, converted arguments and expression positions other than whole
+// and `uint8`/`uint16` returns, converted arguments and expression positions other than whole
 // statements. The importer counts state variables across the whole compiled source, so each
 // contract of the pair is alone in its file; they differ only by one unrelated state variable
 // and one unused function.
@@ -60,6 +61,18 @@ contract InterfaceStaticCallOneSlot {
 
     function discardedSmall(address feed) external returns (uint256) {
         IWordFeed(feed).small();
+        stored[0] = 1;
+        return 1;
+    }
+
+    function rateWord(address feed) external returns (uint256) {
+        uint16 r = IWordFeed(feed).rate();
+        stored[0] = 1;
+        return r;
+    }
+
+    function discardedRate(address feed) external returns (uint256) {
+        IWordFeed(feed).rate();
         stored[0] = 1;
         return 1;
     }
