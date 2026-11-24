@@ -1707,37 +1707,37 @@ def stateful_helper_loop_return_source(fixture: str, variant: str) -> str:
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
-        return _rename_identifiers(fixture, {'acc', 'cap', 'found', 'hits', 'i', 'limit', 'n', 'needle', 'packed', 'r', 'total', 'v', 'x'})
+        return _rename_identifiers(fixture, {'acc', 'cap', 'found', 'hits', 'i', 'limit', 'n', 'needle', 'word', 'r', 'total', 'v', 'x'})
     if variant == 'structured':
         return _replace_anchors(fixture, [
             ('        for (uint256 i = 0; i < n; i++) {\n'
-             '            if (_at(packed, i) == needle) {\n'
+             '            if (_byteAt(word, i) == needle) {\n'
              '                return i + 1;\n'
              '            }\n'
              '        }\n'
              '        return 0;\n',
              '        uint256 index;\n'
              '        for (uint256 i = 0; i < n; i++) {\n'
-             '            if (index == 0 && _at(packed, i) == needle) {\n'
+             '            if (index == 0 && _byteAt(word, i) == needle) {\n'
              '                index = i + 1;\n'
              '            }\n'
              '        }\n'
              '        return index;\n'),
             ('        for (uint256 i = 0; i < n; ++i) {\n'
              '            hits += 1;\n'
-             '            if (_at(packed, i) == needle) return true;\n'
+             '            if (_byteAt(word, i) == needle) return true;\n'
              '        }\n'
              '        return false;\n',
              '        bool seen;\n'
              '        for (uint256 i = 0; i < n; ++i) {\n'
              '            if (!seen) {\n'
              '                hits += 1;\n'
-             '                seen = _at(packed, i) == needle;\n'
+             '                seen = _byteAt(word, i) == needle;\n'
              '            }\n'
              '        }\n'
              '        return seen;\n'),
             ('        for (uint256 i = 0; i < 4; i++) {\n'
-             '            uint256 v = _at(packed, i);\n'
+             '            uint256 v = _byteAt(word, i);\n'
              '            if (v > limit) {\n'
              '                return v + found;\n'
              '            }\n'
@@ -1745,7 +1745,7 @@ def stateful_helper_loop_return_source(fixture: str, variant: str) -> str:
              '        found += 1;\n',
              '        uint256 above;\n'
              '        for (uint256 i = 0; i < 4; i++) {\n'
-             '            uint256 v = _at(packed, i);\n'
+             '            uint256 v = _byteAt(word, i);\n'
              '            if (above == 0 && v > limit) {\n'
              '                above = v + found;\n'
              '            }\n'
