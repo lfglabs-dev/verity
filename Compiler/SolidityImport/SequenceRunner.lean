@@ -133,8 +133,9 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
     (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
     { foreignWorld with thisAddress := Address.ofNat account }
   -- Runtime code of the executing account, as deployed on the source route; absent
-  -- while its constructor runs. Only zero tests of its length are observable, which
-  -- agree with the compiled route's own nonempty code.
+  -- while its constructor runs. The importer reads it through `address(this)` only in
+  -- zero tests, which agree with the compiled route's own nonempty code; a read whose
+  -- operand equals the executing account only at runtime is outside the validated domain.
   if let .ok code := input.getObjVal? "selfCode" then
     let some code := hexCode? (← code.getStr?)
       | throw "executing account code must be 0x-prefixed hex"

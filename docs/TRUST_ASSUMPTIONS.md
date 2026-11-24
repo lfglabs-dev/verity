@@ -2390,7 +2390,8 @@ Trust boundary changes:
   written through `writeAccount`. Differential campaigns install the deployed
   runtime code of every foreign account they call (`accountCode` input); the
   executing contract's own code differs between the routes, so its code length
-  rejects outside a zero test (see the zero-test section below).
+  rejects outside a zero test (see the zero-test section below); an operand equal
+  to the executing contract only at runtime is outside the validated domain.
 - The callee is the explicit byte adversary of `ByteExternalCall`: a successful
   `CALL` may commit any world, including writes to the caller's own storage, so
   re-entrant effects are part of the Denote semantics rather than excluded.
@@ -2580,8 +2581,10 @@ Yul local bound to it (admitted on `main` before, outside every A/B/C case).
 
 Trust boundary changes:
 - Denote answers from the executing account's runtime code in
-  `ContractState.accountWorld`, which no imported statement other than this zero
-  test reads or writes (a `CALL` adversary may replace it; see below).
+  `ContractState.accountWorld`. No other imported statement reads it through
+  `address(this)` or a binding of it; an operand equal to it only at runtime (a
+  parameter or a value read from storage) is outside the validated domain, as for
+  `codehash`, and a `CALL` adversary may replace it (see below).
   A statement about the model must say whether that account has code: it has
   none while its constructor runs, including when that constructor
   delegatecalls an imported root (OpenZeppelin's proxy deploys run `initialize`
