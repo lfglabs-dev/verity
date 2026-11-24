@@ -360,7 +360,8 @@ partial def eraseClosedSelfDelegateCalls : Stmt → Stmt
 /-- True when a function's only CEI conflict is a storage-free batch self-delegatecall
 loop (`multicall`), with no storage reads, writes or logs following any self-delegatecall. -/
 def onlySelfDelegateLoopCEIClean (body : List Stmt) : Bool :=
-  onlyTrailingCallReentrancyWindows body &&
+  (Compiler.CompilationModel.stmtListCEIViolation body false).isSome &&
+    onlyTrailingCallReentrancyWindows body &&
     (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedSelfDelegateCalls) false).isNone
 
 /-- True when an external call module uses a closed byte-transport descriptor
