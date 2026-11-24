@@ -195,6 +195,9 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
   | some (.yulMemoryCall isStatic resultVar) =>
       mod == Compiler.ECM.YulMemoryCall.module isStatic resultVar && args.length == 5 &&
         exprListCovered args
+  | some (.yulMemoryDelegateCall resultVar) =>
+      mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar && args.length == 5 &&
+        exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -203,6 +206,8 @@ mutual
   def executableStmtCovered : Stmt → Bool
     | .mstore offset value => exprCovered offset && exprCovered value
     | .tstore offset value => exprCovered offset && exprCovered value
+    | .returndataCopy dest source size =>
+        exprCovered dest && exprCovered source && exprCovered size
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
@@ -465,6 +470,14 @@ theorem execStmt_ecm_yulMemoryCall_arm (oracle : DenoteOracle) (fields : List Fi
     execStmt oracle fields state (.ecm (Compiler.ECM.YulMemoryCall.module isStatic resultVar) args) =
       (match executeByteYulMemoryCall oracle fields state
           (Compiler.ECM.YulMemoryCall.module isStatic resultVar) isStatic resultVar args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+theorem execStmt_ecm_yulMemoryDelegateCall_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.YulMemoryDelegateCall.module resultVar) args) =
+      (match executeByteYulMemoryDelegateCall oracle fields state
+          (Compiler.ECM.YulMemoryDelegateCall.module resultVar) resultVar args with
        | .ok (outcome, _) => outcome
        | .error _ => .revert) := rfl
 

@@ -147,6 +147,10 @@ inductive ByteTransport where
   or `staticcall(gas(), target, inOffset, inSize, outOffset, outSize)` when `isStatic`, over
   the frame's physical memory. The success flag is bound; nothing reverts by itself. -/
   | yulMemoryCall (isStatic : Bool) (resultVar : String)
+  /-- `resultVar := delegatecall(gas(), target, inOffset, inSize, outOffset, outSize)` over
+  the frame's physical memory (used for self-dispatch `address(this).delegatecall(...)`).
+  The success flag is bound; nothing reverts by itself. -/
+  | yulMemoryDelegateCall (resultVar : String)
   deriving DecidableEq, Repr
 
 /-- An External Call Module packages a reusable external call pattern.
@@ -885,6 +889,35 @@ def module (isStatic : Bool) (resultVar : String) : ExternalCallModule where
 
 end YulMemoryCall
 
+namespace YulMemoryDelegateCall
+
+/-- `resultVar := delegatecall(gas(), target, inOffset, inSize, outOffset, outSize)` from five
+atomic arguments. Used for self-dispatch (`address(this).delegatecall(...)`). -/
+def compile (resultVar : String) (args : List YulExpr) :
+    Except String (List YulStmt) :=
+  match args with
+  | [target, inOffset, inSize, outOffset, outSize] =>
+      let gas := YulExpr.call "gas" []
+      let call := YulExpr.call "delegatecall" [gas, target, inOffset, inSize, outOffset, outSize]
+      pure [.let_ resultVar call]
+  | _ => throw "Yul memory delegatecall expects target, input offset and size, output offset and size"
+
+def module (resultVar : String) : ExternalCallModule where
+  name := "yulMemoryDelegateCall"
+  numArgs := 5
+  resultVars := [resultVar]
+  writesState := true
+  readsState := true
+  compile := fun _ args => compile resultVar args
+  byteTransport := some (.yulMemoryDelegateCall resultVar)
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "yul_memory_delegatecall"
+  summaryMutability := .call
+  targetArg := some 0
+
+end YulMemoryDelegateCall
+
 namespace SolidityExtCodeCopy
 
 /-- Solidity's `Panic(0x41)` allocation failure. -/
@@ -1059,6 +1092,10 @@ def compileCanonical (module : ExternalCallModule) (context : CompilationContext
       unless module == YulMemoryCall.module isStatic resultVar do
         throw "closed Yul memory call transport metadata differs"
       YulMemoryCall.compile isStatic resultVar args
+  | some (.yulMemoryDelegateCall resultVar) =>
+      unless module == YulMemoryDelegateCall.module resultVar do
+        throw "closed Yul memory delegatecall transport metadata differs"
+      YulMemoryDelegateCall.compile resultVar args
 
 end ExternalCallModule
 

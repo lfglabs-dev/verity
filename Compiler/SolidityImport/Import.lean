@@ -2461,24 +2461,49 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
             let offVal ← lowerYul args[0]!
             out := out ++ offVal.pre |>.push .revertEmpty
           else
-            -- A nonzero size reverts with memory bytes. The model's memory agrees with the EVM's
-            -- only on scratch bytes (below 0x40) this Yul block wrote on every path
-            -- (`yulWrittenBytes`): elsewhere solc's code generator left values the model does not
-            -- reproduce, and a restored free-memory pointer at 0x40 holds solc's pointer, which
-            -- the model's differs from. So the range must be literal, below 0x40 and written
-            -- (e.g. `mstore(0, sel) revert(0x1c, 4)`).
-            let written := (← get).yulWrittenBytes
-            let range? := match (← yulNumber? args[0]!), (← yulNumber? args[1]!) with
-              | some off, some size =>
-                  if off + size ≤ 0x40 &&
-                      (List.range size).all fun k => written.testBit (off + k) then
-                    some (off, size)
-                  else none
-              | _, _ => none
-            let some (off, size) := range?
-              | failAt expr ("Yul revert with revert data is supported only for a literal " ++
-                  "range below 0x40 that this Yul block wrote on every path")
-            out := out.push (.revertMemory (.literal off) (.literal size))
+            -- `revert(add(buf, 0x20), mload(buf))` forwarding a bound `bytes memory` / `string memory`
+            -- local (e.g., returndata from `address(this).delegatecall(...)`).
+            let yulCallArgs? (node : Json) (name : String) : Option (Array Json) :=
+              if optStr node "nodeType" == some "YulFunctionCall" &&
+                  (field? node "functionName").bind (optStr · "name") == some name then
+                match field? node "arguments" with
+                | some (.arr xs) => some xs
+                | _ => none
+              else none
+            let bufRevert? : Option EncodedBytes ← do
+              let some #[offL, offR] := yulCallArgs? args[0]! "add" | pure none
+              let some #[lenArg] := yulCallArgs? args[1]! "mload" | pure none
+              let offNode? ←
+                if (← yulNumber? offR) == some 32 then pure (some offL)
+                else if (← yulNumber? offL) == some 32 then pure (some offR)
+                else pure none
+              let some offNode := offNode? | pure none
+              if optStr offNode "nodeType" == some "YulIdentifier" &&
+                  optStr lenArg "nodeType" == some "YulIdentifier" &&
+                  optStr offNode "name" == optStr lenArg "name" then
+                yulByteBufferByName? offNode
+              else pure none
+            if let some buf := bufRevert? then
+              out := out ++ buf.pre |>.push (.revertMemory buf.pointer buf.size)
+            else
+              -- A nonzero size reverts with memory bytes. The model's memory agrees with the EVM's
+              -- only on scratch bytes (below 0x40) this Yul block wrote on every path
+              -- (`yulWrittenBytes`): elsewhere solc's code generator left values the model does not
+              -- reproduce, and a restored free-memory pointer at 0x40 holds solc's pointer, which
+              -- the model's differs from. So the range must be literal, below 0x40 and written
+              -- (e.g. `mstore(0, sel) revert(0x1c, 4)`).
+              let written := (← get).yulWrittenBytes
+              let range? := match (← yulNumber? args[0]!), (← yulNumber? args[1]!) with
+                | some off, some size =>
+                    if off + size ≤ 0x40 &&
+                        (List.range size).all fun k => written.testBit (off + k) then
+                      some (off, size)
+                    else none
+                | _, _ => none
+              let some (off, size) := range?
+                | failAt expr ("Yul revert with revert data is supported only for a literal " ++
+                    "range below 0x40 that this Yul block wrote on every path")
+              out := out.push (.revertMemory (.literal off) (.literal size))
         else if fname == "mcopy" then
           unless args.size == 3 do failAt expr "mcopy requires three arguments"
           if (← yulNumber? args[2]!) == some 0 then
@@ -2664,24 +2689,16 @@ private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := d
         if sb ≤ pb then return v
         else failAt at_ s!"implicit narrowing from {argTy} to {paramTy}"
     | _, _ => failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-  if paramTy == "bytes4" && argTy.startsWith "int_const" && !argTy.startsWith "int_const -" then
-    let .literal n := v.expr
-      | failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-    let raw := optStr at_ "value" |>.getD ""
-    let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
-    unless v.pre.isEmpty && n < 2 ^ 32 &&
-        (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do
-      failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-    return { pre := #[], expr := .literal (n * 16 ^ 56) }
-  if paramTy == "bytes1" && argTy.startsWith "int_const" && !argTy.startsWith "int_const -" then
-    let .literal n := v.expr
-      | failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-    let raw := optStr at_ "value" |>.getD ""
-    let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
-    unless v.pre.isEmpty && n < 2 ^ 8 &&
-        (n == 0 || (raw.startsWith "0x" && hexDigits.length == 2)) do
-      failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-    return { pre := #[], expr := .literal (n * 16 ^ 62) }
+  if let some bw := fixedBytesWidth? paramTy then
+    if bw < 32 && argTy.startsWith "int_const" && !argTy.startsWith "int_const -" then
+      let .literal n := v.expr
+        | failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+      let raw := optStr at_ "value" |>.getD ""
+      let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+      unless v.pre.isEmpty && n < 2 ^ (8 * bw) &&
+          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 2 * bw)) do
+        failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+      return { pre := #[], expr := .literal (n * 16 ^ (2 * (32 - bw))) }
   if argTy.startsWith "int_const" && !argTy.startsWith "int_const -" && !paramTy.startsWith "enum " && (bitsOf paramTy).isSome then
     return v
   failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
@@ -3127,6 +3144,31 @@ private def lowLevelCallMember? (call : Json) : M (Option Json) := do
   let ty ← mType base
   return if ty == "address" || ty == "address payable" then some member else none
 
+/-- The single `bytes` calldata argument of a value-free, option-free self-dispatch
+`address(this).delegatecall(payload)`. Rejects external targets and `{gas: ...}` options. -/
+private def selfDelegateCallArg? (call : Json) : M (Option Json) := do
+  unless optStr call "nodeType" == some "FunctionCall" && optStr call "kind" == some "functionCall" do
+    return none
+  let some callee := field? call "expression" | return none
+  unless optStr callee "nodeType" == some "MemberAccess" &&
+      optStr callee "memberName" == some "delegatecall" &&
+      (field? callee "referencedDeclaration").isNone do
+    return none
+  let some baseRaw := field? callee "expression" | return none
+  let base := unparenJson baseRaw
+  unless optStr base "nodeType" == some "FunctionCall" && optStr base "kind" == some "typeConversion" &&
+      (← mType base) == "address" do
+    return none
+  let baseArgs ← mArr (← mField base "arguments")
+  unless baseArgs.size == 1 do return none
+  let thisNode := unparenJson baseArgs[0]!
+  unless optStr thisNode "nodeType" == some "Identifier" && optStr thisNode "name" == some "this" &&
+      (← refInt thisNode) == -28 do
+    return none
+  let args ← mArr (← mField call "arguments")
+  unless args.size == 1 do return none
+  return some args[0]!
+
 /-- `<account>.code` on an `address`-typed account. Total on every node. -/
 private def isAddressCodeAccess (node : Json) : M Bool := do
   unless optStr node "nodeType" == some "MemberAccess" && optStr node "memberName" == some "code" &&
@@ -3550,6 +3592,10 @@ private partial def lowerExpr (j : Json) : M Val := do
             let inverted := { a with expr := Expr.bitNot a.expr }
             return if (← get).viaIR then { inverted with expr := cleanHelperResultExpr jTy inverted }
               else inverted
+          if (fixedBytesWidth? jTy).any (· < 32) then
+            let inverted := { a with expr := Expr.bitNot a.expr }
+            return if (← get).viaIR then { inverted with expr := cleanHelperResultExpr jTy inverted }
+              else inverted
           if jTy == "bytes32" then
             pure { pre := a.pre, expr := .bitNot a.expr }
           else
@@ -3836,7 +3882,7 @@ private partial def lowerRef (j : Json) : M Ref := do
               let aligned := word * 16 ^ (64 - hex.length)
               return .expr { pre := #[], expr := .literal aligned }
         unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
-            declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
+            declared == "bool" || (fixedBytesWidth? declared).isSome ||
             (signedBitsOf declared).isSome ||
             declared == "address" || declared == "address payable" do
           failAt j s!"unsupported numeric constant type {declared}"
@@ -4295,7 +4341,7 @@ private partial def lowerRef (j : Json) : M Ref := do
         let declared ← mType decl
         let initializer ← mField decl "value"
         modify fun e => { e with constantStack := n :: e.constantStack }
-        let rawValue ← lowerExpr initializer
+        let rawValue ← lowerExprAs declared initializer
         let cval ← convert declared (← mType initializer) rawValue initializer
         modify fun e => { e with constantStack := env.constantStack }
         pure (.expr cval)
@@ -4394,6 +4440,8 @@ private partial def lowerRef (j : Json) : M Ref := do
                 pure (.structFixedArray pre path arrInfo)
               else if let some mInfo := rawInfo.scalars.find? (·.member == member) then
                 pure (.expr (← readRawStructScalar pre baseSlot mInfo))
+              else if let some bInfo := rawInfo.bytesMembers.find? (·.member == member) then
+                pure (.path pre (.bytesSlot ("", rawStructMemberSlot baseSlot bInfo.wordOffset) bInfo.isString))
               else if rawInfo.opaqueMemberNames.contains member then
                 failAt j s!"{member} of {rawInfo.structName} has a storage type outside this slice"
               else
@@ -4876,7 +4924,7 @@ private partial def lowerBinary (j : Json) : M Val := do
   let signedBits? := signedBitsOf common
   let isSigned := signedBits?.isSome
   let isSigned256 := signedBits? == some 256
-  if common == "bytes4" then
+  if common == "bytes4" && op != "<<" && op != ">>" then
     let leftTy ← mType (← mField j "leftExpression")
     let rightTy ← mType (← mField j "rightExpression")
     if leftTy != "bytes4" || rightTy != "bytes4" then
@@ -4885,11 +4933,12 @@ private partial def lowerBinary (j : Json) : M Val := do
       left ← convert "bytes4" leftTy left leftNode
       right ← convert "bytes4" rightTy right rightNode
   else if let some bw := fixedBytesWidth? common then
-    if bw < 32 then
+    if bw < 32 && op != "<<" && op != ">>" then
       let leftTy ← mType (← mField j "leftExpression")
       let rightTy ← mType (← mField j "rightExpression")
       let fixedOrLiteral := fun (ty : String) =>
-        (fixedBytesWidth? ty).isSome || ty.startsWith "literal_string "
+        (fixedBytesWidth? ty).isSome || ty.startsWith "literal_string " ||
+        (ty.startsWith "int_const" && !ty.startsWith "int_const -")
       unless fixedOrLiteral leftTy && fixedOrLiteral rightTy do
         failAt j s!"implicit constant conversion to {common} is outside this slice"
       left ← convert common leftTy left leftNode
@@ -5032,6 +5081,11 @@ private partial def lowerBinary (j : Json) : M Val := do
       if isSigned256 || common == "bytes32" ||
           (!env.viaIR && (isSigned || common.startsWith "uint")) then
         pure { pre := a.pre ++ b.pre, expr := .shl b.expr a.expr }
+      else if let some bw := fixedBytesWidth? common then
+        let shifted := if bw < 32 then
+          cleanHelperResultExpr common { pre := #[], expr := .shl b.expr a.expr }
+        else .shl b.expr a.expr
+        pure { pre := a.pre ++ b.pre, expr := shifted }
       else if let some bits := signedBits? then
         let shifted := Expr.signextend (.literal (bits / 8 - 1)) (.shl b.expr a.expr)
         pure { pre := a.pre ++ b.pre, expr := shifted }
@@ -5051,6 +5105,11 @@ private partial def lowerBinary (j : Json) : M Val := do
         pure { pre := a.pre ++ b.pre, expr := .sar b.expr a.expr }
       else if (common.startsWith "uint" && (bitsOf common).isSome) || common == "bytes32" then
         pure { pre := a.pre ++ b.pre, expr := .shr b.expr a.expr }
+      else if let some bw := fixedBytesWidth? common then
+        let shifted := if bw < 32 then
+          cleanHelperResultExpr common { pre := #[], expr := .shr b.expr a.expr }
+        else .shr b.expr a.expr
+        pure { pre := a.pre ++ b.pre, expr := shifted }
       else
         failAt j s!"unsupported shift type {common}"
   | "&" | "|" | "^" =>
@@ -5375,6 +5434,16 @@ private partial def lowerCast (j : Json) : M Val := do
         let shifted := Stmt.letVar dest
           (.shl (.literal (8 * (32 - tw))) (.bitAnd a.expr (.literal (2 ^ (8 * tw) - 1))))
         return { pre := a.pre.push shifted, expr := .localVar dest }
+      if tw < 32 && src.startsWith "int_const" && !src.startsWith "int_const -" then
+        let .literal n := v.expr
+          | failAt j s!"unsupported cast source {src} for {tname}"
+        let innerArg ← stripParens args[0]!
+        let raw := optStr innerArg "value" |>.getD ""
+        let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+        unless v.pre.isEmpty && n < 2 ^ (8 * tw) &&
+            (n == 0 || (raw.startsWith "0x" && hexDigits.length == 2 * tw)) do
+          failAt j s!"unsupported cast source {src} for {tname}"
+        return { pre := #[], expr := .literal (n * 2 ^ (8 * (32 - tw))) }
       failAt j s!"unsupported cast source {src} for {tname}"
     if let some sw := fixedBytesWidth? src then
       if tname == s!"uint{8 * sw}" then
@@ -5469,6 +5538,16 @@ private partial def lowerCast (j : Json) : M Val := do
       let dest ← fresh
       let shifted := Stmt.letVar dest (.shl (.literal 160) (.bitAnd a.expr (.literal (2 ^ 96 - 1))))
       return { pre := a.pre.push shifted, expr := .localVar dest }
+    else if src.startsWith "int_const" && !src.startsWith "int_const -" then
+      let .literal n := v.expr
+        | failAt j s!"unsupported cast source {src} for bytes12"
+      let innerArg ← stripParens args[0]!
+      let raw := optStr innerArg "value" |>.getD ""
+      let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+      unless v.pre.isEmpty && n < 2 ^ 96 &&
+          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 24)) do
+        failAt j s!"unsupported cast source {src} for bytes12"
+      return { pre := #[], expr := .literal (n * 2 ^ 160) }
     else
       failAt j s!"unsupported cast source {src} for bytes12"
   if src == "bytes12" then
@@ -5495,6 +5574,16 @@ private partial def lowerCast (j : Json) : M Val := do
       let dest ← fresh
       let shifted := Stmt.letVar dest (.shl (.literal 96) (.bitAnd a.expr (.literal (2 ^ 160 - 1))))
       return { pre := a.pre.push shifted, expr := .localVar dest }
+    else if src.startsWith "int_const" && !src.startsWith "int_const -" then
+      let .literal n := v.expr
+        | failAt j s!"unsupported cast source {src} for bytes20"
+      let innerArg ← stripParens args[0]!
+      let raw := optStr innerArg "value" |>.getD ""
+      let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+      unless v.pre.isEmpty && n < 2 ^ 160 &&
+          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 40)) do
+        failAt j s!"unsupported cast source {src} for bytes20"
+      return { pre := #[], expr := .literal (n * 2 ^ 96) }
     else
       failAt j s!"unsupported cast source {src} for bytes20"
   if src == "bytes20" then
@@ -6117,33 +6206,46 @@ private partial def lowerMemberFunctionSelector (fnExpr : Json) : M (Json × Enc
           { pre := (AbiEncoding.staticWords pointer finish [.literal padded]).toArray,
             pointer := .localVar pointer, size := .literal 4 })
 
-/-- Lower `<receiver>.<fn>.selector` to a 4-byte memory buffer containing the
-left-aligned 32-bit function selector from the referenced declaration. -/
+/-- Lower `<receiver>.<fn>.selector`, `<Err>.selector`, or any `bytes4` expression
+(local, parameter, constant, decoded `bytes4`, literal) to a 4-byte memory buffer
+containing the left-aligned 32-bit selector. -/
 private partial def lowerSelectorBytes (j : Json) : M EncodedBytes := do
-  unless (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
-      (← mType j) == "bytes4" do
-    failAt j "selector argument must be a function .selector expression"
-  let fnExpr ← mField j "expression"
-  if (← mKind fnExpr) == "Identifier" then
-    let declId ← refInt fnExpr
-    if declId ≥ 0 then
-      if let some errDecl := (← get).errorDecls.find? declId.toNat then
-        if let some hex := optStr errDecl "errorSelector" then
-          unless hex.length == 8 do
-            failAt fnExpr s!"invalid errorSelector hex length {hex.length}"
-          let chars := hex.toList.toArray
-          let mut word := 0
-          for index in [:chars.size] do
-            let some digit := Compiler.Hex.hexCharToNat? chars[index]!
-              | failAt fnExpr "invalid errorSelector hex digit"
-            word := word * 16 + digit
-          let padded := word * 16 ^ 56
-          let pointer ← fresh
-          let finish ← fresh
-          modify fun e => { e with encodingMemory := true }
-          return { pre := (AbiEncoding.staticWords pointer finish [.literal padded]).toArray,
-                   pointer := .localVar pointer, size := .literal 4 }
-  return (← lowerMemberFunctionSelector fnExpr).2
+  let ty ← mType j
+  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
+      ty == "bytes4" then
+    let fnExpr ← mField j "expression"
+    if (← mKind fnExpr) == "Identifier" then
+      let declId ← refInt fnExpr
+      if declId ≥ 0 then
+        if let some errDecl := (← get).errorDecls.find? declId.toNat then
+          if let some hex := optStr errDecl "errorSelector" then
+            unless hex.length == 8 do
+              failAt fnExpr s!"invalid errorSelector hex length {hex.length}"
+            let chars := hex.toList.toArray
+            let mut word := 0
+            for index in [:chars.size] do
+              let some digit := Compiler.Hex.hexCharToNat? chars[index]!
+                | failAt fnExpr "invalid errorSelector hex digit"
+              word := word * 16 + digit
+            let padded := word * 16 ^ 56
+            let pointer ← fresh
+            let finish ← fresh
+            modify fun e => { e with encodingMemory := true }
+            return { pre := (AbiEncoding.staticWords pointer finish [.literal padded]).toArray,
+                     pointer := .localVar pointer, size := .literal 4 }
+    return (← lowerMemberFunctionSelector fnExpr).2
+  if ty == "bytes4" || (ty.startsWith "int_const" && !ty.startsWith "int_const -") ||
+      ty.startsWith "literal_string " then
+    unless ty.startsWith "literal_string " do
+      checkEncodingScalar j
+    let selVal ← atom (← lowerConverted "bytes4" j)
+    let cleaned := cleanHelperResultExpr "bytes4" selVal
+    let pointer ← fresh
+    let finish ← fresh
+    modify fun e => { e with encodingMemory := true }
+    return { pre := selVal.pre ++ (AbiEncoding.staticWords pointer finish [cleaned]).toArray,
+             pointer := .localVar pointer, size := .literal 4 }
+  failAt j "selector argument must be a bytes4 or function .selector expression"
 
 private partial def encodeSelectorAndWords (selBuffer : EncodedBytes) (pre : Array Stmt) (words : List Expr) : M EncodedBytes := do
   if words.isEmpty then
@@ -6227,12 +6329,17 @@ private partial def lowerStorageBytesLength (pre : Array Stmt) (fieldName : Stri
 private partial def resolveStorageBytesTarget? (j : Json) : M (Option (Array Stmt × String × Expr × Bool)) := do
   if ← isStorageStructBytesMember j then
     let base ← mField j "expression"
+    let member ← mStr (← mField j "memberName")
     let baseTy ← mType base
     if baseTy.startsWith "struct " &&
         (baseTy.endsWith " storage pointer" || baseTy.endsWith " storage ref") then
       match ← lowerRef base with
       | .path pre (.bytesSlot (fieldName, slotExpr) isString) =>
           return some (pre, fieldName, slotExpr, isString)
+      | .path pre (.rawSlot structId baseSlot) =>
+          let rawInfo ← resolveRawStructInfo structId j
+          if let some bInfo := rawInfo.bytesMembers.find? (·.member == member) then
+            return some (pre, "", rawStructMemberSlot baseSlot bInfo.wordOffset, bInfo.isString)
       | _ => pure ()
   if (← mKind j) == "Identifier" then
     let id ← refInt j
@@ -9555,7 +9662,7 @@ private partial def bindYulExternalConstants (j : Json) (allowAllStateVarSlots :
                   modify fun e => { e with yulNames := e.yulNames.insert ident (.literal aligned) }
                   continue
             unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
-                declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
+                declared == "bool" || (fixedBytesWidth? declared).isSome ||
                 (signedBitsOf declared).isSome ||
                 declared == "address" || declared == "address payable" do
               failAt j s!"unsupported numeric constant type {declared}"
@@ -12149,12 +12256,14 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
   unless ← isCounter (← mField cond "leftExpression") do
     failAt cond "a for loop condition must be counter < bound"
   let boundNode ← mField cond "rightExpression"
-  let abiLength ← if (← mKind boundNode) == "MemberAccess" &&
+  let (abiLength, abiCalldataLength) ← if (← mKind boundNode) == "MemberAccess" &&
       optStr boundNode "memberName" == some "length" then do
     match ← lowerRef (← mField boundNode "expression") with
-    | .abiArray _ _ pre => pure pre.isEmpty
-    | _ => pure false
-  else pure false
+    | .abiArray id _ pre =>
+        let isCd := ((← get).mems.find? id).any (·.calldataLocation)
+        pure (pre.isEmpty, pre.isEmpty && isCd)
+    | _ => pure (false, false)
+  else pure (false, false)
   let bound ← lowerExpr boundNode
   let invariant ← match bound.expr with
     | .literal _ | .param _ => pure true
@@ -12241,7 +12350,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     | some dest => #[Stmt.assignVar dest (.localVar binding)] ++ lowered
     | none => lowered
   if abiLength && !abiHeaderPreservingList bodyOut.toList then
-    if ← stmtContainsInlineAssembly body then
+    if !abiCalldataLength && (← stmtContainsInlineAssembly body) then
       failAt body "ABI-length loop body may write memory or call external code (unsupported statement InlineAssembly)"
     unless executableStmtListCovered bodyOut.toList do
       failAt body "ABI-length loop body may write memory or call external code"
@@ -12483,13 +12592,130 @@ private partial def boundedRangePopBounds? (fn sdecl : Json) : M (Option (String
   unless ← isBoundAdvance rest.back! paramId popped idxId fromHigh do return none
   return some (if fromHigh then (other, popped) else (popped, other))
 
-/-- `while (v > X)`, `while (X < v)` or `while (v != 0)` over an unsigned writable local `v`
-whose body contains exactly one top-level `v /= k` or `v = v / k` with a literal `k ≥ 2`, no
-other write to `v`, and no `break`, `continue` or `return`. The step runs on every iteration
-whose condition holds and at least halves `v`, so after `bits` such iterations `v` is `0` and
-the condition is false for every unsigned `X`; an iteration whose condition fails changes
-nothing, so the condition stays false. `bits` guarded iterations are the source loop. `none`
-when the loop has no such step. -/
+/-- Parse a non-negative compile-time constant expression (literal or pure numeric constant,
+optionally wrapped in parentheses or a `uintN(...)` conversion) to its natural value. -/
+private partial def parseNatConstExpr? (j : Json) : M (Option Nat) := do
+  let j ← stripParens j
+  match ← mKind j with
+  | "Literal" =>
+      unless optStr j "kind" == some "number" do return none
+      let raw ← mStr (← mField j "value")
+      let clean := (raw.splitOn "_").foldl (· ++ ·) ""
+      match Compiler.Hex.parseHexNat? clean <|> clean.toNat? with
+      | some n => if n < 2 ^ 256 then return some n else return none
+      | none => return none
+  | "FunctionCall" =>
+      if optStr j "kind" == some "typeConversion" && (← mType j).startsWith "uint" then
+        let args ← mArr (← mField j "arguments")
+        if args.size == 1 then return ← parseNatConstExpr? args[0]!
+      return none
+  | "Identifier" =>
+      let id ← refInt j
+      if id ≥ 0 then
+        if let some decl := (← get).numericConstants.find? id.toNat then
+          let ty ← mType decl
+          if ty.startsWith "uint" && (bitsOf ty).isSome then
+            if let some init := field? decl "value" then
+              return ← parseNatConstExpr? init
+      return none
+  | _ => return none
+
+/-- Conservative loop-invariance check for scalar bound expressions: depends only on
+literals, numeric constants, parameters/unassigned locals, `.length` of unassigned
+calldata/memory arrays/buffers, and pure scalar operations on them. -/
+private partial def exprIsLoopInvariant (j : Json) (writes : List Nat) : M Bool := do
+  let j ← stripParens j
+  match ← mKind j with
+  | "Literal" => pure true
+  | "Identifier" =>
+      let id ← refInt j
+      if id < 0 then return false
+      if writes.contains id.toNat then return false
+      let env ← get
+      return env.values.contains id.toNat || env.numericConstants.contains id.toNat
+  | "MemberAccess" =>
+      let member := optStr j "memberName" |>.getD ""
+      let base ← stripParens (← mField j "expression")
+      if member == "length" then
+        if (← mKind base) == "Identifier" then
+          let id ← refInt base
+          if id ≥ 0 && !writes.contains id.toNat then
+            let env ← get
+            if env.calldataBytes.contains id.toNat || env.scalarArrays.contains id.toNat ||
+               env.fixedMemArrays.contains id.toNat || env.byteBuffers.contains id.toNat ||
+               env.stringBuffers.contains id.toNat ||
+               (env.mems.find? id.toNat).any (·.rootArrayWord.isSome) then
+              return true
+        return false
+      if member == "max" || member == "min" then
+        return (← mKind base) == "FunctionCall"
+      let id := (field? j "referencedDeclaration").bind (·.getInt?.toOption) |>.getD (-1)
+      return id ≥ 0 && (← get).numericConstants.contains id.toNat
+  | "BinaryOperation" =>
+      let op := optStr j "operator" |>.getD ""
+      unless ["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"].contains op do return false
+      return (← exprIsLoopInvariant (← mField j "leftExpression") writes) &&
+        (← exprIsLoopInvariant (← mField j "rightExpression") writes)
+  | "UnaryOperation" =>
+      let op := optStr j "operator" |>.getD ""
+      unless ["~", "-"].contains op do return false
+      exprIsLoopInvariant (← mField j "subExpression") writes
+  | "FunctionCall" =>
+      unless optStr j "kind" == some "typeConversion" do return false
+      let args ← mArr (← mField j "arguments")
+      unless args.size == 1 do return false
+      exprIsLoopInvariant args[0]! writes
+  | _ => pure false
+
+/-- Recognize a single-variable monotonic step statement (`v++`, `++v`, `v += k`, `v = v + k`
+when `increasing`, or `v--`, `--v`, `v -= k`, `v = v - k` otherwise, optionally wrapped in
+a single-statement `Block` / `UncheckedBlock`). Returns `(k, inUnchecked)` for `k ≥ 1`. -/
+private partial def matchLinearStep (st : Json) (varId bits : Nat) (increasing : Bool)
+    (inUnchecked : Bool := false) : M (Option (Nat × Bool)) := do
+  match ← mKind st with
+  | "UncheckedBlock" =>
+      let stmts ← mArr (← mField st "statements")
+      if stmts.size == 1 then matchLinearStep stmts[0]! varId bits increasing true else return none
+  | "Block" =>
+      let stmts ← mArr (← mField st "statements")
+      if stmts.size == 1 then matchLinearStep stmts[0]! varId bits increasing inUnchecked else return none
+  | "ExpressionStatement" =>
+      let e ← stripParens (← mField st "expression")
+      match ← mKind e with
+      | "UnaryOperation" =>
+          let wantOp := if increasing then "++" else "--"
+          if optStr e "operator" == some wantOp && (← isIdentId (← mField e "subExpression") varId) then
+            return some (1, inUnchecked)
+          return none
+      | "Assignment" =>
+          unless ← isIdentId (← mField e "leftHandSide") varId do return none
+          let op ← mStr (← mField e "operator")
+          let rhs ← mField e "rightHandSide"
+          let compoundOp := if increasing then "+=" else "-="
+          if op == compoundOp then
+            if let some k ← parseNatConstExpr? rhs then
+              if k ≥ 1 then return some (k, inUnchecked)
+            return none
+          if op == "=" then
+            let r ← stripUintCast rhs bits
+            let binOp := if increasing then "+" else "-"
+            if (← mKind r) == "BinaryOperation" && optStr r "operator" == some binOp then
+              let l ← mField r "leftExpression"
+              let rr ← mField r "rightExpression"
+              if ← isIdentId l varId then
+                if let some k ← parseNatConstExpr? rr then
+                  if k ≥ 1 then return some (k, inUnchecked)
+              if increasing && (← isIdentId rr varId) then
+                if let some k ← parseNatConstExpr? l then
+                  if k ≥ 1 then return some (k, inUnchecked)
+          return none
+      | _ => return none
+  | _ => return none
+
+/-- `while (v > X)`, `while (X < v)`, `while (v != 0)`, or `while (v >= C)` / `while (C <= v)`
+(for constant `C ≥ 1`) over an unsigned writable local `v` whose body contains exactly one
+top-level `v /= k` or `v = v / k` with a literal `k ≥ 2`, no other write to `v`, and no
+`break`, `continue` or `return`. -/
 private partial def lowerDivisionWhile? (s cond : Json) (lowerBody : Json → M (Array Stmt)) :
     M (Option (Array Stmt)) := do
   unless (← mKind cond) == "BinaryOperation" do return none
@@ -12499,6 +12725,8 @@ private partial def lowerDivisionWhile? (s cond : Json) (lowerBody : Json → M 
   let varNode? ←
     if condOp == ">" then pure (some condLhs)
     else if condOp == "<" then pure (some condRhs)
+    else if condOp == ">=" && ((← parseNatConstExpr? condRhs).any (· ≥ 1)) then pure (some condLhs)
+    else if condOp == "<=" && ((← parseNatConstExpr? condLhs).any (· ≥ 1)) then pure (some condRhs)
     else if condOp == "!=" && (← isZeroLiteral condRhs) then pure (some condLhs)
     else if condOp == "!=" && (← isZeroLiteral condLhs) then pure (some condRhs)
     else pure none
@@ -12548,6 +12776,220 @@ private partial def lowerDivisionWhile? (s cond : Json) (lowerBody : Json → M 
              calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   return some #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
+
+/-- `while (v > X)`, `while (X < v)`, `while (v >= C)` / `while (C <= v)` (constant `C ≥ 1`)
+over an unsigned writable local `v` whose final statement is a bounded right-shift (`v >>= k`)
+or bit-clearing (`v &= v - 1`, `msb` + `clearBit`) step. Every non-zero iteration strictly
+reduces `v`'s active bits, so after `bits` iterations `v == 0` and the guard is false. -/
+private partial def lowerGeneralBitShiftWhile? (s cond : Json) (lowerBody : Json → M (Array Stmt)) :
+    M (Option (Array Stmt)) := do
+  unless (← mKind cond) == "BinaryOperation" do return none
+  let condOp ← mStr (← mField cond "operator")
+  let condLhs ← stripParens (← mField cond "leftExpression")
+  let condRhs ← stripParens (← mField cond "rightExpression")
+  -- Zero comparisons (`v != 0`, `v > 0`, `0 < v`) keep the dedicated fallback path and diagnostics.
+  if (condOp == "!=" || condOp == ">") && (← isZeroLiteral condRhs) then return none
+  if (condOp == "!=" || condOp == "<") && (← isZeroLiteral condLhs) then return none
+  let varNode? ←
+    if condOp == ">" then pure (some condLhs)
+    else if condOp == "<" then pure (some condRhs)
+    else if condOp == ">=" && ((← parseNatConstExpr? condRhs).any (· ≥ 1)) then pure (some condLhs)
+    else if condOp == "<=" && ((← parseNatConstExpr? condLhs).any (· ≥ 1)) then pure (some condRhs)
+    else pure none
+  let some varNode := varNode? | return none
+  unless (← mKind varNode) == "Identifier" do return none
+  let varRef ← refInt varNode
+  unless varRef ≥ 0 do return none
+  let varId := varRef.toNat
+  unless ((← get).writableLocals.find? varId).isSome do return none
+  let varTy ← mType varNode
+  let some bits := bitsOf varTy | return none
+  unless varTy.startsWith "uint" && bits > 0 && bits ≤ 256 do return none
+  let body ← mField s "body"
+  let bodyStmts ← unwrapLoopBodyStmts body
+  unless bodyStmts.size ≥ 1 do return none
+  let prefixStmts := bodyStmts.extract 0 (bodyStmts.size - 1)
+  if prefixStmts.any (fun st => (bodyAssignedIds st).contains varId) then return none
+  let lastStmt := bodyStmts.back!
+  unless (← mKind lastStmt) == "ExpressionStatement" do return none
+  let stepExpr ← mField lastStmt "expression"
+  unless (← mKind stepExpr) == "Assignment" do return none
+  let stepOp ← mStr (← mField stepExpr "operator")
+  let stepLhs ← mField stepExpr "leftHandSide"
+  let stepRhs ← mField stepExpr "rightHandSide"
+  unless ← isIdentId stepLhs varId do return none
+  let rightShiftOk ←
+    if stepOp == ">>=" then isPositiveShiftConst stepRhs
+    else if stepOp == "=" then do
+      let rhs ← stripUintCast stepRhs bits
+      if (← mKind rhs) == "BinaryOperation" && optStr rhs "operator" == some ">>" then
+        pure ((← isIdentId (← mField rhs "leftExpression") varId) &&
+              (← isPositiveShiftConst (← mField rhs "rightExpression")))
+      else pure false
+    else pure false
+  let clearLowestOk ←
+    if stepOp == "&=" then do
+      let rhs ← stripUintCast stepRhs bits
+      if (← mKind rhs) == "BinaryOperation" && optStr rhs "operator" == some "-" then
+        pure ((← isIdentId (← mField rhs "leftExpression") varId) &&
+              (← isOneLiteral (← mField rhs "rightExpression")))
+      else pure false
+    else if stepOp == "=" then isClearLowestBitExpr stepRhs varId bits
+    else pure false
+  let clearMsbOk ←
+    if bits == 256 && bodyStmts.size ≥ 2 then do
+      let firstStmt := bodyStmts[0]!
+      if (← mKind firstStmt) == "VariableDeclarationStatement" then
+        let decls ← mArr (← mField firstStmt "declarations")
+        let initVal := field? firstStmt "initialValue" |>.getD Json.null
+        if decls.size == 1 && !decls[0]!.isNull && !initVal.isNull then
+          let bitDecl := decls[0]!
+          let bitId ← mNat (← mField bitDecl "id")
+          let bitTy ← mType bitDecl
+          if bitTy.startsWith "uint" && !(bodyAssignedIds body).contains bitId &&
+              (← isMsbCallOn initVal varId) then
+            if stepOp == "&=" then isNotShiftBitExpr stepRhs bitId
+            else if stepOp == "=" then isClearBitExpr stepRhs varId bitId bits
+            else pure false
+          else pure false
+        else pure false
+      else pure false
+    else pure false
+  unless rightShiftOk || clearLowestOk || clearMsbOk do return none
+  if ← listContainsReturn bodyStmts then
+    failAt s "return inside a while loop is unsupported"
+  let condVal ← lowerExpr cond
+  unless condVal.pre.isEmpty do
+    failAt cond "while loop condition must be a pure scalar comparison"
+  let loopVar ← fresh
+  let saved ← get
+  let bodyOut ← lowerBody body
+  let loopWrites := bodyAssignedIds body
+  modify fun e =>
+    { e with values := saved.values, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+  let loopStmts : Array Stmt := #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
+  return some loopStmts
+
+/-- Exact bounded lowering for monotonic single-variable linear `while` loops:
+- `while (v < B)` / `while (B > v)` / `while (v <= B)` / `while (B >= v)` with a single
+  constant-increment step (`v++`, `++v`, `v += k`, `v = v + k`, `k ≥ 1`)
+- `while (v > B)` / `while (B < v)` / `while (v >= B)` / `while (B <= v)` with a single
+  constant-decrement step (`v--`, `--v`, `v -= k`, `v = v - k`, `k ≥ 1`)
+where `v` is an unsigned writable local updated nowhere else in the body and `B` is a pure
+loop-invariant unsigned expression. Checked arithmetic panics on wrap; unchecked steps are
+admitted only when wrapping is ruled out statically. -/
+private partial def lowerLinearWhile? (s cond : Json) (lowerBody : Json → M (Array Stmt)) :
+    M (Option (Array Stmt)) := do
+  unless (← mKind cond) == "BinaryOperation" do return none
+  let condOp ← mStr (← mField cond "operator")
+  let condLhs ← stripParens (← mField cond "leftExpression")
+  let condRhs ← stripParens (← mField cond "rightExpression")
+  let candidates : List (Json × Json × Bool × Bool) := match condOp with
+    | "<" => [(condLhs, condRhs, true, false), (condRhs, condLhs, false, false)]
+    | "<=" => [(condLhs, condRhs, true, true), (condRhs, condLhs, false, true)]
+    | ">" => [(condLhs, condRhs, false, false), (condRhs, condLhs, true, false)]
+    | ">=" => [(condLhs, condRhs, false, true), (condRhs, condLhs, true, true)]
+    | _ => []
+  if candidates.isEmpty then return none
+  let body ← mField s "body"
+  let bodyStmts ← unwrapLoopBodyStmts body
+  let bodyWrites := bodyAssignedIds body
+  let bodyUnchecked ← loopBodyUsesUnchecked body
+  let env ← get
+  for (varNode, boundNode, increasing, inclusive) in candidates do
+    if (← mKind varNode) != "Identifier" then continue
+    let varRef ← refInt varNode
+    if varRef < 0 then continue
+    let varId := varRef.toNat
+    if (env.writableLocals.find? varId).isNone then continue
+    let varTy ← mType varNode
+    let some bits := bitsOf varTy | continue
+    unless varTy.startsWith "uint" && bits > 0 && bits ≤ 256 do continue
+    let boundTy ← mType boundNode
+    let boundUnsigned := (boundTy.startsWith "uint" && (bitsOf boundTy).isSome) ||
+      (boundTy.startsWith "int_const" && !boundTy.startsWith "int_const -")
+    unless boundUnsigned do continue
+    unless ← exprIsLoopInvariant boundNode bodyWrites do continue
+    let mut stepIdx? : Option (Nat × Nat × Bool) := none
+    let mut stepCount : Nat := 0
+    for idx in [:bodyStmts.size] do
+      if let some (k, inUnchk) ← matchLinearStep bodyStmts[idx]! varId bits increasing then
+        stepCount := stepCount + 1
+        stepIdx? := some (idx, k, inUnchk)
+    unless stepCount == 1 do continue
+    let some (stepIdx, k, stepInUnchecked) := stepIdx? | continue
+    let mut otherVarWrite := false
+    for idx in [:bodyStmts.size] do
+      if idx != stepIdx && (bodyAssignedIds bodyStmts[idx]!).contains varId then
+        otherVarWrite := true
+    if otherVarWrite then continue
+    let stepUnchecked := env.unchecked || bodyUnchecked || stepInUnchecked
+    if stepUnchecked then
+      let boundConst? ← parseNatConstExpr? boundNode
+      let safeUnchecked :=
+        if increasing && !inclusive then
+          k == 1 && (((bitsOf boundTy).any (· ≤ bits) && boundTy.startsWith "uint") ||
+            boundConst?.any (· < 2 ^ bits))
+        else if increasing && inclusive then
+          boundConst?.any (fun b => b + k < 2 ^ bits)
+        else if !increasing && !inclusive then
+          k == 1
+        else
+          boundConst?.any (fun b => b ≥ k)
+      unless safeUnchecked do continue
+    if ← listContainsReturn bodyStmts then
+      failAt s "return inside a while loop is unsupported"
+    for st in bodyStmts do
+      if ← stmtContainsBreakOrContinue st then
+        failAt st "break or continue inside a linear while loop is unsupported"
+    let condVal ← lowerExpr cond
+    unless condVal.pre.isEmpty do
+      failAt cond "while loop condition must be a pure scalar comparison"
+    let varVal ← lowerExpr varNode
+    let boundVal ← lowerExpr boundNode
+    unless varVal.pre.isEmpty && boundVal.pre.isEmpty do continue
+    let v0 := cleanHelperResultExpr varTy varVal
+    let b0 := cleanHelperResultExpr boundTy boundVal
+    let countBinding ← fresh
+    let loopVar ← fresh
+    let (guardExpr, diffExpr) :=
+      if increasing && !inclusive then
+        let d := if k == 1 then Expr.sub b0 v0
+          else .add (.div (.sub (.sub b0 v0) (.literal 1)) (.literal k)) (.literal 1)
+        (Expr.lt v0 b0, d)
+      else if increasing && inclusive then
+        let d := if k == 1 then Expr.sub b0 v0 else .div (.sub b0 v0) (.literal k)
+        (Expr.le v0 b0, d)
+      else if !increasing && !inclusive then
+        let d := if k == 1 then Expr.sub v0 b0
+          else .add (.div (.sub (.sub v0 b0) (.literal 1)) (.literal k)) (.literal 1)
+        (Expr.gt v0 b0, d)
+      else
+        let d := if k == 1 then Expr.sub v0 b0 else .div (.sub v0 b0) (.literal k)
+        (Expr.ge v0 b0, d)
+    let saved ← get
+    let bodyOut ← lowerBody body
+    modify fun e =>
+      { e with values := saved.values, paths := saved.paths,
+               snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
+               calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+               writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!bodyWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+    let iterStep := Stmt.ite condVal.expr bodyOut.toList []
+    let mut out : Array Stmt := #[
+      .letVar countBinding (.literal 0),
+      .ite guardExpr [.assignVar countBinding diffExpr] []
+    ]
+    if bits < 256 then
+      let cap := Expr.literal (2 ^ bits)
+      out := out.push (.ite (.lt cap (.localVar countBinding)) [.assignVar countBinding cap] [])
+    out := out.push (.forEach loopVar (.localVar countBinding) [iterStep])
+    if inclusive then
+      out := out.push iterStep
+    return some out
+  return none
 
 /-- Exact bounded while-loop lowering for:
     1. unsigned bit-clearing (`msb` + `clearBit` or `v &= v - 1`) and positive constant right-shift (`v >>= k`)
@@ -12668,6 +13110,10 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
   unless (← mKind cond) == "BinaryOperation" do
     failAt cond "a while loop condition must compare a loop variable against zero"
   if let some stmts ← lowerDivisionWhile? s cond lowerBody then
+    return stmts
+  if let some stmts ← lowerGeneralBitShiftWhile? s cond lowerBody then
+    return stmts
+  if let some stmts ← lowerLinearWhile? s cond lowerBody then
     return stmts
   let condOp ← mStr (← mField cond "operator")
   let condLhs ← stripParens (← mField cond "leftExpression")
@@ -12968,8 +13414,9 @@ private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array St
     let rhs := (field? cond "rightExpression").getD .null
     let lhsTy := ((field? lhs "typeDescriptions").bind (optStr · "typeString")).getD ""
     let rhsTy := ((field? rhs "typeDescriptions").bind (optStr · "typeString")).getD ""
-    unless (lhsTy == "uint256" || lhsTy == "int_const 0") &&
-           (rhsTy == "uint256" || rhsTy == "int_const 0") do
+    let isUint256OrPosConst (ty : String) : Bool :=
+      ty == "uint256" || (ty.startsWith "int_const " && !ty.startsWith "int_const -")
+    unless isUint256OrPosConst lhsTy && isUint256OrPosConst rhsTy do
       failAt cond "helper while loop jumps require a uint256 loop variable"
   if isFor && (← stmtContainsLoopJump "Break" body) then
     let init ← mField s "initializationExpression"
@@ -15105,6 +15552,15 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               return ← writeWholeStorageStruct pre
                 (.rawSlot subInfo.structId (rawStructMemberSlot baseSlot subInfo.wordOffset))
                 false target expression
+          if let some bInfo := rawInfo.bytesMembers.find? (·.member == member) then
+            let slotExpr := rawStructMemberSlot baseSlot bInfo.wordOffset
+            if deleting then
+              return ← lowerStorageBytesDelete pre "" slotExpr
+            let right ← mField expression "rightHandSide"
+            if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
+              failAt target "raw-slot struct bytes/string write prelude with stateful RHS is unsupported"
+            checkStorageBytesSourceOrder pre target right
+            return ← lowerStorageBytesWrite "" pre target right slotExpr (some bInfo.isString)
           let some mInfo := rawInfo.scalars.find? (·.member == member)
             | failAt target s!"member {member} is unsupported in raw-slot struct"
           if deleting then
@@ -15565,7 +16021,7 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
       pure { pre := #[], expr := .shr rhs lhs }
     else
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
-  else if ty == "bytes4" then
+  else if (fixedBytesWidth? ty).any (· < 32) then
     let clean (e : Expr) := cleanHelperResultExpr ty { pre := #[], expr := e }
     if operator == "&=" then
       pure { pre := #[], expr := clean (.bitAnd lhs rhs) }
@@ -15573,6 +16029,10 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
       pure { pre := #[], expr := clean (.bitOr lhs rhs) }
     else if operator == "^=" then
       pure { pre := #[], expr := clean (.bitXor lhs rhs) }
+    else if operator == "<<=" then
+      pure { pre := #[], expr := clean (.shl rhs (clean lhs)) }
+    else if operator == ">>=" then
+      pure { pre := #[], expr := clean (.shr rhs (clean lhs)) }
     else
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
   else if let some sbits := (if ty.startsWith "int" then signedBitsOf ty else none) then
@@ -15644,8 +16104,9 @@ private partial def combineStackCompound (operator ty : String) (lhs rhs : Expr)
     (node : Json) : M Val := do
   let env ← get
   let narrow := (bitsOf ty).getD 256 < 256 || (signedBitsOf ty).getD 256 < 256
-  if (narrow && (ty.startsWith "uint" || (signedBitsOf ty).isSome)) || ty == "bytes4" then
-    if ty != "bytes4" && !env.viaIR && env.unchecked then
+  let narrowFixedBytes := (fixedBytesWidth? ty).any (· < 32)
+  if (narrow && (ty.startsWith "uint" || (signedBitsOf ty).isSome)) || narrowFixedBytes then
+    if !narrowFixedBytes && !env.viaIR && env.unchecked then
       match operator with
       | "+=" => return { pre := #[], expr := .add lhs rhs }
       | "-=" => return { pre := #[], expr := .sub lhs rhs }
@@ -15655,7 +16116,7 @@ private partial def combineStackCompound (operator ty : String) (lhs rhs : Expr)
     | "|=" => return { pre := #[], expr := .bitOr lhs rhs }
     | "^=" => return { pre := #[], expr := .bitXor lhs rhs }
     | "&=" => return { pre := #[], expr := .bitAnd lhs rhs }
-    | "<<=" => if !env.viaIR then
+    | "<<=" => if !env.viaIR && !narrowFixedBytes then
         return { pre := #[], expr := .shl rhs (cleanHelperResultExpr ty { pre := #[], expr := lhs }) }
     | _ => pure ()
   combineCompound operator ty lhs rhs node
@@ -15666,8 +16127,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
   let isSupportedCompoundTy (ty : String) : Bool :=
     (ty.startsWith "uint" && (bitsOf ty).isSome) || ty == "int256" || ty == "int" ||
       (ty.startsWith "int" && (signedBitsOf ty).isSome) ||
-      (ty == "bytes32" && ["&=", "|=", "^=", "<<=", ">>="].contains operator) ||
-      (ty == "bytes4" && ["&=", "|=", "^="].contains operator)
+      ((fixedBytesWidth? ty).isSome && ["&=", "|=", "^=", "<<=", ">>="].contains operator)
   let lowerRhs (ty : String) : M Val := do
     let rightTy ← mType right
     let raw ← lowerExpr right
@@ -16949,6 +17409,56 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                          yulNames := e.yulNames.erase name,
                          yulMemoryArrays := e.yulMemoryArrays.erase name,
                          yulMemoryStructs := e.yulMemoryStructs.insert name id }
+      return out
+    if let some payload ← selfDelegateCallArg? init then
+      unless decls.size == 2 do
+        failAt s "self-delegatecall must bind (bool success, bytes memory returndata)"
+      let successDecl := decls[0]!
+      let dataDecl := decls[1]!
+      if !successDecl.isNull then
+        unless (← mType successDecl) == "bool" &&
+            (optStr successDecl "storageLocation" |>.getD "default") == "default" do
+          failAt successDecl "self-delegatecall status binding must be a bool local"
+      if !dataDecl.isNull then
+        unless (← mType dataDecl) == "bytes" &&
+            optStr dataDecl "storageLocation" == some "memory" do
+          failAt dataDecl "self-delegatecall returndata binding must be a bytes memory local"
+      let payloadBuf ← lowerEncodedBytes payload
+      let successVar ← if successDecl.isNull then fresh else freshFor (← mStr (← mField successDecl "name"))
+      let mut out := payloadBuf.pre.push
+        (.ecm (Compiler.ECM.YulMemoryDelegateCall.module successVar)
+          [.contractAddress, payloadBuf.pointer, payloadBuf.size, .literal 0, .literal 0])
+      if !successDecl.isNull then
+        let sName ← mStr (← mField successDecl "name")
+        let sId ← mNat (← mField successDecl "id")
+        let expr := Expr.localVar successVar
+        modify fun e =>
+          { e with values := e.values.insert sId expr,
+                   scalarTy := e.scalarTy.insert sId .bool,
+                   yulNames := e.yulNames.insert sName expr,
+                   yulMemoryArrays := e.yulMemoryArrays.erase sName,
+                   yulMemoryStructs := e.yulMemoryStructs.erase sName,
+                   writableLocals := e.writableLocals.insert sId successVar,
+                   zeroInitLocals := e.zeroInitLocals.filter (· != sId) }
+      if !dataDecl.isNull then
+        let dName ← mStr (← mField dataDecl "name")
+        let dId ← mNat (← mField dataDecl "id")
+        let retLen ← fresh
+        let retPtr ← freshFor dName
+        let retFinish ← fresh
+        let clearIdx ← fresh
+        modify fun e => { e with encodingMemory := true }
+        out := out.push (.letVar retLen .returndataSize)
+        out := out ++ (AbiEncoding.packedBuffer retPtr retFinish clearIdx (.localVar retLen)).toArray
+        out := out.push (.returndataCopy (.localVar retPtr) (.literal 0) (.localVar retLen))
+        let retained : EncodedBytes :=
+          { pre := #[], pointer := .localVar retPtr, size := .localVar retLen }
+        modify fun e =>
+          { e with byteBuffers := e.byteBuffers.insert dId retained,
+                   nonLiteralByteLocals := if e.nonLiteralByteLocals.contains dId then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push dId,
+                   yulNames := e.yulNames.erase dName,
+                   yulMemoryArrays := e.yulMemoryArrays.erase dName,
+                   yulMemoryStructs := e.yulMemoryStructs.insert dName dId }
       return out
     let mut expectedTypes : Array (Option String) := #[]
     for d in decls do
@@ -18972,17 +19482,17 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
                  publicVarGetterReturns := #[if declared == "string" then .string else .bytes] }
       let getterBindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
       return ((buf.pre ++ getterBindStmts).push (.returnBytes memStem), #[])
-    let some pty := paramType declared
+    let some pty := localParamType declared
       | failAt varDecl s!"unsupported public constant type {declared}"
     discard (validateEnumTypeIfNeeded varDecl declared)
     unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
-        declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
+        declared == "bool" || (fixedBytesWidth? declared).isSome ||
         (signedBitsOf declared).isSome ||
         declared == "address" || declared == "address payable" ||
         declared.startsWith "contract " || declared.startsWith "enum " do
       failAt varDecl s!"unsupported public constant type {declared}"
     modify fun e => { e with constantStack := [rootId] }
-    let rawValue ← lowerExpr initializer
+    let rawValue ← lowerExprAs declared initializer
     let initTy ← mType initializer
     let value ← convert declared initTy rawValue initializer
     let a ← atom { value with expr := cleanHelperResultExpr declared value }
@@ -20004,17 +20514,23 @@ private def FnRec.toImported (f : FnRec) : ImportedFunction :=
 
 /-- Solidity spelling of a solc `typeString`: `struct Market memory` → `Market`. -/
 private def sourceTypeName (typeString : String) : String := Id.run do
-  let mut t := typeString
+  let mut t := typeString.trimAscii.toString
   for pre in ["struct ", "contract ", "enum "] do
     if t.startsWith pre then t := (t.drop pre.length).toString
   for suf in [" storage pointer", " storage ref", " memory", " calldata", " storage"] do
     if t.endsWith suf then t := (t.dropEnd suf.length).toString
+  for (inner, repl) in [(" memory[", "["), (" calldata[", "["), (" storage[", "[")] do
+    t := t.replace inner repl
+  if t == "uint" then t := "uint256"
+  else if t == "int" then t := "int256"
+  else if t == "address payable" then t := "address"
   return t
 
 /-- A written type matches its Solidity spelling, optionally qualified (`I.Market`). -/
 private def typeMatches (written typeString : String) : Bool :=
   let t := sourceTypeName typeString
-  t == written || t.endsWith ("." ++ written) || written.endsWith ("." ++ t)
+  let w := sourceTypeName written
+  t == w || t.endsWith ("." ++ w) || w.endsWith ("." ++ t)
 
 private structure CandidateFn where
   id : Nat
@@ -20448,7 +20964,8 @@ private def importSlice
       -- memory writes, returns and reverts follow it (`onlyTrailingCallReentrancyWindows`).
       if body.toList.any stmtContainsClosedLowLevelCall then
         let ceiClean := (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isNone ||
-          onlyStaticCallCEIBarriers body.toList || onlyClosedTransportCEIBarriers body.toList
+          onlyStaticCallCEIBarriers body.toList || onlyClosedTransportCEIBarriers body.toList ||
+          onlySelfDelegateLoopCEIClean body.toList
         let reentrancyClosed := onlyCreate2ReentrancyWindows body.toList ||
           onlyTrailingCallReentrancyWindows body.toList
         unless ceiClean && reentrancyClosed do
@@ -20491,7 +21008,8 @@ private def importSlice
           returns := returns.toList, isView, body := body.toList,
           abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
           allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
-            onlyClosedTransportCEIBarriers body.toList,
+            onlyClosedTransportCEIBarriers body.toList ||
+            onlySelfDelegateLoopCEIClean body.toList,
           reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList ||
             onlyTrailingCallReentrancyWindows body.toList,
           localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
