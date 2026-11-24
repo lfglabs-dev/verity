@@ -14527,7 +14527,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
           pre := pre ++ subPre
           memberVals := memberVals ++ subVals.map fun (n, t, e) => (s!"{mName}.{n}", t, e)
           continue
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
@@ -14570,7 +14570,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
           pre := pre ++ subPre
           evaluatedByName := evaluatedByName ++ subVals.map fun (n, t, e) => (s!"{argName}.{n}", t, e)
           continue
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
@@ -14759,7 +14759,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
         let mNode := sMembers[idx]!
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let some field := fields[idx]?
           | failAt mNode "missing struct-array field"

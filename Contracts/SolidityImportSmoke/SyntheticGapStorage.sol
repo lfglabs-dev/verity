@@ -95,11 +95,11 @@ contract SyntheticGapStorageMapped {
     }
 }
 
-// Access to an opaque static-array member fails closed.
+// Access to an opaque nested static-array member fails closed.
 contract SyntheticGapStorageUnsupported {
     struct Layout {
         uint256 head;
-        uint256[4] __gap;
+        uint256[2][2] __gap;
         uint256 tail;
     }
 
@@ -113,10 +113,10 @@ contract SyntheticGapStorageUnsupported {
     }
 
     function readGap(uint256 i) external view returns (uint256) {
-        return _layout().__gap[i];
+        return _layout().__gap[i][0];
     }
 
     function writeGap(uint256 v) external {
-        _layout().__gap[1] = v;
+        _layout().__gap[1][0] = v;
     }
 }
