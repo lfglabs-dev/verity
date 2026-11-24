@@ -25,7 +25,8 @@ A group is `name=jobs[/cap]`: `jobs` jobs, of which at most `cap` run at once
 on a build-medium pool (the workflow's `max-parallel` there). The runner_route
 input forces one pool for every group (`lean` means `lean-8` unless a pool is
 named `lean`; an unknown name warns and routes automatically). A GitHub API
-error routes every group to the first pool, as before.
+error routes every group to the first pool, as before, except a group larger
+than the first pool's `slots` (it could never fit), which takes the last pool.
 
 Outputs, per group with `-` replaced by `_`: `<group>_runs_on` (JSON label
 list) and `<group>_on_lean` (`true` when the labels do not include
@@ -198,8 +199,19 @@ def choose(
     if forced is not None:
         return [Decision(g, forced, "forced by the runner_route input") for g in groups], None
     if jobs is None:
-        reason = "GitHub API error; falling back to the first pool"
-        return [Decision(g, 0, reason) for g in groups], None
+        # As before, the first pool; but a group that exceeds the first pool's
+        # `slots` even when it is idle could never fit there, so it takes the
+        # last pool instead of queueing (24 mutation shards on 3 hosts).
+        decisions = []
+        for g in groups:
+            first = pools[0]
+            if "slots" in first and g.demand(first) > first["slots"] and len(pools) > 1:
+                reason = (f"GitHub API error; {g.demand(first)} job(s) exceed the first pool's "
+                          f"{first['slots']} slots, so the last pool")
+                decisions.append(Decision(g, len(pools) - 1, reason))
+            else:
+                decisions.append(Decision(g, 0, "GitHub API error; falling back to the first pool"))
+        return decisions, None
     loads = pool_loads(pools, jobs)
     decisions = []
     last = len(pools) - 1

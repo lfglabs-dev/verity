@@ -572,7 +572,7 @@ jobs:
     # build-medium only when its concurrent jobs fit in the free slots
     # (slots - running - queued - already routed), else to lean-8. The
     # runner_route input forces a pool; a GitHub API error falls back to the
-    # first pool. It needs `build`, so it runs whenever a routed job can;
+    # first pool (a group larger than its slots: the last). It needs `build`, so it runs whenever a routed job can;
     # ci-gate needs it, so a route failure (which skips the routed jobs)
     # still fails the gate.
     needs: build

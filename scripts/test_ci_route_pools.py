@@ -134,6 +134,10 @@ class RoutePoolsTest(unittest.TestCase):
         self.assertIsNone(loads)
         self.assertEqual({d.pool for d in decisions}, {0})
         self.assertIn("GitHub API error", decisions[0].reason)
+        # A group that can never fit the first pool's slots takes the last pool.
+        decisions, _ = rp.choose(self.pools, AFTER_BUILD, None, None)
+        self.assertEqual([self.pools[d.pool]["name"] for d in decisions], ["build-medium", "lean-8"])
+        self.assertIn("exceed the first pool's 3 slots", decisions[1].reason)
 
     def test_forced_runner_route(self) -> None:
         for mode, expected in (("lean", "lean-8"), ("lean-8", "lean-8"), ("build-medium", "build-medium")):
