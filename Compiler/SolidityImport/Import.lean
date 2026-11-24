@@ -1699,6 +1699,9 @@ private partial def lowerYul (j : Json) : M Val := do
         unless args.size == 1 do failAt j "Yul extcodesize expects one argument"
         let target ← lowerYul args[0]!
         unless target.pre.isEmpty do failAt args[0]! "Yul extcodesize operand must be effect-free"
+        -- The executing contract's code differs between the source and compiled routes.
+        let target ← lowerCodeReadTarget target j
+          "code length of an account that may be the executing contract is unsupported"
         let result ← fresh
         return { pre := #[.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]],
                  expr := .localVar result }
@@ -9897,7 +9900,7 @@ private partial def isThisCodeLength (j : Json) : M Bool := do
     return false
   let some code := field? j "expression" | return false
   unless ← isAddressCodeAccess code do return false
-  isThisAddressConv (← mField code "expression")
+  isThisAddressConv (unparenJson (← mField code "expression"))
 
 /-- `address(this).code.length` compared with zero (`== 0`, `!= 0`, `> 0` and the
 mirrored `0 == x`, `0 != x`, `0 < x`), as OpenZeppelin's `initializer` guard reads it:
