@@ -18,6 +18,7 @@ from solidity_differential.suite import STORAGE_FIXTURES, run_checks, stateful_c
 # but order is not checked, so union-merged rebases stay valid).
 EXPECTED_CAMPAIGN_CHECKS = (
     "abi",
+    "abi-decode-enum-struct",
     "abi-encode-stateful",
     "abi-encode-string-helper",
     "abi-encode-udvt",

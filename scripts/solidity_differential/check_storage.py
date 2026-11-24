@@ -194,6 +194,27 @@ YUL_MCOPY_PREFIX = [8, 9, 10, 11, 12, 13, 14, 15, 2 ** 255 + 8, 2 ** 255 + 1, 2 
 YUL_REVERT_MEMORY_PREFIX = [16, 17, 18, 19, 20, 21, 22, 23, 2 ** 255 + 2, 2 ** 255 + 3,
                             2 ** 256 - 5, 2 ** 255 + 4, 2 ** 255 + 5, 2 ** 256 - 1, 2 ** 255 + 6]
 
+
+def _abi_decode_enum_struct_word(shape, mode=0, tier=0, ident=7, oracle=0xbeef, dirty_id=0, dirty_oracle=0):
+    """`change(x)` of AbiDecodeEnumStructSequence: `x % 4` picks the shape, `y = x >> 2` the words."""
+    y = ident | dirty_id << 64 | mode << 65 | tier << 68 | dirty_oracle << 71 | oracle << 72
+    return (y << 2 | shape) % (1 << 256)
+
+
+# abi.decode into a flat struct with enum members: every in-range (mode, tier) pair, each enum at
+# its count and at 7, a `uint64` and an `address` word one bit too wide, a full-width oracle and id,
+# the tuple form (with `Tier.Max`), raw mode words 0..3 and 2^253 (shape 2), a short buffer (shape 3).
+ABI_DECODE_ENUM_STRUCT_PREFIX = (
+    [_abi_decode_enum_struct_word(0, m, t) for m in range(3) for t in range(5)]
+    + [_abi_decode_enum_struct_word(0, mode=3), _abi_decode_enum_struct_word(0, mode=7),
+       _abi_decode_enum_struct_word(0, tier=5), _abi_decode_enum_struct_word(0, tier=7),
+       _abi_decode_enum_struct_word(0, dirty_id=1), _abi_decode_enum_struct_word(0, dirty_oracle=1),
+       _abi_decode_enum_struct_word(0, 2, 4, ident=(1 << 64) - 1, oracle=(1 << 160) - 1),
+       _abi_decode_enum_struct_word(1, 2, 4), _abi_decode_enum_struct_word(1, 1, 0),
+       _abi_decode_enum_struct_word(1, mode=5), _abi_decode_enum_struct_word(1, tier=6),
+       _abi_decode_enum_struct_word(1, dirty_id=1),
+       2, 6, 10, 14, (1 << 255) | 2, 3, _abi_decode_enum_struct_word(3, 1, 1), (1 << 256) - 1])
+
 # Fixture name -> Contracts/SolidityImportSmoke/<contract>.sol. One entry per line,
 # sorted, so PRs adding different fixtures do not touch the same line.
 FIXTURE_CONTRACTS = {

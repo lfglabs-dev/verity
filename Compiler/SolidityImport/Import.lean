@@ -6730,13 +6730,16 @@ private partial def parseAbiDecodeItem (comp : Json) : M AbiDecodeTypeItem := do
           let members ← sMembers.mapM fun mNode => do
             return (← mStr (← mField mNode "name"), ← mType mNode)
           return .dynamicStruct sid sName members schema
-    let mut members : Array (String × String) := #[]
+    -- An `enum` member is one word below its member count, validated like a
+    -- scalar `enum` target (solc's `validator_revert_t_enum`).
+    let mut members : Array (String × String × Option Nat) := #[]
     for mNode in sMembers do
       let mName ← mStr (← mField mNode "name")
       let mTy ← mType mNode
-      unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+      unless (paramType mTy).isSome do
         failAt mNode s!"unsupported abi.decode struct member type {mTy}"
-      members := members.push (mName, mTy)
+      let enumBound? ← validateEnumTypeIfNeeded mNode mTy
+      members := members.push (mName, mTy, enumBound?)
     return .flatStruct sid sName members
   let refId := (field? comp "referencedDeclaration").bind (fun v => v.getInt?.toOption) |>.getD (-1)
   let scalarTy ← if refId ≥ 0 then
@@ -6915,12 +6918,12 @@ private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiD
         pre := pre ++ (AbiEncoding.reserve structPtr structFinish (.literal (32 * members.size))).toArray
         let mut memberVals : Array (String × String × Expr) := #[]
         for mIdx in [:members.size] do
-          let (mName, mTy) := members[mIdx]!
+          let (mName, mTy, enumBound?) := members[mIdx]!
           let wordVar ← fresh
           let off := headCursor + 32 * mIdx
           let wordAddr := if off == 0 then basePtr else Expr.add basePtr (.literal off)
           pre := pre.push (.letVar wordVar (readAbiDecodeWord fromCalldata wordAddr))
-          if let some g := abiDecodeScalarGuard? mTy none (.localVar wordVar) then
+          if let some g := abiDecodeScalarGuard? mTy enumBound? (.localVar wordVar) then
             pre := pre.push g
           pre := pre.push (.mstore (.add (.localVar structPtr) (.literal (32 * mIdx))) (.localVar wordVar))
           memberVals := memberVals.push (mName, mTy, .localVar wordVar)
