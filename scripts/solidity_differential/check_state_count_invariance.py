@@ -371,6 +371,11 @@ contract C {
 ''', ['run(address,uint256)'], expect='same-rejection'),
     fixture('fixture-narrow-event-sequence', 'Contracts/SolidityImportSmoke/NarrowEventSequence.sol',
             'SequenceFixture', ['change(uint128)', 'fail()', 'read()']),
+    fixture('fixture-yul-narrow-result', 'Contracts/SolidityImportSmoke/YulNarrowResultOneSlot.sol',
+            'YulNarrowResultOneSlot', [
+                'pairWords(uint256,uint256)', 'pairRaw(uint256,uint256)', 'pairUse(uint256,uint256)',
+                'mulSat(uint256,uint256)', 'mulTry(uint256,uint256)', 'readBackRaw(uint256)',
+                'squareRaw(uint8)', 'localWord(uint256)', 'localUses(uint256)', 'localKey(uint256)']),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry
