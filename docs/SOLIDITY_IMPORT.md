@@ -538,10 +538,25 @@ scripts/check_solidity_differential.sh --reduce --reduce-seconds 120 --output .l
   cores and available memory; `--task NAME` selects single campaigns); CI's
   `import-mutations` job runs 24 shards from the prepared `build` workspace.
 
-CI runs fixed seeds on every PR (10 minutes) and longer input, program and
-mutant campaigns on manual `workflow_dispatch` runs (60 minutes; the nightly
-schedule is currently paused), archiving the evidence.
-A timeout fails the job.
+CI runs fixed seeds on every PR (10 minutes). The nightly schedule is
+currently paused, so the longer campaigns run only on manual
+`workflow_dispatch` runs of `verify.yml`. There are two separate pieces, each
+with its own gate:
+
+- The *Extended Solidity slice campaigns* step (60 minutes: longer input,
+  program and mutant campaigns, with the evidence archived) belongs to the
+  `compiler-regressions` job. That job runs only when the change filter marks
+  the compiler as changed.
+- The `import-mutations` job (24 shards of
+  `scripts/solidity_import_mutations.py`) runs only when the change filter
+  marks the build as changed. A PR labelled `ci:mutations` also runs it.
+
+A plain dispatch does not necessarily run either piece. To reproduce the
+nightly run, dispatch on `main` with `force_full_run=true` (this forces both
+filters) and `clean_build=true` (cold build, as the schedule did). Start it
+in a quiet window: a manual run on `main` shares the main push concurrency
+group, so a push to `main` cancels it. Both pieces still depend on the
+upstream `checks` and `build` jobs passing. A timeout fails the job.
 
 ## Adding a construct
 
