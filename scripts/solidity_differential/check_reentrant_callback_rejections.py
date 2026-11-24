@@ -1,12 +1,9 @@
-"""Located rejections and positive controls for storage access after a re-entrant CALL.
+"""Positive controls for storage access, logs, and follow-up calls after a closed CALL.
 
-A callee may call the contract back, so the importer admits a typed void call only as the
-function's last state interaction. The positive controls are the shapes
-`check_reentrant_callback.py` runs on three routes: state written before the call, then
-nothing, or only local computation, after it. Every near miss reads or writes storage, logs,
-or calls again after the call (directly, or in a `try` clause) and must still fail at the
-function definition with the exact `Fixture.sol:line:column`, construct and message, and leave
-no olean. This records the current boundary; it admits nothing.
+Once post-CALL storage reads, storage writes, logs, and follow-up closed calls are admitted
+under `onlyClosedCallStateWindows` (carrying `solidity_post_call_state_access`), every closed
+shape below imports cleanly. Non-closed interactions after a CALL stay rejected (covered by
+`PostCallStateAccessChecks.lean` and `check_extcodehash_rejections.py`).
 """
 import argparse
 import hashlib
@@ -15,8 +12,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-POST_CALL = ('storage reads, storage writes, logs and other interactions after an external CALL '
-             'are unsupported: the call may re-enter this contract')
+POST_CALL = ('storage reads, storage writes and logs after an external CALL are '
+             'supported only when every external interaction of the function is a closed '
+             'transport: another interaction follows a CALL that may re-enter this contract')
 CALL = 'IHook(target).hook();'
 TRY = 'try IHook(target).hook() {{{success}}} catch {{{failure}}}'
 
@@ -27,14 +25,14 @@ CASES = [
     ('emit-before-call', f'emit Poked(value);\n        {CALL}', False),
     ('local-after-call', f'pending = value;\n        {CALL}\n        uint256 local = value + 1;\n'
                          '        require(local != 0, Failed());', False),
-    ('read-after-call', f'{CALL}\n        seen = pending;', True),
-    ('write-after-call', f'{CALL}\n        pending = value;', True),
-    ('require-storage-after-call', f'{CALL}\n        require(pending == value, Failed());', True),
-    ('emit-after-call', f'pending = value;\n        {CALL}\n        emit Poked(value);', True),
-    ('second-call', f'pending = value;\n        {CALL}\n        {CALL}', True),
-    ('try-success-write', TRY.format(success=' pending = value; ', failure=''), True),
-    ('try-catch-write', TRY.format(success='', failure=' pending = value; '), True),
-    ('try-catch-read', TRY.format(success='', failure=' seen = pending; '), True),
+    ('read-after-call', f'{CALL}\n        seen = pending;', False),
+    ('write-after-call', f'{CALL}\n        pending = value;', False),
+    ('require-storage-after-call', f'{CALL}\n        require(pending == value, Failed());', False),
+    ('emit-after-call', f'pending = value;\n        {CALL}\n        emit Poked(value);', False),
+    ('second-call', f'pending = value;\n        {CALL}\n        {CALL}', False),
+    ('try-success-write', TRY.format(success=' pending = value; ', failure=''), False),
+    ('try-catch-write', TRY.format(success='', failure=' pending = value; '), False),
+    ('try-catch-read', TRY.format(success='', failure=' seen = pending; '), False),
 ]
 
 

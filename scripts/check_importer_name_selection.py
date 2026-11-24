@@ -201,7 +201,8 @@ IMPORTER_BINDINGS = {
     "arr_ptr", "array", "bytes_ptr", "key1", "key2", "param", "raw_slot", "ret_struct", "str_ptr",
     "struct_param", "node", "denote_prefix", "denote_step", "solidity_closed_transport_cei",
     "solidity_create2_initcode_reentrancy", "solidity_explicit_abi", "solidity_scalar_abi_entry",
-    "solidity_static_call_cei", "solidity_trailing_low_level_call_reentrancy", "entry",
+    "solidity_static_call_cei", "solidity_trailing_low_level_call_reentrancy",
+    "solidity_post_call_state_access", "entry",
 }
 # Keys of the importer's own JSON (report, differential driver, sequence runner, remapping scan).
 IMPORTER_JSON_KEYS = {
