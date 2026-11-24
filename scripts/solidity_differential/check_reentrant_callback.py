@@ -6,7 +6,9 @@ call, `tryPoke` catches it). Each hook (`ReentrantCallbackHook.sol` on the EVM s
 that records its own sender and selector and reads the caller's pre-call write, one with a
 clean and one with a dirty `uint8` argument, one that writes and then reverts with data, one
 whose selector names no function, and a hook that reverts after a successful callback. One
-account has no code and the sender is an EOA. A divergence is shrunk to a deletion-minimal
+account has no code and the sender is an EOA. `emitPoke` logs before its call and `enter` logs
+too, so the caller's log must precede the callback's on every route. A callback that the model
+cannot execute is outside the responder's domain and fails the model run. A divergence is shrunk to a deletion-minimal
 sequence.
 
 Negative control: the same transactions replayed with every hook configured as an account that
@@ -88,15 +90,17 @@ def transactions_for(count, seed, caller, hooks):
                       'value': '0x0', 'timestamp': 1000000100 + index,
                       'blockNumber': len(hooks) + 2 + index})
 
-    # Every target through both call shapes, the callbacks called directly, then random calls.
+    # Every target through every call shape, the callbacks called directly, then random calls.
+    # The first call is `poke` of the first hook, which commits its callback.
     for index, target in enumerate(targets):
         add('poke(address,uint256)', ['address', 'uint256'], [target, 100 + index])
         add('tryPoke(address,uint256)', ['address', 'uint256'], [target, 200 + index])
+        add('emitPoke(address,uint256)', ['address', 'uint256'], [target, 300 + index])
     add('enter()', [], [])
     add('enterSmall(uint8)', ['uint8'], [9])
     add('enterThenFail()', [], [])
     while len(calls) < count:
-        choice = rng.randrange(6)
+        choice = rng.randrange(7)
         target = rng.choice(targets)
         value = rng.choice([0, 1, rng.getrandbits(8), rng.getrandbits(128)])
         if choice < 2:
@@ -104,6 +108,8 @@ def transactions_for(count, seed, caller, hooks):
         elif choice < 4:
             add('tryPoke(address,uint256)', ['address', 'uint256'], [target, value])
         elif choice == 4:
+            add('emitPoke(address,uint256)', ['address', 'uint256'], [target, value])
+        elif choice == 5:
             add('enter()', [], [])
         else:
             add('enterSmall(uint8)', ['uint8'], [value % 256])
@@ -195,7 +201,10 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     if {row['status'] for row in rows} != {'ok', 'revert'}:
         raise HarnessError('campaign must exercise both successful and reverting calls')
     # The committing hook's first `poke` must have re-entered on every route.
-    first = calls.index(next(tx for tx in calls if tx['function'] == 'poke'))
+    first = 0
+    if (calls[first]['function'] != 'poke' or calls[first]['args'][0] != int(accounts[0], 16)
+            or HOOKS[0][3] & REVERT_AFTER):
+        raise HarnessError('the first transaction must poke the first, committing hook')
     for route, observed in result['observations'].items():
         if callback_witness(observed[first], caller) != 1:
             raise HarnessError(f'{route}: the first committing callback was not observed')
@@ -220,7 +229,7 @@ def main():
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = 2 * (len(HOOKS) + 2) + 3
+    minimum = 3 * (len(HOOKS) + 2) + 3
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every target and call shape')
     output = (args.output.resolve() if args.output else

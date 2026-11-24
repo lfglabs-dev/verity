@@ -24,6 +24,7 @@ TRY = 'try IHook(target).hook() {{{success}}} catch {{{failure}}}'
 CASES = [
     ('trailing-call', f'pending = value;\n        {CALL}', False),
     ('trailing-try', 'pending = value;\n        ' + TRY.format(success='', failure=''), False),
+    ('emit-before-call', f'emit Poked(value);\n        {CALL}', False),
     ('local-after-call', f'pending = value;\n        {CALL}\n        uint256 local = value + 1;\n'
                          '        require(local != 0, Failed());', False),
     ('read-after-call', f'{CALL}\n        seen = pending;', True),
@@ -63,12 +64,14 @@ def main():
     output = (args.output.resolve() if args.output else
               Path(tempfile.mkdtemp(prefix='reentrant-callback-rejections-', dir=root / '.lake')))
     output.mkdir(parents=True, exist_ok=True)
+    if args.only and args.only not in {name for name, _, _ in CASES}:
+        parser.error(f'unknown case {args.only}')
     results = []
     for name, statements, rejected in CASES:
         if args.only and args.only != name:
             continue
         directory = output / name
-        directory.mkdir()
+        directory.mkdir(exist_ok=True)
         text = source(statements)
         (directory / 'Fixture.sol').write_text(text)
         driver = directory / 'Check.lean'

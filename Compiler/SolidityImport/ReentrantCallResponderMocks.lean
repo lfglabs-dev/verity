@@ -14,12 +14,14 @@ selector are the payload's, no value; memories, return data and journals start e
 transient storage is the transaction's (`beginReentrantFrame`). The payload selector picks the
 model's own public entry point, which runs through the production frame runner
 `executeReentrantBody`. A successful callback is committed with the caller's frame restored
-(`commitCalleeWorld`); with flag bit 0 the account then reverts with no data. A failed callback
+(`commitCallback`): the callback's logs and call journal follow the caller's, as the EVM appends
+a successful frame's logs to the transaction's; with flag bit 0 the account then reverts with no
+data. A failed callback
 is bubbled with its exact revert bytes. A selector that names no entry point, or arguments that
 do not decode, revert with no data, as solc's dispatcher and decoder do. An execution error
 (an unsupported construct, or a nested external call, which the callback frame is not given)
-is an instrumentation failure, answered with the revert bytes `0xdeadbeef` so it can never pass
-as a Solidity outcome. Answers, writes and accesses are computed from the current world and
+is an instrumentation failure: such a request is outside `accepts`, so the model run fails
+instead of producing a Solidity outcome that a `try` could catch. Answers, writes and accesses are computed from the current world and
 request, never copied from an EVM trace.
 
 This is a test-only instrument. It admits nothing in the importer, adds no trust assumption, and
@@ -97,7 +99,8 @@ variable (world : Verity.ContractState) (callee : Nat) (calldata : Bytes)
 
 end CallbackWorld
 
-/-- Revert bytes that mark an instrumentation failure, never a Solidity outcome. -/
+/-- Revert bytes of an instrumentation failure. Unreachable for accepted requests, which
+exclude callbacks that do not execute (`environment`); kept so `respond` is total. -/
 def instrumentationBytes : Bytes := [0xde, 0xad, 0xbe, 0xef]
 
 /-- Run the model's public entry point named by the payload selector in the callback frame.
@@ -118,6 +121,22 @@ def runCallback (model : CompilationModel) (oracle : DenoteOracle) (world : Veri
           | .error _ => none
   | [] => some ⟨false, [], beginReentrantFrame frame⟩
   | _ => none
+
+/-- Commit a successful callback into the caller: `commitCalleeWorld`, with the callback's logs
+and call journal appended to the caller's (the callback frame starts both empty). -/
+def commitCallback (caller callback : Verity.ContractState) : Verity.ContractState :=
+  { commitCalleeWorld caller callback with
+    events := caller.events ++ callback.events
+    calls := caller.calls ++ callback.calls }
+
+@[simp] theorem commitCallback_storageWords (caller callback : Verity.ContractState) :
+    (commitCallback caller callback).storageWords = callback.storageWords := rfl
+
+@[simp] theorem commitCallback_events (caller callback : Verity.ContractState) :
+    (commitCallback caller callback).events = caller.events ++ callback.events := rfl
+
+@[simp] theorem commitCallback_sender (caller callback : Verity.ContractState) :
+    (commitCallback caller callback).sender = caller.sender := rfl
 
 /-- The responder's storage after counting one answered call to `account`. -/
 def countCall (world : Verity.ContractState) (account : Nat) : Verity.ContractState :=
@@ -147,7 +166,7 @@ def respond (model : CompilationModel) (oracle : DenoteOracle) (accounts : List 
     | some result =>
         if !result.success then .revert result.data touched
         else if slotValue world account 3 % 2 == 1 then .revert [] touched
-        else .success (commitCalleeWorld counted result.world) [] touched
+        else .success (commitCallback counted result.world) [] touched
   else .success world [] []
 
 /-- A `staticcall` commits only the world it started from. -/
@@ -177,7 +196,11 @@ def environment (model : CompilationModel) (oracle : DenoteOracle) (accounts : L
           (request.kind == .call || request.kind == .staticcall) && request.value == 0 &&
           request.target != world.thisAddress.val && !reservedPrecompile request.target &&
           (emptyAccounts.contains request.target ||
-            (accounts.contains request.target && wellFormed world request.target))
+            (accounts.contains request.target && wellFormed world request.target &&
+              -- A callback that does not execute fails the run; no `try` can hide it.
+              (request.kind != .call ||
+                (runCallback model oracle (countCall world request.target) request.target
+                  (payload world request.target)).isSome)))
         valid := by
           intro request world
           by_cases hstatic : request.kind = .staticcall
