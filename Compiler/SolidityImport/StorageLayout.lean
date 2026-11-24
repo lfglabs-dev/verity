@@ -226,6 +226,8 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
           pure (some (160, false, none))
         else if vTy == "bool" then
           pure (some (8, true, none))
+        else if vTy.startsWith "enum " then
+          pure (some (8, false, none))
         else if vTy.startsWith "struct " && !vTy.contains "[" then do
           let valSid ← refInt vNode
           unless valSid >= 0 && (← get).structs.contains valSid.toNat do
@@ -378,6 +380,8 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
           pure (160, false)
         else if mTy == "bool" then
           pure (8, true)
+        else if mTy.startsWith "enum " then
+          pure (8, false)
         else
           failAt mNode s!"unsupported storage struct member {mName} : {mTy}"
       let byteWidth := bitWidth / 8
