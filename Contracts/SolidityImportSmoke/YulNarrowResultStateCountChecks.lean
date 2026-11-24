@@ -18,8 +18,14 @@ solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "YulNarrowR
   function localKey(uint256)
   function squareRaw(uint8)
   function clampedRaw(uint256,uint256)
+  function packedFlag(uint256)
+  function encodedFlag(uint256)
+  function arrayFlag(uint256)
+  function sameFlag(uint256,uint256)
   function queryPair(address)
   function sendFlag(address,uint256)
+  function transferChecked(address,address,uint256)
+  function emitFlag(uint256)
 
 solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "YulNarrowResultTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -35,8 +41,14 @@ solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "YulNarrowR
   function localKey(uint256)
   function squareRaw(uint8)
   function clampedRaw(uint256,uint256)
+  function packedFlag(uint256)
+  function encodedFlag(uint256)
+  function arrayFlag(uint256)
+  function sameFlag(uint256,uint256)
   function queryPair(address)
   function sendFlag(address,uint256)
+  function transferChecked(address,address,uint256)
+  function emitFlag(uint256)
 
 solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResultOneSlot.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -52,8 +64,14 @@ solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResul
   function localKey(uint256)
   function squareRaw(uint8)
   function clampedRaw(uint256,uint256)
+  function packedFlag(uint256)
+  function encodedFlag(uint256)
+  function arrayFlag(uint256)
+  function sameFlag(uint256,uint256)
   function queryPair(address)
   function sendFlag(address,uint256)
+  function transferChecked(address,address,uint256)
+  function emitFlag(uint256)
 
 solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResultTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -69,8 +87,14 @@ solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResul
   function localKey(uint256)
   function squareRaw(uint8)
   function clampedRaw(uint256,uint256)
+  function packedFlag(uint256)
+  function encodedFlag(uint256)
+  function arrayFlag(uint256)
+  function sameFlag(uint256,uint256)
   function queryPair(address)
   function sendFlag(address,uint256)
+  function transferChecked(address,address,uint256)
+  function emitFlag(uint256)
 
 private def body (model : CompilationModel) (name : String) : String :=
   match model.functions.find? (·.name == name) with
@@ -103,7 +127,7 @@ private def panics (model : CompilationModel) (name : String) (args : List Nat) 
 
 private def max : Nat := 2 ^ 256 - 1
 
-/-! Every root imports, the `staticcall` (`queryPair`) and `call` (`sendFlag`) helpers
+/-! Every root imports, the `staticcall` (`queryPair`) and `call` (`sendFlag`, `transferChecked`) helpers
 included, with a body that does not depend on the unrelated slot. -/
 #guard sameBody oneLegacy.model twoLegacy.model "pairWords" && sameBody oneIr.model twoIr.model "pairWords" &&
   sameBody oneLegacy.model twoLegacy.model "pairRaw" && sameBody oneIr.model twoIr.model "pairRaw" &&
@@ -116,14 +140,21 @@ included, with a body that does not depend on the unrelated slot. -/
   sameBody oneLegacy.model twoLegacy.model "localKey" && sameBody oneIr.model twoIr.model "localKey" &&
   sameBody oneLegacy.model twoLegacy.model "squareRaw" && sameBody oneIr.model twoIr.model "squareRaw" &&
   sameBody oneLegacy.model twoLegacy.model "clampedRaw" && sameBody oneIr.model twoIr.model "clampedRaw" &&
+  sameBody oneLegacy.model twoLegacy.model "packedFlag" && sameBody oneIr.model twoIr.model "packedFlag" &&
+  sameBody oneLegacy.model twoLegacy.model "encodedFlag" && sameBody oneIr.model twoIr.model "encodedFlag" &&
+  sameBody oneLegacy.model twoLegacy.model "arrayFlag" && sameBody oneIr.model twoIr.model "arrayFlag" &&
+  sameBody oneLegacy.model twoLegacy.model "sameFlag" && sameBody oneIr.model twoIr.model "sameFlag" &&
   sameBody oneLegacy.model twoLegacy.model "queryPair" && sameBody oneIr.model twoIr.model "queryPair" &&
-  sameBody oneLegacy.model twoLegacy.model "sendFlag" && sameBody oneIr.model twoIr.model "sendFlag"
+  sameBody oneLegacy.model twoLegacy.model "sendFlag" && sameBody oneIr.model twoIr.model "sendFlag" &&
+  sameBody oneLegacy.model twoLegacy.model "transferChecked" && sameBody oneIr.model twoIr.model "transferChecked" &&
+  sameBody oneLegacy.model twoLegacy.model "emitFlag" && sameBody oneIr.model twoIr.model "emitFlag"
 
 /-! Expected results: solc 0.8.34 on the EVM (osaka), legacy and via-IR, optimizer off and at
 466 runs (identical), both contracts. A Yul write keeps the raw word: Yul reads and copies see
 it (`pairRaw`, `clampedRaw`, `readBackRaw`, `localWord` raw/copied, `true && b` in `localUses`,
 whose raw word overflows the checked product at `max`), while `==`, `!`, conditions, mapping
-keys and ABI encoding clean it; `clampedRaw` clears a width that does not fit 32 bits. Legacy
+keys and ABI encoding clean it; `clampedRaw` clears a width that does not fit 32 bits; a packed storage member, `abi.encode`,
+a memory array element and `==` between two dirty words see the cleaned word. Legacy
 keeps the unchecked `uint8` product on the stack (`squareRaw`); via-IR cleans it. -/
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "pairWords" [0, 0] [0, 0])
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "pairRaw" [0, 0] [0, 0])
@@ -225,6 +256,26 @@ keeps the unchecked `uint8` product on the stack (`squareRaw`); via-IR cleans it
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [1, 4294967296] [1, 0, 1, 0])
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [max, 4294967301] [1, 0, max, 0])
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [0, max] [0, 0, 0, 0])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "packedFlag" [0] [5, 0])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "encodedFlag" [0] [0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "arrayFlag" [0] [32, 1, 0])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "packedFlag" [1] [5, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "encodedFlag" [1] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "arrayFlag" [1] [32, 1, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "packedFlag" [2] [5, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "encodedFlag" [2] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "arrayFlag" [2] [32, 1, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "packedFlag" [256] [5, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "encodedFlag" [256] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "arrayFlag" [256] [32, 1, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "packedFlag" [max] [5, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "encodedFlag" [max] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "arrayFlag" [max] [32, 1, 1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "sameFlag" [2, 1] [1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "sameFlag" [256, max] [1])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "sameFlag" [0, 2] [0])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "sameFlag" [1, 0] [0])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "sameFlag" [0, 0] [1])
 #guard [oneIr.model, twoIr.model].all (returns · "pairWords" [0, 0] [0, 0])
 #guard [oneIr.model, twoIr.model].all (returns · "pairRaw" [0, 0] [0, 0])
 #guard [oneIr.model, twoIr.model].all (returns · "pairUse" [0, 0] [0])
@@ -325,5 +376,34 @@ keeps the unchecked `uint8` product on the stack (`squareRaw`); via-IR cleans it
 #guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [1, 4294967296] [1, 0, 1, 0])
 #guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [max, 4294967301] [1, 0, max, 0])
 #guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [0, max] [0, 0, 0, 0])
+#guard [oneIr.model, twoIr.model].all (returns · "packedFlag" [0] [5, 0])
+#guard [oneIr.model, twoIr.model].all (returns · "encodedFlag" [0] [0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563])
+#guard [oneIr.model, twoIr.model].all (returns · "arrayFlag" [0] [32, 1, 0])
+#guard [oneIr.model, twoIr.model].all (returns · "packedFlag" [1] [5, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "encodedFlag" [1] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneIr.model, twoIr.model].all (returns · "arrayFlag" [1] [32, 1, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "packedFlag" [2] [5, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "encodedFlag" [2] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneIr.model, twoIr.model].all (returns · "arrayFlag" [2] [32, 1, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "packedFlag" [256] [5, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "encodedFlag" [256] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneIr.model, twoIr.model].all (returns · "arrayFlag" [256] [32, 1, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "packedFlag" [max] [5, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "encodedFlag" [max] [0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6])
+#guard [oneIr.model, twoIr.model].all (returns · "arrayFlag" [max] [32, 1, 1])
+#guard [oneIr.model, twoIr.model].all (returns · "sameFlag" [2, 1] [1])
+#guard [oneIr.model, twoIr.model].all (returns · "sameFlag" [256, max] [1])
+#guard [oneIr.model, twoIr.model].all (returns · "sameFlag" [0, 2] [0])
+#guard [oneIr.model, twoIr.model].all (returns · "sameFlag" [1, 0] [0])
+#guard [oneIr.model, twoIr.model].all (returns · "sameFlag" [0, 0] [1])
+
+/-- The events of one successful call from the default state. -/
+private def events (model : CompilationModel) (name : String) (args : List Nat) : Option (List (List Nat)) :=
+  (run model name args).bind fun r => if r.success then some r.events else none
+
+/-! solc emits `Flag(true, true)` for every nonzero word and `Flag(false, false)` for zero. -/
+#guard [oneLegacy.model, twoLegacy.model, oneIr.model, twoIr.model].all fun m =>
+  (events m "emitFlag" [0]).isSome && events m "emitFlag" [1] != events m "emitFlag" [0] &&
+  [2, 256, max].all fun w => (events m "emitFlag" [w]).isSome && events m "emitFlag" [w] == events m "emitFlag" [1]
 
 end SolidityImportSmoke.YulNarrowResultStateCountChecks

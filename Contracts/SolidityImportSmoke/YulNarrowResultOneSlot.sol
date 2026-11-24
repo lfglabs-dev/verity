@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
+interface IYulNarrowResultTransfer {
+    function transfer(address to, uint256 amount) external returns (bool);
+}
+
 interface IYulNarrowResultPairQuery {
     function pairOf(address account) external view returns (bool, uint32);
 }
@@ -39,7 +43,14 @@ library YulNarrowResultLib {
 
     function saturatingMul(uint256 a, uint256 b) internal pure returns (uint256) {
         (bool success, uint256 result) = tryMul(a, b);
-        return success ? result : type(uint256).max;
+        return ternary(success, result, type(uint256).max);
+    }
+
+    /// `condition ? a : b` without a branch; the `bool` reaches Yul through a parameter.
+    function ternary(bool condition, uint256 a, uint256 b) internal pure returns (uint256) {
+        unchecked {
+            return b ^ ((a ^ b) * toUint(condition));
+        }
     }
 
     /// The pair with the width cleared when it does not fit 32 bits.
@@ -81,6 +92,30 @@ library YulNarrowResultLib {
         }
     }
 
+    /// The success of a transfer-shaped `call`: the word 1, or no data from an account with
+    /// code; a failed call's return data is bubbled when `bubble` is set.
+    function transferFlag(address token, address to, uint256 amount, bool bubble)
+        internal returns (bool success)
+    {
+        bytes4 selector = IYulNarrowResultTransfer.transfer.selector;
+        assembly ("memory-safe") {
+            let fmp := mload(0x40)
+            mstore(0x00, selector)
+            mstore(0x04, and(to, shr(96, not(0))))
+            mstore(0x24, amount)
+            success := call(gas(), token, 0, 0x00, 0x44, 0x00, 0x20)
+            if iszero(and(success, eq(mload(0x00), 1))) {
+                if and(iszero(success), bubble) {
+                    returndatacopy(fmp, 0x00, returndatasize())
+                    revert(fmp, returndatasize())
+                }
+                success := and(success, and(iszero(returndatasize()), gt(extcodesize(token), 0)))
+            }
+            mstore(0x40, fmp)
+            mstore(0x60, 0)
+        }
+    }
+
     /// A single named `bool` result read back in Yul.
     function readBack(uint256 w) internal pure returns (bool flag) {
         assembly ("memory-safe") {
@@ -101,7 +136,14 @@ library YulNarrowResultLib {
 }
 
 contract YulNarrowResultOneSlot {
-    mapping(bool => uint256) private marks;
+    struct Entry {
+        uint8 tag;
+        bool flag;
+    }
+
+    mapping(bool => Entry) private marks;
+
+    event Flag(bool indexed topic, bool data);
 
     function pairWords(uint256 a, uint256 b) external pure returns (bool, uint32) {
         return YulNarrowResultLib.pair(a, b);
@@ -136,6 +178,57 @@ contract YulNarrowResultOneSlot {
 
     function sendFlag(address account, uint256 amount) external returns (bool) {
         return YulNarrowResultLib.callFlag(account, amount);
+    }
+
+    function transferChecked(address token, address to, uint256 amount) external {
+        if (!YulNarrowResultLib.transferFlag(token, to, amount, true)) revert();
+    }
+
+    /// A dirty `bool` into a packed storage member, an event, `abi.encode`, a memory array
+    /// element and a comparison of two dirty words.
+    function packedFlag(uint256 w) external returns (uint8, bool) {
+        bool b;
+        assembly ("memory-safe") {
+            b := w
+        }
+        marks[true].tag = 5;
+        marks[true].flag = b;
+        return (marks[true].tag, marks[true].flag);
+    }
+
+    function emitFlag(uint256 w) external {
+        bool b;
+        assembly ("memory-safe") {
+            b := w
+        }
+        emit Flag(b, b);
+    }
+
+    function encodedFlag(uint256 w) external pure returns (bytes32) {
+        bool b;
+        assembly ("memory-safe") {
+            b := w
+        }
+        return keccak256(abi.encode(b));
+    }
+
+    function arrayFlag(uint256 w) external pure returns (bool[] memory a) {
+        bool b;
+        assembly ("memory-safe") {
+            b := w
+        }
+        a = new bool[](1);
+        a[0] = b;
+    }
+
+    function sameFlag(uint256 w, uint256 v) external pure returns (bool) {
+        bool b;
+        bool c;
+        assembly ("memory-safe") {
+            b := w
+            c := v
+        }
+        return b == c;
     }
 
     function mulSat(uint256 a, uint256 b) external pure returns (uint256) {
@@ -194,7 +287,7 @@ contract YulNarrowResultOneSlot {
         assembly ("memory-safe") {
             b := w
         }
-        marks[b] = 7;
-        return marks[true];
+        marks[b].tag = 7;
+        return marks[true].tag;
     }
 }
