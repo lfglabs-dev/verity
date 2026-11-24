@@ -18,6 +18,7 @@ from solidity_import_coverage import foundry_toml_remappings
 
 REPO = Path(__file__).resolve().parents[1]
 V76 = '0.7.6+commit.7338295f'
+V35 = '0.8.35+commit.47b9dedd'
 V34, V28, V26, V10 = ('0.8.34+commit.80d5c536', '0.8.28+commit.7893614a', '0.8.26+commit.8a97fa7a',
                       '0.8.10+commit.fc410830')
 
@@ -445,7 +446,7 @@ class CompilerMatrixTests(unittest.TestCase):
         text = markdown(report)
         self.assertIn(f'| p:C | 0.5.16 | {V34} (importer default) | {V10} |', text)
         self.assertIn('| p:D | unavailable | unavailable | unavailable |', text)
-        self.assertIn(f'Importer-pinned solc releases: {V76}, {V34}, {V28}, {V26}, {V10}.', text)
+        self.assertIn(f'Importer-pinned solc releases: {V76}, {V35}, {V34}, {V28}, {V26}, {V10}.', text)
 
     def test_submodule_checkout_rejects_unpinned_or_unsafe_paths(self):
         with tempfile.TemporaryDirectory() as tmp:

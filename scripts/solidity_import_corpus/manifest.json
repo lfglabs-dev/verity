@@ -61,6 +61,16 @@
         "path": "solc-linux-amd64-v0.8.34+commit.80d5c536",
         "sha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39"
       }
+    },
+    "0.8.35": {
+      "macosx-amd64": {
+        "path": "solc-macosx-amd64-v0.8.35+commit.47b9dedd",
+        "sha256": "6e432580d973cae74c869ef4f737529e73fec5b200dce3c08d5e76c4a6b19159"
+      },
+      "linux-amd64": {
+        "path": "solc-linux-amd64-v0.8.35+commit.47b9dedd",
+        "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+      }
     }
   },
   "projects": [
