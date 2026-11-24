@@ -2654,118 +2654,8 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
     failAt j "inline assembly must restore the free-memory pointer at 0x40 before it ends"
   pure out
 
-/-- Matches the standard OpenZeppelin v5 `LowLevelCall.returnData()` inline-assembly block
-that allocates a `bytes memory` buffer at the free-memory pointer and copies the complete
-return data into it:
-
-    result := mload(0x40)
-    mstore(result, returndatasize())
-    returndatacopy(add(result, 0x20), 0x00, returndatasize())
-    mstore(0x40, add(result, add(0x20, returndatasize())))
-
-Also admits an optional leading `let size := returndatasize()` and standard 32-byte-aligned
-free-memory pointer updates. Returns `some resName` on match. -/
-private def matchYulReturndataCopyBlock? (stmts : Array Json) : Option String := do
-  let yulLit? (e : Json) : Option Nat :=
-    if optStr e "nodeType" == some "YulLiteral" && optStr e "kind" == some "number" then
-      (optStr e "value").bind fun raw => Compiler.Hex.parseHexNat? raw <|> raw.toNat?
-    else none
-  let yulCall? (e : Json) (fname : String) : Option (Array Json) :=
-    if optStr e "nodeType" == some "YulFunctionCall" &&
-        (field? e "functionName").bind (optStr · "name") == some fname then
-      match field? e "arguments" with
-      | some (.arr args) => some args
-      | _ => none
-    else none
-  let yulExprCall? (st : Json) (fname : String) : Option (Array Json) :=
-    if optStr st "nodeType" == some "YulExpressionStatement" then
-      (field? st "expression").bind (yulCall? · fname)
-    else none
-  let isIdent (e : Json) (name : String) : Bool :=
-    optStr e "nodeType" == some "YulIdentifier" && optStr e "name" == some name
-  let isRds (e : Json) : Bool :=
-    match yulCall? e "returndatasize" with
-    | some #[] => true
-    | _ => false
-  let (szVar?, rest) : Option String × Array Json :=
-    if stmts.size == 5 then
-      let st0 := stmts[0]!
-      if optStr st0 "nodeType" == some "YulVariableDeclaration" then
-        match field? st0 "variables", field? st0 "value" with
-        | some (.arr #[v]), some val =>
-            if optStr v "type" == some "" && isRds val then
-              match optStr v "name" with
-              | some nm => (some nm, stmts.extract 1 5)
-              | none => (none, #[])
-            else (none, #[])
-        | _, _ => (none, #[])
-      else (none, #[])
-    else if stmts.size == 4 then
-      (none, stmts)
-    else (none, #[])
-  guard (rest.size == 4)
-  let isLen (e : Json) : Bool :=
-    isRds e || szVar?.any (isIdent e ·)
-  -- 1. `res := mload(0x40)`
-  let stAssign := rest[0]!
-  guard (optStr stAssign "nodeType" == some "YulAssignment")
-  let resName ← match field? stAssign "variableNames", field? stAssign "value" with
-    | some (.arr #[v]), some val =>
-        if optStr v "nodeType" == some "YulIdentifier" then
-          match yulCall? val "mload" with
-          | some #[a] => if yulLit? a == some 0x40 then optStr v "name" else none
-          | _ => none
-        else none
-    | _, _ => none
-  let isResPlus (e : Json) (off : Nat) : Bool :=
-    match yulCall? e "add" with
-    | some #[a, b] => (isIdent a resName && yulLit? b == some off) ||
-                      (isIdent b resName && yulLit? a == some off)
-    | _ => false
-  -- 2. `mstore(res, len)`
-  let #[mDst, mLen] ← yulExprCall? rest[1]! "mstore" | none
-  guard (isIdent mDst resName && isLen mLen)
-  -- 3. `returndatacopy(add(res, 0x20), 0, len)`
-  let #[cDst, cSrc, cLen] ← yulExprCall? rest[2]! "returndatacopy" | none
-  guard (isResPlus cDst 0x20 && yulLit? cSrc == some 0 && isLen cLen)
-  -- 4. `mstore(0x40, <fmpUpdate>)`
-  let #[fmpSlot, fmpVal] ← yulExprCall? rest[3]! "mstore" | none
-  guard (yulLit? fmpSlot == some 0x40)
-  let isNot31 (e : Json) : Bool :=
-    match yulCall? e "not" with
-    | some #[a] => yulLit? a == some 0x1f
-    | _ => false
-  let isAddLitLen (e : Json) (k : Nat) : Bool :=
-    match yulCall? e "add" with
-    | some #[a, b] => (isLen a && yulLit? b == some k) || (isLen b && yulLit? a == some k)
-    | _ => false
-  let isAligned (e : Json) (k : Nat) : Bool :=
-    match yulCall? e "and" with
-    | some #[a, b] => (isAddLitLen a k && isNot31 b) || (isAddLitLen b k && isNot31 a)
-    | _ => false
-  let fmpOk : Bool :=
-    match yulCall? fmpVal "add" with
-    | some #[a, b] =>
-        -- `add(res, add(0x20, len))` or `add(add(res, 0x20), len)`
-        (isIdent a resName && (isAddLitLen b 0x20 || isAligned b 0x3f)) ||
-        (isIdent b resName && (isAddLitLen a 0x20 || isAligned a 0x3f)) ||
-        (isResPlus a 0x20 && (isLen b || isAligned b 0x1f)) ||
-        (isResPlus b 0x20 && (isLen a || isAligned a 0x1f))
-    | _ =>
-        match yulCall? fmpVal "and" with
-        | some #[a, b] =>
-            let checkInner (inner : Json) : Bool :=
-              match yulCall? inner "add" with
-              | some #[x, y] =>
-                  (isResPlus x 0x20 && isAddLitLen y 0x1f) ||
-                  (isResPlus y 0x20 && isAddLitLen x 0x1f) ||
-                  (isIdent x resName && isAddLitLen y 0x3f) ||
-                  (isIdent y resName && isAddLitLen x 0x3f)
-              | _ => false
-            (checkInner a && isNot31 b) || (checkInner b && isNot31 a)
-        | _ => false
-  guard fmpOk
-  return resName
+-- `matchYulReturndataCopyBlock?` is defined in `ExprHelpers.lean` so both lowering and
+-- transient-closure structured-assembly admission share the exact same matcher.
 
 private def lowerYulReturndataCopyBlock? (stmts : Array Json) : M (Option (Array Stmt)) := do
   let some resName := matchYulReturndataCopyBlock? stmts | return none
@@ -22771,7 +22661,9 @@ private def importSlice
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       -- Inline assembly can observe uncleaned stack words and write uncleaned transient
-      -- words; transient lowering is admitted only in closures without assembly.
+      -- words; transient lowering is admitted only in closures without disallowed assembly
+      -- (pure constant-slot getters and recognized structured LowLevelCall helpers are exempt
+      -- via `isAllowedAssemblyInTransientClosure`).
       if let (some asmNode, some tname) := (env.rootAssembly, env.rootTransientFields[0]?) then
         (failAt asmNode
           s!"inline assembly in a closure that accesses transient state variable {tname} is unsupported").run' env

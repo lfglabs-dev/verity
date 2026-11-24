@@ -1293,12 +1293,362 @@ private def isPureConstSlotBindingAssembly (env : Env) (fn asmNode : Json) : Boo
       (field? cref "valueSize").bind (·.getNat?.toOption) == some 1
   | _ => false
 
-private partial def firstNonPureSlotAssembly? (env : Env) (fn : Json) : Json → Option Json
+/-- Matches the standard OpenZeppelin v5 `LowLevelCall.returnData()` inline-assembly block
+that allocates a `bytes memory` buffer at the free-memory pointer and copies the complete
+return data into it:
+
+    result := mload(0x40)
+    mstore(result, returndatasize())
+    returndatacopy(add(result, 0x20), 0x00, returndatasize())
+    mstore(0x40, add(result, add(0x20, returndatasize())))
+
+Also admits an optional leading `let size := returndatasize()` and standard 32-byte-aligned
+free-memory pointer updates. Returns `some resName` on match. -/
+def matchYulReturndataCopyBlock? (stmts : Array Json) : Option String := do
+  let yulLit? (e : Json) : Option Nat :=
+    if optStr e "nodeType" == some "YulLiteral" && optStr e "kind" == some "number" then
+      (optStr e "value").bind fun raw => Compiler.Hex.parseHexNat? raw <|> raw.toNat?
+    else none
+  let yulCall? (e : Json) (fname : String) : Option (Array Json) :=
+    if optStr e "nodeType" == some "YulFunctionCall" &&
+        (field? e "functionName").bind (optStr · "name") == some fname then
+      match field? e "arguments" with
+      | some (.arr args) => some args
+      | _ => none
+    else none
+  let yulExprCall? (st : Json) (fname : String) : Option (Array Json) :=
+    if optStr st "nodeType" == some "YulExpressionStatement" then
+      (field? st "expression").bind (yulCall? · fname)
+    else none
+  let isIdent (e : Json) (name : String) : Bool :=
+    optStr e "nodeType" == some "YulIdentifier" && optStr e "name" == some name
+  let isRds (e : Json) : Bool :=
+    match yulCall? e "returndatasize" with
+    | some #[] => true
+    | _ => false
+  let (szVar?, rest) : Option String × Array Json :=
+    if stmts.size == 5 then
+      let st0 := stmts[0]!
+      if optStr st0 "nodeType" == some "YulVariableDeclaration" then
+        match field? st0 "variables", field? st0 "value" with
+        | some (.arr #[v]), some val =>
+            if optStr v "type" == some "" && isRds val then
+              match optStr v "name" with
+              | some nm => (some nm, stmts.extract 1 5)
+              | none => (none, #[])
+            else (none, #[])
+        | _, _ => (none, #[])
+      else (none, #[])
+    else if stmts.size == 4 then
+      (none, stmts)
+    else (none, #[])
+  guard (rest.size == 4)
+  let isLen (e : Json) : Bool :=
+    isRds e || szVar?.any (isIdent e ·)
+  -- 1. `res := mload(0x40)`
+  let stAssign := rest[0]!
+  guard (optStr stAssign "nodeType" == some "YulAssignment")
+  let resName ← match field? stAssign "variableNames", field? stAssign "value" with
+    | some (.arr #[v]), some val =>
+        if optStr v "nodeType" == some "YulIdentifier" then
+          match yulCall? val "mload" with
+          | some #[a] => if yulLit? a == some 0x40 then optStr v "name" else none
+          | _ => none
+        else none
+    | _, _ => none
+  let isResPlus (e : Json) (off : Nat) : Bool :=
+    match yulCall? e "add" with
+    | some #[a, b] => (isIdent a resName && yulLit? b == some off) ||
+                      (isIdent b resName && yulLit? a == some off)
+    | _ => false
+  -- 2. `mstore(res, len)`
+  let #[mDst, mLen] ← yulExprCall? rest[1]! "mstore" | none
+  guard (isIdent mDst resName && isLen mLen)
+  -- 3. `returndatacopy(add(res, 0x20), 0, len)`
+  let #[cDst, cSrc, cLen] ← yulExprCall? rest[2]! "returndatacopy" | none
+  guard (isResPlus cDst 0x20 && yulLit? cSrc == some 0 && isLen cLen)
+  -- 4. `mstore(0x40, <fmpUpdate>)`
+  let #[fmpSlot, fmpVal] ← yulExprCall? rest[3]! "mstore" | none
+  guard (yulLit? fmpSlot == some 0x40)
+  let isNot31 (e : Json) : Bool :=
+    match yulCall? e "not" with
+    | some #[a] => yulLit? a == some 0x1f
+    | _ => false
+  let isAddLitLen (e : Json) (k : Nat) : Bool :=
+    match yulCall? e "add" with
+    | some #[a, b] => (isLen a && yulLit? b == some k) || (isLen b && yulLit? a == some k)
+    | _ => false
+  let isAligned (e : Json) (k : Nat) : Bool :=
+    match yulCall? e "and" with
+    | some #[a, b] => (isAddLitLen a k && isNot31 b) || (isAddLitLen b k && isNot31 a)
+    | _ => false
+  let fmpOk : Bool :=
+    match yulCall? fmpVal "add" with
+    | some #[a, b] =>
+        -- `add(res, add(0x20, len))` or `add(add(res, 0x20), len)`
+        (isIdent a resName && (isAddLitLen b 0x20 || isAligned b 0x3f)) ||
+        (isIdent b resName && (isAddLitLen a 0x20 || isAligned a 0x3f)) ||
+        (isResPlus a 0x20 && (isLen b || isAligned b 0x1f)) ||
+        (isResPlus b 0x20 && (isLen a || isAligned a 0x1f))
+    | _ =>
+        match yulCall? fmpVal "and" with
+        | some #[a, b] =>
+            let checkInner (inner : Json) : Bool :=
+              match yulCall? inner "add" with
+              | some #[x, y] =>
+                  (isResPlus x 0x20 && isAddLitLen y 0x1f) ||
+                  (isResPlus y 0x20 && isAddLitLen x 0x1f) ||
+                  (isIdent x resName && isAddLitLen y 0x3f) ||
+                  (isIdent y resName && isAddLitLen x 0x3f)
+              | _ => false
+            (checkInner a && isNot31 b) || (checkInner b && isNot31 a)
+        | _ => false
+  guard fmpOk
+  return resName
+
+private def yulLitNat? (e : Json) : Option Nat :=
+  if optStr e "nodeType" == some "YulLiteral" && optStr e "kind" == some "number" then
+    (optStr e "value").bind fun raw => Compiler.Hex.parseHexNat? raw <|> raw.toNat?
+  else none
+
+private def yulCallArgs? (e : Json) (fname : String) : Option (Array Json) :=
+  if optStr e "nodeType" == some "YulFunctionCall" &&
+      (field? e "functionName").bind (optStr · "name") == some fname then
+    match field? e "arguments" with
+    | some (.arr args) => some args
+    | _ => none
+  else none
+
+private def yulExprCallArgs? (st : Json) (fname : String) : Option (Array Json) :=
+  if optStr st "nodeType" == some "YulExpressionStatement" then
+    (field? st "expression").bind (yulCallArgs? · fname)
+  else none
+
+private def yulIdentName? (e : Json) : Option String :=
+  if optStr e "nodeType" == some "YulIdentifier" then optStr e "name" else none
+
+private def isYulIdentNamed (e : Json) (name : String) : Bool :=
+  yulIdentName? e == some name
+
+private def isYulZeroArgCall (e : Json) (fname : String) : Bool :=
+  match yulCallArgs? e fname with
+  | some #[] => true
+  | _ => false
+
+/-- Matches `(add(buf, 0x20), mload(buf))` (or `add(0x20, buf)`) for a single Yul
+identifier `buf`, returning `some buf`. -/
+private def yulBytesPayloadArgs? (offArg lenArg : Json) : Option String := do
+  let #[a, b] ← yulCallArgs? offArg "add" | none
+  let bufName ←
+    if yulLitNat? b == some 0x20 then yulIdentName? a
+    else if yulLitNat? a == some 0x20 then yulIdentName? b
+    else none
+  let #[lenBuf] ← yulCallArgs? lenArg "mload" | none
+  guard (isYulIdentNamed lenBuf bufName)
+  return bufName
+
+private partial def findVarDeclById? (targetId : Nat) : Json → Option Json
+  | j@(.obj fields) =>
+      if optStr j "nodeType" == some "VariableDeclaration" &&
+          (field? j "id").bind (·.getNat?.toOption) == some targetId then
+        some j
+      else fields.foldl (fun found _ v => found <|> findVarDeclById? targetId v) none
+  | .arr xs => xs.findSome? (findVarDeclById? targetId)
+  | _ => none
+
+/-- Resolves every `externalReferences` entry of `asmNode` to a plain local/parameter
+`VariableDeclaration` inside `fn` (rejecting `.slot`/`.offset`, multi-word values, and any
+contract/transient state variable reference). -/
+private def resolvePlainLocalExternalRefs? (fn asmNode : Json) :
+    Option (RBMap String Json compare) := do
+  let refs ← (field? asmNode "externalReferences").bind (·.getArr?.toOption)
+  let mut byName : RBMap String Json compare := RBMap.empty
+  for ref in refs do
+    guard ((field? ref "isSlot").bind (·.getBool?.toOption) == some false)
+    guard ((field? ref "isOffset").bind (·.getBool?.toOption) == some false)
+    guard ((field? ref "suffix").isNone)
+    guard ((field? ref "valueSize").bind (·.getNat?.toOption) == some 1)
+    let declId ← (field? ref "declaration").bind (·.getNat?.toOption)
+    let decl ← findVarDeclById? declId fn
+    let name ← optStr decl "name"
+    guard (!name.isEmpty)
+    match byName.find? name with
+    | some prev =>
+        guard ((field? prev "id").bind (·.getNat?.toOption) == some declId)
+    | none =>
+        byName := byName.insert name decl
+  return byName
+
+private def declTypeStr (decl : Json) : String :=
+  ((field? decl "typeDescriptions").bind (optStr · "typeString")).getD ""
+
+private def isBoolDecl (decl : Json) : Bool :=
+  declTypeStr decl == "bool"
+
+private def isUint256Decl (decl : Json) : Bool :=
+  declTypeStr decl == "uint256"
+
+private def isAddressLikeDecl (decl : Json) : Bool :=
+  let ty := declTypeStr decl
+  ty == "address" || ty == "address payable" || ty.startsWith "contract "
+
+private def isBytesMemoryDecl (decl : Json) : Bool :=
+  let ty := declTypeStr decl
+  optStr decl "storageLocation" == some "memory" && (ty == "bytes" || ty == "bytes memory")
+
+private def rbMapKeysSubset (m : RBMap String Json compare) (allowed : Array String) : Bool :=
+  m.fold (fun ok k _ => ok && allowed.contains k) true
+
+private def rbMapCount (m : RBMap String Json compare) : Nat :=
+  m.fold (fun n _ _ => n + 1) 0
+
+/-- Recognizes OpenZeppelin v5 `LowLevelCall.callNoReturn` and `staticcallNoReturn`
+inline-assembly blocks purely by Yul AST structure and local parameter types:
+
+    success := call(gas(), target, value, add(data, 0x20), mload(data), 0x00, 0x00)
+    success := staticcall(gas(), target, add(data, 0x20), mload(data), 0x00, 0x00)
+
+Excludes `delegatecall`, arbitrary memory ranges, non-`gas()` allowances, and narrow
+scalar value operands. -/
+private def isStructuredLowLevelCallNoReturn (fn asmNode : Json) : Bool := Id.run do
+  if optStr fn "nodeType" != some "FunctionDefinition" then return false
+  if optStr asmNode "nodeType" != some "InlineAssembly" then return false
+  let some ast := field? asmNode "AST" | return false
+  if optStr ast "nodeType" != some "YulBlock" then return false
+  let some stmts := (field? ast "statements").bind (·.getArr?.toOption) | return false
+  if stmts.size != 1 then return false
+  let st := stmts[0]!
+  if optStr st "nodeType" != some "YulAssignment" then return false
+  let some vars := (field? st "variableNames").bind (·.getArr?.toOption) | return false
+  if vars.size != 1 then return false
+  let some succName := yulIdentName? vars[0]! | return false
+  let some rhs := field? st "value" | return false
+  let some refs := resolvePlainLocalExternalRefs? fn asmNode | return false
+  let some succDecl := refs.find? succName | return false
+  if !isBoolDecl succDecl then return false
+  if let some args := yulCallArgs? rhs "staticcall" then
+    if args.size != 6 then return false
+    if !isYulZeroArgCall args[0]! "gas" then return false
+    let some targetName := yulIdentName? args[1]! | return false
+    let some dataName := yulBytesPayloadArgs? args[2]! args[3]! | return false
+    if yulLitNat? args[4]! != some 0 || yulLitNat? args[5]! != some 0 then return false
+    let some targetDecl := refs.find? targetName | return false
+    let some dataDecl := refs.find? dataName | return false
+    return isAddressLikeDecl targetDecl && isBytesMemoryDecl dataDecl &&
+      rbMapKeysSubset refs #[succName, targetName, dataName]
+  if let some args := yulCallArgs? rhs "call" then
+    if args.size != 7 then return false
+    if !isYulZeroArgCall args[0]! "gas" then return false
+    let some targetName := yulIdentName? args[1]! | return false
+    let (valOk, allowed) : Bool × Array String :=
+      if yulLitNat? args[2]! == some 0 then
+        (true, #[succName, targetName])
+      else match yulIdentName? args[2]! with
+      | some valName =>
+          match refs.find? valName with
+          | some valDecl => (isUint256Decl valDecl, #[succName, targetName, valName])
+          | none => (false, #[])
+      | none => (false, #[])
+    if !valOk then return false
+    let some dataName := yulBytesPayloadArgs? args[3]! args[4]! | return false
+    if yulLitNat? args[5]! != some 0 || yulLitNat? args[6]! != some 0 then return false
+    let some targetDecl := refs.find? targetName | return false
+    let some dataDecl := refs.find? dataName | return false
+    return isAddressLikeDecl targetDecl && isBytesMemoryDecl dataDecl &&
+      rbMapKeysSubset refs (allowed.push dataName)
+  return false
+
+/-- Recognizes OpenZeppelin v5 `LowLevelCall.returnDataSize` (`size := returndatasize()`)
+with a `uint256` target variable. -/
+private def isStructuredReturnDataSize (fn asmNode : Json) : Bool := Id.run do
+  if optStr fn "nodeType" != some "FunctionDefinition" then return false
+  if optStr asmNode "nodeType" != some "InlineAssembly" then return false
+  let some ast := field? asmNode "AST" | return false
+  if optStr ast "nodeType" != some "YulBlock" then return false
+  let some stmts := (field? ast "statements").bind (·.getArr?.toOption) | return false
+  if stmts.size != 1 then return false
+  let st := stmts[0]!
+  if optStr st "nodeType" != some "YulAssignment" then return false
+  let some vars := (field? st "variableNames").bind (·.getArr?.toOption) | return false
+  if vars.size != 1 then return false
+  let some sizeName := yulIdentName? vars[0]! | return false
+  let some rhs := field? st "value" | return false
+  if !isYulZeroArgCall rhs "returndatasize" then return false
+  let some refs := resolvePlainLocalExternalRefs? fn asmNode | return false
+  if rbMapCount refs != 1 then return false
+  let some sizeDecl := refs.find? sizeName | return false
+  return isUint256Decl sizeDecl
+
+/-- Recognizes OpenZeppelin v5 `LowLevelCall.returnData` (`matchYulReturndataCopyBlock?`)
+writing to a `bytes memory` target variable with no other external references. -/
+private def isStructuredReturnDataCopy (fn asmNode : Json) : Bool := Id.run do
+  if optStr fn "nodeType" != some "FunctionDefinition" then return false
+  if optStr asmNode "nodeType" != some "InlineAssembly" then return false
+  let some ast := field? asmNode "AST" | return false
+  if optStr ast "nodeType" != some "YulBlock" then return false
+  let some stmts := (field? ast "statements").bind (·.getArr?.toOption) | return false
+  let some resName := matchYulReturndataCopyBlock? stmts | return false
+  let some refs := resolvePlainLocalExternalRefs? fn asmNode | return false
+  if rbMapCount refs != 1 then return false
+  let some resDecl := refs.find? resName | return false
+  return isBytesMemoryDecl resDecl
+
+/-- Recognizes OpenZeppelin v5 `LowLevelCall.bubbleRevert` inline-assembly blocks:
+1. 0-arg form: `let fmp := mload(0x40); returndatacopy(fmp, 0, returndatasize()); revert(fmp, returndatasize())`
+2. 1-arg form: `revert(add(returndata, 0x20), mload(returndata))` for a `bytes memory` variable. -/
+private def isStructuredBubbleRevert (fn asmNode : Json) : Bool := Id.run do
+  if optStr fn "nodeType" != some "FunctionDefinition" then return false
+  if optStr asmNode "nodeType" != some "InlineAssembly" then return false
+  let some ast := field? asmNode "AST" | return false
+  if optStr ast "nodeType" != some "YulBlock" then return false
+  let some stmts := (field? ast "statements").bind (·.getArr?.toOption) | return false
+  if stmts.size == 3 then
+    let some rawRefs := (field? asmNode "externalReferences").bind (·.getArr?.toOption) | return false
+    if !rawRefs.isEmpty then return false
+    let st0 := stmts[0]!
+    if optStr st0 "nodeType" != some "YulVariableDeclaration" then return false
+    let some vars := (field? st0 "variables").bind (·.getArr?.toOption) | return false
+    if vars.size != 1 then return false
+    if optStr vars[0]! "type" != some "" then return false
+    let some fmpName := optStr vars[0]! "name" | return false
+    if fmpName.isEmpty then return false
+    let some initVal := field? st0 "value" | return false
+    let some #[mloadArg] := yulCallArgs? initVal "mload" | return false
+    if yulLitNat? mloadArg != some 0x40 then return false
+    let some #[cDst, cSrc, cLen] := yulExprCallArgs? stmts[1]! "returndatacopy" | return false
+    let some #[rPtr, rLen] := yulExprCallArgs? stmts[2]! "revert" | return false
+    return isYulIdentNamed cDst fmpName && yulLitNat? cSrc == some 0 &&
+      isYulZeroArgCall cLen "returndatasize" &&
+      isYulIdentNamed rPtr fmpName && isYulZeroArgCall rLen "returndatasize"
+  if stmts.size == 1 then
+    let some #[offArg, lenArg] := yulExprCallArgs? stmts[0]! "revert" | return false
+    let some bufName := yulBytesPayloadArgs? offArg lenArg | return false
+    let some refs := resolvePlainLocalExternalRefs? fn asmNode | return false
+    if rbMapCount refs != 1 then return false
+    let some bufDecl := refs.find? bufName | return false
+    return isBytesMemoryDecl bufDecl
+  return false
+
+/-- Recognizes inline-assembly blocks that are safe inside a call closure accessing
+`transient` state variables:
+1. Pure constant-slot storage-pointer getters (`assembly { $.slot := CONST }`).
+2. Recognized structured OpenZeppelin v5 `LowLevelCall` helpers (`callNoReturn`,
+   `staticcallNoReturn`, `returnDataSize`, `returnData`, `bubbleRevert`), matched strictly
+   by Yul AST structure and local parameter types (100% library-name independent).
+Arbitrary inline assembly and `delegatecall` remain strictly rejected. -/
+def isAllowedAssemblyInTransientClosure (env : Env) (fn asmNode : Json) : Bool :=
+  isPureConstSlotBindingAssembly env fn asmNode ||
+  isStructuredLowLevelCallNoReturn fn asmNode ||
+  isStructuredReturnDataSize fn asmNode ||
+  isStructuredReturnDataCopy fn asmNode ||
+  isStructuredBubbleRevert fn asmNode
+
+private partial def firstDisallowedTransientAssembly? (env : Env) (fn : Json) : Json → Option Json
   | j@(.obj fields) =>
       if optStr j "nodeType" == some "InlineAssembly" then
-        if isPureConstSlotBindingAssembly env fn j then none else some j
-      else fields.foldl (fun found _ v => found <|> firstNonPureSlotAssembly? env fn v) none
-  | .arr xs => xs.findSome? (firstNonPureSlotAssembly? env fn)
+        if isAllowedAssemblyInTransientClosure env fn j then none else some j
+      else fields.foldl (fun found _ v => found <|> firstDisallowedTransientAssembly? env fn v) none
+  | .arr xs => xs.findSome? (firstDisallowedTransientAssembly? env fn)
   | _ => none
 
 /-- Forwarded tuples do not model raw assembly words across Solidity bindings. -/
@@ -1311,7 +1661,7 @@ def noteFn (fn : Json) : M Unit := do
   rejectForwardedAssembly ((field? fn "body").getD .null)
   let env ← get
   if env.rootAssembly.isNone then
-    if let some asmNode := firstNonPureSlotAssembly? env fn ((field? fn "body").getD .null) then
+    if let some asmNode := firstDisallowedTransientAssembly? env fn ((field? fn "body").getD .null) then
       modify fun e => { e with rootAssembly := some asmNode }
   let id ← mNat (← mField fn "id")
   let env ← get
