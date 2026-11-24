@@ -659,9 +659,11 @@ that path and does not encode those strings as `Error(string)`.
 poststate after the two overlapping stores, including all overlapping word
 observations, and the revert result for every in-range code and both typed
 constructors. The former isolated-word-map result is not valid for physical
-memory. Its interpreter still does not observe revert offsets, lengths or
-returned bytes; the regression counterexamples retain that explicit limitation
-while requiring the complete physical memory state. Separately,
+memory. The IR interpreter records the bytes of `revert(offset, size)` from
+physical memory (`IRState.revertData`, carried to `IRResult.revertData`), so the
+panic poststate includes the 36 returned bytes and the regression tests check
+that a `revert(0, 0)` after the same stores returns none. The source-to-IR
+theorem does not yet compare these bytes. Separately,
 `Compiler.Proofs.YulGeneration.PanicPayloadBytes` proves the exact 36-byte
 payload for the emitted panic AST, using EVMYulLean's byte-addressed `mstore`
 and `evmRevert` operations for arbitrary initial memory. This local fragment
@@ -1986,8 +1988,9 @@ new instruction, retaining their original conditions and evaluation positions.
 The proof grammar also has a direct empty-revert singleton, requiring no
 no-call/empty-buffer premise. Kernel-checked equations cover compilation in every
 context, source and IR reverted status, exact Denote bytes, and whole-world frame
-rollback. The source/IR status observations erase payloads; their equations do
-not establish byte-exact EVMYulLean equivalence. General byte-call agreement and
+rollback. The source status observation erases payloads and the IR one records the
+empty returned bytes; their equations do not establish byte-exact EVMYulLean
+equivalence. General byte-call agreement and
 broader proof consumers still require migration and full exact-head validation
 before release; the unchanged golden and boundary tests are not that gate.
 
@@ -2448,10 +2451,11 @@ necessary: logical string lengths and offsets are unbounded naturals, while
 actual stores normalize words and addresses. Recovered bounded chunk/header
 lemmas prove every UTF-8 message byte and zero-padding byte, and
 `execIRStmts_revertWithMessage_payload_slice` connects the complete physical
-slice to actual compiler-emitted execution. This IR interpreter still has no
-revert-data carrier or revert-range observation; these memory facts do not
-claim captured EVM revert bytes. The existing EVM differential checks remain
-required. No golden or pilot provenance changes are included.
+slice to actual compiler-emitted execution, and
+`execIRStmts_revertWithMessage_revertData` proves the IR revert data is exactly
+`Denote.errorStringBytes message`. The source-to-IR theorem does not yet compare
+revert bytes, and the native Yul revert exception still discards them. The
+existing EVM differential checks remain required. No golden or pilot provenance changes are included.
 
 `PhysicalMemory` supplies exact source store and transient-store head/continuation
 equations. Its physical-memory correspondence requires equality of the byte

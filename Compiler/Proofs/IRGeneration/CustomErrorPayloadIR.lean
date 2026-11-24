@@ -49,14 +49,6 @@ theorem execIRStmts_zero_cons (state : IRState) (stmt : YulStmt)
     execIRStmts 0 state (stmt :: tail) = .revert state := by
   simp [execIRStmts]
 
-/-- A `revert` expression statement reverts at every fuel value, including the
-out-of-fuel case. -/
-theorem execIRStmt_revertCall (fuel : Nat) (state : IRState)
-    (offset size : YulExpr) :
-    execIRStmt fuel state (.exprStmt (.call "revert" [offset, size])) =
-      .revert state := by
-  cases fuel <;> simp [execIRStmt]
-
 theorem execIRStmt_block' (fuel : Nat) (state : IRState) (body : List YulStmt) :
     execIRStmt (fuel + 1) state (.block body) = execIRStmts fuel state body := by
   simp [execIRStmt]
@@ -223,7 +215,7 @@ theorem execIRStmts_revertsAlways {stmts : List YulStmt}
       cases fuel with
       | zero => exact ⟨state, execIRStmts_zero_cons _ _ _⟩
       | succ f =>
-          exact ⟨state, execIRStmts_cons_revert f state state _ _
+          exact ⟨_, execIRStmts_cons_revert f state _ _ _
             (execIRStmt_revertCall f state offset size)⟩
   | cons hstmt _ ih =>
       intro fuel state

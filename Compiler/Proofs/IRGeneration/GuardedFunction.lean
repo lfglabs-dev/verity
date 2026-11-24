@@ -41,6 +41,20 @@ theorem prebindRawArgs_transient (state : IRState) (params : List Param) :
   | nil => rfl
   | cons p rest ih => exact ih (state.setVar p.1.name p.2)
 
+theorem prebindRawArgs_revertData (state : IRState) (params : List Param) :
+    (prebindRawArgs state params).revertData = state.revertData := by
+  unfold prebindRawArgs
+  generalize (params.map Param.toIRParam).zip state.calldata = l
+  induction l generalizing state with
+  | nil => rfl
+  | cons p rest ih => exact ih (state.setVar p.1.name p.2)
+
+private theorem applyBindingsToIRState_revertData :
+    ∀ (bindings : List (String × Nat)) (state : IRState),
+      (ParamLoading.applyBindingsToIRState state bindings).revertData = state.revertData
+  | [], _ => rfl
+  | (n, v) :: rest, state => applyBindingsToIRState_revertData rest (state.setVar n v)
+
 /-- The state a free guarded entry hands to its body: arguments bound, lock
 acquired. -/
 def acquiredBoundState (slot : Nat) (state : IRState) (params : List Param)
@@ -139,7 +153,7 @@ private theorem execResultToIRResult_guarded (state : IRState) (slot G : Nat)
   rw [prebindRawArgs_transient]
   by_cases hl : state.transientStorage slot = 1
   · rw [if_pos hl, if_pos hl]
-    rfl
+    simp [execResultToIRResult, applyBindingsToIRState_revertData, prebindRawArgs_revertData]
   · rw [if_neg hl, if_neg hl, hbody]
     cases tailResult <;> simp [execResultToIRResult, releaseState]
 

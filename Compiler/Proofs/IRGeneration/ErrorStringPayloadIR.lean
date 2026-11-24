@@ -11,9 +11,9 @@ import Compiler.Proofs.IRGeneration.PhysicalErrorStringWords
 Literal and pointer-relative mstore blocks update the real byte carrier and
 its overlapping word view. The complete payload theorem retains all three
 header assertions and gives the exact physical state under a nonwrapping extent.
-PhysicalErrorStringBytes.payload_slice separately proves every payload byte;
-the current interpreter has no revert-byte carrier, so no captured-byte execution
-claim is made here.
+PhysicalErrorStringBytes.payload_slice separately proves every payload byte,
+and `execIRStmts_revertWithMessage_revertData` lifts it to the reverted state's
+`revertData`.
 The pure applyWrites facts below describe the historical word-map algorithm;
 they are not a model of physical mstore and are not used to certify execution.
 -/
@@ -218,13 +218,18 @@ theorem MstoreWrites.storeTrace {stmts : List YulStmt} {writes : List (Nat × Na
   | consLit offset value trace ih => exact .consLit offset value ih
   | consHex offset value trace ih => exact .consHex offset value ih
 
+/-- Byte length of the `Error(string)` payload: selector, offset, length, padded data. -/
+def errorStringPayloadSize (message : String) : Nat :=
+  68 + ((bytesFromString message).length + 31) / 32 * 32
+
 /-- Actual execution retains the complete physical state at REVERT, including
-overlapping header stores. No revert-byte observer is assumed. -/
+overlapping header stores, and records the returned bytes. -/
 theorem execIRStmts_revertWithMessage_physical (message : String) (fuel : Nat)
     (state : IRState) :
     execIRStmts ((errorStringStmts message).length + fuel + 2) state
       (revertWithMessage message) =
-      .revert (PhysicalPayloadStores.applyStores state (errorStringWrites message)) := by
+      .revert ((PhysicalPayloadStores.applyStores state (errorStringWrites message)).recordRevert
+        0 (errorStringPayloadSize message)) := by
   rw [revertWithMessage_shape, (errorStringStmts_mstoreWrites message).length_eq]
   exact PhysicalPayloadStores.exec_trace_revert
     (errorStringStmts_mstoreWrites message).storeTrace state fuel 0 _
@@ -261,8 +266,11 @@ theorem execIRStmts_revertWithMessage (message : String) (fuel : Nat)
       finalState.memory 0 = Compiler.Constants.errorStringSelectorWord ∧
       finalState.memory 4 = 32 ∧
       finalState.memory 36 = (bytesFromString message).length ∧
-      finalState = PhysicalPayloadStores.applyStores state (errorStringWrites message) := by
+      finalState =
+        (PhysicalPayloadStores.applyStores state (errorStringWrites message)).recordRevert
+          0 (errorStringPayloadSize message) := by
   refine ⟨_, execIRStmts_revertWithMessage_physical message fuel state, ?_, ?_, ?_, ?_⟩
+  all_goals try rw [IRState.recordRevert_memory]
   · rw [errorStringWrites_physical]
     exact PhysicalErrorStringWords.selector_word state message extent
   · rw [errorStringWrites_physical]
@@ -271,8 +279,7 @@ theorem execIRStmts_revertWithMessage (message : String) (fuel : Nat)
     exact PhysicalErrorStringWords.length_word state message extent
   · rfl
 
-/-- Complete UTF-8 ABI payload in the actual reverted physical memory.
-This observes memory directly; it does not invent an IR revert-data carrier. -/
+/-- Complete UTF-8 ABI payload in the actual reverted physical memory. -/
 theorem execIRStmts_revertWithMessage_payload_slice (message : String) (fuel : Nat)
     (state : IRState)
     (extent : 68 + 32 * (Compiler.CompilationModel.chunkBytes32
@@ -284,8 +291,25 @@ theorem execIRStmts_revertWithMessage_payload_slice (message : String) (fuel : N
         (fun query => UInt8.ofNat (finalState.byteMemory.readByte query).val) =
         Compiler.CompilationModel.Denote.errorStringBytes message := by
   refine ⟨_, execIRStmts_revertWithMessage_physical message fuel state, ?_⟩
-  rw [errorStringWrites_physical]
+  rw [IRState.recordRevert_byteMemory, errorStringWrites_physical]
   exact PhysicalErrorStringBytes.payload_slice state message extent
+
+/-- The reverted execution returns exactly the `Error(string)` ABI bytes. -/
+theorem execIRStmts_revertWithMessage_revertData (message : String) (fuel : Nat)
+    (state : IRState)
+    (extent : 68 + 32 * (Compiler.CompilationModel.chunkBytes32
+      (Compiler.CompilationModel.bytesFromString message)).length ≤ Verity.Core.Uint256.modulus) :
+    ∃ finalState,
+      execIRStmts ((errorStringStmts message).length + fuel + 2) state
+        (revertWithMessage message) = .revert finalState ∧
+      finalState.revertData = Compiler.CompilationModel.Denote.errorStringBytes message := by
+  obtain ⟨finalState, hexec, hslice⟩ :=
+    execIRStmts_revertWithMessage_payload_slice message fuel state extent
+  refine ⟨finalState, hexec, ?_⟩
+  rw [execIRStmts_revertWithMessage_physical] at hexec
+  cases hexec
+  rw [IRState.recordRevert_revertData _ _ _ (by simp [errorStringPayloadSize]), ← hslice]
+  simp [revertBytes, Compiler.CompilationModel.DenoteMemory.Memory.slice, errorStringPayloadSize]
 
 /-! ## Pointer-based stores
 

@@ -20,10 +20,11 @@ open Compiler.CompilationModel
 /-- The 32-byte word holding the left-aligned `Panic(uint256)` selector. -/
 def panicSelectorWord : Nat := 0x4e487b71 * 2 ^ 224
 
-/-- Exact physical world after the two overlapping panic stores. Revert
-bytes remain the separate native observation in `PanicPayloadBytes`. -/
+/-- Exact physical world after the two overlapping panic stores and the
+`revert(0, 36)` that returns them (`IRState.revertData`). -/
 def panicPayloadState (state : IRState) (code : Nat) : IRState :=
-  (state.writePhysicalMemoryValue 0 panicSelectorWord).writePhysicalMemoryValue 4 code
+  let stored := (state.writePhysicalMemoryValue 0 panicSelectorWord).writePhysicalMemoryValue 4 code
+  stored.recordRevert 0 36
 
 /-- The emitted panic sequence updates actual bytes and every overlapping word
 window before reverting; it does not leave unrelated word-map entries frozen. -/

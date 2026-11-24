@@ -74,6 +74,7 @@ theorem execIRStmt_exprStmt_state_vars (fuel : Nat) (state : IRState)
       all_goals first
         | rfl
         | exact applyYulLogCall?_vars _ _ _ _ (by assumption)
+        | (simp [IRExecResult.state]; done)
         | simp_all
 
 /-- `getVar` only depends on `vars`. -/

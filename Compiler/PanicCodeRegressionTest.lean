@@ -110,26 +110,28 @@ private def panicPayloadWithRevertRange (code offset size : Nat) : List YulStmt 
   (solidityPanicPayload code).take 2 ++
     [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit offset, YulExpr.lit size])]
 
--- Counterexamples characterizing the current proof boundary: the IR interpreter
--- does not observe revert-data offsets, lengths, or bytes. These checks
--- intentionally pass; they do not claim that malformed payloads are valid on
--- the EVM. Revisit them when the interpreter gains a revert-data observable.
-example (fuel : Nat) (state : IRState) (code offset size : Nat) :
-    execIRStmts (fuel + 4) state (panicPayloadWithRevertRange code offset size) =
-      execIRStmts (fuel + 4) state (solidityPanicPayload code) := by
-  rfl
+/-- Returndata of a reverted IR execution (`[]` otherwise). -/
+private def revertedData : IRExecResult → List UInt8
+  | .revert state => state.revertData
+  | _ => []
 
--- Both canonical-payload theorems also establish their memory/revert result
--- for an empty revert, despite the emitted-AST checks above requiring 36 bytes.
-example (fuel : Nat) (state : IRState) :
-    execIRStmts (fuel + 4) state (panicPayloadWithRevertRange 0x11 0 0) =
-      .revert (panicPayloadState state 0x11) := by
-  exact execIRStmts_arithmeticOverflowPanicPayload fuel state
+-- The IR interpreter observes the revert range: the canonical `revert(0, 36)`
+-- returns 36 bytes, while the same stores followed by `revert(0, 0)` return none.
+-- (Before `IRState.revertData`, both executions were equal.)
+example (fuel : Nat) :
+    (revertedData (execIRStmts (fuel + 4) (IRState.initial 0)
+      (solidityPanicPayload 0x11))).length = 36 := by
+  rw [execIRStmts_solidityPanicPayload fuel _ 0x11 (by decide)]
+  simp [revertedData, panicPayloadState,
+    IRState.recordRevert_revertData _ _ _ (show (36 : Nat) ≠ 0 by decide)]
 
-example (fuel : Nat) (state : IRState) :
-    execIRStmts (fuel + 4) state (panicPayloadWithRevertRange 0x12 0 0) =
-      .revert (panicPayloadState state 0x12) := by
-  exact execIRStmts_divisionByZeroPanicPayload fuel state
+example (fuel : Nat) :
+    revertedData (execIRStmts (fuel + 4) (IRState.initial 0)
+      (panicPayloadWithRevertRange 0x11 0 0)) = [] := by
+  simp [revertedData, panicPayloadWithRevertRange, solidityPanicPayload,
+    solidityPanicPayloadExpr, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    IRState.initial]
 
 private def expectedPanicBytesForTest (code : UInt8) : ByteArray :=
   ⟨#[0x4e, 0x48, 0x7b, 0x71] ++ Array.replicate 31 0 ++ #[code]⟩

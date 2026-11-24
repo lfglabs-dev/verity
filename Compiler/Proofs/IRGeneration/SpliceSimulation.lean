@@ -839,7 +839,10 @@ theorem execIRStmt_modeledHalt_no_continue (h : YulStmt) (hmh : ModeledHalt h)
       | succ f =>
           by_cases hb : b = 32 <;>
             simp [execIRStmt, evalIRExpr, hb] at hcontra
-  | rev a b => cases fuel <;> simp [execIRStmt] at hcontra
+  | rev a b =>
+      cases fuel with
+      | zero => simp [execIRStmt] at hcontra
+      | succ f => simp only [execIRStmt] at hcontra; split at hcontra <;> cases hcontra
   | inv => cases fuel <;> simp [execIRStmt] at hcontra
 
 /-- A body ending in a modeled halt never continues. -/

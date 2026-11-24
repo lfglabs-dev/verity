@@ -3002,12 +3002,13 @@ theorem compiledStmtStep_revertMemory_single
       hoffsetIRInternal, hsizeIRInternal, Bind.bind, Except.bind, pure, Except.pure]
   preserves := by
     intro runtime state extraFuel _ _ _ _ _
-    refine ⟨.revert, .revert state, rfl, ?_, trivial⟩
     have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
-    change execIRStmts (1 + extraFuel + 1) state
-      [YulStmt.exprStmt (YulExpr.call "revert" [offsetIR, sizeIR])] = .revert state
-    rw [hfuel]
-    simp [execIRStmts, execIRStmt]
+    obtain ⟨final, hfinal⟩ : ∃ final, execIRStmts (1 + extraFuel + 1) state
+        [YulStmt.exprStmt (YulExpr.call "revert" [offsetIR, sizeIR])] = .revert final := by
+      rw [hfuel]
+      exact ⟨revertCallState (extraFuel + 1) state offsetIR sizeIR,
+        by simp [execIRStmts, execIRStmt_revertCall]⟩
+    exact ⟨.revert, .revert final, rfl, hfinal, trivial⟩
 
 /-- Compiled IR for `revertReturndata`: copy the whole returndata buffer to memory
 and revert with it. -/
@@ -3020,11 +3021,6 @@ private def revertReturndataIR : List YulStmt :=
       [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
   ]]
 
-private theorem execIRStmt_revert_returndataSize (n : Nat) (s : IRState) :
-    execIRStmt n s (YulStmt.exprStmt (YulExpr.call "revert"
-      [YulExpr.lit 0, YulExpr.ident "__returndata_size"])) = .revert s := by
-  cases n <;> simp [execIRStmt]
-
 /-- Whichever branch the copy takes for the current EIP-211 buffer — the in-bounds
 copy continues with a memory update, the out-of-bounds extent reverts immediately —
 the trailing `revert` lands the frame in a reverted state, so only the
@@ -3034,7 +3030,7 @@ private theorem execIRStmts_revertReturndataIR_revert (k : Nat) (state : IRState
       revertReturndataIR = .revert s := by
   simp [revertReturndataIR, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    IRState.getVar, IRState.setVar, execIRStmt_revert_returndataSize]
+    IRState.getVar, IRState.setVar, execIRStmt_revertCall]
   split_ifs <;> exact ⟨_, rfl⟩
 
 /-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
