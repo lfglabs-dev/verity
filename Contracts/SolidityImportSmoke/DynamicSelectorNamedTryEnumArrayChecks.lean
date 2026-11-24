@@ -118,9 +118,9 @@ private def payloadWord : Nat := 0xaabbcc * (2 ^ 232)
 #guard observe "namedExternalQuote" [goodEp, 2^256 - 1, 2] == some (false, panicBytes 0x11, 0)
 -- Named external dispatch with dynamic bytes argument reordered succeeds.
 #guard observe "namedExternalDispatch" [goodEp, 0x1234, 7, 128, 3, payloadWord] == some (true, [], 0)
--- Named external try (void): succeeds on goodEp (lastCount=1, returns 1), catches on failEp (lastCount=0, returns 0).
+-- Named external try (void): pre-call write persists; succeeds on goodEp (returns 1), catches on failEp (returns 0).
 #guard observe "namedTryVoid" [goodEp, 5, 2] == some (true, wordBytes 1, 1)
-#guard observe "namedTryVoid" [failEp, 5, 2] == some (true, wordBytes 0, 0)
+#guard observe "namedTryVoid" [failEp, 5, 2] == some (true, wordBytes 0, 1)
 -- Named external try (value-returning): returns (5*10 + 2) + 7 = 59 on goodEp, 999 on failEp.
 #guard observe "namedTryReturn" [goodEp, 5, 2] == some (true, wordBytes 59, 0)
 #guard observe "namedTryReturn" [failEp, 5, 2] == some (true, wordBytes 999, 0)

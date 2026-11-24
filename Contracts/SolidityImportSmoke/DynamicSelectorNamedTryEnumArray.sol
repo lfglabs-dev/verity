@@ -90,8 +90,8 @@ contract DynamicSelectorNamedTryEnumArray {
     }
 
     function namedTryVoid(IEndpoint ep, uint256 x, bytes32 tag) external returns (uint256) {
+        lastCount += 1;
         try ep.notify({tag: tag, amount: x}) {
-            lastCount += 1;
             return 1;
         } catch {
             return 0;

@@ -67,19 +67,18 @@ solidity_import gassedSelfDelegateForm from "Contracts/SolidityImportSmoke"
   contract SelfDelegateAndRawSlotEip712Fixture
   function gassedSelfDelegateRejected(bytes)
 
--- Post-CALL state access (6e): a storage write after a closed self-delegatecall loop is
--- admitted when every interaction is a closed transport, tagged `solidity_post_call_state_access`.
+-- Fail-closed control: storage write after self-delegatecall loop stays rejected by CEI.
+/--
+error: SelfDelegateAndRawSlotEip712Checks.sol:118:5: FunctionDefinition: [solidity-import:unsupported] storage reads, storage writes, logs and other interactions after an external CALL are unsupported: the call may re-enter this contract
+closure: SelfDelegateAndRawSlotEip712Fixture.multicallPostWriteRejected
+function multicallPostWriteRejected(bytes[] calldata data) external returns (uint256 executed) {
+        for (uint256 i
+-/
+#guard_msgs in
 solidity_import postWriteForm from "Contracts/SolidityImportSmoke"
   entry "SelfDelegateAndRawSlotEip712Checks.sol"
   using selfDelegateOsaka
   contract SelfDelegateAndRawSlotEip712Fixture
   function multicallPostWriteRejected(«bytes[]»)
-
-#guard
-  match postWriteForm.model.functions.find? (·.name == "multicallPostWriteRejected") with
-  | some f =>
-      f.allowPostInteractionWrites && f.reentrancyTrusted &&
-        (f.localObligations.map (·.name)).contains "solidity_post_call_state_access"
-  | none => false
 
 end SolidityImportSmoke.SelfDelegateAndRawSlotEip712Checks
