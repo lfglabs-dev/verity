@@ -705,6 +705,9 @@ jobs:
     # VM 1 (worst shard ~3.5 h). 16 campaigns: ~85 min on the 64 GiB hosts.
     # The whole run is ~30 host-hours, so a complete nightly needs ~12-14 h
     # wall-clock on build-medium alone (one shard per host at a time).
+    # `route-build` therefore sends it to build-medium only when all 24
+    # shards fit in free build-medium slots: with 3 hosts that means lean-8
+    # (24 VMs at once, one worker each) instead of queueing for half a day.
     timeout-minutes: 300
     needs: [changes, route-build, checks, build]
     # ~30 runner-hours per run: nightly, manual dispatch, or PRs labelled

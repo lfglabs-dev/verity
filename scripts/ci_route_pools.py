@@ -30,6 +30,17 @@ error routes every group to the first pool, as before.
 Outputs, per group with `-` replaced by `_`: `<group>_runs_on` (JSON label
 list) and `<group>_on_lean` (`true` when the labels do not include
 `build-medium`).
+
+Groups are routed whether or not their jobs will run (a job's own `if` may
+skip it: import-mutations outside nightly/dispatch/`ci:mutations`,
+foundry-multi-seed on PRs, the Foundry jobs on draft PRs), so the workflow
+lists such groups after the ones that always run: their reservation then
+never pushes an earlier group off build-medium, only the summary's routed
+count includes them. Matrix jobs held back by `max-parallel` are created as
+`queued`, so they count against free slots (erring towards lean-8). Jobs of
+runs that are `pending`/`waiting` (e.g. behind a concurrency group) are not
+counted. Two runs routing within the same few seconds can both see the same
+free slots, as with the previous router.
 """
 
 from __future__ import annotations
