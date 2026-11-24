@@ -13126,7 +13126,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           -- `Stmt.forEach` reads its count once and cannot stop early, so outside a
           -- tail window (at most `K` iterations) the bound must be small, as for `break`.
           unless (← isTailWindowFor s) || (← smallHelperForBound s) do
-            failAt s "return in a helper for loop requires an upper bound of at most 256 iterations"
+            failAt s "return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256"
           let retFlag ← fresh
           let retVal ← fresh
           let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal)
