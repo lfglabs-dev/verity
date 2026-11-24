@@ -59,15 +59,17 @@ MUTANTS = {
         'YulExpr.call "call" [gas, target, .lit 0, inOffset, inSize, outOffset, outSize]',
         'YulExpr.call "call" [gas, target, .lit 1, inOffset, inSize, outOffset, outSize]', YUL),
     'import-void-call-code-check': (IMPORT,
-        '.ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] [],',
-        '.ite (.eq (.localVar codeSize) (.literal 0)) [] [],', VOID),
+        '.ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] []]',
+        '.ite (.eq (.localVar codeSize) (.literal 0)) [] []]', VOID),
     'import-void-call-forward': (IMPORT,
         '.ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [])',
         '.ite (.eq (.localVar success) (.literal 0)) [.revertEmpty] [])', VOID),
     # `try` runs the success clause on a successful call and the catch clause on a failed one.
     'import-try-call-clauses': (IMPORT,
-        'return some ({ pre, expr := .localVar success }, yesStmts, noStmts)',
-        'return some ({ pre, expr := .localVar success }, noStmts, yesStmts)', VOID),
+        'return some { condition := { pre, expr := .localVar success }, yes := yesStmts, '
+        'no := noStmts,\n                  noSetup }',
+        'return some { condition := { pre, expr := .localVar success }, yes := noStmts, '
+        'no := yesStmts,\n                  noSetup }', VOID),
     'import-void-call-selector': (IMPORT,
         '  pre := pre ++ #[\n    .mstore (.localVar callBase) (.literal selector),\n    .forEach index words [',
         '  pre := pre ++ #[\n    .mstore (.localVar callBase) (.literal (selector + 1)),\n    .forEach index words [', VOID),

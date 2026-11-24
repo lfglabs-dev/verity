@@ -2192,6 +2192,59 @@ Trust boundary changes:
   differential evidence (`InterfaceVoidCallSequence` against recording call responders
   of every response shape, an account without code and an EOA), not a proof.
 
+### Imported external `try` with a return value or a revert-data catch clause
+
+`solidity_import` also admits `try I(a).f(args...) returns (T v) { A } catch { B }` for an
+interface function with one return value `T` among `uint*`, `int256`, `bool`, `address`,
+contract types, `bytes1`, `bytes4` and `bytes32` (as a `staticcall` when `f` is `view` or
+`pure`), and `catch (bytes memory reason) { B }` as the catch clause of either form. The
+call goes through the same closed `YulMemoryCall` transport, without the code-existence
+check, as solc omits it when return data is expected.
+
+Trust boundary changes:
+- On success the first return word is read with `returndatacopy` and validated before `A`
+  (`abiDecodeScalarGuard?`): fewer than 32 bytes or a word outside `T` revert with no data
+  and are not caught, as solc's decoder does. Types the guard does not fully validate
+  (narrow signed integers, other `bytesN`, enums) reject at import.
+- `reason` is materialized from the raw return data as solc's `extract_returndata` does;
+  only its bytes and length are observable, not the address of the model's allocation.
+- No new transport and no change to the callee model: the evidence is the Denote
+  observations of `TryCatchChecks` (valid, dirty, short and wrong-selector responses,
+  reverts with and without data, an account without code) and the located positive and
+  negative controls of `check_interface_static_call_rejections.py`, not a proof or an
+  A/B/C campaign.
+
+### Imported low-level calls with a value
+
+`solidity_import` admits `(bool success, bytes memory returndata) = target.call{value: v}(data);`
+(either component may be omitted) on an `address`-typed receiver, where `data` is any
+admitted `bytes` value. It lowers to the closed byte transport
+`YulMemoryValueCall.module resultVar`, compiled to `call(gas(), target, v, p, len, 0, 0)`
+and executed in Denote by `executeByteYulMemoryValueCall`, pinned by
+`execStmt_ecm_yulMemoryValueCall_arm` and admitted by `closedTransportCovered`.
+
+Trust boundary changes:
+- A call whose value exceeds `selfBalance` fails before any account runs, with empty
+  return data, as on the EVM. Otherwise the value is debited from `selfBalance` (unchanged
+  for a call to the executing account) and the request, carrying the value, goes to the
+  explicit byte adversary on the debited world. A failed call keeps the pre-call world,
+  so the value is refunded. The target's credit, and any balance it moves, is part of the
+  world the adversary commits; the importer does not model other accounts' balances.
+- Gas is not tracked, as for the other call transports; the `gas` call option is
+  rejected because its stipend semantics are not modeled.
+- The call is classified with the closed low-level calls (`isClosedLowLevelCall`), so it
+  is a trailing reentrancy window: only storage-free statements may follow it, now
+  including copies of the return data (`Stmt.returndataCopy`) and memory reverts
+  (`Stmt.revertMemory`), which touch no storage.
+- A named `returndata` is materialized after the call as solc's `extract_returndata`
+  does; reassigning it rejects.
+- Compilation keeps `proofStatus := .assumed`. The evidence is the Denote observations of
+  `ValueCallChecks` (value and calldata delivery, debit, underfunded and failed calls,
+  error forwarding, the helper form) and located controls in
+  `check_external_code_and_low_level_call_rejections.py` and
+  `check_storage_rejections.py`; no A/B/C campaign against solc bytecode exists yet for
+  this transport.
+
 ### Validation instrument: imported-model static responder
 
 `imported-model-static-v1` (`ModelResponders.lean`) lets the Denote route of a

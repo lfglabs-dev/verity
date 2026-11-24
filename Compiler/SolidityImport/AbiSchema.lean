@@ -60,6 +60,27 @@ private def isContractTypeName (node : Json) : Bool :=
       | _ => false
   | _ => false
 
+/-- The diagnostic for a user-defined type name `ty` that does not resolve to a struct
+declaration: it names the field's actual type (an `enum`, a user-defined value type or a
+contract type, from solc's type descriptions) rather than reporting an unresolved struct.
+Such fields need their own ABI semantics (an enum's range check, a value type's underlying
+type) before admission. -/
+def unsupportedUserTypeMessage (ty : Json) (id : Nat) : String :=
+  let descriptions := (ty.getObjVal? "typeDescriptions").toOption
+  let typeString := descriptions.bind fun d => (d.getObjVal? "typeString").toOption.bind
+    (·.getStr?.toOption)
+  let typeIdentifier := descriptions.bind fun d => (d.getObjVal? "typeIdentifier").toOption.bind
+    (·.getStr?.toOption)
+  match typeString, typeIdentifier with
+  | some name, some ident =>
+      if ident.startsWith "t_enum$" then s!"ABI schema: unsupported struct field type {name}"
+      else if ident.startsWith "t_userDefinedValueType$" then
+        s!"ABI schema: unsupported struct field type {name} (user-defined value type)"
+      else if ident.startsWith "t_contract$" then
+        s!"ABI schema: unsupported struct field type {name}"
+      else s!"ABI schema: unresolved struct declaration {id}"
+  | _, _ => s!"ABI schema: unresolved struct declaration {id}"
+
 /-- Parse only supported unsigned scalar syntax, with no fallback or coercion.
 Interface and contract types (`UserDefinedTypeName` with `contract ...` type
 string) have the exact Solidity ABI encoding and 160-bit validation of `address`.
@@ -101,7 +122,7 @@ def structArrayMember (resolve : Nat → Option Json) (name : String) (ty : Json
     fail base "ABI schema: expected a flat struct array element"
   let ref ← field base "referencedDeclaration"
   let id ← ref.getNat?.mapError fun _ => ⟨base, "ABI schema: invalid struct declaration id"⟩
-  let some decl := resolve id | fail base s!"ABI schema: unresolved struct declaration {id}"
+  let some decl := resolve id | fail base (unsupportedUserTypeMessage base id)
   let fields ← (← members decl).mapM scalarField
   return .structArray name fields
 
@@ -130,7 +151,7 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
         let id ← ref.getNat?.mapError fun _ => ⟨ty, "ABI schema: invalid struct declaration id"⟩
         if seen.contains id then
           fail ty "ABI schema: recursive struct declaration"
-        let some decl := resolve id | fail ty s!"ABI schema: unresolved struct declaration {id}"
+        let some decl := resolve id | fail ty (unsupportedUserTypeMessage ty id)
         unless (← stringField decl "nodeType") == "StructDefinition" do
           fail ty "ABI schema: expected an unsigned scalar type"
         let sname ← stringField decl "name"

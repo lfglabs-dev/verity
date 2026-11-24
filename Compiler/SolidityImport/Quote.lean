@@ -188,6 +188,11 @@ partial def quoteStmt : Stmt → m Term
             throwError "internal: closed ECM metadata differs from its descriptor"
           `(Compiler.CompilationModel.Stmt.ecm
             (Compiler.ECM.YulMemoryCall.module $(quote isStatic) $(quote resultVar)) $quotedArgs)
+      | some (.yulMemoryValueCall resultVar) =>
+          unless module == Compiler.ECM.YulMemoryValueCall.module resultVar do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.YulMemoryValueCall.module $(quote resultVar)) $quotedArgs)
       | none => throwError "internal: the importer cannot quote an opaque ECM"
   | .mstore offset value => do
       `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))
@@ -218,6 +223,9 @@ partial def quoteStmt : Stmt → m Term
   | .revertReturndata => `(Compiler.CompilationModel.Stmt.revertReturndata)
   | .revertMemory offset size => do
       `(Compiler.CompilationModel.Stmt.revertMemory $(← quoteExpr offset) $(← quoteExpr size))
+  | .returndataCopy dest source size => do
+      `(Compiler.CompilationModel.Stmt.returndataCopy $(← quoteExpr dest) $(← quoteExpr source)
+        $(← quoteExpr size))
   | .stop => `(Compiler.CompilationModel.Stmt.stop)
   | .emit name args => do
       `(Compiler.CompilationModel.Stmt.emit $(quote name) $(← list (← args.mapM quoteExpr)))

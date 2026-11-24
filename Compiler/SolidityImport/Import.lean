@@ -1811,6 +1811,17 @@ private def yulBytesDataOffset? (node : Json) : M (Option (Nat × EncodedBytes))
   if (← yulNumber? args[0]!) == some 32 then return ← yulBytesLocal? args[1]!
   return none
 
+/-- `(add(b, 0x20), mload(b))` (either `add` operand order): the data and length of the
+unshadowed `bytes memory` local `b`, as the operands of a forwarding `revert`. -/
+private def yulForwardedBytes? (args : Array Json) : M (Option EncodedBytes) := do
+  let #[offset, size] := args | return none
+  let some (declId, buffer) ← yulBytesDataOffset? offset | return none
+  unless (← mKind size) == "YulFunctionCall" do return none
+  unless (← mStr (← mField (← mField size "functionName") "name")) == "mload" do return none
+  let #[only] ← mArr (← mField size "arguments") | return none
+  let some (lengthId, _) ← yulBytesLocal? only | return none
+  return if lengthId == declId then some buffer else none
+
 /-- `mload(buffer)`: the length word of the `bytes memory` local `declId`. -/
 private def yulBytesLength? (node : Json) (declId : Nat) : M Bool := do
   unless (← mKind node) == "YulFunctionCall" do return false
@@ -2525,6 +2536,10 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           if (← yulNumber? args[1]!) == some 0 then
             let offVal ← lowerYul args[0]!
             out := out ++ offVal.pre |>.push .revertEmpty
+          else if let some buffer ← yulForwardedBytes? args then
+            -- `revert(add(b, 0x20), mload(b))` reverts with exactly the bytes of the
+            -- `bytes memory` local `b`, which the model holds at its own pointer.
+            out := out ++ buffer.pre |>.push (.revertMemory buffer.pointer buffer.size)
           else
             -- A nonzero size reverts with memory bytes. The model's memory agrees with the EVM's
             -- only on scratch bytes (below 0x40) this Yul block wrote on every path
@@ -3109,6 +3124,29 @@ private def interfaceVoidCallDecl? (j : Json) : M (Option Json) := do
 private def lowLevelCallPlacement : String :=
   "low-level call must be a (bool success, bytes memory returndata) declaration followed by " ++
     "returndata forwarding and optional-bool validation"
+
+/-- Return types whose single ABI word `abiDecodeScalarGuard?` validates completely (or that
+need no validation), so a `try` success clause may bind them. -/
+private def tryReturnTypeSupported (ty : String) : Bool :=
+  ["uint256", "int256", "bytes32", "bytes4", "bytes1", "bool", "address",
+    "address payable"].contains ty ||
+    ty.startsWith "contract " || (ty.startsWith "uint" && (bitsOf ty).isSome)
+
+/-- Located diagnostic for an external `try` whose catch clauses are not one admitted clause. -/
+private def tryCatchClauseMessage : String :=
+  "external try/catch supports exactly one catch clause: `catch { }` or " ++
+    "`catch (bytes memory reason) { }`"
+
+/-- A lowered `try` statement: the success bit as the branch condition, the two clause
+bodies, and the statements each clause runs first. A setup may bind the clause's
+parameters (the decoded return value, the `bytes memory` revert reason), so the caller
+runs it in the clause's own scope, just before lowering the clause body. -/
+private structure TryParts where
+  condition : Val
+  yes : Array Json
+  no : Array Json
+  yesSetup : M (Array Stmt) := pure #[]
+  noSetup : M (Array Stmt) := pure #[]
 
 /-- Strip redundant parentheses (single-component, non-inline tuples). -/
 private partial def unparenJson (j : Json) : Json :=
@@ -8535,8 +8573,15 @@ the return data of a successful call. Here the calldata is assembled in a fresh
 allocation (solc writes it above the free pointer without advancing it, so only
 unallocated memory differs) and sent through the closed memory-call transport.
 `decl` is the called function's declaration. The statements end with the call;
-the returned name is bound to its success bit (`1` or `0`). -/
-private partial def lowerInterfaceVoidCallStatus (j decl : Json) : M (Array Stmt × String) := do
+the returned name is bound to its success bit (`1` or `0`).
+
+`lowerInterfaceCallStatus` is the same sequence for a function with return values
+(`codeCheck := false`: solc omits the code-existence check when return data is
+expected) or a `view` / `pure` one (`isStatic`: `staticcall`). It also returns the
+calldata allocation, at least one word long, which a caller may reuse to read the first
+return word once the call is over. -/
+private partial def lowerInterfaceCallStatus (j decl : Json) (codeCheck isStatic : Bool) :
+    M (Array Stmt × String × String) := do
   let callee ← mField j "expression"
   let params ← mArr (← mField (← mField decl "parameters") "parameters")
   let args ← mArr (← mField j "arguments")
@@ -8613,11 +8658,17 @@ private partial def lowerInterfaceVoidCallStatus (j decl : Json) : M (Array Stmt
     .letVar dataSize (.add payloadSize (.literal 4))]
   let codeSize ← fresh
   let success ← fresh
-  return (pre ++ #[
-    .ecm (Compiler.ECM.SolidityExtCodeSize.module codeSize) [target.expr],
-    .ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] [],
-    .ecm (Compiler.ECM.YulMemoryCall.module false success)
-      [target.expr, .localVar dataPtr, .localVar dataSize, .literal 0, .literal 0]], success)
+  if codeCheck then
+    pre := pre ++ #[
+      .ecm (Compiler.ECM.SolidityExtCodeSize.module codeSize) [target.expr],
+      .ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] []]
+  return (pre.push (.ecm (Compiler.ECM.YulMemoryCall.module isStatic success)
+      [target.expr, .localVar dataPtr, .localVar dataSize, .literal 0, .literal 0]),
+    success, callBase)
+
+private partial def lowerInterfaceVoidCallStatus (j decl : Json) : M (Array Stmt × String) := do
+  let (pre, success, _) ← lowerInterfaceCallStatus j decl true false
+  return (pre, success)
 
 /-- `I(a).f(args...)` as a whole expression statement (see `lowerInterfaceVoidCallStatus`):
 a failed call forwards its complete return data as the revert payload. -/
@@ -9070,6 +9121,108 @@ private partial def lowerExtCodeCopy (code : Json) : M EncodedBytes := do
              .letVar length (.mload (.localVar array))],
            pointer := .localVar data, size := .localVar length }
 
+/-- Bind the complete return data of the last call as the `bytes memory` local `d`, as
+solc's `extract_returndata`: empty return data is the zero-length array at `0x60` (data
+at `0x80`); otherwise a fresh array of `returndatasize()` bytes is allocated at the free
+pointer (`Panic(0x41)` past 64 bits), its length word stored and the bytes copied after
+it. The local is registered as a byte buffer (`d.length`, `add(d, 0x20)` / `mload(d)` in
+assembly, ABI encoding and forwarding); reassigning it is rejected. -/
+private partial def bindReturndataLocal (d : Json) : M (Array Stmt) := do
+  unless (← mType d) == "bytes" && optStr d "storageLocation" == some "memory" do
+    failAt d "call return data must be bound to a bytes memory local"
+  let id ← mNat (← mField d "id")
+  let name ← mStr (← mField d "name")
+  if (← get).bodyAssigned.contains id then
+    failAt d "reassigned call return data locals are outside this slice"
+  let size ← fresh
+  let pointer ← freshFor name
+  let array ← fresh
+  let finish ← fresh
+  let allocate := AbiEncoding.reserve array finish
+    (.add (.literal 32) (.mul (.div (.add (.localVar size) (.literal 31)) (.literal 32))
+      (.literal 32)))
+  modify fun e =>
+    { e with byteBuffers := e.byteBuffers.insert id
+               { pre := #[], pointer := .localVar pointer, size := .localVar size },
+             nonLiteralByteLocals := if e.nonLiteralByteLocals.contains id then
+               e.nonLiteralByteLocals else e.nonLiteralByteLocals.push id,
+             encodingMemory := true,
+             yulNames := e.yulNames.erase name,
+             yulMemoryArrays := e.yulMemoryArrays.erase name,
+             yulMemoryStructs := e.yulMemoryStructs.insert name id }
+  return #[
+    .letVar size .returndataSize,
+    .letVar pointer (.literal 0x80),
+    .ite (.eq (.localVar size) (.literal 0)) [] (allocate ++ [
+      .mstore (.localVar array) (.localVar size),
+      .assignVar pointer (.add (.localVar array) (.literal 32)),
+      .returndataCopy (.localVar pointer) (.literal 0) (.localVar size)])]
+
+/-- Bind the scalar local `d` of type `ty` to `value`, as a writable Solidity local. -/
+private partial def bindScalarLocal (d : Json) (value : Expr) : M (Array Stmt) := do
+  let ty ← mType d
+  let some scalarType := localParamType ty | failAt d s!"unsupported local type {ty}"
+  let id ← mNat (← mField d "id")
+  let name ← mStr (← mField d "name")
+  let binding ← freshFor name
+  let expr := Expr.localVar binding
+  modify fun e =>
+    { e with values := e.values.insert id expr,
+             scalarTy := e.scalarTy.insert id scalarType,
+             yulNames := e.yulNames.insert name expr,
+             yulMemoryArrays := e.yulMemoryArrays.erase name,
+             yulMemoryStructs := e.yulMemoryStructs.erase name,
+             writableLocals := e.writableLocals.insert id binding,
+             zeroInitLocals := e.zeroInitLocals.filter (· != id) }
+  return #[.letVar binding value]
+
+/-- `(bool success, bytes memory returndata) = target.call{value: v}(data);`, either
+component possibly omitted. solc 0.8.34 evaluates the receiver, the value and then the
+`bytes` argument; sends `data` as the complete calldata with
+`call(gas(), target, v, p, len, 0, 0)` through the closed value-transferring memory call
+(an underfunded call fails without running the target; a failed call refunds the value);
+binds the success bit; and, when the second component is named, materializes the complete
+return data (`bindReturndataLocal`). Nothing reverts by itself: the caller decides what a
+failure means (`if (!success) revert ...`, `require(success)`, returndata forwarding).
+Only the `value` option is admitted; `gas` (whose stipend semantics are not modeled) and
+effectful operands reject. -/
+private partial def lowerValueCallDeclaration (s init member : Json) : M (Array Stmt) := do
+  let callee ← mField init "expression"
+  let names ← mArr (← mField callee "names")
+  let options ← mArr (← mField callee "options")
+  unless names == #[Json.str "value"] && options.size == 1 do
+    failAt callee "low-level call options other than a single `value` are outside this slice"
+  let valueNode := options[0]!
+  let args ← mArr (← mField init "arguments")
+  let #[dataNode] := args | failAt init "low-level call takes exactly one bytes argument"
+  let declarations ← mArr (← mField s "declarations")
+  unless declarations.size == 2 do
+    failAt s "low-level call must be destructured as (bool success, bytes memory returndata)"
+  let success := declarations[0]!
+  let data := declarations[1]!
+  unless success.isNull || (← mType success) == "bool" do
+    failAt success "low-level call success must be bound to a bool local"
+  let base ← mField member "expression"
+  for operand in #[base, valueNode, dataNode] do
+    if statefulCallIn operand (← get) || assignmentIn operand then
+      failAt operand "low-level call operands require explicit evaluation-order support"
+  let rawTarget ← lowerExpr base
+  let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
+  let value ← atom (← lowerConverted "uint256" valueNode)
+  let payload ← lowerEncodedBytes dataNode
+  let payloadPtr ← atom { pre := payload.pre, expr := payload.pointer }
+  let payloadSize ← atom { pre := #[], expr := payload.size }
+  let result ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let mut out := target.pre ++ value.pre ++ payloadPtr.pre ++ payloadSize.pre |>.push
+    (.ecm (Compiler.ECM.YulMemoryValueCall.module result)
+      [target.expr, value.expr, payloadPtr.expr, payloadSize.expr, .literal 0, .literal 0])
+  unless data.isNull do
+    out := out ++ (← bindReturndataLocal data)
+  unless success.isNull do
+    out := out ++ (← bindScalarLocal success (.localVar result))
+  return out
+
 /-- The Solady/OpenZeppelin `SafeTransferLib` sequence over a value-free low-level call:
 
     (bool success, bytes memory returndata) = target.call(abi.encodeCall(f, (args...)));
@@ -9083,12 +9236,12 @@ returndata, reverts empty on malformed returndata and binds the decoded `bool`
 result. Neither local may be read anywhere else. `none` when `s` is not a
 low-level call declaration. -/
 private partial def lowerLowLevelCallSequence? (s : Json) (following : List Json) :
-    M (Option (Array Stmt)) := do
+    M (Option (Array Stmt × Nat)) := do
   let some init := (field? s "initialValue").filter (!·.isNull) | return none
   let some member ← lowLevelCallMember? init | return none
   let callee ← mField init "expression"
   if (← mKind callee) == "FunctionCallOptions" then
-    failAt callee "external contract calls are outside this slice"
+    return some (← lowerValueCallDeclaration s init member, 0)
   let declarations ← mArr (← mField s "declarations")
   unless declarations.size == 2 && declarations.all (!·.isNull) do
     failAt s "low-level call must bind both success and returndata, and validate the returndata"
@@ -9131,7 +9284,7 @@ private partial def lowerLowLevelCallSequence? (s : Json) (following : List Json
   let call := Stmt.ecm (Compiler.ECM.SolidityLowLevelCall.optionalBoolModule result selector words.size)
     (target.expr :: words.toList)
   let check ← lowerRequireWith validation fun _ => pure { pre := #[], expr := .localVar result }
-  return some (pre.push call ++ check)
+  return some (pre.push call ++ check, 2)
 
 /-- The global `ecrecover(hash, v, r, s)` builtin in solc's via-IR shape: the four
 arguments are evaluated left to right, ABI-encoded at the free memory pointer
@@ -13864,18 +14017,23 @@ private partial def rejectThisTryCall (s : Json) : M Unit := do
     failAt extCall "named arguments in a try self-call are unsupported"
   failAt s "try/catch of an external self-call `this.f(...)` requires call semantics and is outside this slice"
 
-/-- `try I(a).f(args...) { A } catch { B }` for a `nonpayable` or `payable` external
-function without return values, called without options, with a success clause that
-declares no return variables and a single catch-all `catch { }` clause. solc 0.8.34
-(via-IR) evaluates the receiver and arguments, reverts with no data when `extcodesize(a)`
-is zero (that revert is in the caller and is not caught), and issues the same call as the
-statement form (`lowerInterfaceVoidCallStatus`). A successful call runs `A` whatever its
-return data (nothing is decoded); a failed call, whose own effects the EVM rolls back, runs
-`B`. Returns the success bit as the condition with the two clause bodies, or `none` when
-the statement is not an external try of an interface member (`isInterfaceExternalCall`);
-other external try forms fail closed. -/
-private partial def lowerInterfaceTryCall? (s : Json) :
-    M (Option (Val × Array Json × Array Json)) := do
+/-- `try I(a).f(args...) [returns (T v)] { A } catch [(bytes memory reason)] { B }` of an
+interface member, with one catch clause that is either catch-all or binds the complete
+revert data. solc 0.8.34 (via-IR) evaluates the receiver and arguments and issues the same
+call as the statement form (`lowerInterfaceCallStatus`, `staticcall` for a `view` or `pure`
+function). A function without return values first reverts with no data when
+`extcodesize(a)` is zero; with a return value the check is omitted. A failed call, whose
+own effects the EVM rolls back, runs `B`, with `reason` bound to the complete revert data
+as solc's `extract_returndata` does. A successful call of a function without return values
+runs `A` whatever its return data. A successful call of a function with one return value
+`T` decodes the first return word before `A`, whether or not the clause names it: fewer
+than 32 bytes of return data, or a word outside `T`, revert with no data in the caller
+(not caught), as solc's ABI decoder does; extra bytes are ignored; `v`, when named, is
+bound to the word. `catch Error(...)`, `catch Panic(...)`, several catch clauses, several
+return values or other return types, call options and named arguments reject. Returns
+`none` when the statement is not an external try of an interface member
+(`isInterfaceExternalCall`). -/
+private partial def lowerInterfaceTryCall? (s : Json) : M (Option TryParts) := do
   unless (← mKind s) == "TryStatement" do return none
   let extCall ← mField s "externalCall"
   unless (← mKind extCall) == "FunctionCall" && optStr extCall "kind" == some "functionCall" do
@@ -13892,20 +14050,57 @@ private partial def lowerInterfaceTryCall? (s : Json) :
     failAt s "try/catch in a forwarded tuple requires call-success semantics"
   unless (← mArr (← mField extCall "names")).isEmpty do
     failAt extCall "named arguments in an external try call are unsupported"
-  let some decl ← interfaceVoidCallDecl? extCall
-    | failAt s "external try/catch of a view, pure or value-returning function is unsupported"
   let clauses ← mArr (← mField s "clauses")
-  let noParams (clause : Json) : Bool := match field? clause "parameters" with
-    | some j => j.isNull
-    | none => true
-  let #[yes, no] := clauses
-    | failAt s "external try/catch supports exactly one catch-all `catch { }` clause"
-  unless noParams yes && optStr no "errorName" == some "" && noParams no do
-    failAt s "external try/catch supports exactly one catch-all `catch { }` clause"
-  let (pre, success) ← lowerInterfaceVoidCallStatus extCall decl
+  let clauseParams (clause : Json) : M (Array Json) := do
+    match field? clause "parameters" with
+    | some j => if j.isNull then pure #[] else mArr (← mField j "parameters")
+    | none => pure #[]
+  let #[yes, no] := clauses | failAt s tryCatchClauseMessage
+  unless optStr no "errorName" == some "" do failAt s tryCatchClauseMessage
+  let reasons ← clauseParams no
+  unless reasons.size ≤ 1 && reasons.all (!·.isNull) do
+    failAt no "a catch clause binds at most the bytes memory revert data"
+  let noSetup : M (Array Stmt) := match reasons[0]? with
+    | some reason => bindReturndataLocal reason
+    | none => pure #[]
+  let results ← clauseParams yes
   let yesStmts ← mArr (← mField (← mField yes "block") "statements")
   let noStmts ← mArr (← mField (← mField no "block") "statements")
-  return some ({ pre, expr := .localVar success }, yesStmts, noStmts)
+  if let some decl ← interfaceVoidCallDecl? extCall then
+    unless results.isEmpty do
+      failAt yes "the success clause of a function without return values declares no results"
+    let (pre, success) ← lowerInterfaceVoidCallStatus extCall decl
+    return some { condition := { pre, expr := .localVar success }, yes := yesStmts, no := noStmts,
+                  noSetup }
+  let id ← refInt callee
+  let some decl := (← get).funs.find? id.toNat
+    | failAt s "external try/catch of a public state variable getter is unsupported"
+  let returns ← mArr (← mField (← mField decl "returnParameters") "parameters")
+  let #[returned] := returns
+    | failAt s "external try/catch of a function with several return values is unsupported"
+  let returnType ← mType returned
+  unless tryReturnTypeSupported returnType do
+    failAt s s!"external try/catch of a function returning {returnType} is unsupported"
+  unless results.size ≤ 1 && results.all (!·.isNull) do
+    failAt yes "the success clause binds at most the single return value"
+  if let some result := results[0]? then
+    unless (← mType result) == returnType do
+      failAt result "the success clause result must have the declared return type"
+  let mutability := optStr decl "stateMutability"
+  let isStatic := mutability == some "view" || mutability == some "pure"
+  let (pre, success, buffer) ← lowerInterfaceCallStatus extCall decl false isStatic
+  let yesSetup : M (Array Stmt) := do
+    let word ← fresh
+    let decode : Array Stmt := #[
+      .ite (.lt .returndataSize (.literal 32)) [.revertEmpty] [],
+      .returndataCopy (.localVar buffer) (.literal 0) (.literal 32),
+      .letVar word (.mload (.localVar buffer))] ++
+      (abiDecodeScalarGuard? returnType none (.localVar word)).toList.toArray
+    match results[0]? with
+    | some result => return decode ++ (← bindScalarLocal result (.localVar word))
+    | none => return decode
+  return some { condition := { pre, expr := .localVar success }, yes := yesStmts, no := noStmts,
+                yesSetup, noSetup }
 
 private partial def voidHelperReturns (s : Json) : M Bool := do
   match ← mKind s with
@@ -13976,8 +14171,8 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
           let tailStmts ← kRest
           pure (inner ++ tailStmts)
     | "VariableDeclarationStatement" =>
-        if let some callStmts ← lowerLowLevelCallSequence? s rest then
-          let tailStmts ← lowerVoidHelperFrom (rest.drop 2) k
+        if let some (callStmts, consumed) ← lowerLowLevelCallSequence? s rest then
+          let tailStmts ← lowerVoidHelperFrom (rest.drop consumed) k
           return callStmts ++ tailStmts
         let localStmts ← lowerLocal s
         let tailStmts ← kRest
@@ -14193,15 +14388,19 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
           unless expression.isNull do failAt s "void helper cannot return a value"
           pure (← get).helperPost
     | "IfStatement" | "TryStatement" =>
-        let (condition, yes, no) ←
-          if (← mKind s) == "IfStatement" then
-            ifParts s
+        let parts ←
+          if (← mKind s) == "IfStatement" then do
+            let (condition, yes, no) ← ifParts s
+            pure ({ condition, yes, no } : TryParts)
           else do
             let some parts ← (do
                 rejectThisTryCall s
                 lowerInterfaceTryCall? s)
               | failAt s "unsupported void helper statement TryStatement"
             pure parts
+        let condition := parts.condition
+        let yes := parts.yes
+        let no := parts.no
         let yesAll ← match yes.back? with | some b => voidHelperReturns b | none => pure false
         let noAll ← match no.back? with | some b => voidHelperReturns b | none => pure false
         if yesAll && noAll then
@@ -14214,19 +14413,25 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
                    snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
         if !yesAny && !noAny then
+          let yesSetup ← parts.yesSetup
           let yesStmts ← lowerVoidHelperFrom yes.toList (pure #[])
           restore
+          let noSetup ← parts.noSetup
           let noStmts ← lowerVoidHelperFrom no.toList (pure #[])
           restore
           let tailStmts ← kRest
-          pure (condition.pre.push (.ite condition.expr yesStmts.toList noStmts.toList) ++ tailStmts)
+          pure (condition.pre.push (.ite condition.expr (yesSetup ++ yesStmts).toList
+            (noSetup ++ noStmts).toList) ++ tailStmts)
         else
           let kBranch : M (Array Stmt) := do restore; kRest
+          let yesSetup ← parts.yesSetup
           let yesStmts ← lowerVoidHelperFrom yes.toList (if yesAll then pure #[] else kBranch)
           restore
+          let noSetup ← parts.noSetup
           let noStmts ← lowerVoidHelperFrom no.toList (if noAll then pure #[] else kBranch)
           restore
-          pure (condition.pre.push (.ite condition.expr yesStmts.toList noStmts.toList))
+          pure (condition.pre.push (.ite condition.expr (yesSetup ++ yesStmts).toList
+            (noSetup ++ noStmts).toList))
     | "PlaceholderStatement" =>
         -- Only the body of the modifier being lowered by substitution (#2846) emits a marker;
         -- `lowerSubstitutedModifiers` replaces each one and checks the count.
@@ -19049,9 +19254,10 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
           out := out ++ uncheckedNested
           returned := uncheckedReturned
       | "VariableDeclarationStatement" =>
-          if let some callStmts ← lowerLowLevelCallSequence? s (stmts.toList.drop (idx + 1)) then
+          if let some (callStmts, following) ←
+              lowerLowLevelCallSequence? s (stmts.toList.drop (idx + 1)) then
             out := out ++ callStmts
-            consumed := 2
+            consumed := following
           else
             out := out ++ (← lowerLocal s)
       | "ExpressionStatement" =>
@@ -19126,26 +19332,31 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             let (lowered, _) ← lowerRootStatements statements false
             pure lowered)
       | "IfStatement" | "TryStatement" =>
-          let (condition, yes, no) ←
-            if (← mKind s) == "IfStatement" then
-              ifParts s
+          let parts ←
+            if (← mKind s) == "IfStatement" then do
+              let (condition, yes, no) ← ifParts s
+              pure ({ condition, yes, no } : TryParts)
             else do
               let some parts ← (do
                   rejectThisTryCall s
                   lowerInterfaceTryCall? s)
                 | failAt s "unsupported statement TryStatement"
               pure parts
+          let condition := parts.condition
           let saved ← get
           let restore : M Unit := modify fun e =>
             { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
                      scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
           -- A root return inside a branch stops execution, so the continuation
           -- stays after the conditional and runs only on fallthrough.
-          let (yesOut, yesReturned) ← lowerRootStatements yes stmtIsTail
+          let yesSetup ← parts.yesSetup
+          let (yesOut, yesReturned) ← lowerRootStatements parts.yes stmtIsTail
           restore
-          let (noOut, noReturned) ← lowerRootStatements no stmtIsTail
+          let noSetup ← parts.noSetup
+          let (noOut, noReturned) ← lowerRootStatements parts.no stmtIsTail
           restore
-          out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)
+          out := out ++ condition.pre |>.push (.ite condition.expr (yesSetup ++ yesOut).toList
+            (noSetup ++ noOut).toList)
           returned := yesReturned && noReturned
       | "Return" =>
           returned := true
