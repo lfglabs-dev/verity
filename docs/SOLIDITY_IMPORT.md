@@ -1533,7 +1533,7 @@ callee returns; a callee answer that should also restore `sender` and the rest o
 context uses `commitCalleeWorld`). Calldata offsets 1 to 3 still read `0`
 (`Denote.calldataloadWord`). `EntryPointInvariantChecks` pins both runners, a caller and a
 callback with distinct selectors and senders around a byte `CALL`, a callback whose own body
-reverts after writing (rolled back by `executeReentrantBody`), and a callee that reverts after a
-successful callback.
+reverts after writing (the frame `executeReentrantBody` returns is its starting world, and the
+caller sees a failed call), and a callee that reverts after a successful callback.
 `Contracts/SolidityImportSmoke/EntryPointInvariantChecks.lean` uses each of them on a
 three-entry model, including a step whose arguments decode from its frame.
