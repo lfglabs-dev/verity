@@ -50,6 +50,12 @@ jobs:
         with:
           submodules: recursive
 
+      # Lake runs LEAN_NUM_THREADS Lean/clang processes at once; bound it by
+      # the VM's memory (3 GiB each, at most min(vCPUs, 8)), as Verify does:
+      # 16 concurrent processes failed with ENOMEM (error code 12) at exec.
+      - name: Bound Lean threads by VM memory
+        run: scripts/ci_lean_threads.sh
+
       - name: Setup Lean
         uses: ./.github/actions/setup-lean
         with:
@@ -59,8 +65,6 @@ jobs:
         run: PYTHONPATH=scripts python3 -m unittest scripts/test_solidity_import_coverage.py
 
       - name: Build the importer
-        env:
-          LEAN_NUM_THREADS: 16
         run: lake build Compiler.SolidityImport.Import
 
       - name: Setup pinned solc releases for Solidity import
