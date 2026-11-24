@@ -234,6 +234,7 @@ jobs:
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
               - 'lean-toolchain'
               # Every path is_compiler_path accepts must also start this job: the
@@ -279,6 +280,7 @@ jobs:
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
               - 'lean-toolchain'
               - 'foundry.toml'
@@ -295,6 +297,7 @@ jobs:
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
             changed:
               - '**'
