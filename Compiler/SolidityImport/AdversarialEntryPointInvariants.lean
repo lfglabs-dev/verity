@@ -144,7 +144,10 @@ def beginReentrantFrame (world : Verity.ContractState) : Verity.ContractState :=
     (beginReentrantFrame world).storageArray = world.storageArray := rfl
 
 /-- `executeBody` for a call back into the contract: the frame starts from
-`beginReentrantFrame`, and a reverting body rolls back to it, transient writes included. -/
+`beginReentrantFrame`, and a reverting body rolls back to it, transient writes included. As in
+`executeBody`, the frame's selector is `world.selector`: a callback's world carries the
+callback's own call context (selector, calldata, sender), set by the sequence's preparation
+relation, and `msg.sig` reads that selector, not the caller's. -/
 def executeReentrantBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
     (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {})
@@ -152,7 +155,7 @@ def executeReentrantBody (oracle : DenoteOracle) (fields : List Field)
     Except String FrameResult :=
   let initial := beginReentrantFrame world
   finishFrame initial (execStmtList oracle fields
-    { world := initial, bindings, errors, immutable := immutables,
+    { world := initial, bindings, errors, immutable := immutables, selector := initial.selector,
       byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body)
 
 /-- `CalleeEntryPointSequence` for calls back into the contract within one transaction: every

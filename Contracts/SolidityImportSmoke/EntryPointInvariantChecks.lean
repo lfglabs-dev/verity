@@ -262,4 +262,129 @@ theorem fresh_sequence_never_writes
   cases executed
   exact held
 
+/-! Frame selector. `msg.sig` and calldata word `0` read the frame's selector. `executeBody` and
+`executeReentrantBody` used to leave it at its default `0`, whatever `world.selector` (the selector
+`DecodedCall` decodes with) held, so every frame of `AllEntryPointsPreserve*`,
+`CalleeEntryPointSequence` and `ReentrantEntryPointSequence` read `msg.sig = 0`, while the EVM (and
+`executeTracedBody`, which the differential runner uses) reads the call's own selector. Both runners
+now take `world.selector`. The `unset` theorems keep the frame they used to build, next to the
+runners. Calldata offsets 1 to 3 are not covered here. -/
+
+def callerSelector : Nat := 0x11111111
+def callbackSelector : Nat := 0x22222222
+
+/-- Stores calldata word `0`, the word `msg.sig` masks. -/
+def readSig : List Stmt := [.setStorage "stored" (.calldataload (.literal 0)), .stop]
+
+def selectorWorld (selector : Nat) : Verity.ContractState :=
+  { Verity.defaultState with selector }
+
+/-- The old `executeBody` frame: `world.selector` set, frame selector left at `0`. -/
+theorem readSig_unset_frame_reads_zero (oracle : DenoteOracle) :
+    (finishFrame (beginTransaction (selectorWorld callerSelector))
+        (execStmtList oracle fields
+          { world := beginTransaction (selectorWorld callerSelector), bindings := [] } readSig)).map
+      (fun result => (result.world.storage 0).val) = .ok 0 := by
+  rfl
+
+theorem readSig_executeBody (oracle : DenoteOracle) :
+    (executeBody oracle fields (selectorWorld callerSelector) [] readSig).map
+      (fun result => (result.world.storage 0).val) = .ok (selectorWord callerSelector) := by
+  rfl
+
+/-- The old `executeReentrantBody` frame: the callback's selector in its world, frame selector `0`. -/
+theorem readSig_unset_callback_frame_reads_zero (oracle : DenoteOracle) :
+    (finishFrame (beginReentrantFrame (selectorWorld callbackSelector))
+        (execStmtList oracle fields
+          { world := beginReentrantFrame (selectorWorld callbackSelector), bindings := [] }
+          readSig)).map
+      (fun result => (result.world.storage 0).val) = .ok 0 := by
+  rfl
+
+theorem readSig_executeReentrantBody (oracle : DenoteOracle) :
+    (executeReentrantBody oracle fields (selectorWorld callbackSelector) [] readSig).map
+      (fun result => (result.world.storage 0).val) = .ok (selectorWord callbackSelector) := by
+  rfl
+
+theorem callerSelector_word_ne_zero : selectorWord callerSelector ≠ 0 := by decide
+theorem callbackSelector_word_ne_caller :
+    selectorWord callbackSelector ≠ selectorWord callerSelector := by decide
+
+/-! A caller and a callback with distinct selectors and senders around a real byte `CALL`. The
+caller (`callerSelector`, sender `callerAccount`) calls `calleeAccount`, which calls back into the
+contract with its own call context (`callbackSelector`, sender `calleeAccount`): the callback records
+its selector word and sender, and after the call the caller records its own. A successful callback
+is committed with the caller frame restored (`commitCalleeWorld`); with `rollback` the callee
+reverts after the callback, so the callback's writes are rolled back and the caller continues with
+the call's result `0`. -/
+
+def callerAccount : Nat := 0xA11CE
+def calleeAccount : Nat := 0xBEEF
+
+def contextFields : List Field :=
+  [{ name := "callbackSig", ty := .uint256 }, { name := "callbackSender", ty := .uint256 },
+   { name := "callerSig", ty := .uint256 }, { name := "callerSender", ty := .uint256 },
+   { name := "callOk", ty := .uint256 }]
+
+def callbackBody : List Stmt :=
+  [.setStorage "callbackSig" (.calldataload (.literal 0)), .setStorage "callbackSender" .caller,
+   .stop]
+
+def callerBody : List Stmt :=
+  [.ecm (Compiler.ECM.YulMemoryCall.module false "ok")
+      [.literal calleeAccount, .literal 0, .literal 0, .literal 0, .literal 0],
+   .setStorage "callerSig" (.calldataload (.literal 0)), .setStorage "callerSender" .caller,
+   .setStorage "callOk" (.localVar "ok"), .stop]
+
+def contextOracle : DenoteOracle :=
+  { mappingSlot := fun _ _ => 0, keccakMemorySlice := fun _ _ _ => 0 }
+
+/-- The callback's call context: the callee is its sender, and its own selector. -/
+def callbackWorld (world : Verity.ContractState) : Verity.ContractState :=
+  { world with selector := callbackSelector, sender := Verity.Core.Address.ofNat calleeAccount }
+
+open Compiler.CompilationModel.ByteExternalCall Compiler.CompilationModel.DenoteByteExternalCalls in
+def callbackResponse (rollback : Bool) (request : Request) (world : Verity.ContractState) :
+    Response Verity.ContractState Verity.StorageKey :=
+  if request.kind = .staticcall then .success world [] [] else
+  match executeReentrantBody contextOracle contextFields (callbackWorld world) [] callbackBody with
+  | .ok result =>
+      if result.success && !rollback then .success (commitCalleeWorld world result.world) [] []
+      else .revert [] []
+  | .error _ => .exceptional []
+
+open Compiler.CompilationModel.ByteExternalCall in
+theorem callbackResponse_valid (rollback : Bool) (request : Request)
+    (world : Verity.ContractState) :
+    (callbackResponse rollback request world).valid request world := by
+  unfold callbackResponse
+  split
+  · simp [Response.valid]
+  · rename_i static
+    split <;> (try split) <;> simp [Response.valid, static]
+
+def callbackCalls (rollback : Bool) : ByteCallEnvironment :=
+  { gas := some 100000
+    adversary := some { respond := callbackResponse rollback, valid := callbackResponse_valid rollback } }
+
+def callerWorld : Verity.ContractState :=
+  { Verity.defaultState with
+    selector := callerSelector
+    sender := Verity.Core.Address.ofNat callerAccount
+    thisAddress := Verity.Core.Address.ofNat 0x1000 }
+
+/-- Success, then slots `callbackSig, callbackSender, callerSig, callerSender, callOk`. -/
+def observeContext (rollback : Bool) : Option (Bool × List Nat) :=
+  match executeBody contextOracle contextFields callerWorld [] callerBody
+      (byteCalls := callbackCalls rollback) with
+  | .ok result => some (result.success, (List.range 5).map fun slot => (result.world.storage slot).val)
+  | .error _ => none
+
+-- The callback reads its own selector and sender; the caller, after the call, reads its own.
+#guard observeContext false == some (true,
+  [selectorWord callbackSelector, calleeAccount, selectorWord callerSelector, callerAccount, 1])
+-- A rolled-back callback leaves nothing; the caller's selector and sender are unchanged.
+#guard observeContext true == some (true,
+  [0, 0, selectorWord callerSelector, callerAccount, 0])
+
 end SolidityImportSmoke.EntryPointInvariantChecks
