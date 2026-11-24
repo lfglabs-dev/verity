@@ -181,6 +181,7 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
   let mut mappings : Array StructMappingInfo := #[]
   let mut dynamicArrays : Array StructDynamicArrayInfo := #[]
   let mut subStructs : Array RawStructSubStructInfo := #[]
+  let mut bytesMembers : Array RawStructBytesMemberInfo := #[]
   let mut opaqueMemberNames : Array String := #[]
   let mut fixedArrays : Array StructFixedArrayInfo := #[]
   for mNode in sMembers do
@@ -260,6 +261,11 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
       if currByte > 0 then
         currWord := currWord + 1
         currByte := 0
+      bytesMembers := bytesMembers.push {
+        member := mName
+        wordOffset := currWord
+        isString := mTy == "string"
+      }
       currWord := currWord + 1
       opaqueMemberNames := opaqueMemberNames.push mName
     else if optStr mTyNode "nodeType" == some "ArrayTypeName" && (field? mTyNode "length").isNone then
@@ -403,7 +409,7 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
         isBool
       }
   let wordCount := if currByte > 0 then currWord + 1 else currWord
-  return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, wordCount, opaqueMemberNames,
+  return { structId, structName := sName, scalars, mappings, dynamicArrays, subStructs, bytesMembers, wordCount, opaqueMemberNames,
            fixedArrays }
 
 /-- Width and boolean flag of a scalar storage-layout value type `valKey` stored as the leaf

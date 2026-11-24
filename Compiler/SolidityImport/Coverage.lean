@@ -198,6 +198,9 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
   | some (.yulMemoryValueCall resultVar) =>
       mod == Compiler.ECM.YulMemoryValueCall.module resultVar && args.length == 6 &&
         exprListCovered args
+  | some (.yulMemoryDelegateCall resultVar) =>
+      mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar && args.length == 5 &&
+        exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -206,11 +209,12 @@ mutual
   def executableStmtCovered : Stmt → Bool
     | .mstore offset value => exprCovered offset && exprCovered value
     | .tstore offset value => exprCovered offset && exprCovered value
+    | .returndataCopy dest source size =>
+        exprCovered dest && exprCovered source && exprCovered size
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
     | .revertMemory offset size => exprCovered offset && exprCovered size
-    | .returndataCopy dest source size => exprCovered dest && exprCovered source && exprCovered size
     | .ecm mod args => closedTransportCovered mod args
     | .emit _ args => exprListCovered args
     | .stop => true
@@ -482,6 +486,13 @@ theorem execStmt_ecm_yulMemoryValueCall_arm (oracle : DenoteOracle) (fields : Li
        | .ok (outcome, _) => outcome
        | .error _ => .revert) := rfl
 
+theorem execStmt_ecm_yulMemoryDelegateCall_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.YulMemoryDelegateCall.module resultVar) args) =
+      (match executeByteYulMemoryDelegateCall oracle fields state
+          (Compiler.ECM.YulMemoryDelegateCall.module resultVar) resultVar args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
 theorem execStmt_ecm_extCodeSize_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (resultVar : String) (args : List Expr) :
     execStmt oracle fields state (.ecm (Compiler.ECM.SolidityExtCodeSize.module resultVar) args) =

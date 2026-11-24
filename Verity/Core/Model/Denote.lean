@@ -1731,12 +1731,10 @@ def yulMemoryCallRangeLimit : Nat := 2 ^ 32
 is zero. As on the EVM, the first `min(outSize, returndatasize)` bytes of the returned or
 revert data are copied to `outOffset` whether or not the call succeeds, the return-data buffer
 is replaced, and the frame continues with `resultVar` bound to `1` or `0`. -/
-def executeByteYulMemoryCall (oracle : DenoteOracle) (fields : List Field)
-    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (isStatic : Bool)
+private def executeByteYulMemoryCallWithKind (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (kind : ByteExternalCall.Kind)
     (resultVar : String) (args : List Expr) :
     Except String (StmtOutcome × List Verity.StorageKey) := do
-  unless mod == Compiler.ECM.YulMemoryCall.module isStatic resultVar do
-    throw "closed Yul memory call metadata differs"
   let some adversary := state.byteCallAdversary | throw "Yul memory call adversary missing"
   let some gas := state.byteCallGas | throw "byte call gas environment missing"
   let some [target, inOffset, inSize, outOffset, outSize] :=
@@ -1746,7 +1744,7 @@ def executeByteYulMemoryCall (oracle : DenoteOracle) (fields : List Field)
       (outSize != 0 && yulMemoryCallRangeLimit < outOffset + outSize) then
     return (.revertWithData [], [])
   let request : ByteExternalCall.Request :=
-    { kind := if isStatic then .staticcall else .call,
+    { kind,
       caller := state.world.thisAddress.val, target := target % 2^160, value := 0, gas,
       calldata := (List.range inSize).map fun index =>
         UInt8.ofNat (state.world.physicalByte (inOffset + index)).val }
@@ -1759,6 +1757,25 @@ def executeByteYulMemoryCall (oracle : DenoteOracle) (fields : List Field)
     bindings := bindValue state.bindings resultVar (if observed.success then 1 else 0)
     rawReturndata := Option.some observed.returndata
     byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
+def executeByteYulMemoryCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (isStatic : Bool)
+    (resultVar : String) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.YulMemoryCall.module isStatic resultVar do
+    throw "closed Yul memory call metadata differs"
+  executeByteYulMemoryCallWithKind oracle fields state
+    (if isStatic then .staticcall else .call) resultVar args
+
+/-- The closed `delegatecall(gas(), target, inOffset, inSize, outOffset, outSize)` transport
+over physical memory (used for `address(this).delegatecall(...)` self-dispatch). -/
+def executeByteYulMemoryDelegateCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar do
+    throw "closed Yul memory delegatecall metadata differs"
+  executeByteYulMemoryCallWithKind oracle fields state .delegatecall resultVar args
 
 /-- Inline-assembly or Solidity `call(gas(), target, value, inOffset, inSize, outOffset,
 outSize)` over physical memory, transferring `value` wei. As on the EVM, a call whose value
@@ -1804,7 +1821,6 @@ def executeByteYulMemoryValueCall (oracle : DenoteOracle) (fields : List Field)
     bindings := bindValue state.bindings resultVar (if observed.success then 1 else 0)
     rawReturndata := Option.some observed.returndata
     byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
-
 /-- The closed `<address>.code` transport, as solc's `external_code_at`: the
 runtime code of the account world (`DenoteExternalCode.accountCode`, target taken
 modulo `2^160`) is copied into a fresh `bytes memory` allocation at the free
@@ -2337,6 +2353,10 @@ mutual
             | .error _ => .revert
         | some (.yulMemoryValueCall resultVar) =>
             match executeByteYulMemoryValueCall oracle fields state mod resultVar args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.yulMemoryDelegateCall resultVar) =>
+            match executeByteYulMemoryDelegateCall oracle fields state mod resultVar args with
             | .ok (outcome, _) => outcome
             | .error _ => .revert
         | none =>
