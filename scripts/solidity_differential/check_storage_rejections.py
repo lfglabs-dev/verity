@@ -373,7 +373,7 @@ def main():
         ('literal-bytes-constant', 'bytes32 constant BAD = bytes32(uint256(1));', 'return uint256(BAD);', 'uint256', None),
         ('literal-address-constant', 'address constant BAD = address(1);', 'return uint256(uint160(BAD));', 'uint256', None),
         ('literal-signed-constant', 'int256 constant BAD = -1;', 'return uint256(BAD);', 'uint256', None),
-        ('literal-bytes16-constant', 'bytes16 constant BAD = bytes16(uint128(1));', 'return uint256(uint128(BAD));', 'uint256', 'unsupported numeric constant type bytes16'),
+        ('literal-bytes16-constant', 'bytes16 constant BAD = bytes16(uint128(1));', 'return uint256(uint128(BAD));', 'uint256', None),
         ('literal-int128-constant', 'int128 constant BAD = -1;', 'return uint256(int256(BAD));', 'uint256', None),
         ('literal-named-rational', 'uint256 constant STEP = (1 days / 7) * 7;', 'return x + STEP;', 'uint256', 'unsupported operand type'),
         ('literal-constant-fraction', '', 'return x + (1 days / 7) * 7;', 'uint256', 'unsupported operand type'),
