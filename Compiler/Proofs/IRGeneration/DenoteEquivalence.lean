@@ -197,7 +197,7 @@ theorem denote_eq_sourceSemantics
         (SourceSemantics.effectiveFields spec) spec.events fn.body hsurface
         { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
           bindings := bindings
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := spec.errors }
       rw [hevents]
       have hagree :
           toStmtResult (Denote.execStmtList sourceOracle
@@ -208,7 +208,7 @@ theorem denote_eq_sourceSemantics
             SourceSemantics.execStmtList (SourceSemantics.effectiveFields spec)
               { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
                 bindings := bindings
-                selector := tx.functionSelector } fn.body := by
+                selector := tx.functionSelector, errors := spec.errors } fn.body := by
         simpa only [DenoteAgreement.toRuntimeState] using
           statement_list_composition (SourceSemantics.effectiveFields spec)
             { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)

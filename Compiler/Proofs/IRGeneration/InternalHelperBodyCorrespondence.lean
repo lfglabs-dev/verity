@@ -11,17 +11,17 @@ def internalHelperBodyScope (callee : FunctionSpec) (helper : IRInternalFunction
     List String :=
   CompilationModel.internalFunctionYulParamNames callee.params ++ helper.rets
 
-def internalHelperBodyRuntime
+def internalHelperBodyRuntime (errors : List ErrorDef)
     (initialWorld : Verity.ContractState) (selector : Nat) (bindings : List (String × Nat)) :
     SourceSemantics.RuntimeState :=
-  { world := initialWorld, selector := selector, bindings := bindings }
+  { world := initialWorld, selector := selector, bindings := bindings, errors := errors }
 
 def internalHelperBodySourceResult
     (spec : CompilationModel) (callee : FunctionSpec)
     (initialWorld : Verity.ContractState) (selector : Nat) (bindings : List (String × Nat))
     (helperFuel : Nat) : SourceSemantics.StmtResult :=
   SourceSemantics.execStmtListWithHelpers spec (SourceSemantics.effectiveFields spec)
-    helperFuel (internalHelperBodyRuntime initialWorld selector bindings) callee.body
+    helperFuel (internalHelperBodyRuntime spec.errors initialWorld selector bindings) callee.body
 
 noncomputable def internalHelperBodyIRExec
     (runtimeContract : IRContract) (helper : IRInternalFunctionDef)
@@ -36,7 +36,7 @@ def internalHelperResultOfStmtResult
   | .continue finalState => SourceSemantics.successInternalResult finalState.world none
   | .stop finalState => SourceSemantics.successInternalResult finalState.world none
   | .return value finalState => SourceSemantics.successInternalResult finalState.world (some value)
-  | .revert => SourceSemantics.revertedInternalResult initialWorld
+  | .revert payload => SourceSemantics.revertedInternalResult initialWorld payload
 
 theorem interpretInternalFunctionFuel_eq_internalHelperResultOfStmtResult_of_bindInternalArgs
     {spec : CompilationModel} {callee : FunctionSpec}
@@ -232,7 +232,7 @@ def internalHelperBodyInterpretation
     (initialWorld : Verity.ContractState) (selector : Nat) (logicalArgs : List Nat) :
     SourceSemantics.InternalFunctionResult :=
   match SourceSemantics.bindInternalArgs callee.params logicalArgs with
-  | none => SourceSemantics.revertedInternalResult initialWorld
+  | none => SourceSemantics.revertedInternalResult initialWorld .empty
   | some bindings => internalHelperResultOfStmtResult initialWorld
       (internalHelperBodySourceResult spec callee initialWorld selector bindings helperFuel)
 
@@ -779,7 +779,7 @@ theorem internalHelperBodyResultProjection_of_entryBindings_projectionCore
   exact internalHelperResultOfStmtListProjectionCore_eq
     (spec := spec) (fields := SourceSemantics.effectiveFields spec)
     (fuel := helperFuel) (initialWorld := initialWorld)
-    (runtime := internalHelperBodyRuntime initialWorld selector sourceBindings)
+    (runtime := internalHelperBodyRuntime spec.errors initialWorld selector sourceBindings)
     (reserved := helper.rets)
     (lhs := sourceBindings)
     (rhs := internalHelperEntryBindings sourceBindings helper)
@@ -820,7 +820,7 @@ structure InternalHelperBodyExecContext
     (prepareInternalCalleeState callerState helper irArgs)
   bounded : FunctionBody.bindingsBounded entryBindings
   runtime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields spec)
-    (internalHelperBodyRuntime initialWorld callerState.selector entryBindings)
+    (internalHelperBodyRuntime spec.errors initialWorld callerState.selector entryBindings)
     (prepareInternalCalleeState callerState helper irArgs)
 
 /-- Helper-entry/body correspondence for the N1a internal-helper path.
@@ -849,7 +849,7 @@ theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_
   · rcases exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step
         (runtimeContract := runtimeContract) (spec := spec)
         (fields := SourceSemantics.effectiveFields spec)
-        (runtime := internalHelperBodyRuntime initialWorld callerState.selector entryBindings)
+        (runtime := internalHelperBodyRuntime spec.errors initialWorld callerState.selector entryBindings)
         (state := prepareInternalCalleeState callerState helper irArgs)
         (scope := internalHelperBodyScope callee helper) (stmts := callee.body)
         helperFuel extraFuel hfuelPos hreserve ctx.generic ctx.scope ctx.exact ctx.bounded

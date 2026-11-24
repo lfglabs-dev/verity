@@ -64,7 +64,7 @@ def stmtResultMatchesIRExecExact :
   | .return _ runtime, .return _ state =>
       bindingsExactlyMatchIRVars runtime.bindings state ∧
       bindingsBounded runtime.bindings
-  | .revert, .revert _ => True
+  | .revert _, .revert _ => True
   | _, _ => False
 
 /-- Statement fragment whose correctness can already be discharged using the
@@ -564,7 +564,7 @@ def stmtResultMatchesIRExec
   | .stop runtime, .stop state => runtimeStateMatchesIR fields runtime state
   | .return value runtime, .return value' state =>
       value = value' ∧ runtimeStateMatchesIR fields runtime state
-  | .revert, .revert _ => True
+  | .revert _, .revert _ => True
   | _, _ => False
 
 def stmtResultToSourceResult
@@ -574,7 +574,7 @@ def stmtResultToSourceResult
   | .continue runtime => SourceSemantics.successResult spec runtime.world none
   | .stop runtime => SourceSemantics.successResult spec runtime.world none
   | .return value runtime => SourceSemantics.successResult spec runtime.world (some value)
-  | .revert => SourceSemantics.revertedResult spec initialWorld
+  | .revert _ => SourceSemantics.revertedResult spec initialWorld
 
 def sourceResultMatchesIRResult
     (source : SourceSemantics.SourceContractResult)

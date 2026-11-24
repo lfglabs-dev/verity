@@ -36,11 +36,12 @@ private theorem compiledStmtStep_requireError_revert_case
     have : 1 + extraFuel + 1 = Nat.succ (extraFuel + 1) := by omega
     rw [this]
     simp [execIRStmts, hstmt]
+  obtain ⟨payload, hTyped⟩ :=
+    SourceSemantics.typedErrorRevertResult_revert fields runtime errorName args
   have hSrcExec : SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
-      (.requireError cond errorName args) = .revert := by
-    simp [SourceSemantics.execStmtWithHelpers, SourceSemantics.typedErrorRevertResult,
-      hCondHelpers, hCondSrc]
-  refine ⟨.revert, .revert revState, hSrcExec, ?_, ?_⟩
+      (.requireError cond errorName args) = .revert payload := by
+    simp [SourceSemantics.execStmtWithHelpers, hCondHelpers, hCondSrc, hTyped]
+  refine ⟨.revert payload, .revert revState, hSrcExec, ?_, ?_⟩
   · simpa using hIRExec
   · simp [stmtStepMatchesIRExec]
 
@@ -195,11 +196,13 @@ theorem compiledStmtStep_revertError
   compileOk := hcompile
   preserves runtime state helperFuel extraFuel hexact hscope hbounded hruntime hslack := by
     rcases hrevertExec state (revertStmts.length + extraFuel + 1) with ⟨revState, hrev⟩
+    obtain ⟨payload, hTyped⟩ :=
+      SourceSemantics.typedErrorRevertResult_revert fields runtime errorName args
     have hSrcExec :
         SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
-          (.revertError errorName args) = .revert := by
-      simp [SourceSemantics.execStmtWithHelpers, SourceSemantics.typedErrorRevertResult]
-    refine ⟨.revert, .revert revState, hSrcExec, hrev, ?_⟩
+          (.revertError errorName args) = .revert payload := by
+      simp [SourceSemantics.execStmtWithHelpers, hTyped]
+    refine ⟨.revert payload, .revert revState, hSrcExec, hrev, ?_⟩
     simp [stmtStepMatchesIRExec]
 
 end Compiler.Proofs.IRGeneration

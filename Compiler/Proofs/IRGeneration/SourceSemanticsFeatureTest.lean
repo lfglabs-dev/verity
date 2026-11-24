@@ -124,13 +124,13 @@ private def resultStorageAt? (slot : Nat) : SourceSemantics.StmtResult → Optio
   | .continue st => some (st.world.storage slot).val
   | .stop st => some (st.world.storage slot).val
   | .return _ st => some (st.world.storage slot).val
-  | .revert => none
+  | .revert _ => none
 
 private def resultStorageAddrAt? (slot : Nat) : SourceSemantics.StmtResult → Option Verity.Address
   | .continue st => some (st.world.storageAddr slot)
   | .stop st => some (st.world.storageAddr slot)
   | .return _ st => some (st.world.storageAddr slot)
-  | .revert => none
+  | .revert _ => none
 
 example :
     (sourceContractSemantics simpleStorageSupportedSpecModel [0x2e64cec1]
@@ -426,7 +426,7 @@ private def resultCallIndex (r : SourceSemantics.StmtResult) : Option Nat :=
   match r with | .continue s => some s.externalCallIndex | _ => none
 
 private def isRevert (r : SourceSemantics.StmtResult) : Bool :=
-  match r with | .revert => true | _ => false
+  match r with | .revert _ => true | _ => false
 
 private def isContinue (r : SourceSemantics.StmtResult) : Bool :=
   match r with | .continue _ => true | _ => false

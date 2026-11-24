@@ -48,8 +48,11 @@ rejected until their evaluation order, including competing panics, is covered.
 Explicit `revert CustomError(...)` statements use literal-zero custom-error guards. Error
 declarations travel with the execution state. The differential oracle computes
 signature Keccak over a temporary word-chunk memory buffer; this does not
-establish general Solidity memory or ABI-decoder correctness. The legacy
-agreement projection continues to erase rich revert bytes.
+establish general Solidity memory or ABI-decoder correctness. The proof-layer
+source semantics carries the same bytes as the payload of `StmtResult.revert`
+(`.raw` of Denote's bytes; `.empty` where Denote's data-free `.revert` marks an
+unsupported or failed evaluation), so `DenoteAgreement` relates revert bytes
+exactly. The source-to-IR theorem does not compare them yet.
 
 Only a syntactic `requireError (literal 0)` receives terminal custom-error
 metadata. `Verity/Core/Model/DenoteErrorGuard.lean` establishes metadata
