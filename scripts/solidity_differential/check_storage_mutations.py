@@ -796,8 +796,7 @@ MUTANTS.update({
     'import-empty-array-bytes-calldata-nonempty-body-guard': ('unless fnStmts.isEmpty && fnMods.isEmpty do return none', 'unless true do return none'),
     'import-overload-const-error-cond-tuple-tload-branch-swap': ('return (pre.push (.ite cond.expr thenB.toList elseB.toList), outRets)', 'return (pre.push (.ite cond.expr elseB.toList thenB.toList), outRets)'),
     'import-overload-const-error-cond-tuple-tload-tload-one': ('| "tload", #[a] => pure { pre, expr := .tload a }', '| "tload", #[_a] => pure { pre, expr := .literal 1 }'),
-    'import-overload-const-error-cond-tuple-tload-const-arg-one': ('let isConstLiteral := match converted.expr with\n        | .literal n => converted.pre.isEmpty && Denote.errorScalarValueValid modelType n\n        | _ => false\n      unless isConstLiteral do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"\n    let value ← atom { converted with expr := cleanHelperResultExpr ty converted }', 'let isConstLiteral := match converted.expr with\n        | .literal n => converted.pre.isEmpty && Denote.errorScalarValueValid modelType n\n        | _ => false\n      unless isConstLiteral do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"\n    let value ← atom (if isDirectScalar then { converted with expr := cleanHelperResultExpr ty converted } else { pre := #[], expr := .literal 1 })'),
-    'import-overload-const-error-cond-tuple-tload-nonconst-error-guard': ('unless isConstLiteral do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"', 'unless true do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"'),
+    'import-overload-const-error-cond-tuple-tload-const-arg-one': ('let bound ← atom cleaned', 'let bound ← atom { pre := #[], expr := .literal 1 }'),
     'import-struct-fixed-array-read-zero': ('[.assignVar dest (read s!"__solidity_struct_array_{arrInfo.member}_{i}")] [])', '[.assignVar dest (.literal 0)] [])'),
     'import-struct-fixed-array-write-bounds': ('let mut result := (valuePre ++ pre).push (.ite (.lt index (.literal arrInfo.length))\n        [] [.panicCode (.literal 0x32)])', 'let mut result := (valuePre ++ pre)'),
     'import-struct-fixed-array-return-zero': ('out := out.push (.returnValues elements.toList)', 'out := out.push (.returnValues (elements.toList.map fun _ => .literal 0))'),
@@ -926,7 +925,7 @@ MUTANTS.update({
     'import-packed-struct-mapping-ternary-tuple-member-key-stateful-rhs-guard': ('        let hasInvalidKeyPrelude ← if pre.isEmpty then pure false\n          else if !pre.all isStorageKeyCaptureStmt then pure true\n          else if deleting then pure false\n          else do\n            let right ← mField expression "rightHandSide"\n            pure (assignmentIn right || statefulCallIn right (← get))', '        let hasInvalidKeyPrelude ← if pre.isEmpty then pure false\n          else if !pre.all isStorageKeyCaptureStmt then pure true\n          else if deleting then pure false\n          else pure false'),
     'import-timelock-and-bytes4-cast-literal-zero': ('      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal (n * 16 ^ 56) }', '      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal 0 }'),
     'import-timelock-and-bytes4-cast-abi-encode-tail-len-zero': ('          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) bufSize\n          ]', '          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) (.literal 0)\n          ]'),
-    'import-timelock-and-bytes4-cast-const-error-eval-zero': ('      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some n => { pre := #[], expr := .literal n }\n        | none => rawConverted', '      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some _ => { pre := #[], expr := .literal 0 }\n        | none => rawConverted'),
+    'import-timelock-and-bytes4-cast-const-error-eval-zero': ('      match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n      | some n => { pre := #[], expr := .literal n }\n      | none => rawConverted', '      match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n      | some _ => { pre := #[], expr := .literal 0 }\n      | none => rawConverted'),
     'import-timelock-and-bytes4-cast-encode-stateful-bytes-guard': ('      if ← isDynamicArg argIdx then\n        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then\n          failAt arg "effectful ABI encoding argument is unsupported"', '      if ← isDynamicArg argIdx then\n        if false then\n          failAt arg "effectful ABI encoding argument is unsupported"'),
     'import-string-bytes-mappings-uri-storage-strings-mstore8-zero': ('          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let newByte := Expr.shl shift (.bitAnd valVal.expr (.literal 0xff))\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))', '          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let _ := valVal.expr\n          let newByte := Expr.shl shift (.literal 0)\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))'),
     'import-string-bytes-mappings-uri-storage-strings-mapping-slot-zero': ('              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, slotExpr) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", slotExpr, info.stringStorage)', '              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, _) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", .literal 0, info.stringStorage)'),
@@ -1761,17 +1760,6 @@ contract C {
  }
 }
 ''')
-    elif name == 'import-overload-const-error-cond-tuple-tload-nonconst-error-guard':
-        diagnostic = 'custom-error arguments currently require literals or scalar bindings'
-        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
-contract C {
- error Failure(address who);
- function checked(uint256 x) external pure returns (uint256) {
-  if (x > 0) revert Failure(address(uint160(x)));
-  return 0;
- }
-}
-''')
     elif name == 'import-struct-fixed-array-delete-guard':
         diagnostic = 'cannot delete mapping struct with fixed-array members'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -2558,7 +2546,6 @@ def mutation_campaign(output, selected=None):
                                   'import-tuple-helper-duplicate-target-guard',
                                   'import-fnptr-struct-delete-modifier-opaque-delete-guard',
                                   'import-empty-array-bytes-calldata-nonempty-body-guard',
-                                  'import-overload-const-error-cond-tuple-tload-nonconst-error-guard',
                                   'import-struct-fixed-array-delete-guard',
                                   'import-msg-data-and-enum-encoding-cast-guard',
                                   'import-exp-and-bitwise-shift-dynamic-exp-guard',

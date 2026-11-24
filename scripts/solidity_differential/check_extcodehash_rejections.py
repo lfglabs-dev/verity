@@ -13,7 +13,6 @@ import tempfile
 
 MESSAGES = {
     'this-code-hash': 'code hash of the executing contract is unsupported',
-    'error-argument': 'custom-error arguments currently require literals or scalar bindings',
     'self-alias': 'code hash of an account that may be the executing contract is unsupported',
     'self-alias-length': 'code length of an account that may be the executing contract is unsupported',
     'after-call': 'code hash read after an external call or create2 is unsupported',
@@ -49,8 +48,7 @@ CASES = [
      ('address(this).codehash', 0, 'MemberAccess', 'this-code-hash')),
     ('this-code-hash-compare', 'if (address(this).codehash != BOUND) revert Unbound();',
      ('address(this).codehash', 0, 'MemberAccess', 'this-code-hash')),
-    ('error-argument', 'if (account.codehash != BOUND) revert Found(account.codehash);',
-     ('account.codehash)', 0, 'MemberAccess', 'error-argument')),
+    ('error-argument', 'if (account.codehash != BOUND) revert Found(account.codehash);', None),
     # The lowered operand decides, not its syntax: aliases of address(this) reject.
     ('foreign-alias', 'address other = account;\n        last = other.codehash;', None),
     ('helper-code-hash', 'last = hashOf(account);', None),
