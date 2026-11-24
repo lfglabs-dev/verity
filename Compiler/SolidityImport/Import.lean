@@ -5536,6 +5536,8 @@ private partial def lowerBinary (j : Json) : M Val := do
   let op ← mStr (← mField j "operator")
   let leftNode ← mField j "leftExpression"
   let rightNode ← mField j "rightExpression"
+  if let some test ← lowerThisCodeLengthZeroTest? op leftNode rightNode then
+    return test
   let env ← get
   let admittedCall := ((op == "==" || op == "!=") && !env.admittedInterfaceCalls.isEmpty &&
     ((((field? (unparenJson leftNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
@@ -9888,15 +9890,49 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     pre := pre.push (.ite (.gt (.localVar result) (.literal 1)) [.revertEmpty] [])
   pure (decoded pre result)
 
+/-- `address(this).code.length`, possibly parenthesized. -/
+private partial def isThisCodeLength (j : Json) : M Bool := do
+  let j := unparenJson j
+  unless optStr j "nodeType" == some "MemberAccess" && optStr j "memberName" == some "length" do
+    return false
+  let some code := field? j "expression" | return false
+  unless ← isAddressCodeAccess code do return false
+  isThisAddressConv (← mField code "expression")
+
+/-- `address(this).code.length` compared with zero (`== 0`, `!= 0`, `> 0` and the
+mirrored `0 == x`, `0 != x`, `0 < x`), as OpenZeppelin's `initializer` guard reads it:
+`EXTCODESIZE(ADDRESS)` through the closed code-length transport, which Denote answers
+from the executing account's code in the account world. The executing account's code
+differs between the source and compiled routes, but both have code exactly when the
+account is deployed: it has none while its constructor runs, also when that
+constructor delegatecalls the root. Only the zero test is exposed, so the routes
+agree; any other use of the length still rejects in `lowerExtCodeSize`. `none` when
+`op` with these operands is not such a test. -/
+private partial def lowerThisCodeLengthZeroTest? (op : String) (left right : Json) :
+    M (Option Val) := do
+  let isZero := fun (n : Json) => do return (← mType (unparenJson n)) == "int_const 0"
+  let empty? : Option Bool ←
+    if (← isThisCodeLength left) && (← isZero right) then
+      pure (if op == "==" then some true else if op == "!=" || op == ">" then some false else none)
+    else if (← isThisCodeLength right) && (← isZero left) then
+      pure (if op == "==" then some true else if op == "!=" || op == "<" then some false else none)
+    else pure none
+  let some empty := empty? | return none
+  let size ← fresh
+  let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeSize.module size) [.contractAddress]
+  let test := Expr.eq (.localVar size) (.literal 0)
+  return some { pre := #[read], expr := if empty then test else .logicalNot test }
+
 /-- `<address>.code.length` of an address-typed account other than the executing
 contract: `EXTCODESIZE` through the closed code-length transport, which Denote
 answers from the account world (`DenoteExternalCode.extCodeSize`). The executing
 contract's own code length differs between the source and compiled routes, so
-`address(this).code.length` is rejected. -/
+`address(this).code.length` is rejected outside a comparison with zero
+(`lowerThisCodeLengthZeroTest?`). -/
 private partial def lowerExtCodeSize (code : Json) : M Val := do
   let account ← mField code "expression"
   if ← isThisAddressConv account then
-    failAt code "code length of the executing contract is unsupported"
+    failAt code "code length of the executing contract is unsupported outside a zero test"
   let target ← lowerCodeReadTarget (← lowerExpr account) code
     "code length of an account that may be the executing contract is unsupported"
   let result ← fresh

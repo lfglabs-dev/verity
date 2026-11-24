@@ -98,6 +98,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "scalar-array-abi-rejections",
     "scoped",
     "selector-responder",
+    "self-code-length",
+    "self-code-length-rejections",
     "self-delegate-call",
     "signature-calldata",
     "signature-calldata-rejections",

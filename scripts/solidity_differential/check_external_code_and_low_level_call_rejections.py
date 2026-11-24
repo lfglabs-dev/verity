@@ -27,7 +27,7 @@ MESSAGES = {
                  'with address, bool, bytes32 or uint256 parameters'),
     'param-type': 'unsupported low-level call parameter type bytes',
     'order': 'low-level call operands require explicit evaluation-order support',
-    'this-code': 'code length of the executing contract is unsupported',
+    'this-code': 'code length of the executing contract is unsupported outside a zero test',
     'code-read': 'external contract code reads are outside this slice',
     'post-call': ('storage reads, storage writes and logs after an external CALL are '
                   'supported only when every external interaction of the function is a '
@@ -153,7 +153,9 @@ CASES = [
     ('delegatecall', '', '',
      sequence(call='token.delegatecall(abi.encodeCall(IToken.transfer, (to, amount)))'),
      ('token.delegatecall', 0, 'MemberAccess', 'external')),
-    ('this-code-length', '', '', 'require(address(this).code.length > 0, NoCode());',
+    # A zero test of the executing contract's code length is admitted (check_self_code_length);
+    # the length itself differs between the source and compiled routes.
+    ('this-code-length', '', '', 'counter = address(this).code.length;',
      ('address(this).code', 0, 'MemberAccess', 'this-code')),
     ('code-bytes', '', '', 'counter = uint8(token.code[0]);',
      ('token.code', 0, 'MemberAccess', 'code-read')),
