@@ -156,7 +156,10 @@ MUTANTS.update({
         '  let masked := if bits < 256'),
     'import-raw-fixed-array-member-slot': (
         '          readRawFixedArrayElement pre (rawStructMemberSlot baseSlot arrInfo.wordOffset) arrInfo index',
-        '          readRawFixedArrayElement pre (rawStructMemberSlot baseSlot (arrInfo.wordOffset + 1)) arrInfo index')})
+        '          readRawFixedArrayElement pre (rawStructMemberSlot baseSlot (arrInfo.wordOffset + 1)) arrInfo index'),
+    'import-raw-fixed-array-write-slot': (
+        '        (rawStructMemberSlot baseSlot arrInfo.wordOffset) arrInfo index value.expr deleting',
+        '        (rawStructMemberSlot baseSlot (arrInfo.wordOffset + 1)) arrInfo index value.expr deleting')})
 # A `while` loop whose only progress divides its unsigned local by a constant >= 2 runs as
 # `bits` guarded iterations.
 MUTANTS.update({
