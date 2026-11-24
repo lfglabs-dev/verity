@@ -17,6 +17,9 @@ solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "YulNarrowR
   function localUses(uint256)
   function localKey(uint256)
   function squareRaw(uint8)
+  function clampedRaw(uint256,uint256)
+  function queryPair(address)
+  function sendFlag(address,uint256)
 
 solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "YulNarrowResultTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -31,6 +34,9 @@ solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "YulNarrowR
   function localUses(uint256)
   function localKey(uint256)
   function squareRaw(uint8)
+  function clampedRaw(uint256,uint256)
+  function queryPair(address)
+  function sendFlag(address,uint256)
 
 solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResultOneSlot.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -45,6 +51,9 @@ solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResul
   function localUses(uint256)
   function localKey(uint256)
   function squareRaw(uint8)
+  function clampedRaw(uint256,uint256)
+  function queryPair(address)
+  function sendFlag(address,uint256)
 
 solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResultTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -59,6 +68,9 @@ solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "YulNarrowResul
   function localUses(uint256)
   function localKey(uint256)
   function squareRaw(uint8)
+  function clampedRaw(uint256,uint256)
+  function queryPair(address)
+  function sendFlag(address,uint256)
 
 private def body (model : CompilationModel) (name : String) : String :=
   match model.functions.find? (·.name == name) with
@@ -91,6 +103,8 @@ private def panics (model : CompilationModel) (name : String) (args : List Nat) 
 
 private def max : Nat := 2 ^ 256 - 1
 
+/-! Every root imports, the `staticcall` (`queryPair`) and `call` (`sendFlag`) helpers
+included, with a body that does not depend on the unrelated slot. -/
 #guard sameBody oneLegacy.model twoLegacy.model "pairWords" && sameBody oneIr.model twoIr.model "pairWords" &&
   sameBody oneLegacy.model twoLegacy.model "pairRaw" && sameBody oneIr.model twoIr.model "pairRaw" &&
   sameBody oneLegacy.model twoLegacy.model "pairUse" && sameBody oneIr.model twoIr.model "pairUse" &&
@@ -100,14 +114,17 @@ private def max : Nat := 2 ^ 256 - 1
   sameBody oneLegacy.model twoLegacy.model "localWord" && sameBody oneIr.model twoIr.model "localWord" &&
   sameBody oneLegacy.model twoLegacy.model "localUses" && sameBody oneIr.model twoIr.model "localUses" &&
   sameBody oneLegacy.model twoLegacy.model "localKey" && sameBody oneIr.model twoIr.model "localKey" &&
-  sameBody oneLegacy.model twoLegacy.model "squareRaw" && sameBody oneIr.model twoIr.model "squareRaw"
+  sameBody oneLegacy.model twoLegacy.model "squareRaw" && sameBody oneIr.model twoIr.model "squareRaw" &&
+  sameBody oneLegacy.model twoLegacy.model "clampedRaw" && sameBody oneIr.model twoIr.model "clampedRaw" &&
+  sameBody oneLegacy.model twoLegacy.model "queryPair" && sameBody oneIr.model twoIr.model "queryPair" &&
+  sameBody oneLegacy.model twoLegacy.model "sendFlag" && sameBody oneIr.model twoIr.model "sendFlag"
 
 /-! Expected results: solc 0.8.34 on the EVM (osaka), legacy and via-IR, optimizer off and at
 466 runs (identical), both contracts. A Yul write keeps the raw word: Yul reads and copies see
-it (`pairRaw`, `readBackRaw`, `localWord` raw/copied, `true && b` in `localUses`, whose raw
-word overflows the checked product at `max`), while `==`, `!`, conditions, mapping keys and ABI
-encoding clean it. Legacy keeps the unchecked `uint8` product on the stack (`squareRaw`);
-via-IR cleans it. -/
+it (`pairRaw`, `clampedRaw`, `readBackRaw`, `localWord` raw/copied, `true && b` in `localUses`,
+whose raw word overflows the checked product at `max`), while `==`, `!`, conditions, mapping
+keys and ABI encoding clean it; `clampedRaw` clears a width that does not fit 32 bits. Legacy
+keeps the unchecked `uint8` product on the stack (`squareRaw`); via-IR cleans it. -/
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "pairWords" [0, 0] [0, 0])
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "pairRaw" [0, 0] [0, 0])
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "pairUse" [0, 0] [0])
@@ -203,6 +220,11 @@ via-IR cleans it. -/
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "squareRaw" [3] [9])
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "squareRaw" [200] [40000])
 #guard [oneLegacy.model, twoLegacy.model].all (returns · "squareRaw" [255] [65025])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [2, 7] [1, 7, 2, 7])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [1, 4294967295] [1, 4294967295, 1, 4294967295])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [1, 4294967296] [1, 0, 1, 0])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [max, 4294967301] [1, 0, max, 0])
+#guard [oneLegacy.model, twoLegacy.model].all (returns · "clampedRaw" [0, max] [0, 0, 0, 0])
 #guard [oneIr.model, twoIr.model].all (returns · "pairWords" [0, 0] [0, 0])
 #guard [oneIr.model, twoIr.model].all (returns · "pairRaw" [0, 0] [0, 0])
 #guard [oneIr.model, twoIr.model].all (returns · "pairUse" [0, 0] [0])
@@ -298,5 +320,10 @@ via-IR cleans it. -/
 #guard [oneIr.model, twoIr.model].all (returns · "squareRaw" [3] [9])
 #guard [oneIr.model, twoIr.model].all (returns · "squareRaw" [200] [64])
 #guard [oneIr.model, twoIr.model].all (returns · "squareRaw" [255] [1])
+#guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [2, 7] [1, 7, 2, 7])
+#guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [1, 4294967295] [1, 4294967295, 1, 4294967295])
+#guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [1, 4294967296] [1, 0, 1, 0])
+#guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [max, 4294967301] [1, 0, max, 0])
+#guard [oneIr.model, twoIr.model].all (returns · "clampedRaw" [0, max] [0, 0, 0, 0])
 
 end SolidityImportSmoke.YulNarrowResultStateCountChecks

@@ -11,7 +11,9 @@ the stack, as solc does (legacy and via-IR): Yul reads see it, Solidity consumer
 - `YulNarrowResultStaticSequence.sol`: a `bool` and a `uint32` result written from the two
   scratch words a `staticcall` answers into, against raw static oracles whose first word is
   `0`, `1`, `2`, `0x100` or all ones, whose answer is complete, short (one byte, 31 and 32
-  bytes) or empty, or which revert; one account without code and the sender EOA.
+  bytes) or empty, or which revert; one account without code and the sender EOA. The oracle's
+  second word is always zero, so the `uint32` result is zero here; its dirty words and the
+  32-bit clamp are checked by `YulNarrowResultStateCountChecks` (`pairRaw`, `clampedRaw`).
 
 A divergence is shrunk to a deletion-minimal sequence.
 """

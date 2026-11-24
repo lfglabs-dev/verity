@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
+interface IYulNarrowResultPairQuery {
+    function pairOf(address account) external view returns (bool, uint32);
+}
+
 /// Yul writes to narrow named results and narrow locals keep the raw word, as solc does in
 /// both pipelines: a later Yul read sees it, copies and internal arguments pass it on, and
 /// Solidity consumers (`==`, `!`, conditions, storage, mapping keys, ABI encoding) clean it.
@@ -36,6 +40,45 @@ library YulNarrowResultLib {
     function saturatingMul(uint256 a, uint256 b) internal pure returns (uint256) {
         (bool success, uint256 result) = tryMul(a, b);
         return success ? result : type(uint256).max;
+    }
+
+    /// The pair with the width cleared when it does not fit 32 bits.
+    function clampedPair(uint256 a, uint256 b) internal pure returns (bool flag, uint32 width) {
+        assembly ("memory-safe") {
+            mstore(0x00, a)
+            mstore(0x20, b)
+            flag := mload(0x00)
+            width := mload(0x20)
+            width := mul(width, iszero(shr(32, width)))
+        }
+    }
+
+    /// The pair from the two words a `staticcall` answers into the zeroed scratch space.
+    function staticPair(address account) internal view returns (bool flag, uint32 width) {
+        bytes memory data = abi.encodeCall(IYulNarrowResultPairQuery.pairOf, (account));
+        assembly ("memory-safe") {
+            mstore(0x00, 0x00)
+            mstore(0x20, 0x00)
+            if staticcall(gas(), account, add(data, 0x20), mload(data), 0x00, 0x40) {
+                flag := mload(0x00)
+                width := mload(0x20)
+                width := mul(width, iszero(shr(32, width)))
+            }
+        }
+    }
+
+    /// The success of a value-free `call`: it returned the word 1, or no data from an account
+    /// with code; the `bool` result is read back in Yul.
+    function callFlag(address account, uint256 amount) internal returns (bool success) {
+        assembly ("memory-safe") {
+            let fmp := mload(0x40)
+            mstore(0x00, amount)
+            success := call(gas(), account, 0, 0x00, 0x20, 0x00, 0x20)
+            if iszero(and(success, eq(mload(0x00), 1))) {
+                success := and(success, and(iszero(returndatasize()), gt(extcodesize(account), 0)))
+            }
+            mstore(0x40, fmp)
+        }
     }
 
     /// A single named `bool` result read back in Yul.
@@ -76,6 +119,23 @@ contract YulNarrowResultOneSlot {
         (bool flag, uint32 width) = YulNarrowResultLib.pair(a, b);
         if (flag && width > 0) return uint256(width) + 1;
         return 0;
+    }
+
+    function clampedRaw(uint256 a, uint256 b) external pure returns (bool, uint32, uint256 r, uint256 q) {
+        (bool flag, uint32 width) = YulNarrowResultLib.clampedPair(a, b);
+        assembly ("memory-safe") {
+            r := flag
+            q := width
+        }
+        return (flag, width, r, q);
+    }
+
+    function queryPair(address account) external view returns (bool, uint32) {
+        return YulNarrowResultLib.staticPair(account);
+    }
+
+    function sendFlag(address account, uint256 amount) external returns (bool) {
+        return YulNarrowResultLib.callFlag(account, amount);
     }
 
     function mulSat(uint256 a, uint256 b) external pure returns (uint256) {
