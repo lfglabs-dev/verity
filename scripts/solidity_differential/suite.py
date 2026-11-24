@@ -27,6 +27,7 @@ STORAGE_FIXTURES = (
     'predeclared-for-counters',
     'storage-array-length-bound',
     'helper-loop-break',
+    'helper-loop-return',
     'fixed-bytes-conversions',
     'fixed-bytes-widths',
     'msg-sig',

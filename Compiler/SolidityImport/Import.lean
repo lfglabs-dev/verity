@@ -12886,6 +12886,16 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   pure #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
 
+/-- A helper `for` whose test is `i < n` with a `uint8` or literal `n ≤ 256` bound: at
+    most 256 iterations, so the empty iterations after a `break` or `return` stay small. -/
+private partial def smallHelperForBound (s : Json) : M Bool := do
+  let cond := (field? s "condition").getD .null
+  let bound := (field? cond "rightExpression").getD .null
+  let ty := ((field? bound "typeDescriptions").bind (optStr · "typeString")).getD ""
+  let smallLiteral := (ty.drop 10).toString.toNat?.any (· ≤ 256)
+  pure (optStr cond "operator" == some "<" &&
+    (ty == "uint8" || (ty.startsWith "int_const " && smallLiteral)))
+
 /-- Lowers an inlined helper `for`/`while` loop. When its body may `break` or
     `continue` (#2710), a fresh exit flag declared before the loop models them: each
     iteration runs only while the flag is below `2` and first resets it to `0`;
@@ -12922,11 +12932,7 @@ private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array St
     let init ← mField s "initializationExpression"
     if optStr init "nodeType" == some "ExpressionStatement" then
       failAt s "a for loop over a pre-declared counter must not break"
-    let bound := (field? cond "rightExpression").getD .null
-    let ty := ((field? bound "typeDescriptions").bind (optStr · "typeString")).getD ""
-    let smallLiteral := (ty.drop 10).toString.toNat?.any (· ≤ 256)
-    unless optStr cond "operator" == some "<" &&
-        (ty == "uint8" || (ty.startsWith "int_const " && smallLiteral)) do
+    unless ← smallHelperForBound s do
       failAt s "break in a helper for loop requires an upper bound of at most 256 iterations"
   if whileTrue || !exits then
     let unwrapped (b : Json) : M (Array Stmt) := do
@@ -13085,6 +13091,8 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
               let v ← lowerConverted ((← returnTargetType? statement).getD (← mType expression)) expression
               pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])
         | "Break" | "Continue" => lowerLoopExit statement
+        | "ForStatement" | "WhileStatement" =>
+            failAt statement "a loop nested in a returning inlined helper loop is outside this slice"
         | kind => failAt statement s!"unsupported helper loop statement {kind}"
       if rest.isEmpty then
         pure stmtOut
@@ -13179,7 +13187,13 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let revStmts ← lowerRevert s
         pure (revStmts, some ((← get).helperResult.map (fun (b, _) => Expr.localVar b) |>.getD (.literal 0)))
     | "ForStatement" =>
-        if (← isTailWindowFor s) && (← stmtContainsReturn s) then
+        if ← stmtContainsReturn s then
+          -- Early `return` from a helper `for`: the return sets a flag that guards
+          -- the rest of its iteration, every later iteration and the continuation.
+          -- `Stmt.forEach` reads its count once and cannot stop early, so outside a
+          -- tail window (at most `K` iterations) the bound must be small, as for `break`.
+          unless (← isTailWindowFor s) || (← smallHelperForBound s) do
+            failAt s "return in a helper for loop requires an upper bound of at most 256 iterations"
           let retFlag ← fresh
           let retVal ← fresh
           let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal)

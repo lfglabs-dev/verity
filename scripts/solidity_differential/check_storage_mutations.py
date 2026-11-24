@@ -995,6 +995,8 @@ MUTANTS.update({
         '    out := out.push (.forEach binding (if storageLength then .literal 0 else limit) bodyOut.toList)'),
     'import-helper-loop-break-as-continue': ('let code := if kind == "Break" then 2 else 1',
         'let code := if kind == "Break" then 1 else 1'),
+    'import-helper-loop-return-ignored': ('pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])',
+        'pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 0)])'),
 })
 
 
@@ -1170,6 +1172,8 @@ def run(directory, output, name):
         fixture = "HelperLoopSequence"
     if name.startswith("import-helper-loop-break-"):
         fixture = "HelperLoopBreakSequence"
+    if name.startswith("import-helper-loop-return-"):
+        fixture = "HelperLoopReturnSequence"
     if name.startswith("import-invariant-for-"):
         fixture = "InvariantForSequence"
     if name.startswith("import-local-write-"):
@@ -1441,6 +1445,9 @@ def run(directory, output, name):
     if fixture == 'HelperLoopBreakSequence':
         argv[argv.index('--transactions') + 1] = '20'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])])
+    if fixture == 'HelperLoopReturnSequence':
+        argv[argv.index('--transactions') + 1] = '20'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 3355393, 115339776388732929035197660848497720713218148788040405586178471965091600352261, 5427754182999196660479889922282245680622030531201901439497581965808238696711, 5427754182999196660479889922282245680622030531201901439349574250392419434499, 3618502788666131106986593281521497120414687020801267626344091381866793796871, 1356938545749799165119972480570561420155507632800475359837920554324574865158, 12345, 4096, (1 << 256) - 1])])
     if fixture == 'FixedBytesWidthSequence':
         # The same boundaries as `check_storage --fixture fixed-bytes-widths`, then every
         # clean and dirty `bytes1` / `bytes19` / `bytes31` / `bytes16` root call: 3 seed calls,
