@@ -539,36 +539,27 @@ Pinned Solidity/solc/Yul/AST, older quoted nodes, models and golden files are
 unchanged. Focused command receipts and source hashes are in
 `dispatcher-environment.json`.
 
-## Blocking issue: the native result loses revert bytes
+## Blocking issue: no theorem compares the native revert bytes
 
 Since lfglabs-dev/EVMYulLean#13 (pinned), Yul `REVERT` throws
 `Exception.Revert data` with the bytes it returns, and a reverted child call
-exposes them as the caller's returndata (#14). The bytes are lost one step later,
-in Verity's projection: distinct `Panic(0x11)` and `Panic(0x12)` executions
-still cannot be distinguished from the projected result. This is an
-information-loss obstruction to the requested exact observable theorem, not an
-arithmetic proof inconvenience.
+exposes them as the caller's returndata (#14). Verity's native `projectResult`
+in `Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean`
+keeps them: `YulResult.revertData` (`Compiler/Proofs/YulGeneration/RuntimeTypes.lean`)
+holds a `REVERT`'s bytes (`projectResult_revert_revertData`), so `Panic(0x11)`
+and `Panic(0x12)` executions project to different results. No IR-to-Yul theorem
+states those bytes yet: the Layer-3 statements compare success, return value,
+storage and events only.
 
-Verity's current native `projectResult` in
-`Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean`
-also maps every exception to the same failed result with rolled-back storage and
-events. `YulResult` in `Compiler/Proofs/YulGeneration/RuntimeTypes.lean` carries
-`Option Nat` for a return value and no revert-byte field. It cannot express the
-required theorem without a richer observation type. It also identifies
+`projectResult` still maps every other exception to the same failed result
+with rolled-back storage, events and no bytes. It therefore identifies
 interpreter failures such as out-of-fuel with contract reverts; a validator must
 reject an exhausted execution instead of certifying it as an equivalent revert.
 
 At the current integration revision, Denote's `StmtOutcome.revertWithData`
-already retains explicit panic payloads. That improvement does not fix the
-pinned native Yul exception above. The typed imported wrapper proved here still
-uses `Access.runFunction`, which maps both Denote revert arms to `none`, so this
-success-only observation does not claim failure-byte equivalence.
-
-Fixing this requires either a payload-preserving EVMYulLean exception and its
-propagation/rollback proofs, or a formally justified instrumented semantics
-whose trace retains the revert payload. A projection pretending all reverts are
-equal would weaken the requested property and is not an acceptable solution.
-No such dependency change was made in this experiment.
+already retains explicit panic payloads. The typed imported wrapper proved here
+still uses `Access.runFunction`, which maps both Denote revert arms to `none`,
+so this success-only observation does not claim failure-byte equivalence.
 
 ## Remaining implementation and proof obligations
 
