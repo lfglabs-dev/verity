@@ -145,9 +145,10 @@ def beginReentrantFrame (world : Verity.ContractState) : Verity.ContractState :=
 
 /-- `executeBody` for a call back into the contract: the frame starts from
 `beginReentrantFrame`, and a reverting body rolls back to it, transient writes included. As in
-`executeBody`, the frame's selector is `world.selector`: a callback's world carries the
-callback's own call context (selector, calldata, sender), set by the sequence's preparation
-relation, and `msg.sig` reads that selector, not the caller's. -/
+`executeBody`, the frame's selector is `world.selector`, so `msg.sig` reads whatever selector the
+callback's world holds. Matching the EVM needs that world to carry the callback's own call
+context (selector, calldata, sender); the sequence's preparation relation is where a statement
+allows or requires it. -/
 def executeReentrantBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
     (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {})

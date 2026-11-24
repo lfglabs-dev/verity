@@ -1527,9 +1527,13 @@ through `Denote.bindExternalParams` as `denoteFunction` decodes), so a proof may
 `uint104` parameter is below `2^104`, no step runs a body on arguments no transaction can
 pass, and a body with an explicit ABI prelude decodes the same calldata. The frame's selector is
 the same world's `selector` in `executeBody` and `executeReentrantBody` alike, so `msg.sig` and
-calldata word `0` read the call's own selector (a callback's, in a callback) rather than `0`;
-the caller's context is restored after a call. Calldata offsets 1 to 3 still read `0`
+calldata word `0` read the call's own selector (a callback's, in a callback) rather than `0`,
+and the caller's selector again after a call (it is a field of the frame, not of the world the
+callee returns; a callee answer that should also restore `sender` and the rest of the caller's
+context uses `commitCalleeWorld`). Calldata offsets 1 to 3 still read `0`
 (`Denote.calldataloadWord`). `EntryPointInvariantChecks` pins both runners, a caller and a
-callback with distinct selectors and senders around a byte `CALL`, and a rolled-back callback.
+callback with distinct selectors and senders around a byte `CALL`, a callback whose own body
+reverts after writing (rolled back by `executeReentrantBody`), and a callee that reverts after a
+successful callback.
 `Contracts/SolidityImportSmoke/EntryPointInvariantChecks.lean` uses each of them on a
 three-entry model, including a step whose arguments decode from its frame.
