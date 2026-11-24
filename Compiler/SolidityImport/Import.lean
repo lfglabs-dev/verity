@@ -4468,7 +4468,7 @@ private partial def lowerRef (j : Json) : M Ref := do
               else if let some arrInfo := rawInfo.fixedArrays.find? (·.member == member) then
                 pure (.structFixedArray pre path arrInfo)
               else if let some mInfo := rawInfo.scalars.find? (·.member == member) then
-                pure (.expr (← readRawStructScalar pre baseSlot mInfo))
+                pure (.expr (← storageEnumRead j (← readRawStructScalar pre baseSlot mInfo)))
               else if rawInfo.opaqueMemberNames.contains member then
                 failAt j s!"{member} of {rawInfo.structName} has a storage type outside this slice"
               else
