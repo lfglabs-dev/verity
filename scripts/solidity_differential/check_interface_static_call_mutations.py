@@ -49,6 +49,12 @@ MUTANTS = {
     'import-interface-static-return-guard': (IMPORT,
         'unless returnTypes.size == 1 && ["uint256", "int256", "bytes32", "bytes4", "bool"].contains returnType do',
         'unless returnTypes.size == 1 do', 'admission', 'narrow-return'),
+    'import-interface-static-narrow-unsigned-guard': (IMPORT,
+        '(returnTypes[0]!).startsWith "uint" && (bitsOf (returnTypes[0]!)).any (· < 256)',
+        '(bitsOf (returnTypes[0]!)).any (· < 256)', 'admission', 'enum-return'),
+    'import-interface-static-narrow-decode': (IMPORT,
+        'let guard := if returnType == "bytes4" || isSupportedExtraReturn then',
+        'let guard := if returnType == "bytes4" then', 'runtime', None),
 }
 
 
@@ -60,7 +66,7 @@ def environment(directory):
 
 def runtime(directory, output):
     argv = [sys.executable, '-m', 'solidity_differential.check_interface_static_call', '--single',
-            '--transactions', '55', '--seed', '2512', '--shrink-attempts', '60', '--output', str(output)]
+            '--transactions', '102', '--seed', '2512', '--shrink-attempts', '60', '--output', str(output)]
     result = subprocess.run(argv, cwd=directory, env=environment(directory), text=True,
                             capture_output=True, timeout=7200)
     output.with_suffix('.log').write_text(result.stdout + result.stderr)

@@ -23,7 +23,7 @@ WORD = ('interface IWord {\n'
 ERROR = 'error Gated();'
 MESSAGES = {
     'parameters': 'typed interface staticcall parameters must be address, uint256, bytes32 or bool',
-    'return': 'typed interface staticcall must return exactly one uint256, int256, bytes32, bytes4 or bool',
+    'return': 'typed interface staticcall must return exactly one uint256, uint8..uint248, int256, bytes32, bytes4, bool or address',
     'named': 'named call arguments are outside this slice',
     'effects': 'typed interface staticcall arguments must lower without side effects',
     'encoding': 'effectful ABI encoding argument is unsupported',

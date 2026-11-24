@@ -36,6 +36,8 @@ solidity_import oneLegacy from "Contracts/SolidityImportSmoke" entry "InterfaceS
   function helperArguments(address,uint256)
   function discardedOwner(address)
   function discardedSmall(address)
+  function rateWord(address)
+  function discardedRate(address)
 
 solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "InterfaceStaticCallTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -59,6 +61,8 @@ solidity_import twoLegacy from "Contracts/SolidityImportSmoke" entry "InterfaceS
   function helperArguments(address,uint256)
   function discardedOwner(address)
   function discardedSmall(address)
+  function rateWord(address)
+  function discardedRate(address)
 
 solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "InterfaceStaticCallOneSlot.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -82,6 +86,8 @@ solidity_import oneIr from "Contracts/SolidityImportSmoke" entry "InterfaceStati
   function helperArguments(address,uint256)
   function discardedOwner(address)
   function discardedSmall(address)
+  function rateWord(address)
+  function discardedRate(address)
 
 solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "InterfaceStaticCallTwoSlots.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
@@ -105,6 +111,8 @@ solidity_import twoIr from "Contracts/SolidityImportSmoke" entry "InterfaceStati
   function helperArguments(address,uint256)
   function discardedOwner(address)
   function discardedSmall(address)
+  function rateWord(address)
+  function discardedRate(address)
 
 /-- Oracle mock that returns 5. -/
 private def feedFive : Nat := 0x5fbdb2315678afecb367f032d93f642f64180aa3
@@ -234,6 +242,10 @@ private def agrees (model : CompilationModel) (name : String) :
 #guard sameBody oneIr.model twoIr.model "discardedOwner"
 #guard sameBody oneLegacy.model twoLegacy.model "discardedSmall"
 #guard sameBody oneIr.model twoIr.model "discardedSmall"
+#guard sameBody oneLegacy.model twoLegacy.model "rateWord"
+#guard sameBody oneIr.model twoIr.model "rateWord"
+#guard sameBody oneLegacy.model twoLegacy.model "discardedRate"
+#guard sameBody oneIr.model twoIr.model "discardedRate"
 
 /-- `peerQuote` on Anvil, legacy. -/
 private def peerQuoteLegacy : List (List Nat × Outcome) := [
@@ -467,6 +479,31 @@ private def discardedSmallLegacy : List (List Nat × Outcome) := [
 #guard !discardedSmallLegacy.isEmpty && discardedSmallLegacy.all (agrees oneLegacy.model "discardedSmall")
 #guard !discardedSmallLegacy.isEmpty && discardedSmallLegacy.all (agrees twoLegacy.model "discardedSmall")
 
+/-- `rateWord` (`uint16` return, #2914) on Anvil, legacy: a word of `2^16` or more reverts
+with no data, so `300` is clean and `0xabcdef` is not. -/
+private def rateWordLegacy : List (List Nat × Outcome) := [
+  ([feedDirtyAddr], .revert ""),
+  ([feedCleanAddr], .revert ""),
+  ([feedDirtyU8], .ok 300),
+  ([feedFive], .ok 5),
+  ([feedFail], .revert "000000000000000000000000000000000000000000000000000000000000000b"),
+  ([feedShort], .revert ""),
+  ([emptyAccount], .revert "")]
+#guard !rateWordLegacy.isEmpty && rateWordLegacy.all (agrees oneLegacy.model "rateWord")
+#guard !rateWordLegacy.isEmpty && rateWordLegacy.all (agrees twoLegacy.model "rateWord")
+
+/-- `discardedRate` on Anvil, legacy: the discarded `uint16` word is still validated. -/
+private def discardedRateLegacy : List (List Nat × Outcome) := [
+  ([feedDirtyAddr], .revert ""),
+  ([feedCleanAddr], .revert ""),
+  ([feedDirtyU8], .ok 1),
+  ([feedFive], .ok 1),
+  ([feedFail], .revert "000000000000000000000000000000000000000000000000000000000000000b"),
+  ([feedShort], .revert ""),
+  ([emptyAccount], .revert "")]
+#guard !discardedRateLegacy.isEmpty && discardedRateLegacy.all (agrees oneLegacy.model "discardedRate")
+#guard !discardedRateLegacy.isEmpty && discardedRateLegacy.all (agrees twoLegacy.model "discardedRate")
+
 /-- `peerQuote` on Anvil, ir. -/
 private def peerQuoteIr : List (List Nat × Outcome) := [
   ([feedFive, feedOne], .ok 5),
@@ -698,5 +735,30 @@ private def discardedSmallIr : List (List Nat × Outcome) := [
   ([emptyAccount], .revert "")]
 #guard !discardedSmallIr.isEmpty && discardedSmallIr.all (agrees oneIr.model "discardedSmall")
 #guard !discardedSmallIr.isEmpty && discardedSmallIr.all (agrees twoIr.model "discardedSmall")
+
+/-- `rateWord` (`uint16` return, #2914) on Anvil, ir: a word of `2^16` or more reverts
+with no data, so `300` is clean and `0xabcdef` is not. -/
+private def rateWordIr : List (List Nat × Outcome) := [
+  ([feedDirtyAddr], .revert ""),
+  ([feedCleanAddr], .revert ""),
+  ([feedDirtyU8], .ok 300),
+  ([feedFive], .ok 5),
+  ([feedFail], .revert "000000000000000000000000000000000000000000000000000000000000000b"),
+  ([feedShort], .revert ""),
+  ([emptyAccount], .revert "")]
+#guard !rateWordIr.isEmpty && rateWordIr.all (agrees oneIr.model "rateWord")
+#guard !rateWordIr.isEmpty && rateWordIr.all (agrees twoIr.model "rateWord")
+
+/-- `discardedRate` on Anvil, ir: the discarded `uint16` word is still validated. -/
+private def discardedRateIr : List (List Nat × Outcome) := [
+  ([feedDirtyAddr], .revert ""),
+  ([feedCleanAddr], .revert ""),
+  ([feedDirtyU8], .ok 1),
+  ([feedFive], .ok 1),
+  ([feedFail], .revert "000000000000000000000000000000000000000000000000000000000000000b"),
+  ([feedShort], .revert ""),
+  ([emptyAccount], .revert "")]
+#guard !discardedRateIr.isEmpty && discardedRateIr.all (agrees oneIr.model "discardedRate")
+#guard !discardedRateIr.isEmpty && discardedRateIr.all (agrees twoIr.model "discardedRate")
 
 end SolidityImportSmoke.InterfaceStaticCallStateCountChecks

@@ -43,11 +43,17 @@ ORACLES = [
     (5, False, 32, EXPECTED + 1, 4),
     (6, False, 32, EXPECTED, 36),
     (1 << 255, False, 96, EXPECTED, 4),
+    # `uint16` boundary words for `INarrowPriceOracle` (#2914): the largest clean word
+    # (whose increment overflows) and the smallest dirty one.
+    (0xffff, False, 32, EXPECTED, 4),
+    (0x10000, False, 64, EXPECTED, 4),
 ]
 EMPTY = '0x' + '00' * 19 + '77'
 SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True, 'runs': 466},
             'metadata': {'bytecodeHash': 'none'}}
 ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "InterfaceStaticCallSequence.sol"'
+# Seven calls per target in the deterministic prefix, the ten helper pairs and `stored()`.
+MINIMUM_TRANSACTIONS = 7 * (len(ORACLES) + 1) + 11
 
 
 def address(nonce):
@@ -84,11 +90,15 @@ def transactions_for(count, seed, caller, oracles):
         add('record(address,uint256)', ['address', 'uint256'], [target, len(calls) + 1])
         add('ping(address,uint256)', ['address', 'uint256'], [target, len(calls) % 2])
         add('probe(address,uint256)', ['address', 'uint256'], [target, len(calls) + 1])
-    for first, second in [(0, 1), (1, 1), (4, 6), (6, 4), (0, 2), (2, 0), (5, 3), (9, 9), (0, 10), (7, 8)]:
+        add('capped(address,uint16)', ['address', 'uint16'], [target, 1000])
+        add('capped(address,uint16)', ['address', 'uint16'], [target, 0xffff])
+        add('checkNarrow(address,uint256)', ['address', 'uint256'], [target, len(calls) + 1])
+    for first, second in [(0, 1), (1, 1), (4, 6), (6, 4), (0, 2), (2, 0), (5, 3), (9, 9),
+                          (0, len(oracles)), (7, 8)]:
         add('sum(address,address)', ['address', 'address'], [targets[first], targets[second]])
     add('stored()', [], [])
     while len(calls) < count:
-        choice = rng.randrange(6)
+        choice = rng.randrange(8)
         target = rng.choice(targets)
         if choice == 0:
             add('read(address)', ['address'], [target])
@@ -100,6 +110,10 @@ def transactions_for(count, seed, caller, oracles):
             add('probe(address,uint256)', ['address', 'uint256'], [target, rng.getrandbits(256)])
         elif choice == 3:
             add('sum(address,address)', ['address', 'address'], [target, rng.choice(targets)])
+        elif choice == 6:
+            add('capped(address,uint16)', ['address', 'uint16'], [target, rng.getrandbits(16)])
+        elif choice == 7:
+            add('checkNarrow(address,uint256)', ['address', 'uint256'], [target, rng.getrandbits(256)])
         else:
             add('stored()', [], [])
     return calls
@@ -193,7 +207,7 @@ def main():
                         help='one unmodified-source campaign into --output; exit 1 on divergence')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = 4 * (len(ORACLES) + 1) + 11
+    minimum = MINIMUM_TRANSACTIONS
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every target and helper order')
     output = (args.output.resolve() if args.output else
@@ -222,7 +236,7 @@ def main():
         write_json(output / 'completed.json', completed)
     write_json(output / 'summary.json', {'passed': True, 'variants': completed,
         'transactions': args.transactions, 'seed': args.seed,
-        'scope': 'imported typed-interface uint256 staticcall: source EVM / Denote / compiled model'})
+        'scope': 'imported typed-interface uint256 and uint16 staticcalls: source EVM / Denote / compiled model'})
     print(f'interface staticcall variants agree: {output}')
 
 

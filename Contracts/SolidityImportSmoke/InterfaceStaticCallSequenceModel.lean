@@ -15,6 +15,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "InterfaceSt
   function ping(address,uint256)
   function probe(address,uint256)
   function sum(address,address)
+  function capped(address,uint16)
+  function checkNarrow(address,uint256)
   function stored()
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := ⟨fun _ _ => 0, fun _ _ _ => 0⟩
