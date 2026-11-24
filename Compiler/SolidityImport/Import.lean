@@ -4155,17 +4155,95 @@ private def topLevelCallInStmtOut? (st : Json) : Option Json :=
       | _ => none
   | _ => none
 
-/-- Recognizes a top-level `while`-body statement whose unconditional call to an internal/library
+private partial def unconditionalCallsInExprOut (j : Json) : Array Json :=
+  let j := stripParensOut j
+  match optStr j "nodeType" with
+  | some "FunctionCall" =>
+      let fromCallee := unconditionalCallsInExprOut ((field? j "expression").getD Json.null)
+      let fromArgs := ((field? j "arguments").bind (·.getArr?.toOption) |>.getD #[]).foldl
+        (fun acc a => acc ++ unconditionalCallsInExprOut a) #[]
+      let own := if optStr j "kind" == some "functionCall" then #[j] else #[]
+      fromCallee ++ fromArgs ++ own
+  | some "FunctionCallOptions" =>
+      let fromCallee := unconditionalCallsInExprOut ((field? j "expression").getD Json.null)
+      let fromOpts := ((field? j "options").bind (·.getArr?.toOption) |>.getD #[]).foldl
+        (fun acc o => acc ++ unconditionalCallsInExprOut o) #[]
+      fromCallee ++ fromOpts
+  | some "Assignment" =>
+      unconditionalCallsInExprOut ((field? j "leftHandSide").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "rightHandSide").getD Json.null)
+  | some "BinaryOperation" =>
+      let op := optStr j "operator" |>.getD ""
+      let fromLhs := unconditionalCallsInExprOut ((field? j "leftExpression").getD Json.null)
+      if op == "&&" || op == "||" then fromLhs
+      else fromLhs ++ unconditionalCallsInExprOut ((field? j "rightExpression").getD Json.null)
+  | some "UnaryOperation" =>
+      unconditionalCallsInExprOut ((field? j "subExpression").getD Json.null)
+  | some "Conditional" =>
+      unconditionalCallsInExprOut ((field? j "condition").getD Json.null)
+  | some "TupleExpression" =>
+      ((field? j "components").bind (·.getArr?.toOption) |>.getD #[]).foldl
+        (fun acc c => if c.isNull then acc else acc ++ unconditionalCallsInExprOut c) #[]
+  | some "IndexAccess" =>
+      unconditionalCallsInExprOut ((field? j "baseExpression").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "indexExpression").getD Json.null)
+  | some "IndexRangeAccess" =>
+      unconditionalCallsInExprOut ((field? j "baseExpression").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "startExpression").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "endExpression").getD Json.null)
+  | some "MemberAccess" =>
+      unconditionalCallsInExprOut ((field? j "expression").getD Json.null)
+  | _ => #[]
+
+private def unconditionalCallsInStmtOut (st : Json) : Array Json :=
+  match optStr st "nodeType" with
+  | some "VariableDeclarationStatement" =>
+      let init := (field? st "initialValue").getD Json.null
+      if init.isNull then #[] else unconditionalCallsInExprOut init
+  | some "ExpressionStatement" =>
+      let e := (field? st "expression").getD Json.null
+      if e.isNull then #[] else unconditionalCallsInExprOut e
+  | some "IfStatement" =>
+      let cond := (field? st "condition").getD Json.null
+      if cond.isNull then #[] else unconditionalCallsInExprOut cond
+  | _ => #[]
+
+private partial def jsonRefsIdentOutside (targetId : Nat) (skipNode : Json) (node : Json) : Bool :=
+  if node == skipNode then false
+  else match node with
+  | .arr items => items.any (jsonRefsIdentOutside targetId skipNode)
+  | j@(.obj o) =>
+      if optStr j "nodeType" == some "Identifier" &&
+          (field? j "referencedDeclaration").bind (·.getNat?.toOption) == some targetId then
+        true
+      else
+        o.foldl (fun acc _ v => acc || jsonRefsIdentOutside targetId skipNode v) false
+  | _ => false
+
+/-- Recognizes a `while`-body statement whose unconditional call to an internal/library
 helper performs a single monotonic linear step on memory struct member `sId.mName`
-(e.g. `uint32 item = CursorLib.next(arr, cur);` where `next` executes `unchecked { ++c.idx; }`). -/
+(e.g. `uint32 item = CursorLib.next(arr, cur);` or a nested call argument such as
+`ReaderLib.readItem({ groupId: gid, itemId: CursorLib.next(arr, cur), account: user });`
+where `next` executes `unchecked { ++c.idx; }`). -/
 private def matchHelperStructLinearStep (env : Env) (st : Json) (sId : Nat) (mName : String)
     (bits : Nat) (increasing : Bool) : Option (Nat × Bool) := do
   guard (!stmtWritesStructMember st sId mName)
-  let call ← topLevelCallInStmtOut? st
   let (calls, hasUnres) := collectCallsWithStructArgOut env sId st
   guard (!hasUnres)
-  -- Require that the top-level call is the sole mutating call on `sId.mName` in `st`.
-  let (fnId, actuals) ← resolveInternalCallTargetOut? env call
+  -- Require that exactly one call in `st` passes `sId` to a helper that may write `sId.mName`,
+  -- and that this call is evaluated unconditionally when `st` executes.
+  let mutatingCalls := calls.filter fun (cFnId, cPid, _) =>
+    helperMayWriteStructMember env cFnId cPid mName
+  guard (mutatingCalls.size == 1)
+  let (fnId, paramId, call) := mutatingCalls[0]!
+  let uncondCalls := unconditionalCallsInStmtOut st
+  guard (uncondCalls.any (· == call))
+  -- When the cursor step call is nested inside a larger expression or outer call,
+  -- forbid any other reference to `sId` in `st` outside `call` so sibling evaluation order
+  -- cannot observe a half-stepped cursor.
+  if topLevelCallInStmtOut? st != some call then
+    guard (!jsonRefsIdentOutside sId call st)
+  let (_, actuals) ← resolveInternalCallTargetOut? env call
   let fn ← env.funs.find? fnId
   let params ← (field? fn "parameters").bind (field? · "parameters") |>.bind (·.getArr?.toOption)
   let mut matchingPids : Array Nat := #[]
@@ -4173,15 +4251,7 @@ private def matchHelperStructLinearStep (env : Env) (st : Json) (sId : Nat) (mNa
     if isIdentRefOut a sId then
       if let some pid := (field? p "id").bind (·.getNat?.toOption) then
         matchingPids := matchingPids.push pid
-  guard (matchingPids.size == 1)
-  let paramId := matchingPids[0]!
-  -- No other call in `st` (e.g. inside nested arguments) may write `sId.mName`.
-  let mut topCallSeen := false
-  for (cFnId, cPid, cNode) in calls do
-    if cFnId == fnId && cPid == paramId && cNode == call && !topCallSeen then
-      topCallSeen := true
-    else
-      guard (!(helperMayWriteStructMember env cFnId cPid mName))
+  guard (matchingPids.size == 1 && matchingPids[0]! == paramId)
   let body ← (field? fn "body").filter (!·.isNull)
   guard (!(bodyAssignedIds body).contains paramId)
   let bodyUnchecked := optStr body "nodeType" == some "UncheckedBlock"

@@ -31,8 +31,10 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "CursorWhile
   function sumPackedUsingFor()
   function sumBucketLocal()
   function scanPackedWithOracle(address)
+  function scanNestedNamedArgs(uint256,address)
+  function scanNestedOracleCall(address)
 
-#guard imported.report.functions.length == 7
+#guard imported.report.functions.length == 9
 #guard imported.report.functions.all (·.denoteCovered)
 
 private def selfAddr : Nat := 0xc0de
@@ -124,5 +126,61 @@ private def pushAll (world : Verity.ContractState) (fnName : String) (items : Li
   let (ok, d, _) ← step w "sumBucketLocal" []
   return (ok, d == wordBytes 190)) ==
   some (true, true)
+
+-- R8b nested named-argument cursor call `ReaderLib.readItem({groupId: gid, itemId: CursorLib.next(arr, cur), account: user})`
+-- and nested external oracle call `IItemOracle(oracle).score(uint256(CursorLib.next(packedSlots, cur)))`:
+-- 0 items: total = 0, allOk = true;
+-- 8 items [10..80] (gid=7, user=0x1234 -> tag=0x34=52): total = (360 + 56)*3 + 8*52 = 1664, allOk = true;
+-- 11 items [10..110] (crosses rollover at idx == 8; items 100 & 110 >= 100 flip allOk -> false):
+-- total = (660 + 77)*3 + 11*52 = 2783, allOk = false.
+#guard (do
+  let (ok0, d0, _) ← step Verity.defaultState "scanNestedNamedArgs" [7, 0x1234]
+  let w8 ← pushAll Verity.defaultState "pushItem" [10, 20, 30, 40, 50, 60, 70, 80]
+  let (ok8, d8, _) ← step w8 "scanNestedNamedArgs" [7, 0x1234]
+  let w11 ← pushAll w8 "pushItem" [90, 100, 110]
+  let (ok11, d11, _) ← step w11 "scanNestedNamedArgs" [7, 0x1234]
+  let (okO1, dO1, _) ← step w11 "scanNestedOracleCall" [oddOracle]
+  let (okO2, dO2, _) ← step w11 "scanNestedOracleCall" [evenOnBigOracle]
+  return (ok0, d0 == wordBytes 0 ++ wordBytes 1,
+          ok8, d8 == wordBytes 1664 ++ wordBytes 1,
+          ok11, d11 == wordBytes 2783 ++ wordBytes 0,
+          okO1, dO1 == wordBytes 1331 ++ wordBytes 1,
+          okO2, dO2 == wordBytes 1329 ++ wordBytes 0)) ==
+  some (true, true, true, true, true, true, true, true, true, true)
+
+-- Negative controls for R8b soundness: short-circuiting step, sibling cursor read, and double step
+-- must all fail closed instead of synthesizing a bounded cursor loop.
+/--
+error: CursorWhileFixture.sol:197:16: FunctionCall: [solidity-import:unsupported] a while loop condition must compare a loop variable against zero
+closure: CursorWhileFixture.badShortCircuitStep
+CursorLib.hasNext(cur)
+-/
+#guard_msgs in
+solidity_import rejectShortCircuitStep from "Contracts/SolidityImportSmoke" entry "CursorWhileFixture.sol"
+  using r8Profile
+  contract CursorWhileFixture
+  function badShortCircuitStep(bool)
+
+/--
+error: CursorWhileFixture.sol:210:16: FunctionCall: [solidity-import:unsupported] a while loop condition must compare a loop variable against zero
+closure: CursorWhileFixture.badSiblingCursorRead
+CursorLib.hasNext(cur)
+-/
+#guard_msgs in
+solidity_import rejectSiblingCursorRead from "Contracts/SolidityImportSmoke" entry "CursorWhileFixture.sol"
+  using r8Profile
+  contract CursorWhileFixture
+  function badSiblingCursorRead()
+
+/--
+error: CursorWhileFixture.sol:219:16: FunctionCall: [solidity-import:unsupported] a while loop condition must compare a loop variable against zero
+closure: CursorWhileFixture.badDoubleStep
+CursorLib.hasNext(cur)
+-/
+#guard_msgs in
+solidity_import rejectDoubleStep from "Contracts/SolidityImportSmoke" entry "CursorWhileFixture.sol"
+  using r8Profile
+  contract CursorWhileFixture
+  function badDoubleStep()
 
 end SolidityImportSmoke.CursorWhileChecks

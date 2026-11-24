@@ -42,6 +42,22 @@ library CursorLib {
     }
 }
 
+library ReaderLib {
+    function readItem(
+        uint256 groupId,
+        uint32 itemId,
+        address account
+    ) internal pure returns (uint256 val, bool ok) {
+        uint256 accountTag = uint256(uint160(account)) & 0xff;
+        val = (uint256(itemId) + groupId) * 3 + accountTag;
+        ok = (itemId < 100);
+    }
+
+    function combine(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a + b;
+    }
+}
+
 contract CursorWhileFixture {
     using CursorLib for Cursor;
 
@@ -129,5 +145,83 @@ contract CursorWhileFixture {
 
     function scanPackedWithOracle(address oracle) external view returns (uint256 total, bool allOdd) {
         return _scanWithOracle(packedSlots, itemCount, oracle);
+    }
+
+    function _scanNestedNamedArgs(uint256[64] storage arr, uint256 count, uint256 gid, address user)
+        internal
+        view
+        returns (uint256 total, bool allOk)
+    {
+        allOk = true;
+        Cursor memory cur = CursorLib.makeCursor(arr, count);
+        while (CursorLib.hasNext(cur)) {
+            (uint256 val, bool ok) = ReaderLib.readItem({
+                groupId: gid,
+                itemId: CursorLib.next(arr, cur),
+                account: user
+            });
+            total += val;
+            if (!ok) {
+                allOk = false;
+            }
+        }
+    }
+
+    function scanNestedNamedArgs(uint256 gid, address user)
+        external
+        view
+        returns (uint256 total, bool allOk)
+    {
+        return _scanNestedNamedArgs(packedSlots, itemCount, gid, user);
+    }
+
+    function scanNestedOracleCall(address oracle)
+        external
+        view
+        returns (uint256 total, bool allOdd)
+    {
+        allOdd = true;
+        Cursor memory cur = CursorLib.makeCursor(packedSlots, itemCount);
+        while (CursorLib.hasNext(cur)) {
+            uint256 val = IItemOracle(oracle).score(uint256(CursorLib.next(packedSlots, cur)));
+            if ((val & 1) == 0) {
+                allOdd = false;
+            }
+            total += val;
+        }
+    }
+
+    // Negative control 1: cursor step inside short-circuiting RHS of `&&` is NOT unconditional.
+    function badShortCircuitStep(bool flag) external view returns (uint256 hits) {
+        Cursor memory cur = CursorLib.makeCursor(packedSlots, itemCount);
+        while (CursorLib.hasNext(cur)) {
+            bool b = flag && (CursorLib.next(packedSlots, cur) > 0);
+            if (b) {
+                unchecked {
+                    ++hits;
+                }
+            }
+        }
+    }
+
+    // Negative control 2: sibling argument reads `cur.idx` alongside nested `CursorLib.next(arr, cur)`.
+    function badSiblingCursorRead() external view returns (uint256 total) {
+        Cursor memory cur = CursorLib.makeCursor(packedSlots, itemCount);
+        while (CursorLib.hasNext(cur)) {
+            uint256 val = ReaderLib.combine(cur.idx, uint256(CursorLib.next(packedSlots, cur)));
+            total += val;
+        }
+    }
+
+    // Negative control 3: two cursor steps in a single statement.
+    function badDoubleStep() external view returns (uint256 total) {
+        Cursor memory cur = CursorLib.makeCursor(packedSlots, itemCount);
+        while (CursorLib.hasNext(cur)) {
+            uint256 val = ReaderLib.combine(
+                uint256(CursorLib.next(packedSlots, cur)),
+                uint256(CursorLib.next(packedSlots, cur))
+            );
+            total += val;
+        }
     }
 }

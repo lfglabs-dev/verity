@@ -19,6 +19,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "CursorWhile
   function sumPackedUsingFor()
   function sumBucketLocal()
   function scanPackedWithOracle(address)
+  function scanNestedNamedArgs(uint256,address)
+  function scanNestedOracleCall(address)
 
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

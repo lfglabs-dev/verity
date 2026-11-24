@@ -40,6 +40,8 @@ FUNCTIONS = [
     'sumPackedUsingFor()',
     'sumBucketLocal()',
     'scanPackedWithOracle(address)',
+    'scanNestedNamedArgs(uint256,address)',
+    'scanNestedOracleCall(address)',
 ]
 
 # WordStaticOracle constructor args: (value, failed, length, mask)
@@ -163,26 +165,34 @@ def main():
     add('sumPackedUsingFor()', [])
     add('sumBucketLocal()', [])
     add('scanPackedWithOracle(address)', [int(oracle_addrs[0], 16)])
+    add('scanNestedNamedArgs(uint256,address)', [7, int(sender, 16)])
+    add('scanNestedOracleCall(address)', [int(oracle_addrs[0], 16)])
 
     # 2. 1 item
     add('pushItem(uint32)', [7])
     add('sumPackedLocal()', [])
     add('sumPackedUsingFor()', [])
     add('scanPackedWithOracle(address)', [int(oracle_addrs[0], 16)])
+    add('scanNestedNamedArgs(uint256,address)', [7, int(sender, 16)])
+    add('scanNestedOracleCall(address)', [int(oracle_addrs[0], 16)])
 
-    # 3. Fill up to 8 items (exact first slot boundary)
+    # 3. Fill up to 8 items (exact first slot boundary; all < 100 -> allOk == true)
     for v in [11, 22, 33, 44, 55, 66, 77]:
         add('pushItem(uint32)', [v])
     add('sumPackedLocal()', [])
     add('sumPackedUsingFor()', [])
+    add('scanNestedNamedArgs(uint256,address)', [13, int(EMPTY, 16)])
 
-    # 4. Push 3 more items (11 total -> crosses slot rollover idx % 8 == 0 into packedSlots[1]!)
+    # 4. Push 3 more items (11 total -> crosses slot rollover idx % 8 == 0 into packedSlots[1]!; item 1001 >= 100 -> allOk == false)
     for v in [88, 99, 1001]:
         add('pushItem(uint32)', [v])
     add('sumPackedLocal()', [])
     add('sumPackedUsingFor()', [])
     add('scanPackedWithOracle(address)', [int(oracle_addrs[0], 16)])
     add('scanPackedWithOracle(address)', [int(oracle_addrs[1], 16)])
+    add('scanNestedNamedArgs(uint256,address)', [13, int(EMPTY, 16)])
+    add('scanNestedOracleCall(address)', [int(oracle_addrs[0], 16)])
+    add('scanNestedOracleCall(address)', [int(oracle_addrs[1], 16)])
 
     # 5. Push 8 more items (19 total -> crosses TWO slot rollovers into packedSlots[2]!)
     for v in [10, 20, 30, 40, 50, 60, 70, 0xdeadbeef]:
@@ -191,6 +201,9 @@ def main():
     add('sumPackedUsingFor()', [])
     add('scanPackedWithOracle(address)', [int(oracle_addrs[0], 16)])
     add('scanPackedWithOracle(address)', [int(oracle_addrs[1], 16)])
+    add('scanNestedNamedArgs(uint256,address)', [29, int(sender, 16)])
+    add('scanNestedOracleCall(address)', [int(oracle_addrs[0], 16)])
+    add('scanNestedOracleCall(address)', [int(oracle_addrs[1], 16)])
 
     # 6. Struct-member fixed storage array `bucket.words` across 10 items (rollover at idx == 8)
     for v in [5, 15, 25, 35, 45, 55, 65, 75, 85, 95]:

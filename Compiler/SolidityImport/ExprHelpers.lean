@@ -1234,6 +1234,73 @@ private partial def firstInlineAssembly? : Json → Option Json
   | .arr xs => xs.findSome? firstInlineAssembly?
   | _ => none
 
+/-- Recognizes an inline-assembly block that ONLY binds a named storage-struct
+return parameter's `.slot` to a compile-time constant (numeric literal or
+`constant` declaration, e.g. EIP-7201 `assembly { $.slot := STORE_SLOT }`).
+Such a block emits zero storage, transient, memory, or stack-reading opcodes
+and cannot observe or corrupt transient state. -/
+private def isPureConstSlotBindingAssembly (env : Env) (fn asmNode : Json) : Bool := Id.run do
+  if optStr fn "nodeType" != some "FunctionDefinition" then return false
+  if optStr asmNode "nodeType" != some "InlineAssembly" then return false
+  let some rets := (field? fn "returnParameters").bind (field? · "parameters")
+      |>.bind (·.getArr?.toOption) | return false
+  if rets.size != 1 then return false
+  let r := rets[0]!
+  let retName := optStr r "name" |>.getD ""
+  if retName.isEmpty then return false
+  if optStr r "storageLocation" != some "storage" then return false
+  let rty := ((field? r "typeDescriptions").bind (optStr · "typeString")).getD ""
+  if !(rty.startsWith "struct " && !rty.contains "[") then return false
+  let some retId := (field? r "id").bind (·.getNat?.toOption) | return false
+  let some ast := field? asmNode "AST" | return false
+  if optStr ast "nodeType" != some "YulBlock" then return false
+  let some ystmts := (field? ast "statements").bind (·.getArr?.toOption) | return false
+  if ystmts.size != 1 then return false
+  let ys := ystmts[0]!
+  if optStr ys "nodeType" != some "YulAssignment" then return false
+  let some vars := (field? ys "variableNames").bind (·.getArr?.toOption) | return false
+  if vars.size != 1 then return false
+  if optStr vars[0]! "nodeType" != some "YulIdentifier" then return false
+  if optStr vars[0]! "name" != some s!"{retName}.slot" then return false
+  let some rhs := field? ys "value" | return false
+  let some refs := (field? asmNode "externalReferences").bind (·.getArr?.toOption) | return false
+  let isRetSlotRef (ref : Json) : Bool :=
+    (field? ref "declaration").bind (·.getNat?.toOption) == some retId &&
+    (field? ref "isSlot").bind (·.getBool?.toOption) == some true &&
+    (field? ref "isOffset").bind (·.getBool?.toOption) == some false &&
+    optStr ref "suffix" == some "slot" &&
+    (field? ref "valueSize").bind (·.getNat?.toOption) == some 1
+  match optStr rhs "nodeType" with
+  | some "YulLiteral" =>
+      optStr rhs "kind" == some "number" &&
+      refs.size == 1 && isRetSlotRef refs[0]!
+  | some "YulIdentifier" =>
+      let rhsName := optStr rhs "name" |>.getD ""
+      if rhsName.isEmpty || rhsName.endsWith ".slot" || rhsName.endsWith ".offset" then
+        return false
+      if refs.size != 2 then return false
+      let retRefs := refs.filter isRetSlotRef
+      if retRefs.size != 1 then return false
+      let constRefs := refs.filter (!isRetSlotRef ·)
+      if constRefs.size != 1 then return false
+      let cref := constRefs[0]!
+      let some cid := (field? cref "declaration").bind (·.getNat?.toOption) | return false
+      let some cdecl := env.numericConstants.find? cid | return false
+      optStr cdecl "name" == some rhsName &&
+      (field? cref "isSlot").bind (·.getBool?.toOption) == some false &&
+      (field? cref "isOffset").bind (·.getBool?.toOption) == some false &&
+      (field? cref "suffix").isNone &&
+      (field? cref "valueSize").bind (·.getNat?.toOption) == some 1
+  | _ => false
+
+private partial def firstNonPureSlotAssembly? (env : Env) (fn : Json) : Json → Option Json
+  | j@(.obj fields) =>
+      if optStr j "nodeType" == some "InlineAssembly" then
+        if isPureConstSlotBindingAssembly env fn j then none else some j
+      else fields.foldl (fun found _ v => found <|> firstNonPureSlotAssembly? env fn v) none
+  | .arr xs => xs.findSome? (firstNonPureSlotAssembly? env fn)
+  | _ => none
+
 /-- Forwarded tuples do not model raw assembly words across Solidity bindings. -/
 def rejectForwardedAssembly (body : Json) : M Unit := do
   if (← get).forwardingBytesTuple then
@@ -1242,8 +1309,9 @@ def rejectForwardedAssembly (body : Json) : M Unit := do
 
 def noteFn (fn : Json) : M Unit := do
   rejectForwardedAssembly ((field? fn "body").getD .null)
-  if (← get).rootAssembly.isNone then
-    if let some asmNode := firstInlineAssembly? ((field? fn "body").getD .null) then
+  let env ← get
+  if env.rootAssembly.isNone then
+    if let some asmNode := firstNonPureSlotAssembly? env fn ((field? fn "body").getD .null) then
       modify fun e => { e with rootAssembly := some asmNode }
   let id ← mNat (← mField fn "id")
   let env ← get
