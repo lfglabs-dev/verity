@@ -10,6 +10,9 @@ from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, com
 from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
+    'import-event-overflow-mixed-guard': (
+        'if payloads.contains 2 && payloads.any (· != 2) then',
+        'if false then'),
     'import-event-scratch-competing-guard': (
         'if scratchArgument && guardedArguments.size > 1 then',
         'if false then'),
@@ -2281,6 +2284,19 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-event-overflow-mixed-guard':
+        # One event argument whose index guard (Panic(0x32)) and overflow check
+        # (Panic(0x11)) come from different operands: no operand order is chosen.
+        diagnostic = 'event arguments mixing overflow checks with other guards require explicit evaluation-order support'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ event E(uint256 value);
+ function checked(uint256 x) external {
+  uint256[3] memory arr = [uint256(1), 2, 3];
+  emit E(arr[x] + x);
+ }
+}
+''')
     elif name == 'import-event-scratch-competing-guard':
         # Two event arguments that can revert differently: via-IR and legacy codegen
         # evaluate event arguments in different orders.
@@ -2560,6 +2576,7 @@ def mutation_campaign(output, selected=None):
                                   'import-governor-slice-proposer-delay-unaligned-tail-offset-guard',
                                   'import-access-manager-target-role-narrow-bytes-event-guard',
                                   'import-event-scratch-competing-guard',
+                                  'import-event-overflow-mixed-guard',
                                   'import-string-event-data-before-indexed-guard',
                                   'import-encoding-arg-super-revert-guard',
                                   'import-named-arguments-order-guard',

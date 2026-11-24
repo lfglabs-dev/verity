@@ -16421,12 +16421,30 @@ private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
 private partial def lowerEmit (statement : Json) : M (Array Stmt) :=
   recoverAt statement #[] (lowerEmitCore statement)
 
+/-- Whether `s` is a checked-arithmetic guard (`checkedAdd`, `checkedSignedSub`, ...):
+nested branches that either panic with `Panic(0x11)` or assign a binding `own` admits
+(the checked result), with at least one such panic. -/
+private def eventOverflowGuard (own : String → Bool) : Nat → Stmt → Bool
+  | 0, _ => false
+  | fuel + 1, .ite _ yes no =>
+      let branchOk : Stmt → Bool := fun
+        | .panic .arithmeticOverflow => true
+        | .assignVar name _ => own name
+        | nested@(.ite _ _ _) => eventOverflowGuard own fuel nested
+        | _ => false
+      let panics : Stmt → Bool := fun
+        | .panic .arithmeticOverflow => true
+        | nested@(.ite _ _ _) => eventOverflowGuard own fuel nested
+        | _ => false
+      (yes ++ no).all branchOk && (yes ++ no).any panics
+  | _, _ => false
+
 /-- The revert payload of an event-argument guard: `0` for empty returndata, `1` for
-`Panic(0x32)`. -/
+`Panic(0x32)`, `2` for a checked-arithmetic `Panic(0x11)`. -/
 private partial def eventGuardPayload? : Stmt → Option Nat
   | .ite _ [] [.revertEmpty] => some 0
   | .ite _ [] [.panicCode (.literal 0x32)] => some 1
-  | _ => none
+  | s => if eventOverflowGuard (fun _ => true) 8 s then some 2 else none
 
 /-- solc evaluates event arguments left to right under via-IR but indexed arguments last
 to first under legacy codegen. When guards in different arguments revert with different
@@ -16508,21 +16526,30 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     -- is admitted only to a binding this argument's prelude declared earlier: those are
     -- fresh, so no other argument's value reads them, and the write commutes with every
     -- other argument whichever order the pipeline evaluates them in.
+    -- Checked arithmetic (`a + b`) panics with Panic(0x11) and otherwise assigns its own
+    -- result binding, so it is a guard of that payload: it runs before the log, and the
+    -- emitted word is the checked result.
     let ownWritesOnly : Array Stmt → Bool := fun pre => Id.run do
       let mut declared : Array String := #[]
       for s in pre do
         match s with
         | .letVar name _ => declared := declared.push name
         | .assignVar name _ => if !declared.contains name then return false
-        | _ => pure ()
+        | s =>
+            unless isScratch s || isGuard s || eventOverflowGuard declared.contains 8 s do
+              return false
       return true
-    unless reorderedReadOnly || (value.pre.all (fun
-        | .letVar _ _ | .assignVar _ _ => true
-        | s => isScratch s || isGuard s) && ownWritesOnly value.pre) do
+    unless reorderedReadOnly || ownWritesOnly value.pre do
       failAt argument "event arguments currently require total scalar expressions"
-    if value.pre.any isGuard then
+    let payloads := value.pre.filterMap eventGuardPayload?
+    -- Within one argument the lowering fixes an operand order; when an overflow check
+    -- and a guard with another payload both occur, which one fails first could depend
+    -- on that order, so no order is chosen.
+    if payloads.contains 2 && payloads.any (· != 2) then
+      failAt argument "event arguments mixing overflow checks with other guards require explicit evaluation-order support"
+    unless payloads.isEmpty do
       guardedArguments := guardedArguments.push argument
-      guardPayloads := guardPayloads.push (argument, value.pre.filterMap eventGuardPayload?)
+      guardPayloads := guardPayloads.push (argument, payloads)
     if value.pre.any isScratch then
       scratchArgument := true
     let rec directParam? : Expr → Option String
