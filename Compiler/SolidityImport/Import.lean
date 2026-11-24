@@ -1536,7 +1536,10 @@ private partial def lowerYul (j : Json) : M Val := do
       -- A narrow named result holds the raw stack word, as solc's does: Yul reads see it and
       -- Solidity consumers clean it (#2912).
       match env.yulNames.find? name with
-      | some expr => pure { pre := #[], expr }
+      | some expr =>
+          if let .localVar binding := expr then
+            modify fun e => { e with yulBindingReadSites := e.yulBindingReadSites.push (binding, j) }
+          pure { pre := #[], expr }
       | none => failAt j s!"unbound Yul identifier {name}"
   | "YulFunctionCall" =>
       let fname ← mStr (← mField (← mField j "functionName") "name")
@@ -1997,6 +2000,15 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
     match scalarType with
     | .uint8 | .uintN _ | .intN _ | .bool => return .assignVar binding rhsVal.expr
     | _ => pure ()
+    -- Under via-IR, a `bool` / `address` local takes the cleaned word: every Solidity-level
+    -- use (including conversions) applies `cleanup_t_bool` / `cleanup_t_address` to the dirty
+    -- stack word. Legacy codegen carries dirty bits through conversions, so it stays rejected.
+    -- A later raw Yul read is rejected once the whole root is lowered
+    -- (`checkYulCleanedNarrowReads`).
+    if env.viaIR then
+      if let some cleaned := cleanYulNarrowWord? scalarType rhsVal.expr then
+        modify fun e => { e with yulCleanedNarrowBindings := e.yulCleanedNarrowBindings.push binding }
+        return .assignVar binding cleaned
     unless isFullWordYulScalar scalarType do
       failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"
     return .assignVar binding rhsVal.expr
@@ -4045,14 +4057,24 @@ private partial def lowerRef (j : Json) : M Ref := do
           | .outer _ _ => failAt j "struct mapping element requires both outer mapping keys"
           if let some innerKeyType := mapInfo.innerKeyType then
             -- The outer key selects the inner mapping, whose slot is
-            -- keccak256(key . (base + offset)); the inner key is then an ordinary member key.
-            let .rawSlot _ baseSlot := path
-              | failAt j "two-key struct mapping members are supported only in raw-slot storage structs"
+            -- keccak256(key . memberSlot); the inner key is then an ordinary member key.
+            -- `memberSlot` is the raw struct base plus the member offset, or, for a struct
+            -- reached through a state variable (and its mapping keys), solc's layout slot.
+            let (baseStmts, memberSlot) ← match path with
+              | .rawSlot _ baseSlot => pure (#[], rawStructMemberSlot baseSlot mapInfo.wordOffset)
+              | .zero rawName | .one rawName _ | .two rawName _ _ => do
+                  let (name, _) := splitSPathField rawName
+                  let info ← resolveField name j
+                  markField name
+                  markStructMapping name mapInfo.member
+                  computeSPathBaseSlot path info mapInfo.wordOffset j
+              | .outer _ _ | .bytesSlot _ _ =>
+                  failAt j "two-key struct mapping member requires a storage struct path"
             modify fun e => { e with encodingMemory := true, usedRawStorage := true }
             let innerBase ← fresh
-            let slotStmts : Array Stmt := #[
+            let slotStmts : Array Stmt := baseStmts ++ #[
               Stmt.mstore (.literal 0) key.expr,
-              Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),
+              Stmt.mstore (.literal 32) memberSlot,
               Stmt.letVar innerBase (.keccak256 (.literal 0) (.literal 64))]
             return .structMapping (pre ++ key.pre ++ slotStmts) (.rawSlot 0 (.localVar innerBase))
               { mapInfo with member := s!"{mapInfo.member}[]", wordOffset := 0,
@@ -8759,8 +8781,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
 /-- `<address>.code.length` of an address-typed account other than the executing
 contract: `EXTCODESIZE` through the closed code-length transport, which Denote
 answers from the account world (`DenoteExternalCode.extCodeSize`). The executing
-contract's own code differs between the source and compiled routes and is not
-modeled, so `address(this).code.length` is rejected. -/
+contract's own code length differs between the source and compiled routes, so
+`address(this).code.length` is rejected. -/
 private partial def lowerExtCodeSize (code : Json) : M Val := do
   let account ← mField code "expression"
   if ← isThisAddressConv account then
@@ -19630,10 +19652,12 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   pure (out, srcParams)
 
 /-- `lowerRoot`, then the whole-body recheck of its code-read operands
-(`checkCodeReadTargets`). -/
+(`checkCodeReadTargets`) and of raw Yul reads of cleaned narrow locals
+(`checkYulCleanedNarrowReads`). -/
 private def lowerRootChecked (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let lowered ← lowerRoot fn
   checkCodeReadTargets lowered.1
+  checkYulCleanedNarrowReads lowered.1
   return lowered
 
 /-! ### Named call arguments
@@ -20306,7 +20330,7 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[],
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulCleanedNarrowBindings := #[], yulBindingReadSites := #[], yulFreePointerBindings := #[],
                         rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[] }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
