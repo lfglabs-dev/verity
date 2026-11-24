@@ -4393,7 +4393,7 @@ private partial def lowerRef (j : Json) : M Ref := do
               else if let some arrInfo := rawInfo.fixedArrays.find? (·.member == member) then
                 pure (.structFixedArray pre path arrInfo)
               else if let some mInfo := rawInfo.scalars.find? (·.member == member) then
-                pure (.expr (← readRawStructScalar pre baseSlot mInfo))
+                pure (.expr (← storageEnumRead j (← readRawStructScalar pre baseSlot mInfo)))
               else if rawInfo.opaqueMemberNames.contains member then
                 failAt j s!"{member} of {rawInfo.structName} has a storage type outside this slice"
               else
@@ -9324,7 +9324,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               failAt p "raw storage slot struct argument declaration differs"
             let rawInfo ← resolveRawStructInfo rawSid p
             unless rawInfo.subStructs.isEmpty && rawInfo.mappings.isEmpty &&
-                rawInfo.dynamicArrays.isEmpty && rawInfo.scalars.size == sMembers.size do
+                rawInfo.dynamicArrays.isEmpty && rawInfo.opaqueMemberNames.isEmpty &&
+                rawInfo.scalars.size == sMembers.size do
               failAt p "struct storage-to-memory parameter copy requires a scalar-member struct layout"
             pre := pre ++ effects
             let mut members : Array (String × String × String) := #[]
@@ -14153,7 +14154,8 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
           failAt j "raw-slot struct declaration mismatch"
         let rawInfo ← resolveRawStructInfo rawSid j
         unless rawInfo.subStructs.isEmpty && rawInfo.mappings.isEmpty &&
-            rawInfo.dynamicArrays.isEmpty && rawInfo.scalars.size == sMembers.size && !sMembers.isEmpty do
+            rawInfo.dynamicArrays.isEmpty && rawInfo.opaqueMemberNames.isEmpty &&
+            rawInfo.scalars.size == sMembers.size && !sMembers.isEmpty do
           failAt j "struct storage read requires a scalar-member struct layout"
         let mut pre : Array Stmt := pathPre
         let mut memberVals : Array (String × String × Expr) := #[]
@@ -14862,6 +14864,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               let rawInfo ← resolveRawStructInfo structId c
               let some mInfo := rawInfo.scalars.find? (·.member == member)
                 | failAt c s!"member {member} is unsupported in raw-slot struct"
+              if mInfo.ty.startsWith "enum " then
+                failAt c "storage enum assignment requires an enum literal"
               let writeStmts ← writeRawStructScalar #[] baseSlot mInfo converted.expr false
               assigns := assigns ++ converted.pre ++ pre ++ writeStmts
             else
@@ -15110,6 +15114,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           if deleting then
             return ← writeRawStructScalar pre baseSlot mInfo (.literal 0) true
           let right ← mField expression "rightHandSide"
+          checkStoredEnumSource target right
           if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
             failAt target "raw-slot struct member write prelude with stateful RHS is unsupported"
           let value ← captureAssignedValue (← atom (← lowerConverted mInfo.ty right))

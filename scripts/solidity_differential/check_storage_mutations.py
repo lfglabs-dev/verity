@@ -163,6 +163,12 @@ MUTANTS.update({
     'import-raw-fixed-array-write-slot': (
         '        (rawStructMemberSlot baseSlot arrInfo.wordOffset) arrInfo index value.expr deleting',
         '        (rawStructMemberSlot baseSlot (arrInfo.wordOffset + 1)) arrInfo index value.expr deleting')})
+# An enum member of a raw-slot (ERC-7201) struct is its packed `uint8` ordinal
+# (StructEnumMemberSequence).
+MUTANTS.update({
+    'import-raw-enum-member-width': (
+        '          opaqueMemberNames := opaqueMemberNames.push mName\n          pure (8, false)',
+        '          opaqueMemberNames := opaqueMemberNames.push mName\n          pure (16, false)')})
 # A `while` loop whose only progress divides its unsigned local by a constant >= 2 runs as
 # `bits` guarded iterations.
 MUTANTS.update({
@@ -1262,6 +1268,8 @@ def run(directory, output, name):
         fixture = "NamespacedStructMembersSequence"
     if name.startswith("import-raw-fixed-array-"):
         fixture = "StructFixedArrayMemberSequence"
+    if name.startswith("import-raw-enum-member-"):
+        fixture = "StructEnumMemberSequence"
     if name.startswith("import-dividing-while-"):
         fixture = "DividingWhileSequence"
     if name.startswith("import-assignment-argument-") and not name.endswith("-guard"):
@@ -1453,6 +1461,15 @@ def run(directory, output, name):
         argv[argv.index('--seed') + 1] = '2490'
         argv.extend(['--change-prefix', *map(str, [0, 1, 1000, 1001, 4095, 4096, 40950, 2 ** 24 - 1,
                      4095 * 10 ** 73, 10 ** 76, 123456789 * 10 ** 60, (1 << 256) - 1])])
+    if fixture == 'StructEnumMemberSequence':
+        # x = 8 * y + c selects case c. Every case on entries 0..3 and the siblings around
+        # each enum lane, then a flag incremented past 255 (Panic 0x11).
+        argv[argv.index('--transactions') + 1] = '40'
+        argv[argv.index('--seed') + 1] = '2490'
+        cases = [(0, 0x1234), (1, 0xbeef), (3, (0x77 << 8) | 1), (3, (0x10 << 8) | 2), (6, 1), (6, 4 * 2 + 1),
+                 (4, 1), (4, 2), (5, 0xabcdef), (7, 0x55), (2, 0), (6, 3), (5, 1), (1, 0xffff), (0, 2 ** 64 - 1)]
+        cases += [(4, 1)] * 2 + [(3, (0xfe << 8) | 1)] + [(4, 1)] * 2
+        argv.extend(['--change-prefix', *(str(8 * y + c) for c, y in cases), str((1 << 256) - 1)])
     if fixture == 'StructFixedArrayMemberSequence':
         # x = 8 * y + c selects case c; y = (value << 8) | index. Lanes 0, 31, 32, 39 of the
         # uint8[40] (both words) and the out-of-range 40 and 43; a lane incremented past 255;
@@ -2486,6 +2503,7 @@ def mutation_source(directory, name):
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                                   else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
                                   else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-raw-fixed-array-words'
+                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-raw-enum-member-width'
                                   else 'Compiler/SolidityImport/ExprHelpers.lean' if name == 'import-encoding-arg-super-revert-guard'
                                   else 'Compiler/SolidityImport/Lowering/EvalOrderHazards.lean' if name == 'import-helper-effect-classifier'
                                   else 'Compiler/SolidityImport/Import.lean')

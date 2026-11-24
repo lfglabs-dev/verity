@@ -312,6 +312,13 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
           pure (160, false)
         else if mTy == "bool" then
           pure (8, true)
+        else if mTy.startsWith "enum " then do
+          -- solc stores an enum (at most 256 members) as its `uint8` ordinal, packed like one.
+          -- The member is also listed as opaque, so whole-struct operations reject: their reads
+          -- and writes would skip the ordinal's range check and literal-only write rule.
+          let _ ← resolveEnumMembers mTyNode mTy
+          opaqueMemberNames := opaqueMemberNames.push mName
+          pure (8, false)
         else
           failAt mNode s!"unsupported storage struct member {mName} : {mTy}"
       let byteWidth := bitWidth / 8
