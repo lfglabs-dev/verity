@@ -4219,8 +4219,8 @@ private partial def lowerRef (j : Json) : M Ref := do
             -- `data[i]` of a root `bytes[]`: bounds check, then the element's
             -- `bytes` descriptor under a synthetic id (above every AST id), so
             -- the descriptor-based `bytes` lowerings (`.length`, hashing,
-            -- packed encoding, `bytes calldata` helper arguments) apply to it
-            -- unchanged. Slices and `abi.decode` of `data[i]` stay rejected.
+            -- packed encoding, `bytes calldata` helper arguments, slices,
+            -- `bytes calldata` locals, and `abi.decode`) apply to it unchanged.
             let sid := 2 ^ 62 + (← get).next
             discard fresh
             let elemHeader ← fresh
@@ -6452,6 +6452,28 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
       pure (some (pre, Expr.literal 0, Expr.calldatasize, true, true))
     else
       pure none
+  else if (← mKind base) == "IndexAccess" then
+    -- `items[i]` of a `bytes[]`: the element's descriptor (its lazy calldata
+    -- tail checks or its memory header) is the slice base, so
+    -- `bytes4(items[i][:4])` and `abi.decode(items[i][4:], (...))` stay on
+    -- calldata and a memory element slices its copied buffer.
+    let element? ← try
+      (do
+        match ← lowerRef base with
+        | .calldataBytes sid pre =>
+          match (← get).calldataBytes.find? sid with
+          | some cb => pure (some (pre, cb))
+          | none => pure none
+        | _ => pure none)
+    catch _ => pure none
+    match element? with
+    | some (pre, cb) =>
+        if !cb.inMemory then
+          pure (some (pre, Expr.localVar cb.dataBinding, Expr.localVar cb.lengthBinding, true, false))
+        else
+          pure (some (pre, Expr.add (.localVar cb.memoryPointer) (.literal 32),
+            Expr.localVar cb.lengthBinding, false, false))
+    | none => pure none
   else if (← mKind base) == "Identifier" then
     let id ← refInt base
     if id ≥ 0 then
@@ -7040,6 +7062,29 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
         .letVar ptrVar buf.pointer,
         .letVar lenVar buf.size
       ], false, .localVar ptrVar, .localVar lenVar)
+    if (← mType inner) == "bytes calldata" || (← mType inner) == "bytes memory" then
+      let element? ← try
+        (do
+          match ← lowerRef inner with
+          | .calldataBytes sid pre =>
+            match (← get).calldataBytes.find? sid with
+            | some cb => pure (some (pre, cb))
+            | none => pure none
+          | _ => pure none)
+      catch _ => pure none
+      if let some (pre, cb) := element? then
+        let ptrVar ← fresh
+        let lenVar ← fresh
+        if cb.inMemory then
+          return (pre ++ #[
+            .letVar ptrVar (.add (.localVar cb.memoryPointer) (.literal 32)),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], false, .localVar ptrVar, .localVar lenVar)
+        else
+          return (pre ++ #[
+            .letVar ptrVar (.localVar cb.dataBinding),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], true, .localVar ptrVar, .localVar lenVar)
   if (← mKind inner) == "MemberAccess" then
     if ← isAddressCodeAccess inner then
       let buf ← lowerExtCodeCopy inner
@@ -11528,6 +11573,18 @@ private partial def lowerCalldataBytesExpr (j : Json) : M (Array Stmt × Calldat
   if ← isParameterizedCalldataBytesCall j then
     let (fnId, vals) ← resolveCallTargetAndArgs j
     return ← inlineCalldataBytesFn fnId vals j
+  if (← mKind j) == "IndexAccess" && (← mType j) == "bytes calldata" then
+    let element? ← try
+      (do
+        match ← lowerRef j with
+        | .calldataBytes sid pre =>
+          match (← get).calldataBytes.find? sid with
+          | some cb => pure (some (pre, cb))
+          | none => pure none
+        | _ => pure none)
+    catch _ => pure none
+    if let some (pre, cb) := element? then
+      if !cb.inMemory && !cb.isString then return (pre, cb)
   if (← mKind j) == "Identifier" then
     let id ← refInt j
     if id ≥ 0 then
@@ -17868,6 +17925,14 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                writableLocals := e.writableLocals.insert id binding,
                zeroInitLocals := if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id }
     return #[.letVar binding (.literal 0)]
+  if loc == "calldata" && (← mType d) == "bytes" then
+    if (← get).bodyAssigned.contains id then
+      failAt d "reassigned calldata bytes locals are outside this slice"
+    let (cbPre, cb) ← lowerCalldataBytesExpr init
+    modify fun e =>
+      { e with calldataBytes := e.calldataBytes.insert id { cb with param := name },
+               yulNames := e.yulNames.erase name }
+    return cbPre
   if loc == "memory" && ((← mType d) == "bytes" || (← mType d) == "string") then
     let isString := (← mType d) == "string"
     if isString && (← get).bodyAssigned.contains id then
