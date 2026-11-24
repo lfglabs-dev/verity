@@ -396,7 +396,8 @@ def observeContext (outcome : CallbackOutcome) : Option (Bool × List Nat) :=
 -- The callback reads its own selector and sender; the caller, after the call, reads its own.
 #guard observeContext .commits == some (true,
   [selectorWord callbackSelector, calleeAccount, selectorWord callerSelector, callerAccount, 1])
--- A callback whose body reverts after writing leaves nothing (`executeReentrantBody` rollback).
+-- A callback whose body reverts after writing reaches the caller as a failed call (`callOk = 0`)
+-- and commits nothing; `revertingCallbackFrame` below is the check of the runner's own rollback.
 #guard observeContext .callbackReverts == some (true,
   [0, 0, selectorWord callerSelector, callerAccount, 0])
 /-- The failing callback frame itself: success flag, then its `callbackSig` and `callbackSender`. -/
