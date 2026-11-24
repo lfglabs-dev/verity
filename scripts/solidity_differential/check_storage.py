@@ -157,8 +157,6 @@ SIGNED_STRUCT_MEMBER_READ_PREFIX = [0, 128 | (0xffff << 8) | (0xff << 24) | (0xf
 PACKED_SIGNED_INT_PREFIX = [0, (1 << 256) - 1,
                             127 | (8388603 << 8) | ((2 ** 127 - 2) << 32) | (0xdead << 160),
                             129 | (8388609 << 8) | ((2 ** 127 + 1) << 32), 1 << 255]
-# Words whose int128 / int64 truncations hit both ends of each range, -1, -2, zero and small
-# positives, with dirty bits above bit 128 / 64; 20 reverts at the message-less `require`.
 # Every `next % 4` arm of the signed custom-error fixture: in-range and overflowing
 # int104 downcasts on both sides (the int256 argument is negative for high words), and
 # int8 / int104 / int24 truncations at both ends of each width.
@@ -168,6 +166,8 @@ SIGNED_CUSTOM_ERROR_PREFIX = [0, 1, 2, 3, 5, 2**103 - 3, 2**103 + 1, 2**256 - 3,
                               ((2**103 - 1) << 8) | 0x82, (0x800000 << 112) | 2,
                               (0x7fffff << 112) | 6, 2**256 - 1, 2**255 + 3]
 
+# Words whose int128 / int64 truncations hit both ends of each range, -1, -2, zero and small
+# positives, with dirty bits above bit 128 / 64; 20 reverts at the message-less `require`.
 SIGNED_NARROW_VALUE_PREFIX = [0, 1, 2, 20, 21, 2**127 - 1, 2**127, 2**128 - 1, 2**128, 2**255,
                               2**256 - 1, 2**256 - 2, 2**63, 2**63 - 1, 2**64 - 1, 2**64,
                               (1 << 200) | 5, (0xabcdef << 128) | (2**127 + 7),
