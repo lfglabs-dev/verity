@@ -1433,6 +1433,16 @@ def nativeSwitchPrefixFinalState
       (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
     matchedName (EvmYul.UInt256.ofNat 0)
 
+/-- `revert(0, 0)` after the switch prefix returns no byte. -/
+@[simp] theorem nativeRevertZeroZeroData_nativeSwitchPrefixFinalState
+    (contract : EvmYul.Yul.Ast.YulContract) (tx : YulTransaction)
+    (storage : IRStorageSlot → IRStorageWord) (observableSlots : List Nat)
+    (discrName matchedName : EvmYul.Identifier) :
+    nativeRevertZeroZeroData
+        (nativeSwitchPrefixFinalState contract tx storage observableSlots discrName matchedName) =
+      ByteArray.empty := by
+  simp [nativeSwitchPrefixFinalState, nativeSwitchInitialOkState]
+
 /-- The generated dispatcher switch prefix initializes the discriminator temp
     from native calldata selector evaluation, then clears the lazy matched flag.
 
@@ -1826,7 +1836,7 @@ theorem exec_if_lowerExprNative_lt_calldatasize_skip_ge_fuel
 private theorem exec_block_singleton_revert_zero_zero_fuel_eight (fuel : Nat)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract) (state : EvmYul.Yul.State) :
     EvmYul.Yul.exec (fuel + 8) (.Block [nativeRevertZeroZeroStmt]) codeOverride state =
-      .error EvmYul.Yul.Exception.Revert :=
+      .error (EvmYul.Yul.Exception.Revert (nativeRevertZeroZeroData state)) :=
   exec_block_cons_error (fuel + 7) nativeRevertZeroZeroStmt [] codeOverride state _
     (exec_revert_zero_zero_error (fuel + 1) state codeOverride)
 
@@ -1848,10 +1858,10 @@ theorem exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel
                    Yul.YulExpr.lit k]))
           [nativeRevertZeroZeroStmt])
         codeOverride (.Ok shared store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   refine exec_if_eval_nonzero_error (fuel + 8) _ [nativeRevertZeroZeroStmt] codeOverride
     (.Ok shared store) (.Ok shared store) (EvmYul.UInt256.ofNat 1) _ ?_ (by decide)
-    (exec_block_singleton_revert_zero_zero_fuel_eight fuel codeOverride _)
+    (by rw [exec_block_singleton_revert_zero_zero_fuel_eight, nativeRevertZeroZeroData_ok])
   rw [eval_lowerExprNative_lt_calldatasize_ok_fuel,
     uint256_lt_ofNat_eq_one_of_lt _ _ hLt hSize hKSize]
 

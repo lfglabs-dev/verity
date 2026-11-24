@@ -651,7 +651,7 @@ private theorem simpleStorageNativeContract_dispatcherExec_selectorMiss_revert_v
         (fuel + cases'.length + 20)
         ssNC
         (ssInit tx storage observableSlots) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   rw [hReduction]
   exact (Backends.Native.exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasSelectorState_projectResult_eq
     fuel selector switchId cases'
@@ -1116,17 +1116,17 @@ private theorem exec_block_simpleStorageLoweredStoreCaseBodyTail2_short_revert
     EvmYul.Yul.exec (fuel + 11)
       (.Block simpleStorageLoweredStoreCaseBodyTail2)
       codeOverride (.Ok shared store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   show EvmYul.Yul.exec (Nat.succ (fuel + 10))
     (.Block ((simpleStorageLoweredStoreCaseBodyTail2).head! ::
       simpleStorageLoweredStoreCaseBodyTail3))
-    codeOverride (.Ok shared store) = .error EvmYul.Yul.Exception.Revert
+    codeOverride (.Ok shared store) = .error (EvmYul.Yul.Exception.Revert ByteArray.empty)
   refine Backends.Native.exec_block_cons_error (fuel + 10) _
     simpleStorageLoweredStoreCaseBodyTail3 codeOverride
-    (.Ok shared store) EvmYul.Yul.Exception.Revert ?_
+    (.Ok shared store) (EvmYul.Yul.Exception.Revert ByteArray.empty) ?_
   refine Backends.Native.exec_if_eval_nonzero_error (fuel + 9) _ _
     codeOverride (.Ok shared store) (.Ok shared store)
-    (EvmYul.UInt256.ofNat 1) EvmYul.Yul.Exception.Revert ?_ ?_ ?_
+    (EvmYul.UInt256.ofNat 1) (EvmYul.Yul.Exception.Revert ByteArray.empty) ?_ ?_ ?_
   · rw [Backends.Native.eval_lowerExprNative_lt_calldatasize_ok_fuel]
     simp [hSizeEq, EvmYul.UInt256.lt, EvmYul.UInt256.ofNat]
     decide
@@ -1136,9 +1136,9 @@ private theorem exec_block_simpleStorageLoweredStoreCaseBodyTail2_short_revert
       Backends.lookupRuntimePrimOp_revert] using
       (Backends.Native.exec_block_cons_error (fuel + 8)
       Backends.Native.nativeRevertZeroZeroStmt [] codeOverride
-      (.Ok shared store) EvmYul.Yul.Exception.Revert
-      (Backends.Native.exec_revert_zero_zero_error (fuel + 2)
-        (.Ok shared store) codeOverride))
+      (.Ok shared store) (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (Backends.Native.exec_revert_zero_zero_error_ok (fuel + 2)
+        shared store codeOverride))
 
 /-- Composed body-level closed form for the SimpleStorage store hit-case when
 the calldata contains the setter argument. -/
@@ -1318,7 +1318,7 @@ private theorem simpleStorageNativeContract_dispatcherExec_selectorMiss_revert
         (fuel + 22)
         ssNC
         (ssInit tx storage observableSlots) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   obtain ⟨reservedNames, n0, cases', midN, hExec, hLowerCases⟩ :=
     simpleStorageNativeContract_dispatcherExec_eq_lowerNativeSwitchBlock_revert_default_exec_sourceLowered
       (fuel + 7) tx storage observableSlots hNoWrap
@@ -1513,7 +1513,7 @@ private theorem simpleStorageNativeContract_dispatcherExec_selectorMiss_revert_a
         ssNC
         (ssInit tx storage
           observableSlots) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hReshape : simpleStorageNativeDispatcherFuel =
       (simpleStorageNativeDispatcherFuel - 22) + 22 :=
     (Nat.sub_add_cancel simpleStorageNativeDispatcherFuel_ge_22).symm
@@ -1950,7 +1950,7 @@ private theorem simpleStorageNativeContract_dispatcherExec_storeHit_short_revert
         ssNC
         (ssInit tx storage
           observableSlots) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hSizeEq :
       (ssShared tx storage
         observableSlots).executionEnv.calldata.size = 4 := by
@@ -1958,7 +1958,7 @@ private theorem simpleStorageNativeContract_dispatcherExec_storeHit_short_revert
     simp [hArgs]
   obtain ⟨_, h⟩ :=
     simpleStorageNativeContract_dispatcherExec_storeHit_atFuel_of_body
-      tx storage observableSlots (fun _ => EvmYul.Yul.Exception.Revert) hSelector hNoWrap
+      tx storage observableSlots (fun _ => (EvmYul.Yul.Exception.Revert ByteArray.empty)) hSelector hNoWrap
       (fun g switchId => exec_block_simpleStorageLoweredStoreCaseBody_head_strip_error
         (g + 11) _ _ _
         (exec_block_simpleStorageLoweredStoreCaseBodyTail_callvalue_strip_error
@@ -2652,7 +2652,7 @@ private theorem simpleStorageNativeStoreHitMatch_short
       simpleStorageIRContract tx initialState observableSlots
       ssNC := by
   refine nativeDispatcherExecMatchesIRPositive_of_exec_error_project_eq_match
-    (err := EvmYul.Yul.Exception.Revert)
+    (err := (EvmYul.Yul.Exception.Revert ByteArray.empty))
     (nativeYul :=
       { success := false
         returnValue := none
@@ -2819,7 +2819,7 @@ private theorem simpleStorageNativeSelectorMissMatchBridge_proved
   have hIR := interpretIR_simpleStorage_selectorMiss tx initialState
     hSelMissTxStore hSelMissTxRetrieve
   refine nativeDispatcherExecMatchesIRPositive_of_exec_error_project_eq_match
-    (err := EvmYul.Yul.Exception.Revert)
+    (err := (EvmYul.Yul.Exception.Revert ByteArray.empty))
     (nativeYul :=
       { success := false
         returnValue := none

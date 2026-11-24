@@ -5,7 +5,7 @@ package «verity-edsl» where
   version := v!"1.0.0"
 
 require evmyul from git
-  "https://github.com/lfglabs-dev/EVMYulLean.git"@"eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0"
+  "https://github.com/lfglabs-dev/EVMYulLean.git"@"efca6fc7c85b4fc37612c477b43ee601a5c4099d"
 
 lean_lib «Verity» where
   srcDir := "../.."

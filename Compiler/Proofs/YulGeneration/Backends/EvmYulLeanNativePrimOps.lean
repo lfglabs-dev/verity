@@ -586,7 +586,7 @@ theorem step_return_overarity_invalid
       match EvmYul.Yul.binaryMachineStateOp EvmYul.MachineState.evmRevert
           state [offset, size] with
       | .error e => .error e
-      | .ok (_, _) => .error EvmYul.Yul.Exception.Revert := by
+      | .ok (s, _) => .error (EvmYul.Yul.Exception.Revert s.toMachineState.H_return) := by
   rfl
 
 theorem step_revert_nil_invalid
@@ -2294,7 +2294,7 @@ theorem primCall_returndatacopy_out_of_bounds
       match EvmYul.Yul.binaryMachineStateOp EvmYul.MachineState.evmRevert
           state [offset, size] with
       | .error e => .error e
-      | .ok (_, _) => .error EvmYul.Yul.Exception.Revert := by
+      | .ok (s, _) => .error (EvmYul.Yul.Exception.Revert s.toMachineState.H_return) := by
   cases fuel <;> simp [EvmYul.Yul.primCall]
   all_goals
     cases EvmYul.Yul.binaryMachineStateOp EvmYul.MachineState.evmRevert
@@ -2310,6 +2310,30 @@ theorem lowerStmtsNative_revert_zero_zero :
     lowerStmtsNativeWithSwitchIds_revert_zero_zero,
     Bind.bind, Except.bind, Pure.pure, Except.pure]
 
+/-- The bytes native `revert(0, 0)` returns from `state`: `H_return` after `evmRevert 0 0`. -/
+def nativeRevertZeroZeroData (state : EvmYul.Yul.State) : ByteArray :=
+  (EvmYul.Yul.State.setMachineState
+    (state.toMachineState.evmRevert (EvmYul.UInt256.ofNat 0) (EvmYul.UInt256.ofNat 0))
+    state).toMachineState.H_return
+
+/-- `revert(0, 0)` from a running (`.Ok`) state returns no byte. -/
+@[simp] theorem nativeRevertZeroZeroData_ok (shared : EvmYul.SharedState .Yul)
+    (store : EvmYul.Yul.VarStore) :
+    nativeRevertZeroZeroData (.Ok shared store) = ByteArray.empty := by
+  have hzero : (EvmYul.UInt256.ofNat 0).toNat = 0 := rfl
+  simp only [nativeRevertZeroZeroData, EvmYul.Yul.State.setMachineState,
+    EvmYul.Yul.State.toMachineState, EvmYul.MachineState.evmRevert,
+    EvmYul.MachineState.evmReturn, ByteArray.readWithPadding, ByteArray.readWithoutPadding,
+    ffi.ByteArray.zeroes, hzero]
+  split
+  · simp_all
+  · simp_all; rfl
+
+@[simp] theorem nativeRevertZeroZeroData_insert (state : EvmYul.Yul.State)
+    (var : EvmYul.Identifier) (val : EvmYul.Literal) :
+    nativeRevertZeroZeroData (state.insert var val) = nativeRevertZeroZeroData state := by
+  cases state <;> rfl
+
 /-- Native execution of the generated selector-miss body `revert(0, 0)`.
     This is the concrete primitive halt used by the dispatcher default path. -/
 theorem exec_revert_zero_zero_error
@@ -2318,12 +2342,21 @@ theorem exec_revert_zero_zero_error
     (codeOverride : Option EvmYul.Yul.Ast.YulContract) :
     EvmYul.Yul.exec (fuel + 6)
       nativeRevertZeroZeroStmt codeOverride state =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert (nativeRevertZeroZeroData state)) := by
   cases fuel <;>
-    simp [nativeRevertZeroZeroStmt, EvmYul.Yul.exec, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
+    simp [nativeRevertZeroZeroStmt, nativeRevertZeroZeroData, EvmYul.Yul.exec, EvmYul.Yul.eval,
+      EvmYul.Yul.evalArgs,
       EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall, EvmYul.Yul.reverse',
       EvmYul.Yul.cons', EvmYul.Yul.multifill',
       EvmYul.Yul.binaryMachineStateOp]
+
+/-- `exec_revert_zero_zero_error` from a running (`.Ok`) state: no byte is returned. -/
+theorem exec_revert_zero_zero_error_ok
+    (fuel : Nat) (shared : EvmYul.SharedState .Yul) (store : EvmYul.Yul.VarStore)
+    (codeOverride : Option EvmYul.Yul.Ast.YulContract) :
+    EvmYul.Yul.exec (fuel + 6) nativeRevertZeroZeroStmt codeOverride (.Ok shared store) =
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
+  rw [exec_revert_zero_zero_error, nativeRevertZeroZeroData_ok]
 
 theorem exec_expr_prim_ok
     (fuel : Nat)
