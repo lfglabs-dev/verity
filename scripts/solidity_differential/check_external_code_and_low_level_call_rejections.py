@@ -13,6 +13,7 @@ import tempfile
 
 MESSAGES = {
     'external': 'external contract calls are outside this slice',
+    'options': 'low-level call options other than a single `value` are outside this slice',
     'placement': ('low-level call must be a (bool success, bytes memory returndata) declaration '
                   'followed by returndata forwarding and optional-bool validation'),
     'bind': 'low-level call must bind both success and returndata, and validate the returndata',
@@ -28,6 +29,8 @@ MESSAGES = {
     'order': 'low-level call operands require explicit evaluation-order support',
     'this-code': 'code length of the executing contract is unsupported',
     'code-read': 'external contract code reads are outside this slice',
+    'post-call': ('storage reads, storage writes, logs and other interactions after an external '
+                  'CALL are unsupported: the call may re-enter this contract'),
 }
 
 INTERFACE = ('interface IToken {\n'
@@ -69,15 +72,31 @@ CASES = [
      sequence(call='token.call(abi.encodeCall(IToken.transferFrom, (msg.sender, to, amount)))'), None),
     ('code-length-branch', '', '',
      'if (token.code.length == 0) revert NoCode();\n        counter = to.code.length;', None),
+    # A `{value: ...}` call is a standalone declaration (`lowerValueCallDeclaration`): the
+    # forwarding and optional-bool validation that follow lower as ordinary statements.
     ('call-value', '', '',
-     sequence(call='token.call{value: 1}(abi.encodeCall(IToken.transfer, (to, amount)))'),
-     ('token.call{value: 1}', 0, 'FunctionCallOptions', 'external')),
+     sequence(call='token.call{value: 1}(abi.encodeCall(IToken.transfer, (to, amount)))'), None),
     ('call-value-zero', '', '',
-     sequence(call='token.call{value: 0}(abi.encodeCall(IToken.transfer, (to, amount)))'),
-     ('token.call{value: 0}', 0, 'FunctionCallOptions', 'external')),
+     sequence(call='token.call{value: 0}(abi.encodeCall(IToken.transfer, (to, amount)))'), None),
+    ('call-value-success-only', '', '',
+     '(bool success, ) = to.call{value: amount}("");\n        require(success, TransferFailed());',
+     None),
     ('call-gas', '', '',
      sequence(call='token.call{gas: 50000}(abi.encodeCall(IToken.transfer, (to, amount)))'),
-     ('token.call{gas: 50000}', 0, 'FunctionCallOptions', 'external')),
+     ('token.call{gas: 50000}', 0, 'FunctionCallOptions', 'options')),
+    ('call-value-and-gas', '', '',
+     sequence(call='token.call{value: 1, gas: 50000}(abi.encodeCall(IToken.transfer, (to, amount)))'),
+     ('token.call{value: 1, gas: 50000}', 0, 'FunctionCallOptions', 'options')),
+    ('call-value-stateful-operand', '', '',
+     '(bool success, ) = to.call{value: bump()}("");\n        require(success, TransferFailed());',
+     ('bump()', 0, 'FunctionCall', 'order')),
+    ('call-value-after-write', '', '',
+     'counter += 1;\n        (bool success, ) = to.call{value: amount}("");\n'
+     '        require(success, TransferFailed());', None),
+    ('call-value-then-write', '', '',
+     '(bool success, ) = to.call{value: amount}("");\n        counter += 1;\n'
+     '        require(success, TransferFailed());',
+     ('function checked', 0, 'FunctionDefinition', 'post-call')),
     ('missing-returndata', '', '',
      f'(bool success, ) = {CALL};\n        require(success, TransferFailed());',
      ('(bool success, )', 0, 'VariableDeclarationStatement', 'bind')),

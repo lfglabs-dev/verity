@@ -124,6 +124,10 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
           let reads ← args.mapM (expressionAccesses oracle fields state)
           let (_, touched) ← executeByteYulMemoryCall oracle fields state mod isStatic resultVar args
           return reads.flatten ++ touched
+      | some (.yulMemoryValueCall resultVar) =>
+          let reads ← args.mapM (expressionAccesses oracle fields state)
+          let (_, touched) ← executeByteYulMemoryValueCall oracle fields state mod resultVar args
+          return reads.flatten ++ touched
       | some (.staticBool resultVar selector numStaticArgs) =>
           let preparation ← prepareByteStaticCall oracle fields state resultVar selector numStaticArgs args
           let reads ← preparation.reads.mapM fun (input, expr) =>

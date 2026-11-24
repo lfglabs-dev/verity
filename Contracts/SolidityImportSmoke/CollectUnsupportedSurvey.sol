@@ -5,7 +5,7 @@ interface ISurveyCallee {
 }
 // Unsupported constructs for the `collectUnsupported` survey: a do-while loop,
 // `gasleft()` in an inlined helper, `block.prevrandao`, the Yul builtin `gas()`
-// and try/catch. `scaled` reads a local whose declaration is skipped.
+// and try/catch with a `catch Error(...)` clause. `scaled` reads a local whose declaration is skipped.
 contract CollectUnsupportedSurvey {
     uint256 private total;
     function scaled(uint256 x) internal view returns (uint256) {
@@ -21,7 +21,7 @@ contract CollectUnsupportedSurvey {
     }
     function second(uint256 x, address callee) external returns (uint256 r) {
         assembly { r := gas() }
-        try ISurveyCallee(callee).ping() returns (uint256 v) { r = v; } catch { r = 0; }
+        try ISurveyCallee(callee).ping() returns (uint256 v) { r = v; } catch Error(string memory) { r = 0; }
         r = r + x;
     }
     function read() external view returns (uint256) {
