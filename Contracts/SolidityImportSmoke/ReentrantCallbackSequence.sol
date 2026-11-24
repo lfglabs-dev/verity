@@ -6,7 +6,8 @@ interface IHook {
 }
 
 /// A contract that a callee re-enters. `poke` and `tryPoke` write `pending`, then call the
-/// target (`emitPoke` logs first instead, so the caller's log must precede the callback's), which may call back into `enter`, `enterSmall` or `enterThenFail`. Each call is the
+/// target (`emitPoke` logs first instead, so the caller's log must precede the callback's),
+/// which may call back into `enter`, `enterSmall` or `enterThenFail`. Each call is the
 /// root's last state interaction, so the importer admits it (a trailing call). The callbacks
 /// record their own sender and selector, count themselves in `callbacks` and copy what they
 /// see of the caller's pre-call write, so a skipped callback, a wrong call context or a lost

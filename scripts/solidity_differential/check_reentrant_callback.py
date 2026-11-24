@@ -8,8 +8,8 @@ clean and one with a dirty `uint8` argument, one that writes and then reverts wi
 whose selector names no function, and a hook that reverts after a successful callback. One
 account has no code and the sender is an EOA. `emitPoke` logs before its call and `enter` logs
 too, so the caller's log must precede the callback's on every route. A callback that the model
-cannot execute is outside the responder's domain and fails the model run. A divergence is shrunk to a deletion-minimal
-sequence.
+cannot execute is outside the responder's domain and fails the model run. A divergence is
+shrunk to a deletion-minimal sequence.
 
 Negative control: the same transactions replayed with every hook configured as an account that
 answers without calling back must diverge, with the model route missing the callback count.

@@ -7,22 +7,29 @@ import Compiler.Keccak.Sponge
 whose callee calls them back. It mirrors `ReentrantCallbackHook` in
 `Contracts/SolidityImportSmoke/ReentrantCallbackHook.sol`: slot 0 holds the callback selector,
 slot 1 the argument count (0 or 1), slot 2 the argument word, slot 3 the flags, and slot 4
-counts answered calls. A value-free `CALL` to a configured account increments the counter, then
-calls the caller back with the payload (the four selector bytes, then the argument word if
-there is one), as the EVM's `CALL` frame: `msg.sender` is the account, the calldata and
-selector are the payload's, no value; memories, return data and journals start empty and
-transient storage is the transaction's (`beginReentrantFrame`). The payload selector picks the
-model's own public entry point, which runs through the production frame runner
-`executeReentrantBody`. A successful callback is committed with the caller's frame restored
-(`commitCallback`): the callback's logs and call journal follow the caller's, as the EVM appends
-a successful frame's logs to the transaction's; with flag bit 0 the account then reverts with no
-data. A failed callback
-is bubbled with its exact revert bytes. A selector that names no entry point, or arguments that
-do not decode, revert with no data, as solc's dispatcher and decoder do. An execution error
-(an unsupported construct, or a nested external call, which the callback frame is not given)
-is an instrumentation failure: such a request is outside `accepts`, so the model run fails
-instead of producing a Solidity outcome that a `try` could catch. Answers, writes and accesses are computed from the current world and
-request, never copied from an EVM trace.
+counts answered calls.
+
+A value-free `CALL` to a configured account increments the counter, then calls the caller back
+with the payload (the four selector bytes, then the argument word if there is one), as the
+EVM's `CALL` frame: `msg.sender` is the account, the calldata and selector are the payload's,
+no value; memories, return data and journals start empty and transient storage is the
+transaction's (`beginReentrantFrame`). The payload selector picks the model's own public entry
+point, which runs through the production frame runner `executeReentrantBody`. A successful
+callback is committed with the caller's frame restored (`commitCallback`): the callback's logs
+and call journal follow the caller's, as the EVM appends a successful frame's logs to the
+transaction's. With flag bit 0 the account then reverts with no data. A failed callback is
+bubbled with its exact revert bytes. Arguments that do not decode revert with no data, as
+solc's decoder does.
+
+Limits. A selector that names no entry point reverts with no data, which matches solc's
+dispatcher only for a contract without `fallback` or `receive`. The callback frame runs with
+every immutable read as 0 and with no byte-call environment, so a fixture whose callbacks read
+immutables, or call out again, is outside this instrument. An execution error (an unsupported
+construct, or such a nested call) is an instrumentation failure: the request is outside
+`accepts`, so the model run fails instead of producing a Solidity outcome that a `try` could
+catch. The `STATICCALL` (exceptional halt), value-bearing call and transient-storage branches
+are modelled but not exercised by `check_reentrant_callback.py`. Answers, writes and accesses
+are computed from the current world and request, never copied from an EVM trace.
 
 This is a test-only instrument. It admits nothing in the importer, adds no trust assumption, and
 establishes nothing about a deployed callee: its agreement with the Solidity hook is
@@ -49,7 +56,8 @@ def payload (world : Verity.ContractState) (account : Nat) : Bytes :=
 
 /-- The calldata words after the selector, zero padded, as the frame's `calldata`. -/
 def payloadWords (calldata : Bytes) : List Nat :=
-  (List.range ((calldata.length - 4 + 31) / 32)).map fun index => calldataWord calldata (4 + 32 * index)
+  (List.range ((calldata.length - 4 + 31) / 32)).map fun index =>
+    calldataWord calldata (4 + 32 * index)
 
 /-- The selector of `calldata`: its first four bytes. -/
 def payloadSelector (calldata : Bytes) : Nat := calldataWord calldata 0 / 2 ^ 224
@@ -110,7 +118,8 @@ def runCallback (model : CompilationModel) (oracle : DenoteOracle) (world : Veri
   let frame := callbackWorld world callee calldata
   let selector := payloadSelector calldata
   match model.functions.filter fun fn =>
-      !fn.isInternal && (KeccakEngine.keccak256_selector (functionSignature fn)).toNat == selector with
+      !fn.isInternal &&
+        (KeccakEngine.keccak256_selector (functionSignature fn)).toNat == selector with
   | [fn] =>
       match bindExternalParams selector fn.bindingParams frame.calldata with
       | none => some ⟨false, [], beginReentrantFrame frame⟩
