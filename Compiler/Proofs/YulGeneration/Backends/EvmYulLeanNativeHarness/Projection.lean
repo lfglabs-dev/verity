@@ -3228,7 +3228,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (initialStorage : IRStorageSlot → IRStorageWord)
     (initialEvents : List (List Nat)) :
     projectResult tx initialStorage initialEvents
-      (.error EvmYul.Yul.Exception.Revert) =
+      (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
     { success := false
       returnValue := none
       finalStorage := initialStorage
@@ -3241,7 +3241,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (initialStorage : IRStorageSlot → IRStorageWord)
     (initialEvents : List (List Nat)) :
     (projectResult tx initialStorage initialEvents
-      (.error EvmYul.Yul.Exception.Revert)).events =
+      (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).events =
       initialEvents := by
   rfl
 
@@ -3250,7 +3250,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (initialStorage : IRStorageSlot → IRStorageWord)
     (initialEvents : List (List Nat)) :
     (projectResult tx initialStorage initialEvents
-      (.error EvmYul.Yul.Exception.Revert)).success = false := by
+      (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).success = false := by
   rfl
 
 @[simp] theorem projectResult_revert_returnValue
@@ -3258,7 +3258,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (initialStorage : IRStorageSlot → IRStorageWord)
     (initialEvents : List (List Nat)) :
     (projectResult tx initialStorage initialEvents
-      (.error EvmYul.Yul.Exception.Revert)).returnValue = none := by
+      (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).returnValue = none := by
   rfl
 
 @[simp] theorem projectResult_revert_finalMappings
@@ -3266,7 +3266,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (initialStorage : IRStorageSlot → IRStorageWord)
     (initialEvents : List (List Nat)) :
     (projectResult tx initialStorage initialEvents
-      (.error EvmYul.Yul.Exception.Revert)).finalMappings =
+      (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).finalMappings =
       Compiler.Proofs.storageAsMappings initialStorage := by
   rfl
 
@@ -3276,7 +3276,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (initialEvents : List (List Nat))
     (slot : Nat) :
     (projectResult tx initialStorage initialEvents
-      (.error EvmYul.Yul.Exception.Revert)).finalStorage (IRStorageSlot.ofNat slot) =
+      (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).finalStorage (IRStorageSlot.ofNat slot) =
       initialStorage (IRStorageSlot.ofNat slot) := by
   rfl
 
@@ -3901,9 +3901,9 @@ theorem exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_store
             [nativeRevertZeroZeroStmt])
         (some contract)
         (.Ok (initialState contract tx storage observableSlots).sharedState store) =
-      .error EvmYul.Yul.Exception.Revert ∧
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
     projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert) =
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
       { success := false
         returnValue := none
         finalStorage := storage
@@ -3936,9 +3936,9 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_hasSelectorState_projec
       (some contract)
       ((nativeSwitchInitialOkState contract tx storage observableSlots).insert
           "__has_selector" (EvmYul.UInt256.ofNat 1)) =
-      .error EvmYul.Yul.Exception.Revert ∧
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
     projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert) =
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
       { success := false
         returnValue := none
         finalStorage := storage
@@ -3955,7 +3955,7 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_hasSelectorState_projec
   rw [nativeSwitchInitialOkState_insert_hasSelector_eq, hFuelEq]
   refine ⟨?_, hProject⟩
   exact exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
-    EvmYul.Yul.Exception.Revert hEndpoint
+    (EvmYul.Yul.Exception.Revert ByteArray.empty) hEndpoint
 
 /-- Execute `nativeSwitchTailStmts` to `Revert` on a post-init switch prefix state
 when `cases.find?` misses the selector. -/
@@ -3974,7 +3974,7 @@ private theorem exec_nativeSwitchTailStmts_revert_default_postInitFreeMemory_sto
           (Backends.nativeSwitchDiscrTempName switchId)
           (EvmYul.UInt256.ofNat (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
         (Backends.nativeSwitchMatchedTempName switchId) (EvmYul.UInt256.ofNat 0)) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   let discrName := Backends.nativeSwitchDiscrTempName switchId
   let matchedName := Backends.nativeSwitchMatchedTempName switchId
   let prefixState : EvmYul.Yul.State :=
@@ -4002,6 +4002,7 @@ private theorem exec_nativeSwitchTailStmts_revert_default_postInitFreeMemory_sto
       rw [hLookup]; simpa [nativeSwitchPostInitFreeMemoryState, hSelector] using hDiscr)
     hSelectorRange hTagsRange
   simpa [nativeSwitchTailStmts, discrName, matchedName, prefixState,
+    nativeSwitchPostInitFreeMemoryState,
     Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hCases
 
 /-- Execute `lowerNativeSwitchBlock` to `Revert` on a post-init switch state when
@@ -4020,10 +4021,10 @@ private theorem exec_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_st
         Compiler.Proofs.YulGeneration.selectorExpr switchId cases [nativeRevertZeroZeroStmt])
       (some contract)
       (nativeSwitchPostInitFreeMemoryState contract tx storage observableSlots store) =
-    .error EvmYul.Yul.Exception.Revert :=
+    .error (EvmYul.Yul.Exception.Revert ByteArray.empty) :=
   exec_lowerNativeSwitchBlock_postInitFreeMemory_storePrefix_tail_error_fuel
     (fuel + cases.length) switchId cases [nativeRevertZeroZeroStmt] contract tx storage
-    observableSlots store EvmYul.Yul.Exception.Revert
+    observableSlots store (EvmYul.Yul.Exception.Revert ByteArray.empty)
     (exec_nativeSwitchTailStmts_revert_default_postInitFreeMemory_store_error
       hSelector hFind hSelectorRange hTagsRange)
 
@@ -4049,9 +4050,9 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasS
       (some contract)
       ((nativeSwitchPostInitFreeMemoryState contract tx storage
           observableSlots ∅).insert "__has_selector" (EvmYul.UInt256.ofNat 1)) =
-      .error EvmYul.Yul.Exception.Revert ∧
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
     projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert) =
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
       { success := false
         returnValue := none
         finalStorage := storage
@@ -4067,7 +4068,7 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasS
   refine ⟨?_, by simp⟩
   rw [hFuelEq]
   exact exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
-    EvmYul.Yul.Exception.Revert hEndpoint
+    (EvmYul.Yul.Exception.Revert ByteArray.empty) hEndpoint
 
 /-- Bridge-shape selector-hit error projection on the post-`__has_selector := 1`
     state. This packages a selected body halt/error with its projected result
@@ -4789,14 +4790,14 @@ theorem exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_proje
             [nativeRevertZeroZeroStmt])
         (some contract)
         (nativeSwitchInitialOkState contract tx storage observableSlots) =
-      .error EvmYul.Yul.Exception.Revert ∧
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
     (projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert)).success = false ∧
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).success = false ∧
     (projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert)).returnValue = none ∧
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).returnValue = none ∧
     (∀ slot,
       (projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert)).finalStorage (IRStorageSlot.ofNat slot) =
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))).finalStorage (IRStorageSlot.ofNat slot) =
           storage (IRStorageSlot.ofNat slot)) := by
   refine ⟨?_, ?_, ?_, ?_⟩
   · exact exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_fuel
@@ -4833,9 +4834,9 @@ theorem exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_proje
             [nativeRevertZeroZeroStmt])
         (some contract)
         (nativeSwitchInitialOkState contract tx storage observableSlots) =
-      .error EvmYul.Yul.Exception.Revert ∧
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
     projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert) =
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
       { success := false
         returnValue := none
         finalStorage := storage
@@ -4894,9 +4895,9 @@ theorem contractDispatcherExecResult_block_lowerNativeSwitchBlock_selector_find_
       { dispatcher := .Block [dispatcher], functions := functions }
     contractDispatcherExecResult (Nat.succ (Nat.succ (fuel + cases.length + 12)))
         contract (initialState contract tx storage observableSlots) =
-      .error EvmYul.Yul.Exception.Revert ∧
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
     projectResult tx storage initialEvents
-        (.error EvmYul.Yul.Exception.Revert) =
+        (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
       { success := false
         returnValue := none
         finalStorage := storage
@@ -5024,8 +5025,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
           (buildSwitchSourceCases funcs) = .ok (cases', midN) ∧
       contractDispatcherExecResult (fuel + cases'.length + 19)
           contract (initialState contract tx storage observableSlots) =
-        .error EvmYul.Yul.Exception.Revert ∧
-      projectResult tx storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+      projectResult tx storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
         { success := false, returnValue := none, finalStorage := storage,
           finalMappings := Compiler.Proofs.storageAsMappings storage,
           events := initialEvents } := by
@@ -5073,8 +5074,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       (cases'.length + 19 ≤ fuel' →
         contractDispatcherExecResult fuel'
             contract (initialState contract tx storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult tx storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult tx storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
           { success := false, returnValue := none, finalStorage := storage,
             finalMappings := Compiler.Proofs.storageAsMappings storage,
             events := initialEvents }) := by
@@ -5457,7 +5458,7 @@ private theorem exec_switchCaseBody_nonpayable_callvalue_revert_of_shape
       EvmYul.Yul.exec (((fuel + 5) + 1) + suffix.length + 7) (.Block body') (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract (YulTransaction.ofIR tx)
           storage observableSlots switchId nativeSwitchHasSelectorStore) =
-        .error EvmYul.Yul.Exception.Revert := by
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   intro _ suffix _
   rw [hBodyShape]
   have hExec := exec_switchCaseBody_nonpayable_callvalue_revert_fuel
@@ -5495,13 +5496,13 @@ private theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_se
         (nativeSwitchStoreMarkedPrefixStateForId { dispatcher := .Block [.Block inner], functions := functions }
           (YulTransaction.ofIR tx) storage observableSlots
           (Backends.freshNativeSwitchId reservedNames switchStart) nativeSwitchHasSelectorStore) =
-        .error EvmYul.Yul.Exception.Revert)
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty))
     (hFuel : cases'.length + (offset + 19) ≤ fuel') :
     let contract : EvmYul.Yul.Ast.YulContract := { dispatcher := .Block [.Block inner], functions := functions }
     contractDispatcherExecResult fuel' contract
-        (initialState contract (YulTransaction.ofIR tx) storage observableSlots) = .error EvmYul.Yul.Exception.Revert ∧
-    projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) := by
+        (initialState contract (YulTransaction.ofIR tx) storage observableSlots) = .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+    projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) := by
   intro contract
   let fuel := fuel' - (cases'.length + (offset + 19))
   have hFuelEq : fuel' = (fuel + offset) + cases'.length + 19 := by omega
@@ -5514,8 +5515,8 @@ private theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_se
     exec_block_lowerNativeSwitchBlock_selector_find_hit_hasSelectorState_error_projectResult_eq
       (fuel + offset) selector (Backends.freshNativeSwitchId reservedNames switchStart)
       selector cases' [nativeRevertZeroZeroStmt] body' contract (YulTransaction.ofIR tx) storage initialEvents
-      observableSlots EvmYul.Yul.Exception.Revert
-      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert))
+      observableSlots (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)))
       hSelector hCase hSelectorRange hTagsRange (hBody fuel) rfl
 
 /-- Non-payable selector-hit value-guard failure for a generated dispatcher. -/
@@ -5538,14 +5539,14 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       Backends.lowerStmtsNativeWithSwitchIds reservedNames userBodyStart fn.body = .ok (bodyNative, bodyEnd) ∧
       contractDispatcherExecResult (fuel + cases'.length + 24) contract
           (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-        .error EvmYul.Yul.Exception.Revert ∧
-      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) := by
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) := by
   obtain ⟨reservedNames, n0, cases', body', bodyStart, bodyEnd, hCase, hBodyLower, hDispatcherContinuation⟩ :=
     contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_error_projectResult_eq
       (fuel + 5) selector funcs fn inner functions (YulTransaction.ofIR tx)
-      storage initialEvents observableSlots EvmYul.Yul.Exception.Revert
-      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert))
+      storage initialEvents observableSlots (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)))
       hLower hSelector hFind (by simpa [YulTransaction.ofIR_args] using hNoWrap)
       hSelectorRange hFunctionSelectorsRange
   rcases lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_revert_eq
@@ -5582,9 +5583,9 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       (cases'.length + 24 ≤ fuel' →
         contractDispatcherExecResult fuel' contract
             (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert)) := by
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))) := by
   obtain ⟨body1, reservedNames, n0, cases', midN, body', bodyStart, bodyEnd,
       hInner, hLowerCases, hCase, hBodyLower⟩ :=
     buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function funcs inner selector fn hLower hFind
@@ -5616,7 +5617,7 @@ private theorem exec_switchCaseBody_payable_args_short_revert_of_shape
       EvmYul.Yul.exec (((fuel + 4) + 1) + suffix.length + 7) (.Block body') (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract (YulTransaction.ofIR tx)
           storage observableSlots switchId nativeSwitchHasSelectorStore) =
-        .error EvmYul.Yul.Exception.Revert := by
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   intro _ suffix _
   rw [hBodyShape]
   have hCalldataLt : 4 + (YulTransaction.ofIR tx).args.length * 32 < 4 + fn.params.length * 32 := by
@@ -5650,15 +5651,15 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       Backends.lowerStmtsNativeWithSwitchIds reservedNames userBodyStart fn.body = .ok (bodyNative, bodyEnd) ∧
       contractDispatcherExecResult (fuel + cases'.length + 23) contract
           (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-        .error EvmYul.Yul.Exception.Revert ∧
-      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) := by
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) := by
   obtain ⟨reservedNames, n0, cases', body', bodyStart, bodyEnd,
       hCase, hBodyLower, hDispatcherContinuation⟩ :=
     contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_error_projectResult_eq
       (fuel + 4) selector funcs fn inner functions (YulTransaction.ofIR tx)
-      storage initialEvents observableSlots EvmYul.Yul.Exception.Revert
-      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert))
+      storage initialEvents observableSlots (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)))
       hLower hSelector hFind (by simpa [YulTransaction.ofIR_args] using hNoWrap)
       hSelectorRange hFunctionSelectorsRange
   rcases lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_revert_eq
@@ -5691,7 +5692,7 @@ private theorem exec_switchCaseBody_nonpayable_args_short_revert_of_shape
       EvmYul.Yul.exec (((fuel + 5) + 1) + suffix.length + 7) (.Block body') (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract (YulTransaction.ofIR tx)
           storage observableSlots switchId nativeSwitchHasSelectorStore) =
-        .error EvmYul.Yul.Exception.Revert := by
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   intro _ suffix _
   rw [hBodyShape]
   have hCalldataLt : 4 + (YulTransaction.ofIR tx).args.length * 32 < 4 + fn.params.length * 32 := by
@@ -5725,15 +5726,15 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       Backends.lowerStmtsNativeWithSwitchIds reservedNames userBodyStart fn.body = .ok (bodyNative, bodyEnd) ∧
       contractDispatcherExecResult (fuel + cases'.length + 24) contract
           (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-        .error EvmYul.Yul.Exception.Revert ∧
-      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) := by
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+      projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) := by
   obtain ⟨reservedNames, n0, cases', body', bodyStart, bodyEnd,
       hCase, hBodyLower, hDispatcherContinuation⟩ :=
     contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_error_projectResult_eq
       (fuel + 5) selector funcs fn inner functions (YulTransaction.ofIR tx)
-      storage initialEvents observableSlots EvmYul.Yul.Exception.Revert
-      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert))
+      storage initialEvents observableSlots (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)))
       hLower hSelector hFind (by simpa [YulTransaction.ofIR_args] using hNoWrap)
       hSelectorRange hFunctionSelectorsRange
   rcases lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_revert_eq
@@ -5769,9 +5770,9 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       (cases'.length + 23 ≤ fuel' →
         contractDispatcherExecResult fuel' contract
             (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert)) := by
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))) := by
   obtain ⟨body1, reservedNames, n0, cases', midN, body', bodyStart, bodyEnd,
       hInner, hLowerCases, hCase, hBodyLower⟩ :=
     buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function funcs inner selector fn hLower hFind
@@ -5808,9 +5809,9 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       (cases'.length + 24 ≤ fuel' →
         contractDispatcherExecResult fuel' contract
             (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert)) := by
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))) := by
   obtain ⟨body1, reservedNames, n0, cases', midN, body', bodyStart, bodyEnd,
       hInner, hLowerCases, hCase, hBodyLower⟩ :=
     buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function funcs inner selector fn hLower hFind
@@ -5848,9 +5849,9 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       (cases'.length + 24 ≤ fuel' →
         contractDispatcherExecResult fuel' contract
             (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert)) := by
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))) := by
   obtain ⟨body1, switchStart, cases', midN, body', bodyStart, bodyEnd,
       hInner, hLowerCases, hCase, hBodyLower⟩ :=
     buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function_withSwitchIds
@@ -5890,9 +5891,9 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       (cases'.length + 23 ≤ fuel' →
         contractDispatcherExecResult fuel' contract
             (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert)) := by
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))) := by
   obtain ⟨body1, switchStart, cases', midN, body', bodyStart, bodyEnd,
       hInner, hLowerCases, hCase, hBodyLower⟩ :=
     buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function_withSwitchIds
@@ -5969,7 +5970,7 @@ private theorem exec_lowered_switchCaseBody_nonpayable_args_short_revert
         EvmYul.Yul.exec (((fuel + 5) + 1) + suffixLen + 7) (.Block body') (some contract)
           (nativeSwitchStoreMarkedPrefixStateForId contract (YulTransaction.ofIR tx) storage
             observableSlots (Backends.freshNativeSwitchId reservedNames switchStart)
-            nativeSwitchHasSelectorStore) = .error EvmYul.Yul.Exception.Revert := by
+            nativeSwitchHasSelectorStore) = .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   rcases lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_revert_eq
       reservedNames bodyStart fn body' bodyEnd hNonPayable hBodyLower with
     ⟨bodyNative, userBodyStart, hBodyShape, hUserBodyLower⟩
@@ -6012,9 +6013,9 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       (cases'.length + 24 ≤ fuel' →
         contractDispatcherExecResult fuel' contract
             (initialState contract (YulTransaction.ofIR tx) storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
-          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error EvmYul.Yul.Exception.Revert)) := by
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
+          projectResult (YulTransaction.ofIR tx) storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty))) := by
   obtain ⟨switchStart, cases', midN, body', bodyStart, bodyEnd, hLowerCases, hCase, hBodyLower, hTagsRange, hPeel⟩ :=
     buildSwitch_noFallback_noReceive_lowered_find_some_withSwitchIds_peel
       reservedNames n0 funcs inner next selector fn hLower hFind hFunctionSelectorsRange
@@ -6029,7 +6030,7 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   exact exec_block_lowerNativeSwitchBlock_selector_find_hit_hasSelectorState_error_projectResult_eq
     (fuel + 5) selector (Backends.freshNativeSwitchId reservedNames switchStart) selector
     cases' [nativeRevertZeroZeroStmt] body' _ (YulTransaction.ofIR tx) storage initialEvents observableSlots
-    EvmYul.Yul.Exception.Revert _ hSelector hCase hSelectorRange hTagsRange
+    (EvmYul.Yul.Exception.Revert ByteArray.empty) _ hSelector hCase hSelectorRange hTagsRange
     (fun _ suffix _ => hExecBody fuel suffix.length _) rfl
 
 /-- Unpacks a lowered `buildSwitch funcs none none` on a selector hit into its cases and peeled execution. -/
@@ -7260,8 +7261,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       Backends.lowerSwitchCasesNativeWithSwitchIds reservedNames
           (Backends.freshNativeSwitchId reservedNames switchStart + 1) (buildSwitchSourceCases funcs) = .ok (cases', midN) ∧
       contractDispatcherExecResult (fuel + cases'.length + 19) contract (initialState contract tx storage observableSlots) =
-        .error EvmYul.Yul.Exception.Revert ∧
-      projectResult tx storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+      projectResult tx storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
         { success := false, returnValue := none, finalStorage := storage,
           finalMappings := Compiler.Proofs.storageAsMappings storage, events := initialEvents } := by
   obtain ⟨body1, switchStart, cases', midN, hInner, hLowerCases⟩ :=
@@ -7296,8 +7297,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
           (Backends.freshNativeSwitchId reservedNames switchStart + 1) (buildSwitchSourceCases funcs) = .ok (cases', midN) ∧
       (cases'.length + 19 ≤ fuel' →
         contractDispatcherExecResult fuel' contract (initialState contract tx storage observableSlots) =
-          .error EvmYul.Yul.Exception.Revert ∧
-        projectResult tx storage initialEvents (.error EvmYul.Yul.Exception.Revert) =
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) ∧
+        projectResult tx storage initialEvents (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)) =
           { success := false, returnValue := none, finalStorage := storage,
             finalMappings := Compiler.Proofs.storageAsMappings storage, events := initialEvents }) := by
   obtain ⟨body1, switchStart, cases', midN, hInner, hLowerCases⟩ :=

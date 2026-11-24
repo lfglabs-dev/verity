@@ -614,7 +614,7 @@ theorem nativeResultsMatchOn_projectResult_revert_of_nonpayable_nonzero
       (.ok
         (Compiler.Proofs.YulGeneration.Backends.Native.projectResult
           (YulTransaction.ofIR tx) state.storage state.events
-          (.error EvmYul.Yul.Exception.Revert))) := by
+          (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)))) := by
   simpa using
     (nativeResultsMatchOn_interpretIR_revert_of_nonpayable_nonzero
       contract tx state observableSlots fn hFind hNonPayable hNonzero)
@@ -638,7 +638,7 @@ theorem nativeResultsMatchOn_projectResult_revert_of_args_short
       (.ok
         (Compiler.Proofs.YulGeneration.Backends.Native.projectResult
           (YulTransaction.ofIR tx) state.storage state.events
-          (.error EvmYul.Yul.Exception.Revert))) := by
+          (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)))) := by
   simpa using
     (nativeResultsMatchOn_interpretIR_revert_of_args_short
       contract tx state observableSlots fn hFind hValue hArgsShort)
@@ -1080,7 +1080,7 @@ private theorem nativeDispatcherExecMatchesIRPositive_of_selector_miss_revert
           nativeContract (YulTransaction.ofIR tx) state.storage
           (Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
             (Compiler.runtimeCode irContract) observableSlots)) =
-        .error EvmYul.Yul.Exception.Revert) :
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty)) :
     nativeDispatcherExecMatchesIRPositive fuel' irContract tx state
       observableSlots nativeContract := by
   unfold nativeDispatcherExecMatchesIRPositive
@@ -5936,13 +5936,13 @@ private theorem contractDispatcherExecResult_selector_hit_revert_of_case_revert
         (nativeSwitchHitMatchedState irContract tx state observableSlots
           (nativeInitPrefixedContract inner functions)
           (freshNativeSwitchId reservedNames switchStart)) =
-      .error EvmYul.Yul.Exception.Revert) :
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty)) :
     Native.contractDispatcherExecResult (nativeRuntimeDispatcherFuel irContract)
       (nativeInitPrefixedContract inner functions)
       (Native.initialState (nativeInitPrefixedContract inner functions)
         (YulTransaction.ofIR tx) state.storage
         (Native.materializedStorageSlots (runtimeCode irContract) observableSlots)) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hSelector : tx.functionSelector =
       (YulTransaction.ofIR tx).functionSelector % Constants.selectorModulus := by
     simpa [YulTransaction.ofIR] using (Nat.mod_eq_of_lt hSelectorRange).symm
@@ -5957,8 +5957,8 @@ private theorem contractDispatcherExecResult_selector_hit_revert_of_case_revert
       tx.functionSelector cases' [Native.nativeRevertZeroZeroStmt] body'
       (nativeInitPrefixedContract inner functions) (YulTransaction.ofIR tx) state.storage state.events
       (Native.materializedStorageSlots (runtimeCode irContract) observableSlots)
-      EvmYul.Yul.Exception.Revert
-      (Native.projectResult (YulTransaction.ofIR tx) state.storage state.events (.error EvmYul.Yul.Exception.Revert))
+      (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (Native.projectResult (YulTransaction.ofIR tx) state.storage state.events (.error (EvmYul.Yul.Exception.Revert ByteArray.empty)))
       hSelector hCase (Nat.lt_trans hSelectorRange (by decide)) hTagsRange hBody rfl
   rw [hFuelShape, show fuel + cases'.length + (k + 20) = (fuel + k) + cases'.length + 20 by omega]
   simpa [nativeInitPrefixedContract, nativeInitFreeMemoryPointerStmt, YulGeneration.selectorExpr] using
@@ -5987,7 +5987,7 @@ private theorem contractDispatcherExecResult_selector_hit_nonpayable_nonzero_rev
       (Native.initialState (nativeInitPrefixedContract inner functions)
         (YulTransaction.ofIR tx) state.storage
         (Native.materializedStorageSlots (runtimeCode irContract) observableSlots)) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   obtain ⟨body1, switchStart, cases', midN, body', bodyStart, bodyEnd, hInner, hLowerCases, hCase, hBodyLower⟩ :=
     Native.buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function_withSwitchIds
       reservedNames 0 irContract.functions inner nextSwitchId tx.functionSelector fn hLowerBlock hFind
@@ -6061,7 +6061,7 @@ private theorem contractDispatcherExecResult_selector_hit_payable_args_short_rev
       cases'.length + 24 ≤ nativeRuntimeDispatcherFuel irContract) :
     Native.contractDispatcherExecResult (nativeRuntimeDispatcherFuel irContract) (nativeInitPrefixedContract inner functions)
       (Native.initialState (nativeInitPrefixedContract inner functions) (YulTransaction.ofIR tx) state.storage
-        (Native.materializedStorageSlots (runtimeCode irContract) observableSlots)) = .error EvmYul.Yul.Exception.Revert := by
+        (Native.materializedStorageSlots (runtimeCode irContract) observableSlots)) = .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   obtain ⟨body1, switchStart, cases', midN, body', bodyStart, bodyEnd, hInner, hLowerCases, hCase, hBodyLower⟩ :=
     Native.buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function_withSwitchIds
       reservedNames 0 irContract.functions inner nextSwitchId tx.functionSelector fn hLowerBlock hFind
@@ -6103,7 +6103,7 @@ private theorem contractDispatcherExecResult_selector_hit_nonpayable_args_short_
       cases'.length + 24 ≤ nativeRuntimeDispatcherFuel irContract) :
     Native.contractDispatcherExecResult (nativeRuntimeDispatcherFuel irContract) (nativeInitPrefixedContract inner functions)
       (Native.initialState (nativeInitPrefixedContract inner functions) (YulTransaction.ofIR tx) state.storage
-        (Native.materializedStorageSlots (runtimeCode irContract) observableSlots)) = .error EvmYul.Yul.Exception.Revert := by
+        (Native.materializedStorageSlots (runtimeCode irContract) observableSlots)) = .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   obtain ⟨body1, switchStart, cases', midN, body', bodyStart, bodyEnd, hInner, hLowerCases, hCase, hBodyLower⟩ :=
     Native.buildSwitch_noFallback_noReceive_lowered_inner_find?_some_of_find_function_withSwitchIds
       reservedNames 0 irContract.functions inner nextSwitchId tx.functionSelector fn hLowerBlock hFind

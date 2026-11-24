@@ -541,13 +541,13 @@ unchanged. Focused command receipts and source hashes are in
 
 ## Blocking issue: the native result loses revert bytes
 
-At the pinned EVMYulLean revision, `EvmYul/Yul/Exception.lean` defines
-`Exception.Revert` with **no payload or state**. More decisively,
-`EvmYul/Semantics.lean:391–394` dispatches Yul `REVERT`, discards the successful
-machine-state result, and returns `.error Yul.Exception.Revert`. Thus distinct
-`Panic(0x11)` and `Panic(0x12)` executions cannot be distinguished from the
-dispatcher result alone. This is an information-loss obstruction to the
-requested exact observable theorem, not an arithmetic proof inconvenience.
+Since lfglabs-dev/EVMYulLean#13 (pinned), Yul `REVERT` throws
+`Exception.Revert data` with the bytes it returns, and a reverted child call
+exposes them as the caller's returndata (#14). The bytes are lost one step later,
+in Verity's projection: distinct `Panic(0x11)` and `Panic(0x12)` executions
+still cannot be distinguished from the projected result. This is an
+information-loss obstruction to the requested exact observable theorem, not an
+arithmetic proof inconvenience.
 
 Verity's current native `projectResult` in
 `Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean`

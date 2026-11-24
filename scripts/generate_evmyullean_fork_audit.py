@@ -49,18 +49,20 @@ FORK_AUDIT = {
     "schema_version": 1,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0",
+    "pinned_commit": "efca6fc7c85b4fc37612c477b43ee601a5c4099d",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 25,
+    "fork_ahead_by": 28,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "The fork has 25 audited commits beyond the recorded upstream base, "
+        "The fork has 28 audited commits beyond the recorded upstream base, "
         "covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM "
         "proof-facing step/block/memory/interpreter/observation layers (#5, "
         "#6, #7, #8, #9, #10), and EVMYulLean 2.0 Waves E1-E4 (BitVec 256, "
         "total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall "
-        "EIP-214/frame fixes), a CI change, and one EVM-conformance fix: the "
-        "Yul RETURNDATACOPY step halts on an out-of-bounds read (EIP-211)."
+        "EIP-214/frame fixes), a CI change, and three EVM-conformance fixes: "
+        "the Yul RETURNDATACOPY step halts on an out-of-bounds read (EIP-211), "
+        "a Yul REVERT carries the bytes it returns (EIP-140), and a reverted "
+        "child call exposes them to the caller (EIP-211), with their tests."
     ),
     "commits": [
         {
@@ -394,6 +396,46 @@ FORK_AUDIT = {
             "diff_summary": "4 files changed, 27 insertions(+), 2 deletions(-).",
             "trust_impact": "Closes a soundness gap: Layer-3 theorems no longer admit runs that a real EVM aborts. Verity proofs that used the unconditional step lemma now carry the in-bounds hypothesis.",
         },
+        {
+            "sha": "cdbb9b8aa1e9afbd30190332fe6d7e57facad48d",
+            "title": "feat(yul): Yul.Exception.Revert carries the bytes REVERT returns (#13)",
+            "file": "EvmYul/Semantics.lean, EvmYul/Yul/Exception.lean, EvmYul/Yul/Interpreter.lean, EvmYul/MetaSpecs/DialectCommutation.lean",
+            "category": "semantic-change",
+            "semantic_change": True,
+            "conformance_fix": {
+                "eip": "EIP-140",
+                "tests": ["yulSemanticsTests test₈"],
+                "upstream_pr": "https://github.com/lfglabs-dev/EVMYulLean/pull/13",
+            },
+            "rationale": "Yul REVERT computed its returned bytes (H_return after evmRevert) and then threw an argument-less Revert, so the bytes were unobservable. Revert now carries them. Control flow is unchanged: every consumer still treats a Revert as a rollback.",
+            "diff_summary": "4 files changed, 10 insertions(+), 8 deletions(-).",
+            "trust_impact": "Adds an observation, removes none: Verity's .Revert matches and revert lemmas state the bytes (native revert(0, 0) returns none from a running state).",
+        },
+        {
+            "sha": "45b9fd069c1f2f9651f95ef2b67edfe05bb4bc78",
+            "title": "fix(yul): a reverted child call exposes its revert data to the caller (#14)",
+            "file": "EvmYul/Yul/Interpreter.lean",
+            "category": "semantic-change",
+            "semantic_change": True,
+            "conformance_fix": {
+                "eip": "EIP-211",
+                "tests": ["yulSemanticsTests test₉"],
+                "upstream_pr": "https://github.com/lfglabs-dev/EVMYulLean/pull/14",
+            },
+            "rationale": "A Yul call whose callee reverted left the caller's returndata empty and its output area untouched, while EvmYul's own EVM CALL (and the EVM) copies the callee's output to the output area and makes it the returndata whether or not the callee reverted. finishChildCallRevert now does the same; a static-mode violation still yields empty returndata.",
+            "diff_summary": "1 file changed, 25 insertions(+), 4 deletions(-).",
+            "trust_impact": "Closes a conformance gap: Layer-3 runs that bubble a callee's revert reason now see its bytes instead of an empty buffer.",
+        },
+        {
+            "sha": "efca6fc7c85b4fc37612c477b43ee601a5c4099d",
+            "title": "test(yul): REVERT returns its memory slice; a reverted child exposes it (#15)",
+            "file": "EvmYul/Yul/YulSemanticsTests/Main.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Test-only: yulSemanticsTests test₈ (REVERT bytes) and test₉ (reverted child call returndata and output area).",
+            "diff_summary": "1 file changed, 19 insertions(+).",
+            "trust_impact": "None: no semantics source changes.",
+        },
     ],
     "audit_methodology": [
         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
@@ -417,10 +459,11 @@ FORK_AUDIT = {
     "trust_boundary": (
         "Verity's effective trust boundary for Yul/EVM semantics is "
         "(upstream NethermindEth/EVMYulLean at commit "
-        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 18 "
-        "visibility/toolchain/merge fork commits enumerated above. None of these "
-        "fork commits touches EVM/Yul execution semantics, so upstream "
-        "Ethereum conformance test coverage applies transitively."
+        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 28 fork commits "
+        "enumerated above. The semantic ones are EVM-conformance fixes (each "
+        "cites its EIP and tests); the others do not touch EVM/Yul execution "
+        "semantics, so upstream Ethereum conformance test coverage applies "
+        "transitively to them."
     ),
 }
 

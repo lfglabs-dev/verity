@@ -2437,13 +2437,14 @@ theorem NativeBlockPreservesWord_revived_nativeRevertZeroZero
   · obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 7 := ⟨fuel - 7, by omega⟩
     have hStmt :
         EvmYul.Yul.exec (n + 6) nativeRevertZeroZeroStmt codeOverride state =
-          .error EvmYul.Yul.Exception.Revert :=
+          .error (EvmYul.Yul.Exception.Revert (nativeRevertZeroZeroData state)) :=
       exec_revert_zero_zero_error n state codeOverride
     have hBlock :
         EvmYul.Yul.exec (Nat.succ (n + 6)) (.Block [nativeRevertZeroZeroStmt])
-          codeOverride state = .error EvmYul.Yul.Exception.Revert :=
+          codeOverride state =
+            .error (EvmYul.Yul.Exception.Revert (nativeRevertZeroZeroData state)) :=
       exec_block_cons_error (n + 6) nativeRevertZeroZeroStmt [] codeOverride
-        state EvmYul.Yul.Exception.Revert hStmt
+        state _ hStmt
     rw [show n + 7 = Nat.succ (n + 6) from rfl, hBlock] at hExec
     cases hExec
 
@@ -8080,16 +8081,17 @@ theorem exec_nativeSwitchCaseIfs_find_none_with_revert_default_fuel
       (.Block
         (nativeSwitchCaseIfs discrName matchedName cases ++
           nativeSwitchDefaultIf matchedName [nativeRevertZeroZeroStmt]))
-      codeOverride state = .error EvmYul.Yul.Exception.Revert := by
+      codeOverride state =
+        .error (EvmYul.Yul.Exception.Revert (nativeRevertZeroZeroData state)) := by
   have hDefaultBody :
       EvmYul.Yul.exec (fuel + 7) (.Block [nativeRevertZeroZeroStmt])
-        codeOverride state = .error EvmYul.Yul.Exception.Revert := by
+        codeOverride state =
+          .error (EvmYul.Yul.Exception.Revert (nativeRevertZeroZeroData state)) := by
     exact exec_block_cons_error (fuel + 6) nativeRevertZeroZeroStmt []
-      codeOverride state EvmYul.Yul.Exception.Revert
-      (exec_revert_zero_zero_error fuel state codeOverride)
+      codeOverride state _ (exec_revert_zero_zero_error fuel state codeOverride)
   exact exec_nativeSwitchCaseIfs_find_none_with_default_nonempty_error_fuel
     fuel selector cases [nativeRevertZeroZeroStmt] codeOverride state
-    discrName matchedName EvmYul.Yul.Exception.Revert hFind hMatched
+    discrName matchedName _ hFind hMatched
     hDiscrSelector hSelectorRange hTagsRange hDefaultBody (by simp)
 
 /-- Selector-miss execution for the generated case chain when no default is
@@ -8448,7 +8450,7 @@ theorem exec_nativeSwitchTail_find_none_with_revert_default_fuel
       (.Block (nativeSwitchTailStmts switchId cases [nativeRevertZeroZeroStmt]))
       (some contract) (nativeSwitchPrefixStateForId contract tx storage
         observableSlots switchId) =
-    .error EvmYul.Yul.Exception.Revert := by
+    .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   let discrName : EvmYul.Identifier := Backends.nativeSwitchDiscrTempName switchId
   let matchedName : EvmYul.Identifier := Backends.nativeSwitchMatchedTempName switchId
   let prefixState :=
@@ -8650,7 +8652,7 @@ theorem exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_fuel
           [nativeRevertZeroZeroStmt])
       (some contract)
       (nativeSwitchInitialOkState contract tx storage observableSlots) =
-    .error EvmYul.Yul.Exception.Revert := by
+    .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   rw [lowerNativeSwitchBlock_selectorExpr_eq_nativeSwitchParts]
   apply exec_nativeSwitchPrefix_then_tail_error_fuel
   exact exec_nativeSwitchTail_find_none_with_revert_default_fuel fuel selector
@@ -8992,18 +8994,20 @@ private theorem exec_if_callvalue_revert_okState_fuel (fuel : Nat)
     (hNe : s.sharedState.executionEnv.weiValue ≠ (⟨0⟩ : EvmYul.Literal)) :
     EvmYul.Yul.exec (fuel + 8)
       (.If (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
-        [nativeRevertZeroZeroStmt]) co s = .error EvmYul.Yul.Exception.Revert := by
+        [nativeRevertZeroZeroStmt]) co s =
+          .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hEval : EvmYul.Yul.eval (fuel + 7)
       (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" [])) co s =
       .ok (s, s.sharedState.executionEnv.weiValue) := by
     have h := eval_lowerExprNative_callvalue_ok_fuel (fuel + 2) s.sharedState s.store co
     rwa [← hOk] at h
   have hBody : EvmYul.Yul.exec (fuel + 7) (.Block [nativeRevertZeroZeroStmt]) co s =
-      .error EvmYul.Yul.Exception.Revert :=
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) :=
     exec_block_cons_error (fuel + 6) nativeRevertZeroZeroStmt [] co s
-      EvmYul.Yul.Exception.Revert (exec_revert_zero_zero_error fuel s co)
+      (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (by rw [exec_revert_zero_zero_error, hOk, nativeRevertZeroZeroData_ok])
   exact exec_if_eval_nonzero_error (fuel + 7) _ [nativeRevertZeroZeroStmt] co s s _
-    EvmYul.Yul.Exception.Revert hEval hNe hBody
+    (EvmYul.Yul.Exception.Revert ByteArray.empty) hEval hNe hBody
 
 /-- Calldata-size guard skip at any `Ok`-shaped native state with enough calldata. -/
 private theorem exec_if_lt_calldatasize_skip_okState_fuel (fuel : Nat)
@@ -9027,7 +9031,7 @@ private theorem exec_if_lt_calldatasize_revert_okState_fuel (fuel : Nat)
     (hLt : s.sharedState.executionEnv.calldata.size < k) :
     EvmYul.Yul.exec (fuel + 9) (.If (Backends.lowerExprNative (Yul.YulExpr.call "lt"
       [Yul.YulExpr.call "calldatasize" [], Yul.YulExpr.lit k]))
-      [nativeRevertZeroZeroStmt]) co s = .error EvmYul.Yul.Exception.Revert := by
+      [nativeRevertZeroZeroStmt]) co s = .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have h := exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel fuel co
     s.sharedState s.store k hSize hKSize hLt
   rwa [← hOk] at h
@@ -9089,7 +9093,7 @@ theorem exec_if_callvalue_take_markedPrefix_nonzero_revert_fuel
         (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract tx storage
           observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   let state :=
     nativeSwitchStoreMarkedPrefixStateForId contract tx storage
       observableSlots switchId store
@@ -9105,18 +9109,19 @@ theorem exec_if_callvalue_take_markedPrefix_nonzero_revert_fuel
   have hBody :
       EvmYul.Yul.exec (fuel + 7) (.Block [nativeRevertZeroZeroStmt])
           (some contract) state =
-        .error EvmYul.Yul.Exception.Revert := by
+        .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
     have hFuel : fuel + 7 = Nat.succ (fuel + 6) := by omega
     rw [hFuel]
     exact exec_block_cons_error (fuel + 6) nativeRevertZeroZeroStmt []
-      (some contract) state EvmYul.Yul.Exception.Revert
-      (exec_revert_zero_zero_error fuel state (some contract))
+      (some contract) state (EvmYul.Yul.Exception.Revert ByteArray.empty)
+      (by rw [exec_revert_zero_zero_error]; simp [state, nativeSwitchStoreMarkedPrefixStateForId,
+        nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState])
   have hFuel : fuel + 8 = Nat.succ (fuel + 7) := by omega
   rw [hFuel]
   exact exec_if_eval_nonzero_error (fuel + 7)
     (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
     [nativeRevertZeroZeroStmt] (some contract) state state
-    (natToUInt256 tx.msgValue) EvmYul.Yul.Exception.Revert
+    (natToUInt256 tx.msgValue) (EvmYul.Yul.Exception.Revert ByteArray.empty)
     hEval (natToUInt256_ne_zero_of_mod_ne tx.msgValue hNonzero) hBody
 
 /-- Selected-switch-state form of the calldata-size guard skip: after the lazy
@@ -9175,7 +9180,7 @@ theorem exec_if_lt_calldatasize_take_markedPrefix_lt_revert_fuel
         (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract tx storage
           observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hSize' :
       (nativeSwitchStoreMarkedPrefixStateForId contract tx storage
         observableSlots switchId store).sharedState.executionEnv.calldata.size <
@@ -9227,7 +9232,7 @@ private theorem exec_switchCaseBody_payable_calldata_revert_okState_fuel (fuel :
     EvmYul.Yul.exec (fuel + 11) (.Block (.Block [] :: .If (Backends.lowerExprNative
       (Yul.YulExpr.call "lt" [Yul.YulExpr.call "calldatasize" [], Yul.YulExpr.lit k]))
       [nativeRevertZeroZeroStmt] :: bodyNative)) co s =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   rw [show fuel + 11 = Nat.succ (Nat.succ (fuel + 9)) by omega, exec_block_noop_block_head_eq]
   exact exec_block_cons_error (fuel + 9) _ _ co s _
     (exec_if_lt_calldatasize_revert_okState_fuel fuel co s k hOk hSize hKSize hLt)
@@ -9244,7 +9249,7 @@ private theorem exec_switchCaseBody_nonpayable_callvalue_revert_okState_fuel (fu
         [nativeRevertZeroZeroStmt] ::
       .If (Backends.lowerExprNative (Yul.YulExpr.call "lt"
         [Yul.YulExpr.call "calldatasize" [], Yul.YulExpr.lit k])) calldataGuardBody ::
-      bodyNative)) co s = .error EvmYul.Yul.Exception.Revert := by
+      bodyNative)) co s = .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   rw [show fuel + 12 = Nat.succ (Nat.succ (fuel + 10)) by omega, exec_block_noop_block_head_eq]
   exact exec_block_cons_error (fuel + 10) _ _ co s _
     (exec_if_callvalue_revert_okState_fuel (fuel + 2) co s hOk hNe)
@@ -9301,7 +9306,7 @@ private theorem exec_switchCaseBody_nonpayable_calldata_revert_okState_fuel (fue
       .If (Backends.lowerExprNative (Yul.YulExpr.call "lt"
         [Yul.YulExpr.call "calldatasize" [], Yul.YulExpr.lit k]))
         [nativeRevertZeroZeroStmt] ::
-      bodyNative)) co s = .error EvmYul.Yul.Exception.Revert := by
+      bodyNative)) co s = .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   rw [exec_switchCaseBody_nonpayable_callvalue_skip_okState_eq fuel _ _ co s hOk hWei]
   exact exec_block_cons_error (fuel + 9) _ _ co s _
     (exec_if_lt_calldatasize_revert_okState_fuel fuel co s k hOk hSize hKSize hLt)
@@ -9407,7 +9412,7 @@ theorem exec_switchCaseBody_payable_calldata_revert_fuel
         (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract tx storage
           observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hFuel : fuel + 11 = Nat.succ (Nat.succ (fuel + 9)) := by omega
   rw [hFuel]
   rw [exec_block_noop_block_head_eq]
@@ -9442,7 +9447,7 @@ theorem exec_switchCaseBody_payable_calldata_revert_postInitFreeMemory_fuel
         (some contract)
         (nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId contract tx
           storage observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   exact exec_switchCaseBody_payable_calldata_revert_okState_fuel fuel bodyNative _ _ k rfl
     (by simpa using hSize) hKSize (by simpa using hLt)
 
@@ -9559,7 +9564,7 @@ theorem exec_switchCaseBody_nonpayable_callvalue_revert_fuel
         (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract tx storage
           observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hFuel : fuel + 12 = Nat.succ (Nat.succ (fuel + 10)) := by omega
   rw [hFuel]
   rw [exec_block_noop_block_head_eq]
@@ -9595,7 +9600,7 @@ theorem exec_switchCaseBody_nonpayable_callvalue_revert_postInitFreeMemory_fuel
         (some contract)
         (nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId contract tx
           storage observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   exact exec_switchCaseBody_nonpayable_callvalue_revert_okState_fuel fuel calldataGuardBody
     bodyNative _ _ k rfl (by simpa using natToUInt256_ne_zero_of_mod_ne tx.msgValue hNonzero)
 
@@ -9630,7 +9635,7 @@ theorem exec_switchCaseBody_nonpayable_calldata_revert_fuel
         (some contract)
         (nativeSwitchStoreMarkedPrefixStateForId contract tx storage
           observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   exact exec_switchCaseBody_nonpayable_calldata_revert_okState_fuel fuel bodyNative _ _ k rfl
     (by simpa using natToUInt256_eq_zero_of_mod_evm tx.msgValue hZero)
     (by simpa using hSize) hKSize (by simpa using hLt)
@@ -9666,7 +9671,7 @@ theorem exec_switchCaseBody_nonpayable_calldata_revert_postInitFreeMemory_fuel
         (some contract)
         (nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId contract tx
           storage observableSlots switchId store) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   exact exec_switchCaseBody_nonpayable_calldata_revert_okState_fuel fuel bodyNative _ _ k rfl
     (by simpa using natToUInt256_eq_zero_of_mod_evm tx.msgValue hZero)
     (by simpa using hSize) hKSize (by simpa using hLt)
@@ -10095,7 +10100,7 @@ theorem exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_store
           [nativeRevertZeroZeroStmt])
       (some contract)
       (.Ok (initialState contract tx storage observableSlots).sharedState store) =
-    .error EvmYul.Yul.Exception.Revert := by
+    .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   let discrName := Backends.nativeSwitchDiscrTempName switchId
   let matchedName := Backends.nativeSwitchMatchedTempName switchId
   have hne := nativeSwitchDiscrTempName_ne_matchedTempName switchId
@@ -10109,7 +10114,7 @@ theorem exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_store
         hSelectorRange hTagsRange
   exact exec_lowerNativeSwitchBlock_storePrefix_tail_error_fuel
     (fuel + cases.length) switchId cases [nativeRevertZeroZeroStmt]
-    contract tx storage observableSlots store EvmYul.Yul.Exception.Revert
+    contract tx storage observableSlots store (EvmYul.Yul.Exception.Revert ByteArray.empty)
     (by simpa [nativeSwitchTailStmts, discrName, matchedName,
         Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hCases)
 
@@ -10295,7 +10300,7 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_hasSelectorState_error
       (some contract)
       ((nativeSwitchInitialOkState contract tx storage observableSlots).insert
           "__has_selector" (EvmYul.UInt256.ofNat 1)) =
-      .error EvmYul.Yul.Exception.Revert := by
+      .error (EvmYul.Yul.Exception.Revert ByteArray.empty) := by
   have hEndpoint :=
     exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_store_fuel
       fuel selector switchId cases contract tx storage observableSlots
@@ -10313,7 +10318,7 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_hasSelectorState_error
     omega
   rw [hFuelEq]
   exact exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
-    EvmYul.Yul.Exception.Revert hEndpoint
+    (EvmYul.Yul.Exception.Revert ByteArray.empty) hEndpoint
 
 /-- Bridge-shape selector-hit endpoint on the post-`__has_selector := 1`
     state, yielding `.error err`. Hit-case dual of

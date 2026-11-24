@@ -4,9 +4,9 @@ open Lake DSL
 package «verity» where
   version := v!"1.0.0"
 
--- Pinned at the merge of the out-of-bounds RETURNDATACOPY halt fix (lfglabs-dev/EVMYulLean#12).
+-- Pinned at the merge of the Yul revert-data fixes and their tests (lfglabs-dev/EVMYulLean#13-#15).
 require evmyul from git
-  "https://github.com/lfglabs-dev/EVMYulLean.git"@"eb0b6ddfab7daacbc3963f8fbb765853fee6ccb0"
+  "https://github.com/lfglabs-dev/EVMYulLean.git"@"efca6fc7c85b4fc37612c477b43ee601a5c4099d"
 
 @[default_target]
 lean_lib «Verity» where
