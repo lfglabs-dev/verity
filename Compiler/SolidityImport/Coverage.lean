@@ -195,6 +195,9 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
   | some (.yulMemoryCall isStatic resultVar) =>
       mod == Compiler.ECM.YulMemoryCall.module isStatic resultVar && args.length == 5 &&
         exprListCovered args
+  | some (.yulMemoryValueCall resultVar) =>
+      mod == Compiler.ECM.YulMemoryValueCall.module resultVar && args.length == 6 &&
+        exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -207,6 +210,7 @@ mutual
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
     | .revertMemory offset size => exprCovered offset && exprCovered size
+    | .returndataCopy dest source size => exprCovered dest && exprCovered source && exprCovered size
     | .ecm mod args => closedTransportCovered mod args
     | .emit _ args => exprListCovered args
     | .stop => true
@@ -465,6 +469,16 @@ theorem execStmt_ecm_yulMemoryCall_arm (oracle : DenoteOracle) (fields : List Fi
     execStmt oracle fields state (.ecm (Compiler.ECM.YulMemoryCall.module isStatic resultVar) args) =
       (match executeByteYulMemoryCall oracle fields state
           (Compiler.ECM.YulMemoryCall.module isStatic resultVar) isStatic resultVar args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed value-transferring memory call arm runs the byte-call adversary after the
+balance check and debit; an instrumentation error is a payload-free `.revert`. -/
+theorem execStmt_ecm_yulMemoryValueCall_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.YulMemoryValueCall.module resultVar) args) =
+      (match executeByteYulMemoryValueCall oracle fields state
+          (Compiler.ECM.YulMemoryValueCall.module resultVar) resultVar args with
        | .ok (outcome, _) => outcome
        | .error _ => .revert) := rfl
 

@@ -37,6 +37,7 @@ def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   | some (.callBytesBool resultVar selector) =>
       mod == Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector
   | some (.yulMemoryCall false resultVar) => mod == Compiler.ECM.YulMemoryCall.module false resultVar
+  | some (.yulMemoryValueCall resultVar) => mod == Compiler.ECM.YulMemoryValueCall.module resultVar
   | _ => false
 
 abbrev isClosedOptionalBoolCall := isClosedLowLevelCall
@@ -233,15 +234,19 @@ def exprStorageFree (expression : Expr) : Bool :=
 abbrev purePostCallExpr := exprStorageFree
 
 /-- Statements allowed after a closed low-level call in a trailing-call body:
-local bindings, memory writes, checks, returns, reverts (including panics of checked
-arithmetic and forwarding the call's return data) and further closed low-level calls,
-none of which reads or writes storage or logs. (A second CALL after the first still
-fails the separate CEI check, since the first CALL is not erased.) A code-hash read is
-not admitted: the call can change the account world it observes (a value transfer
-makes an empty account exist, moving its hash from `0` to `keccak256("")`). -/
+local bindings, memory writes (including copies of the call's return data), checks,
+returns, memory reverts, reverts (including panics of checked arithmetic and forwarding
+the call's return data) and further closed low-level calls, none of which reads or writes
+storage or logs. (A second CALL after the first still fails the separate CEI check, since
+the first CALL is not erased.) A code-hash read is not admitted: the call can change the
+account world it observes (a value transfer makes an empty account exist, moving its hash
+from `0` to `keccak256("")`). -/
 partial def stmtAfterTrailingCall : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .require value _ => exprStorageFree value
   | .mstore offset value => exprStorageFree offset && exprStorageFree value
+  | .returndataCopy dest source size =>
+      exprStorageFree dest && exprStorageFree source && exprStorageFree size
+  | .revertMemory offset size => exprStorageFree offset && exprStorageFree size
   | .requireError condition _ args => exprStorageFree condition && args.all exprStorageFree
   | .ite condition yes no =>
       exprStorageFree condition && yes.all stmtAfterTrailingCall && no.all stmtAfterTrailingCall

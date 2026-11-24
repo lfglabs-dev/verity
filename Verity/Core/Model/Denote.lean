@@ -1747,6 +1747,51 @@ def executeByteYulMemoryCall (oracle : DenoteOracle) (fields : List Field)
     rawReturndata := Option.some observed.returndata
     byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
 
+/-- Inline-assembly or Solidity `call(gas(), target, value, inOffset, inSize, outOffset,
+outSize)` over physical memory, transferring `value` wei. As on the EVM, a call whose value
+exceeds the executing account's balance fails before reaching the target: no account runs,
+the return-data buffer is emptied and `resultVar` is `0`. Otherwise the value is debited
+from `selfBalance` (unchanged for a call to the executing account itself) and the request,
+carrying the value, runs against the byte-call adversary on the debited world. A failed call
+keeps the pre-call world, so the value is refunded. The first `min(outSize,
+returndatasize)` returned or revert bytes are copied to `outOffset` whether or not the call
+succeeds. The target's credit is part of the adversary's committed world. -/
+def executeByteYulMemoryValueCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (resultVar : String)
+    (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.YulMemoryValueCall.module resultVar do
+    throw "closed Yul memory value call metadata differs"
+  let some adversary := state.byteCallAdversary | throw "Yul memory call adversary missing"
+  let some gas := state.byteCallGas | throw "byte call gas environment missing"
+  let some [target, value, inOffset, inSize, outOffset, outSize] :=
+      evalExprList oracle fields state args
+    | throw "Yul memory value call argument evaluation unsupported"
+  if (0 < inSize && yulMemoryCallRangeLimit < inSize + inOffset) ||
+      (0 < outSize && yulMemoryCallRangeLimit < outSize + outOffset) then
+    return (.revertWithData [], [])
+  let before := state.world
+  if before.selfBalance.val < value then
+    return (.continue { state with
+      bindings := bindValue state.bindings resultVar 0
+      rawReturndata := Option.some [] }, [])
+  let paid := if target % 2^160 == before.thisAddress.val then before
+    else { before with selfBalance := before.selfBalance - Verity.Core.Uint256.ofNat value }
+  let request : ByteExternalCall.Request :=
+    { kind := .call, caller := before.thisAddress.val, target := target % 2^160, value, gas,
+      calldata := (List.range inSize).map fun index =>
+        UInt8.ofNat (before.physicalByte (inOffset + index)).val }
+  let observed ← ByteExternalCall.executeChecked adversary request paid
+  let committed := if observed.success then observed.world else before
+  let copied := min outSize observed.returndata.length
+  let world := committed.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+    outOffset 0 copied
+  return (.continue { state with
+    world
+    bindings := bindValue state.bindings resultVar (if observed.success then 1 else 0)
+    rawReturndata := Option.some observed.returndata
+    byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
 /-- The closed `<address>.code` transport, as solc's `external_code_at`: the
 runtime code of the account world (`DenoteExternalCode.accountCode`, target taken
 modulo `2^160`) is copied into a fresh `bytes memory` allocation at the free
@@ -2275,6 +2320,10 @@ mutual
             | .error _ => .revert
         | some (.yulMemoryCall isStatic resultVar) =>
             match executeByteYulMemoryCall oracle fields state mod isStatic resultVar args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.yulMemoryValueCall resultVar) =>
+            match executeByteYulMemoryValueCall oracle fields state mod resultVar args with
             | .ok (outcome, _) => outcome
             | .error _ => .revert
         | none =>
