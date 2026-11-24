@@ -17,7 +17,10 @@ def isScalarParamType : ParamType → Bool
   | ParamType.address | ParamType.bool | ParamType.bytes32 => true
   | _ => false
 
-/-- Statement block emitted for a dynamically encoded external parameter. Public
+/-- Statement block emitted for a dynamically encoded external parameter. The
+head word is bounded before the base offset is added to it, so an offset close
+to `2^256` cannot wrap `add(baseOffset, offset)` back below the arguments. The
+caller's minimum size check guarantees `sizeExpr ≥ baseOffset + 32` here. Public
 so the IR-execution refinement proofs can step through the generated loader
 (verity#2085). -/
 def genDynamicParamLoads
@@ -38,13 +41,13 @@ def genDynamicParamLoads
   let offsetBoundsCheck := YulStmt.if_ (YulExpr.call "lt" [relativeOffset, YulExpr.lit headSize]) [
     YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
   ]
-  let absoluteBoundsCheck := YulStmt.if_ (YulExpr.call "gt" [
-    absoluteOffset,
-    YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
+  let tailBoundsCheck := YulStmt.if_ (YulExpr.call "gt" [
+    relativeOffset,
+    YulExpr.call "sub" [sizeExpr, YulExpr.lit (baseOffset + 32)]
   ]) [
     YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
   ]
-  let preamble := [offsetLoad, offsetBoundsCheck, absoluteOffsetLoad, absoluteBoundsCheck]
+  let preamble := [offsetLoad, offsetBoundsCheck, tailBoundsCheck, absoluteOffsetLoad]
   if isLengthPrefixedDynamicShape ty then
     -- Length-prefixed shape (T[] / bytes / string): the offset points to a
     -- length word, the data starts 32 bytes later.
