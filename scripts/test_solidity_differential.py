@@ -86,6 +86,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "scalar-array-abi-rejections",
     "scoped",
     "selector-responder",
+    "signature-calldata",
+    "signature-calldata-rejections",
     "state-count-invariance",
     "storage-pointer-mapping-helper",
     "storage",

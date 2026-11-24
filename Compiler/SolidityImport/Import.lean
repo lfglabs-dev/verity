@@ -1477,6 +1477,37 @@ private def yulScratchWordAfterMcopy (word : Nat → Expr) (dst src size w : Nat
     | e :: es => es.foldl Expr.bitOr e
   some (.bitOr (.bitAnd (word w) (.literal (2 ^ 256 - 1 - mask))) (.bitAnd copied (.literal mask)))
 
+/-- The `yulNames` key of a `<p>.offset` reference at Yul source position `src`
+(`bindYulExternalConstants`). No Yul identifier contains `@`, so an ordinary identifier
+lookup never sees it. -/
+private def yulCalldataOffsetKey (src : String) : String :=
+  s!"calldata-offset@{src}"
+
+/-- `p.offset`, `add(p.offset, k)` or `add(k, p.offset)` for a root `bytes calldata` parameter
+`p` and a literal `k < 2^64`: the absolute calldata offset that `calldataload` reads. The payload
+starts at `4 + head offset + 32` with a head offset below `2^64`, so the sum neither wraps nor
+reaches the selector bytes `0..3` (where the model's calldata words are not byte exact), and
+`calldataload` zero-pads past the end of calldata on both sides. -/
+private def yulCalldataBytesOffsetRead? (node : Json) : M (Option Expr) := do
+  let offsetOf (n : Json) : M (Option Expr) := do
+    unless optStr n "nodeType" == some "YulIdentifier" do return none
+    let src ← mStr (← mField n "src")
+    return (← get).yulNames.find? (yulCalldataOffsetKey src)
+  if let some base ← offsetOf node then return some base
+  unless (← mKind node) == "YulFunctionCall" do return none
+  unless (← mStr (← mField (← mField node "functionName") "name")) == "add" do return none
+  let args ← mArr (← mField node "arguments")
+  unless args.size == 2 do return none
+  for (baseNode, kNode) in [(args[0]!, args[1]!), (args[1]!, args[0]!)] do
+    if let some base ← offsetOf baseNode then
+      unless optStr kNode "nodeType" == some "YulLiteral" && optStr kNode "kind" == some "number" &&
+          optStr kNode "type" == some "" do return none
+      let raw ← mStr (← mField kNode "value")
+      let some k := Compiler.Hex.parseHexNat? raw <|> raw.toNat? | return none
+      unless k < 2^64 do return none
+      return some (.add base (.literal k))
+  return none
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1568,6 +1599,11 @@ private partial def lowerYul (j : Json) : M Val := do
         -- Expose that bound to the ordinary narrow-assignment checker.
         return { pre := #[.ecm (Compiler.ECM.YulMemoryCall.module isStatic result) xs.toList],
                  expr := .bitAnd (.localVar result) (.literal 1) }
+      if fname == "calldataload" then
+        unless args.size == 1 do failAt j "Yul calldataload expects one argument"
+        let some offset ← yulCalldataBytesOffsetRead? args[0]!
+          | failAt args[0]! "Yul calldataload must read at p.offset or add(p.offset, k) of a root bytes calldata parameter p, with a literal k below 2^64"
+        return { pre := #[], expr := .calldataload offset }
       if fname == "extcodesize" then
         unless args.size == 1 do failAt j "Yul extcodesize expects one argument"
         let target ← lowerYul args[0]!
@@ -9597,6 +9633,17 @@ private partial def bindYulExternalConstants (j : Json) (allowAllStateVarSlots :
                 modify fun e =>
                   { e with yulNames := e.yulNames.insert slotName (.literal info.slot),
                            usedRawStorage := e.usedRawStorage || info.dynamicArrayElemType.isSome }
+      else if let some cb := env.calldataBytes.find? n then
+        -- `<p>.offset` of a root `bytes calldata` parameter: the payload's absolute calldata
+        -- offset, `4 + head offset + 32`, which solc's decoder bounds below `2^64 + 36`. It is
+        -- bound to this reference's source position only, so `lowerYul` admits it as the
+        -- operand of `calldataload` and nowhere else (#2920).
+        if (← mBool (← mField r "isOffset")) && !(← mBool (← mField r "isSlot")) &&
+            optStr r "suffix" == some "offset" && (← mNat (← mField r "valueSize")) == 1 &&
+            !cb.inMemory && cb.offsetBinding != "" && cb.dataBinding != "" then
+          let src ← mStr (← mField r "src")
+          modify fun e =>
+            { e with yulNames := e.yulNames.insert (yulCalldataOffsetKey src) (.localVar cb.dataBinding) }
   return pre
 
 private partial def lowerShortStringAllocAssembly? (declStmt asmStmt : Json) : M (Option (Array Stmt)) := do

@@ -383,6 +383,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'ecrecover')]))
     checks.append(('ecrecover-rejections', ['-m', 'solidity_differential.check_ecrecover_rejections',
         '--output', str(output / 'ecrecover-rejections')]))
+    checks.append(('signature-calldata', ['-m', 'solidity_differential.check_signature_calldata',
+        '--transactions', str(max(200, min(transactions, 240))), '--seed', str(seed),
+        '--output', str(output / 'signature-calldata')]))
+    checks.append(('signature-calldata-rejections', ['-m',
+        'solidity_differential.check_signature_calldata_rejections',
+        '--output', str(output / 'signature-calldata-rejections')]))
     checks.append(('interface-void-call', ['-m', 'solidity_differential.check_interface_void_call',
         '--transactions', str(max(160, min(transactions, 192))), '--seed', str(seed),
         '--output', str(output / 'interface-void-call')]))

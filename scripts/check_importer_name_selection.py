@@ -119,12 +119,12 @@ SOLIDITY_BUILTINS = {
 # EVM dialect builtins of Yul.
 YUL_BUILTINS = {
     "add", "addmod", "address", "and", "balance", "basefee", "byte", "call", "callcode",
-    "calldatacopy", "caller", "chainid", "clz", "codecopy", "create2", "delegatecall", "div", "eq",
-    "exp", "extcodecopy", "extcodesize", "gas", "gasprice", "gt", "invalid", "iszero", "keccak256",
-    "lt", "mcopy", "mload", "mod", "mstore", "mstore8", "mul", "mulmod", "not", "number", "or",
-    "origin", "pop", "return", "returndatacopy", "returndatasize", "revert", "sar", "sdiv",
-    "selfbalance", "sgt", "shl", "shr", "signextend", "sload", "slt", "smod", "sstore",
-    "staticcall", "sub", "timestamp", "tload", "tstore", "xor",
+    "calldatacopy", "calldataload", "caller", "chainid", "clz", "codecopy", "create2",
+    "delegatecall", "div", "eq", "exp", "extcodecopy", "extcodesize", "gas", "gasprice", "gt",
+    "invalid", "iszero", "keccak256", "lt", "mcopy", "mload", "mod", "mstore", "mstore8", "mul",
+    "mulmod", "not", "number", "or", "origin", "pop", "return", "returndatacopy", "returndatasize",
+    "revert", "sar", "sdiv", "selfbalance", "sgt", "shl", "shr", "signextend", "sload", "slt",
+    "smod", "sstore", "staticcall", "sub", "timestamp", "tload", "tstore", "xor",
 }
 # Operators and keys solc writes into the AST JSON (compared as JSON keys or operator words).
 SOLC_JSON_KEYS = {
