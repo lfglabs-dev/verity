@@ -832,10 +832,10 @@ MUTANTS.update({
     'import-struct-hash-domain-sep-cd-bytes-field-len-zero': ('            if mem.calldataLocation then\n              let header ← fresh\n              let length ← fresh\n              let data ← fresh\n              let checks := AbiLowering.calldataBytesFieldHead\n                (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data\n              return .expr { pre := pre ++ checks.toArray, expr := .localVar length }', '            if mem.calldataLocation then\n              let header ← fresh\n              let length ← fresh\n              let data ← fresh\n              let checks := AbiLowering.calldataBytesFieldHead\n                (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data\n              return .expr { pre := pre ++ checks.toArray, expr := .literal 0 }'),
     'import-struct-hash-domain-sep-encoding-custom-revert-guard': ('            if fnHasCustomRevert env targetId && !internalHelper then\n              failAt j "effectful ABI encoding argument is unsupported"', '            if false && fnHasCustomRevert env targetId && !internalHelper then\n              failAt j "effectful ABI encoding argument is unsupported"'),
     'import-abi-decode-verifier-bool-guard-skip': ('  else if ty == "bool" then\n    some (AbiLowering.guard (.lt word (.literal 2)))', '  else if ty == "bool" then\n    none'),
-    'import-abi-decode-verifier-struct-member-offset-zero': ('        for mIdx in [:members.size] do\n          let (mName, mTy) := members[mIdx]!\n          let wordVar ← fresh\n          let off := headCursor + 32 * mIdx', '        for mIdx in [:members.size] do\n          let (mName, mTy) := members[mIdx]!\n          let wordVar ← fresh\n          let off := headCursor'),
+    'import-abi-decode-verifier-struct-member-offset-zero': ('        for mIdx in [:members.size] do\n          let (mName, mTy, enumBound?) := members[mIdx]!\n          let wordVar ← fresh\n          let off := headCursor + 32 * mIdx', '        for mIdx in [:members.size] do\n          let (mName, mTy, enumBound?) := members[mIdx]!\n          let wordVar ← fresh\n          let off := headCursor'),
     'import-abi-decode-verifier-array-copy-skip': ('        let loopBody : List Stmt :=\n          [ .letVar elemVal (readAbiDecodeWord fromCalldata elemAddr) ] ++\n          elemChecks ++\n          [ .mstore (.add (.add (.localVar arrPtr) (.literal 32)) (.mul (.localVar copyIdx) (.literal 32))) (.localVar elemVal) ]\n        pre := pre.push (.forEach copyIdx (.localVar arrLen) loopBody)', '        let loopBody : List Stmt :=\n          [ .letVar elemVal (readAbiDecodeWord fromCalldata elemAddr) ] ++\n          elemChecks ++\n          [ .mstore (.add (.add (.localVar arrPtr) (.literal 32)) (.mul (.localVar copyIdx) (.literal 32))) (.localVar elemVal) ]\n        let _ := (copyIdx, loopBody)'),
     'import-abi-decode-verifier-dynamic-bytes-len-zero': ('        let buf : EncodedBytes := {\n          pre := #[]\n          pointer := .add (.localVar bytesPointer) (.literal 32)\n          size := .localVar byteLen\n        }', '        let buf : EncodedBytes := {\n          pre := #[]\n          pointer := .add (.localVar bytesPointer) (.literal 32)\n          size := .literal 0\n        }'),
-    'import-abi-decode-verifier-struct-enum-member-guard': ('      unless !mTy.startsWith "enum " && (paramType mTy).isSome do\n        failAt mNode s!"unsupported abi.decode struct member type {mTy}"', '      unless (paramType mTy).isSome do\n        failAt mNode s!"unsupported abi.decode struct member type {mTy}"'),
+    'import-abi-decode-enum-struct-member-bound': ('          if let some g := abiDecodeScalarGuard? mTy enumBound? (.localVar wordVar) then', '          if let some g := abiDecodeScalarGuard? mTy none (.localVar wordVar) then'),
     'import-votes-checkpoints-arrays-bitmaps-fnptr-param-branch-invert': ('        modify fun e =>\n          { e with fnPtrs := e.fnPtrs.insert pid ptr }', '        let collapsed := match ptr with | .branch _ t _ => FnPtr.direct t | p => p\n        modify fun e =>\n          { e with fnPtrs := e.fnPtrs.insert pid collapsed }'),
     'import-votes-checkpoints-arrays-bitmaps-discarded-fnptr-skip': ('        else if arity > 1 then\n          let (multiPre, _) ← lowerMultiCall expression\n          return multiPre\n        else\n          let result ← atom (← lowerCall expression)\n          return result.pre', '        else if arity > 1 then\n          let (multiPre, _) ← lowerMultiCall expression\n          return multiPre\n        else\n          let _ ← atom (← lowerCall expression)\n          return #[]'),
     'import-votes-checkpoints-arrays-bitmaps-root-struct-return-zero': ('              for (_, _, valExpr) in memberVals do\n                if env.rootPost.isEmpty then\n                  exprs := exprs.push valExpr', '              for (_, _, valExpr) in memberVals do\n                if env.rootPost.isEmpty then\n                  exprs := exprs.push (.literal 0)'),
@@ -1044,6 +1044,8 @@ def run(directory, output, name):
         fixture = "VotesCheckpointsArraysBitMapsSequence"
     if name.startswith("import-abi-decode-verifier-"):
         fixture = "AbiDecodeAndVerifierSequence"
+    if name.startswith("import-abi-decode-enum-struct-"):
+        fixture = "AbiDecodeEnumStructSequence"
     if name.startswith("import-struct-hash-domain-sep-"):
         fixture = "StructHashAndDomainSeparatorSequence"
     if name.startswith("import-wad-exp-and-three-key-mapping-"):
@@ -1510,6 +1512,11 @@ def run(directory, output, name):
         from solidity_differential.check_storage import PACKED_SIGNED_INT_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, PACKED_SIGNED_INT_PREFIX)])
+    if fixture == 'AbiDecodeEnumStructSequence':
+        # The out-of-range enum words of `suite.py`'s `abi-decode-enum-struct` check.
+        from solidity_differential.check_storage import ABI_DECODE_ENUM_STRUCT_PREFIX
+        argv[argv.index('--transactions') + 1] = '48'
+        argv.extend(['--change-prefix', *map(str, ABI_DECODE_ENUM_STRUCT_PREFIX)])
     if fixture == 'FixedMemoryArraySequence':
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
@@ -1917,19 +1924,6 @@ contract C is Left, Right {
  }
  function checked(uint256 x) external pure returns (uint256) {
   return uint256(keccak256(abi.encodePacked("\\x19\\x01", sep(x))));
- }
-}
-''')
-    elif name == 'import-abi-decode-verifier-struct-enum-member-guard':
-        diagnostic = 'unsupported abi.decode struct member type enum C.Mode'
-        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
-contract C {
- enum Mode { Off, On }
- struct S { Mode m; }
- function checked(uint256 x) external pure returns (uint256) {
-  bytes memory buf = abi.encode(x);
-  S memory s = abi.decode(buf, (S));
-  return uint256(s.m);
  }
 }
 ''')
@@ -2415,7 +2409,6 @@ def mutation_campaign(output, selected=None):
                                   'import-checkpoints-and-struct-arrays-named-ctor-stateful-guard',
                                   'import-wad-exp-and-three-key-mapping-while-neq-zero-low-guard',
                                   'import-struct-hash-domain-sep-encoding-custom-revert-guard',
-                                  'import-abi-decode-verifier-struct-enum-member-guard',
                                   'import-votes-checkpoints-arrays-bitmaps-reassigned-fnptr-param-guard',
                                   'import-public-getters-and-builtins-string-helper-always-reverts-guard',
                                   'import-ecrecover-authorizer-arrays-map-storage-ptr-statevar-slot-guard',

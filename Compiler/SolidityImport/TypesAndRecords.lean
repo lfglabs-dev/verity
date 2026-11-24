@@ -289,7 +289,8 @@ structure SrcParam where
 
 inductive AbiDecodeTypeItem where
   | scalar (ty : String) (pty : ParamType) (enumBound? : Option Nat)
-  | flatStruct (sid : Nat) (sName : String) (members : Array (String × String))
+  /-- A flat static struct: each member's name, type and, for an `enum`, its member count. -/
+  | flatStruct (sid : Nat) (sName : String) (members : Array (String × String × Option Nat))
   | scalarArray (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind)
   | dynamicBytes (isString : Bool)
   /-- A struct with dynamic array members, decoded from memory by `AbiMemoryDecode`. -/
