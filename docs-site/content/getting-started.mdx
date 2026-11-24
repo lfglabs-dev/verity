@@ -25,7 +25,7 @@ Have existing Solidity? You only need Git, Python 3, `elan` and the pinned impor
 | [Foundry](https://book.getfoundry.sh/getting-started/installation) | Solidity/EVM test runner | Differential and Foundry property tests |
 | [`solc`](https://docs.soliditylang.org/en/latest/installing-solidity.html) 0.8.33+ | System Solidity compiler | Native compiler differential tests (separate from `solidity_import`) |
 
-> **Pinned `solc` for `solidity_import` vs system `solc`:** The automatic Solidity importer uses its own checksum-verified binaries under `.lake/solidity-import/` (installed via `python3 scripts/setup_solc_import.py --version 0.8.34`, or `--all` to also fetch `0.8.28`, `0.8.26` and `0.8.10` on Linux/macOS x86-64). For Foundry differential tests on native Verity contracts, install a system `solc` 0.8.33+ separately (for example via [`solc-select`](https://github.com/crytic/solc-select) or `brew install solidity`).
+> **Pinned `solc` for `solidity_import` vs system `solc`:** The automatic Solidity importer uses its own checksum-verified binaries under `.lake/solidity-import/` (installed via `python3 scripts/setup_solc_import.py --version 0.8.34`, or `--all` to also fetch `0.8.28`, `0.8.26`, `0.8.10` and `0.7.6` on Linux/macOS x86-64). For Foundry differential tests on native Verity contracts, install a system `solc` 0.8.33+ separately (for example via [`solc-select`](https://github.com/crytic/solc-select) or `brew install solidity`).
 
 ## 1. Install Lean 4
 
