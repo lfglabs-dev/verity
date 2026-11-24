@@ -52,6 +52,9 @@ structure IRState where
   codeSize : Nat → Nat := fun _ => 0
   /-- EIP-211 returndata buffer, as 32-byte words. -/
   returndata : List Nat := []
+  /-- Bytes passed to the `revert(offset, size)` that ended execution; `[]` until then.
+      Other reverting paths (exceptional halts) leave it `[]`, as the EVM returns no data. -/
+  revertData : List UInt8 := []
   deriving Nonempty
 
 /-- Initial state for IR execution. -/
@@ -97,8 +100,53 @@ def IRState.writePhysicalMemoryValue (state : IRState) (offset value : Nat) : IR
 @[simp] theorem IRState.writePhysicalMemoryValue_events (state : IRState) (offset value : Nat) :
     (state.writePhysicalMemoryValue offset value).events = state.events := rfl
 
+@[simp] theorem IRState.writePhysicalMemoryValue_revertData (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).revertData = state.revertData := rfl
+
 @[simp] theorem IRState.writePhysicalMemoryValue_vars (state : IRState) (offset value : Nat) :
     (state.writePhysicalMemoryValue offset value).vars = state.vars := rfl
+
+/-- `size` bytes of physical memory from `offset` (`Memory.slice`), as `UInt8`. -/
+def revertBytes (memory : Memory) (offset size : Nat) : List UInt8 :=
+  (memory.slice offset size).map fun byte => UInt8.ofNat byte.val
+
+@[simp] theorem length_revertBytes (memory : Memory) (offset size : Nat) :
+    (revertBytes memory offset size).length = size := by
+  simp [revertBytes, Memory.slice]
+
+/-- The state at `revert(offset, size)`: records the returned bytes of physical memory.
+    `revert(_, 0)` leaves the state unchanged: its data is `[]`, which `revertData` already
+    is until execution ends. -/
+def IRState.recordRevert (state : IRState) (offset size : Nat) : IRState :=
+  if size = 0 then state else { state with revertData := revertBytes state.byteMemory offset size }
+
+@[simp] theorem IRState.recordRevert_zero (state : IRState) (offset : Nat) :
+    state.recordRevert offset 0 = state := rfl
+
+@[simp] theorem IRState.recordRevert_storage (state : IRState) (offset size : Nat) :
+    (state.recordRevert offset size).storage = state.storage := by
+  unfold IRState.recordRevert; split <;> rfl
+
+@[simp] theorem IRState.recordRevert_events (state : IRState) (offset size : Nat) :
+    (state.recordRevert offset size).events = state.events := by
+  unfold IRState.recordRevert; split <;> rfl
+
+@[simp] theorem IRState.recordRevert_vars (state : IRState) (offset size : Nat) :
+    (state.recordRevert offset size).vars = state.vars := by
+  unfold IRState.recordRevert; split <;> rfl
+
+@[simp] theorem IRState.recordRevert_memory (state : IRState) (offset size : Nat) :
+    (state.recordRevert offset size).memory = state.memory := by
+  unfold IRState.recordRevert; split <;> rfl
+
+@[simp] theorem IRState.recordRevert_byteMemory (state : IRState) (offset size : Nat) :
+    (state.recordRevert offset size).byteMemory = state.byteMemory := by
+  unfold IRState.recordRevert; split <;> rfl
+
+theorem IRState.recordRevert_revertData (state : IRState) (offset size : Nat)
+    (hsize : size ≠ 0) :
+    (state.recordRevert offset size).revertData = revertBytes state.byteMemory offset size := by
+  simp [IRState.recordRevert, hsize]
 
 /-- Lookup variable in state. -/
 def IRState.getVar (s : IRState) (name : String) : Option Nat :=
@@ -133,5 +181,7 @@ structure IRResult where
   finalStorage : IRStorageSlot → IRStorageWord
   finalMappings : Nat → Nat → IRStorageWord
   events : List (List Nat)
+  /-- Returndata of a reverted execution (`[]` on success). -/
+  revertData : List UInt8 := []
 
 end Compiler.Proofs.IRGeneration

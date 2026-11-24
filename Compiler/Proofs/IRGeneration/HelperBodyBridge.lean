@@ -19,8 +19,8 @@ def internalHelperBodyIRExecResultAsCallResult
       .stop (restoreCallerVars callerState finalState)
   | .return value finalState =>
       .return value (restoreCallerVars callerState finalState)
-  | .revert _ =>
-      .revert callerState
+  | .revert finalState =>
+      .revert { callerState with revertData := finalState.revertData }
 
 /-- N1a helper-body bridge: executing the compiled helper through
 `execIRInternalFunctionWithInternals` unfolds to the helper-body execution that

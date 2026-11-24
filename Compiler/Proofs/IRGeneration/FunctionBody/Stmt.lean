@@ -2624,8 +2624,11 @@ private theorem execIRStmts_revertPrefix_then_revert
   | succ fuel ih =>
       cases prefixStmts with
       | nil =>
-          refine ⟨state, ?_⟩
-          cases fuel <;> simp [execIRStmts, execIRStmt]
+          cases fuel with
+          | zero => exact ⟨state, by simp [execIRStmts, execIRStmt]⟩
+          | succ fuel =>
+              exact ⟨state.recordRevert (Verity.Core.Uint256.ofNat offset).val size,
+                by simp [execIRStmts, execIRStmt, evalIRExpr]⟩
       | cons stmt rest =>
           have hstmtPred : RevertPrefixStmt stmt := hprefix stmt (by simp)
           cases fuel with
@@ -5102,12 +5105,13 @@ def irResultOfExecResult (rollback : IRState) : IRExecResult → IRResult
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
+  | .revert s =>
       { success := false
         returnValue := none
         finalStorage := rollback.storage
         finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
-        events := rollback.events }
+        events := rollback.events
+        revertData := s.revertData }
 
 def irResultOfExecResultWithInternals (rollback : IRState) : IRExecResultWithInternals → IRResult
   | .continue s =>
@@ -5134,12 +5138,13 @@ def irResultOfExecResultWithInternals (rollback : IRState) : IRExecResultWithInt
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
+  | .revert s =>
       { success := false
         returnValue := none
         finalStorage := rollback.storage
         finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
-        events := rollback.events }
+        events := rollback.events
+        revertData := s.revertData }
 
 theorem stmtResultToSourceResult_matches_irExecResult
     (spec : CompilationModel)

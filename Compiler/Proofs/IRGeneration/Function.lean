@@ -171,12 +171,13 @@ def execResultToIRResult (initialState : IRState) : IRExecResult → IRResult
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
+  | .revert s =>
       { success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
-        events := initialState.events }
+        events := initialState.events
+        revertData := s.revertData }
 
 theorem compileFunctionSpec_ok_of_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -486,10 +487,10 @@ theorem execIRFunction_revert_of_bind_none
     (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hlen : params.length ≤ state.calldata.length)
     (hnone : SourceSemantics.bindSupportedParams params state.calldata = none) :
-    execIRFunction irFn state.calldata state =
+    ∃ data, execIRFunction irFn state.calldata state =
       { success := false, returnValue := none, finalStorage := state.storage
         finalMappings := Compiler.Proofs.storageAsMappings state.storage
-        events := state.events } := by
+        events := state.events, revertData := data } := by
   obtain ⟨extraFuel, hfuel⟩ := body_fuel_eq_extraFuel (genParamLoads params) rest
   obtain ⟨reverted, hexec⟩ := ParamLoading.exec_genParamLoads_supported_revert
     (prebindRawArgs state params) params rest extraFuel hsupported
@@ -498,6 +499,7 @@ theorem execIRFunction_revert_of_bind_none
       List.foldl (fun s x => s.setVar x.1.name x.2) state
         ((List.map Param.toIRParam params).zip state.calldata) =
         prebindRawArgs state params := rfl
+  refine ⟨reverted.revertData, ?_⟩
   unfold execIRFunction
   rw [hparams, hbody, hfuel]
   dsimp only
@@ -532,10 +534,10 @@ theorem execIRFunctionWithInternals_revert_of_bind_none
     (hnone : SourceSemantics.bindSupportedParams params state.calldata = none)
     (hparamDisjoint :
       YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params)) :
-    execIRFunctionWithInternals runtimeContract helperFuel irFn state.calldata state =
+    ∃ data, execIRFunctionWithInternals runtimeContract helperFuel irFn state.calldata state =
       { success := false, returnValue := none, finalStorage := state.storage
         finalMappings := Compiler.Proofs.storageAsMappings state.storage
-        events := state.events } := by
+        events := state.events, revertData := data } := by
   obtain ⟨extraFuel, hfuel⟩ := body_fuel_eq_extraFuel (genParamLoads params) rest
   obtain ⟨reverted, hexec⟩ := ParamLoading.exec_genParamLoads_supported_revert
     (prebindRawArgs state params) params [] (rest.length + extraFuel + helperFuel)
@@ -550,6 +552,7 @@ theorem execIRFunctionWithInternals_revert_of_bind_none
       List.foldl (fun s x => s.setVar x.1.name x.2) state
         ((List.map Param.toIRParam params).zip state.calldata) =
         prebindRawArgs state params := rfl
+  refine ⟨reverted.revertData, ?_⟩
   unfold execIRFunctionWithInternals
   rw [hparams, hbody, hfuel]
   dsimp only

@@ -3,8 +3,9 @@ import Compiler.SolidityImport.Transactions
 
 /-!
 Direct empty-revert equations, independent of the contents of EIP-211's buffer.
-The IR interpreter observes reverted status; Denote and the transaction frame
-retain the exact zero-byte payload. These equations do not establish the
+The IR interpreter observes reverted status and leaves `revertData` unchanged
+(`revert(_, 0)` returns no byte); Denote and the transaction frame retain the
+exact zero-byte payload. These equations do not establish the
 unfinished general byte-call SourceSemantics/Denote agreement.
 -/
 namespace Compiler.Proofs.IRGeneration.EmptyRevert
@@ -28,7 +29,8 @@ theorem source_exact (fields : List Field) (state : SourceSemantics.RuntimeState
 theorem ir_exact (state : IRState) (extraFuel : Nat) :
     execIRStmts (Nat.succ (Nat.succ extraFuel)) state
       [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] =
-      .revert state := rfl
+      .revert state := by
+  simp [execIRStmts, execIRStmt]
 
 /-- No memory, returndata or environmental premise is needed for exact bytes. -/
 theorem denote_exact (oracle : Denote.DenoteOracle) (fields : List Field)

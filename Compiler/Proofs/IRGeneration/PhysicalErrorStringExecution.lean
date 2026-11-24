@@ -34,7 +34,8 @@ theorem shape (message : String) :
 
 theorem execute (message : String) (state : IRState) (fuel : Nat) :
     execIRStmts ((writes message).length + fuel + 2) state (revertWithMessage message) =
-      .revert (applyStores state (writes message)) := by
+      .revert ((applyStores state (writes message)).recordRevert
+        0 (68 + ((bytesFromString message).length + 31) / 32 * 32)) := by
   rw [shape]
   exact exec_trace_revert (trace message) state fuel _ _
 

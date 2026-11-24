@@ -58,12 +58,13 @@ def execIRFunctionFuel
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
+  | .revert s =>
       { success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
-        events := initialState.events }
+        events := initialState.events
+        revertData := s.revertData }
 
 def execIRFunctionFuel_adequate_goal
     (fn : IRFunction) (args : List Nat) (initialState : IRState) : Prop :=

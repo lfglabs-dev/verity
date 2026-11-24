@@ -92,7 +92,8 @@ theorem exec_stores_revert (writes : List (Nat × Nat)) (state : IRState)
     (fuel offset size : Nat) :
     execIRStmts (writes.length + fuel + 2) state
       (stores writes ++ [.exprStmt (.call "revert" [.lit offset, .lit size])]) =
-      .revert (applyStores state writes) := by
+      .revert ((applyStores state writes).recordRevert
+        (Verity.Core.Uint256.ofNat offset).val size) := by
   induction writes generalizing state with
   | nil => simp only [stores, List.map_nil, List.nil_append, List.length_nil,
                      Nat.zero_add, applyStores, execIRStmts, execIRStmt, evalIRExpr]
@@ -117,7 +118,8 @@ theorem exec_trace_revert {statements writes} (trace : StoreTrace statements wri
     (state : IRState) (fuel offset size : Nat) :
     execIRStmts (writes.length + fuel + 2) state
       (statements ++ [.exprStmt (.call "revert" [.lit offset, .lit size])]) =
-      .revert (applyStores state writes) := by
+      .revert ((applyStores state writes).recordRevert
+        (Verity.Core.Uint256.ofNat offset).val size) := by
   induction trace generalizing state with
   | nil => simp only [List.nil_append, List.length_nil, Nat.zero_add, applyStores,
                      execIRStmts, execIRStmt, evalIRExpr]

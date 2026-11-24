@@ -507,8 +507,8 @@ def execIRInternalFunctionWithInternals
             .stop (restoreCallerVars callerState finalState)
         | .return value finalState =>
             .return value (restoreCallerVars callerState finalState)
-        | .revert _ =>
-            .revert callerState
+        | .revert finalState =>
+            .revert { callerState with revertData := finalState.revertData }
       else
         .revert callerState
 termination_by fuel => (fuel, 0)
@@ -704,7 +704,8 @@ def execIRStmtWithInternals
           | .call "stop" [] => .stop state
           | .call "revert" [offsetExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, sizeExpr] with
-              | .values [_, _] state' => .revert state'
+              | .values [offset, size] state' =>
+                  .revert (state'.recordRevert (Verity.Core.Uint256.ofNat offset).val size)
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
@@ -1023,7 +1024,11 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
                 else .revert state
               | _, _, _ => .revert state
           | .call "stop" [] => .stop state
-          | .call "revert" [_, _] => .revert state
+          | .call "revert" [offsetExpr, sizeExpr] =>
+              match evalIRExpr state offsetExpr, evalIRExpr state sizeExpr with
+              | some offset, some size =>
+                .revert (state.recordRevert (Verity.Core.Uint256.ofNat offset).val size)
+              | _, _ => .revert state
           | .call "return" [offsetExpr, sizeExpr] =>
               match evalIRExpr state offsetExpr, evalIRExpr state sizeExpr with
               | some offset, some size =>
@@ -2157,13 +2162,14 @@ noncomputable def execIRFunction (fn : IRFunction) (args : List Nat) (initialSta
       finalStorage := s.storage
       finalMappings := Compiler.Proofs.storageAsMappings s.storage
       events := s.events }
-  | .revert _ =>
+  | .revert s =>
     { success := false
       returnValue := none
       -- On revert, storage and mappings roll back to the initial state
       finalStorage := initialState.storage
       finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
-      events := initialState.events }
+      events := initialState.events
+      revertData := s.revertData }
 
 -- A3 — option (b): The plan describes A3 as "for `fn.returnVars = []`, the
 -- function-return extraction over `.continue state'` is a no-op (`=
@@ -2227,12 +2233,13 @@ noncomputable def execIRFunctionWithInternals
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
+  | .revert s =>
       { success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
-        events := initialState.events }
+        events := initialState.events
+        revertData := s.revertData }
 
 /-- Interpret an entire IR contract execution -/
 noncomputable def interpretIR (contract : IRContract) (tx : IRTransaction) (initialState : IRState) : IRResult :=
@@ -4743,8 +4750,8 @@ theorem execIRInternalFunctionWithInternals_succ_of_params_match
           .stop (restoreCallerVars callerState finalState)
       | .return value finalState =>
           .return value (restoreCallerVars callerState finalState)
-      | .revert _ =>
-          .revert callerState := by
+      | .revert finalState =>
+          .revert { callerState with revertData := finalState.revertData } := by
   simp only [execIRInternalFunctionWithInternals, if_pos hlen]
 
 /-- If the prepared helper body continues, internal-helper execution returns
@@ -6051,5 +6058,26 @@ private theorem find_filter_bne_eq (vars : List (String × Nat)) {x y : String}
 @[simp] theorem execIRStmtsCanonical_nil (fuel : Nat) (state : IRState) :
     execIRStmtsCanonical fuel state [] = .continue state :=
   execIRStmtsWithInternals_nil emptyInternalsIRContract fuel state
+
+
+/-- The state `execIRStmt fuel state (revert(offset, size))` reverts with: the
+returned bytes are recorded when both arguments evaluate (`IRState.recordRevert`). -/
+def revertCallState : Nat → IRState → YulExpr → YulExpr → IRState
+  | 0, state, _, _ => state
+  | _ + 1, state, offset, size =>
+      match evalIRExpr state offset, evalIRExpr state size with
+      | some offset, some size => state.recordRevert (Verity.Core.Uint256.ofNat offset).val size
+      | _, _ => state
+
+/-- A `revert` expression statement reverts at every fuel value, including the
+out-of-fuel case. -/
+theorem execIRStmt_revertCall (fuel : Nat) (state : IRState) (offset size : YulExpr) :
+    execIRStmt fuel state (.exprStmt (.call "revert" [offset, size])) =
+      .revert (revertCallState fuel state offset size) := by
+  cases fuel with
+  | zero => simp [execIRStmt, revertCallState]
+  | succ fuel =>
+      simp only [execIRStmt, revertCallState]
+      split <;> rfl
 
 end Compiler.Proofs.IRGeneration
