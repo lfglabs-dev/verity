@@ -1041,47 +1041,71 @@ SPEC['expected_downloaded_artifacts'] = _insert_after(
 SPEC['expected_downloaded_artifact_paths'] = _insert_after(
     SPEC['expected_downloaded_artifact_paths'], 'import-mutations', 'importer-differential', [None])
 
-# Runner router: `route` (ubuntu-latest) picks build-medium or lean-8vcpu at run
-# time for the jobs both pools can run, so they stop queueing behind the three
-# build-medium hosts. ROUTED_RUNS_ON is the only runs-on those jobs may use.
-ROUTED_RUNS_ON = '${{ fromJSON(needs.route.outputs.runs_on) }}'
-ROUTED_RUNNER_JOBS = ['build-audits', 'import-mutations', 'compiler-audits',
-                      'foundry-gas-calibration', 'foundry', 'foundry-patched',
-                      'foundry-multi-seed']
-SPEC['routed_runs_on'] = ROUTED_RUNS_ON
-SPEC['routed_runner_jobs'] = list(ROUTED_RUNNER_JOBS)
-SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index('changes') + 1, 'route')
-SPEC['expected_job_needs'] = _insert_after(SPEC['expected_job_needs'], 'changes', 'route', ['changes'])
-SPEC['expected_job_runs_on'] = _insert_after(SPEC['expected_job_runs_on'], 'changes', 'route', 'ubuntu-latest')
-SPEC['expected_job_timeouts'] = _insert_after(SPEC['expected_job_timeouts'], 'changes', 'route', 5)
-SPEC['expected_job_permissions'] = _insert_after(
-    SPEC['expected_job_permissions'], 'closed-pr-cleanup', 'route', {'actions': 'read'})
-SPEC['expected_job_outputs']['route'] = {
-    'runs_on': '${{ steps.route.outputs.runs_on }}',
-    'on_lean': '${{ steps.route.outputs.on_lean }}',
-    'pool': '${{ steps.route.outputs.pool }}',
+# Runner routers: `route-build` (after `build`) and `route-compiler` (after
+# `build-compiler-binaries`) run scripts/ci_route_pools.py on ubuntu-latest right
+# before their job groups fan out, and pick build-medium while it has free slots
+# for the group, else lean-8vcpu. ROUTED_RUNS_ON[job] is the only runs-on a
+# routed job may use, and the job must need the router it names.
+ROUTERS = {
+    'route-build': ('build', 'after build',
+                    [('build-audits', '1'), ('import-mutations', '24')]),
+    'route-compiler': ('build-compiler-binaries', 'after build-compiler-binaries',
+                       [('compiler-audits', '1'), ('foundry-gas-calibration', '1'),
+                        ('foundry', '4/2'), ('foundry-patched', '1'),
+                        ('foundry-multi-seed', '7/1')]),
 }
+ROUTER_OF = {job: router for router, (_, _, groups) in ROUTERS.items() for job, _ in groups}
+
+
+def _route_output(job, field):
+    return f"needs.{ROUTER_OF[job]}.outputs.{job.replace('-', '_')}_{field}"
+
+
+ROUTED_RUNS_ON = {job: '${{ fromJSON(' + _route_output(job, 'runs_on') + ') }}'
+                  for job in ROUTER_OF}
+ROUTED_RUNNER_JOBS = list(ROUTER_OF)
+SPEC['routed_runs_on'] = dict(ROUTED_RUNS_ON)
+SPEC['routed_runner_jobs'] = list(ROUTED_RUNNER_JOBS)
 SPEC['expected_workflow_env']['VERIFY_ROUTE_POOLS_DEFAULT'] = (
     '[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],'
-    '"max_queue":6},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]')
+    '"slots":3},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]')
+for _router, (_after, _title, _groups) in ROUTERS.items():
+    _first = _groups[0][0]
+    SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index(_first), _router)
+    SPEC['expected_job_needs'] = _insert_before(SPEC['expected_job_needs'], _first, _router, [_after])
+    SPEC['expected_job_runs_on'] = _insert_before(
+        SPEC['expected_job_runs_on'], _first, _router, 'ubuntu-latest')
+    SPEC['expected_job_timeouts'] = _insert_before(SPEC['expected_job_timeouts'], _first, _router, 5)
+    SPEC['expected_job_permissions'] = _insert_before(
+        SPEC['expected_job_permissions'], 'failure-hints',
+        _router, {'actions': 'read', 'contents': 'read'})
+    SPEC['expected_job_outputs'][_router] = {
+        f"{job.replace('-', '_')}_{field}":
+            '${{ steps.route.outputs.' + f"{job.replace('-', '_')}_{field}" + ' }}'
+        for job, _ in _groups for field in ('runs_on', 'on_lean')
+    }
+    SPEC['expected_step_contracts'][_router] = [
+        {'uses': 'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803',
+         'with': {'persist-credentials': 'false', 'sparse-checkout-cone-mode': 'false'}},
+        {'id': 'route', 'name': 'Choose runner pools',
+         'env': {'GH_TOKEN': '${{ github.token }}', 'REPO': '${{ github.repository }}',
+                 'RUNNER_ROUTE': "${{ inputs.runner_route || 'auto' }}",
+                 'ROUTE_POOLS': '${{ vars.ROUTE_POOLS }}'},
+         'run': f'python3 scripts/ci_route_pools.py --title "{_title}" \\\n'
+                + ' \\\n'.join(f'  --group {job}={count}' for job, count in _groups)},
+    ]
 for _job in ROUTED_RUNNER_JOBS:
-    SPEC['expected_job_needs'][_job].insert(1, 'route')
-    SPEC['expected_job_runs_on'][_job] = ROUTED_RUNS_ON
-SPEC['expected_job_needs']['ci-gate'].insert(1, 'route')
+    SPEC['expected_job_needs'][_job].insert(1, ROUTER_OF[_job])
+    SPEC['expected_job_runs_on'][_job] = ROUTED_RUNS_ON[_job]
+SPEC['expected_job_needs']['ci-gate'][1:1] = list(ROUTERS)
 # build-medium keeps main's matrix throttles; lean.ci runs every shard at once.
 SPEC['expected_job_strategy_max_parallel']['foundry'] = (
-    "${{ needs.route.outputs.on_lean == 'true' && 4 || 2 }}")
+    "${{ " + _route_output('foundry', 'on_lean') + " == 'true' && 4 || 2 }}")
 SPEC['expected_job_strategy_max_parallel']['foundry-multi-seed'] = (
-    "${{ needs.route.outputs.on_lean == 'true' && 7 || 1 }}")
-SPEC['expected_step_contracts']['route'] = [
-    {'id': 'route', 'name': 'Choose runner pool',
-     'env': {'GH_TOKEN': '${{ github.token }}', 'REPO': '${{ github.repository }}',
-             'RUNNER_ROUTE': "${{ inputs.runner_route || 'auto' }}",
-             'ROUTE_POOLS': '${{ vars.ROUTE_POOLS }}'}},
-]
+    "${{ " + _route_output('foundry-multi-seed', 'on_lean') + " == 'true' && 7 || 1 }}")
 SPEC['expected_step_contracts']['build-audits'].insert(0, {
     'name': 'Cap Lean threads on build-medium',
-    'if': "needs.route.outputs.on_lean != 'true'",
+    'if': _route_output('build-audits', 'on_lean') + " != 'true'",
     'run': 'echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"',
 })
 # Lake parallelism follows the VM's memory on lean.ci (3 GiB per Lean/clang
@@ -1096,6 +1120,6 @@ for _job in ('build', 'build-compiler-binaries', 'compiler-regressions', 'lean-p
 for _job in ('build-audits', 'compiler-audits'):
     SPEC['expected_step_contracts'][_job].append({
         'name': 'Bound Lean threads by VM memory',
-        'if': "needs.route.outputs.on_lean == 'true'",
+        'if': _route_output(_job, 'on_lean') + " == 'true'",
         'run': 'scripts/ci_lean_threads.sh',
     })

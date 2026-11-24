@@ -78,14 +78,15 @@
   "expected_jobs": [
     "closed-pr-cleanup",
     "changes",
-    "route",
     "checks",
     "timeout-watchdog",
     "build",
+    "route-build",
     "build-audits",
     "import-mutations",
     "importer-differential",
     "build-compiler-binaries",
+    "route-compiler",
     "compiler-audits",
     "compiler-regressions",
     "lean-profile",
@@ -115,9 +116,6 @@
   "expected_job_needs": {
     "closed-pr-cleanup": [],
     "changes": [],
-    "route": [
-      "changes"
-    ],
     "checks": [
       "changes"
     ],
@@ -128,9 +126,12 @@
       "changes",
       "checks"
     ],
+    "route-build": [
+      "build"
+    ],
     "build-audits": [
       "changes",
-      "route",
+      "route-build",
       "checks",
       "build"
     ],
@@ -139,9 +140,12 @@
       "checks",
       "build"
     ],
+    "route-compiler": [
+      "build-compiler-binaries"
+    ],
     "compiler-audits": [
       "changes",
-      "route",
+      "route-compiler",
       "checks",
       "build",
       "build-compiler-binaries"
@@ -158,22 +162,22 @@
     ],
     "foundry-gas-calibration": [
       "changes",
-      "route",
+      "route-compiler",
       "build-compiler-binaries"
     ],
     "foundry": [
       "changes",
-      "route",
+      "route-compiler",
       "build-compiler-binaries"
     ],
     "foundry-patched": [
       "changes",
-      "route",
+      "route-compiler",
       "build-compiler-binaries"
     ],
     "foundry-multi-seed": [
       "changes",
-      "route",
+      "route-compiler",
       "build-compiler-binaries"
     ],
     "failure-hints": [
@@ -192,13 +196,14 @@
     ],
     "import-mutations": [
       "changes",
-      "route",
+      "route-build",
       "checks",
       "build"
     ],
     "ci-gate": [
       "changes",
-      "route",
+      "route-build",
+      "route-compiler",
       "checks",
       "build",
       "build-audits",
@@ -241,33 +246,35 @@
   "expected_job_runs_on": {
     "closed-pr-cleanup": "ubuntu-latest",
     "changes": "ubuntu-latest",
-    "route": "ubuntu-latest",
     "checks": "ubuntu-latest",
     "timeout-watchdog": "ubuntu-latest",
     "build": "lean-8vcpu-ubuntu-2604",
-    "build-audits": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+    "route-build": "ubuntu-latest",
+    "build-audits": "${{ fromJSON(needs.route-build.outputs.build_audits_runs_on) }}",
     "build-compiler-binaries": "lean-8vcpu-ubuntu-2604",
-    "compiler-audits": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+    "route-compiler": "ubuntu-latest",
+    "compiler-audits": "${{ fromJSON(needs.route-compiler.outputs.compiler_audits_runs_on) }}",
     "compiler-regressions": "lean-8vcpu-ubuntu-2604",
     "lean-profile": "lean-8vcpu-ubuntu-2604",
-    "foundry-gas-calibration": "${{ fromJSON(needs.route.outputs.runs_on) }}",
-    "foundry": "${{ fromJSON(needs.route.outputs.runs_on) }}",
-    "foundry-patched": "${{ fromJSON(needs.route.outputs.runs_on) }}",
-    "foundry-multi-seed": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+    "foundry-gas-calibration": "${{ fromJSON(needs.route-compiler.outputs.foundry_gas_calibration_runs_on) }}",
+    "foundry": "${{ fromJSON(needs.route-compiler.outputs.foundry_runs_on) }}",
+    "foundry-patched": "${{ fromJSON(needs.route-compiler.outputs.foundry_patched_runs_on) }}",
+    "foundry-multi-seed": "${{ fromJSON(needs.route-compiler.outputs.foundry_multi_seed_runs_on) }}",
     "failure-hints": "ubuntu-latest",
-    "import-mutations": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+    "import-mutations": "${{ fromJSON(needs.route-build.outputs.import_mutations_runs_on) }}",
     "ci-gate": "ubuntu-latest",
     "importer-differential": "lean-16vcpu-ubuntu-2604"
   },
   "expected_job_timeouts": {
     "closed-pr-cleanup": 5,
     "changes": 5,
-    "route": 5,
     "checks": 45,
     "timeout-watchdog": 5,
     "build": 120,
+    "route-build": 5,
     "build-audits": 20,
     "build-compiler-binaries": 360,
+    "route-compiler": 5,
     "compiler-audits": 45,
     "compiler-regressions": 200,
     "lean-profile": 45,
@@ -286,8 +293,8 @@
   },
   "expected_job_strategy_max_parallel": {
     "import-mutations": null,
-    "foundry": "${{ needs.route.outputs.on_lean == 'true' && 4 || 2 }}",
-    "foundry-multi-seed": "${{ needs.route.outputs.on_lean == 'true' && 7 || 1 }}"
+    "foundry": "${{ needs.route-compiler.outputs.foundry_on_lean == 'true' && 4 || 2 }}",
+    "foundry-multi-seed": "${{ needs.route-compiler.outputs.foundry_multi_seed_on_lean == 'true' && 7 || 1 }}"
   },
   "expected_job_outputs": {
     "changes": {
@@ -296,10 +303,23 @@
       "compiler": "${{ steps.effective.outputs.compiler }}",
       "importer": "${{ steps.effective.outputs.importer }}"
     },
-    "route": {
-      "runs_on": "${{ steps.route.outputs.runs_on }}",
-      "on_lean": "${{ steps.route.outputs.on_lean }}",
-      "pool": "${{ steps.route.outputs.pool }}"
+    "route-build": {
+      "build_audits_runs_on": "${{ steps.route.outputs.build_audits_runs_on }}",
+      "build_audits_on_lean": "${{ steps.route.outputs.build_audits_on_lean }}",
+      "import_mutations_runs_on": "${{ steps.route.outputs.import_mutations_runs_on }}",
+      "import_mutations_on_lean": "${{ steps.route.outputs.import_mutations_on_lean }}"
+    },
+    "route-compiler": {
+      "compiler_audits_runs_on": "${{ steps.route.outputs.compiler_audits_runs_on }}",
+      "compiler_audits_on_lean": "${{ steps.route.outputs.compiler_audits_on_lean }}",
+      "foundry_gas_calibration_runs_on": "${{ steps.route.outputs.foundry_gas_calibration_runs_on }}",
+      "foundry_gas_calibration_on_lean": "${{ steps.route.outputs.foundry_gas_calibration_on_lean }}",
+      "foundry_runs_on": "${{ steps.route.outputs.foundry_runs_on }}",
+      "foundry_on_lean": "${{ steps.route.outputs.foundry_on_lean }}",
+      "foundry_patched_runs_on": "${{ steps.route.outputs.foundry_patched_runs_on }}",
+      "foundry_patched_on_lean": "${{ steps.route.outputs.foundry_patched_on_lean }}",
+      "foundry_multi_seed_runs_on": "${{ steps.route.outputs.foundry_multi_seed_runs_on }}",
+      "foundry_multi_seed_on_lean": "${{ steps.route.outputs.foundry_multi_seed_on_lean }}"
     }
   },
   "expected_job_permissions": {
@@ -307,13 +327,18 @@
       "actions": "write",
       "contents": "read"
     },
-    "route": {
-      "actions": "read"
-    },
     "checks": {
       "contents": "read"
     },
     "timeout-watchdog": {
+      "actions": "read",
+      "contents": "read"
+    },
+    "route-build": {
+      "actions": "read",
+      "contents": "read"
+    },
+    "route-compiler": {
       "actions": "read",
       "contents": "read"
     },
@@ -343,7 +368,7 @@
     "VERIFY_CACHE_BUCKET": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}",
     "VERIFY_MAIN_CACHE_BUCKET": "ref-main",
     "VERIFY_LOCAL_ARTIFACT_ROOT": "/srv/verity-ci-cache/artifacts",
-    "VERIFY_ROUTE_POOLS_DEFAULT": "[{\"name\":\"build-medium\",\"labels\":[\"self-hosted\",\"linux\",\"x64\",\"verity\",\"build\",\"build-medium\"],\"max_queue\":6},{\"name\":\"lean-8\",\"labels\":[\"lean-8vcpu-ubuntu-2604\"]}]"
+    "VERIFY_ROUTE_POOLS_DEFAULT": "[{\"name\":\"build-medium\",\"labels\":[\"self-hosted\",\"linux\",\"x64\",\"verity\",\"build\",\"build-medium\"],\"slots\":3},{\"name\":\"lean-8\",\"labels\":[\"lean-8vcpu-ubuntu-2604\"]}]"
   },
   "build_compiler_job_names": [
     "build-compiler-binaries"
@@ -474,7 +499,7 @@
     "build-audits": [
       {
         "name": "Cap Lean threads on build-medium",
-        "if": "needs.route.outputs.on_lean != 'true'",
+        "if": "needs.route-build.outputs.build_audits_on_lean != 'true'",
         "run": "echo \"LEAN_NUM_THREADS=4\" >> \"$GITHUB_ENV\""
       },
       {
@@ -516,7 +541,7 @@
       },
       {
         "name": "Bound Lean threads by VM memory",
-        "if": "needs.route.outputs.on_lean == 'true'",
+        "if": "needs.route-build.outputs.build_audits_on_lean == 'true'",
         "run": "scripts/ci_lean_threads.sh"
       }
     ],
@@ -696,7 +721,7 @@
       },
       {
         "name": "Bound Lean threads by VM memory",
-        "if": "needs.route.outputs.on_lean == 'true'",
+        "if": "needs.route-compiler.outputs.compiler_audits_on_lean == 'true'",
         "run": "scripts/ci_lean_threads.sh"
       }
     ],
@@ -896,16 +921,44 @@
         }
       }
     ],
-    "route": [
+    "route-build": [
+      {
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+        "with": {
+          "persist-credentials": "false",
+          "sparse-checkout-cone-mode": "false"
+        }
+      },
       {
         "id": "route",
-        "name": "Choose runner pool",
+        "name": "Choose runner pools",
         "env": {
           "GH_TOKEN": "${{ github.token }}",
           "REPO": "${{ github.repository }}",
           "RUNNER_ROUTE": "${{ inputs.runner_route || 'auto' }}",
           "ROUTE_POOLS": "${{ vars.ROUTE_POOLS }}"
+        },
+        "run": "python3 scripts/ci_route_pools.py --title \"after build\" \\\n  --group build-audits=1 \\\n  --group import-mutations=24"
+      }
+    ],
+    "route-compiler": [
+      {
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+        "with": {
+          "persist-credentials": "false",
+          "sparse-checkout-cone-mode": "false"
         }
+      },
+      {
+        "id": "route",
+        "name": "Choose runner pools",
+        "env": {
+          "GH_TOKEN": "${{ github.token }}",
+          "REPO": "${{ github.repository }}",
+          "RUNNER_ROUTE": "${{ inputs.runner_route || 'auto' }}",
+          "ROUTE_POOLS": "${{ vars.ROUTE_POOLS }}"
+        },
+        "run": "python3 scripts/ci_route_pools.py --title \"after build-compiler-binaries\" \\\n  --group compiler-audits=1 \\\n  --group foundry-gas-calibration=1 \\\n  --group foundry=4/2 \\\n  --group foundry-patched=1 \\\n  --group foundry-multi-seed=7/1"
       }
     ],
     "importer-differential": [
@@ -1179,7 +1232,15 @@
     ]
   },
   "pull_request_unfiltered": true,
-  "routed_runs_on": "${{ fromJSON(needs.route.outputs.runs_on) }}",
+  "routed_runs_on": {
+    "build-audits": "${{ fromJSON(needs.route-build.outputs.build_audits_runs_on) }}",
+    "import-mutations": "${{ fromJSON(needs.route-build.outputs.import_mutations_runs_on) }}",
+    "compiler-audits": "${{ fromJSON(needs.route-compiler.outputs.compiler_audits_runs_on) }}",
+    "foundry-gas-calibration": "${{ fromJSON(needs.route-compiler.outputs.foundry_gas_calibration_runs_on) }}",
+    "foundry": "${{ fromJSON(needs.route-compiler.outputs.foundry_runs_on) }}",
+    "foundry-patched": "${{ fromJSON(needs.route-compiler.outputs.foundry_patched_runs_on) }}",
+    "foundry-multi-seed": "${{ fromJSON(needs.route-compiler.outputs.foundry_multi_seed_runs_on) }}"
+  },
   "routed_runner_jobs": [
     "build-audits",
     "import-mutations",
