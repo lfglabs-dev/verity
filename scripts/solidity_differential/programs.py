@@ -391,6 +391,36 @@ def stateful_string_event_param_source(original, variant):
     raise ValueError('unknown string event program variant')
 
 
+def stateful_signed_custom_error_source(original, variant):
+    """Equivalent signed custom-error programs; error names (selectors) are kept."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('next', 'replacement'), ('saved', 'stored'), ('wide', 'word'),
+                         ('cast', 'narrowed'), ('low', 'bottom'), ('mid', 'middle'),
+                         ('odd', 'third'), ('downcasted', 'result'), ('toInt104', 'narrowTo104')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ('int8 low = int8(wide);', 'int8 low = int8(int256(next));'),
+            ('int104 mid = int104(wide >> 8);', 'int256 shifted = wide >> 8;\n        int104 mid = int104(shifted);'),
+            ('if (next % 4 == 2) {', 'if (next & 3 == 2) {'),
+            ('revert Bounds(type(int256).min, -1);',
+             'int256 lo = type(int256).min;\n            int64 hi = -1;\n            revert Bounds(lo, hi);'),
+            ('revert Narrow(type(int8).min, type(int104).max, -8388608);',
+             'int8 a = type(int8).min;\n        int104 b = type(int104).max;\n        int24 c = type(int24).min;\n        revert Narrow(a, b, c);'),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError(f'nonunique signed custom-error variant anchor: {old}')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown signed custom-error program variant')
+
+
 def stateful_interface_static_call_source(original, variant):
     """Equivalent typed-interface staticcall programs over the same call sequence."""
     if variant == 'baseline':
