@@ -57,24 +57,25 @@ private def dirtyAddress : Nat := 0xff * 2 ^ 248 + 0x101
   | some r => r.finalStorage 1 == 1
   | none => false
 
--- Legacy codegen carries dirty bits through conversions: assignments to locals stay rejected.
+-- Legacy codegen carries dirty bits through conversions: assignments to `address` locals stay rejected
+-- (while `bool` retains the raw stack word under both legacy and via-IR, #2912).
 /--
-error: SyntheticNarrowYul.sol:25:20: YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local ok is unsupported
-closure: SyntheticNarrowYul.boolLocalBranch
-ok := and(x, 0xff00)
+error: SyntheticNarrowYul.sol:43:20: YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local a is unsupported
+closure: SyntheticNarrowYul.addressCompare
+a := x
 -/
 #guard_msgs in
 solidity_import legacy from "Contracts/SolidityImportSmoke" entry "SyntheticNarrowYul.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SyntheticNarrowYul
-  function boolLocalBranch(uint256)
+  function addressCompare(uint256)
 
--- Raw Yul reads of a cleaned local, its copies, or a helper parameter bound to it; in a loop,
--- the accumulator the cleaned word flows into is reported first.
+-- Raw Yul reads of a cleaned `address` local, its copies, or a helper parameter bound to it; in a
+-- loop, the accumulator the cleaned word flows into is reported first.
 /--
 error: SyntheticNarrowYul.sol:85:20: YulIdentifier: [solidity-import:unsupported] Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported
 closure: SyntheticNarrowYulUnsupported.readBack
-ok
+a
 -/
 #guard_msgs in
 solidity_import readBack from "Contracts/SolidityImportSmoke" entry "SyntheticNarrowYul.sol"

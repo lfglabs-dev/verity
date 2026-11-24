@@ -76,13 +76,13 @@ contract SyntheticNarrowYul {
     }
 }
 
-// Raw Yul reads of a cleaned narrow local are rejected: the source would observe the dirty word.
+// Raw Yul reads of a cleaned narrow local (`address`) are rejected: the source would observe the dirty word.
 contract SyntheticNarrowYulUnsupported {
     function readBack(uint256 x) external pure returns (uint256 raw) {
-        bool ok;
+        address a;
         assembly {
-            ok := x
-            raw := ok
+            a := x
+            raw := a
         }
     }
 
@@ -93,22 +93,22 @@ contract SyntheticNarrowYulUnsupported {
         assembly { raw := copy }
     }
 
-    function _rawOf(bool b) private pure returns (uint256 raw) {
+    function _rawOf(address b) private pure returns (uint256 raw) {
         assembly { raw := b }
     }
 
     function readThroughHelper(uint256 x) external pure returns (uint256) {
-        bool ok;
-        assembly { ok := x }
-        return _rawOf(ok);
+        address a;
+        assembly { a := x }
+        return _rawOf(a);
     }
 
     function readInLoop(uint256 x) external pure returns (uint256 raw) {
-        bool ok;
+        address a;
         for (uint256 i = 0; i < 2; ++i) {
             assembly {
-                raw := add(raw, ok)
-                ok := x
+                raw := add(raw, a)
+                a := x
             }
         }
     }

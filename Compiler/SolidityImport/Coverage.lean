@@ -215,7 +215,6 @@ mutual
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
     | .revertMemory offset size => exprCovered offset && exprCovered size
-    | .returndataCopy dest source size => exprCovered dest && exprCovered source && exprCovered size
     | .ecm mod args => closedTransportCovered mod args
     | .emit _ args => exprListCovered args
     | .stop => true

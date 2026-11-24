@@ -391,6 +391,7 @@ partial def eraseClosedSelfDelegateCalls : Stmt → Stmt
 loop (`multicall`), with no storage reads, writes or logs following any self-delegatecall. -/
 def onlySelfDelegateLoopCEIClean (body : List Stmt) : Bool :=
   onlyTrailingCallReentrancyWindows body &&
+    (Compiler.CompilationModel.stmtListCEIViolation body false).isSome &&
     (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedSelfDelegateCalls) false).isNone
 /-- True when an external call module uses a closed byte-transport descriptor
 that may read or advance the Solidity free-memory pointer at address `0x40`. -/
