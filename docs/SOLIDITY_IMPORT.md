@@ -1147,10 +1147,15 @@ bytes; persistent storage at the same slot number is a separate channel. A modif
 follows the transaction boundary: a fresh transaction clears it, a callback in the same
 transaction sees it. Narrow signed integers, `bytes1`..`bytes31`, enums and function
 pointers fail closed with a located `unsupported transient scalar storage type`.
-A root whose closure accesses a transient variable and contains inline assembly fails
-closed at one of its assembly blocks, including Yul `tload` / `tstore` and `x.slot`. This
-is a conservative bound for this slice: interactions between assembly and transient
-variables are not yet covered by controls. A transient variable that shares its name
+A root whose closure accesses a transient variable admits inline assembly only when every
+block is transient-neutral: it calls no `tload`, `tstore`, `call`, `callcode`,
+`delegatecall`, `staticcall`, `create`, `create2` or `verbatim*`, and each external
+reference names a full-word (`uint256`, `int256`, `bytes32`) non-transient variable or
+constant, or the `.slot` of a local storage pointer, which covers the namespaced storage
+getter `assembly { $.slot := LOCATION }` and full-word Yul locals in roots, helpers and
+modifiers (`TransientNeutralAssemblyChecks`). Any other block fails closed at that block:
+narrow words, which legacy and via-IR clean differently, a transient variable's `x.slot`,
+Yul transient storage access at a literal or computed slot, and calls out of assembly. A transient variable that shares its name
 with a persistent one in the inheritance chain is not given a layout: roots that use it
 fail with the shadowed-declaration diagnostic, and roots that reach only the persistent
 variable import unchanged.

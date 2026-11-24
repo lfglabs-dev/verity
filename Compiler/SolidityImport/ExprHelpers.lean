@@ -218,7 +218,8 @@ structure Env where
   transientLayoutTypes : Json := .null
   /-- Transient state variables the current root's closure accesses. -/
   rootTransientFields : Array String := #[]
-  /-- First inline-assembly block in a body the current root's closure lowers. -/
+  /-- First inline-assembly block in a body the current root's closure lowers that is not
+  transient-neutral (`transientNeutralAssembly`). -/
   rootAssembly : Option Json := none
   /-- Trusted shortcuts (`trustedImporterShortcuts`) the current root's lowering applied, in
   order. Reported per root in `FunctionStatus.shortcuts`. -/
@@ -1186,10 +1187,81 @@ def rejectForwardedAssembly (body : Json) : M Unit := do
     if let some asmNode := firstInlineAssembly? body then
       failAt asmNode "inline assembly in a forwarded tuple call tree is unsupported"
 
+private partial def inlineAssemblyBlocks : Json → Array Json
+  | j@(.obj fields) =>
+      if optStr j "nodeType" == some "InlineAssembly" then #[j]
+      else fields.foldl (fun found _ v => found ++ inlineAssemblyBlocks v) #[]
+  | .arr xs => xs.foldl (fun found v => found ++ inlineAssemblyBlocks v) #[]
+  | _ => #[]
+
+/-- `VariableDeclaration` nodes below `j` (parameters, returns and locals), by id. -/
+private partial def variableDeclarations (acc : RBMap Nat Json compare) :
+    Json → RBMap Nat Json compare
+  | j@(.obj fields) =>
+      let acc := match optStr j "nodeType", (field? j "id").bind (·.getNat?.toOption) with
+        | some "VariableDeclaration", some id => acc.insert id j
+        | _, _ => acc
+      fields.foldl (fun acc _ v => variableDeclarations acc v) acc
+  | .arr xs => xs.foldl variableDeclarations acc
+  | _ => acc
+
+/-- Yul builtins a transient-neutral block may not call: transient storage access, and
+calls or creations that could run code observing or writing this contract's transient
+storage in the middle of the block. -/
+private def transientSensitiveYulBuiltins : List String :=
+  ["tload", "tstore", "call", "callcode", "delegatecall", "staticcall", "create", "create2"]
+
+private partial def yulCallsTransientSensitive : Json → Bool
+  | j@(.obj fields) =>
+      let own := optStr j "nodeType" == some "YulFunctionCall" &&
+        match (field? j "functionName").bind (optStr · "name") with
+        | some name => transientSensitiveYulBuiltins.contains name || name.startsWith "verbatim"
+        | none => true
+      own || fields.foldl (fun found _ v => found || yulCallsTransientSensitive v) false
+  | .arr xs => xs.any yulCallsTransientSensitive
+  | _ => false
+
+/-- Whether one `externalReferences` entry of a block in a transient closure is
+transient-neutral: a full-word (`uint256`, `int256`, `bytes32`) non-transient variable or
+constant named without suffix, or the `.slot` of a local storage pointer (the namespaced
+storage getter `$.slot := LOCATION`). Narrow words, where legacy and via-IR differ on
+cleaning, and every reference to a transient variable stay out. -/
+private def transientNeutralReference (decls stateVars : RBMap Nat Json compare)
+    (ref : Json) : Bool :=
+  match (field? ref "declaration").bind (·.getNat?.toOption) with
+  | none => false
+  | some id =>
+      match decls.find? id <|> stateVars.find? id with
+      | none => false
+      | some decl =>
+          let transient := optStr decl "mutability" == some "transient"
+          let isState := (field? decl "stateVariable").bind (·.getBool?.toOption) == some true
+          let ty := (field? decl "typeDescriptions").bind (optStr · "typeString")
+          let isSlot := (field? ref "isSlot").bind (·.getBool?.toOption) == some true
+          let isOffset := (field? ref "isOffset").bind (·.getBool?.toOption) == some true
+          !transient && !isOffset &&
+            match optStr ref "suffix" with
+            | none => !isSlot && ["uint256", "int256", "bytes32"].any (ty == some ·)
+            | some "slot" => isSlot && !isState && optStr decl "storageLocation" == some "storage"
+            | some _ => false
+
+/-- A block that neither touches transient storage nor exchanges narrow stack words with
+Solidity, so it composes with the transient-state lowering. -/
+private def transientNeutralAssembly (decls stateVars : RBMap Nat Json compare)
+    (asm : Json) : Bool :=
+  !yulCallsTransientSensitive ((field? asm "AST").getD .null) &&
+    match field? asm "externalReferences" with
+    | some (.arr refs) => refs.all (transientNeutralReference decls stateVars)
+    | none => true
+    | some _ => false
+
 def noteFn (fn : Json) : M Unit := do
   rejectForwardedAssembly ((field? fn "body").getD .null)
   if (← get).rootAssembly.isNone then
-    if let some asmNode := firstInlineAssembly? ((field? fn "body").getD .null) then
+    let decls := variableDeclarations RBMap.empty fn
+    let stateVars := (← get).stateVars
+    let blocks := inlineAssemblyBlocks ((field? fn "body").getD .null)
+    if let some asmNode := blocks.find? (!transientNeutralAssembly decls stateVars ·) then
       modify fun e => { e with rootAssembly := some asmNode }
   let id ← mNat (← mField fn "id")
   let env ← get
