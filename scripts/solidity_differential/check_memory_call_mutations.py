@@ -1,10 +1,12 @@
 """Memory-call mutants in isolated source/cache snapshots: inline-assembly `call` /
 `staticcall` over memory, typed external calls without return values and the `ecrecover`
-builtin, which share the closed memory-call transport.
+builtin, which share the closed memory-call transport, and the Yul `calldataload` split of a
+`bytes calldata` signature in front of it.
 
-Each mutant must survive an unmodified positive control of its A/B/C campaign and then
-produce a divergence with a reproduced deletion-minimal witness. A mutant that fails to
-build is invalid, never detected.
+Each runtime mutant must survive an unmodified positive control of its A/B/C campaign and then
+produce a divergence with a reproduced deletion-minimal witness. An admission-guard mutant must
+turn a pinned located rejection into a failure of that exact near-miss check. A mutant that
+fails to build is invalid, never detected.
 """
 import argparse
 import json
@@ -27,6 +29,16 @@ VOID = ('solidity_differential.check_interface_void_call', '--transactions', '16
         'Contracts.SolidityImportSmoke.InterfaceVoidCallSequenceModel')
 ECRECOVER = ('solidity_differential.check_ecrecover', '--transactions', '200', '--seed', '2698',
              'Contracts.SolidityImportSmoke.EcrecoverSequenceModel')
+SIGNATURE = ('solidity_differential.check_signature_calldata', '--transactions', '200', '--seed', '2920',
+             'Contracts.SolidityImportSmoke.SignatureCalldataSequenceModel')
+
+
+def rejection_case(case):
+    """An admission-guard mutant's campaign: the pinned located rejection `case` of
+    `check_signature_calldata_rejections.py` must pass unmodified and fail mutated."""
+    return ('rejection', 'solidity_differential.check_signature_calldata_rejections', case)
+
+
 # name: (file, anchor, replacement, campaign)
 MUTANTS = {
     # A `call` lowered as a `staticcall`: the responders' fallback writes storage, so it fails.
@@ -88,6 +100,21 @@ MUTANTS = {
     'mock-ecrecover-parity': (PRECOMPILE,
         'let y := if beta % 2 == v - 27 then beta else p - beta',
         'let y := if beta % 2 != v - 27 then beta else p - beta', ECRECOVER),
+    # Yul `calldataload` over a root `bytes calldata` parameter (#2920): the `add` literal is
+    # dropped (r, s and v all read the first word), or the offset is the head word, not the
+    # payload start.
+    'import-calldataload-offset-literal': (IMPORT,
+        'return some (.add base (.literal k))', 'return some base', SIGNATURE),
+    'import-calldataload-offset-binding': (IMPORT,
+        'e.yulNames.insert (yulCalldataOffsetKey src) (.localVar cb.dataBinding)',
+        'e.yulNames.insert (yulCalldataOffsetKey src) (.localVar cb.headerBinding)', SIGNATURE),
+    # Admission guards: a calldata slice's payload offset and a literal at or above 2^64.
+    'import-calldataload-root-guard': (IMPORT,
+        '!cb.inMemory && cb.offsetBinding != "" && cb.dataBinding != "" then',
+        '!cb.inMemory && cb.dataBinding != "" then', rejection_case('slice-argument')),
+    'import-calldataload-literal-bound': (IMPORT,
+        'unless k < 2^64 do return none', 'unless k < 2^256 do return none',
+        rejection_case('wide-literal')),
 }
 MODULES = ['Compiler.SolidityImport.Import', 'Compiler.SolidityImport.Differential',
            'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.CallResponderMocks',
@@ -112,6 +139,15 @@ def runtime(directory, campaign, output):
     return result.returncode, json.loads(report_path.read_text())
 
 
+def rejection(directory, campaign, output):
+    _, module, case = campaign
+    argv = [sys.executable, '-m', module, '--only', case, '--output', str(output)]
+    result = subprocess.run(argv, cwd=directory, env=environment(directory), text=True,
+                            capture_output=True, timeout=1800)
+    output.with_suffix('.log').write_text(result.stdout + result.stderr)
+    return result.returncode, result.stdout + result.stderr
+
+
 def mutation_campaign(output, selected=None):
     root = Path.cwd()
     for name in selected or MUTANTS:
@@ -123,31 +159,45 @@ def mutation_campaign(output, selected=None):
     reports = []
     for name in selected or MUTANTS:
         relative, before, after, campaign = MUTANTS[name]
-        modules = [*MODULES, campaign[-1]]
+        admission = campaign[0] == 'rejection'
+        modules = MODULES if admission else [*MODULES, campaign[-1]]
         directory = output / name
         snapshot(directory)
         try:
             command(['lake', 'build', *modules], cwd=directory, timeout=3600, log=directory / 'baseline-build.log')
-            code, baseline = runtime(directory, campaign, directory / '.lake/baseline')
-            if code or baseline['divergences'] or not baseline['transactions']:
-                raise HarnessError(f'{name}: unmodified positive control failed')
+            if admission:
+                code, log = rejection(directory, campaign, directory / '.lake/baseline-rejection')
+                if code:
+                    raise HarnessError(f'{name}: unmodified located rejection failed\n{log[-2000:]}')
+            else:
+                code, baseline = runtime(directory, campaign, directory / '.lake/baseline')
+                if code or baseline['divergences'] or not baseline['transactions']:
+                    raise HarnessError(f'{name}: unmodified positive control failed')
             source = directory / relative
             text = source.read_text()
             if text.count(before) != 1:
                 raise HarnessError(f'{name}: nonunique mutation anchor')
             source.write_text(text.replace(before, after))
             command(['lake', 'build', *modules], cwd=directory, timeout=3600, log=directory / 'build.log')
-            mutated = directory / '.lake/mutated'
-            code, report = runtime(directory, campaign, mutated)
-            if code == 0 or not report['divergences']:
-                raise HarnessError(f'{name}: mutation survived')
-            reduced = json.loads((mutated / 'reduced.json').read_text())
-            if not reduced['deletion_minimal'] or not reduced['transactions'] or not reduced['signature']:
-                raise HarnessError(f'{name}: unexpected or unreproduced minimal witness: {reduced}')
+            if admission:
+                case = campaign[2]
+                code, log = rejection(directory, campaign, directory / '.lake/mutated-rejection')
+                if code == 0 or f'{case}: expected exact located rejection' not in log:
+                    raise HarnessError(f'{name}: guard removal escaped the {case} near-miss check')
+                entry = {'kind': 'unsupported-admission', 'case': case}
+            else:
+                mutated = directory / '.lake/mutated'
+                code, report = runtime(directory, campaign, mutated)
+                if code == 0 or not report['divergences']:
+                    raise HarnessError(f'{name}: mutation survived')
+                reduced = json.loads((mutated / 'reduced.json').read_text())
+                if not reduced['deletion_minimal'] or not reduced['transactions'] or not reduced['signature']:
+                    raise HarnessError(f'{name}: unexpected or unreproduced minimal witness: {reduced}')
+                entry = {'witness': reduced, 'campaign': str(mutated)}
         finally:
             release(directory)
         reports.append({'mutant': name, 'status': 'detected', 'detected': True, 'baselinePassed': True,
-                        'path': relative, 'witness': reduced, 'campaign': str(mutated)})
+                        'path': relative, **entry})
         write_json(output / 'mutation-results.json', reports)
         print(f'{name}: detected', flush=True)
     return {'mutants': reports, 'divergences': []}
