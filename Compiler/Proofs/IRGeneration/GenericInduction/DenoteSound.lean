@@ -21,24 +21,27 @@ open Compiler.Yul
 
 /-- Denote-side entry state for running a function body: transaction context
 applied to the initial world, parameter bindings installed, selector set. -/
-def denoteEntryState (initialWorld : Verity.ContractState) (tx : IRTransaction)
-    (bindings : List (String × Nat)) : Denote.DenoteState :=
+def denoteEntryState (errors : List ErrorDef) (initialWorld : Verity.ContractState)
+    (tx : IRTransaction) (bindings : List (String × Nat)) : Denote.DenoteState :=
   { world := SourceSemantics.withTransactionContext initialWorld tx
     bindings := bindings
-    selector := tx.functionSelector }
+    selector := tx.functionSelector
+    errors := errors }
 
 /-- The compiler-free denotation of a byte-free body from a denote entry state
 agrees with any result the source semantics assigns it. -/
 private theorem denote_toStmtResult_of_source {fields : List Field}
     {initialWorld : Verity.ContractState} {tx : IRTransaction}
-    {bindings : List (String × Nat)} {body : List Stmt} {r : SourceSemantics.StmtResult}
+    {bindings : List (String × Nat)} {errors : List ErrorDef} {body : List Stmt}
+    {r : SourceSemantics.StmtResult}
     (hbyteFree : DenoteAgreement.stmtListByteFree body = true)
     (hsource : SourceSemantics.execStmtList fields
       { world := SourceSemantics.withTransactionContext initialWorld tx
         bindings := bindings
-        selector := tx.functionSelector } body = r) :
+        selector := tx.functionSelector
+        errors := errors } body = r) :
     DenoteAgreement.toStmtResult (Denote.execStmtList DenoteAgreement.sourceOracle fields
-      (denoteEntryState initialWorld tx bindings) body) = r := by
+      (denoteEntryState errors initialWorld tx bindings) body) = r := by
   rw [DenoteAgreement.execStmtList_eq _ _ _ hbyteFree rfl]
   exact hsource
 
@@ -61,12 +64,13 @@ theorem denote_sound
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx
-        bindings := [], selector := tx.functionSelector } state)
+        bindings := [], selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hbyteFree : DenoteAgreement.stmtListByteFree fn.body = true) :
     ∃ sourceResult irExec,
       DenoteAgreement.toStmtResult (Denote.execStmtList DenoteAgreement.sourceOracle
-        (SourceSemantics.effectiveFields model) (denoteEntryState initialWorld tx bindings)
+        (SourceSemantics.effectiveFields model)
+        (denoteEntryState model.errors initialWorld tx bindings)
           fn.body) = sourceResult ∧
       execIRStmts (bodyStmts.length + extraFuel + 1) state bodyStmts = irExec ∧
       FunctionBody.stmtResultMatchesIRExec
@@ -114,17 +118,19 @@ theorem denote_sound_with_helpers
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx
-        bindings := [], selector := tx.functionSelector } state)
+        bindings := [], selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hbyteFree : DenoteAgreement.stmtListByteFree fn.body = true) :
     ∃ sourceResult irExec,
       DenoteAgreement.toStmtResult (Denote.execStmtList DenoteAgreement.sourceOracle
-        (SourceSemantics.effectiveFields model) (denoteEntryState initialWorld tx bindings)
+        (SourceSemantics.effectiveFields model)
+        (denoteEntryState model.errors initialWorld tx bindings)
           fn.body) = sourceResult ∧
       SourceSemantics.execStmtListWithHelpers model (SourceSemantics.effectiveFields model)
         helperFuel
         { world := SourceSemantics.withTransactionContext initialWorld tx
-          bindings := bindings, selector := tx.functionSelector } fn.body = sourceResult ∧
+          bindings := bindings, selector := tx.functionSelector,
+          errors := model.errors } fn.body = sourceResult ∧
       execIRStmts (bodyStmts.length + extraFuel + 1) state bodyStmts = irExec ∧
       FunctionBody.stmtResultMatchesIRExec
         (SourceSemantics.effectiveFields model) sourceResult irExec := by

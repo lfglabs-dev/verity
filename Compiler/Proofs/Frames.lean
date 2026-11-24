@@ -209,7 +209,7 @@ theorem execStmt_letVar_continue_inv {fields : List Field} {st s : RuntimeState}
     ∃ v, s = { st with bindings := bindValue st.bindings name v } := by
   change (match evalExpr fields st value with
     | some v => StmtResult.continue { st with bindings := bindValue st.bindings name v }
-    | none => .revert) = _ at h
+    | none => .revert .empty) = _ at h
   cases hv : evalExpr fields st value <;> rw [hv] at h <;> cases h
   exact ⟨_, rfl⟩
 
@@ -218,7 +218,7 @@ theorem execStmt_assignVar_continue_inv {fields : List Field} {st s : RuntimeSta
     ∃ v, s = { st with bindings := bindValue st.bindings name v } := by
   change (match evalExpr fields st value with
     | some v => StmtResult.continue { st with bindings := bindValue st.bindings name v }
-    | none => .revert) = _ at h
+    | none => .revert .empty) = _ at h
   cases hv : evalExpr fields st value <;> rw [hv] at h <;> cases h
   exact ⟨_, rfl⟩
 
@@ -229,7 +229,7 @@ theorem execStmt_mstore_continue_inv {fields : List Field} {st s : RuntimeState}
   change (match evalExpr fields st offset, evalExpr fields st value with
     | some off, some v =>
         StmtResult.continue { st with world := st.world.writePhysicalMemoryValue off v }
-    | _, _ => .revert) = _ at h
+    | _, _ => .revert .empty) = _ at h
   cases ho : evalExpr fields st offset <;> cases hv : evalExpr fields st value <;>
     rw [ho, hv] at h <;> cases h
   exact ⟨_, _, rfl, rfl⟩
@@ -240,7 +240,7 @@ theorem execStmt_tstore_continue_inv {fields : List Field} {st s : RuntimeState}
   change (match evalExpr fields st offset, evalExpr fields st value with
     | some off, some v =>
         StmtResult.continue { st with world := st.world.writeTransient (wordNormalize off) v }
-    | _, _ => .revert) = _ at h
+    | _, _ => .revert .empty) = _ at h
   cases ho : evalExpr fields st offset <;> cases hv : evalExpr fields st value <;>
     rw [ho, hv] at h <;> cases h
   exact ⟨_, _, rfl⟩
@@ -735,7 +735,7 @@ theorem forEach
     | some bound =>
         execForEachLoop varName (fun loopState => execStmtList fields loopState body)
           { st with bindings := bindValue st.bindings varName (wordNormalize 0) } 0 bound
-    | none => .revert) = _ at hstmt
+    | none => .revert .empty) = _ at hstmt
   rw [hbound] at hstmt
   exact execForEachLoop_sim hbody hbind (hbind 0 hinv) hstmt
 
@@ -1065,7 +1065,7 @@ theorem execStmt_setStorage_execution_summary
     (match Compiler.CompilationModel.findFieldWriteSlots fields fieldName, evalExpr fields st value with
     | some slots, some resolved =>
         .continue { st with world := writeUintFieldSlots fields fieldName st.world slots resolved }
-    | _, _ => .revert) from rfl] at h
+    | _, _ => .revert .empty) from rfl] at h
   rw [hslots] at h
   cases hval : evalExpr fields st value with
   | none => rw [hval] at h; exact absurd h (by simp)
@@ -1093,7 +1093,7 @@ theorem execStmt_setStorageAddr_execution_summary
     (match Compiler.CompilationModel.findFieldWriteSlots fields fieldName, evalExpr fields st value with
     | some slots, some resolved =>
         .continue { st with world := writeAddressFieldSlots fields fieldName st.world slots resolved }
-    | _, _ => .revert) from rfl] at h
+    | _, _ => .revert .empty) from rfl] at h
   rw [hslots] at h
   cases hval : evalExpr fields st value with
   | none => rw [hval] at h; exact absurd h (by simp)

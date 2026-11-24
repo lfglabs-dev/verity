@@ -200,7 +200,8 @@ private theorem compiledStmtStep_require_revert
         (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) =
           .revert revState := by
     simp [execIRStmt, hfailEval, hrev]
-  refine ⟨.revert, .revert revState, ?_, ?_, by simp [stmtStepMatchesIRExec]⟩
+  refine ⟨.revert (.raw (Denote.errorStringBytes message)), .revert revState, ?_, ?_,
+    by simp [stmtStepMatchesIRExec]⟩
   · simp [SourceSemantics.execStmt, hCondSrc]
   · rw [show [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)].length +
         extraFuel + 1 = Nat.succ (extraFuel + 1) by simp; omega]
@@ -309,7 +310,7 @@ private theorem execStmt_return_of_evalExpr_eq
     match SourceSemantics.evalExpr fields runtime value with
     | some resolved => .return resolved
         { runtime with world := runtime.world.writePhysicalMemoryValue 0 resolved }
-    | none => .revert := rfl
+    | none => .revert .empty := rfl
   rw [hunfold, hEvalSrc]
 
 private theorem compiledStmtStep_return_preserves

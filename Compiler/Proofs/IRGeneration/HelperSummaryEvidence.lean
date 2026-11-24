@@ -120,7 +120,7 @@ def helperBodyNoWorldMutationOnSuccess (fn : FunctionSpec) : Prop :=
 private def stmtResultWorldEq
     (initialWorld : Verity.ContractState) : StmtResult → Prop
   | .continue state | .stop state | .return _ state => state.world = initialWorld
-  | .revert => True
+  | .revert _ => True
 
 private theorem stmtResultWorldEq_of_eq
     {initialWorld : Verity.ContractState}
@@ -225,18 +225,17 @@ theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
       have hreadonly :=
         execStmtListWithHelpers_readOnly_world_eq
           (spec := spec) (fields := effectiveFields spec) (fuel := fuel)
-          (state := { world := initialWorld, bindings := bindings, selector := selector })
+          (state := { world := initialWorld, bindings := bindings, selector := selector,
+                      errors := spec.errors })
           (stmts := fn.body) hbody
       -- Case on the statement result; keyword constructors need `rename_i`.
       generalize hresult :
         execStmtListWithHelpers spec (effectiveFields spec) fuel
-          { world := initialWorld, bindings := bindings, selector := selector } fn.body =
+          { world := initialWorld, bindings := bindings, selector := selector,
+            errors := spec.errors } fn.body =
         result
       match result, hresult, hreadonly, hsuccess' with
-      | StmtResult.continue state, hresult, hreadonly, hsuccess' =>
-          simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
-            stmtResultWorldEq] at hreadonly ⊢
-          exact hreadonly
+      | StmtResult.continue state, hresult, hreadonly, hsuccess'
       | StmtResult.stop state, hresult, hreadonly, hsuccess' =>
           simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
             stmtResultWorldEq] at hreadonly ⊢
@@ -245,7 +244,7 @@ theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
           simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
             stmtResultWorldEq] at hreadonly ⊢
           exact hreadonly
-      | StmtResult.revert, hresult, hreadonly, hsuccess' =>
+      | StmtResult.revert _, hresult, hreadonly, hsuccess' =>
           simp [hresult, internalHelperResultOfStmtResult, revertedInternalResult] at hsuccess'
 
 theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_empty_body

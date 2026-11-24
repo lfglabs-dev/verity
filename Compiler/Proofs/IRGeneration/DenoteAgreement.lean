@@ -31,13 +31,16 @@ def sourceOracle : DenoteOracle :=
   { mappingSlot := Compiler.Proofs.abstractMappingSlot
     keccakMemorySlice := SourceSemantics.keccakMemorySlice }
 
+/-- The oracle the source semantics uses for custom-error bytes is this one. -/
+theorem sourceOracle_eq_denoteOracle : sourceOracle = SourceSemantics.denoteOracle := rfl
+
 /-- The state conversion is field-for-field (the two structures coincide). -/
 def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
   { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector,
     externalCallOracle := fun n =>
       ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩,
     externalCallIndex := s.externalCallIndex,
-    observedReturnWords := s.observedReturnWords }
+    observedReturnWords := s.observedReturnWords, errors := s.errors }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
     (toRuntimeState s).world = s.world := rfl
@@ -204,8 +207,8 @@ def toStmtResult : StmtOutcome → SourceSemantics.StmtResult
   | .continue st => .continue (toRuntimeState st)
   | .stop st => .stop (toRuntimeState st)
   | .return v st => .return v (toRuntimeState st)
-  | .revert => .revert
-  | .revertWithData _ => .revert
+  | .revert => .revert .empty
+  | .revertWithData data => .revert (.raw data)
 
 theorem storageArraySetAt_eq :
     ∀ (xs : List Verity.Core.Uint256) (idx : Nat) (v : Verity.Core.Uint256),
@@ -913,6 +916,38 @@ private theorem execStmt_returnBytes_eq (fields : List Field) (st : DenoteState)
     toRuntimeState_bindings]
   cases DynamicAbi.dynamicArrayBinding? st.bindings name <;> rfl
 
+/-- Custom-error `require` agreement: both lanes build `customErrorBytes`. -/
+private theorem execStmt_requireError_eq (fields : List Field) (st : DenoteState)
+    (cond : Expr) (name : String) (args : List Expr) (h : st.rawReturndata = none) :
+    StmtAgree fields st (.requireError cond name args) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    SourceSemantics.typedErrorRevertResult, sourceOracle_eq_denoteOracle,
+    ← denote_evalExpr_eq _ _ h, ← denote_evalExprList_eq _ _ h]
+  repeat' (split at * <;> try simp_all [toStmtResult, toRuntimeState])
+
+/-- Custom-error `revert` agreement: both lanes build `customErrorBytes`. -/
+private theorem execStmt_revertError_eq (fields : List Field) (st : DenoteState)
+    (name : String) (args : List Expr) (h : st.rawReturndata = none) :
+    StmtAgree fields st (.revertError name args) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    SourceSemantics.typedErrorRevertResult, sourceOracle_eq_denoteOracle,
+    ← denote_evalExprList_eq _ _ h]
+  repeat' (split at * <;> try simp_all [toStmtResult, toRuntimeState])
+
+/-- `revert(offset, size)` agreement: both lanes slice `byteMemory`. -/
+private theorem execStmt_revertMemory_eq (fields : List Field) (st : DenoteState)
+    (offset size : Expr) (h : st.rawReturndata = none) :
+    StmtAgree fields st (.revertMemory offset size) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    ← denote_evalExpr_eq _ _ h]
+  cases Denote.evalExpr sourceOracle fields st offset <;>
+    cases Denote.evalExpr sourceOracle fields st size <;> rfl
+
+/-- Bubbled-returndata agreement on a raw-free frame. -/
+private theorem execStmt_revertReturndata_eq (fields : List Field) (st : DenoteState)
+    (h : st.rawReturndata = none) : StmtAgree fields st .revertReturndata := by
+  simp [StmtAgree, Denote.execStmt, SourceSemantics.execStmt, toStmtResult, h]
+
 mutual
 
 /-- Statement agreement on byte-free statements from a raw-free frame. Closed
@@ -929,10 +964,14 @@ theorem execStmt_eq (fields : List Field) :
   | _, .setMappingPackedWord .., _, h | _, .setStructMember .., _, h | _, .setMapping2 .., _, h
   | _, .setMapping2Word .., _, h | _, .setStructMember2 .., _, h | _, .setMappingChain .., _, h
   | _, .storageArrayPush .., _, h | _, .storageArrayPop .., _, h | _, .mstore .., _, h
-  | _, .setStorageArrayElement .., _, h | _, .tstore .., _, h | _, .require .., _, h
-  | _, .requireError .., _, h | _, .revertError .., _, h | _, .panicCode .., _, h
-  | _, .panic .., _, h | _, .return .., _, h | _, .emit .., _, h | _, .calldatacopy .., _, h
+  | _, .setStorageArrayElement .., _, h | _, .tstore .., _, h
+  | _, .return .., _, h | _, .emit .., _, h | _, .calldatacopy .., _, h
   | _, .returnValues .., _, h => by denote_stmt_arm h
+  | _, .require .., _, h => by denote_stmt_arm h
+  | st, .requireError c n a, _, h => execStmt_requireError_eq fields st c n a h
+  | st, .revertError n a, _, h => execStmt_revertError_eq fields st n a h
+  | _, .panicCode .., _, h => by denote_stmt_arm h
+  | _, .panic .., _, h => by denote_stmt_arm h
   -- On a raw-free frame both lanes use definitionally equal padded-copy mirrors.
   | _, .returndataCopy _ _ _, _, h => by denote_stmt_arm h; rfl
   | st, .ite c t e, hb, h =>
@@ -955,11 +994,10 @@ theorem execStmt_eq (fields : List Field) :
       execStmt_ecm_eq fields st mod args (by simpa only [stmtByteFree, Option.isNone_iff_eq_none]
         using hb) h
   | st, .returnBytes name, _, _ => execStmt_returnBytes_eq fields st name
-  | _, .revertMemory .., _, _ => by
-      simp only [Denote.execStmt, SourceSemantics.execStmt]
-      split <;> rfl
+  | st, .revertMemory offset size, _, h => execStmt_revertMemory_eq fields st offset size h
+  | st, .revertReturndata, _, h => execStmt_revertReturndata_eq fields st h
   | _, .stop, _, _ | _, .returnArray .., _, _ | _, .returnStorageWords .., _, _
-  | _, .returnCodeData .., _, _ | _, .revertEmpty, _, _ | _, .revertReturndata .., _, _
+  | _, .returnCodeData .., _, _ | _, .revertEmpty, _, _
   | _, .internalCall .., _, _ | _, .internalCallAssign .., _, _ | _, .rawLog .., _, _
   | _, .unsafeBlock .., _, _ | _, .unsafeYul .., _, _ | _, .matchAdt .., _, _ => rfl
 

@@ -2860,7 +2860,7 @@ private theorem execStmt_returndataCopy_of_eval
           world := { runtime.world with
             memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
               runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory } }
-      else .revert := by
+      else .revert .empty := by
   by_cases hfit : sourceNat + sizeNat ≤ 32 * runtime.world.returndata.length <;>
     simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit]
 
@@ -2979,7 +2979,7 @@ theorem compiledStmtStep_revertEmpty_single
       pure, Except.pure]
   preserves := by
     intro runtime state extraFuel _ _ _ _ _
-    refine ⟨.revert, .revert state, rfl, ?_, trivial⟩
+    refine ⟨.revert _, .revert state, rfl, ?_, trivial⟩
     have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
     change execIRStmts (1 + extraFuel + 1) state
       [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] = .revert state
@@ -3008,7 +3008,16 @@ theorem compiledStmtStep_revertMemory_single
       rw [hfuel]
       exact ⟨revertCallState (extraFuel + 1) state offsetIR sizeIR,
         by simp [execIRStmts, execIRStmt_revertCall]⟩
-    exact ⟨.revert, .revert final, rfl, hfinal, trivial⟩
+    obtain ⟨payload, hsrc⟩ : ∃ payload, SourceSemantics.execStmt fields runtime
+        (.revertMemory offset size) = .revert payload := by
+      show ∃ payload, (match SourceSemantics.evalExpr fields runtime offset,
+          SourceSemantics.evalExpr fields runtime size with
+        | some off, some sz => SourceSemantics.StmtResult.revert
+            (.raw ((runtime.world.byteMemory.slice off sz).map
+              fun (byte : Fin 256) => UInt8.ofNat byte.val))
+        | _, _ => .revert .empty) = _
+      split <;> exact ⟨_, rfl⟩
+    exact ⟨.revert payload, .revert final, hsrc, hfinal, trivial⟩
 
 /-- Compiled IR for `revertReturndata`: copy the whole returndata buffer to memory
 and revert with it. -/
@@ -3053,7 +3062,7 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
     omega
   rw [hfuel]
   obtain ⟨s, hs⟩ := execIRStmts_revertReturndataIR_revert k state
-  exact ⟨.revert, .revert s, rfl, hs, trivial⟩
+  exact ⟨.revert _, .revert s, rfl, hs, trivial⟩
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :
@@ -5662,7 +5671,7 @@ private theorem execStmt_letVar_of_evalExpr {fields : List Field}
   change (match SourceSemantics.evalExpr fields runtime e with
     | some r => SourceSemantics.StmtResult.continue
         { runtime with bindings := SourceSemantics.bindValue runtime.bindings name r }
-    | none => SourceSemantics.StmtResult.revert) = _
+    | none => SourceSemantics.StmtResult.revert .empty) = _
   rw [h]
 
 private theorem execStmt_assignVar_of_evalExpr {fields : List Field}
@@ -5673,7 +5682,7 @@ private theorem execStmt_assignVar_of_evalExpr {fields : List Field}
   change (match SourceSemantics.evalExpr fields runtime e with
     | some r => SourceSemantics.StmtResult.continue
         { runtime with bindings := SourceSemantics.bindValue runtime.bindings name r }
-    | none => SourceSemantics.StmtResult.revert) = _
+    | none => SourceSemantics.StmtResult.revert .empty) = _
   rw [h]
 
 private theorem execIRStmts_singleton_let_of_eval {state : IRState} {name : String}
