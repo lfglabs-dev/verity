@@ -12,6 +12,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "ReentrantCa
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract ReentrantCallbackFixture
   function poke(address,uint256)
+  function emitPoke(address,uint256)
   function tryPoke(address,uint256)
   function enter()
   function enterSmall(uint8)

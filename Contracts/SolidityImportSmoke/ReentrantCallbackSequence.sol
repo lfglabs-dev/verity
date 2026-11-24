@@ -6,7 +6,7 @@ interface IHook {
 }
 
 /// A contract that a callee re-enters. `poke` and `tryPoke` write `pending`, then call the
-/// target, which may call back into `enter`, `enterSmall` or `enterThenFail`. Each call is the
+/// target (`emitPoke` logs first instead, so the caller's log must precede the callback's), which may call back into `enter`, `enterSmall` or `enterThenFail`. Each call is the
 /// root's last state interaction, so the importer admits it (a trailing call). The callbacks
 /// record their own sender and selector, count themselves in `callbacks` and copy what they
 /// see of the caller's pre-call write, so a skipped callback, a wrong call context or a lost
@@ -20,9 +20,16 @@ contract ReentrantCallbackFixture {
     uint256 private lastSmall;
 
     error CallbackFailed(uint256 seen);
+    event Poked(uint256 value);
+    event Entered(address sender);
 
     function poke(address target, uint256 value) external {
         pending = value;
+        IHook(target).hook();
+    }
+
+    function emitPoke(address target, uint256 value) external {
+        emit Poked(value);
         IHook(target).hook();
     }
 
@@ -36,6 +43,7 @@ contract ReentrantCallbackFixture {
         lastSender = msg.sender;
         lastSig = uint256(uint32(msg.sig));
         seenPending = pending;
+        emit Entered(msg.sender);
     }
 
     function enterSmall(uint8 value) external {
