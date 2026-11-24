@@ -111,7 +111,7 @@ theorem sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeResu
       cases hNativeIR
   | ok yul =>
       rcases hSourceIR with ⟨hSourceSuccess, hSourceReturn, hSourceStorage, hSourceEvents⟩
-      rcases hNativeIR with ⟨hNativeSuccess, hNativeReturn, hNativeStorage, hNativeEvents⟩
+      rcases hNativeIR with ⟨hNativeSuccess, hNativeReturn, hNativeStorage, hNativeEvents, -⟩
       refine ⟨?_, ?_, ?_, ?_⟩
       · exact hSourceSuccess.trans hNativeSuccess
       · exact hSourceReturn.trans hNativeReturn
