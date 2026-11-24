@@ -249,6 +249,10 @@ def constructorArgAliasNames (params : List Param) : List String :=
 def constructorBodyScope (params : List Param) : List String :=
   constructorArgAliasNames params ++ params.map (·.name)
 
+/-- Where the deploy block copies the constructor arguments: the initial
+free-memory pointer written by `initFreeMemoryPointer`. -/
+def constructorArgsMemoryBase : Nat := 128
+
 private def constructorArgAliases (params : List Param) : List YulStmt :=
   let rec go (ps : List Param) (idx : Nat) (headOffset : Nat) : List YulStmt :=
     match ps with
@@ -266,22 +270,41 @@ private def constructorArgAliases (params : List Param) : List YulStmt :=
               YulExpr.call "mload" [YulExpr.lit headOffset]
         let alias := YulStmt.let_ s!"arg{idx}" source
         alias :: go rest (idx + 1) (headOffset + paramHeadSize param.ty)
-  go params 0 0
+  go params 0 constructorArgsMemoryBase
 
+/-- Deploy-block decoding of the constructor arguments. The trailing initcode
+bytes (`codesize() - argsOffset`, however many the deployer appended) are
+copied to `constructorArgsMemoryBase` and the free-memory pointer is bumped
+past them, as solc does; the parameters are then decoded by `mload` at
+absolute memory positions, bounds checked against `argsEnd`. Copying to
+offset 0 instead let a tail longer than 64 bytes overwrite the free-memory
+pointer word. -/
 def genConstructorArgLoads (params : List Param) : List YulStmt :=
   if params.isEmpty then []
   else
+    let base := constructorArgsMemoryBase
     let argsOffset := YulExpr.call "add" [
       YulExpr.call "dataoffset" [YulExpr.str "runtime"],
       YulExpr.call "datasize" [YulExpr.str "runtime"]
     ]
+    let argsEnd := YulExpr.ident "argsEnd"
     let initcodeArgCopy := [
       YulStmt.let_ "argsOffset" argsOffset,
       YulStmt.let_ "argsSize"
         (YulExpr.call "sub" [YulExpr.call "codesize" [], YulExpr.ident "argsOffset"]),
-      YulStmt.exprStmt (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.ident "argsSize"])
+      YulStmt.let_ "argsEnd" (YulExpr.call "add" [YulExpr.lit base, YulExpr.ident "argsSize"]),
+      YulStmt.exprStmt (YulExpr.call "codecopy"
+        [YulExpr.lit base, YulExpr.ident "argsOffset", YulExpr.ident "argsSize"]),
+      YulStmt.exprStmt (YulExpr.call "mstore" [
+        YulExpr.lit Compiler.Constants.freeMemoryPointer,
+        YulExpr.call "and" [
+          YulExpr.call "add" [argsEnd, YulExpr.lit 31],
+          YulExpr.call "not" [YulExpr.lit 31]
+        ]
+      ])
     ]
-    let paramLoads := genParamLoadsFrom (fun pos => YulExpr.call "mload" [pos]) (YulExpr.ident "argsSize") 0 0 params
+    let paramLoads :=
+      genParamLoadsFrom (fun pos => YulExpr.call "mload" [pos]) argsEnd base base params
     initcodeArgCopy ++ paramLoads ++ constructorArgAliases params
 
 end Compiler.CompilationModel

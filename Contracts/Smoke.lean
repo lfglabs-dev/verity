@@ -47,3 +47,4 @@ import Contracts.Smoke.SpillStaticMemorySmoke
 import Contracts.Smoke.LoopSemanticsSmoke
 import Contracts.Smoke.FallbackNonReentrantSmoke
 import Contracts.Smoke.ScalarAbiValidationSmoke
+import Contracts.Smoke.ConstructorEventSmoke
