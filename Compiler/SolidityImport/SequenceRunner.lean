@@ -132,8 +132,17 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
   let mut world := storage.foldl
     (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
     { foreignWorld with thisAddress := Address.ofNat account }
+  -- Runtime code of the executing account, as deployed on the source route; absent
+  -- while its constructor runs. Only zero tests of its length are observable, which
+  -- agree with the compiled route's own nonempty code.
+  if let .ok code := input.getObjVal? "selfCode" then
+    let some code := hexCode? (← code.getStr?)
+      | throw "executing account code must be 0x-prefixed hex"
+    if code.isEmpty then throw "executing account code must be nonempty"
+    let address := Address.ofNat account
+    world := world.writeAccount address { world.accountWorld address with code }
   -- Runtime code of foreign accounts, as deployed on the EVM routes; observed by
-  -- code-length reads. The caller's own code differs between routes and is absent.
+  -- code-length reads. The caller's own code is given by `selfCode` above.
   if let .ok rows := input.getObjVal? "accountCode" then
     for row in ← rows.getArr? do
       let [owner, code] := (← row.getArr?).toList | throw "expected account/code pair"

@@ -2388,7 +2388,8 @@ Trust boundary changes:
   view read by `Expr.extcodesize`; the two views agree only where accounts are
   written through `writeAccount`. Differential campaigns install the deployed
   runtime code of every foreign account they call (`accountCode` input); the
-  executing contract's own code is not modeled and its code length rejects.
+  executing contract's own code differs between the routes, so its code length
+  rejects outside a zero test (see the zero-test section below).
 - The callee is the explicit byte adversary of `ByteExternalCall`: a successful
   `CALL` may commit any world, including writes to the caller's own storage, so
   re-entrant effects are part of the Denote semantics rather than excluded.
@@ -2563,6 +2564,40 @@ Trust boundary changes:
   nonce alone, two funded EOAs, a never-touched address and a precompile
   address), not a proof. `DenoteAgreement` excludes
   every closed byte transport.
+
+### Imported zero tests of `address(this).code.length`
+
+`solidity_import` now admits `address(this).code.length` compared with zero
+(`== 0`, `!= 0`, `> 0`, and `0 == x`, `0 != x`, `0 < x`), the shape of
+OpenZeppelin's `Initializable.initializer` guard. It lowers to the existing
+closed `SolidityExtCodeSize.module` transport on `address()` and exposes only
+the zero test (`lowerThisCodeLengthZeroTest?`). Every other use of the executing
+contract's code length (the value, a local, arithmetic, other comparisons,
+named constants) still fails closed with a located diagnostic, and so do reads
+through aliases of `address(this)`.
+
+Trust boundary changes:
+- Denote answers from the executing account's runtime code in
+  `ContractState.accountWorld`, which nothing else in the model reads or writes.
+  A statement about the model must say whether that account has code: it has
+  none while its constructor runs, including when that constructor
+  delegatecalls an imported root (OpenZeppelin's proxy deploys run `initialize`
+  this way), and has code in every later transaction. The source and compiled
+  routes' codes differ in content and length; only emptiness is observable
+  through the admitted shape, and both routes have code exactly when the
+  account is deployed.
+- On the EVM an account's code cannot change while its own frame runs, but a
+  successful `CALL` adversary may commit any world, including code for the
+  executing account; a zero test after such a call reads that world. A statement
+  proved for every adversary also covers the EVM's unchanged code, as for
+  `<addr>.code.length` after a call; no A/B/C case exercises it.
+- Differential campaigns install the source route's runtime code for the
+  executing account in Denote (`selfCode` input) for runtime transactions, and
+  none for the construction replay, where both EVM routes run the sequence by
+  `DELEGATECALL` from a probe's constructor.
+- Compilation keeps `proofStatus := .assumed`; agreement is differential
+  evidence (`SelfCodeLengthSequence`: OpenZeppelin's guard admits `initialize`
+  once at runtime and twice during construction), not a proof.
 
 ### ABI memory proof integration
 

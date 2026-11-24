@@ -34,7 +34,7 @@ def _calldata(tx):
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
                  lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=600,
-                 account_code=(), account_balance=(), foreign_nonce=(), immutables=(), self_balance=None):
+                 account_code=(), account_balance=(), foreign_nonce=(), immutables=(), self_balance=None, self_code=None):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         if not isinstance(lean_command, (list, tuple)) or not lean_command or any(
@@ -54,6 +54,12 @@ class SequenceAdapter:
             raise HarnessError('model self balance must be a uint256 integer')
         self.self_balance = self_balance
         self.timeout = timeout
+        # Runtime code of the executing account, or None while it has none (its constructor
+        # runs). Only zero tests of its length are observable, so either route's code serves.
+        if self_code is not None and (not isinstance(self_code, str)
+                                      or not re.fullmatch(r'0x(?:[0-9a-fA-F]{2})+', self_code)):
+            raise HarnessError('executing account code must be nonempty 0x-prefixed hex bytes')
+        self.self_code = None if self_code is None else self_code.lower()
         # Foreign runtime code as deployed on the EVM routes (observed by code-length reads).
         self.account_code = []
         for owner, code in account_code:
@@ -146,6 +152,8 @@ class SequenceAdapter:
             payload['byteCallEnvironment'] = self.byte_call_environment
         if self.account_code:
             payload['accountCode'] = self.account_code
+        if self.self_code is not None:
+            payload['selfCode'] = self.self_code
         if self.account_balance:
             payload['accountBalance'] = self.account_balance
         if self.foreign_nonce:

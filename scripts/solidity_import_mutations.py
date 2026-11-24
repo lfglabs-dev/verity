@@ -29,6 +29,7 @@ from solidity_differential.check_external_code_and_low_level_call_mutations impo
 from solidity_differential.check_extcodecopy_struct_decode_mutations import (
     MUTANTS as EXTCODECOPY_STRUCT_DECODE_MUTANTS)
 from solidity_differential.check_extcodehash_mutations import MUTANTS as EXTCODEHASH_MUTANTS
+from solidity_differential.check_self_code_length_mutations import MUTANTS as SELF_CODE_LENGTH_MUTANTS
 from solidity_differential.check_memory_call_mutations import MUTANTS as MEMORY_CALL_MUTANTS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -897,6 +898,22 @@ def extcodehash_mutant(mutant: str) -> None:
     print(f"pass {mutant}", flush=True)
 
 
+def self_code_length_rejections() -> None:
+    module_campaign_output("check_self_code_length_rejections", "self-code-length-rejections",
+                           MUTANT_TIMEOUT)
+    print("pass self code-length located rejections", flush=True)
+
+
+def self_code_length_mutant(mutant: str) -> None:
+    result = module_campaign("check_self_code_length_mutations", mutant,
+                             2 * MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"self code-length mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot).
 
@@ -927,7 +944,8 @@ def tasks(update_golden: bool) -> list:
              ("create2-struct-emit-rejections", 1, create2_struct_emit_rejections),
              ("external-code-low-level-call-rejections", 1, low_level_call_rejections),
              ("extcodecopy-struct-decode-rejections", 1, extcodecopy_struct_decode_rejections),
-             ("extcodehash-rejections", 1, extcodehash_rejections)]
+             ("extcodehash-rejections", 1, extcodehash_rejections),
+             ("self-code-length-rejections", 1, self_code_length_rejections)]
     items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
@@ -939,6 +957,7 @@ def tasks(update_golden: bool) -> list:
     items += [(m, 2, (lambda m=m: extcodecopy_struct_decode_mutant(m)))
               for m in EXTCODECOPY_STRUCT_DECODE_MUTANTS]
     items += [(m, 2, (lambda m=m: extcodehash_mutant(m))) for m in EXTCODEHASH_MUTANTS]
+    items += [(m, 2, (lambda m=m: self_code_length_mutant(m))) for m in SELF_CODE_LENGTH_MUTANTS]
     items += [(m, 2, (lambda m=m: memory_call_mutant(m))) for m in MEMORY_CALL_MUTANTS]
     return items
 

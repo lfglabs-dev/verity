@@ -220,7 +220,7 @@ IMPORTER_JSON_KEYS = {
     # Differential driver and sequence-runner input (`args`, `observe`, account setup, mocks).
     "accountBalance", "accountCode", "accountNonce", "args", "byteCallEnvironment",
     "emptyAccounts", "externalStorage", "foreignNonce", "observe", "observeAccounts", "program",
-    "selfBalance", "transactions",
+    "selfBalance", "selfCode", "transactions",
 }
 
 ALLOWED_IDENTIFIERS = (
