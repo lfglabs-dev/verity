@@ -72,9 +72,9 @@ CASES = [
     ('indexed-argument', single('uint256 amount'), 'uint256[] a;',
      'uint256 v = IWord(oracle).f(a[x]); return v;',
      ('a[x]', 0, 'IndexAccess', 'effects')),
+    # A checked expression is evaluated at its argument position, before the call.
     ('checked-argument', WORD, '',
-     'uint256 v = IWord(oracle).quote(x + 1, bytes32(0)); return v;',
-     ('x + 1', 0, 'BinaryOperation', 'encoding')),
+     'uint256 v = IWord(oracle).quote(x + 1, bytes32(0)); return v;', None),
     # Declaration-order and commuting reordered scalars share positional lowering.
     ('named-arguments', WORD, '',
      'bool b = IWord(oracle).allowed({account: oracle}); return b ? 1 : 0;', None),
@@ -96,10 +96,9 @@ CASES = [
      'bool b = x > 1 ? IWord(oracle).allowed(oracle) : false; return b ? 1 : 0;', None),
     ('if-condition', WORD, '',
      'if (IWord(oracle).allowed(oracle)) { return 1; } return 0;', None),
+    # A helper call is evaluated before the revert data is encoded.
     ('error-argument', WORD, 'error Coded(uint256 code);',
-     'require(x > 1, Coded(IWord(oracle).quote(1, bytes32(0)))); return x;',
-     ('IWord(oracle).quote(1, bytes32(0))', 0, 'FunctionCall',
-      'custom-error arguments currently require literals or scalar bindings')),
+     'require(x > 1, Coded(IWord(oracle).quote(1, bytes32(0)))); return x;', None),
     ('non-view-call', 'interface IWord {\n    function f(address a) external returns (bool);\n}\n', '',
      'bool b = IWord(oracle).f(oracle); return b ? 1 : 0;',
      ('IWord(oracle).f', 0, 'MemberAccess', 'non-view')),
