@@ -75,8 +75,7 @@ def main():
      ('panic',
       'uint256',
       'event E(uint256 value);',
-      'emit E(100 / x); return x;',
-      'event arguments currently require total scalar expressions'),
+      'emit E(100 / x); return x;', None),
      ('nested-mapping-read',
       'uint256',
       'struct S { mapping(uint256 => uint256) inner; uint256 total; } mapping(uint256 => S) m; '
