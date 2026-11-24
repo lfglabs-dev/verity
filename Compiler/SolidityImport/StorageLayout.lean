@@ -196,21 +196,21 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
       let keyOf (ty : String) : Option MappingKeyType :=
         if ty == "address" || ty == "address payable" || ty.startsWith "contract " then
           some MappingKeyType.address
-        else if ty == "uint256" || ty == "uint" || (bitsOf ty).isSome || (signedBitsOf ty).isSome then
+        else if ty == "uint256" || ty == "uint" || ty == "bool" || (bitsOf ty).isSome || (signedBitsOf ty).isSome then
           some MappingKeyType.uint256
         else if ty == "bytes32" || ty == "bytes4" then
           some MappingKeyType.bytes32
         else
           none
       let keyType? := keyOf kTy
-      -- `mapping(K1 => mapping(K2 => V))` with a scalar `V`: the inner mapping is read through
-      -- the outer key, then its own key.
+      -- `mapping(K1 => mapping(K2 => V))` with a scalar or struct `V`: the inner mapping is
+      -- reached through the outer key (`keccak256(k1 . memberSlot)`), then its own key.
       let (innerKeyType?, vNode, vTy) ←
         if optStr vNode "nodeType" == some "Mapping" then do
           let innerKeyNode ← mField vNode "keyType"
           let innerValueNode ← mField vNode "valueType"
           let innerValueTy ← mType innerValueNode
-          if optStr innerValueNode "nodeType" == some "Mapping" || innerValueTy.startsWith "struct " then
+          if optStr innerValueNode "nodeType" == some "Mapping" then
             pure (none, vNode, vTy)
           else
             pure (keyOf (← mType innerKeyNode), innerValueNode, innerValueTy)
@@ -586,6 +586,19 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
           if innerKeyStr.startsWith "t_enum(" then return none
           let innerKeyType ← try liftM (mappingKey innerKeyStr) catch _ => return none
           let innerValKey ← mStr (← mField leafTy "value")
+          if (normalizeSolcLayoutType (← get) innerValKey).startsWith "t_struct(" then
+            let some valSid := resolveStructIdFromSolcType? (← get) innerValKey | return none
+            let _ ← try resolveRawStructInfo valSid Json.null catch _ => return none
+            return some {
+              member := qualLabel
+              solcType := rawSolcType
+              wordOffset := word
+              keyType
+              valueWidth := 256
+              booleanValue := false
+              valueStructId := some valSid
+              innerKeyType := some innerKeyType
+            }
           let some (width, isBool) ← structMappingScalarLeaf? types innerValKey | return none
           return some {
             member := qualLabel

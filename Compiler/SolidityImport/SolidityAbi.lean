@@ -104,6 +104,7 @@ inductive ScalarKind where
   | address
   | bool
   | bytes32
+  | enum (variantCount : Nat)
   deriving Repr, DecidableEq
 
 def scalarBound : ScalarKind → Nat
@@ -111,6 +112,7 @@ def scalarBound : ScalarKind → Nat
   | .address => 2^160
   | .bool => 2
   | .bytes32 => modulus
+  | .enum variantCount => variantCount
 
 def readScalar (selector : Nat) (calldata : List Nat) (offset : Nat)
     (kind : ScalarKind) : Except DecodeFailure Nat :=
