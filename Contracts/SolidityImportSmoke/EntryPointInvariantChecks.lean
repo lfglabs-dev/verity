@@ -267,8 +267,9 @@ theorem fresh_sequence_never_writes
 `DecodedCall` decodes with) held, so every frame of `AllEntryPointsPreserve*`,
 `CalleeEntryPointSequence` and `ReentrantEntryPointSequence` read `msg.sig = 0`, while the EVM (and
 `executeTracedBody`, which the differential runner uses) reads the call's own selector. Both runners
-now take `world.selector`. The `unset` theorems keep the frame they used to build, next to the
-runners. Calldata offsets 1 to 3 are not covered here. -/
+now take `world.selector`. The `unset` theorems record the frame they used to build (they hold
+with or without the fix); the runner theorems and the `#guard`s below are the regression checks.
+Calldata offsets 1 to 3 are not covered here. -/
 
 def callerSelector : Nat := 0x11111111
 def callbackSelector : Nat := 0x22222222
@@ -292,7 +293,8 @@ theorem readSig_executeBody (oracle : DenoteOracle) :
       (fun result => (result.world.storage 0).val) = .ok (selectorWord callerSelector) := by
   rfl
 
-/-- The old `executeReentrantBody` frame: the callback's selector in its world, frame selector `0`. -/
+/-- The old `executeReentrantBody` frame: the callback's selector in its world, frame
+selector `0`. -/
 theorem readSig_unset_callback_frame_reads_zero (oracle : DenoteOracle) :
     (finishFrame (beginReentrantFrame (selectorWorld callbackSelector))
         (execStmtList oracle fields
@@ -312,11 +314,18 @@ theorem callbackSelector_word_ne_caller :
 
 /-! A caller and a callback with distinct selectors and senders around a real byte `CALL`. The
 caller (`callerSelector`, sender `callerAccount`) calls `calleeAccount`, which calls back into the
-contract with its own call context (`callbackSelector`, sender `calleeAccount`): the callback records
-its selector word and sender, and after the call the caller records its own. A successful callback
-is committed with the caller frame restored (`commitCalleeWorld`); with `rollback` the callee
-reverts after the callback, so the callback's writes are rolled back and the caller continues with
-the call's result `0`. -/
+contract with its own call context (`callbackSelector`, sender `calleeAccount`): the callback
+records its selector word and sender, and after the call the caller records its own. A
+successful callback is committed with the caller frame restored (`commitCalleeWorld`). In
+`callbackReverts` the
+callback's own body panics after its writes, so `executeReentrantBody` rolls them back and the
+callee bubbles the failure; in `calleeReverts` the callback succeeds and the callee reverts after
+it. Either way the caller continues with the call's result `0`. -/
+
+/-- How the callee answers. -/
+inductive CallbackOutcome where
+  | commits | callbackReverts | calleeReverts
+  deriving BEq
 
 def callerAccount : Nat := 0xA11CE
 def calleeAccount : Nat := 0xBEEF
@@ -326,9 +335,9 @@ def contextFields : List Field :=
    { name := "callerSig", ty := .uint256 }, { name := "callerSender", ty := .uint256 },
    { name := "callOk", ty := .uint256 }]
 
-def callbackBody : List Stmt :=
+def callbackBody (outcome : CallbackOutcome) : List Stmt :=
   [.setStorage "callbackSig" (.calldataload (.literal 0)), .setStorage "callbackSender" .caller,
-   .stop]
+   if outcome == .callbackReverts then .panicCode (.literal 1) else .stop]
 
 def callerBody : List Stmt :=
   [.ecm (Compiler.ECM.YulMemoryCall.module false "ok")
@@ -344,28 +353,31 @@ def callbackWorld (world : Verity.ContractState) : Verity.ContractState :=
   { world with selector := callbackSelector, sender := Verity.Core.Address.ofNat calleeAccount }
 
 open Compiler.CompilationModel.ByteExternalCall Compiler.CompilationModel.DenoteByteExternalCalls in
-def callbackResponse (rollback : Bool) (request : Request) (world : Verity.ContractState) :
-    Response Verity.ContractState Verity.StorageKey :=
+def callbackResponse (outcome : CallbackOutcome) (request : Request)
+    (world : Verity.ContractState) : Response Verity.ContractState Verity.StorageKey :=
   if request.kind = .staticcall then .success world [] [] else
-  match executeReentrantBody contextOracle contextFields (callbackWorld world) [] callbackBody with
+  match executeReentrantBody contextOracle contextFields (callbackWorld world) []
+      (callbackBody outcome) with
   | .ok result =>
-      if result.success && !rollback then .success (commitCalleeWorld world result.world) [] []
-      else .revert [] []
+      if result.success && outcome == .commits then
+        .success (commitCalleeWorld world result.world) [] []
+      else .revert result.data []
   | .error _ => .exceptional []
 
 open Compiler.CompilationModel.ByteExternalCall in
-theorem callbackResponse_valid (rollback : Bool) (request : Request)
+theorem callbackResponse_valid (outcome : CallbackOutcome) (request : Request)
     (world : Verity.ContractState) :
-    (callbackResponse rollback request world).valid request world := by
+    (callbackResponse outcome request world).valid request world := by
   unfold callbackResponse
   split
   · simp [Response.valid]
   · rename_i static
     split <;> (try split) <;> simp [Response.valid, static]
 
-def callbackCalls (rollback : Bool) : ByteCallEnvironment :=
+def callbackCalls (outcome : CallbackOutcome) : ByteCallEnvironment :=
   { gas := some 100000
-    adversary := some { respond := callbackResponse rollback, valid := callbackResponse_valid rollback } }
+    adversary := some
+      { respond := callbackResponse outcome, valid := callbackResponse_valid outcome } }
 
 def callerWorld : Verity.ContractState :=
   { Verity.defaultState with
@@ -374,17 +386,31 @@ def callerWorld : Verity.ContractState :=
     thisAddress := Verity.Core.Address.ofNat 0x1000 }
 
 /-- Success, then slots `callbackSig, callbackSender, callerSig, callerSender, callOk`. -/
-def observeContext (rollback : Bool) : Option (Bool × List Nat) :=
+def observeContext (outcome : CallbackOutcome) : Option (Bool × List Nat) :=
   match executeBody contextOracle contextFields callerWorld [] callerBody
-      (byteCalls := callbackCalls rollback) with
-  | .ok result => some (result.success, (List.range 5).map fun slot => (result.world.storage slot).val)
+      (byteCalls := callbackCalls outcome) with
+  | .ok result =>
+      some (result.success, (List.range 5).map fun slot => (result.world.storage slot).val)
   | .error _ => none
 
 -- The callback reads its own selector and sender; the caller, after the call, reads its own.
-#guard observeContext false == some (true,
+#guard observeContext .commits == some (true,
   [selectorWord callbackSelector, calleeAccount, selectorWord callerSelector, callerAccount, 1])
--- A rolled-back callback leaves nothing; the caller's selector and sender are unchanged.
-#guard observeContext true == some (true,
+-- A callback whose body reverts after writing leaves nothing (`executeReentrantBody` rollback).
+#guard observeContext .callbackReverts == some (true,
+  [0, 0, selectorWord callerSelector, callerAccount, 0])
+/-- The failing callback frame itself: success flag, then its `callbackSig` and `callbackSender`. -/
+def revertingCallbackFrame : Option (Bool × Nat × Nat) :=
+  match executeReentrantBody contextOracle contextFields (callbackWorld callerWorld) []
+      (callbackBody .callbackReverts) with
+  | .ok result =>
+      some (result.success, (result.world.storage 0).val, (result.world.storage 1).val)
+  | .error _ => none
+
+-- `executeReentrantBody` itself returns the frame's starting world: both writes are undone.
+#guard revertingCallbackFrame == some (false, 0, 0)
+-- A callee that reverts after a successful callback leaves nothing either.
+#guard observeContext .calleeReverts == some (true,
   [0, 0, selectorWord callerSelector, callerAccount, 0])
 
 end SolidityImportSmoke.EntryPointInvariantChecks
