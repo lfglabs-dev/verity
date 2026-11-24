@@ -79,6 +79,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "pinned-sequence",
     "pinned-sequence-corpus",
     "protocol",
+    "reentrant-callback",
+    "reentrant-callback-rejections",
     "reference-arguments",
     "reference-rejections",
     "rejections",
