@@ -2279,6 +2279,39 @@ started from. The mock establishes nothing about any deployed contract; its agre
 the Solidity responder is differential evidence (`check_selector_responder.py` over five
 tables, an account without code and an EOA).
 
+### Imported emptiness tests of the executing contract's code
+
+`solidity_import` admits `address(this).code.length` only in a comparison with the
+literal `0` (`== 0`, `!= 0`, `> 0`, `<= 0`, and the mirrored forms), the initializer /
+constructor guard. It lowers to `EXTCODESIZE(ADDRESS())` through the existing closed
+`SolidityExtCodeSize` transport, compared with zero, as solc emits it.
+
+Trust boundary changes:
+- The source and compiled bytecode differ in length, so the length value, comparisons with
+  other constants, and reads through locals bound to `address(this)` still reject. Only
+  emptiness is observed, and both EVM routes agree on it. At runtime the executing account
+  holds its deployed code. During construction, including a delegatecall from a
+  constructor, it holds none.
+- Denote answers from the account world, like every code-length read. A proof about such a
+  function quantifies over that world: it holds in construction contexts (no code at the
+  executing account) and in runtime contexts (code present) alike.
+- The differential runner (`SequenceRunner.execute`) now gives the executing account a
+  one-byte placeholder runtime code, so its model world matches the deployed routes'
+  non-emptiness. The placeholder's bytes and length are never observable, because every
+  other read of the executing contract's code, code hash or code bytes still rejects.
+
+### Imported dirty `bool` / `address` inline-assembly assignments
+
+Under via-IR, `solidity_import` admits inline-assembly assignments of possibly dirty words to
+`bool` and `address` locals. The binding stores the cleaned word: `iszero(iszero(w))` and
+`and(w, 2^160 - 1)`. The argument for equivalence rests on via-IR applying `cleanup_t_bool` /
+`cleanup_t_address` at every Solidity-level use of the stack word (conditions, comparisons,
+conversions, ABI encoding, storage writes, events). This is a property of solc's code
+generator. It is checked by anvil differential tests (`yul-narrow-bool-address`,
+`SyntheticNarrowYulChecks`), not proved. A raw Yul read of the binding, or of any binding
+derived from it, rejects. Legacy codegen carries dirty bits through conversions, so the
+assignment stays rejected there.
+
 ### Imported `<address>.code.length` and optional-bool low-level calls
 
 `solidity_import` now admits `<addr>.code.length` on `address`-typed accounts
@@ -2301,8 +2334,10 @@ Trust boundary changes:
   (`DenoteExternalCode.extCodeSize`), not the legacy `ContractState.codeSize`
   view read by `Expr.extcodesize`; the two views agree only where accounts are
   written through `writeAccount`. Differential campaigns install the deployed
-  runtime code of every foreign account they call (`accountCode` input); the
-  executing contract's own code is not modeled and its code length rejects.
+  runtime code of every foreign account they call (`accountCode` input). The
+  executing contract's own code length rejects; only its emptiness tests against
+  zero are admitted (see "Imported emptiness tests of the executing contract's
+  code" below).
 - The callee is the explicit byte adversary of `ByteExternalCall`: a successful
   `CALL` may commit any world, including writes to the caller's own storage, so
   re-entrant effects are part of the Denote semantics rather than excluded.

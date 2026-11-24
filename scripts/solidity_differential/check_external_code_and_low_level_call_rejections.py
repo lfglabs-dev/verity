@@ -133,7 +133,7 @@ CASES = [
     ('delegatecall', '', '',
      sequence(call='token.delegatecall(abi.encodeCall(IToken.transfer, (to, amount)))'),
      ('token.delegatecall', 0, 'MemberAccess', 'external')),
-    ('this-code-length', '', '', 'require(address(this).code.length > 0, NoCode());',
+    ('this-code-length', '', '', 'counter = uint8(address(this).code.length);',
      ('address(this).code', 0, 'MemberAccess', 'this-code')),
     ('code-bytes', '', '', 'counter = uint8(token.code[0]);',
      ('token.code', 0, 'MemberAccess', 'code-read')),

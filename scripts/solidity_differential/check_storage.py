@@ -7,6 +7,7 @@ import tempfile
 
 from .engine import command, write_json
 from .programs import call_arg_source
+from .programs import SYNTHETIC_STORAGE_VARIANTS, stateful_synthetic_storage_source
 from .programs import storage_struct_param_slot_source
 from .programs import (
     ROOT_PARAM_RENAMES,
@@ -193,6 +194,8 @@ def canonical_observations(observations):
 
 # Every `x % 8` arm of YulMcopySequence (0-5 copy, 6-7 store only), with small words and
 # high-bit words whose bytes differ across each copy boundary.
+SYNTHETIC_STORAGE_PREFIX = [0, 1, 2, 3, 6, 13, 0xff, 0x100, 0x1ff, 0xff00, 2 ** 160 - 1, 2 ** 160,
+                            2 ** 255, 2 ** 255 + 0x100, 2 ** 256 - 1]
 YUL_MCOPY_PREFIX = [8, 9, 10, 11, 12, 13, 14, 15, 2 ** 255 + 8, 2 ** 255 + 1, 2 ** 256 - 6,
                     2 ** 255 + 3, 2 ** 256 - 4, 2 ** 255 + 5, 2 ** 256 - 1,
                     0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 1,
@@ -336,6 +339,10 @@ FIXTURE_CONTRACTS = {
     'yul-mcopy': 'YulMcopySequence',
     'yul-revert-memory': 'YulRevertMemorySequence',
     'yul-numeric': 'YulNumericSequence',
+    'yul-narrow-bool-address': 'SyntheticNarrowYulSequence',
+    'struct-static-array-gaps': 'SyntheticGapStorageSequence',
+    'struct-nested-mappings': 'SyntheticNestedMappingSequence',
+    'self-code-emptiness': 'SyntheticCodeLengthSequence',
 }
 
 
@@ -549,6 +556,8 @@ def main():
         variants = ('baseline', 'inverted', 'ternary')
     if args.fixture in ROOT_PARAM_RENAMES:
         variants = ('baseline', 'renamed', 'members-renamed')
+    if args.fixture in SYNTHETIC_STORAGE_VARIANTS:
+        variants = ('baseline', 'renamed', SYNTHETIC_STORAGE_VARIANTS[args.fixture][1][0])
     if args.fixture in ('imported-event', 'narrow-event'):
         variants = ('baseline', 'renamed', 'reordered' if args.fixture == 'narrow-event' else 'bindings')
     for variant in variants:
@@ -652,6 +661,7 @@ def main():
                           else stateful_bytes_named_return_slice_struct_source(fixture, variant) if args.fixture == "bytes-named-return-slice-struct"
                           else stateful_bytes_named_return_stateless_source(fixture, variant) if args.fixture == "bytes-named-return-stateless"
                           else stateful_named_string_return_source(fixture, variant) if args.fixture == "named-string-return"
+                          else stateful_synthetic_storage_source(fixture, variant, args.fixture) if args.fixture in SYNTHETIC_STORAGE_VARIANTS
                           else stateful_root_param_source(fixture, variant, args.fixture) if args.fixture in ROOT_PARAM_RENAMES
                           else stateful_dynamic_array_root_return_source(fixture, variant, args.fixture) if args.fixture.startswith("dynamic-array-root-returns")
                           else stateful_constant_array_source(fixture, variant) if args.fixture == "constant-arrays"
@@ -681,6 +691,9 @@ def main():
             # Every revert shape (x % 8 in 0..5), with small and high-bit payload words, and
             # calls that store (x % 8 in 6, 7).
             extra = ['--change-prefix', *map(str, YUL_REVERT_MEMORY_PREFIX)]
+        if args.fixture in SYNTHETIC_STORAGE_VARIANTS:
+            # Zero, small, byte-boundary, sign-bit, address-width and all-ones words.
+            extra = ['--change-prefix', *map(str, SYNTHETIC_STORAGE_PREFIX)]
         if args.fixture == 'yul-mcopy':
             # Every copy shape (x % 8 in 0..5) and calls that only store (x % 8 in 6, 7).
             extra = ['--change-prefix', *map(str, YUL_MCOPY_PREFIX)]

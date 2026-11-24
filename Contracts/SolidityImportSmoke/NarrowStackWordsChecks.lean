@@ -331,7 +331,6 @@ solidity_import observedBoolLegacy from "Contracts/SolidityImportSmoke" entry "N
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
   contract NarrowStackWords
   function observedBoolWord(uint256)
-
 solidity_import observedBool from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract NarrowStackWords
