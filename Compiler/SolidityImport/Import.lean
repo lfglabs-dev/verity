@@ -58,6 +58,8 @@ private structure SolcRelease where
   hasNoImportCallbackFlag : Bool
   supportedEvmVersions : Array String
   supportsViaIR : Bool
+  /-- Pinned names solc spells differently, e.g. the next planned fork is `@future`. -/
+  evmNameAliases : Array (String × String) := #[]
 
 private def solcReleases : Array SolcRelease := #[
   { longVersion := "0.7.6+commit.7338295f",
@@ -72,6 +74,23 @@ private def solcReleases : Array SolcRelease := #[
     hasNoImportCallbackFlag := false,
     supportedEvmVersions := #["istanbul"],
     supportsViaIR := false },
+  { longVersion := "0.8.35+commit.47b9dedd",
+    binaryName := "solc-0.8.35",
+    sha256s := #[
+      "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4",
+      "6e432580d973cae74c869ef4f737529e73fec5b200dce3c08d5e76c4a6b19159"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.35+commit.47b9dedd.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.35+commit.47b9dedd.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    supportedEvmVersions := #[
+      "amsterdam", "osaka", "prague", "cancun", "shanghai", "paris", "london", "berlin",
+      "istanbul", "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true,
+    -- solc 0.8.35 predates a named Amsterdam target; `@future` selects the next
+    -- planned fork, which is the closest executable target for this profile.
+    evmNameAliases := #[("amsterdam", "@future")] },
   { longVersion := "0.8.34+commit.80d5c536",
     binaryName := "solc-0.8.34",
     sha256s := #[
@@ -122,6 +141,14 @@ private def resolveSolcRelease (profile : Profile) : MetaM SolcRelease := do
   if profile.viaIR && !release.supportsViaIR then
     throwError "viaIR is not supported for solc {release.longVersion}"
   pure release
+
+/-- The `evmVersion` spelling this release's `--standard-json` accepts. Pinned
+aliases keep the importer's vocabulary independent of a compiler build that
+has not named a future fork yet. -/
+private def solcEvmVersion (release : SolcRelease) (evmVersion : String) : String :=
+  match release.evmNameAliases.find? (fun entry => entry.1 == evmVersion) with
+  | some entry => entry.2
+  | none => evmVersion
 
 private def buildField (types item : Json) (isTransient : Bool := false) : M FieldInfo := do
   let name ← mStr (← mField item "label")
@@ -20119,8 +20146,12 @@ private def importSlice
   for (logical, text) in sources do
     fileBytes := fileBytes.insert logical (text.toUTF8)
     sourceObj := sourceObj.push (logical, Json.mkObj [("content", Json.str text)])
+  let solcEvm := solcEvmVersion release profile.evmVersion
+  -- Experimental fork names such as `@future` are gated behind this flag.
+  let experimentalSettings : List (String × Json) :=
+    if solcEvm.startsWith "@" then [("experimental", Json.bool true)] else []
   let baseSettings : List (String × Json) := [
-    ("evmVersion", Json.str profile.evmVersion),
+    ("evmVersion", Json.str solcEvm),
     ("metadata", Json.mkObj [("bytecodeHash", Json.str profile.bytecodeHash)]),
     ("optimizer", Json.mkObj [("enabled", Json.bool profile.optimizerRuns.isSome),
       ("runs", profile.optimizerRuns.getD 200)]),
@@ -20128,9 +20159,9 @@ private def importSlice
       ("", Json.arr #[Json.str "ast"]),
       ("*", Json.arr #[Json.str "storageLayout", Json.str "transientStorageLayout"])])]),
     ("remappings", Json.arr (remaps.map fun p => Json.str s!"{p.1}={p.2}"))]
-  let settings := Json.mkObj (if release.supportsViaIR then
+  let settings := Json.mkObj ((if release.supportsViaIR then
     baseSettings ++ [("viaIR", Json.bool profile.viaIR)]
-  else baseSettings)
+  else baseSettings) ++ experimentalSettings)
   let input := Json.mkObj [
     ("language", Json.str "Solidity"),
     ("settings", settings),

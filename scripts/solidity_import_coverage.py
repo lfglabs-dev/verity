@@ -32,6 +32,7 @@ MANIFEST = ROOT / 'scripts/solidity_import_corpus/manifest.json'
 # and its default (`Profile.solc`). The coverage tests keep these synchronized.
 IMPORTER_SOLC = {
     '0.7.6': '0.7.6+commit.7338295f',
+    '0.8.35': '0.8.35+commit.47b9dedd',
     '0.8.34': '0.8.34+commit.80d5c536',
     '0.8.26': '0.8.26+commit.8a97fa7a',
     '0.8.10': '0.8.10+commit.fc410830',
