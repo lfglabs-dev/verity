@@ -141,5 +141,7 @@ structure YulResult where
   finalStorage : IRStorageSlot → IRStorageWord
   finalMappings : Nat → Nat → IRStorageWord
   events : List (List Nat)
+  /-- Bytes a `revert` returned; empty on success and on non-revert errors. -/
+  revertData : List UInt8 := []
 
 end Compiler.Proofs.YulGeneration

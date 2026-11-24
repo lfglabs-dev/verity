@@ -1355,9 +1355,22 @@ theorem callDispatcher_succ_eq_callDispatcherBlockResult
           (EvmYul.Yul.Ast.FunctionDefinition.Def [] []
             [initial.executionEnv.code.dispatcher]).params [])) <;> rfl
 
+/-- Bytes a native exception returns: the `REVERT` payload, empty otherwise. -/
+def exceptionRevertData : EvmYul.Yul.Exception → List UInt8
+  | .Revert data => data.data.toList
+  | _ => []
+
+@[simp] theorem exceptionRevertData_revert (data : ByteArray) :
+    exceptionRevertData (.Revert data) = data.data.toList := rfl
+
+/-- `revert(0, 0)` projects to no bytes. -/
+@[simp] theorem exceptionRevertData_revert_empty :
+    exceptionRevertData (.Revert ByteArray.empty) = [] := rfl
+
 /-- Convert a native `callDispatcher` result to the current Verity observable
     result shape. Reverts and hard native errors conservatively roll storage
-    back to the supplied initial storage function. -/
+    back to the supplied initial storage function; a revert keeps its bytes in
+    `revertData`. -/
 def projectResult
     (tx : YulTransaction)
     (initialStorage : IRStorageSlot → IRStorageWord)
@@ -1381,12 +1394,13 @@ def projectResult
         finalStorage := finalStorage
         finalMappings := Compiler.Proofs.storageAsMappings finalStorage
         events := initialEvents ++ projectLogsFromState state }
-  | .error _ =>
+  | .error err =>
       { success := false
         returnValue := none
         finalStorage := initialStorage
         finalMappings := Compiler.Proofs.storageAsMappings initialStorage
-        events := initialEvents }
+        events := initialEvents
+        revertData := exceptionRevertData err }
 
 @[simp] theorem projectResult_ok
     (tx : YulTransaction)
@@ -3291,7 +3305,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
       returnValue := none
       finalStorage := initialStorage
       finalMappings := Compiler.Proofs.storageAsMappings initialStorage
-      events := initialEvents } := by
+      events := initialEvents
+      revertData := exceptionRevertData err } := by
   cases err with
   | YulHalt state value =>
       exact False.elim (hNotHalt state value rfl)
@@ -3306,6 +3321,37 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
   | YulEXTCODESIZENotImplemented => rfl
   | Revert => rfl
   | InvalidMemoryAccess => rfl
+
+/-- A native `REVERT` projects to exactly the bytes it returned. -/
+@[simp] theorem projectResult_revert_revertData
+    (tx : YulTransaction)
+    (initialStorage : IRStorageSlot → IRStorageWord)
+    (initialEvents : List (List Nat))
+    (data : ByteArray) :
+    (projectResult tx initialStorage initialEvents
+      (.error (EvmYul.Yul.Exception.Revert data))).revertData = data.data.toList := by
+  rfl
+
+/-- A successful native run projects to empty `revertData`. -/
+@[simp] theorem projectResult_ok_revertData
+    (tx : YulTransaction)
+    (initialStorage : IRStorageSlot → IRStorageWord)
+    (initialEvents : List (List Nat))
+    (state : EvmYul.Yul.State)
+    (values : List EvmYul.Yul.Ast.Literal) :
+    (projectResult tx initialStorage initialEvents (.ok (state, values))).revertData = [] := by
+  rfl
+
+/-- A native `return`/`stop` halt projects to empty `revertData`. -/
+@[simp] theorem projectResult_halt_revertData
+    (tx : YulTransaction)
+    (initialStorage : IRStorageSlot → IRStorageWord)
+    (initialEvents : List (List Nat))
+    (state : EvmYul.Yul.State)
+    (value : EvmYul.Yul.Ast.Literal) :
+    (projectResult tx initialStorage initialEvents
+      (.error (.YulHalt state value))).revertData = [] := by
+  rfl
 
 @[simp] theorem projectResult_hardError_success
     (tx : YulTransaction)
