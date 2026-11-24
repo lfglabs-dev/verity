@@ -234,6 +234,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('selector-responder', ['-m', 'solidity_differential.check_selector_responder',
         '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
         '--output', str(output / 'selector-responder')]))
+    checks.append(('reentrant-callback', ['-m', 'solidity_differential.check_reentrant_callback',
+        '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
+        '--output', str(output / 'reentrant-callback')]))
+    checks.append(('reentrant-callback-rejections', ['-m',
+        'solidity_differential.check_reentrant_callback_rejections',
+        '--output', str(output / 'reentrant-callback-rejections')]))
     checks.append(('encoding-arg-super-override', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/EncodingArgSuperOverrideSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/EncodingArgSuperOverrideSequenceModel.lean',

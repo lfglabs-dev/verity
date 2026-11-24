@@ -257,6 +257,9 @@ FILE_EXCEPTIONS = {
     ("Compiler/SolidityImport/ModelResponders.lean", "imported-model-static-v1"): (
         "the program id of the importer's own byte-call responder configuration, written by the "
         "differential harness; not a name in the imported code"),
+    ("Compiler/SolidityImport/ReentrantCallResponderMocks.lean", "reentrant-callback-v1"): (
+        "the program id of the importer's own byte-call responder configuration, written by the "
+        "differential harness; not a name in the imported code"),
 }
 
 # Yul variable names of the registered range-read block (`extsloadRangeYulFingerprint`), read
