@@ -1792,10 +1792,11 @@ Assembly result assignments must resolve their target identifier through
 `InlineAssembly.externalReferences` to the active helper return declaration id
 (`!isOffset`, `!isSlot`, no suffix, `valueSize == 1`); shadowed local targets
 with the same spelling reject. Reference-local declarations erase their name from
-the Yul identifier map for their lexical scope. Assembly result assignments with
-a continuation clean unsigned/address widths and normalize booleans before
-Solidity reads. Yul reads of narrow named results are rejected rather than
-substituting cleaned bits for raw assembly bits. No new Denote arm, axiom or Yul
+the Yul identifier map for their lexical scope. Assembly result assignments keep
+the raw word they write, as solc's stack slot does; Solidity reads clean narrow
+words where solc does, and Yul reads of narrow named results observe the raw word
+(#2912). This is a lowering choice checked against solc 0.8.34 (legacy and via-IR,
+clean and dirty words), not a new assumption. No new Denote arm, axiom or Yul
 builtin is introduced; code deployment and general raw memory remain unsupported.
 Expanded type/scope/shadowing cases, runtime and guard mutants, generated
 variants, located controls, exact-head release gates and the pilot check remain

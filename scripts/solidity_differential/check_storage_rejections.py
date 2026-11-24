@@ -102,7 +102,7 @@ def main():
         ('named-helper-early', 'function h(uint256 n) internal pure returns(uint256 result) { if(n == 0) return result; result = n; }', 'return h(x);', 'uint256', None),
         ('named-helper-narrow', 'function h(uint256 n) internal pure returns(uint8 result) { assembly { result := xor(n,n) } require(n != 20, "named continuation"); }', 'return h(x);', 'uint256', None),
         ('named-helper-branch', 'function h(uint256 n) internal pure returns(uint256 result) { if(n == 0) { assembly { result := xor(n,n) } } else { result = n; } require(n != 20, "named continuation"); }', 'return h(x);', 'uint256', None),
-        ('named-helper-dirty-read', 'function h(uint256 n) internal pure returns(uint8 result) { assembly { result := xor(n,n) } assembly { result := lt(result,n) } }', 'return h(x);', 'uint256', 'Yul reads of narrow named results are unsupported'),
+        ('named-helper-dirty-read', 'function h(uint256 n) internal pure returns(uint8 result) { assembly { result := xor(n,n) } assembly { result := lt(result,n) } }', 'return h(x);', 'uint256', None),
         ('named-helper-reference', 'struct P { uint256 a; } function h(uint256 n) internal pure returns(P memory result) { result = P(n); }', 'h(x); return x;', 'uint256', None),
         ('named-helper-tuple', 'function h(uint256 n) internal pure returns(uint256 a,uint256 b) { a = n; b = n; }', 'h(x); return x;', 'uint256', None),
         ('named-helper-modifier', 'modifier m() { _; } function h(uint256 n) internal pure m returns(uint256 result) { result = n; }', 'return h(x);', 'uint256', None),

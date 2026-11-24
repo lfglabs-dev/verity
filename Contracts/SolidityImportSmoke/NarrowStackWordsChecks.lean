@@ -325,15 +325,21 @@ private def wordX := 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1
 #guard observesWords ir.model "bytesWidthCasts" [2 ^ 256 - 1]
   [(2 ^ 152 - 1) * 2 ^ 104, (2 ^ 56 - 1) * 2 ^ 200, (2 ^ 32 - 1) * 2 ^ 224]
 
-/--
-error: NarrowStackWords.sol:318:33: YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local result is unsupported
-closure: NarrowStackWords.observedBoolWord
-result := mload(0)
--/
-#guard_msgs in
+-- A Yul read of a `bool` result keeps the raw word; the ABI encoder cleans the result
+-- (solc 0.8.34, legacy and via-IR, #2912).
+solidity_import observedBoolLegacy from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
+  using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract NarrowStackWords
+  function observedBoolWord(uint256)
+
 solidity_import observedBool from "Contracts/SolidityImportSmoke" entry "NarrowStackWords.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract NarrowStackWords
   function observedBoolWord(uint256)
+
+#guard [observedBoolLegacy.model, observedBool.model].all fun m =>
+  observesWords m "observedBoolWord" [0] [0, 0] && observesWords m "observedBoolWord" [1] [1, 1] &&
+  observesWords m "observedBoolWord" [256] [1, 256] &&
+  observesWords m "observedBoolWord" [2 ^ 256 - 1] [1, 2 ^ 256 - 1]
 
 end SolidityImportSmoke.NarrowStackWordsChecks

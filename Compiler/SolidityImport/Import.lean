@@ -1502,11 +1502,8 @@ private partial def lowerYul (j : Json) : M Val := do
   | "YulIdentifier" =>
       let name ← mStr (← mField j "name")
       let env ← get
-      if let some (binding, ty) := env.helperResult then
-        if ty == "bool" || (bitsOf ty).getD 256 < 256 || (signedBitsOf ty).getD 256 < 256 then
-          if let some (.localVar foundBinding) := env.yulNames.find? name then
-            if foundBinding == binding then
-              failAt j "Yul reads of narrow named results are unsupported"
+      -- A narrow named result holds the raw stack word, as solc's does: Yul reads see it and
+      -- Solidity consumers clean it (#2912).
       match env.yulNames.find? name with
       | some expr => pure { pre := #[], expr }
       | none => failAt j s!"unbound Yul identifier {name}"
@@ -1958,9 +1955,11 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
     if let .bytesN byteW := scalarType then
       if 1 ≤ byteW && byteW < 32 then
         return .assignVar binding rhsVal.expr
-    -- Integer stack bindings retain the full word until a typed consumer.
+    -- Integer and `bool` stack bindings retain the full word until a typed consumer, as in
+    -- solc (legacy and via-IR): a Yul read sees the raw word, `==`, `!`, storage, ABI and event
+    -- encoding clean it, copies and internal arguments pass it on (#2912).
     match scalarType with
-    | .uint8 | .uintN _ | .intN _ => return .assignVar binding rhsVal.expr
+    | .uint8 | .uintN _ | .intN _ | .bool => return .assignVar binding rhsVal.expr
     | _ => pure ()
     unless isFullWordYulScalar scalarType do
       failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"

@@ -138,6 +138,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "struct-copy-write-order",
     "yul-memory-call",
     "yul-memory-call-rejections",
+    "yul-narrow-result",
 )
 
 

@@ -122,10 +122,14 @@ def transactions_for(count, seed, caller, responders):
 
 
 def campaign(directory, source, template, transactions, seed, shrink_attempts, solc=SOLC, *,
-             contract='YulMemoryCallFixture', anchor=ANCHOR, plan=transactions_for):
+             contract='YulMemoryCallFixture', anchor=ANCHOR, plan=transactions_for,
+             responder=RESPONDER, responder_contract='RecordingCallResponder',
+             parameters=RESPONDERS, program='recording-call-responder-v1'):
     """Run one imported variant of `contract` against the recording responders, one
     account without code and the sender; `plan(count, seed, caller, responders)` lists
-    the transactions. Returns (exit code, report)."""
+    the transactions. Returns (exit code, report). `responder`, `responder_contract`,
+    `parameters` (its constructor words) and the Denote `program` select another
+    configurable responder with the same three constructor words."""
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     root = Path.cwd()
@@ -134,10 +138,10 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
         raise HarnessError('nonunique imported source anchor')
     driver = directory / 'Driver.lean'
     driver.write_text(template.replace(anchor, f'from "{directory}" entry "Sequence.sol"'))
-    responder_source = (root / RESPONDER).read_text()
+    responder_source = (root / responder).read_text()
     compiled = solc_compile({
         'language': 'Solidity',
-        'sources': {'Sequence.sol': {'content': source}, RESPONDER.name: {'content': responder_source}},
+        'sources': {'Sequence.sol': {'content': source}, responder.name: {'content': responder_source}},
         'settings': {**SETTINGS, 'outputSelection': {'*': {'*': [
             'evm.bytecode.object', 'evm.deployedBytecode.object', 'evm.methodIdentifiers']}}},
     }, directory, directory / 'solc', solc=solc)['contracts']
@@ -156,18 +160,18 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
         raise HarnessError('expected exactly one compiled model object')
     caller_a = '0x' + caller_contract['evm']['bytecode']['object']
     caller_c = '0x' + next(iter(generated.values()))['evm']['bytecode']['object']
-    mock = compiled[RESPONDER.name]['RecordingCallResponder']['evm']
+    mock = compiled[responder.name][responder_contract]['evm']
     runtime = '0x' + mock['deployedBytecode']['object']
     caller = address(0)
-    accounts = [address(i + 1) for i in range(len(RESPONDERS))]
+    accounts = [address(i + 1) for i in range(len(parameters))]
     responders = ['0x' + mock['bytecode']['object'] + encode(['uint256', 'bool', 'uint256'], list(p)).hex()
-                  for p in RESPONDERS]
+                  for p in parameters]
     initial = [(account, '0x' + slot.to_bytes(32, 'big').hex(), '0x' + int(value).to_bytes(32, 'big').hex())
-               for account, parameters in zip(accounts, RESPONDERS, strict=True)
-               for slot, value in enumerate(parameters)]
+               for account, words in zip(accounts, parameters, strict=True)
+               for slot, value in enumerate(words)]
     calls = plan(transactions, seed, caller, accounts)
     write_json(directory / 'transactions.json', calls)
-    environment = {'program': 'recording-call-responder-v1',
+    environment = {'program': program,
                    'accounts': [str(int(a, 16)) for a in accounts],
                    # The sender is an EOA: a call that reaches it succeeds with no effect.
                    'emptyAccounts': [str(int(EMPTY, 16)), str(int(SENDER, 16))], 'gas': '1000000'}
@@ -179,7 +183,7 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     result = replay_three_routes(calls, adapters)
     report = {'transactions': calls, 'observations': result['observations'],
               'divergences': result['divergences'], 'seed': seed,
-              'responders': [[str(v) for v in p] for p in RESPONDERS], 'empty': EMPTY,
+              'responders': [[str(v) for v in p] for p in parameters], 'empty': EMPTY,
               'sourceSha256': hashlib.sha256(source.encode()).hexdigest(),
               'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest()}
     if result['divergences']:

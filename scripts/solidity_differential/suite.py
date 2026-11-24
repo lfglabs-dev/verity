@@ -354,6 +354,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('yul-memory-call-rejections', ['-m',
         'solidity_differential.check_yul_memory_call_rejections',
         '--output', str(output / 'yul-memory-call-rejections')]))
+    checks.append(('yul-narrow-result', ['-m', 'solidity_differential.check_yul_narrow_result',
+        '--transactions', str(max(120, min(transactions, 160))), '--seed', str(seed),
+        '--output', str(output / 'yul-narrow-result')]))
     checks.append(('state-count-invariance', ['-m', 'solidity_differential.check_state_count_invariance',
         '--output', str(output / 'state-count-invariance')]))
     # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min
