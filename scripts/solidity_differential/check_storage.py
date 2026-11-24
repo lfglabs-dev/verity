@@ -68,6 +68,7 @@ from .programs import (
     stateful_predeclared_for_counters_source,
     stateful_storage_array_length_bound_source,
     stateful_helper_loop_break_source,
+    stateful_helper_loop_return_source,
     stateful_numeric_literal_source,
     stateful_overload_const_error_cond_tuple_tload_source,
     stateful_packed_member_write_source,
@@ -291,6 +292,7 @@ FIXTURE_CONTRACTS = {
     'predeclared-for-counters': 'PredeclaredForCounterSequence',
     'storage-array-length-bound': 'StorageArrayLengthBoundSequence',
     'helper-loop-break': 'HelperLoopBreakSequence',
+    'helper-loop-return': 'HelperLoopReturnSequence',
     'struct-param-slot': 'StorageStructParamSlotSequence',
     'numeric-literals': 'NumericLiteralSequence',
     'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
@@ -501,6 +503,8 @@ def main():
         variants = ('baseline', 'renamed', 'cached')
     if args.fixture == 'helper-loop-break':
         variants = ('baseline', 'renamed', 'structured')
+    if args.fixture == 'helper-loop-return':
+        variants = ('baseline', 'renamed', 'structured')
     if args.fixture == 'inline-array-literals':
         variants = ('baseline', 'renamed', 'element-writes')
     if args.fixture == 'helper-name-independence':
@@ -574,6 +578,7 @@ def main():
                           else stateful_predeclared_for_counters_source(fixture, variant) if args.fixture == "predeclared-for-counters"
                           else stateful_storage_array_length_bound_source(fixture, variant) if args.fixture == "storage-array-length-bound"
                           else stateful_helper_loop_break_source(fixture, variant) if args.fixture == "helper-loop-break"
+                          else stateful_helper_loop_return_source(fixture, variant) if args.fixture == "helper-loop-return"
                           else stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture, variant) if args.fixture == "ecdsa-merkle-checkpoints-storage-slot"
                           else stateful_strings_hex_arrays_bitmaps_source(fixture, variant) if args.fixture == "strings-hex-arrays-bitmaps"
                           else stateful_string_bytes_mappings_uri_storage_strings_source(fixture, variant) if args.fixture == "string-bytes-mappings-uri-storage-strings"
@@ -768,6 +773,10 @@ def main():
             # The early `return` (x % 4096 == 0), caps reached early and never, a
             # breaking void helper (x % 9 >= 7), and grid sums past 500.
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])]
+        if args.fixture == 'helper-loop-return':
+            # Matches on the first, a middle and the last iteration, no match, an empty
+            # bound, the unchecked return at i == 2, the `break` at 9 and the fall-through.
+            extra = ['--change-prefix', *map(str, [0, 1, 3355393, 115339776388732929035197660848497720713218148788040405586178471965091600352261, 5427754182999196660479889922282245680622030531201901439497581965808238696711, 5427754182999196660479889922282245680622030531201901439349574250392419434499, 3618502788666131106986593281521497120414687020801267626344091381866793796871, 1356938545749799165119972480570561420155507632800475359837920554324574865158, 12345, 4096, (1 << 256) - 1])]
         if args.fixture == 'governor-slice-proposer-delay':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'access-manager-target-role':

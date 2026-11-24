@@ -500,7 +500,7 @@ DIFFERENTIAL_MUTANTS = ("import-legacy-root-checked", "import-legacy-helper-chec
                    "import-narrow-for-panic", "import-narrow-for-cap",
                    "import-narrow-for-literal-bound", "import-narrow-for-typed-bound",
                    "import-predeclared-for-exit-store", "import-storage-array-length-bound-skip",
-                   "import-helper-loop-break-as-continue",
+                   "import-helper-loop-break-as-continue", "import-helper-loop-return-ignored",
                    "import-block-number", "import-block-chainid",
                    "import-require-condition", "denote-require-selector",
                    "import-custom-require-condition", "denote-custom-require-selector",

@@ -1702,6 +1702,84 @@ def stateful_helper_loop_break_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown helper-loop-break variant: {variant}')
 
 
+def stateful_helper_loop_return_source(fixture: str, variant: str) -> str:
+    """Compare early `return` in inlined helper `for` loops with flag-guarded loops."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return _rename_identifiers(fixture, {'acc', 'cap', 'found', 'hits', 'i', 'limit', 'n', 'needle', 'packed', 'r', 'total', 'v', 'x'})
+    if variant == 'structured':
+        return _replace_anchors(fixture, [
+            ('        for (uint256 i = 0; i < n; i++) {\n'
+             '            if (_at(packed, i) == needle) {\n'
+             '                return i + 1;\n'
+             '            }\n'
+             '        }\n'
+             '        return 0;\n',
+             '        uint256 index;\n'
+             '        for (uint256 i = 0; i < n; i++) {\n'
+             '            if (index == 0 && _at(packed, i) == needle) {\n'
+             '                index = i + 1;\n'
+             '            }\n'
+             '        }\n'
+             '        return index;\n'),
+            ('        for (uint256 i = 0; i < n; ++i) {\n'
+             '            hits += 1;\n'
+             '            if (_at(packed, i) == needle) return true;\n'
+             '        }\n'
+             '        return false;\n',
+             '        bool seen;\n'
+             '        for (uint256 i = 0; i < n; ++i) {\n'
+             '            if (!seen) {\n'
+             '                hits += 1;\n'
+             '                seen = _at(packed, i) == needle;\n'
+             '            }\n'
+             '        }\n'
+             '        return seen;\n'),
+            ('        for (uint256 i = 0; i < 4; i++) {\n'
+             '            uint256 v = _at(packed, i);\n'
+             '            if (v > limit) {\n'
+             '                return v + found;\n'
+             '            }\n'
+             '        }\n'
+             '        found += 1;\n',
+             '        uint256 above;\n'
+             '        for (uint256 i = 0; i < 4; i++) {\n'
+             '            uint256 v = _at(packed, i);\n'
+             '            if (above == 0 && v > limit) {\n'
+             '                above = v + found;\n'
+             '            }\n'
+             '        }\n'
+             '        found = above == 0 ? found + 1 : above;\n'),
+            ('        for (uint256 i = 0; i < n; i++) {\n'
+             '            if (i == 9) {\n'
+             '                break;\n'
+             '            }\n'
+             '            acc += i * i;\n'
+             '            unchecked {\n'
+             '                if (acc > cap) {\n'
+             '                    return acc - cap;\n'
+             '                }\n'
+             '            }\n'
+             '        }\n'
+             '        acc += 1000;\n',
+             '        bool done;\n'
+             '        for (uint256 i = 0; i < n; i++) {\n'
+             '            if (!done && i < 9) {\n'
+             '                acc += i * i;\n'
+             '                if (acc > cap) {\n'
+             '                    done = true;\n'
+             '                    acc -= cap;\n'
+             '                }\n'
+             '            }\n'
+             '        }\n'
+             '        if (!done) {\n'
+             '            acc += 1000;\n'
+             '        }\n'),
+        ], 'helper-loop-return')
+    raise ValueError(f'unknown helper-loop-return variant: {variant}')
+
+
 def stateful_byte_constant_conversions_source(fixture: str, variant: str) -> str:
     """Compare bytes(...) / string(...) byte-constant initializers with their literal forms."""
     if variant == 'baseline':

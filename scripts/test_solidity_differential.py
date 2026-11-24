@@ -100,6 +100,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-fixed-bytes-widths",
     "storage-fixed-memory-arrays",
     "storage-helper-loop-break",
+    "storage-helper-loop-return",
     "storage-helper-name-independence",
     "storage-call-arg-side-effects",
     "storage-struct-param-slot",
