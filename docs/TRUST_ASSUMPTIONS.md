@@ -2123,7 +2123,8 @@ Trust boundary changes:
 inSize, outOffset, outSize)` and `staticcall(gas(), target, inOffset, inSize, outOffset,
 outSize)` with effect-free operands, as the OpenZeppelin 5 `SafeERC20` and
 `AuthorityUtils` blocks and Solady's `SafeTransferLib` write them; with them,
-`returndatasize()`, `extcodesize(a)`, `mload`/`mstore` at fixed addresses below `0x80`
+`returndatasize()`, `extcodesize(a)` (of an account other than the executing contract,
+as for `<addr>.code.length`), `mload`/`mstore` at fixed addresses below `0x80`
 (scratch space, free-memory pointer, zero slot), and the bubbling pair
 `returndatacopy(p, 0, returndatasize())` + `revert(p, returndatasize())`, which lowers to
 `Stmt.revertReturndata`. A call with a nonzero value, without `gas()`, or with
@@ -2574,7 +2575,8 @@ closed `SolidityExtCodeSize.module` transport on `address()` and exposes only
 the zero test (`lowerThisCodeLengthZeroTest?`). Every other use of the executing
 contract's code length (the value, a local, arithmetic, other comparisons,
 named constants) still fails closed with a located diagnostic, and so do reads
-through aliases of `address(this)`.
+through aliases of `address(this)` and inline-assembly `extcodesize` of `address()` or a
+Yul local bound to it (admitted on `main` before, outside every A/B/C case).
 
 Trust boundary changes:
 - Denote answers from the executing account's runtime code in

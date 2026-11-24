@@ -41,6 +41,11 @@ MUTANTS = {
         'else if op == "!=" || op == ">" then some false else none)',
         'else if op == "!=" || op == ">" || op == ">=" then some false else none)',
         'admission', 'greater-or-equal-zero'),
+    # Inline-assembly `extcodesize` of the executing contract imports again.
+    'import-yul-extcodesize-self-guard': (IMPORT,
+        '        let target ← lowerCodeReadTarget target j\n'
+        '          "code length of an account that may be the executing contract is unsupported"\n',
+        '', 'admission', 'yul-self'),
     'import-self-code-length-zero-gate': (IMPORT,
         'if (← isThisCodeLength left) && (← isZero right) then',
         'if (← isThisCodeLength left) then',

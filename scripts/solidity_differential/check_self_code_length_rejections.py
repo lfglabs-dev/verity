@@ -34,6 +34,7 @@ CASES = [
     ('require-code', 'require(address(this).code.length > 0, NoCode());\n        counter += 1;', None),
     ('if-no-code', 'if (address(this).code.length == 0) counter += 1;', None),
     ('short-circuit', 'flag = counter == 1 && address(this).code.length == 0;', None),
+    ('parenthesized-this', 'flag = (address(this)).code.length != 0;', None),
     # The length itself, or a comparison that is not a zero test, differs between routes.
     ('value', 'counter = address(this).code.length;',
      ('address(this).code', 0, 'MemberAccess', 'this-length')),
@@ -56,6 +57,18 @@ CASES = [
     # The admitted shape is syntactic on `address(this)`; an alias still rejects.
     ('self-alias', 'address self = address(this);\n        flag = self.code.length == 0;',
      ('self.code', 0, 'MemberAccess', 'self-alias-length')),
+    # Inline assembly reads the length itself: the executing contract rejects there too.
+    ('yul-self', 'uint256 size;\n        assembly {\n            size := extcodesize(address())\n'
+     '        }\n        counter = size;',
+     ('extcodesize(address())', 0, 'YulFunctionCall', 'self-alias-length')),
+    ('yul-self-zero-test', 'bool empty;\n        assembly {\n            empty := iszero(extcodesize(address()))\n'
+     '        }\n        flag = empty;',
+     ('extcodesize(address())', 0, 'YulFunctionCall', 'self-alias-length')),
+    ('yul-self-local', 'uint256 size;\n        assembly {\n            let self := address()\n'
+     '            size := extcodesize(self)\n        }\n        counter = size;',
+     ('extcodesize(self)', 0, 'YulFunctionCall', 'self-alias-length')),
+    ('yul-foreign', 'uint256 size;\n        assembly {\n            size := extcodesize(caller())\n'
+     '        }\n        counter = size;', None),
     ('this-code-copy', 'flag = address(this).code.length == 0 && address(this).code[0] == 0;',
      ('address(this).code[0]', 0, 'MemberAccess', 'code-read')),
 ]
