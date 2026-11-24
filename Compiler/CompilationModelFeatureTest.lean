@@ -7502,7 +7502,11 @@ private def stringCtorSpec : CompilationModel := {
     { name := "get"
       params := []
       returnType := some FieldType.uint256
-      body := [Stmt.return (Expr.storage "supply")] }
+      body := [Stmt.return (Expr.storage "supply")] },
+    { name := "rename"
+      params := [{ name := "name", ty := ParamType.string }]
+      returnType := none
+      body := [Stmt.emit "Named" [Expr.param "name"]] }
   ]
 }
 
@@ -7526,9 +7530,14 @@ private def stringCtorSpec : CompilationModel := {
   expectTrue "dynamic head offset is read at 128 and resolved relative to 128"
     (contains stringYul "let name_offset := mload(128)" &&
       contains stringYul "let name_abs_offset := add(128, name_offset)")
+  expectTrue "dynamic head offset is bounded against the copied args before it is rebased"
+    (contains stringYul "if gt(name_offset, sub(argsEnd, 160))" &&
+      !(contains stringYul "gt(name_abs_offset"))
   expectTrue "dynamic tail bounds are checked against the end of the copied args"
-    (contains stringYul "if gt(name_abs_offset, sub(argsEnd, 32))" &&
-      contains stringYul "let name_tail_remaining := sub(argsEnd, name_tail_head_end)")
+    (contains stringYul "let name_tail_remaining := sub(argsEnd, name_tail_head_end)")
+  expectTrue "runtime calldata loader bounds the head offset the same way, at base 4"
+    (contains stringYul "let name_offset := calldataload(4)" &&
+      contains stringYul "if gt(name_offset, sub(calldatasize(), 36))")
   expectTrue "second head word is read at 160"
     (contains stringYul "let supply := mload(160)")
 

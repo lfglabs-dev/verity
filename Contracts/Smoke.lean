@@ -48,3 +48,4 @@ import Contracts.Smoke.LoopSemanticsSmoke
 import Contracts.Smoke.FallbackNonReentrantSmoke
 import Contracts.Smoke.ScalarAbiValidationSmoke
 import Contracts.Smoke.ConstructorEventSmoke
+import Contracts.Smoke.ConstructorStringArgSmoke
