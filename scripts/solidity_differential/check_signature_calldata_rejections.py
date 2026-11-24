@@ -1,12 +1,13 @@
 """Positive controls and located rejections for Yul `calldataload` over `bytes calldata` (#2920).
 
 Each case is imported on its own. A positive control (OpenZeppelin's `tryRecoverCalldata`
-split inside a helper, the same reads in a root function, and either operand order of `add`)
-must elaborate and leave an olean; a rejection must fail with the exact
-`Fixture.sol:line:column` position, its construct and message, and leave no olean. The
-rejections are the near misses of the admitted shape: a literal or computed offset, an offset
-literal at or above `2^64`, a calldata slice (whose payload offset is not a decoded root head),
-`.offset` outside `calldataload` and the Yul `.length` suffix.
+split inside a helper, the same reads in a root function or a modifier, and either operand
+order of `add`) must elaborate and leave an olean; a rejection must fail with the exact
+`Fixture.sol:line:column` position, its construct and message, and leave no olean. A root
+`string calldata` parameter has the same payload layout. The rejections are the near misses
+of the admitted shape: a literal or computed offset, an offset literal at or above `2^64`, a
+calldata slice (whose payload offset is not a decoded root head), a memory-backed conditional
+argument, a `msg.data` slice, `.offset` outside `calldataload` and the Yul `.length` suffix.
 """
 import argparse
 import hashlib
@@ -51,6 +52,13 @@ CASES = [
     ('string-root', 'string',
      '    function f(string calldata signature) external pure returns (bytes32 r) {\n'
      + asm('            r := calldataload(add(signature.offset, 0x20))\n') + '    }\n', None),
+    ('modifier-argument', 'bytes',
+     '    bytes32 private seen;\n\n'
+     '    modifier m(bytes calldata signature) {\n        bytes32 r;\n'
+     + asm('            r := calldataload(add(signature.offset, 0x20))\n')
+     + '        seen = r;\n        _;\n    }\n\n'
+     '    function f(bytes calldata signature) external m(signature) returns (bytes32 r) {\n'
+     '        r = seen;\n    }\n', None),
     ('literal-offset', 'bytes',
      root(asm('            r := calldataload(0x44)\n')),
      ('0x44', 'YulLiteral', MESSAGE)),
@@ -62,6 +70,15 @@ CASES = [
      ('add(signature.offset, 0x10000000000000000)', 'YulFunctionCall', MESSAGE)),
     ('slice-argument', 'bytes',
      HELPER + root('        (r, s, v) = split(signature[1:]);\n'),
+     ('signature.offset)\n            s', 'YulIdentifier', MESSAGE)),
+    ('conditional-argument', 'bytes,bytes,bool',
+     HELPER + '    function f(bytes calldata a, bytes calldata b, bool c)\n'
+     '        external pure returns (bytes32 r, bytes32 s, uint8 v)\n    {\n'
+     '        (r, s, v) = split(c ? a : b);\n    }\n',
+     ('signature.offset)\n            s', 'YulIdentifier', MESSAGE)),
+    ('msg-data-slice', '',
+     HELPER + '    function f() external pure returns (bytes32 r, bytes32 s, uint8 v) {\n'
+     '        (r, s, v) = split(msg.data[4:]);\n    }\n',
      ('signature.offset)\n            s', 'YulIdentifier', MESSAGE)),
     ('offset-outside-calldataload', 'bytes',
      root(asm('            r := signature.offset\n')),
