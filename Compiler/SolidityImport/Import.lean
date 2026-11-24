@@ -16581,6 +16581,14 @@ private partial def lowerErrorArgumentsForDecl (callee declaration : Json) (argu
             unless member == "max" || member == "min" || member == "interfaceId" || member == "selector" || (← mType base).startsWith "type(enum " do
               failAt argument "custom-error arguments currently require literals or scalar bindings"
             pure false
+      | "UnaryOperation" =>
+          -- A negative literal (`-1` for a signed parameter) is a compile-time constant: it
+          -- must fold to a canonical literal below (`errorScalarValueValid`), or it is rejected.
+          let operand ← stripParens (← mField argument "subExpression")
+          if optStr argument "operator" == some "-" && (← mKind operand) == "Literal" then
+            pure false
+          else
+            failAt argument "custom-error arguments currently require literals or scalar bindings"
       | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
     let source ← lowerExpr argument
     let rawConverted ← convert ty (← mType argument) source argument

@@ -30,6 +30,12 @@ MUTANTS = {
     'import-encoding-arg-super-revert-guard': (
         '        resolveSuperFn? env (seen.head? <|> env.stack.head?) id',
         '        some id'),
+    'denote-custom-error-signed-signature': (
+        '| .intN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"int{bits}" else none',
+        '| .intN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"uint{bits}" else none'),
+    'denote-custom-error-signed-canonical': (
+        '(value < 2^(bits - 1) || 2^256 - 2^(bits - 1) ≤ value)',
+        'value < 2^(bits - 1)'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),
     'import-dynamic-revert-string-selector': ('[.literal (0x08c379a0 * 2 ^ 224)]',
@@ -992,6 +998,8 @@ def run(directory, output, name):
         fixture = 'DynamicRevertStringSequence'
     if name.startswith('denote-custom-error-fixed-bytes-'):
         fixture = 'CustomErrorFixedBytesSequence'
+    if name.startswith('denote-custom-error-signed-'):
+        fixture = 'SignedCustomErrorSequence'
     if name.startswith('import-string-event-'):
         fixture = 'StringEventParamSequence'
     if name.startswith("import-governor-slice-proposer-delay-"):
@@ -1214,6 +1222,12 @@ def run(directory, output, name):
     if fixture == 'CustomErrorFixedBytesSequence':
         # Each `next % 4` arm with nonzero `bytesN` contents, and `next * 3` overflow.
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 0xdeadbeef * 2 ** 224 + 1, 0x0123456789abcdef * 2 ** 192 + 0x7e, 2 ** 200 + 3, 2 ** 256 - 1, 2 ** 256 - 4])])
+    if fixture == 'SignedCustomErrorSequence':
+        # In-range and overflowing int104 downcasts of both signs, and int8 / int104 / int24
+        # truncations at both ends (check_storage's SIGNED_CUSTOM_ERROR_PREFIX).
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, [2**256 - 2**103 - 3, 2**103 + 1, 2**256 - 3, 0x82,
+                                                   (2**103 << 8) | 0x7e, (0x800000 << 112) | 2, 2**256 - 1])])
     if fixture == 'ImmutableAddressSequence':
         # Long enough to reach calls from the guard and the payee, which tell the
         # constructor-argument immutables apart from the contract's own address.

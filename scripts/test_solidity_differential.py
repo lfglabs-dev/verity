@@ -117,6 +117,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-predeclared-for-counters",
     "storage-short-circuit",
     "storage-signed-compound-assignment",
+    "storage-signed-custom-errors",
     "storage-signed-modulo",
     "storage-signed-narrow-values",
     "storage-signed-struct-compound",

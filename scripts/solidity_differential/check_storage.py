@@ -23,6 +23,7 @@ from .programs import (
     stateful_constant_array_source,
     stateful_create2_clones_msgdata_deque_source,
     stateful_custom_error_fixed_bytes_source,
+    stateful_signed_custom_error_source,
     stateful_default_local_source,
     stateful_discarded_helper_source,
     stateful_dynamic_array_root_return_source,
@@ -158,6 +159,15 @@ PACKED_SIGNED_INT_PREFIX = [0, (1 << 256) - 1,
                             129 | (8388609 << 8) | ((2 ** 127 + 1) << 32), 1 << 255]
 # Words whose int128 / int64 truncations hit both ends of each range, -1, -2, zero and small
 # positives, with dirty bits above bit 128 / 64; 20 reverts at the message-less `require`.
+# Every `next % 4` arm of the signed custom-error fixture: in-range and overflowing
+# int104 downcasts on both sides (the int256 argument is negative for high words), and
+# int8 / int104 / int24 truncations at both ends of each width.
+SIGNED_CUSTOM_ERROR_PREFIX = [0, 1, 2, 3, 5, 2**103 - 3, 2**103 + 1, 2**256 - 3,
+                              2**256 - 2**103 + 1, 2**256 - 2**103 - 3, 2**255 + 1,
+                              0x7e, 0x82, 2**256 - 2, (2**103 << 8) | 0x7e,
+                              ((2**103 - 1) << 8) | 0x82, (0x800000 << 112) | 2,
+                              (0x7fffff << 112) | 6, 2**256 - 1, 2**255 + 3]
+
 SIGNED_NARROW_VALUE_PREFIX = [0, 1, 2, 20, 21, 2**127 - 1, 2**127, 2**128 - 1, 2**128, 2**255,
                               2**256 - 1, 2**256 - 2, 2**63, 2**63 - 1, 2**64 - 1, 2**64,
                               (1 << 200) | 5, (0xabcdef << 128) | (2**127 + 7),
@@ -212,6 +222,7 @@ FIXTURE_CONTRACTS = {
     'constant-arrays': 'ConstantArraySequence',
     'create2-clones-msgdata-deque': 'Create2ClonesMsgDataDequeSequence',
     'custom-error-fixed-bytes': 'CustomErrorFixedBytesSequence',
+    'signed-custom-errors': 'SignedCustomErrorSequence',
     'default-locals': 'DefaultLocalSequence',
     'discarded-helper': 'DiscardedHelperSequence',
     'dynamic-array-root-returns': 'DynamicArrayRootReturnSequence',
@@ -341,6 +352,10 @@ def main():
         variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'custom-error-fixed-bytes':
         variants = ('baseline', 'renamed', 'expanded')
+    if args.fixture == 'signed-custom-errors':
+        variants = ('baseline', 'renamed', 'expanded')
+        # 3 seed calls, 20 prefix calls and read(): never fewer transactions.
+        args.transactions = max(args.transactions, 24)
     if args.fixture == 'string-event-param':
         variants = ('baseline', 'renamed', 'expanded')
     if args.fixture == 'short-circuit':
@@ -526,6 +541,7 @@ def main():
                           else stateful_event_nested_mapping_read_source(fixture, variant) if args.fixture == "event-nested-mapping-read"
                           else stateful_dynamic_revert_string_source(fixture, variant) if args.fixture == "dynamic-revert-string"
                           else stateful_custom_error_fixed_bytes_source(fixture, variant) if args.fixture == "custom-error-fixed-bytes"
+                          else stateful_signed_custom_error_source(fixture, variant) if args.fixture == "signed-custom-errors"
                           else stateful_string_event_param_source(fixture, variant) if args.fixture == "string-event-param"
                           else stateful_access_manager_target_role_source(fixture, variant) if args.fixture == "access-manager-target-role"
                           else stateful_governor_slice_proposer_delay_source(fixture, variant) if args.fixture == "governor-slice-proposer-delay"
@@ -658,6 +674,8 @@ def main():
             extra = ['--change-prefix', *map(str, PACKED_SIGNED_INT_PREFIX)]
         if args.fixture == 'signed-narrow-values':
             extra = ['--change-prefix', *map(str, SIGNED_NARROW_VALUE_PREFIX)]
+        if args.fixture == 'signed-custom-errors':
+            extra = ['--change-prefix', *map(str, SIGNED_CUSTOM_ERROR_PREFIX)]
         if args.fixture == 'signed-modulo':
             # Centered-reduction boundaries (ALPHA / 2, ALPHA, the 8380417
             # reduction), the narrow int8 range, and both min % -1 parities.

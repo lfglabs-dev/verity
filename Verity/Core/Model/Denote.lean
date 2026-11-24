@@ -348,18 +348,31 @@ def errorScalarType : ParamType → Option String
   | .bytes32 => some "bytes32"
   | _ => none
 
-/-- Custom-error parameter signatures: the scalar fragment plus `bytes1`..`bytes31`.
-Kept separate from `errorScalarType`, which also gates event parameters. -/
+/-- Custom-error parameter signatures: the scalar fragment plus `bytes1`..`bytes31`
+and `int8`..`int256`. Kept separate from `errorScalarType`, which also gates event
+parameters. -/
 def customErrorScalarType : ParamType → Option String
   | .bytesN n => if 0 < n && n < 32 then some s!"bytes{n}" else none
+  | .int256 => some "int256"
+  | .intN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"int{bits}" else none
   | ty => errorScalarType ty
 
+/-- An `intN` word is canonical when it is the two's-complement sign extension of its
+low `bits` bits: below `2^(bits-1)` (nonnegative) or at least `2^256 - 2^(bits-1)`
+(negative). -/
+def signedWordCanonical (bits value : Nat) : Bool :=
+  0 < bits && bits ≤ 256 && bits % 8 == 0 && value < 2^256 &&
+    (value < 2^(bits - 1) || 2^256 - 2^(bits - 1) ≤ value)
+
 /-- Reject noncanonical narrow ABI words instead of truncating error arguments.
-A `bytesN` value is left-aligned: its low `32 - n` bytes must be zero. -/
+A `bytesN` value is left-aligned: its low `32 - n` bytes must be zero. A signed
+value must already be sign-extended (`signedWordCanonical`). -/
 def errorScalarValueValid (ty : ParamType) (value : Nat) : Bool :=
   match ty with
   | .uint256 | .bytes32 => value < 2^256
   | .bytesN n => 0 < n && n < 32 && value < 2^256 && value % 2^(8 * (32 - n)) == 0
+  | .int256 => value < 2^256
+  | .intN bits => signedWordCanonical bits value
   | .uint8 => value < 2^8
   | .uint16 => value < 2^16
   | .uintN bits => 0 < bits && bits ≤ 256 && bits % 8 == 0 && value < 2^bits

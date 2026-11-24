@@ -43,7 +43,38 @@ def runChecks : IO Unit := do
       [oddWord, nearlyWord] ==
       some ([0xc4, 0x41, 0xd6, 0xb3] ++ wordBytes oddWord ++ wordBytes nearlyWord) do
     throw (IO.userError "bytes8/bytes31 custom error differs")
+  -- Signed parameters hash as `intN` and encode the sign-extended word unchanged.
+  -- Selectors and words agree with solc 0.8.34 revert data for the same errors.
+  let downcast : List ErrorDef := [{ name := "IntDowncastOverflow", params := [.uint8, .int256] }]
+  unless customErrorBytes oracle downcast "IntDowncastOverflow" [104, 2 ^ 256 - 3] ==
+      some ([0xa2, 0x24, 0xbd, 0x28] ++ wordBytes 104 ++ wordBytes (2 ^ 256 - 3)) do
+    throw (IO.userError "int256 custom error differs")
+  let narrow : List ErrorDef := [{ name := "Narrow", params := [.intN 8, .intN 104, .intN 24] }]
+  unless customErrorBytes oracle narrow "Narrow" [2 ^ 256 - 128, 2 ^ 103 - 1, 2 ^ 256 - 2 ^ 23] ==
+      some ([0xee, 0xc5, 0xd7, 0x60] ++ wordBytes (2 ^ 256 - 128) ++ wordBytes (2 ^ 103 - 1) ++
+        wordBytes (2 ^ 256 - 2 ^ 23)) do
+    throw (IO.userError "int8/int104/int24 custom error differs")
+  unless customErrorBytes oracle narrow "Narrow" [127, 2 ^ 256 - 2 ^ 103, 2 ^ 23 - 1] ==
+      some ([0xee, 0xc5, 0xd7, 0x60] ++ wordBytes 127 ++ wordBytes (2 ^ 256 - 2 ^ 103) ++
+        wordBytes (2 ^ 23 - 1)) do
+    throw (IO.userError "signed custom error range ends differ")
+  unless customErrorBytes oracle [{ name := "Bounds", params := [.int256, .intN 64] }] "Bounds"
+      [2 ^ 255, 2 ^ 256 - 1] ==
+      some ([0x20, 0x6f, 0x55, 0x13] ++ wordBytes (2 ^ 255) ++ wordBytes (2 ^ 256 - 1)) do
+    throw (IO.userError "int256/int64 custom error differs")
+  unless customErrorBytes oracle [{ name := "Wide", params := [.intN 248] }] "Wide"
+      [2 ^ 256 - 2 ^ 247] == some ([0xb3, 0x50, 0x79, 0xb4] ++ wordBytes (2 ^ 256 - 2 ^ 247)) do
+    throw (IO.userError "int248 custom error differs")
   for (name, declarations, values) in [
+      -- Dirty signed words (not sign-extended from `bits`) fail closed.
+      ("Narrow", narrow, [128, 0, 0]), ("Narrow", narrow, [0x1ff, 0, 0]),
+      ("Narrow", narrow, [2 ^ 256 - 129, 0, 0]), ("Narrow", narrow, [0, 2 ^ 103, 0]),
+      ("Narrow", narrow, [0, 0, 2 ^ 255]), ("Narrow", narrow, [2 ^ 256, 0, 0]),
+      ("IntDowncastOverflow", downcast, [104, 2 ^ 256]),
+      ("Wide", [{ name := "Wide", params := [.intN 248] }], [2 ^ 247]),
+      ("ZeroInt", [{ name := "ZeroInt", params := [.intN 0] }], [0]),
+      ("OddInt", [{ name := "OddInt", params := [.intN 12] }], [0]),
+      ("HugeInt", [{ name := "HugeInt", params := [.intN 264] }], [0]),
       ("LockedSelector", [{ name := "LockedSelector", params := [.bytesN 4] }], [selectorWord + 1]),
       ("Wide", [{ name := "Wide", params := [.bytesN 31] }], [2 ^ 256]),
       ("Odd", [{ name := "Odd", params := [.bytesN 31] }], [1]),
