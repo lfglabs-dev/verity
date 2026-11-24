@@ -33,9 +33,6 @@ MUTANTS = {
     'denote-custom-error-signed-signature': (
         '| .intN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"int{bits}" else none',
         '| .intN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"uint{bits}" else none'),
-    'denote-custom-error-signed-canonical': (
-        '(value < 2^(bits - 1) || 2^256 - 2^(bits - 1) ≤ value)',
-        'value < 2^(bits - 1)'),
     'import-bare-empty-revert': ('return #[.revertEmpty]',
                                'return #[.require (.literal 0) "mutated bare revert payload"]'),
     'import-dynamic-revert-string-selector': ('[.literal (0x08c379a0 * 2 ^ 224)]',

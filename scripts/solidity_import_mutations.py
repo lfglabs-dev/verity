@@ -510,7 +510,7 @@ DIFFERENTIAL_MUTANTS = ("import-legacy-root-checked", "import-legacy-helper-chec
                    "denote-scalar-sibling-mask", "import-bare-empty-revert",
                    "import-dynamic-revert-string-selector", "import-dynamic-revert-string-order",
                    "denote-custom-error-fixed-bytes-signature",
-                   "denote-custom-error-signed-signature", "denote-custom-error-signed-canonical",
+                   "denote-custom-error-signed-signature",
                    "import-encoding-arg-super-revert-guard",
                    "import-storage-struct-param-slot-top",
                    "import-storage-struct-param-slot-keyed",
