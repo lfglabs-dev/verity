@@ -48,7 +48,10 @@ def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String
 /-- Execute a body through Denote, after installing fresh frame-local state.
 This function is a frame runner, not yet a full ABI/dispatch transaction runner.
 `immutables` are the deployed contract's immutable values: fixed at deployment, so a caller
-that runs several transactions passes the same function to each. -/
+that runs several transactions passes the same function to each. The frame's selector is
+`world.selector`, the one `EntryPointInvariants.DecodedCall` decodes the arguments with, so
+`msg.sig` and calldata word 0 read the call's own selector. (Calldata offsets 1 to 3 are a
+separate question: `Denote.calldataloadWord` reads them as `0`.) -/
 def executeBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
     (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {})
@@ -56,7 +59,7 @@ def executeBody (oracle : DenoteOracle) (fields : List Field)
     Except String FrameResult :=
   let initial := beginTransaction world
   finishFrame initial (execStmtList oracle fields
-    { world := initial, bindings, errors, immutable := immutables,
+    { world := initial, bindings, errors, immutable := immutables, selector := initial.selector,
       byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body)
 
 @[simp] theorem beginTransaction_storage (world : Verity.ContractState) (slot : Nat) :
