@@ -514,7 +514,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          "pragma solidity 0.8.10;\ncontract C { function checked(uint256 x) external pure returns (uint256) { return x; } }\n",
          None,
          '{ solc := "0.8.10+commit.deadbeef", evmVersion := "london", viaIR := false, optimizerRuns := some 1, bytecodeHash := "none" }',
-         'this importer is pinned to solc 0.7.6+commit.7338295f or 0.8.34+commit.80d5c536 or 0.8.26+commit.8a97fa7a or 0.8.10+commit.fc410830, not 0.8.10+commit.deadbeef'),
+         'this importer is pinned to solc 0.7.6+commit.7338295f or 0.8.34+commit.80d5c536 or 0.8.28+commit.7893614a or 0.8.26+commit.8a97fa7a or 0.8.10+commit.fc410830, not 0.8.10+commit.deadbeef'),
         ('inheritance-root-function',
          "pragma solidity 0.8.10;\nimport './Dep.sol';\ncontract C is Base { }\n",
          "pragma solidity 0.8.10;\nabstract contract Base { uint256 internal s; function checked(uint256 x) external returns (uint256) { s = x + 1; return s; } }\n",
