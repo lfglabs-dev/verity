@@ -147,6 +147,9 @@ structure Env where
   /-- Memory struct parameters bound from a caller's own memory struct: the binding is a copy,
   so member writes and returning the parameter (which alias the caller's struct) are rejected. -/
   byRefFlatStructs : List Nat := []
+  /-- Flat memory struct locals currently serving as a bounded `while`-loop cursor whose fields
+  may be mutated in place through internal/library helper parameters. -/
+  mutableByRefFlatStructs : List Nat := []
   abiElements : RBMap Nat AbiElementLocal compare := RBMap.empty
   calldataBytes : RBMap Nat CalldataBytesParam compare := RBMap.empty
   scalarArrays : RBMap Nat ScalarArrayParam compare := RBMap.empty
@@ -161,6 +164,7 @@ structure Env where
   forwardingBytesTuple : Bool := false
   storageBytesVars : RBMap Nat (String × Expr × Bool) compare := RBMap.empty
   storageDynamicArrayVars : RBMap Nat (String × Expr × String × Option Nat) compare := RBMap.empty
+  storageFixedArrayVars : RBMap Nat (SPath × Option StructFixedArrayInfo) compare := RBMap.empty
   fnPtrs : RBMap Nat FnPtr compare := RBMap.empty
   bodyAssigned : List Nat := []
   helperResult : Option (String × String) := none
