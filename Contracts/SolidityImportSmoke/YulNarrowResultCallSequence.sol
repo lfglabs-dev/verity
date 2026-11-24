@@ -97,7 +97,14 @@ library YulNarrowResultCallLib {
 
     function saturatingMul(uint256 a, uint256 b) internal pure returns (uint256) {
         (bool success, uint256 result) = tryMul(a, b);
-        return success ? result : type(uint256).max;
+        return ternary(success, result, type(uint256).max);
+    }
+
+    /// `condition ? a : b` without a branch; the `bool` reaches Yul through a parameter.
+    function ternary(bool condition, uint256 a, uint256 b) internal pure returns (uint256) {
+        unchecked {
+            return b ^ ((a ^ b) * toUint(condition));
+        }
     }
 }
 
