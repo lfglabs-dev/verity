@@ -52,10 +52,23 @@ private def members (node : Json) : Except Failure (List Json) := do
   if items.isEmpty then fail node "ABI schema: empty structs are unsupported"
   else pure items.toList
 
+private def isContractTypeName (node : Json) : Bool :=
+  match node.getObjVal? "typeDescriptions" with
+  | .ok td =>
+      match td.getObjVal? "typeString" with
+      | .ok (.str s) => s.startsWith "contract "
+      | _ => false
+  | _ => false
+
 /-- Parse only supported unsigned scalar syntax, with no fallback or coercion.
-Signed/fixed-byte/user-defined types need their own semantics before admission. -/
+Interface and contract types (`UserDefinedTypeName` with `contract ...` type
+string) have the exact Solidity ABI encoding and 160-bit validation of `address`.
+Signed/fixed-byte/enum types need their own semantics before admission. -/
 def scalarKind (node : Json) : Except Failure SolidityAbi.ScalarKind := do
-  unless (← stringField node "nodeType") == "ElementaryTypeName" do
+  let kind ← stringField node "nodeType"
+  if kind == "UserDefinedTypeName" && isContractTypeName node then
+    return .address
+  unless kind == "ElementaryTypeName" do
     fail node "ABI schema: expected an unsigned scalar type"
   let name ← stringField node "name"
   if name == "address" then return .address
@@ -111,6 +124,8 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
         else
           return .scalar (← scalarField member)
       if tyKind == "UserDefinedTypeName" then
+        if isContractTypeName ty then
+          return .scalar { name := mname, kind := .address }
         let ref ← field ty "referencedDeclaration"
         let id ← ref.getNat?.mapError fun _ => ⟨ty, "ABI schema: invalid struct declaration id"⟩
         if seen.contains id then
@@ -134,7 +149,8 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
       if let .ok length := ty.getObjVal? "length" then
         unless length.isNull do fail ty "ABI schema: fixed arrays are unsupported"
       let base ← field ty "baseType"
-      if (← stringField base "nodeType") == "ElementaryTypeName" then
+      if (← stringField base "nodeType") == "ElementaryTypeName" ||
+          ((← stringField base "nodeType") == "UserDefinedTypeName" && isContractTypeName base) then
         return .scalarArray { name := mname, kind := ← scalarKind base }
       structArrayMember resolve mname ty
 

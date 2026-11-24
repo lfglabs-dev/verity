@@ -19,6 +19,9 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "StorageStru
   function set(bytes32,address)
   function clear(bytes32,address)
   function setNeighbors(bytes32,uint16,uint8)
+  function compare(bytes32)
+  function dirtyPacked(bytes32,Mode)
+  function dirtyMapped(bytes32,address,Mode)
   function narrowKey()
   function siblingKey()
   function loopKey()
@@ -57,17 +60,12 @@ private def observe (name : String) (args : List Nat) (packed leaf : Nat) :
   some (true, none, [], 0x9903beef, 0xcd03)
 #guard observe "mode" [7] 0xab021234 0xcd01 == some (true, none, [2], 0xab021234, 0xcd01)
 #guard observe "level" [7, 11] 0xab021234 0xcd01 == some (true, none, [1], 0xab021234, 0xcd01)
-
-/--
-error: StorageStructEnum.sol:34:16: MemberAccess: [solidity-import:unsupported] storage enum read requires a direct ABI return or an unused local initializer
-closure: StorageStructEnum.compare
-entries[id].mode
--/
-#guard_msgs in
-solidity_import comparison from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
-  using enumProfile
-  contract StorageStructEnum
-  function compare(bytes32)
+#guard observe "compare" [7] 0xab011234 0xcd01 == some (true, none, [1], 0xab011234, 0xcd01)
+#guard observe "compare" [7] 0xab021234 0xcd01 == some (true, none, [0], 0xab021234, 0xcd01)
+#guard observe "compare" [7] 0xab031234 0xcd03 ==
+  some (false, some (panicBytes 0x21), [], 0xab031234, 0xcd03)
+#guard observe "dirtyPacked" [7, 2] 0xab011234 0xcd01 == some (true, none, [], 0xab021234, 0xcd01)
+#guard observe "dirtyMapped" [7, 11, 2] 0xab011234 0xcd01 == some (true, none, [], 0xab011234, 0xcd02)
 
 /--
 error: StorageStructEnum.sol:38:55: IndexAccess: [solidity-import:unsupported] whole-struct delete with packed enum members is outside this slice
@@ -79,28 +77,6 @@ solidity_import whole from "Contracts/SolidityImportSmoke" entry "StorageStructE
   using enumProfile
   contract StorageStructEnum
   function clearWhole(bytes32)
-
-/--
-error: StorageStructEnum.sol:40:28: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
-closure: StorageStructEnum.dirtyPacked
-x
--/
-#guard_msgs in
-solidity_import dirtyPacked from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
-  using enumProfile
-  contract StorageStructEnum
-  function dirtyPacked(bytes32,Mode)
-
-/--
-error: StorageStructEnum.sol:43:33: Identifier: [solidity-import:unsupported] storage enum assignment requires an enum literal
-closure: StorageStructEnum.dirtyMapped
-x
--/
-#guard_msgs in
-solidity_import dirtyMapped from "Contracts/SolidityImportSmoke" entry "StorageStructEnum.sol"
-  using enumProfile
-  contract StorageStructEnum
-  function dirtyMapped(bytes32,address,Mode)
 
 /--
 error: StorageStructEnum.sol:48:9: MemberAccess: [solidity-import:unsupported] member modes is opaque in this slice
