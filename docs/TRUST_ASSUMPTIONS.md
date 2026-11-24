@@ -2580,7 +2580,8 @@ Yul local bound to it (admitted on `main` before, outside every A/B/C case).
 
 Trust boundary changes:
 - Denote answers from the executing account's runtime code in
-  `ContractState.accountWorld`, which nothing else in the model reads or writes.
+  `ContractState.accountWorld`, which no imported statement other than this zero
+  test reads or writes (a `CALL` adversary may replace it; see below).
   A statement about the model must say whether that account has code: it has
   none while its constructor runs, including when that constructor
   delegatecalls an imported root (OpenZeppelin's proxy deploys run `initialize`

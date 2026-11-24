@@ -209,7 +209,9 @@ def construction_campaign(directory, routes):
                               CONSTRUCTION_CALLS),
         'compiled': probe_route(directory / 'construction-C', routes['compiled'], routes['probe'],
                                 CONSTRUCTION_CALLS)}
-    # No `self_code`: the executing account has no code while its constructor runs.
+    # No `self_code`: the executing account has no code while its constructor runs. Denote
+    # replays the calls as separate transactions, whereas the EVM routes run them in one;
+    # the fixture reads no transient storage or block values, so the contexts agree.
     rows = Denote(directory / 'construction-B', routes['driver'], account)(
         calls, [[[account, slot] for slot in SLOTS] for _ in calls])
     observed['model'] = {
