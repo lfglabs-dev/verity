@@ -20098,16 +20098,21 @@ private def importSlice
             abiGuards := abiGuards.push (.letVar binding word)
       let body := abiGuards ++ body
       -- A closed low-level CALL hands control to an arbitrary account, which may re-enter.
-      -- It is admitted only where the body is CEI-clean around it and only local computation,
-      -- memory writes, returns and reverts follow it (`onlyTrailingCallReentrancyWindows`).
-      if body.toList.any stmtContainsClosedLowLevelCall then
+      -- A trailing call (`onlyTrailingCallReentrancyWindows`: only local computation, memory
+      -- writes, returns and reverts follow it) keeps its CEI-clean admission. Storage reads,
+      -- storage writes and logs after the call are admitted when every interaction of the
+      -- body is a closed transport (`onlyClosedCallStateWindows`): Denote runs them against
+      -- the world the callee committed, so the model is exact for any callee behaviour.
+      let postCallState := body.toList.any stmtContainsClosedLowLevelCall && (
         let ceiClean := (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isNone ||
           onlyStaticCallCEIBarriers body.toList || onlyClosedTransportCEIBarriers body.toList
         let reentrancyClosed := onlyCreate2ReentrancyWindows body.toList ||
           onlyTrailingCallReentrancyWindows body.toList
-        unless ceiClean && reentrancyClosed do
-          (failAt fn ("storage reads, storage writes, logs and other interactions after an " ++
-            "external CALL are unsupported: the call may re-enter this contract")).run' env
+        !(ceiClean && reentrancyClosed))
+      if postCallState && !onlyClosedCallStateWindows body.toList then
+        (failAt fn ("storage reads, storage writes and logs after an external CALL are " ++
+          "supported only when every external interaction of the function is a closed " ++
+          "transport: another interaction follows a CALL that may re-enter this contract")).run' env
       let returns ← (do
         if (← mKind fn) == "VariableDeclaration" then
           return (← get).publicVarGetterReturns
@@ -20145,9 +20150,11 @@ private def importSlice
           returns := returns.toList, isView, body := body.toList,
           abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
           allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
-            onlyClosedTransportCEIBarriers body.toList,
+            onlyClosedTransportCEIBarriers body.toList ||
+            (postCallState &&
+              (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isSome),
           reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList ||
-            onlyTrailingCallReentrancyWindows body.toList,
+            onlyTrailingCallReentrancyWindows body.toList || postCallState,
           localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
             name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
             obligation := if legacyScalarPrelude then
@@ -20185,6 +20192,19 @@ private def importSlice
                 "nothing, so a re-entrant entrypoint observes only the completed state " ++
                 "updates. Denote lets the callee's committed world change any account, " ++
                 "including this one. The trailing position is checked by the importer, not proved."
+              proofStatus := .unchecked }] else []) ++
+            (if postCallState then [{
+              name := "solidity_post_call_state_access"
+              obligation := "Storage reads, storage writes or logs follow a closed value-free " ++
+                "low-level CALL, and every external interaction is a closed transport. Denote " ++
+                "runs them against the world the callee's response committed, which an " ++
+                "unconstrained adversary chooses freely, including by re-entering any " ++
+                "entrypoint, so the model assumes nothing about the callee. The source has no " ++
+                "reentrancy guard: `reentrancyTrusted` and the CEI opt-out record that the " ++
+                "post-call window is open, and a proof about this function must assume a " ++
+                "callee hypothesis (`Denote.CallKeepsCallerStorage`) or account for re-entry " ++
+                "(`ReentrantCallees`). That every interaction is closed is checked by the " ++
+                "importer, not proved."
               proofStatus := .unchecked }] else []) }
       rootShortcuts := rootShortcuts.push (functionName, env.rootShortcuts.toList)
       for proj in env.projections do

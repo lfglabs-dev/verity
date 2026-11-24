@@ -7,7 +7,8 @@ makes one is trailing (nothing after the call reads or writes storage or logs) a
 carries `solidity_trailing_low_level_call_reentrancy`, never the CREATE2-only
 `solidity_create2_initcode_reentrancy`. `solidity_closed_transport_cei` covers only the
 call's own effect following the closed code-size check. Roots that read or write
-storage after the call reject at import (`check_interface_static_call_rejections`).
+storage or log after the call carry `solidity_post_call_state_access` instead
+(`PostCallStateAccessChecks`).
 -/
 namespace SolidityImportSmoke.InterfaceVoidCallTrustChecks
 open Compiler.CompilationModel

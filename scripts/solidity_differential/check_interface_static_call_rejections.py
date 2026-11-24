@@ -1,6 +1,7 @@
 """Located near-miss rejections and positive controls for typed-interface staticcalls
 and for external `try` of interface functions without return values, including the
-post-CALL rule (no storage access or log after a closed CALL).
+post-CALL rule: storage reads, storage writes and logs after a closed CALL are admitted
+(the model runs them against the world the callee committed).
 
 Each case is imported on its own. A positive control must elaborate and leave
 an olean; a near miss must fail with the exact `Fixture.sol:line:column`
@@ -25,7 +26,6 @@ MESSAGES = {
     'try-clause': 'external try/catch supports exactly one catch-all `catch { }` clause',
     'try-shape': 'unsupported statement TryStatement',
     'try-named': 'named arguments in an external try call are unsupported',
-    'post-call': 'storage reads, storage writes, logs and other interactions after an external CALL are unsupported: the call may re-enter this contract',
 }
 HOOK = 'interface IHook {\n    function hook() external;\n}\n'
 
@@ -136,37 +136,29 @@ CASES = [
      'try IPriceOracle(oracle).price() returns (uint256 v) { return v; } catch { return 0; }',
      ('try', 0, 'TryStatement', 'try')),
     ('try-void', HOOK, '', 'try IHook(oracle).hook() { return 1; } catch { return 0; }', None),
-    # The callee may re-enter: state is written before the call, and nothing after it
-    # (clauses or continuation) reads or writes storage or logs.
+    # The callee may re-enter. State written before the call is trailing; storage reads,
+    # writes and logs after it (clauses or continuation) run against the committed world.
     ('try-void-empty-clauses', HOOK, 'uint256 s;',
      's = 1; try IHook(oracle).hook() {} catch {} return 1;', None),
     ('void-call-after-write', HOOK, 'uint256 s;', 's = 1; IHook(oracle).hook(); return 1;', None),
     ('try-void-statement-shape', HOOK, 'uint256 s;',
-     's += 1; try IHook(oracle).hook() { s = 2; } catch { s += 1000; } s += 1; return s;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+     's += 1; try IHook(oracle).hook() { s = 2; } catch { s += 1000; } s += 1; return s;', None),
     ('try-void-success-write', HOOK, 'uint256 s;',
-     'try IHook(oracle).hook() { s = 1; } catch {} return 1;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+     'try IHook(oracle).hook() { s = 1; } catch {} return 1;', None),
     ('try-void-failure-write', HOOK, 'uint256 s;',
-     'try IHook(oracle).hook() {} catch { s = 1; } return 1;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+     'try IHook(oracle).hook() {} catch { s = 1; } return 1;', None),
     ('try-void-continuation-read', HOOK, 'uint256 s;',
-     'try IHook(oracle).hook() {} catch {} return s;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+     'try IHook(oracle).hook() {} catch {} return s;', None),
     ('try-void-checked-arithmetic', HOOK, 'uint256 s;',
      's = 1; uint256 n = 1; try IHook(oracle).hook() { n = n + 1; } catch { return 0; } '
      'return n * 3;', None),
     # The self-call form (contracts with more than one state variable) follows the same rule.
     ('try-self-success-write', HOOK, 'uint256 s;\n    uint256 t;\n    function hook() external {}',
-     'try this.hook() { s = 1; } catch {} return 1;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
-    ('void-call-then-write', HOOK, 'uint256 s;', 'IHook(oracle).hook(); s = 1; return 1;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
-    ('void-call-then-read', HOOK, 'uint256 s;', 'IHook(oracle).hook(); return s;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+     'try this.hook() { s = 1; } catch {} return 1;', None),
+    ('void-call-then-write', HOOK, 'uint256 s;', 'IHook(oracle).hook(); s = 1; return 1;', None),
+    ('void-call-then-read', HOOK, 'uint256 s;', 'IHook(oracle).hook(); return s;', None),
     ('void-call-then-log', HOOK, 'event Called();',
-     'IHook(oracle).hook(); emit Called(); return 1;',
-     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+     'IHook(oracle).hook(); emit Called(); return 1;', None),
     ('try-void-error-clause', HOOK, '',
      'try IHook(oracle).hook() { return 1; } catch Error(string memory) { return 2; } '
      'catch { return 0; }',
