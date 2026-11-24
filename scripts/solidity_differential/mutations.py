@@ -45,7 +45,7 @@ def snapshot(destination):
     else:
         command(["cp", "-aL", "--reflink=auto", build, cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
-    for compiler_name in ("solc-0.7.6", "solc-0.8.34", "solc-0.8.26", "solc-0.8.10"):
+    for compiler_name in ("solc-0.7.6", "solc-0.8.34", "solc-0.8.28", "solc-0.8.26", "solc-0.8.10"):
         compiler_src = WORKSPACE / ".lake/solidity-import" / compiler_name
         if compiler_src.exists():
             shutil.copy2(compiler_src, cache / "solidity-import" / compiler_name)
