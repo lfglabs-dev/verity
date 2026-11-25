@@ -1850,7 +1850,8 @@ mutual
         | some dst, some src, some sz =>
             -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
             -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- otherwise; the halt is observed as a reverting frame. The byte
+            -- carrier receives exactly those bytes; in the word view, complete
             -- words are replaced and a final partial word is merged with its
             -- untouched low bytes, as in EVM memory.
             if src + sz ≤ 32 * state.world.returndata.length then
@@ -1860,6 +1861,9 @@ mutual
                   state.world with
                   memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
                     state.world.returndata dst src sz state.world.memory
+                  byteMemory := state.world.byteMemory.copyFrom
+                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                    dst src sz
                 }
               }
             else .revert .empty
@@ -2250,7 +2254,8 @@ mutual
         | some dst, some src, some sz =>
             -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
             -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- otherwise; the halt is observed as a reverting frame. The byte
+            -- carrier receives exactly those bytes; in the word view, complete
             -- words are replaced and a final partial word is merged with its
             -- untouched low bytes, as in EVM memory.
             if src + sz ≤ 32 * state.world.returndata.length then
@@ -2260,6 +2265,9 @@ mutual
                   state.world with
                   memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
                     state.world.returndata dst src sz state.world.memory
+                  byteMemory := state.world.byteMemory.copyFrom
+                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                    dst src sz
                 }
               }
             else .revert .empty
@@ -3889,8 +3897,8 @@ mutual
             evalExprWithHelpers spec fields fuel state size with
         | some dst, some src, some sz =>
             -- Same bounded-copy semantics as `execStmt`: in-bounds extents copy
-            -- complete words and merge the final partial word; out-of-bounds
-            -- extents revert identically on the IR layer.
+            -- the bytes, complete words and the merged final partial word;
+            -- out-of-bounds extents revert identically on the IR layer.
             if src + sz ≤ 32 * state.world.returndata.length then
               .continue {
                 state with
@@ -3898,6 +3906,9 @@ mutual
                   state.world with
                   memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
                     state.world.returndata dst src sz state.world.memory
+                  byteMemory := state.world.byteMemory.copyFrom
+                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                    dst src sz
                 }
               }
             else .revert .empty
