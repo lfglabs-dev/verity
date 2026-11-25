@@ -117,6 +117,118 @@ def checkLibraryCallInliningAllowed (cand : LibraryCallCandidate) : LibraryInlin
   else
     .allowInline
 
+/-! ## Linked library calls under `Profile.linkedLibrariesMatchSource` (`#2728`)
+
+With the profile's trust assumption (the linked account's code behaves as solc's compilation
+of the library in the same solc input), a direct `L.f(...)` `DELEGATECALL` is equivalent to
+running `f`'s body in the caller's frame when nothing in the body, or in a function or
+modifier it reaches, depends on what a `DELEGATECALL` frame does not share with its caller,
+and when the arguments and results cross the ABI boundary unchanged:
+
+* storage, transient storage, `msg.sender`, `msg.value`, `address(this)` and the block and
+  transaction context are the caller's; the library's revert data is forwarded as is;
+* value-type arguments and results are ABI-encoded clean and decode to the same values;
+  a `storage` reference is passed as its slot;
+* `msg.data`, `msg.sig`, `gasleft()` and every inline-assembly block (calldata, returndata,
+  code, memory and gas builtins) may observe the library frame, so they are rejected;
+  memory, calldata and function-typed arguments and results are copied or re-encoded
+  across the boundary, so they are rejected too. -/
+
+/-- A solc `typeIdentifier` of an elementary value type, an enum or a user-defined value type:
+its ABI encoding decodes to the same value in the library and back in the caller. -/
+def isLinkedLibraryValueTypeIdentifier (tid : String) : Bool :=
+  let cs := tid.toList
+  ["t_uint", "t_int", "t_address", "t_bool", "t_enum$", "t_userDefinedValueType$"].any
+      (fun p => isCharListPrefix p.toList cs) ||
+    (isCharListPrefix "t_bytes".toList cs && ((cs.drop 7).head?.map Char.isDigit).getD false)
+
+/-- How an argument or result of a linked library function crosses the `DELEGATECALL`. -/
+inductive LinkedLibraryOperandKind where
+  /-- A value type (`isLinkedLibraryValueTypeIdentifier`). -/
+  | value
+  /-- A `storage` reference, passed as its slot. -/
+  | storageRef
+  /-- Memory, calldata or function-typed: copied or re-encoded, outside this slice. -/
+  | other
+  deriving DecidableEq, Repr, Inhabited
+
+/-- Classify a parameter from its solc `storageLocation` and `typeIdentifier`. -/
+def linkedLibraryOperandKind (storageLocation tid : String) : LinkedLibraryOperandKind :=
+  if storageLocation == "storage" then .storageRef
+  else if storageLocation == "default" && isLinkedLibraryValueTypeIdentifier tid then .value
+  else .other
+
+/-- Classify a solc `VariableDeclaration` (parameter or return parameter). -/
+def linkedLibraryParamKind (decl : Json) : LinkedLibraryOperandKind :=
+  linkedLibraryOperandKind ((jsonStrField? decl "storageLocation").getD "")
+    (((jsonField? decl "typeDescriptions").bind (jsonStrField? · "typeIdentifier")).getD "")
+
+/-- The reason node `j` depends on the `DELEGATECALL` frame, if it does: inline assembly,
+`msg.data`, `msg.sig` or `gasleft`. -/
+def linkedLibraryFrameHazard (j : Json) : Option String :=
+  let builtin (n : Json) : Bool := ((jsonIntField? n "referencedDeclaration").getD 0) < 0
+  match astNodeType? j with
+  | some "InlineAssembly" =>
+      some "inline assembly in a linked library call can observe the library's call frame"
+  | some "MemberAccess" =>
+      match jsonField? j "expression" with
+      | some base =>
+          if astNodeType? base == some "Identifier" && astNodeName? base == some "msg" &&
+              builtin base && ["data", "sig"].contains ((jsonStrField? j "memberName").getD "") then
+            some "msg.data and msg.sig in a linked library call are the library call's calldata"
+          else none
+      | none => none
+  | some "Identifier" =>
+      if astNodeName? j == some "gasleft" && builtin j then
+        some "gasleft() in a linked library call reads the library frame's gas"
+      else none
+  | _ => none
+
+/-- Walk `j` and every function or modifier declaration it references (`decl`, transitively,
+each once). Returns the first frame-dependent node and its reason, or the visited ids. -/
+partial def linkedLibraryFrameHazardWalk (decl : Nat → Option Json) :
+    List Nat → Json → Except (Json × String) (List Nat)
+  | seen, .arr xs => xs.foldl (fun acc x => acc.bind (linkedLibraryFrameHazardWalk decl · x))
+      (.ok seen)
+  | seen, j@(.obj o) =>
+      match linkedLibraryFrameHazard j with
+      | some reason => .error (j, reason)
+      | none =>
+        let start : Except (Json × String) (List Nat) :=
+          match jsonNatField? j "referencedDeclaration" with
+          | some id =>
+              if seen.contains id then .ok seen
+              else match decl id with
+                | some d => linkedLibraryFrameHazardWalk decl (id :: seen) d
+                | none => .ok seen
+          | none => .ok seen
+        o.foldl (fun acc _ v => acc.bind (linkedLibraryFrameHazardWalk decl · v)) start
+  | seen, _ => .ok seen
+
+/-- The first frame-dependent node reached from the library function declaration `fn`. -/
+def linkedLibraryFrameHazard? (decl : Nat → Option Json) (fn : Json) : Option (Json × String) :=
+  let start := (astNodeId? fn).toList
+  match linkedLibraryFrameHazardWalk decl start fn with
+  | .error found => some found
+  | .ok _ => none
+
+/-- Witness: elementary value types, enums and UDVTs are value operands. -/
+theorem witness_linked_library_value_types :
+    linkedLibraryOperandKind "default" "t_uint256" = .value ∧
+    linkedLibraryOperandKind "default" "t_bytes32" = .value ∧
+    linkedLibraryOperandKind "default" "t_address_payable" = .value ∧
+    linkedLibraryOperandKind "default" "t_enum$_E_$12" = .value ∧
+    linkedLibraryOperandKind "default" "t_userDefinedValueType$_U_$3" = .value := by decide
+
+/-- Witness: storage references pass; memory, calldata and function types do not. -/
+theorem witness_linked_library_reference_types :
+    linkedLibraryOperandKind "storage" "t_struct$_S_$4_storage_ptr" = .storageRef ∧
+    linkedLibraryOperandKind "memory" "t_bytes_memory_ptr" = .other ∧
+    linkedLibraryOperandKind "calldata" "t_bytes_calldata_ptr" = .other ∧
+    linkedLibraryOperandKind "default" "t_bytes_memory_ptr" = .other ∧
+    linkedLibraryOperandKind "default" "t_function_external_view$__$returns$__$" = .other ∧
+    linkedLibraryOperandKind "default" "t_contract$_C_$5" = .other := by decide
+
 /-! ## Initialization Transcription Helper Descriptors (`#2465`) -/
 
 /-- Classification of initialization-time helper transcriptions (`#2465`). -/

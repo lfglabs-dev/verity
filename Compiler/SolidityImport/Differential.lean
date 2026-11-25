@@ -108,7 +108,7 @@ def statusText (model : CompilationModel) (report : ImportReport) : String := Id
     lines := lines.push (String.intercalate "\n"
       ([s!"function {fn.name}", "  importable true", s!"  denoteCovered {st.denoteCovered}",
        s!"  compilable {compilable}", s!"  compilerProofCovered {st.compilerProof.toText}"] ++
-       st.shortcuts.map ShortcutUse.toText))
+       st.shortcuts.map ShortcutUse.toText ++ st.linkedLibraryCalls.map LinkedLibraryCall.toText))
   return String.intercalate "\n" lines.toList ++ "\n"
 
 private def selectRoot (model : CompilationModel) (name : String) : IO FunctionSpec := do

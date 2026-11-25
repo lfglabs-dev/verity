@@ -363,9 +363,15 @@ def quoteReport (r : ImportReport) : m Term := do
            lowering := $(quote u.lowering), file := $(quote u.file), line := $(quote u.line),
            column := $(quote u.column) } :
           Compiler.CompilationModel.SolidityImport.ShortcutUse))
+    let linked (u : LinkedLibraryCall) : m Term := do
+      `(({ library := $(quote u.library), function := $(quote u.function),
+           declId := $(quote u.declId), file := $(quote u.file), line := $(quote u.line),
+           column := $(quote u.column) } :
+          Compiler.CompilationModel.SolidityImport.LinkedLibraryCall))
     `(({ function := $(quote st.function), denoteCovered := $(quote st.denoteCovered),
          compilerProof := $proof, unsupported := $(← list (← st.unsupported.mapM construct)),
-         shortcuts := $(← list (← st.shortcuts.mapM shortcut)) } :
+         shortcuts := $(← list (← st.shortcuts.mapM shortcut)),
+         linkedLibraryCalls := $(← list (← st.linkedLibraryCalls.mapM linked)) } :
         Compiler.CompilationModel.SolidityImport.FunctionStatus))
   `(({ importerVersion := $(quote r.importerVersion), solcLongVersion := $(quote r.solcLongVersion),
        solcSha256 := $(quote r.solcSha256), settingsJson := $(quote r.settingsJson),

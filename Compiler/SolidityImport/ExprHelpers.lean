@@ -224,6 +224,11 @@ structure Env where
   /-- Trusted shortcuts (`trustedImporterShortcuts`) the current root's lowering applied, in
   order. Reported per root in `FunctionStatus.shortcuts`. -/
   rootShortcuts : Array ShortcutUse := #[]
+  /-- `Profile.linkedLibrariesMatchSource`: admit and inline direct linked library calls. -/
+  linkedLibrariesMatchSource : Bool := false
+  /-- Linked library calls the current root's lowering inlined, in order. Reported per root in
+  `FunctionStatus.linkedLibraryCalls`. -/
+  rootLinkedLibraryCalls : Array LinkedLibraryCall := #[]
   included : Array FnRec
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec

@@ -2171,6 +2171,40 @@ Trust boundary changes:
   differential evidence (`YulMemoryCallSequence` against recording call responders, an
   account without code and an EOA), not a proof.
 
+### Imported linked library calls (`linkedLibrariesMatchSource`)
+
+Off by default: a `public` or `external` library function called from outside its
+library compiles to a `DELEGATECALL` into the account linked at deployment, and the
+importer rejects it. A profile that sets `linkedLibrariesMatchSource := true` adds this
+assumption:
+
+- **Assumed (not checked)**: every library such a call reaches, directly or through a
+  nested linked call, is linked to an account whose code behaves as solc's compilation
+  of that library from the same solc input. The import cannot see the `--libraries`
+  linking step or the deployed code. A deployment can discharge it by comparing each
+  linked account's runtime code with solc's `deployedBytecode` of the library (solc
+  replaces the leading `PUSH20` placeholder with the library's own address at deploy
+  time); with different code (for example a stub source for a library built by another
+  toolchain) every proof that uses the root is void.
+- **Model**: a direct `L.f(...)` call is replaced by `f`'s body in the caller's frame.
+  Admitted only for value-type and `storage` arguments, value-type results and bodies
+  that reach no `msg.data`, `msg.sig`, `gasleft()` or inline assembly; everything else
+  rejects with its location. The frame equivalence relied on (same storage, transient
+  storage, `msg.sender`, `msg.value`, `address(this)`, logs, block context; the library's
+  revert data forwarded; value-type ABI round trips are identities) is EVM and solc
+  behaviour, checked differentially, not proved.
+- **Not preserved**: gas and the call depth limit (as for every call transport); the
+  free pointer and unallocated memory after the call, since the library's allocations
+  are made in the caller's memory.
+- **Surfaced**: each root lists its linked calls in the import report
+  (`FunctionStatus.linkedLibraryCalls`), its model carries the local obligation
+  `solidity_linked_library_matches_source` with status `assumed`, and the flag is part of
+  the import digest.
+- **Evidence**: `LinkedLibraryCallSequence` (A/B/C with both libraries deployed and linked:
+  storage effects, events, forwarded custom-error, `Error(string)` and panic data,
+  nested library-to-library calls) and `check_linked_library_call_rejections` (located
+  rejections and a frame-check mutant).
+
 ### Imported typed external calls without return values
 
 `solidity_import` admits `I(a).f(args...)` as a whole expression statement when `f` is

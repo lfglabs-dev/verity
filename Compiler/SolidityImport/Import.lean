@@ -3039,6 +3039,55 @@ private def internalFunctionTyped (j : Json) : Bool :=
   ((field? j "typeDescriptions").bind (optStr · "typeIdentifier")).any
     (·.startsWith "t_function_internal")
 
+/-- Whether the callee of a call is a `DELEGATECALL` into a linked library that this import
+inlines. Without `Profile.linkedLibrariesMatchSource` every such callee is rejected
+(`externalLibraryCallDiagnostic`). With it, only a direct `L.f(...)` call of an implemented
+`public` or `external` function of library `L` is admitted, when every parameter is a value
+type or a `storage` reference, every result is a value type, and nothing `f` reaches depends
+on the `DELEGATECALL` frame (`linkedLibraryFrameHazard?`); everything else is rejected at its
+source location. An admitted call is recorded for the current root's report and returns
+`true`; a callee of any other type returns `false`. -/
+private def admitLinkedLibraryCall (callee : Json) : M Bool := do
+  unless isLibraryDelegateCall callee do return false
+  let env ← get
+  unless env.linkedLibrariesMatchSource do failAt callee externalLibraryCallDiagnostic
+  unless (← mKind callee) == "MemberAccess" do
+    failAt callee "linked library calls must name the function as L.f"
+  let base ← mField callee "expression"
+  unless (← mType base).startsWith "type(library " do
+    failAt callee "attached linked library calls (using L for T) are outside this slice"
+  let id ← refInt callee
+  unless id ≥ 0 do failAt callee "unresolved linked library function"
+  let some fn := env.funs.find? id.toNat | failAt callee "unresolved linked library function"
+  let some cid := env.funContractId.find? id.toNat
+    | failAt callee "linked library function is not declared in a library"
+  unless env.contractKinds.find? cid == some "library" do
+    failAt callee "linked library function is not declared in a library"
+  unless ["public", "external"].contains (optStr fn "visibility" |>.getD "") do
+    failAt callee "linked library calls require a public or external function"
+  let implemented := (field? fn "implemented").bind (·.getBool?.toOption) |>.getD true
+  unless implemented && ((field? fn "body").any (!·.isNull)) do failNoBody fn callee
+  for p in ← mArr (← mField (← mField fn "parameters") "parameters") do
+    if linkedLibraryParamKind p == .other then
+      failAt p ("linked library call parameters must be value types or storage references: " ++
+        "memory, calldata and function-typed values are re-encoded by the DELEGATECALL")
+  for r in ← mArr (← mField (← mField fn "returnParameters") "parameters") do
+    unless linkedLibraryParamKind r == .value do
+      failAt r "linked library call results must be value types"
+  let decl (n : Nat) : Option Json := env.funs.find? n <|> env.modifiers.find? n
+  if let some (node, reason) := linkedLibraryFrameHazard? decl fn then
+    failAt node reason
+  let (file, site) := nodeSite env callee
+  let (line, column) := match site with
+    | some (line, column, _) => (line, column)
+    | none => (0, 0)
+  let use : LinkedLibraryCall :=
+    { library := env.contractNames.find? cid |>.getD s!"library#{cid}",
+      function := optStr fn "name" |>.getD "", declId := id.toNat, file, line, column }
+  unless env.rootLinkedLibraryCalls.contains use do
+    set { env with rootLinkedLibraryCalls := env.rootLinkedLibraryCalls.push use }
+  pure true
+
 /-- A node of `j` that makes, or may make, a typed-interface call: the call itself, or a
 reference to an internal function (called, or passed as a function value) whose body or
 modifier invocations (arguments, and the body of every modifier of that name, which
@@ -3064,7 +3113,11 @@ private partial def interfaceCallIn? (clean : IO.Ref (Array Nat)) (j : Json)
           if (← interfaceCallIn? clean body (mid :: seen)).isSome then return some j
         clean.modify (·.push mid)
   let kind := optStr j "nodeType"
-  if (kind == some "Identifier" || kind == some "MemberAccess") && internalFunctionTyped j then
+  -- Under `linkedLibrariesMatchSource` a linked library function's body runs in this frame
+  -- (`admitLinkedLibraryCall`), so the walk follows it too.
+  let linkedLibraryBody := (← get).linkedLibrariesMatchSource && isLibraryDelegateCall j
+  if (kind == some "Identifier" || kind == some "MemberAccess") &&
+      (internalFunctionTyped j || linkedLibraryBody) then
     if let some id := (field? j "referencedDeclaration").bind (·.getNat?.toOption) then
       let env ← get
       let targets := match env.fnPtrs.find? id with
@@ -8446,8 +8499,7 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   let names ← mArr (← mField j "names")
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
   let callee ← mField j "expression"
-  if isLibraryDelegateCall callee then
-    failAt callee "external library calls are outside this slice"
+  discard <| admitLinkedLibraryCall callee
   let (fnId, receiver?) ← match ← mKind callee with
     | "FunctionCallOptions" =>
         failAt callee "external contract calls are outside this slice"
@@ -14786,8 +14838,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       return ← lowerAssert statement
     if (← mKind callee) == "FunctionCallOptions" then
       failAt callee "external contract calls are outside this slice"
-    if isLibraryDelegateCall callee then
-      failAt callee "external library calls are outside this slice"
+    let linkedLibraryCall ← admitLinkedLibraryCall callee
     unless (← mArr (← mField expression "names")).isEmpty do
       failAt expression "named call arguments are outside this slice"
     if ← isInterfaceExternalCall expression then
@@ -14898,7 +14949,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             | none => false
           unless isThis || isLibrary do
             failAt callee "external contract calls are outside this slice"
-        unless visibility == "internal" || visibility == "private" || (visibility == "public" && internalCallee) do
+        unless visibility == "internal" || visibility == "private" ||
+            (visibility == "public" && internalCallee) || linkedLibraryCall do
           failAt callee "discarded helper calls require an internal or private declaration"
         let rets ← mArr (← mField (← mField declaration "returnParameters") "parameters")
         if rets.isEmpty then
@@ -20344,7 +20396,8 @@ private def importSlice
         throwError "solc: {optStr err "formattedMessage" |>.getD "error"}"
   let mut env := Env.init
   let legacy := release.longVersion == "0.7.6+commit.7338295f"
-  env := { env with files := fileBytes, viaIR := profile.viaIR }
+  env := { env with files := fileBytes, viaIR := profile.viaIR,
+                    linkedLibrariesMatchSource := profile.linkedLibrariesMatchSource }
   env := { env with legacyWrapping := legacy, unchecked := legacy }
   let sourcesOut ← field parsed "sources"
   let .obj sourceUnits := sourcesOut | throwError "solc sources output is not an object"
@@ -20410,6 +20463,8 @@ private def importSlice
   let mut unsupportedRoots : Array (String × List UnsupportedConstruct) := #[]
   -- Shortcuts each importable root's model uses (`Env.rootShortcuts` after its lowering).
   let mut rootShortcuts : Array (String × List ShortcutUse) := #[]
+  -- Linked library calls each importable root's model inlines (`Env.rootLinkedLibraryCalls`).
+  let mut rootLinkedLibraryCalls : Array (String × List LinkedLibraryCall) := #[]
   if profile.collectUnsupported then
     let pending ← IO.mkRef (none : Option (String × UnsupportedConstruct × Array Nat))
     let recorded ← IO.mkRef (#[] : Array UnsupportedConstruct)
@@ -20440,6 +20495,7 @@ private def importSlice
     let specsBefore := specs
     let projectionsBefore := projections
     let rootShortcutsBefore := rootShortcuts
+    let rootLinkedLibraryCallsBefore := rootLinkedLibraryCalls
     if let some sink := env.unsupportedSink then
       sink.pending.set none
       sink.recorded.set #[]
@@ -20450,7 +20506,8 @@ private def importSlice
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                         projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[],
-                        rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[] }
+                        rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[],
+                        rootLinkedLibraryCalls := #[] }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       -- Inline assembly can observe uncleaned stack words and write uncleaned transient
@@ -20722,8 +20779,19 @@ private def importSlice
                 "nothing, so a re-entrant entrypoint observes only the completed state " ++
                 "updates. Denote lets the callee's committed world change any account, " ++
                 "including this one. The trailing position is checked by the importer, not proved."
-              proofStatus := .unchecked }] else []) }
+              proofStatus := .unchecked }] else []) ++
+            (if env.rootLinkedLibraryCalls.isEmpty then [] else [{
+              name := "solidity_linked_library_matches_source"
+              obligation := "Each linked library call this root makes (listed in the import " ++
+                "report) is modelled by the called function's body in the imported source, " ++
+                "run in the caller's frame. That holds only if the deployment links every " ++
+                "such library to an account whose code behaves as solc's compilation of the " ++
+                "same library source, for example by checking the linked account's runtime " ++
+                "code against solc's deployedBytecode of the library. Assumed, not checked."
+              proofStatus := .assumed }]) }
       rootShortcuts := rootShortcuts.push (functionName, env.rootShortcuts.toList)
+      rootLinkedLibraryCalls :=
+        rootLinkedLibraryCalls.push (functionName, env.rootLinkedLibraryCalls.toList)
       for proj in env.projections do
         let ignored :=
           match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
@@ -20747,6 +20815,7 @@ private def importSlice
         specs := specsBefore
         projections := projectionsBefore
         rootShortcuts := rootShortcutsBefore
+        rootLinkedLibraryCalls := rootLinkedLibraryCallsBefore
         -- Source order (stable, so equal positions keep lowering order), then
         -- one entry per distinct (site, reason, closure).
         let ordered := found.mergeSort fun x y =>
@@ -20851,7 +20920,10 @@ private def importSlice
     ("contract", Json.str contract),
     ("functions", Json.arr signatures),
     ("solcInput", input),
-    ("importerSources", importerSources)]
+    ("importerSources", importerSources)] |>.mergeObj
+    (if profile.linkedLibrariesMatchSource then
+      Json.mkObj [("linkedLibrariesMatchSource", Json.bool true)]
+    else Json.mkObj [])
   let digest := sha256Hex digestInput.compress.toUTF8
   let report : ImportReport :=
     { importerVersion, solcLongVersion := release.longVersion, solcSha256 := solcSha, settingsJson := settings.compress,
@@ -20864,7 +20936,9 @@ private def importSlice
         | none => (specs.find? (·.name == functionName)).map fun f =>
             { function := f.name, denoteCovered := executableStmtListCovered f.body,
               compilerProof := .unavailable noCompilerProofReason,
-              shortcuts := (rootShortcuts.find? (·.1 == functionName)).map (·.2) |>.getD [] },
+              shortcuts := (rootShortcuts.find? (·.1 == functionName)).map (·.2) |>.getD [],
+              linkedLibraryCalls :=
+                (rootLinkedLibraryCalls.find? (·.1 == functionName)).map (·.2) |>.getD [] },
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,
