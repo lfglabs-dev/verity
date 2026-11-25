@@ -4820,8 +4820,16 @@ private partial def lowerBinary (j : Json) : M Val := do
       !statefulCallIn rightNode env && !assignmentIn rightNode) ||
      (((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
       !statefulCallIn leftNode env && !assignmentIn leftNode))) ||
+    -- `local + helper()`: legacy evaluates the right operand first, via-IR the left one. A
+    -- left identifier bound to a local, parameter, literal or immutable reads a value no
+    -- call can change, so both orders agree with solc for any state-variable count. A state
+    -- variable is not admitted: `total + bump()` with `bump` writing `total` reads the
+    -- written value on legacy and the old one on via-IR (solc 0.8.34: 24 vs 19).
     (op == "+" && (← mKind leftNode) == "Identifier" &&
-      !statefulCallIn leftNode env && !assignmentIn leftNode && env.stateVars.size > 1)
+      ((field? leftNode "referencedDeclaration").bind (·.getNat?.toOption)).any (fun id =>
+        (env.values.find? id).any fun
+          | .localVar _ | .param _ | .literal _ | .immutable _ => true
+          | _ => false))
   unless op == "&&" || op == "||" || (admittedCall && !env.forwardingBytesTuple) do
     if statefulCallIn leftNode env ||
         statefulCallIn rightNode env then
@@ -7956,7 +7964,11 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
             (← mArr (← mField arg "arguments")).all scalarLeaf do
           failAt arg "expected a helper returning only a storage path"
       else
-        unless nodes.size == 1 && (← get).stateVars.size > 1 do
+        -- A lone stateful node (the only argument, or a using-for receiver without
+        -- arguments) has no sibling to order against: both pipelines run it, then bind its
+        -- value and enter the callee, which is the lowering's order for any state-variable
+        -- count (a branching function pointer's condition is already bound to a local).
+        unless nodes.size == 1 do
           failAt arg "stateful helper call arguments require explicit evaluation-order support"
     if nodes.size > 1 && assignmentIn arg && !sequence then
       failAt arg "assignment expression in multi-argument call requires explicit evaluation-order support"

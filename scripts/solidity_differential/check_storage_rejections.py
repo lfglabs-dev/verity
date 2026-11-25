@@ -140,7 +140,7 @@ def main():
         ('discarded-helper-tuple', 'function h(uint256 n) internal pure returns (uint256,uint256) { return (n,n); }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-external', 'function h(uint256 n) external pure returns (uint256) { return n; }', 'this.h(x); return x;', 'uint256', 'discarded helper calls require an internal or private'),
         ('discarded-helper-recursive', 'function h(uint256 n) internal returns (uint256) { h(n); return n; }', 'h(x); return x;', 'uint256', 'recursive call'),
-        ('discarded-helper-argument-order', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(h(x)); return x;', 'uint256', 'stateful helper call arguments'),
+        ('discarded-helper-argument-order', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(h(x)); return x;', 'uint256', None),
         ('fixed-array-read', 'mapping(uint256 => uint16[7]) a;', 'return a[1][x];', 'uint256', None),
         ('fixed-array-write', 'mapping(uint256 => uint16[7]) a;', 'a[1][x] = 7; delete a[1][0]; return a[1][x];', 'uint256', None),
         ('fixed-array-copy', 'mapping(uint256 => uint16[7]) a;', 'uint16[7] memory copy = a[1]; a[1][0] = 7; return copy[x];', 'uint256', None),
