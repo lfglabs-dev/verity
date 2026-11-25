@@ -5,25 +5,25 @@ pragma solidity 0.8.34;
 // DELEGATECALL into the linked library (#2728). Imported with
 // `linkedLibrariesMatchSource := true`, the model inlines the library bodies; the source
 // route deploys both libraries and links them into the contract. The packing call is an
-// external library function whose packed `(uint256(options) << 160) | uint160(pointer)` word
+// external library function whose packed `(uint256(mode) << 160) | uint160(pointer)` word
 // is written to a mapping entry.
 
-enum CallOptions {
-    None,
-    Send,
-    DelegateCall,
-    Both
+enum Mode {
+    A,
+    B,
+    C,
+    D
 }
 
 library LinkedPackLib {
     event Packed(address indexed caller, uint256 word);
 
-    function pack(address pointer, CallOptions options) external pure returns (uint256) {
-        return (uint256(options) << 160) | uint160(pointer);
+    function pack(address pointer, Mode mode) external pure returns (uint256) {
+        return (uint256(mode) << 160) | uint160(pointer);
     }
 
-    function packLogged(address pointer, CallOptions options) public returns (uint256 word) {
-        word = (uint256(options) << 160) | uint160(pointer);
+    function packLogged(address pointer, Mode mode) public returns (uint256 word) {
+        word = (uint256(mode) << 160) | uint160(pointer);
         emit Packed(msg.sender, word);
     }
 }
@@ -65,26 +65,26 @@ library LinkedCounterLib {
         returns (uint256)
     {
         uint256 total = bump(c, amount);
-        return total + LinkedPackLib.pack(pointer, CallOptions.Send);
+        return total + LinkedPackLib.pack(pointer, Mode.B);
     }
 }
 
 contract LinkedLibraryCallFixture {
-    mapping(bytes32 => uint256) internal scopeConfig;
+    mapping(bytes32 => uint256) internal packedWords;
     mapping(bytes32 => LinkedCounterLib.Counter) internal counters;
     LinkedCounterLib.Counter internal main;
     uint256 internal lastWord;
 
-    function setScope(bytes32 key, address pointer, CallOptions options) external {
-        scopeConfig[key] = LinkedPackLib.pack(pointer, options);
+    function setConfig(bytes32 key, address pointer, Mode mode) external {
+        packedWords[key] = LinkedPackLib.pack(pointer, mode);
     }
 
-    function setScopeLogged(bytes32 key, address pointer, CallOptions options) external {
-        scopeConfig[key] = LinkedPackLib.packLogged(pointer, options);
+    function setConfigLogged(bytes32 key, address pointer, Mode mode) external {
+        packedWords[key] = LinkedPackLib.packLogged(pointer, mode);
     }
 
-    function scope(bytes32 key) external view returns (uint256) {
-        return scopeConfig[key];
+    function word(bytes32 key) external view returns (uint256) {
+        return packedWords[key];
     }
 
     function bump(bytes32 key, uint256 amount) external returns (uint256) {

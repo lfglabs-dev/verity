@@ -11,9 +11,9 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "LinkedLibra
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none",
           linkedLibrariesMatchSource := true }
   contract LinkedLibraryCallFixture
-  function setScope(bytes32,address,CallOptions)
-  function setScopeLogged(bytes32,address,CallOptions)
-  function scope(bytes32)
+  function setConfig(bytes32,address,Mode)
+  function setConfigLogged(bytes32,address,Mode)
+  function word(bytes32)
   function bump(bytes32,uint256)
   function bumpMain(uint256)
   function bumpPacked(bytes32,uint256,address)

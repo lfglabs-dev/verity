@@ -229,6 +229,10 @@ structure Env where
   /-- Linked library calls the current root's lowering inlined, in order. Reported per root in
   `FunctionStatus.linkedLibraryCalls`. -/
   rootLinkedLibraryCalls : Array LinkedLibraryCall := #[]
+  /-- First Yul `returndatasize()` the current root's lowering reached. An inlined linked
+  library call issues no call, so the model's return-data buffer after it is not the
+  DELEGATECALL's: a root may not combine both (`admitLinkedLibraryCall`). -/
+  rootReturndataRead : Option Json := none
   included : Array FnRec
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec

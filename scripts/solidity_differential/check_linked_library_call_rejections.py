@@ -59,6 +59,16 @@ CASES = [
      '    function h(uint256 a) external view returns (uint256) { return I(address(uint160(a))).g(a); }\n',
      'm[b + 1] = S.h(a);', '', 'S.h',
      'solc evaluates the right-hand side first'),
+    ('returndatasize-after-call',
+     '    function h(uint256 a) external pure returns (uint256) { return a + 1; }\n',
+     'uint256 r = S.h(a);\n        uint256 z;\n        assembly { z := returndatasize() }\n'
+     '        root = r + z + b;', '', 'returndatasize',
+     'Yul returndatasize in a function that makes a linked library call'),
+    ('returndatasize-before-call',
+     '    function h(uint256 a) external pure returns (uint256) { return a + 1; }\n',
+     'uint256 z;\n        assembly { z := returndatasize() }\n        uint256 r = S.h(a);\n'
+     '        root = r + z + b;', '', 'S.h',
+     'linked library calls in a function that reads Yul returndatasize'),
     ('using-for',
      '    function h(uint256 a, uint256 b) public pure returns (uint256) { return a ^ b; }\n',
      'root = a.h(b);', '    using S for uint256;\n', 'a.h(b)',

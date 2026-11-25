@@ -439,7 +439,9 @@ unchanged. The call is admitted only when:
 - nothing the body reaches, through internal helpers, nested linked calls and
   modifiers, uses `msg.data`, `msg.sig`, `gasleft()` or inline assembly: in the
   library frame those observe the library call's calldata, gas, return data,
-  code and memory.
+  code and memory;
+- the calling root reads no Yul `returndatasize()`, before or after the call:
+  the DELEGATECALL sets the return-data buffer, the inlined body does not.
 
 Each other shape rejects with `file:line:column` (`check_linked_library_call_rejections`).
 The flag is part of the digest when set. Each root's report lists the calls it
