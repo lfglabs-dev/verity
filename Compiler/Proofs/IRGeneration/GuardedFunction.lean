@@ -41,14 +41,6 @@ theorem prebindRawArgs_transient (state : IRState) (params : List Param) :
   | nil => rfl
   | cons p rest ih => exact ih (state.setVar p.1.name p.2)
 
-theorem prebindRawArgs_revertData (state : IRState) (params : List Param) :
-    (prebindRawArgs state params).revertData = state.revertData := by
-  unfold prebindRawArgs
-  generalize (params.map Param.toIRParam).zip state.calldata = l
-  induction l generalizing state with
-  | nil => rfl
-  | cons p rest ih => exact ih (state.setVar p.1.name p.2)
-
 private theorem applyBindingsToIRState_revertData :
     ∀ (bindings : List (String × Nat)) (state : IRState),
       (ParamLoading.applyBindingsToIRState state bindings).revertData = state.revertData

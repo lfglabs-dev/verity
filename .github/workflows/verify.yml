@@ -57,7 +57,7 @@ on:
         default: false
         type: boolean
       runner_route:
-        description: 'Runner pool for the routed jobs: auto (by queue depth), or a pool name from ROUTE_POOLS (default pools: build-medium, lean-8; lean = lean-8)'
+        description: 'Runner pool for the routed jobs: auto (by free build-medium capacity at fan-out), or a pool name from ROUTE_POOLS (default pools: build-medium, lean-8; lean = lean-8)'
         required: false
         default: auto
         type: string
@@ -88,9 +88,10 @@ env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
   VERIFY_LOCAL_ARTIFACT_ROOT: /srv/verity-ci-cache/artifacts
-  # Runner pools `route` uses when the ROUTE_POOLS repository variable is unset
-  # or invalid. See the `route` job for the format.
-  VERIFY_ROUTE_POOLS_DEFAULT: '[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],"max_queue":6},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]'
+  # Runner pools `route-build` / `route-compiler` use when the ROUTE_POOLS
+  # repository variable is unset or invalid; format in scripts/ci_route_pools.py.
+  # build-medium has 3 runners (ashur, nippur, old-agent): keep `slots` in sync.
+  VERIFY_ROUTE_POOLS_DEFAULT: '[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],"slots":3},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]'
 
 jobs:
   closed-pr-cleanup:
@@ -236,7 +237,6 @@ jobs:
               - 'scripts/setup_solc_import.py'
               - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
-              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
               # Every path is_compiler_path accepts must also start this job: the
               # compiler and Foundry jobs need its workspace.
@@ -283,7 +283,6 @@ jobs:
               - 'scripts/setup_solc_import.py'
               - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
-              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
               - 'foundry.toml'
             importer:
@@ -301,7 +300,6 @@ jobs:
               - 'scripts/setup_solc_import.py'
               - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
-              - 'scripts/test_solidity_import_coverage.py'
             changed:
               - '**'
       - name: Resolve effective change flags
@@ -328,7 +326,7 @@ jobs:
           # A lakefile.lean change counts as importer-only when every changed line
           # names a SolidityImportSmoke target (pull requests only; pushes stay strict).
           # On the full tier an importer change still counts as a compiler change, so
-          # compiler-regressions (stateful checks, import coverage) keeps running there.
+          # compiler-regressions (stateful checks) keeps running there.
           lakefile_only_smoke() {
             [ "$EVENT_NAME" = "pull_request" ] || return 1
             git rev-parse --verify -q HEAD^1 >/dev/null || return 1
@@ -384,113 +382,6 @@ jobs:
             echo "compiler=$compiler"
             echo "importer=$importer"
           } >> "$GITHUB_OUTPUT"
-
-  route:
-    # Picks the runner pool for the routed jobs from an ordered pool list: the
-    # ROUTE_POOLS repository variable, else VERIFY_ROUTE_POOLS_DEFAULT
-    # (build-medium while fewer than 6 jobs are queued on it, then lean-8). Each
-    # pool is {"name", "labels", "max_queue"}; a pool's queue is the repo's queued
-    # jobs carrying all its labels, the first pool below its max_queue wins, and
-    # the last pool (no max_queue) takes the rest. To add a pool, edit ROUTE_POOLS
-    # (Settings > Secrets and variables > Actions > Variables). A GitHub API error
-    # falls back to the first pool. ci-gate needs this job, so a route failure
-    # (which skips the routed jobs) still fails the gate.
-    needs: changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-    outputs:
-      runs_on: ${{ steps.route.outputs.runs_on }}
-      on_lean: ${{ steps.route.outputs.on_lean }}
-      pool: ${{ steps.route.outputs.pool }}
-    steps:
-      - name: Choose runner pool
-        id: route
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUNNER_ROUTE: ${{ inputs.runner_route || 'auto' }}
-          ROUTE_POOLS: ${{ vars.ROUTE_POOLS }}
-        run: |
-          set -uo pipefail
-          # A pool list is a non-empty JSON array of
-          # {"name": str, "labels": [str, ...], "max_queue": int (optional)}.
-          valid='type == "array" and length > 0 and all(.[]; type == "object"
-            and (.name | type == "string" and length > 0)
-            and (.labels | type == "array" and length > 0 and all(.[]; type == "string"))
-            and ((has("max_queue") | not) or (.max_queue | type == "number" and . >= 0 and floor == .)))'
-          pools="$VERIFY_ROUTE_POOLS_DEFAULT"; source="built-in default"
-          if [ -n "${ROUTE_POOLS:-}" ]; then
-            if jq -e "$valid" >/dev/null 2>&1 <<<"$ROUTE_POOLS"; then
-              pools=$(jq -c . <<<"$ROUTE_POOLS"); source="ROUTE_POOLS repository variable"
-            else
-              echo "::warning::runner route: ROUTE_POOLS is not a valid pool list; using the built-in default"
-            fi
-          fi
-          npools=$(jq length <<<"$pools")
-          # Labels of every queued job, one JSON array per line, across every
-          # queued or in-progress run of the repository.
-          queued_labels() {
-            local status page id ids=""
-            for status in queued in_progress; do
-              page=$(gh api --paginate "repos/$REPO/actions/runs?status=$status&per_page=100" \
-                --jq '.workflow_runs[].id') || return 1
-              ids+="$page"$'\n'
-            done
-            for id in $(printf '%s' "$ids" | sort -u); do
-              gh api --paginate "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" \
-                --jq '.jobs[] | select(.status == "queued") | .labels | tojson' || return 1
-            done
-          }
-          route="$RUNNER_ROUTE"
-          if [ "$route" = lean ] && [ "$(jq '[.[] | select(.name == "lean")] | length' <<<"$pools")" = 0 ]; then
-            route=lean-8
-          fi
-          counts="null"; choice=""
-          if [ -n "$route" ] && [ "$route" != auto ]; then
-            choice=$(jq --arg n "$route" 'first(to_entries[] | select(.value.name == $n) | .key) // empty' <<<"$pools")
-            if [ -n "$choice" ]; then
-              reason="forced by the runner_route input"
-            else
-              echo "::warning::runner route: unknown pool '$route' in runner_route; routing automatically"
-            fi
-          fi
-          if [ -z "$choice" ]; then
-            if labels=$(queued_labels); then
-              counts=$(printf '%s\n' "$labels" | jq -sc --argjson pools "$pools" \
-                '. as $jobs | [$pools[] | .labels as $want | [$jobs[] | select(($want - .) == [])] | length]')
-              choice=$(jq -n --argjson pools "$pools" --argjson counts "$counts" \
-                'first(range(0; $pools | length) as $i
-                  | select($i == ($pools | length) - 1 or $pools[$i].max_queue == null
-                      or $counts[$i] < $pools[$i].max_queue) | $i)')
-              if [ "$choice" -eq $((npools - 1)) ] && [ "$npools" -gt 1 ]; then
-                reason="every earlier pool is at its max_queue; last pool takes the rest"
-              else
-                reason="first pool with queued jobs below its max_queue"
-              fi
-            else
-              choice=0; reason="GitHub API error; falling back to the first pool"
-              echo "::warning::runner route: $reason"
-            fi
-          fi
-          pool=$(jq -r --argjson i "$choice" '.[$i].name' <<<"$pools")
-          runs_on=$(jq -c --argjson i "$choice" '.[$i].labels' <<<"$pools")
-          on_lean=$(jq --argjson i "$choice" '.[$i].labels | index("build-medium") == null' <<<"$pools")
-          echo "runner route: $pool ($reason)"
-          {
-            echo "runs_on=$runs_on"
-            echo "on_lean=$on_lean"
-            echo "pool=$pool"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "### Runner route"
-            echo ""
-            echo "- Pool: \`$pool\` (\`runs-on: $runs_on\`)"
-            echo "- Reason: $reason (mode \`$RUNNER_ROUTE\`)"
-            echo "- Pools from the $source, in order (queued jobs / max_queue):"
-            jq -r --argjson counts "$counts" 'to_entries[] | "  - `\(.value.name)` \(.value.labels | tojson): \(if $counts == null then "n/a" else $counts[.key] end) / \(.value.max_queue // "rest")"' <<<"$pools"
-          } >> "$GITHUB_STEP_SUMMARY"
 
   checks:
     needs: changes
@@ -670,16 +561,61 @@ jobs:
           path: .lake
           key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
 
+  route-build:
+    # Routes the job groups that fan out after `build` (build-audits, then
+    # import-mutations) right before GitHub creates them, so the choice sees
+    # the runner load at that moment, not at the start of the run (run
+    # 45485073018 routed at 20:51Z and put 16 jobs created 40-55 min later on
+    # the 3 build-medium hosts; 8 queued 40+ min while lean-8 sat idle).
+    # scripts/ci_route_pools.py walks an ordered pool list (the ROUTE_POOLS
+    # repository variable, else VERIFY_ROUTE_POOLS_DEFAULT): a group goes to
+    # build-medium only when its concurrent jobs fit in the free slots
+    # (slots - running - queued - already routed), else to lean-8. The
+    # runner_route input forces a pool; a GitHub API error falls back to the
+    # first pool (a group larger than its slots: the last). It needs `build`, so it runs whenever a routed job can;
+    # ci-gate needs it, so a route failure (which skips the routed jobs)
+    # still fails the gate.
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      build_audits_runs_on: ${{ steps.route.outputs.build_audits_runs_on }}
+      build_audits_on_lean: ${{ steps.route.outputs.build_audits_on_lean }}
+      import_mutations_runs_on: ${{ steps.route.outputs.import_mutations_runs_on }}
+      import_mutations_on_lean: ${{ steps.route.outputs.import_mutations_on_lean }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci_route_pools.py
+          sparse-checkout-cone-mode: false
+
+      - name: Choose runner pools
+        id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUNNER_ROUTE: ${{ inputs.runner_route || 'auto' }}
+          ROUTE_POOLS: ${{ vars.ROUTE_POOLS }}
+        run: |
+          python3 scripts/ci_route_pools.py --title "after build" \
+            --group build-audits=1 \
+            --group import-mutations=24
+
   build-audits:
-    runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(needs.route-build.outputs.build_audits_runs_on) }}
     timeout-minutes: 20
-    needs: [changes, route, checks, build]
+    needs: [changes, route-build, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
     steps:
       # Audit/package checks stay below the 50 GiB build-medium cgroup cap;
       # on lean.ci the VM's memory bounds it (step after checkout).
       - name: Cap Lean threads on build-medium
-        if: needs.route.outputs.on_lean != 'true'
+        if: needs.route-build.outputs.build_audits_on_lean != 'true'
         run: echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -690,7 +626,7 @@ jobs:
       # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
-        if: needs.route.outputs.on_lean == 'true'
+        if: needs.route-build.outputs.build_audits_on_lean == 'true'
         run: scripts/ci_lean_threads.sh
 
       - name: Setup Lean
@@ -759,7 +695,7 @@ jobs:
             axiom-report-raw.log
 
   import-mutations:
-    runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(needs.route-build.outputs.import_mutations_runs_on) }}
     # 24 shards of 15-16 campaigns. Nightly 2026-11-22 (6 shards of ~62, 6
     # workers each): median campaign 1630-1730 s on the 64 GiB build-medium
     # hosts, and 21-30% of each shard was still unrun at the old 210-minute
@@ -769,8 +705,11 @@ jobs:
     # VM 1 (worst shard ~3.5 h). 16 campaigns: ~85 min on the 64 GiB hosts.
     # The whole run is ~30 host-hours, so a complete nightly needs ~12-14 h
     # wall-clock on build-medium alone (one shard per host at a time).
+    # `route-build` therefore sends it to build-medium only when all 24
+    # shards fit in free build-medium slots: with 3 hosts that means lean-8
+    # (24 VMs at once, one worker each) instead of queueing for half a day.
     timeout-minutes: 300
-    needs: [changes, route, checks, build]
+    needs: [changes, route-build, checks, build]
     # ~30 runner-hours per run: nightly, manual dispatch, or PRs labelled
     # `ci:mutations` only, so it stops starving the compiler jobs on every PR
     # and every merge. The label is read from the triggering event: add it,
@@ -1383,10 +1322,55 @@ jobs:
           name: static-gas-report-patched
           path: gas-report-static-patched.tsv
 
+  route-compiler:
+    # Same as `route-build`, for the groups that fan out after
+    # `build-compiler-binaries`. Groups are placed in this order; foundry and
+    # foundry-multi-seed count the shards build-medium runs at once (their
+    # max-parallel there), the full matrix elsewhere.
+    needs: build-compiler-binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      compiler_audits_runs_on: ${{ steps.route.outputs.compiler_audits_runs_on }}
+      compiler_audits_on_lean: ${{ steps.route.outputs.compiler_audits_on_lean }}
+      foundry_gas_calibration_runs_on: ${{ steps.route.outputs.foundry_gas_calibration_runs_on }}
+      foundry_gas_calibration_on_lean: ${{ steps.route.outputs.foundry_gas_calibration_on_lean }}
+      foundry_runs_on: ${{ steps.route.outputs.foundry_runs_on }}
+      foundry_on_lean: ${{ steps.route.outputs.foundry_on_lean }}
+      foundry_patched_runs_on: ${{ steps.route.outputs.foundry_patched_runs_on }}
+      foundry_patched_on_lean: ${{ steps.route.outputs.foundry_patched_on_lean }}
+      foundry_multi_seed_runs_on: ${{ steps.route.outputs.foundry_multi_seed_runs_on }}
+      foundry_multi_seed_on_lean: ${{ steps.route.outputs.foundry_multi_seed_on_lean }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci_route_pools.py
+          sparse-checkout-cone-mode: false
+
+      - name: Choose runner pools
+        id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUNNER_ROUTE: ${{ inputs.runner_route || 'auto' }}
+          ROUTE_POOLS: ${{ vars.ROUTE_POOLS }}
+        run: |
+          python3 scripts/ci_route_pools.py --title "after build-compiler-binaries" \
+            --group compiler-audits=1 \
+            --group foundry-gas-calibration=1 \
+            --group foundry=4/2 \
+            --group foundry-patched=1 \
+            --group foundry-multi-seed=7/1
+
   compiler-audits:
-    runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(needs.route-compiler.outputs.compiler_audits_runs_on) }}
     timeout-minutes: 45
-    needs: [changes, route, checks, build, build-compiler-binaries]
+    needs: [changes, route-compiler, checks, build, build-compiler-binaries]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1397,7 +1381,7 @@ jobs:
       # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
-        if: needs.route.outputs.on_lean == 'true'
+        if: needs.route-compiler.outputs.compiler_audits_on_lean == 'true'
         run: scripts/ci_lean_threads.sh
 
       - name: Setup Lean
@@ -1719,32 +1703,6 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
-      - name: Measure pinned Solidity import coverage
-        continue-on-error: true
-        timeout-minutes: 25
-        run: |
-          python3 scripts/solidity_import_coverage.py --fetch
-
-      - name: Publish Solidity import coverage
-        if: always()
-        continue-on-error: true
-        run: |
-          if [ -f .lake/solidity-import-coverage/coverage.md ]; then
-            cat .lake/solidity-import-coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Solidity import coverage unavailable: inspect measurement logs.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Archive Solidity import coverage
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: solidity-import-coverage
-          path: .lake/solidity-import-coverage/**
-          include-hidden-files: true
-          retention-days: 14
-
       - name: Build compiler CLI regression executable
         run: stdbuf -oL -eL lake build compiler-main-test
 
@@ -1808,9 +1766,9 @@ jobs:
           path: lean-perf-queue.md
 
   foundry-gas-calibration:
-    runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(needs.route-compiler.outputs.foundry_gas_calibration_runs_on) }}
     timeout-minutes: 15
-    needs: [changes, route, build-compiler-binaries]
+    needs: [changes, route-compiler, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1865,15 +1823,15 @@ jobs:
           --allow-missing-contract Vault
 
   foundry:
-    runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(needs.route-compiler.outputs.foundry_runs_on) }}
     timeout-minutes: 45
-    needs: [changes, route, build-compiler-binaries]
+    needs: [changes, route-compiler, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     strategy:
       fail-fast: false
       # Two shards at a time on the shared build-medium pool (as on main);
       # all four at once on lean.ci.
-      max-parallel: ${{ needs.route.outputs.on_lean == 'true' && 4 || 2 }}
+      max-parallel: ${{ needs.route-compiler.outputs.foundry_on_lean == 'true' && 4 || 2 }}
       matrix:
         shard_index: [0, 1, 2, 3]
     steps:
@@ -1981,9 +1939,9 @@ jobs:
           forge test
 
   foundry-patched:
-    runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(needs.route-compiler.outputs.foundry_patched_runs_on) }}
     timeout-minutes: 60
-    needs: [changes, route, build-compiler-binaries]
+    needs: [changes, route-compiler, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -2107,15 +2065,15 @@ jobs:
           forge test --no-match-test "Random10000"
 
   foundry-multi-seed:
-    runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(needs.route-compiler.outputs.foundry_multi_seed_runs_on) }}
     timeout-minutes: 75
-    needs: [changes, route, build-compiler-binaries]
+    needs: [changes, route-compiler, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       # One seed at a time on the shared build-medium pool (as on main);
       # all seven at once on lean.ci.
-      max-parallel: ${{ needs.route.outputs.on_lean == 'true' && 7 || 1 }}
+      max-parallel: ${{ needs.route-compiler.outputs.foundry_multi_seed_on_lean == 'true' && 7 || 1 }}
       matrix:
         seed: [0, 1, 42, 123, 999, 12345, 67890]
     steps:
@@ -2302,7 +2260,7 @@ jobs:
     # by design (change filters, tiering). A failed or cancelled job fails it.
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [changes, route, checks, build, build-audits, import-mutations, importer-differential, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
+    needs: [changes, route-build, route-compiler, checks, build, build-audits, import-mutations, importer-differential, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && !(github.event_name == 'pull_request' && github.event.action == 'closed')
     permissions:
       contents: read

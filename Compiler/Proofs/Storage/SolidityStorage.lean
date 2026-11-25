@@ -660,7 +660,7 @@ theorem compilerStmtList_obeys_canonical_storage
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
@@ -700,7 +700,7 @@ theorem compilerStmtListWithInternals_obeys_canonical_storage
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel :=

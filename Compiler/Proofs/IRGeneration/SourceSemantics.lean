@@ -852,15 +852,19 @@ structure RuntimeState where
   externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩
   externalCallIndex : Nat := 0
   /-- Words produced by `Stmt.returnValues`, in source order.
-      Mirrors `DenoteState.observedReturnWords`. Proof semantics observes the
-      words, not a Solidity panic payload: `Stmt.panic` remains a revert. -/
+      Mirrors `DenoteState.observedReturnWords`. A panic's bytes are not
+      words: they are the payload of its `StmtResult.revert`. -/
   observedReturnWords : Option (List Nat) := none
+  /-- Custom errors in scope, mirroring `DenoteState.errors`; a custom-error
+      revert's bytes depend on them. -/
+  errors : List ErrorDef := []
 
 inductive StmtResult where
   | continue (state : RuntimeState)
   | stop (state : RuntimeState)
   | return (value : Nat) (state : RuntimeState)
-  | revert
+  /-- The statement reverted with `payload` as returndata. -/
+  | revert (payload : Verity.Core.RevertPayload)
 
 def execForEachLoop
     (varName : String)
@@ -874,7 +878,7 @@ def execForEachLoop
       | .continue next => execForEachLoop varName runBody next (index + 1) remaining
       | .stop next => .stop next
       | .return value next => .return value next
-      | .revert => .revert
+      | .revert payload => .revert payload
 
 def msbIndex (bitmap : Nat) : Nat :=
   if bitmap = 0 then 0 else Nat.log2 bitmap
@@ -899,7 +903,7 @@ def execForEachSetBitLoop
         | .continue next => execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert
+        | .revert payload => .revert payload
 
 @[simp] theorem execForEachSetBitLoop_zero
     (varName : String)
@@ -925,7 +929,7 @@ theorem execForEachSetBitLoop_succ
         | .continue next => execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert := rfl
+        | .revert payload => .revert payload := rfl
 
 @[simp] theorem execForEachLoop_zero
     (varName : String)
@@ -946,7 +950,7 @@ theorem execForEachLoop_succ
       | .continue next => execForEachLoop varName runBody next (index + 1) remaining
       | .stop next => .stop next
       | .return value next => .return value next
-      | .revert => .revert := rfl
+      | .revert payload => .revert payload := rfl
 
 @[simp] theorem lookupBinding?_bindValue_same
     (bindings : List (String × Nat))
@@ -1582,18 +1586,33 @@ private theorem evalExpr_externalCall_of_arity
   | [] | [_] | _ :: _ :: _ :: _ => rfl
   | [_, _] => simp at harity
 
-/-- Source-level custom-error revert at the current observable granularity.
+/-- The engines `Denote` needs, instantiated as the source semantics uses them. -/
+def denoteOracle : Denote.DenoteOracle :=
+  { mappingSlot := Compiler.Proofs.abstractMappingSlot
+    keccakMemorySlice := keccakMemorySlice }
 
-`StmtResult` does not yet carry returndata, so the ABI selector and encoded
-typed payload produced by compiled Yul are intentionally not observable here.
-That richer payload relation is deferred to the planned `StmtResult`/`IRResult`
-returndata extension. The argument list is still evaluated on the reverting
-path to match the compiled code's control-flow surface; success for
-`requireError` skips argument evaluation. -/
-def typedErrorRevertResult (fields : List Field) (state : RuntimeState) (args : List Expr) :
-    StmtResult :=
+/-- Source-level custom-error revert, with `Denote`'s bytes: the selector of the
+error's unique scalar signature followed by its argument words. A failed
+argument evaluation, an unknown or ambiguous error name, or an argument outside
+its scalar type reverts with no payload. Success for `requireError` skips
+argument evaluation. -/
+def typedErrorRevertResult (fields : List Field) (state : RuntimeState)
+    (errorName : String) (args : List Expr) : StmtResult :=
   match evalExprList fields state args with
-  | _ => .revert
+  | none => .revert .empty
+  | some values =>
+      match Denote.customErrorBytes denoteOracle state.errors errorName values with
+      | some bytes => .revert (.raw bytes)
+      | none => .revert .empty
+
+/-- A custom-error revert always reverts, whatever its payload. -/
+theorem typedErrorRevertResult_revert (fields : List Field) (state : RuntimeState)
+    (errorName : String) (args : List Expr) :
+    ∃ payload, typedErrorRevertResult fields state errorName args = .revert payload := by
+  unfold typedErrorRevertResult
+  split
+  · exact ⟨_, rfl⟩
+  · split <;> exact ⟨_, rfl⟩
 
 mutual
   def execStmtWithEvents (fields : List Field) (events : List EventDef) :
@@ -1602,24 +1621,24 @@ mutual
         match evalExpr fields state value with
         | some resolved =>
             .continue { state with bindings := bindValue state.bindings name resolved }
-        | none => .revert
+        | none => .revert .empty
     | state, .assignVar name value =>
         match evalExpr fields state value with
         | some resolved =>
             .continue { state with bindings := bindValue state.bindings name resolved }
-        | none => .revert
+        | none => .revert .empty
     | state, .setStorage fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
         | some slots, some resolved =>
             .continue { state with world := writeUintFieldSlots fields fieldName state.world slots resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .setStorageWord fieldName wordOffset value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
         | some slots, some resolved =>
             .continue
               { state with
                   world := writeStorageWordFieldSlots fields fieldName state.world slots wordOffset resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .setMapping fieldName key value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -1629,7 +1648,7 @@ mutual
               { state with
                   world := writeAddressKeyedMappingFieldSlots
                     fields fieldName state.world slots resolvedKey resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setMappingWord fieldName key wordOffset value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -1639,7 +1658,7 @@ mutual
                { state with
                    world := writeAddressKeyedMappingWordFieldSlots
                      fields fieldName state.world slots resolvedKey wordOffset resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setMappingPackedWord fieldName key wordOffset packed value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -1651,8 +1670,8 @@ mutual
                     world := writeAddressKeyedMappingPackedWordFieldSlots
                       fields fieldName state.world slots resolvedKey wordOffset packed resolved }
             else
-              .revert
-        | _, _, _ => .revert
+              .revert .empty
+        | _, _, _ => .revert .empty
     | state, .setStructMember fieldName key memberName value =>
         match findFieldWriteSlots fields fieldName,
             findStructMembers fields fieldName,
@@ -1672,9 +1691,9 @@ mutual
                         world := writeAddressKeyedMappingPackedWordFieldSlots
                           fields fieldName state.world slots resolvedKey wordOffset packed resolved }
                 else
-                  .revert
-            | _ => .revert
-        | _, _, _, _ => .revert
+                  .revert .empty
+            | _ => .revert .empty
+        | _, _, _, _ => .revert .empty
     | state, .setMapping2 fieldName key1 key2 value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key1,
@@ -1686,7 +1705,7 @@ mutual
                   world :=
                     writeAddressKeyedMapping2FieldSlots
                       fields fieldName state.world slots resolvedKey1 resolvedKey2 resolved }
-        | _, _, _, _ => .revert
+        | _, _, _, _ => .revert .empty
     | state, .setMapping2Word fieldName key1 key2 wordOffset value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key1,
@@ -1705,7 +1724,7 @@ mutual
                       resolvedKey2
                       wordOffset
                       resolved }
-        | _, _, _, _ => .revert
+        | _, _, _, _ => .revert .empty
     | state, .setStructMember2 fieldName key1 key2 memberName value =>
         match findFieldWriteSlots fields fieldName,
             findStructMembers fields fieldName,
@@ -1726,9 +1745,9 @@ mutual
                         world := writeAddressKeyedMapping2PackedWordFieldSlots
                           fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
                 else
-                  .revert
-            | _ => .revert
-        | _, _, _, _, _ => .revert
+                  .revert .empty
+            | _ => .revert .empty
+        | _, _, _, _, _ => .revert .empty
     | state, .setMappingUint fieldName key value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -1738,7 +1757,7 @@ mutual
               { state with
                   world := writeUintKeyedMappingFieldSlots
                     fields fieldName state.world slots resolvedKey resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setMappingChain fieldName keys value =>
         match findFieldWriteSlots fields fieldName,
             evalExprList fields state keys,
@@ -1748,41 +1767,41 @@ mutual
               { state with
                   world := writeAddressKeyedMappingChainFieldSlots
                     fields fieldName state.world slots resolvedKeys resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr fields state value with
         | some ({ ty := .dynamicArray _, .. }, slot), some resolved =>
             let updated := state.world.storageArray slot ++ [(resolved : Verity.Core.Uint256)]
             .continue { state with world := writeStorageArray state.world slot updated }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .storageArrayPop fieldName =>
         match findFieldWithResolvedSlot fields fieldName with
         | some ({ ty := .dynamicArray _, .. }, slot) =>
             match storageArrayDropLast? (state.world.storageArray slot) with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
-            | none => .revert
-        | _ => .revert
+            | none => .revert .empty
+        | _ => .revert .empty
     | state, .setStorageArrayElement fieldName index value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr fields state index, evalExpr fields state value with
         | some ({ ty := .dynamicArray _, .. }, slot), some idx, some resolved =>
             match storageArraySetAt (state.world.storageArray slot) idx resolved with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
-            | none => .revert
+            | none => .revert .empty
         | some ({ ty := .fixedArrayUint128 size, .. }, _), some idx, some resolved =>
             match findFieldWriteSlots fields fieldName >>= fun slots =>
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
-            | none => .revert
+            | none => .revert .empty
         | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
             .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
         | some slots, some resolved =>
             .continue { state with world := writeAddressFieldSlots fields fieldName state.world slots resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .setImmutable name value =>
         match evalExpr fields state value with
         | some resolved =>
@@ -1790,7 +1809,7 @@ mutual
               { state with
                   immutable := fun immName =>
                     if immName == name then resolved else state.immutable immName }
-        | none => .revert
+        | none => .revert .empty
     | state, .mstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
@@ -1798,7 +1817,7 @@ mutual
               state with
               world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .tstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
@@ -1807,7 +1826,7 @@ mutual
               state with
               world := state.world.writeTransient resolvedOffset resolvedValue
             }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .calldatacopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
@@ -1824,14 +1843,15 @@ mutual
                   else state.world.memory o
               }
             }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
         | some dst, some src, some sz =>
             -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
             -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- otherwise; the halt is observed as a reverting frame. The byte
+            -- carrier receives exactly those bytes; in the word view, complete
             -- words are replaced and a final partial word is merged with its
             -- untouched low bytes, as in EVM memory.
             if src + sz ≤ 32 * state.world.returndata.length then
@@ -1841,28 +1861,33 @@ mutual
                   state.world with
                   memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
                     state.world.returndata dst src sz state.world.memory
+                  byteMemory := state.world.byteMemory.copyFrom
+                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                    dst src sz
                 }
               }
-            else .revert
-        | _, _, _ => .revert
-    | state, .require cond _ =>
+            else .revert .empty
+        | _, _, _ => .revert .empty
+    | state, .require cond message =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
-        | none => .revert
-    | state, .requireError cond _ args =>
+            if resolved != 0 then .continue state
+            else .revert (.raw (Denote.errorStringBytes message))
+        | none => .revert .empty
+    | state, .requireError cond errorName args =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
-        | none => .revert
-    | state, .revertError _ args =>
-        typedErrorRevertResult fields state args
+            if resolved != 0 then .continue state
+            else typedErrorRevertResult fields state errorName args
+        | none => .revert .empty
+    | state, .revertError errorName args =>
+        typedErrorRevertResult fields state errorName args
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
                 world := state.world.writePhysicalMemoryValue 0 resolved }
-        | none => .revert
+        | none => .revert .empty
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
         match evalExpr fields state cond with
@@ -1871,7 +1896,7 @@ mutual
               execStmtListWithEvents fields events state thenBranch
             else
               execStmtListWithEvents fields events state elseBranch
-        | none => .revert
+        | none => .revert .empty
     | state, .emit eventName args =>
         match evalExprList fields state args with
         | some resolved =>
@@ -1882,8 +1907,8 @@ mutual
                   world := {
                     world with
                     events := state.world.events ++ [event] } }
-            | _, _ => .revert
-        | none => .revert
+            | _, _ => .revert .empty
+        | none => .revert .empty
     | state, .forEach varName count body =>
         match evalExpr fields state count with
         | some bound =>
@@ -1892,21 +1917,29 @@ mutual
             execForEachLoop varName
               (fun loopState => execStmtListWithEvents fields events loopState body)
               initialLoopState 0 bound
-        | none => .revert
+        | none => .revert .empty
     | state, .forEachSetBit varName bitmap body =>
         match evalExpr fields state bitmap with
         | some bits =>
             execForEachSetBitLoop varName
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
-        | none => .revert
-    | _, .revertEmpty | _, .revertReturndata | _, .revertMemory _ _ => .revert
+        | none => .revert .empty
+    | _, .revertEmpty => .revert (.raw [])
+    | state, .revertReturndata =>
+        .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
+    | state, .revertMemory offset size =>
+        match evalExpr fields state offset, evalExpr fields state size with
+        | some off, some sz =>
+            .revert (.raw ((state.world.byteMemory.slice off sz).map
+              fun byte => UInt8.ofNat byte.val))
+        | _, _ => .revert .empty
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -1915,14 +1948,14 @@ mutual
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert
-        | none => .revert
+            else .revert .empty
+        | none => .revert .empty
     | state, .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -1940,13 +1973,13 @@ mutual
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
-        | none => .revert
+        | none => .revert .empty
     | state, .ecm mod args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != mod.resultVars.length then .revert
+              if outcome.returnValues.length != mod.resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -1955,21 +1988,26 @@ mutual
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert
-        | none => .revert
+            else .revert .empty
+        | none => .revert .empty
     | state, .returnValues values =>
         match evalExprList fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
-        | none => .revert
+        | none => .revert .empty
     | state, .returnBytes name =>
         match dynamicArrayBinding? state.bindings name with
         | some (dataOffset, length) =>
             .stop { state with
               observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
                 state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
-        | none => .revert
-    | _, _ => .revert
+        | none => .revert .empty
+    | _, .panic code => .revert (.raw (Denote.panicBytes code.toNat))
+    | state, .panicCode code =>
+        match evalExpr fields state code with
+        | some resolved => .revert (.raw (Denote.panicBytes resolved))
+        | none => .revert .empty
+    | _, _ => .revert .empty
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
       RuntimeState → List Stmt → StmtResult
@@ -1979,7 +2017,7 @@ mutual
         | .continue next => execStmtListWithEvents fields events next rest
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert
+        | .revert payload => .revert payload
 end
 
 mutual
@@ -1988,24 +2026,24 @@ mutual
         match evalExpr fields state value with
         | some resolved =>
             .continue { state with bindings := bindValue state.bindings name resolved }
-        | none => .revert
+        | none => .revert .empty
     | state, .assignVar name value =>
         match evalExpr fields state value with
         | some resolved =>
             .continue { state with bindings := bindValue state.bindings name resolved }
-        | none => .revert
+        | none => .revert .empty
     | state, .setStorage fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
         | some slots, some resolved =>
             .continue { state with world := writeUintFieldSlots fields fieldName state.world slots resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .setStorageWord fieldName wordOffset value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
         | some slots, some resolved =>
             .continue
               { state with
                   world := writeStorageWordFieldSlots fields fieldName state.world slots wordOffset resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .setMapping fieldName key value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -2015,7 +2053,7 @@ mutual
               { state with
                   world := writeAddressKeyedMappingFieldSlots
                     fields fieldName state.world slots resolvedKey resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setMappingWord fieldName key wordOffset value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -2025,7 +2063,7 @@ mutual
                { state with
                    world := writeAddressKeyedMappingWordFieldSlots
                      fields fieldName state.world slots resolvedKey wordOffset resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setMappingPackedWord fieldName key wordOffset packed value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -2037,8 +2075,8 @@ mutual
                     world := writeAddressKeyedMappingPackedWordFieldSlots
                       fields fieldName state.world slots resolvedKey wordOffset packed resolved }
             else
-              .revert
-        | _, _, _ => .revert
+              .revert .empty
+        | _, _, _ => .revert .empty
     | state, .setStructMember fieldName key memberName value =>
         match findFieldWriteSlots fields fieldName,
             findStructMembers fields fieldName,
@@ -2058,9 +2096,9 @@ mutual
                         world := writeAddressKeyedMappingPackedWordFieldSlots
                           fields fieldName state.world slots resolvedKey wordOffset packed resolved }
                 else
-                  .revert
-            | _ => .revert
-        | _, _, _, _ => .revert
+                  .revert .empty
+            | _ => .revert .empty
+        | _, _, _, _ => .revert .empty
     | state, .setMapping2 fieldName key1 key2 value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key1,
@@ -2072,7 +2110,7 @@ mutual
                   world :=
                     writeAddressKeyedMapping2FieldSlots
                       fields fieldName state.world slots resolvedKey1 resolvedKey2 resolved }
-        | _, _, _, _ => .revert
+        | _, _, _, _ => .revert .empty
     | state, .setMapping2Word fieldName key1 key2 wordOffset value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key1,
@@ -2091,7 +2129,7 @@ mutual
                       resolvedKey2
                       wordOffset
                       resolved }
-        | _, _, _, _ => .revert
+        | _, _, _, _ => .revert .empty
     | state, .setStructMember2 fieldName key1 key2 memberName value =>
         match findFieldWriteSlots fields fieldName,
             findStructMembers fields fieldName,
@@ -2112,9 +2150,9 @@ mutual
                         world := writeAddressKeyedMapping2PackedWordFieldSlots
                           fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
                 else
-                  .revert
-            | _ => .revert
-        | _, _, _, _, _ => .revert
+                  .revert .empty
+            | _ => .revert .empty
+        | _, _, _, _, _ => .revert .empty
     | state, .setMappingUint fieldName key value =>
         match findFieldWriteSlots fields fieldName,
             evalExpr fields state key,
@@ -2124,7 +2162,7 @@ mutual
               { state with
                   world := writeUintKeyedMappingFieldSlots
                     fields fieldName state.world slots resolvedKey resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setMappingChain fieldName keys value =>
         match findFieldWriteSlots fields fieldName,
             evalExprList fields state keys,
@@ -2134,41 +2172,41 @@ mutual
               { state with
                   world := writeAddressKeyedMappingChainFieldSlots
                     fields fieldName state.world slots resolvedKeys resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr fields state value with
         | some ({ ty := .dynamicArray _, .. }, slot), some resolved =>
             let updated := state.world.storageArray slot ++ [(resolved : Verity.Core.Uint256)]
             .continue { state with world := writeStorageArray state.world slot updated }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .storageArrayPop fieldName =>
         match findFieldWithResolvedSlot fields fieldName with
         | some ({ ty := .dynamicArray _, .. }, slot) =>
             match storageArrayDropLast? (state.world.storageArray slot) with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
-            | none => .revert
-        | _ => .revert
+            | none => .revert .empty
+        | _ => .revert .empty
     | state, .setStorageArrayElement fieldName index value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr fields state index, evalExpr fields state value with
         | some ({ ty := .dynamicArray _, .. }, slot), some idx, some resolved =>
             match storageArraySetAt (state.world.storageArray slot) idx resolved with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
-            | none => .revert
+            | none => .revert .empty
         | some ({ ty := .fixedArrayUint128 size, .. }, _), some idx, some resolved =>
             match findFieldWriteSlots fields fieldName >>= fun slots =>
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
-            | none => .revert
+            | none => .revert .empty
         | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
             .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
         | some slots, some resolved =>
             .continue { state with world := writeAddressFieldSlots fields fieldName state.world slots resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .setImmutable name value =>
         match evalExpr fields state value with
         | some resolved =>
@@ -2176,7 +2214,7 @@ mutual
               { state with
                   immutable := fun immName =>
                     if immName == name then resolved else state.immutable immName }
-        | none => .revert
+        | none => .revert .empty
     | state, .mstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
@@ -2184,7 +2222,7 @@ mutual
               state with
               world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .tstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
@@ -2193,7 +2231,7 @@ mutual
               state with
               world := state.world.writeTransient resolvedOffset resolvedValue
             }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | state, .calldatacopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
@@ -2210,14 +2248,15 @@ mutual
                   else state.world.memory o
               }
             }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
         | some dst, some src, some sz =>
             -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
             -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- otherwise; the halt is observed as a reverting frame. The byte
+            -- carrier receives exactly those bytes; in the word view, complete
             -- words are replaced and a final partial word is merged with its
             -- untouched low bytes, as in EVM memory.
             if src + sz ≤ 32 * state.world.returndata.length then
@@ -2227,28 +2266,33 @@ mutual
                   state.world with
                   memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
                     state.world.returndata dst src sz state.world.memory
+                  byteMemory := state.world.byteMemory.copyFrom
+                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                    dst src sz
                 }
               }
-            else .revert
-        | _, _, _ => .revert
-    | state, .require cond _ =>
+            else .revert .empty
+        | _, _, _ => .revert .empty
+    | state, .require cond message =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
-        | none => .revert
-    | state, .requireError cond _ args =>
+            if resolved != 0 then .continue state
+            else .revert (.raw (Denote.errorStringBytes message))
+        | none => .revert .empty
+    | state, .requireError cond errorName args =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
-        | none => .revert
-    | state, .revertError _ args =>
-        typedErrorRevertResult fields state args
+            if resolved != 0 then .continue state
+            else typedErrorRevertResult fields state errorName args
+        | none => .revert .empty
+    | state, .revertError errorName args =>
+        typedErrorRevertResult fields state errorName args
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
                 world := state.world.writePhysicalMemoryValue 0 resolved }
-        | none => .revert
+        | none => .revert .empty
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
         match evalExpr fields state cond with
@@ -2257,7 +2301,7 @@ mutual
               execStmtList fields state thenBranch
             else
               execStmtList fields state elseBranch
-        | none => .revert
+        | none => .revert .empty
     | state, .emit eventName args =>
         match evalExprList fields state args with
         | some resolved =>
@@ -2268,8 +2312,8 @@ mutual
                   world := {
                     world with
                     events := state.world.events ++ [event] } }
-            | _, _ => .revert
-        | none => .revert
+            | _, _ => .revert .empty
+        | none => .revert .empty
     | state, .forEach varName count body =>
         match evalExpr fields state count with
         | some bound =>
@@ -2278,21 +2322,29 @@ mutual
             execForEachLoop varName
               (fun loopState => execStmtList fields loopState body)
               initialLoopState 0 bound
-        | none => .revert
+        | none => .revert .empty
     | state, .forEachSetBit varName bitmap body =>
         match evalExpr fields state bitmap with
         | some bits =>
             execForEachSetBitLoop varName
               (fun loopState => execStmtList fields loopState body)
               256 state bits
-        | none => .revert
-    | _, .revertEmpty | _, .revertReturndata | _, .revertMemory _ _ => .revert
+        | none => .revert .empty
+    | _, .revertEmpty => .revert (.raw [])
+    | state, .revertReturndata =>
+        .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
+    | state, .revertMemory offset size =>
+        match evalExpr fields state offset, evalExpr fields state size with
+        | some off, some sz =>
+            .revert (.raw ((state.world.byteMemory.slice off sz).map
+              fun byte => UInt8.ofNat byte.val))
+        | _, _ => .revert .empty
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -2301,14 +2353,14 @@ mutual
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert
-        | none => .revert
+            else .revert .empty
+        | none => .revert .empty
     | state, .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -2326,13 +2378,13 @@ mutual
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
-        | none => .revert
+        | none => .revert .empty
     | state, .ecm mod args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != mod.resultVars.length then .revert
+              if outcome.returnValues.length != mod.resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -2341,21 +2393,26 @@ mutual
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert
-        | none => .revert
+            else .revert .empty
+        | none => .revert .empty
     | state, .returnValues values =>
         match evalExprList fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
-        | none => .revert
+        | none => .revert .empty
     | state, .returnBytes name =>
         match dynamicArrayBinding? state.bindings name with
         | some (dataOffset, length) =>
             .stop { state with
               observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
                 state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
-        | none => .revert
-    | _, _ => .revert
+        | none => .revert .empty
+    | _, .panic code => .revert (.raw (Denote.panicBytes code.toNat))
+    | state, .panicCode code =>
+        match evalExpr fields state code with
+        | some resolved => .revert (.raw (Denote.panicBytes resolved))
+        | none => .revert .empty
+    | _, _ => .revert .empty
 
   def execStmtList (fields : List Field) : RuntimeState → List Stmt → StmtResult
     | state, [] => .continue state
@@ -2364,7 +2421,7 @@ mutual
         | .continue next => execStmtList fields next rest
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert
+        | .revert payload => .revert payload
 end
 
 mutual
@@ -2487,7 +2544,7 @@ theorem execStmt_ecm_reverts_of_receipt_failure
     (fields : List Field) (state : RuntimeState)
     (mod : Compiler.ECM.ExternalCallModule) (args : List Expr)
     (hfail : (state.externalCallOracle state.externalCallIndex).succeeded = false) :
-    execStmt fields state (.ecm mod args) = .revert := by
+    execStmt fields state (.ecm mod args) = .revert .empty := by
   simp only [execStmt]
   split
   · simp [hfail]
@@ -2548,11 +2605,15 @@ structure SourceContractResult where
   returnValue : Option Nat
   finalStorage : Nat → Nat
   events : List (List Nat)
+  /-- Bytes a reverted call returns (`RevertPayload.encode`); `[]` otherwise. -/
+  revertData : List UInt8 := []
 
 structure InternalFunctionResult where
   success : Bool
   returnValue : Option Nat
   world : Verity.ContractState
+  /-- Payload of a reverted call, re-raised by the caller. -/
+  revertPayload : Verity.Core.RevertPayload := .empty
 
 def revertedResult (spec : CompilationModel) (initialWorld : Verity.ContractState) :
     SourceContractResult :=
@@ -2561,6 +2622,45 @@ def revertedResult (spec : CompilationModel) (initialWorld : Verity.ContractStat
     finalStorage := encodeStorage spec initialWorld
     events := encodeEvents initialWorld.events }
 
+/-- `revertedResult` returning the bytes of a statement's revert payload. -/
+def revertedResultWith (spec : CompilationModel) (initialWorld : Verity.ContractState)
+    (payload : Verity.Core.RevertPayload) : SourceContractResult :=
+  { revertedResult spec initialWorld with revertData := payload.encode }
+
+@[simp] theorem revertedResultWith_success (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).success = (revertedResult spec world).success := rfl
+
+@[simp] theorem revertedResultWith_returnValue (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).returnValue =
+      (revertedResult spec world).returnValue := rfl
+
+@[simp] theorem revertedResultWith_finalStorage (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).finalStorage =
+      (revertedResult spec world).finalStorage := rfl
+
+@[simp] theorem revertedResultWith_events (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).events = (revertedResult spec world).events := rfl
+
+@[simp] theorem revertedResultWith_revertData (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).revertData = payload.encode := rfl
+
+@[simp] theorem revertedResult_revertData (spec : CompilationModel)
+    (world : Verity.ContractState) : (revertedResult spec world).revertData = [] := rfl
+
+@[simp] theorem revertedResultWith_empty (spec : CompilationModel)
+    (world : Verity.ContractState) :
+    revertedResultWith spec world .empty = revertedResult spec world := rfl
+
+@[simp] theorem revertedResultWith_raw (spec : CompilationModel)
+    (world : Verity.ContractState) (bytes : List UInt8) :
+    revertedResultWith spec world (.raw bytes) =
+      { revertedResult spec world with revertData := bytes } := rfl
+
 def successResult (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat) :
     SourceContractResult :=
   { success := true
@@ -2568,11 +2668,12 @@ def successResult (spec : CompilationModel) (world : Verity.ContractState) (ret 
     finalStorage := encodeStorage spec world
     events := encodeEvents world.events }
 
-def revertedInternalResult (initialWorld : Verity.ContractState) :
-    InternalFunctionResult :=
+def revertedInternalResult (initialWorld : Verity.ContractState)
+    (payload : Verity.Core.RevertPayload) : InternalFunctionResult :=
   { success := false
     returnValue := none
-    world := initialWorld }
+    world := initialWorld
+    revertPayload := payload }
 
 def successInternalResult (world : Verity.ContractState) (ret : Option Nat) :
     InternalFunctionResult :=
@@ -3139,11 +3240,11 @@ def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
   | some bindings =>
       match execStmtListWithEvents fields spec.events
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
-            externalCallOracle := externalCallOracle } fn.body with
+            externalCallOracle := externalCallOracle, errors := spec.errors } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
-      | .revert => revertedResult spec worldWithTx
+      | .revert payload => revertedResultWith spec worldWithTx payload
 
 def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
@@ -3160,12 +3261,12 @@ def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
         match execStmtListWithEvents fields spec.events
             { world := constructorWorldWithTx, bindings := bindings,
               selector := tx.functionSelector,
-              externalCallOracle := externalCallOracle }
+              externalCallOracle := externalCallOracle, errors := spec.errors }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
         | .return value state => successResult spec state.world (some value)
-        | .revert => revertedResult spec constructorWorldWithTx
+        | .revert payload => revertedResultWith spec constructorWorldWithTx payload
 
 def interpretContract (spec : CompilationModel) (selectors : List Nat)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
@@ -3604,17 +3705,17 @@ mutual
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved =>
             .continue { state with bindings := bindValue state.bindings name resolved }
-        | none => .revert
+        | none => .revert .empty
     | .assignVar name value =>
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved =>
             .continue { state with bindings := bindValue state.bindings name resolved }
-        | none => .revert
+        | none => .revert .empty
     | .setStorage fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExprWithHelpers spec fields fuel state value with
         | some slots, some resolved =>
             .continue { state with world := writeUintFieldSlots fields fieldName state.world slots resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | .setStorageWord fieldName wordOffset value =>
         match findFieldWriteSlots fields fieldName,
             evalExprWithHelpers spec fields fuel state value with
@@ -3622,7 +3723,7 @@ mutual
             .continue
               { state with
                   world := writeStorageWordFieldSlots fields fieldName state.world slots wordOffset resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | .setMapping fieldName key value =>
         match findFieldWriteSlots fields fieldName,
             evalExprWithHelpers spec fields fuel state key,
@@ -3632,7 +3733,7 @@ mutual
               { state with
                   world := writeAddressKeyedMappingFieldSlots
                     fields fieldName state.world slots resolvedKey resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | .setMappingWord fieldName key wordOffset value =>
         match findFieldWriteSlots fields fieldName,
             evalExprWithHelpers spec fields fuel state key,
@@ -3642,7 +3743,7 @@ mutual
                { state with
                    world := writeAddressKeyedMappingWordFieldSlots
                      fields fieldName state.world slots resolvedKey wordOffset resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | .setMappingPackedWord fieldName key wordOffset packed value =>
         match findFieldWriteSlots fields fieldName,
             evalExprWithHelpers spec fields fuel state key,
@@ -3654,8 +3755,8 @@ mutual
                     world := writeAddressKeyedMappingPackedWordFieldSlots
                       fields fieldName state.world slots resolvedKey wordOffset packed resolved }
             else
-              .revert
-        | _, _, _ => .revert
+              .revert .empty
+        | _, _, _ => .revert .empty
     | .setStructMember fieldName key memberName value =>
         match findFieldWriteSlots fields fieldName,
             findStructMembers fields fieldName,
@@ -3675,9 +3776,9 @@ mutual
                         world := writeAddressKeyedMappingPackedWordFieldSlots
                           fields fieldName state.world slots resolvedKey wordOffset packed resolved }
                 else
-                  .revert
-            | _ => .revert
-        | _, _, _, _ => .revert
+                  .revert .empty
+            | _ => .revert .empty
+        | _, _, _, _ => .revert .empty
     | .setMapping2 fieldName key1 key2 value =>
         match findFieldWriteSlots fields fieldName,
             evalExprWithHelpers spec fields fuel state key1,
@@ -3689,7 +3790,7 @@ mutual
                   world :=
                     writeAddressKeyedMapping2FieldSlots
                       fields fieldName state.world slots resolvedKey1 resolvedKey2 resolved }
-        | _, _, _, _ => .revert
+        | _, _, _, _ => .revert .empty
     | .setMapping2Word fieldName key1 key2 wordOffset value =>
         match findFieldWriteSlots fields fieldName,
             evalExprWithHelpers spec fields fuel state key1,
@@ -3708,7 +3809,7 @@ mutual
                       resolvedKey2
                       wordOffset
                       resolved }
-        | _, _, _, _ => .revert
+        | _, _, _, _ => .revert .empty
     | .setStructMember2 fieldName key1 key2 memberName value =>
         match findFieldWriteSlots fields fieldName,
             findStructMembers fields fieldName,
@@ -3729,9 +3830,9 @@ mutual
                         world := writeAddressKeyedMapping2PackedWordFieldSlots
                           fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
                 else
-                  .revert
-            | _ => .revert
-        | _, _, _, _, _ => .revert
+                  .revert .empty
+            | _ => .revert .empty
+        | _, _, _, _, _ => .revert .empty
     | .setMappingUint fieldName key value =>
         match findFieldWriteSlots fields fieldName,
             evalExprWithHelpers spec fields fuel state key,
@@ -3741,7 +3842,7 @@ mutual
               { state with
                   world := writeUintKeyedMappingFieldSlots
                     fields fieldName state.world slots resolvedKey resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | .setMappingChain fieldName keys value =>
         match findFieldWriteSlots fields fieldName,
             evalExprListWithHelpers spec fields fuel state keys,
@@ -3751,21 +3852,21 @@ mutual
               { state with
                   world := writeAddressKeyedMappingChainFieldSlots
                     fields fieldName state.world slots resolvedKeys resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExprWithHelpers spec fields fuel state value with
         | some ({ ty := .dynamicArray _, .. }, slot), some resolved =>
             let updated := state.world.storageArray slot ++ [(resolved : Verity.Core.Uint256)]
             .continue { state with world := writeStorageArray state.world slot updated }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | .storageArrayPop fieldName =>
         match findFieldWithResolvedSlot fields fieldName with
         | some ({ ty := .dynamicArray _, .. }, slot) =>
             match storageArrayDropLast? (state.world.storageArray slot) with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
-            | none => .revert
-        | _ => .revert
+            | none => .revert .empty
+        | _ => .revert .empty
     | .setStorageArrayElement fieldName index value =>
         match findFieldWithResolvedSlot fields fieldName,
             evalExprWithHelpers spec fields fuel state index,
@@ -3774,20 +3875,20 @@ mutual
             match storageArraySetAt (state.world.storageArray slot) idx resolved with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
-            | none => .revert
+            | none => .revert .empty
         | some ({ ty := .fixedArrayUint128 size, .. }, _), some idx, some resolved =>
             match findFieldWriteSlots fields fieldName >>= fun slots =>
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
-            | none => .revert
+            | none => .revert .empty
         | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
             .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExprWithHelpers spec fields fuel state value with
         | some slots, some resolved =>
             .continue { state with world := writeAddressFieldSlots fields fieldName state.world slots resolved }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | .setImmutable name value =>
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved =>
@@ -3795,7 +3896,7 @@ mutual
               { state with
                   immutable := fun immName =>
                     if immName == name then resolved else state.immutable immName }
-        | none => .revert
+        | none => .revert .empty
     | .mstore offset value =>
         match evalExprWithHelpers spec fields fuel state offset,
             evalExprWithHelpers spec fields fuel state value with
@@ -3804,7 +3905,7 @@ mutual
               state with
               world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | .tstore offset value =>
         match evalExprWithHelpers spec fields fuel state offset,
             evalExprWithHelpers spec fields fuel state value with
@@ -3814,7 +3915,7 @@ mutual
               state with
               world := state.world.writeTransient resolvedOffset resolvedValue
             }
-        | _, _ => .revert
+        | _, _ => .revert .empty
     | .calldatacopy destOffset sourceOffset size =>
         match evalExprWithHelpers spec fields fuel state destOffset,
             evalExprWithHelpers spec fields fuel state sourceOffset,
@@ -3832,15 +3933,15 @@ mutual
                   else state.world.memory o
               }
             }
-        | _, _, _ => .revert
+        | _, _, _ => .revert .empty
     | .returndataCopy destOffset sourceOffset size =>
         match evalExprWithHelpers spec fields fuel state destOffset,
             evalExprWithHelpers spec fields fuel state sourceOffset,
             evalExprWithHelpers spec fields fuel state size with
         | some dst, some src, some sz =>
             -- Same bounded-copy semantics as `execStmt`: in-bounds extents copy
-            -- complete words and merge the final partial word; out-of-bounds
-            -- extents revert identically on the IR layer.
+            -- the bytes, complete words and the merged final partial word;
+            -- out-of-bounds extents revert identically on the IR layer.
             if src + sz ≤ 32 * state.world.returndata.length then
               .continue {
                 state with
@@ -3848,28 +3949,33 @@ mutual
                   state.world with
                   memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
                     state.world.returndata dst src sz state.world.memory
+                  byteMemory := state.world.byteMemory.copyFrom
+                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                    dst src sz
                 }
               }
-            else .revert
-        | _, _, _ => .revert
-    | .require cond _ =>
+            else .revert .empty
+        | _, _, _ => .revert .empty
+    | .require cond message =>
         match evalExprWithHelpers spec fields fuel state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
-        | none => .revert
-    | .requireError cond _ args =>
+            if resolved != 0 then .continue state
+            else .revert (.raw (Denote.errorStringBytes message))
+        | none => .revert .empty
+    | .requireError cond errorName args =>
         match evalExprWithHelpers spec fields fuel state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
-        | none => .revert
-    | .revertError _ args =>
-        typedErrorRevertResult fields state args
+            if resolved != 0 then .continue state
+            else typedErrorRevertResult fields state errorName args
+        | none => .revert .empty
+    | .revertError errorName args =>
+        typedErrorRevertResult fields state errorName args
     | .return value =>
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
             { state with
                 world := state.world.writePhysicalMemoryValue 0 resolved }
-        | none => .revert
+        | none => .revert .empty
     | .stop => .stop state
     | .ite cond thenBranch elseBranch =>
         match evalExprWithHelpers spec fields fuel state cond with
@@ -3878,10 +3984,10 @@ mutual
               execStmtListWithHelpers spec fields fuel state thenBranch
             else
               execStmtListWithHelpers spec fields fuel state elseBranch
-        | none => .revert
+        | none => .revert .empty
     | .internalCall calleeName args =>
         match fuel with
-        | 0 => .revert
+        | 0 => .revert .empty
         | fuel + 1 =>
             match evalExprListWithHelpers spec fields (fuel + 1) state args,
                 findUniqueInternalFunction? spec calleeName with
@@ -3890,11 +3996,11 @@ mutual
                 if hresult.success then
                   .continue { state with world := hresult.world }
                 else
-                  .revert
-            | _, _ => .revert
+                  .revert hresult.revertPayload
+            | _, _ => .revert .empty
     | .internalCallAssign names calleeName args =>
         match fuel with
-        | 0 => .revert
+        | 0 => .revert .empty
         | fuel + 1 =>
             match evalExprListWithHelpers spec fields (fuel + 1) state args,
                 findUniqueInternalFunction? spec calleeName with
@@ -3907,10 +4013,10 @@ mutual
                         world := hresult.world
                         bindings := bindValue state.bindings name value
                       }
-                  | _, _ => .revert
+                  | _, _ => .revert .empty
                 else
-                  .revert
-            | _, _ => .revert
+                  .revert hresult.revertPayload
+            | _, _ => .revert .empty
     | .emit eventName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some resolved =>
@@ -3921,8 +4027,8 @@ mutual
                   world := {
                     world with
                     events := state.world.events ++ [event] } }
-            | _, _ => .revert
-        | none => .revert
+            | _, _ => .revert .empty
+        | none => .revert .empty
     | .forEach varName count body =>
         match evalExprWithHelpers spec fields fuel state count with
         | some bound =>
@@ -3931,21 +4037,28 @@ mutual
             execForEachLoop varName
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               initialLoopState 0 bound
-        | none => .revert
+        | none => .revert .empty
     | .forEachSetBit varName bitmap body =>
         match evalExprWithHelpers spec fields fuel state bitmap with
         | some bits =>
             execForEachSetBitLoop varName
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
-        | none => .revert
-    | .revertEmpty | .revertReturndata | .revertMemory _ _ => .revert
+        | none => .revert .empty
+    | .revertEmpty => .revert (.raw [])
+    | .revertReturndata => .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
+    | .revertMemory offset size =>
+        match evalExpr fields state offset, evalExpr fields state size with
+        | some off, some sz =>
+            .revert (.raw ((state.world.byteMemory.slice off sz).map
+              fun byte => UInt8.ofNat byte.val))
+        | _, _ => .revert .empty
     | .externalCallBind resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -3954,14 +4067,14 @@ mutual
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert
-        | none => .revert
+            else .revert .empty
+        | none => .revert .empty
     | .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -3979,13 +4092,13 @@ mutual
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
-        | none => .revert
+        | none => .revert .empty
     | .ecm mod args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length != mod.resultVars.length then .revert
+              if outcome.returnValues.length != mod.resultVars.length then .revert .empty
               else
                 .continue
                   { state with
@@ -3994,8 +4107,8 @@ mutual
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert
-        | none => .revert
+            else .revert .empty
+        | none => .revert .empty
     | .returnValues values =>
         -- Base expression semantics, matching `execStmt`. Arguments are not
         -- given helper fuel; the slice importer inlines pure helpers before
@@ -4003,15 +4116,20 @@ mutual
         match evalExprList fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
-        | none => .revert
+        | none => .revert .empty
     | .returnBytes name =>
         match dynamicArrayBinding? state.bindings name with
         | some (dataOffset, length) =>
             .stop { state with
               observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
                 state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
-        | none => .revert
-    | _ => .revert
+        | none => .revert .empty
+    | .panic code => .revert (.raw (Denote.panicBytes code.toNat))
+    | .panicCode code =>
+        match evalExpr fields state code with
+        | some resolved => .revert (.raw (Denote.panicBytes resolved))
+        | none => .revert .empty
+    | _ => .revert .empty
   termination_by stmt => (fuel, sizeOf stmt)
   decreasing_by all_goals (simp_wf; omega)
   def execStmtListWithHelpers
@@ -4025,7 +4143,7 @@ mutual
         | .continue next => execStmtListWithHelpers spec fields fuel next rest
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert
+        | .revert payload => .revert payload
   termination_by stmts => (fuel, sizeOf stmts)
   decreasing_by all_goals (simp_wf; omega)
   def interpretInternalFunctionFuel
@@ -4038,16 +4156,16 @@ mutual
       (externalCallIndex : Nat := 0) : InternalFunctionResult :=
     let fields := effectiveFields spec
     match bindInternalArgs fn.params args with
-    | none => revertedInternalResult initialWorld
+    | none => revertedInternalResult initialWorld .empty
     | some bindings =>
         match execStmtListWithHelpers spec fields fuel
             { world := initialWorld, bindings := bindings,
               externalCallOracle := externalCallOracle,
-              externalCallIndex := externalCallIndex } fn.body with
+              externalCallIndex := externalCallIndex, errors := spec.errors } fn.body with
         | .continue state => successInternalResult state.world none
         | .stop state => successInternalResult state.world none
         | .return value state => successInternalResult state.world (some value)
-        | .revert => revertedInternalResult initialWorld
+        | .revert payload => revertedInternalResult initialWorld payload
   termination_by (fuel, sizeOf fn.body + 1)
   decreasing_by all_goals (simp_wf; omega)
 end
@@ -4109,14 +4227,14 @@ theorem execStmtWithHelpers_emit_supported_continues
     interpretInternalFunctionFuel spec 0 fn initialWorld args =
       let fields := effectiveFields spec
       match bindInternalArgs fn.params args with
-      | none => revertedInternalResult initialWorld
+      | none => revertedInternalResult initialWorld .empty
       | some bindings =>
           match execStmtListWithHelpers spec fields 0
-              { world := initialWorld, bindings := bindings } fn.body with
+              { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body with
           | .continue state => successInternalResult state.world none
           | .stop state => successInternalResult state.world none
           | .return value state => successInternalResult state.world (some value)
-          | .revert => revertedInternalResult initialWorld := by
+          | .revert payload => revertedInternalResult initialWorld payload := by
   simp [interpretInternalFunctionFuel]
 
 theorem interpretInternalFunctionFuel_succ
@@ -4128,14 +4246,14 @@ theorem interpretInternalFunctionFuel_succ
     interpretInternalFunctionFuel spec (fuel + 1) fn initialWorld args =
       let fields := effectiveFields spec
       match bindInternalArgs fn.params args with
-      | none => revertedInternalResult initialWorld
+      | none => revertedInternalResult initialWorld .empty
       | some bindings =>
           match execStmtListWithHelpers spec fields (fuel + 1)
-              { world := initialWorld, bindings := bindings } fn.body with
+              { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body with
           | .continue state => successInternalResult state.world none
           | .stop state => successInternalResult state.world none
           | .return value state => successInternalResult state.world (some value)
-          | .revert => revertedInternalResult initialWorld := by
+          | .revert payload => revertedInternalResult initialWorld payload := by
   simp [interpretInternalFunctionFuel]
 
 /-- Semantic contract attached to an internal-helper summary witness. The summary
@@ -4176,11 +4294,11 @@ def interpretFunctionWithHelpers
   | some bindings =>
       match execStmtListWithHelpers spec fields fuel
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
-            externalCallOracle := externalCallOracle } fn.body with
+            externalCallOracle := externalCallOracle, errors := spec.errors } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
-      | .revert => revertedResult spec worldWithTx
+      | .revert payload => revertedResultWith spec worldWithTx payload
 
 def interpretConstructorWithHelpers
     (spec : CompilationModel)
@@ -4201,12 +4319,12 @@ def interpretConstructorWithHelpers
         match execStmtListWithHelpers spec fields fuel
             { world := constructorWorldWithTx, bindings := bindings,
               selector := tx.functionSelector,
-              externalCallOracle := externalCallOracle }
+              externalCallOracle := externalCallOracle, errors := spec.errors }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
         | .return value state => successResult spec state.world (some value)
-        | .revert => revertedResult spec constructorWorldWithTx
+        | .revert payload => revertedResultWith spec constructorWorldWithTx payload
 
 def interpretContractWithHelpers
     (spec : CompilationModel)
@@ -4252,7 +4370,7 @@ theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_continue
     (hbind : bindInternalArgs fn.params args = some bindings)
     (hbody :
       execStmtListWithHelpers spec (effectiveFields spec) fuel
-        { world := initialWorld, bindings := bindings } fn.body =
+        { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body =
           .continue finalState) :
     interpretInternalFunctionFuel spec fuel fn initialWorld args =
         successInternalResult finalState.world none ∧
@@ -4282,7 +4400,7 @@ theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_return
     (hbind : bindInternalArgs fn.params args = some bindings)
     (hbody :
       execStmtListWithHelpers spec (effectiveFields spec) fuel
-        { world := initialWorld, bindings := bindings } fn.body =
+        { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body =
           .return value finalState) :
     interpretInternalFunctionFuel spec fuel fn initialWorld args =
         successInternalResult finalState.world (some value) ∧
@@ -4312,7 +4430,7 @@ theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_stop
     (hbind : bindInternalArgs fn.params args = some bindings)
     (hbody :
       execStmtListWithHelpers spec (effectiveFields spec) fuel
-        { world := initialWorld, bindings := bindings } fn.body =
+        { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body =
           .stop finalState) :
     interpretInternalFunctionFuel spec fuel fn initialWorld args =
         successInternalResult finalState.world none ∧
@@ -4518,10 +4636,10 @@ theorem execStmtWithHelpers_internalCallAssign_of_witness
                 world := hresult.world
                 bindings := bindValue state.bindings name value
               }
-          | _, _ => .revert
+          | _, _ => .revert .empty
         else
-          .revert
-    | none => .revert := by
+          .revert hresult.revertPayload
+    | none => .revert .empty := by
   cases hargs : evalExprListWithHelpers spec fields (fuel + 1) state args <;>
     simp [execStmtWithHelpers, findUniqueInternalFunction?_of_witness witness hnodup, hargs]
 
@@ -4569,8 +4687,8 @@ theorem execStmtWithHelpers_internalCall_of_witness
         if hresult.success then
           .continue { state with world := hresult.world }
         else
-          .revert
-    | none => .revert := by
+          .revert hresult.revertPayload
+    | none => .revert .empty := by
   cases hargs : evalExprListWithHelpers spec fields (fuel + 1) state args <;>
     simp [execStmtWithHelpers, findUniqueInternalFunction?_of_witness witness hnodup, hargs]
 
@@ -4832,7 +4950,8 @@ theorem SupportedSpecHelperProofs.execInternalCallObeysSummary
     let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
     execStmtWithHelpers spec fields (fuel + 1) state (Stmt.internalCall calleeName args)
-        = (if result.success then .continue { state with world := result.world } else .revert)
+        = (if result.success then .continue { state with world := result.world }
+          else .revert result.revertPayload)
       ∧ witness.summary.contract.post fuel 0 state.world argVals
           result.success result.returnValue result.world := by
   intro witness result
@@ -4873,8 +4992,8 @@ theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
                 .continue { state with
                   world := result.world
                   bindings := bindValue state.bindings name value }
-            | _, _ => .revert
-          else .revert)
+            | _, _ => .revert .empty
+          else .revert result.revertPayload)
       ∧ witness.summary.contract.post fuel 0 state.world argVals
           result.success result.returnValue result.world := by
   intro witness result
@@ -5484,16 +5603,13 @@ theorem interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
   | none =>
       simp
   | some bindings =>
-      have hbody :
-          execStmtListWithHelpers spec (effectiveFields spec) fuel
-            { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector } fn.body =
-          execStmtListWithEvents (effectiveFields spec) spec.events
-            { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector } fn.body :=
+      have hbody :=
         execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed
           (spec := spec)
           (fields := effectiveFields spec)
           (fuel := fuel)
-          (state := { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector })
+          (state := { world := withTransactionContext initialWorld tx, bindings := bindings,
+                      selector := tx.functionSelector, errors := spec.errors })
           (stmts := fn.body)
           hsurface
       simp [hbody]

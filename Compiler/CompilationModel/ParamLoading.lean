@@ -17,7 +17,10 @@ def isScalarParamType : ParamType → Bool
   | ParamType.address | ParamType.bool | ParamType.bytes32 => true
   | _ => false
 
-/-- Statement block emitted for a dynamically encoded external parameter. Public
+/-- Statement block emitted for a dynamically encoded external parameter. The
+head word is bounded before the base offset is added to it, so an offset close
+to `2^256` cannot wrap `add(baseOffset, offset)` back below the arguments. The
+caller's minimum size check guarantees `sizeExpr ≥ baseOffset + 32` here. Public
 so the IR-execution refinement proofs can step through the generated loader
 (verity#2085). -/
 def genDynamicParamLoads
@@ -38,13 +41,13 @@ def genDynamicParamLoads
   let offsetBoundsCheck := YulStmt.if_ (YulExpr.call "lt" [relativeOffset, YulExpr.lit headSize]) [
     YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
   ]
-  let absoluteBoundsCheck := YulStmt.if_ (YulExpr.call "gt" [
-    absoluteOffset,
-    YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
+  let tailBoundsCheck := YulStmt.if_ (YulExpr.call "gt" [
+    relativeOffset,
+    YulExpr.call "sub" [sizeExpr, YulExpr.lit (baseOffset + 32)]
   ]) [
     YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
   ]
-  let preamble := [offsetLoad, offsetBoundsCheck, absoluteOffsetLoad, absoluteBoundsCheck]
+  let preamble := [offsetLoad, offsetBoundsCheck, tailBoundsCheck, absoluteOffsetLoad]
   if isLengthPrefixedDynamicShape ty then
     -- Length-prefixed shape (T[] / bytes / string): the offset points to a
     -- length word, the data starts 32 bytes later.
@@ -249,6 +252,10 @@ def constructorArgAliasNames (params : List Param) : List String :=
 def constructorBodyScope (params : List Param) : List String :=
   constructorArgAliasNames params ++ params.map (·.name)
 
+/-- Where the deploy block copies the constructor arguments: the initial
+free-memory pointer written by `initFreeMemoryPointer`. -/
+def constructorArgsMemoryBase : Nat := 128
+
 private def constructorArgAliases (params : List Param) : List YulStmt :=
   let rec go (ps : List Param) (idx : Nat) (headOffset : Nat) : List YulStmt :=
     match ps with
@@ -266,22 +273,41 @@ private def constructorArgAliases (params : List Param) : List YulStmt :=
               YulExpr.call "mload" [YulExpr.lit headOffset]
         let alias := YulStmt.let_ s!"arg{idx}" source
         alias :: go rest (idx + 1) (headOffset + paramHeadSize param.ty)
-  go params 0 0
+  go params 0 constructorArgsMemoryBase
 
+/-- Deploy-block decoding of the constructor arguments. The trailing initcode
+bytes (`codesize() - argsOffset`, however many the deployer appended) are
+copied to `constructorArgsMemoryBase` and the free-memory pointer is bumped
+past them, as solc does; the parameters are then decoded by `mload` at
+absolute memory positions, bounds checked against `argsEnd`. Copying to
+offset 0 instead let a tail longer than 64 bytes overwrite the free-memory
+pointer word. -/
 def genConstructorArgLoads (params : List Param) : List YulStmt :=
   if params.isEmpty then []
   else
+    let base := constructorArgsMemoryBase
     let argsOffset := YulExpr.call "add" [
       YulExpr.call "dataoffset" [YulExpr.str "runtime"],
       YulExpr.call "datasize" [YulExpr.str "runtime"]
     ]
+    let argsEnd := YulExpr.ident "argsEnd"
     let initcodeArgCopy := [
       YulStmt.let_ "argsOffset" argsOffset,
       YulStmt.let_ "argsSize"
         (YulExpr.call "sub" [YulExpr.call "codesize" [], YulExpr.ident "argsOffset"]),
-      YulStmt.exprStmt (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.ident "argsSize"])
+      YulStmt.let_ "argsEnd" (YulExpr.call "add" [YulExpr.lit base, YulExpr.ident "argsSize"]),
+      YulStmt.exprStmt (YulExpr.call "codecopy"
+        [YulExpr.lit base, YulExpr.ident "argsOffset", YulExpr.ident "argsSize"]),
+      YulStmt.exprStmt (YulExpr.call "mstore" [
+        YulExpr.lit Compiler.Constants.freeMemoryPointer,
+        YulExpr.call "and" [
+          YulExpr.call "add" [argsEnd, YulExpr.lit 31],
+          YulExpr.call "not" [YulExpr.lit 31]
+        ]
+      ])
     ]
-    let paramLoads := genParamLoadsFrom (fun pos => YulExpr.call "mload" [pos]) (YulExpr.ident "argsSize") 0 0 params
+    let paramLoads :=
+      genParamLoadsFrom (fun pos => YulExpr.call "mload" [pos]) argsEnd base base params
     initcodeArgCopy ++ paramLoads ++ constructorArgAliases params
 
 end Compiler.CompilationModel

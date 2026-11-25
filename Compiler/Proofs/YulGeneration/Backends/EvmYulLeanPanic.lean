@@ -1,4 +1,6 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeCalldata
+import Verity.Core.Panic
+import Verity.Core.RevertPayload
 
 namespace Compiler.Proofs.YulGeneration.Backends.Panic
 
@@ -101,5 +103,43 @@ theorem machineState_panicPayload_size
     (((state.mstore (.ofNat 0) (.ofNat (0x4e487b71 * 2 ^ 224))).mstore
         (.ofNat 4) code).evmRevert (.ofNat 0) (.ofNat 36)).H_return.size = 36 := by
   rw [machineState_panicPayload_bytes, expectedPanicBytes_size]
+
+/-- `UInt256.ofNat` keeps the value modulo `2^256`. -/
+private theorem uint256_toNat_ofNat (n : Nat) :
+    (EvmYul.UInt256.ofNat n).toNat = n % EvmYul.UInt256.size := by
+  simp only [EvmYul.UInt256.ofNat, EvmYul.UInt256.toNat, BitVec.toNat_ofNat]
+
+/-- Reducing modulo `2^256` keeps every base-256 digit below the 32nd. -/
+private theorem mod_size_digit (n k : Nat) (hk : k < 32) :
+    n % EvmYul.UInt256.size / 256 ^ k % 256 = n / 256 ^ k % 256 := by
+  have hsize : EvmYul.UInt256.size = 256 ^ k * 256 ^ (32 - k) := by
+    rw [← pow_add, Nat.add_sub_cancel' hk.le]; rfl
+  rw [hsize, Nat.mod_mul_right_div_self,
+    Nat.mod_mod_of_dvd _ (dvd_pow_self 256 (by omega))]
+
+/-- An ABI word is EVMYulLean's 32-byte big-endian encoding of the value
+modulo `2^256`. -/
+theorem word_eq_toByteArray (n : Nat) :
+    Verity.Core.RevertPayload.word n =
+      (EvmYul.UInt256.ofNat n).toByteArray.data.toList := by
+  rw [EvmYul.UInt256.toList_data_toByteArray, uint256_toNat_ofNat]
+  apply List.ext_getElem (by simp [Verity.Core.RevertPayload.word,
+    Verity.Core.RevertPayload.bytesBE])
+  intro i h1 h2
+  have hi : i < 32 := by simpa using h2
+  simp only [Verity.Core.RevertPayload.word, Verity.Core.RevertPayload.bytesBE,
+    List.getElem_map, List.getElem_range, EvmYul.getElem_toBeBytesFixed]
+  rw [mod_size_digit _ _ (by omega), pow_mul]
+  apply UInt8.toNat_inj.mp
+  simp
+
+/-- The source-level panic payload and EVMYulLean's native panic bytes agree
+for every panic code, including a computed one (`Stmt.panicCode`). -/
+theorem encode_panic_eq_expectedPanicBytes (code : Nat) :
+    Verity.Core.RevertPayload.encode (.panic code) =
+      (expectedPanicBytes (.ofNat code)).data.toList := by
+  rw [Verity.Core.RevertPayload.encode_panic, word_eq_toByteArray, expectedPanicBytes,
+    ByteArray.toList_data_append]
+  rfl
 
 end Compiler.Proofs.YulGeneration.Backends.Panic

@@ -1,4 +1,5 @@
 import Compiler.CompilationModel.Types
+import Compiler.CompilationModel.AbiHelpers
 
 /-!
 Shared definitions for expression analysis used by both `SupportedFragment` and
@@ -208,6 +209,17 @@ inductive ExprCompileCore : Expr → Prop where
 def exprBoundNamesInScope (expr : Expr) (scope : List String) : Prop :=
   ∀ name, name ∈ exprBoundNames expr → name ∈ scope
 
+/-- The `Error(string)` payload of `require cond message` fits the 256-bit
+`revert` size: selector, offset and length words, then the message in 32-byte
+chunks. Lean bounds no `String`, so the supported fragment states it; a literal
+message closes it by `decide`. -/
+def requireMessageFits (message : String) : Prop :=
+  68 + 32 * (CompilationModel.chunkBytes32 (CompilationModel.bytesFromString message)).length ≤
+    2 ^ 256
+
+instance (message : String) : Decidable (requireMessageFits message) := by
+  unfold requireMessageFits; infer_instance
+
 /-! ## Statement-list compile-core witness -/
 
 /-- Sequential statement fragment that can already be proved generically from the
@@ -228,6 +240,7 @@ inductive StmtListCompileCore : List String → List Stmt → Prop where
   | require_ {scope : List String} {cond : Expr} {message : String} {rest : List Stmt} :
       ExprCompileCore cond →
       exprBoundNamesInScope cond scope →
+      requireMessageFits message →
       StmtListCompileCore scope rest →
       StmtListCompileCore scope (.require cond message :: rest)
   | return_ {scope : List String} {value : Expr} {rest : List Stmt} :
@@ -271,6 +284,7 @@ inductive StmtListTerminalCore : List String → List Stmt → Prop where
   | require_ {scope : List String} {cond : Expr} {message : String} {rest : List Stmt} :
       ExprCompileCore cond →
       exprBoundNamesInScope cond scope →
+      requireMessageFits message →
       StmtListTerminalCore scope rest →
       StmtListTerminalCore scope (.require cond message :: rest)
   | return_ {scope : List String} {value : Expr} {rest : List Stmt} :

@@ -695,6 +695,9 @@ def execIRStmtWithInternals
                       state' with
                       memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
                         state'.returndata dst src size state'.memory
+                      byteMemory := state'.byteMemory.copyFrom
+                        (Compiler.CompilationModel.DenoteMemory.wordListByte state'.returndata)
+                        dst src size
                     }
                   else .revert state'
               | .values _ state' => .revert state'
@@ -1020,6 +1023,9 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
                     state with
                     memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
                       state.returndata dst src size state.memory
+                    byteMemory := state.byteMemory.copyFrom
+                      (Compiler.CompilationModel.DenoteMemory.wordListByte state.returndata)
+                      dst src size
                   }
                 else .revert state
               | _, _, _ => .revert state
@@ -1727,8 +1733,8 @@ theorem IRStmtPreservesObsAt_of_calldatacopy
 
 /-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`.
 
-The in-bounds copy continues with the word-granular memory update — the source
-semantics writes the same words (see
+The in-bounds copy continues with the byte-carrier and word-granular memory
+updates — the source semantics writes the same bytes and words (see
 `FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory`). Every
 out-of-bounds extent is conservatively modelled as the EVM's exceptional halt,
 `.revert`, matching the source semantics, so the preservation cross-cast is
@@ -1743,7 +1749,10 @@ theorem IRStmtPreservesObsAt_of_returndatacopy
       (.exprStmt (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
   refine ⟨{ state with
       memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-        state.returndata dst src size state.memory }, fun _ => ?_⟩
+        state.returndata dst src size state.memory
+      byteMemory := state.byteMemory.copyFrom
+        (Compiler.CompilationModel.DenoteMemory.wordListByte state.returndata)
+        dst src size }, fun _ => ?_⟩
   simp [execIRStmt, hDst, hSrc, hSize, hFit]
 
 /-- Cross-cast for `.exprStmt (.call "log0" [offset, size])`. Updates events by

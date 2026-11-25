@@ -485,7 +485,7 @@ theorem stmtListSurfaceMask_subset_of_stmtListCompileCore
     ((stmtListSurfaceMask stmts &&& bitConstructorRaw) == stmtListSurfaceMask stmts) = true := by
   induction hcore with
   | nil => decide
-  | letVar hv _ _ ih | assignVar hv _ _ ih | require_ hv _ _ ih | return_ hv _ _ ih =>
+  | letVar hv _ _ ih | assignVar hv _ _ ih | require_ hv _ _ _ ih | return_ hv _ _ ih =>
       simp [stmtListSurfaceMask, stmtSurfaceMask, maskSubset_or,
         exprSurfaceMask_subset_of_exprCompileCore hv, ih]
   | stop _ ih =>

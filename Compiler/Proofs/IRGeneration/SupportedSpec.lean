@@ -3770,7 +3770,7 @@ private theorem stmtListCompileCore_helperSurfaceClosed
         exprCompileCore_helperSurfaceClosed hvalue,
         ih,
         Bool.or_false, Bool.false_or]
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface,
         exprCompileCore_helperSurfaceClosed hcond,
@@ -3811,7 +3811,7 @@ private theorem stmtListCompileCore_internalHelperCallNames_nil
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hvalue,
         ih, List.nil_append, List.append_nil]
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hcond,
@@ -3846,7 +3846,7 @@ private theorem stmtListTerminalCore_internalHelperCallNames_nil
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hvalue,
         ih, List.nil_append, List.append_nil]
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hcond,
@@ -3889,7 +3889,7 @@ private theorem stmtListTerminalCore_helperSurfaceClosed
     (hterminal : FunctionBody.StmtListTerminalCore scope stmts) :
     stmtListTouchesUnsupportedHelperSurface stmts = false := by
   induction hterminal with
-  | letVar hvalue _ _ ih | assignVar hvalue _ _ ih | require_ hvalue _ _ ih =>
+  | letVar hvalue _ _ ih | assignVar hvalue _ _ ih | require_ hvalue _ _ _ ih =>
       simp only [stmtListTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedHelperSurface,
         exprCompileCore_helperSurfaceClosed hvalue, ih, Bool.or_false, Bool.false_or]
   | return_ hvalue _ hrest =>
@@ -4044,7 +4044,7 @@ private theorem SupportedStmtList.induction_of_leaf
   | compileCore hcore => exact hCore hcore
   | terminalCore hterminal => exact hTerminal hterminal
   | forEachLiteralBounded _ _ ih => exact hForEach ih
-  | requireClause clause _ ih =>
+  | requireClause clause _ _ ih =>
       obtain ⟨cond, hstmt, hcond⟩ := requireLiteralGuardFamilyClause_toStmt_eq_require clause
       rw [hstmt]
       exact hAppend (xs := [_]) (hLeaf (.require hcond)) ih
@@ -5297,7 +5297,7 @@ private theorem stmtListCompileCore_usesArrayElement_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ _ ih =>
@@ -5326,7 +5326,7 @@ private theorem stmtListTerminalCore_usesArrayElement_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ ih =>
@@ -5362,7 +5362,7 @@ private theorem stmtListCompileCore_usesStorageArrayElement_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ _ ih =>
@@ -5391,7 +5391,7 @@ private theorem stmtListTerminalCore_usesStorageArrayElement_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ ih =>
@@ -5427,7 +5427,7 @@ private theorem stmtListCompileCore_usesDynamicBytesEq_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ _ ih =>
@@ -5456,7 +5456,7 @@ private theorem stmtListTerminalCore_usesDynamicBytesEq_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ ih =>
@@ -5729,7 +5729,7 @@ private theorem stmtListCompileCore_usesMulDiv512_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ _ ih =>
@@ -5759,7 +5759,7 @@ private theorem stmtListCompileCore_usesParamDynamicHeadWord_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ _ ih =>
@@ -5788,7 +5788,7 @@ private theorem stmtListTerminalCore_usesMulDiv512_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ ih =>
@@ -5823,7 +5823,7 @@ private theorem stmtListTerminalCore_usesParamDynamicHeadWord_false
   | assignVar hvalue _ _ ih =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]; assumption
-  | require_ hcond _ _ ih =>
+  | require_ hcond _ _ _ ih =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hcond, Bool.false_or]; assumption
   | return_ hvalue _ ih =>

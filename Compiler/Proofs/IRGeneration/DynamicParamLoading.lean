@@ -8,10 +8,10 @@ set_option linter.unusedSimpArgs false
 # IR execution of the generated `bytes` external-parameter loader
 
 `Compiler.CompilationModel.genDynamicParamLoads` emits nine Yul statements for a
-`bytes` external parameter: an offset load, two bounds checks, an absolute-offset
-computation, a length load, tail arithmetic, a payload bounds check, and a data
-pointer. This module proves that running those statements under the IR
-interpreter produces exactly the six bindings that
+`bytes` external parameter: an offset load, two bounds checks on it, an
+absolute-offset computation, a length load, tail arithmetic, a payload bounds
+check, and a data pointer. This module proves that running those statements
+under the IR interpreter produces exactly the six bindings that
 `DynamicAbi.bindExternalParam` assigns to the same parameter, which is the
 execution half of the refinement started in verity#2373.
 -/
@@ -115,12 +115,12 @@ def lengthPrefixedLoaderStmts (loadWord : YulExpr → YulExpr) (sizeExpr : YulEx
   [ YulStmt.let_ s!"{name}_offset" (loadWord (YulExpr.lit headOffset))
   , YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident s!"{name}_offset", YulExpr.lit headSize])
       [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+  , YulStmt.if_ (YulExpr.call "gt"
+      [ YulExpr.ident s!"{name}_offset"
+      , YulExpr.call "sub" [sizeExpr, YulExpr.lit (baseOffset + 32)] ])
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
   , YulStmt.let_ s!"{name}_abs_offset"
       (YulExpr.call "add" [YulExpr.lit baseOffset, YulExpr.ident s!"{name}_offset"])
-  , YulStmt.if_ (YulExpr.call "gt"
-      [ YulExpr.ident s!"{name}_abs_offset"
-      , YulExpr.call "sub" [sizeExpr, YulExpr.lit 32] ])
-      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
   , YulStmt.let_ s!"{name}_length" (loadWord (YulExpr.ident s!"{name}_abs_offset"))
   , YulStmt.let_ s!"{name}_tail_head_end"
       (YulExpr.call "add" [YulExpr.ident s!"{name}_abs_offset", YulExpr.lit 32])
@@ -154,12 +154,12 @@ def dynamicCompositeLoaderStmts (loadWord : YulExpr → YulExpr) (sizeExpr : Yul
   [ YulStmt.let_ s!"{name}_offset" (loadWord (YulExpr.lit headOffset))
   , YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident s!"{name}_offset", YulExpr.lit headSize])
       [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+  , YulStmt.if_ (YulExpr.call "gt"
+      [ YulExpr.ident s!"{name}_offset"
+      , YulExpr.call "sub" [sizeExpr, YulExpr.lit (baseOffset + 32)] ])
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
   , YulStmt.let_ s!"{name}_abs_offset"
       (YulExpr.call "add" [YulExpr.lit baseOffset, YulExpr.ident s!"{name}_offset"])
-  , YulStmt.if_ (YulExpr.call "gt"
-      [ YulExpr.ident s!"{name}_abs_offset"
-      , YulExpr.call "sub" [sizeExpr, YulExpr.lit 32] ])
-      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
   , YulStmt.let_ s!"{name}_data_offset" (YulExpr.ident s!"{name}_abs_offset") ]
 
 theorem genSingleParamLoad_bytes
@@ -341,29 +341,30 @@ private theorem exec_let_ident (f : Nat) (state : IRState) (n m : String) (value
       .continue (state.setVar n value) := by
   simp [execIRStmt, evalIRExpr, hget]
 
-/-- `if gt(n, sub(calldatasize(), 32)) { revert }` is a no-op once `n` holds an
-offset leaving room for one more word of calldata. -/
-private theorem exec_revertIfGtSizeSub32_noop (f : Nat) (state : IRState) (n : String)
-    (value : Nat) (hget : state.getVar n = some value)
+/-- `if gt(n, sub(calldatasize(), base + 32)) { revert }` is a no-op once `n`
+holds a head offset that, rebased at `base`, leaves room for one more word of
+calldata. -/
+private theorem exec_revertIfGtSizeSubLit_noop (f : Nat) (state : IRState) (n : String)
+    (value base : Nat) (hget : state.getVar n = some value)
     (hsize : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
-    (hbound : value + 32 ≤ 4 + state.calldata.length * 32) :
+    (hbound : base + value + 32 ≤ 4 + state.calldata.length * 32) :
     execIRStmt (f + 1) state
         (YulStmt.if_ (YulExpr.call "gt"
           [ YulExpr.ident n
-          , YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit 32] ])
+          , YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit (base + 32)] ])
           [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
       .continue state := by
-  have hEvm : (32 : Nat) < Compiler.Constants.evmModulus := by omega
-  have hnot : ¬ (4 + state.calldata.length * 32 - 32) % Compiler.Constants.evmModulus <
-      value % Compiler.Constants.evmModulus := by
-    rw [Nat.mod_eq_of_lt (show 4 + state.calldata.length * 32 - 32 <
+  have hEvm : base + 32 < Compiler.Constants.evmModulus := by omega
+  have hnot : ¬ (4 + state.calldata.length * 32 - (base + 32)) %
+      Compiler.Constants.evmModulus < value % Compiler.Constants.evmModulus := by
+    rw [Nat.mod_eq_of_lt (show 4 + state.calldata.length * 32 - (base + 32) <
         Compiler.Constants.evmModulus by omega), Nat.mod_eq_of_lt (by omega)]
     omega
   simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-    Nat.mod_eq_of_lt hsize, Nat.mod_eq_of_lt hEvm, evm_sub_mod_of_le (a := 32) (by omega) hsize,
-    hnot]
+    Nat.mod_eq_of_lt hsize, Nat.mod_eq_of_lt hEvm,
+    evm_sub_mod_of_le (a := base + 32) (by omega) hsize, hnot]
 
 /-- `let n := sub(calldatasize(), m)` binds the calldata remaining after `m`. -/
 private theorem exec_let_sub_calldatasize_ident (f : Nat) (state : IRState) (n m : String)
@@ -398,27 +399,28 @@ private theorem exec_offsetLoad_then (state : IRState) (tail : List YulStmt) (na
     execIRStmts_succ_cons_of_continue _ _ _ _ _
       (exec_revertIfLtLit_noop k _ _ _ _ (getVar_setVar_self _ _ _) hroLt hheadBound)]
 
-/-- The third and fourth loader statements: compute the absolute offset, then
-check that one word of calldata remains past it. -/
+/-- The third and fourth loader statements: check that one word of calldata
+remains past the rebased head offset, then compute the absolute offset. -/
 private theorem exec_absOffset_then (state : IRState) (tail : List YulStmt) (name : String)
     (baseOffset relativeOffset k : Nat)
     (hget : state.getVar s!"{name}_offset" = some relativeOffset)
     (hsize : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (htailBound : baseOffset + relativeOffset + 32 ≤ 4 + state.calldata.length * 32) :
     execIRStmts (k + 3) state
-        (YulStmt.let_ s!"{name}_abs_offset"
+        (YulStmt.if_ (YulExpr.call "gt"
+            [ YulExpr.ident s!"{name}_offset"
+            , YulExpr.call "sub"
+                [YulExpr.call "calldatasize" [], YulExpr.lit (baseOffset + 32)] ])
+            [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] ::
+          YulStmt.let_ s!"{name}_abs_offset"
             (YulExpr.call "add" [YulExpr.lit baseOffset, YulExpr.ident s!"{name}_offset"]) ::
-          YulStmt.if_ (YulExpr.call "gt"
-            [ YulExpr.ident s!"{name}_abs_offset"
-            , YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit 32] ])
-            [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] :: tail) =
+          tail) =
       execIRStmts (k + 1)
         (state.setVar s!"{name}_abs_offset" (baseOffset + relativeOffset)) tail := by
-  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _ (exec_let_add_lit_ident (k + 1) state
-      s!"{name}_abs_offset" _ baseOffset _ hget (by omega)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (exec_revertIfGtSizeSub32_noop k
-      (state.setVar s!"{name}_abs_offset" (baseOffset + relativeOffset)) _ _
-      (getVar_setVar_self _ _ _) hsize htailBound)]
+  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _
+      (exec_revertIfGtSizeSubLit_noop (k + 1) state _ _ baseOffset hget hsize htailBound),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (exec_let_add_lit_ident k state
+      s!"{name}_abs_offset" _ baseOffset _ hget (by omega))]
 
 /-- The fifth to seventh loader statements: load the length word, then bind the
 tail start and the calldata remaining after it. -/

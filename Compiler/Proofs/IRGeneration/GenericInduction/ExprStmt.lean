@@ -189,18 +189,24 @@ private theorem compiledStmtStep_require_revert
     {failCond : YulExpr} {runtime : SourceSemantics.RuntimeState} {state : IRState}
     {extraFuel : Nat}
     (hfailEval : evalIRExpr state failCond = some 1)
-    (hCondSrc : SourceSemantics.evalExpr fields runtime cond = some 0) :
+    (hCondSrc : SourceSemantics.evalExpr fields runtime cond = some 0)
+    (hfits : FunctionBody.requireMessageFits message)
+    (hfuel : sizeOf [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] -
+      [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)].length ≤ extraFuel) :
     CompiledStmtStepResult fields scope (.require cond message)
       [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)]
       runtime state extraFuel := by
-  rcases FunctionBody.execIRStmts_revertWithMessage_revert
-      (fuel := extraFuel) (state := state) message with ⟨revState, hrev⟩
+  have hlen := FunctionBody.yulStmtList_length_succ_le_sizeOf
+    (CompilationModel.revertWithMessage message)
+  rcases execIRStmts_revertWithMessage_revertData_of_fuel message extraFuel state hfits
+      (by simp at hfuel; omega) with ⟨revState, hrev, hbytes⟩
   have hstmt :
       execIRStmt (extraFuel + 1) state
         (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) =
           .revert revState := by
     simp [execIRStmt, hfailEval, hrev]
-  refine ⟨.revert, .revert revState, ?_, ?_, by simp [stmtStepMatchesIRExec]⟩
+  refine ⟨.revert (.raw (Denote.errorStringBytes message)), .revert revState, ?_, ?_,
+    by simp [stmtStepMatchesIRExec, hbytes]⟩
   · simp [SourceSemantics.execStmt, hCondSrc]
   · rw [show [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)].length +
         extraFuel + 1 = Nat.succ (extraFuel + 1) by simp; omega]
@@ -247,7 +253,10 @@ private theorem compiledStmtStep_require_preserves
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
     (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
     (hbounded : FunctionBody.bindingsBounded runtime.bindings)
-    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (hfits : FunctionBody.requireMessageFits message)
+    (hfuel : sizeOf [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] -
+      [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)].length ≤ extraFuel) :
     CompiledStmtStepResult fields scope (.require cond message)
       [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)]
       runtime state extraFuel := by
@@ -261,6 +270,7 @@ private theorem compiledStmtStep_require_preserves
   by_cases hzero : condVal = 0
   · exact compiledStmtStep_require_revert
       (by simpa [hCondSrc, hzero, SourceSemantics.boolWord] using hfailEval) (hzero ▸ hCondSrc)
+      hfits hfuel
   · exact compiledStmtStep_require_continue
       (by simpa [hCondSrc, hzero, SourceSemantics.boolWord] using hfailEval) hCondSrc hzero
       hexact hscope hbounded hruntime
@@ -273,15 +283,17 @@ theorem compiledStmtStep_require
     {failCond : YulExpr}
     (hcore : FunctionBody.ExprCompileCore cond)
     (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
-    (hfailCompile : CompilationModel.compileRequireFailCond fields .calldata cond = Except.ok failCond) :
+    (hfailCompile : CompilationModel.compileRequireFailCond fields .calldata cond = Except.ok failCond)
+    (hfits : FunctionBody.requireMessageFits message) :
     CompiledStmtStep fields scope (.require cond message)
       [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] where
   compileOk := by
     have hfailCompileInternal := hfailCompile
     rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
     simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hfailCompileInternal]
-  preserves _ _ _ hexact hscope hbounded hruntime _ :=
+  preserves _ _ _ hexact hscope hbounded hruntime hfuel :=
     compiledStmtStep_require_preserves hcore hinScope hfailCompile hexact hscope hbounded hruntime
+      hfits hfuel
 
 /-- The two-statement `mstore(0, value); return(0, 32)` lowering of `return`. -/
 private abbrev compiledReturnIR (valueIR : YulExpr) : List YulStmt :=
@@ -309,7 +321,7 @@ private theorem execStmt_return_of_evalExpr_eq
     match SourceSemantics.evalExpr fields runtime value with
     | some resolved => .return resolved
         { runtime with world := runtime.world.writePhysicalMemoryValue 0 resolved }
-    | none => .revert := rfl
+    | none => .revert .empty := rfl
   rw [hunfold, hEvalSrc]
 
 private theorem compiledStmtStep_return_preserves

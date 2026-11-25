@@ -903,9 +903,17 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
             + ", ".join(sorted(overlapping_runner_classes))
         )
     routed_runner_jobs: set[str] = set(spec.get("routed_runner_jobs", []))
-    routed_runs_on: str | None = spec.get("routed_runs_on")
-    if routed_runner_jobs and not routed_runs_on:
-        errors.append("routed_runner_jobs requires a routed_runs_on expression in the spec")
+    # One router expression for every routed job, or one per job
+    # (`{job: expression}`) when several router jobs route different groups.
+    routed_runs_on_spec: str | dict[str, str] | None = spec.get("routed_runs_on")
+    if isinstance(routed_runs_on_spec, dict):
+        routed_runs_on_by_job: dict[str, str] = dict(routed_runs_on_spec)
+    elif routed_runs_on_spec:
+        routed_runs_on_by_job = {job: routed_runs_on_spec for job in routed_runner_jobs}
+    else:
+        routed_runs_on_by_job = {}
+    for job in sorted(routed_runner_jobs - routed_runs_on_by_job.keys()):
+        errors.append(f"routed job {job} has no routed_runs_on expression in the spec")
     expected_timeouts: dict[str, int] = spec.get("expected_job_timeouts", {})
     expected_fail_fast: dict[str, bool] = spec.get("expected_job_strategy_fail_fast", {})
     expected_max_parallel: dict[str, int | None] = spec.get(
@@ -984,14 +992,19 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
         expected_job_runs_on = expected_runs_on.get(job)
         if job in routed_runner_jobs:
             # Routed jobs pick build-medium or lean.ci at run time; the router
-            # expression is the only accepted runs-on and `route` must be needed.
+            # expression is the only accepted runs-on and the router job it
+            # reads (`needs.<router>.outputs...`) must be needed.
+            routed_runs_on = routed_runs_on_by_job.get(job)
             if expected_job_runs_on != routed_runs_on:
                 errors.append(
                     f"{job} is routed but its runs-on spec is not the router expression: "
                     f"spec={expected_job_runs_on!r}, router={routed_runs_on!r}"
                 )
-            if "route" not in actual_needs:
-                errors.append(f"{job} is routed but does not need the route job")
+            router = re.search(r"\bneeds\.([A-Za-z0-9_-]+)\.outputs\.", routed_runs_on or "")
+            if router is None:
+                errors.append(f"{job} router expression names no router job: {routed_runs_on!r}")
+            elif router.group(1) not in actual_needs:
+                errors.append(f"{job} is routed but does not need the {router.group(1)} job")
         elif job in heavy_runner_jobs and expected_job_runs_on is not None:
             if not expected_job_runs_on.startswith("lean-"):
                 if not expected_job_runs_on.endswith("]"):

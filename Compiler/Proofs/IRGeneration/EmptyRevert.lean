@@ -4,8 +4,8 @@ import Compiler.SolidityImport.Transactions
 /-!
 Direct empty-revert equations, independent of the contents of EIP-211's buffer.
 The IR interpreter observes reverted status and leaves `revertData` unchanged
-(`revert(_, 0)` returns no byte); Denote and the transaction frame retain the
-exact zero-byte payload. These equations do not establish the
+(`revert(_, 0)` returns no byte); the source semantics, Denote and the
+transaction frame retain the exact zero-byte payload. These equations do not establish the
 unfinished general byte-call SourceSemantics/Denote agreement.
 -/
 namespace Compiler.Proofs.IRGeneration.EmptyRevert
@@ -21,9 +21,9 @@ theorem compile_exact (fields : List Field) (events : List EventDef)
       inScopeNames adtTypes .revertEmpty internalFunctions =
       .ok [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] := rfl
 
-/-- The proof-layer source status is reverted for every entry state. -/
+/-- The proof-layer source reverts with zero bytes for every entry state. -/
 theorem source_exact (fields : List Field) (state : SourceSemantics.RuntimeState) :
-    SourceSemantics.execStmt fields state .revertEmpty = .revert := rfl
+    SourceSemantics.execStmt fields state .revertEmpty = .revert (.raw []) := rfl
 
 /-- Two interpreter steps suffice, regardless of available continuation fuel. -/
 theorem ir_exact (state : IRState) (extraFuel : Nat) :

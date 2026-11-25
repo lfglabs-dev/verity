@@ -82,13 +82,13 @@ theorem supported_function_body_correct_from_exact_state_generic
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     ∃ sourceResult irExec,
       SourceSemantics.execStmtList (SourceSemantics.effectiveFields model)
         { world := SourceSemantics.withTransactionContext initialWorld tx
           bindings := bindings
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := model.errors }
         fn.body = sourceResult ∧
       execIRStmts (bodyStmts.length + extraFuel + 1) state bodyStmts = irExec ∧
       FunctionBody.stmtResultMatchesIRExec
@@ -119,7 +119,7 @@ private theorem supported_function_body_correct_from_exact_state_generic_helper_
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     ∃ sourceResult irExec,
       SourceSemantics.execStmtListWithHelpers
@@ -128,7 +128,7 @@ private theorem supported_function_body_correct_from_exact_state_generic_helper_
         helperFuel
         { world := SourceSemantics.withTransactionContext initialWorld tx
           bindings := bindings
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := model.errors }
         fn.body = sourceResult ∧
       execIRStmts (bodyStmts.length + extraFuel + 1) state bodyStmts = irExec ∧
       FunctionBody.stmtResultMatchesIRExec
@@ -162,7 +162,7 @@ def SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       helperFuel
       { world := SourceSemantics.withTransactionContext initialWorld tx
         bindings := bindings
-        selector := tx.functionSelector }
+        selector := tx.functionSelector, errors := model.errors }
       fn.body = sourceResult ∧
     execIRStmtsWithInternals runtimeContract
       (bodyStmts.length + extraFuel + 1) state bodyStmts = irExec ∧
@@ -191,7 +191,7 @@ private theorem
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -223,7 +223,7 @@ private theorem
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -254,7 +254,7 @@ private theorem
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -286,7 +286,7 @@ def SupportedFunctionBodyWithHelpersIRPreservationGoal
       helperFuel
       { world := SourceSemantics.withTransactionContext initialWorld tx
         bindings := bindings
-        selector := tx.functionSelector }
+        selector := tx.functionSelector, errors := model.errors }
       fn.body = sourceResult ∧
     execIRStmts (bodyStmts.length + extraFuel + 1) state bodyStmts = irExec ∧
     FunctionBody.stmtResultMatchesIRExec
@@ -418,7 +418,7 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps
         (SourceSemantics.effectiveFields model)
         { world := SourceSemantics.withTransactionContext initialWorld tx
           bindings := []
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := model.errors }
         state)
     (hstateBindings :
       FunctionBody.bindingsExactlyMatchIRVars bindings state) :
@@ -449,7 +449,7 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps_an
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -480,7 +480,7 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps_an
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -521,7 +521,7 @@ theorem supported_function_body_correct_from_exact_state_generic_split_helper_st
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -557,7 +557,7 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_surface_
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hinternal : runtimeContract.internalFunctions = []) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
@@ -597,7 +597,7 @@ theorem supported_function_body_correct_from_exact_state_generic_internal_helper
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
@@ -643,7 +643,7 @@ theorem supported_function_body_correct_from_exact_state_generic_finer_split_int
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
@@ -688,7 +688,7 @@ theorem supported_function_body_correct_from_exact_state_generic_split_internal_
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
@@ -773,7 +773,7 @@ theorem supported_function_body_correct_from_exact_state_generic_finer_split_int
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -817,7 +817,7 @@ theorem
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts
       helperFuel tx initialWorld state bindings extraFuel := by
@@ -853,7 +853,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract
       (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
@@ -900,7 +900,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
         { world := SourceSemantics.withTransactionContext initialWorld tx
           bindings := []
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := model.errors }
         state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
@@ -950,7 +950,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
         { world := SourceSemantics.withTransactionContext initialWorld tx
           bindings := []
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := model.errors }
         state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
     (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
@@ -979,7 +979,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_go
     (hhelperGoal : SourceSemantics.ExecStmtListWithHelpersConservativeExtensionGoal model
       (SourceSemantics.effectiveFields model) helperFuel
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := bindings,
-        selector := tx.functionSelector } fn.body)
+        selector := tx.functionSelector, errors := model.errors } fn.body)
     (hgeneric : StmtListGenericCore (SourceSemantics.effectiveFields model) (fn.params.map (·.name))
       fn.body)
     (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
@@ -988,7 +988,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_go
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersIRPreservationGoal model fn bodyStmts helperFuel tx
       initialWorld state bindings extraFuel := by
@@ -1002,7 +1002,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_go
       SourceSemantics.execStmtListWithEvents (SourceSemantics.effectiveFields model) model.events
         { world := SourceSemantics.withTransactionContext initialWorld tx
           bindings := bindings
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := model.errors }
         fn.body = sourceResult := by
     simpa [hnoEvents] using hsource
   simpa [hnoEvents, SourceSemantics.ExecStmtListWithHelpersConservativeExtensionGoal] using
@@ -1031,7 +1031,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers
     (hbounded : FunctionBody.bindingsBounded bindings)
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [],
-        selector := tx.functionSelector } state)
+        selector := tx.functionSelector, errors := model.errors } state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
     SupportedFunctionBodyWithHelpersIRPreservationGoal model fn bodyStmts helperFuel tx
       initialWorld state bindings extraFuel := by

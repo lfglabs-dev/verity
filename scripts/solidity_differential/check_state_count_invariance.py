@@ -400,6 +400,131 @@ contract C {
                 'clampedRaw(uint256,uint256)', 'queryPair(address)', 'sendFlag(address,uint256)',
                 'transferChecked(address,address,uint256)', 'packedFlag(uint256)', 'emitFlag(uint256)',
                 'encodedFlag(uint256)', 'arrayFlag(uint256)', 'sameFlag(uint256,uint256)']),
+    # A stateful helper call as the right `+` operand beside a local or parameter, as a lone
+    # helper argument and as a using-for receiver (the A/B/C fixture of the same shapes).
+    fixture('fixture-stateful-call-operand', 'Contracts/SolidityImportSmoke/StatefulCallOperandSequence.sol',
+            'SequenceFixture', ['change(uint256)', 'fail()', 'read()']),
+    inline('stateful-call-lone-argument', '''library WordDoubling {
+    function twice(uint256 v) internal pure returns (uint256) {
+        return v * 2;
+    }
+}
+
+contract C {
+    using WordDoubling for uint256;
+
+    uint256 private total;
+
+    function bump(uint256 by) internal returns (uint256) {
+        total = total + by;
+        return total;
+    }
+
+    function readPlus(uint256 v) internal view returns (uint256) {
+        return v * 1000 + total;
+    }
+
+    function argument(uint256 x) external returns (uint256) {
+        total = x;
+        return readPlus(bump(5));
+    }
+
+    function receiver(uint256 x) external returns (uint256) {
+        total = x;
+        return bump(5).twice();
+    }
+
+    function operands(uint256 x) external returns (uint256) {
+        uint256 a = x;
+        return a + bump(5);
+    }
+}
+''', ['argument(uint256)', 'receiver(uint256)', 'operands(uint256)']),
+    # A `constant` / `immutable` left operand beside a stateful (non-view) helper; the helper's
+    # event makes the call observable. Each is the contract's only state variable.
+    inline('stateful-call-constant-operand', '''contract C {
+    uint256 private constant K = 3;
+    event Bumped(uint256 by);
+
+    function bump(uint256 by) internal returns (uint256) {
+        emit Bumped(by);
+        return by + 1;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        return K + bump(x);
+    }
+}
+''', ['run(uint256)']),
+    # A file-level constant is indexed as a constant but not as a state variable.
+    inline('stateful-call-file-constant-operand', '''uint256 constant FILE_OFFSET = 3;
+
+contract C {
+    uint256 private total;
+
+    function bump(uint256 by) internal returns (uint256) {
+        total = total + by;
+        return total;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        total = x;
+        return FILE_OFFSET + bump(5);
+    }
+}
+''', ['run(uint256)']),
+    # A helper parameter bound to a transaction-context value (`block.timestamp`).
+    inline('stateful-call-context-operand', '''contract C {
+    uint256 private total;
+
+    function bump(uint256 by) internal returns (uint256) {
+        total = total + by;
+        return total;
+    }
+
+    function later(uint256 p) internal returns (uint256) {
+        return p + bump(1);
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        total = x;
+        return later(block.timestamp);
+    }
+}
+''', ['run(uint256)']),
+    inline('stateful-call-immutable-operand', '''contract C {
+    uint256 private immutable base;
+    event Bumped(uint256 by);
+
+    constructor(uint256 b) {
+        base = b;
+    }
+
+    function bump(uint256 by) internal returns (uint256) {
+        emit Bumped(by);
+        return by + 1;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        return base + bump(x);
+    }
+}
+''', ['run(uint256)']),
+    # `total + bump()`: legacy reads `total` after the call, via-IR before it.
+    inline('stateful-call-state-operand', '''contract C {
+    uint256 private total;
+
+    function bump(uint256 by) internal returns (uint256) {
+        total = total + by;
+        return total;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        total = x;
+        return total + bump(5);
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry

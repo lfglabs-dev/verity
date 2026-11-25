@@ -111,7 +111,7 @@ SOLIDITY_BUILTINS = {
     "abi", "addmod", "address", "balance", "basefee", "block", "call", "chainid", "code",
     "codehash", "concat", "data", "days", "decode", "delegatecall", "delete", "ecrecover", "encode",
     "encodeCall", "encodePacked", "encodeWithSelector", "encodeWithSignature", "ether", "false",
-    "gas", "gasprice", "gwei", "hours", "interfaceId", "keccak256", "length", "max", "min",
+    "gas", "gasleft", "gasprice", "gwei", "hours", "interfaceId", "keccak256", "length", "max", "min",
     "minutes", "msg", "mulmod", "name", "number", "origin", "pop", "push", "require", "return",
     "revert", "seconds", "selector", "send", "sender", "sig", "slot", "staticcall", "super", "this",
     "timestamp", "transfer", "true", "tx", "type", "unwrap", "value", "weeks", "wei", "wrap",
@@ -119,12 +119,14 @@ SOLIDITY_BUILTINS = {
 # EVM dialect builtins of Yul.
 YUL_BUILTINS = {
     "add", "addmod", "address", "and", "balance", "basefee", "byte", "call", "callcode",
-    "calldatacopy", "calldataload", "caller", "chainid", "clz", "codecopy", "create2",
+    "calldatacopy", "calldataload", "caller", "chainid", "clz", "codecopy", "create", "create2",
     "delegatecall", "div", "eq", "exp", "extcodecopy", "extcodesize", "gas", "gasprice", "gt",
     "invalid", "iszero", "keccak256", "lt", "mcopy", "mload", "mod", "mstore", "mstore8", "mul",
     "mulmod", "not", "number", "or", "origin", "pop", "return", "returndatacopy", "returndatasize",
     "revert", "sar", "sdiv", "selfbalance", "sgt", "shl", "shr", "signextend", "sload", "slt",
     "smod", "sstore", "staticcall", "sub", "timestamp", "tload", "tstore", "xor",
+    # Prefix of the `verbatim_<n>i_<m>o` builtin family.
+    "verbatim",
 }
 # Operators and keys solc writes into the AST JSON (compared as JSON keys or operator words).
 SOLC_JSON_KEYS = {
@@ -187,8 +189,9 @@ SOLC_JSON_FIELDS |= {
 SOLIDITY_PRAGMA_WORDS = {"ABIEncoderV2", "abicoder", "experimental", "v2"}
 # EVM hard-fork names (solc `evmVersion` values).
 EVM_VERSIONS = {
-    "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul", "london", "osaka",
-    "paris", "petersburg", "prague", "shanghai", "spuriousDragon", "tangerineWhistle",
+    "amsterdam", "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul",
+    "london", "osaka", "paris", "petersburg", "prague", "shanghai", "spuriousDragon",
+    "tangerineWhistle",
 }
 # Yul keywords.
 YUL_KEYWORDS = {"break", "case", "continue", "default", "for", "function", "if", "leave", "let", "switch"}
@@ -203,11 +206,13 @@ IMPORTER_BINDINGS = {
     "solidity_create2_initcode_reentrancy", "solidity_explicit_abi", "solidity_scalar_abi_entry",
     "solidity_static_call_cei", "solidity_trailing_low_level_call_reentrancy",
     "solidity_post_call_state_access", "entry",
+    "solidity_linked_library_matches_source",
 }
 # Keys of the importer's own JSON (report, differential driver, sequence runner, remapping scan).
 IMPORTER_JSON_KEYS = {
     "account", "accounts", "blockNumber", "compilable", "compileError", "compilerProof",
     "configs", "creator", "denoteCovered", "deployment", "digest", "events", "full", "functions",
+    "linkedLibrariesMatchSource",
     "importable", "importerSources", "importerVersion", "member", "modelParam", "nonce",
     "panicPayloadObserved", "parameter", "params", "projections", "shortcuts", "solcInput",
     "solcVersion", "target", "topics", "touched", "words", "libs", "script", "lakefile",

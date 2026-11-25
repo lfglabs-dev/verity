@@ -217,8 +217,9 @@ solidity_import unsupportedPointer from "Contracts/SolidityImportSmoke" entry "T
   contract TransientStateVarSequence
   function clearPointer()
 
--- Inline assembly anywhere in a closure that touches a transient variable fails closed:
--- in the root, through `x.slot`, or in a helper reached under a transient modifier.
+-- Inline assembly that is not transient-neutral fails closed in a closure that touches a
+-- transient variable: in the root, through `x.slot`, or in a helper reached under a
+-- transient modifier.
 /--
 error: TransientStateVarSequence.sol:98:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable number is unsupported
 closure: TransientStateVarSequence.rawInRoot
@@ -262,16 +263,24 @@ solidity_import baseOnly from "Contracts/SolidityImportSmoke" entry "TransientSt
 #guard observe baseOnly.model "touchBaseOnly" [] 0 0 0 == some (true, [], none, 1, [0, 0, 0, 0])
 #guard baseOnly.model.fields.all (!·.isTransient)
 
-/--
-error: TransientStateVarSequence.sol:121:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable number is unsupported
-closure: TransientStateVarSequence.rawInModifier
-assembly { word := 1 }
--/
-#guard_msgs in
-solidity_import rawAssemblyInModifier from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
+-- A full-word Yul local in a modifier is transient-neutral (#2915): the root imports and
+-- writes `number` into a clean or dirty packed slot as solc does (both pipelines).
+solidity_import fullWordModifierIr from "Contracts/SolidityImportSmoke"
+  entry "TransientStateVarSequence.sol"
   using irProfile
   contract TransientStateVarSequence
   function rawInModifier()
+
+solidity_import fullWordModifierLegacy from "Contracts/SolidityImportSmoke"
+  entry "TransientStateVarSequence.sol"
+  using legacyProfile
+  contract TransientStateVarSequence
+  function rawInModifier()
+
+#guard [fullWordModifierIr.model, fullWordModifierLegacy.model].all fun m =>
+  observe m "rawInModifier" [] 7 0 0 == some (true, [], none, 7, [256, 0, 0, 0]) &&
+  observe m "rawInModifier" [] 7 dirty0 dirty1 == some (true, [], none, 7,
+    [23450803645956915905704497912590963418093343692702292412913120444673, dirty1, 0, 0])
 
 /--
 error: TransientStateVarSequence.sol:141:9: Identifier: [solidity-import:unsupported] shadowed storage declaration shadowed is outside this slice

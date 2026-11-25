@@ -2495,7 +2495,7 @@ private theorem nativeResultsMatchOn_mstore0_return32_of_accountMap
         (EvmYul.Yul.State.Ok shared2 st) ⟨1⟩ = some w.toNat :=
     projectHaltReturn_mstore0_return32 s st w hMemorySize
   simp only [Backends.Native.projectResult, hReturnValue]
-  refine ⟨rfl, ?_, ?_, ?_⟩
+  refine ⟨rfl, ?_, ?_, ?_, rfl⟩
   · simp [hrv]
   · intro slot hslot
     exact (projectStorageFromState_of_initial_accountMap nativeContract yulTx
@@ -2669,7 +2669,7 @@ private theorem simpleStorageNativeStoreHitMatch_short
           Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using hNoWrap)
         (by simpa [YulTransaction.ofIR] using hMsgValue))
   · rw [interpretIR_simpleStorage_storeHit_short tx initialState hSelectorEq hArgs]
-    exact ⟨rfl, rfl, (by intro slot _; rfl), rfl⟩
+    exact ⟨rfl, rfl, (by intro slot _; rfl), rfl, rfl⟩
 
 /-- Observable agreement of the native store halt from the post-init state with
 the IR setter result. -/
@@ -2698,7 +2698,7 @@ private theorem nativeResultsMatchOn_storeHit_postInit
         initialState.events (.error (EvmYul.Yul.Exception.YulHalt haltState ⟨0⟩)))) := by
   intro yulTx slots initialWithStore withValue haltState
   simp only [Backends.Native.projectResult]
-  refine ⟨rfl, rfl, ?_, ?_⟩
+  refine ⟨rfl, rfl, ?_, ?_, rfl⟩
   · intro slot hslot
     have hNative := projectStorageFromState_storeHit_postInit_materialized
       ssNC yulTx
@@ -2842,7 +2842,7 @@ private theorem simpleStorageNativeSelectorMissMatchBridge_proved
       simpa [evmModulus, EvmYul.UInt256.size] using hNoWrap
   · rfl
   · rw [hIR]
-    exact ⟨rfl, rfl, (by intro slot _; rfl), rfl⟩
+    exact ⟨rfl, rfl, (by intro slot _; rfl), rfl, rfl⟩
 
 /-- Recover the direct-match monolithic SimpleStorage dispatcher obligation
 from the three direct per-case sub-bridges. -/

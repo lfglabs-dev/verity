@@ -1352,7 +1352,7 @@ theorem popStorageArray_exec_empty (storage : SolidityStorage)
     (currentContract slot : Nat)
     (hempty : (storage currentContract (slotPointer slot)).toNat = 0) :
     SourceSemantics.execStmt [arrayBridgeField slot] (arrayBridgeState slot [])
-        (.storageArrayPop "__array_bridge") = .revert ∧
+        (.storageArrayPop "__array_bridge") = .revert .empty ∧
       Option.bind (compiledStorageArrayPop slot).toOption
         (interpretCompiledStorageArrayPop storage currentContract) = none := by
   constructor
@@ -1549,7 +1549,7 @@ theorem popStorageArray_compiled_exec_empty_coherent
     (hcoherent : StorageArrayCoherent storage currentContract slot
       (arrayBridgeState slot []).world) :
     SourceSemantics.execStmt [arrayBridgeField slot] (arrayBridgeState slot [])
-        (.storageArrayPop "__array_bridge") = .revert ∧
+        (.storageArrayPop "__array_bridge") = .revert .empty ∧
     Option.bind (compiledStorageArrayPop slot).toOption
         (interpretCompiledStorageArrayPop storage currentContract) = none := by
   apply popStorageArray_exec_empty

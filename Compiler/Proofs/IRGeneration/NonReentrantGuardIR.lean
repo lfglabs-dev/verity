@@ -53,13 +53,9 @@ theorem execIRStmts_guardPrologue_locked (fuel : Nat) (state : IRState) (slot : 
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
   cases fuel with
   | zero =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
   | succ n =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
 
 /-- Lock free (`tload = 0`) → the prologue acquires the lock and changes
 nothing else. -/
@@ -72,9 +68,7 @@ theorem execIRStmts_guardPrologue_free (fuel : Nat) (state : IRState) (slot : Na
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
   have hone : (1 : Nat) < Compiler.Constants.evmModulus := by
     simp [Compiler.Constants.evmModulus]
-  simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-    evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
-    YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+  simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
 
 /-- The spliced release resets the lock slot and changes nothing else. -/
 theorem execIRStmt_lockRelease (fuel : Nat) (state : IRState) (slot : Nat)
@@ -83,7 +77,7 @@ theorem execIRStmt_lockRelease (fuel : Nat) (state : IRState) (slot : Nat)
       .continue { state with
         transientStorage := fun o => if o = slot then 0 else state.transientStorage o } := by
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
-  simp [lockReleaseStmt, execIRStmt, evalIRExpr, hmod]
+  simp [lockReleaseStmt, execIRStmt, hmod]
 
 /-- Yul `if tload(slot)` sees the slot's transient value, so its nonzero
 decision is the source model's lock-held predicate `lock ≠ 0` for every
@@ -272,13 +266,9 @@ theorem guardedBody_locked_reverts (slot : Nat) (rest : List YulStmt)
     simp [Compiler.Constants.evmModulus]
   cases k with
   | zero =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
   | succ n =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
 
 /-- Free entry: the guarded unit runs its suffix from the acquired state.
 Composes the prologue-acquire lemma with fuel sequencing. -/

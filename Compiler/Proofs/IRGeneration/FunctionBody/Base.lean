@@ -121,7 +121,8 @@ def runtimeStateMatchesIR
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
   state.returndata = runtime.world.returndata ∧
-  runtime.world.byteMemory = state.byteMemory
+  runtime.world.byteMemory = state.byteMemory ∧
+  state.revertData = []
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -167,8 +168,16 @@ theorem runtimeStateMatchesIR_byteMemory
     {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
     (h : runtimeStateMatchesIR fields runtime state) :
     runtime.world.byteMemory = state.byteMemory := by
-  rcases h with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hbytes⟩
+  rcases h with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hbytes, _⟩
   exact hbytes
+
+/-- A state that has not reverted carries no revert bytes: only a terminating
+`revert` sets them. -/
+theorem runtimeStateMatchesIR_revertData
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state) :
+    state.revertData = [] :=
+  h.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
 
 def initialIRStateForTx
     (spec : CompilationModel)
@@ -2435,7 +2444,7 @@ theorem runtimeStateMatchesIR_calldatacopyBothMemory
     · simp only [hw, if_false]
       exact congrFun hmem o
 
-/-- `returndatacopy` writes the same words on both sides of the runtime/IR
+/-- `returndatacopy` writes the same bytes and words on both sides of the runtime/IR
 correspondence: the source world stores `Uint256`-wrapped buffer words while
 the IR stores their `Nat` values, and every copied word is already below the
 EVM modulus, so the wrapping is the identity on the copied region. The buffer
@@ -2452,10 +2461,16 @@ theorem runtimeStateMatchesIR_returndatacopyBothMemory
           world := {
             runtime.world with
             memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-              runtime.world.returndata dst src size runtime.world.memory } }
+              runtime.world.returndata dst src size runtime.world.memory
+            byteMemory := runtime.world.byteMemory.copyFrom
+              (Compiler.CompilationModel.DenoteMemory.wordListByte runtime.world.returndata)
+              dst src size } }
       { state with
           memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-            state.returndata dst src size state.memory } := by
+            state.returndata dst src size state.memory
+          byteMemory := state.byteMemory.copyFrom
+            (Compiler.CompilationModel.DenoteMemory.wordListByte state.returndata)
+            dst src size } := by
   cases runtime
   cases state
   simp only [runtimeStateMatchesIR] at hmatch ⊢
@@ -2463,7 +2478,7 @@ theorem runtimeStateMatchesIR_returndatacopyBothMemory
     hmem, hret, hevt⟩ := hmatch
   have hrd := hevt.2.2.1
   refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    ?_, hret, hevt⟩
+    ?_, hret, hevt.1, hevt.2.1, hrd, by rw [hevt.2.2.2.1, hrd], hevt.2.2.2.2⟩
   · rw [hstor]
     funext slot
     exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)

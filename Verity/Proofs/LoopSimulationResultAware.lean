@@ -42,7 +42,7 @@ def OutcomeRel (rel : RuntimeState → CallState → Prop) :
   | .stop runtime, .stop model => rel runtime model
   | .return runtimeValue runtime, .return modelValue model =>
       runtimeValue = modelValue ∧ rel runtime model
-  | .revert, .revert => True
+  | .revert _, .revert => True
   | _, _ => False
 
 /-- A model outcome is an early exit exactly when it is not `continue`. -/
@@ -53,7 +53,7 @@ def IterOutcome.IsEarlyExit : IterOutcome α → Prop
 /-- The matching executable-result predicate. -/
 def stmtResultIsEarlyExit : StmtResult → Prop
   | .continue _ => False
-  | .stop _ | .return _ _ | .revert => True
+  | .stop _ | .return _ _ | .revert _ => True
 
 /-- Once a prefix exits, appending sites cannot change its result. -/
 theorem execResultAwareForEach_append_of_earlyExit

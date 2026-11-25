@@ -5699,6 +5699,64 @@ private def preservesAdjacentPackedFields : Bool :=
 
 end PackedStructMemberDenoteSmoke
 
+/-! The deploy block copies the constructor arguments to the initial free-memory
+pointer (128) and bumps the pointer past them; copying to 0 let an initcode
+tail longer than 64 bytes overwrite the pointer word. -/
+namespace ConstructorArgsAboveFreePointer
+
+private def scalarCtorSpec : CompilationModel := {
+  name := "ScalarCtor"
+  fields := [{ name := "stored", ty := FieldType.uint256 }]
+  events := [
+    { name := "Stored"
+      params := [{ name := "value", ty := ParamType.uint256, kind := EventParamKind.unindexed }] }
+  ]
+  «constructor» := some {
+    params := [{ name := "x", ty := ParamType.uint256 }]
+    body := [
+      Stmt.setStorage "stored" (Expr.constructorArg 0),
+      Stmt.emit "Stored" [Expr.constructorArg 0]
+    ]
+  }
+  functions := [
+    { name := "get"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.storage "stored")] }
+  ]
+}
+
+private def stringCtorSpec : CompilationModel := {
+  name := "StringCtor"
+  fields := [{ name := "supply", ty := FieldType.uint256 }]
+  events := [
+    { name := "Named"
+      params := [{ name := "name", ty := ParamType.string, kind := EventParamKind.unindexed }] }
+  ]
+  «constructor» := some {
+    params := [
+      { name := "name", ty := ParamType.string },
+      { name := "supply", ty := ParamType.uint256 }
+    ]
+    body := [
+      Stmt.setStorage "supply" (Expr.constructorArg 1),
+      Stmt.emit "Named" [Expr.param "name"]
+    ]
+  }
+  functions := [
+    { name := "get"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.storage "supply")] },
+    { name := "rename"
+      params := [{ name := "name", ty := ParamType.string }]
+      returnType := none
+      body := [Stmt.emit "Named" [Expr.param "name"]] }
+  ]
+}
+
+end ConstructorArgsAboveFreePointer
+
 set_option maxRecDepth 4096 in
 #eval! do
   let compiled :=
@@ -7118,6 +7176,37 @@ set_option maxRecDepth 4096 in
     MacroConstantSmoke.treasuryAsWordModelInlinesNestedConstants
   expectTrue "macro locals and params shadow contract constants"
     MacroConstantSmoke.shadowedConstantModelPrefersLocalAndParamBindings
+  let scalarYul ← expectCompileToYul "scalar constructor compiles to Yul"
+    ConstructorArgsAboveFreePointer.scalarCtorSpec
+  expectTrue "constructor args are copied to the initial free pointer, not to scratch space"
+    (contains scalarYul "codecopy(128, argsOffset, argsSize)" &&
+      !(contains scalarYul "codecopy(0,"))
+  expectTrue "constructor arg copy is still unbounded (every trailing initcode byte)"
+    (contains scalarYul "let argsSize := sub(codesize(), argsOffset)" &&
+      contains scalarYul "let argsEnd := add(128, argsSize)")
+  expectTrue "free-memory pointer is bumped past the copied args, 32-byte aligned"
+    (contains scalarYul "mstore(64, and(add(argsEnd, 31), not(31)))")
+  expectTrue "deploy and runtime prologues still initialize the free-memory pointer once each"
+    (countOccurrences scalarYul "mstore(64, 128)" == 2)
+  expectTrue "minimum size check and head word read are rebased to 128"
+    (contains scalarYul "if lt(argsEnd, 160)" && contains scalarYul "let x := mload(128)")
+  expectTrue "event buffer is read from the free-memory pointer after the bump"
+    (contains scalarYul "let __evt_ptr := mload(64)")
+  let stringYul ← expectCompileToYul "string constructor compiles to Yul"
+    ConstructorArgsAboveFreePointer.stringCtorSpec
+  expectTrue "dynamic head offset is read at 128 and resolved relative to 128"
+    (contains stringYul "let name_offset := mload(128)" &&
+      contains stringYul "let name_abs_offset := add(128, name_offset)")
+  expectTrue "dynamic head offset is bounded against the copied args before it is rebased"
+    (contains stringYul "if gt(name_offset, sub(argsEnd, 160))" &&
+      !(contains stringYul "gt(name_abs_offset"))
+  expectTrue "dynamic tail bounds are checked against the end of the copied args"
+    (contains stringYul "let name_tail_remaining := sub(argsEnd, name_tail_head_end)")
+  expectTrue "runtime calldata loader bounds the head offset the same way, at base 4"
+    (contains stringYul "let name_offset := calldataload(4)" &&
+      contains stringYul "if gt(name_offset, sub(calldatasize(), 36))")
+  expectTrue "second head word is read at 160"
+    (contains stringYul "let supply := mload(160)")
 
 /- Regression for lfglabs-dev/verity#1961. Identifier-shape validation must treat the two external
 forms differently: an ABI-boundary external derived from a typed `interface` carries a dotted
