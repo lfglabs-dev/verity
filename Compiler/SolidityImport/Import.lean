@@ -1565,7 +1565,8 @@ private def yulCalldataBytesOffsetRead? (node : Json) : M (Option Expr) := do
       return some (.add base (.literal k))
   return none
 
-/-- Reject the Yul `returndatasize()` read `j` when the current root makes an inlined linked
+/-- Reject the Yul `returndatasize()` read `j` (an expression, or a bubbled-revert
+`returndatacopy` statement) when the current root makes an inlined linked
 library call (its DELEGATECALL would set the return-data buffer, the model's call does not),
 and record it otherwise, so a later linked call rejects. Loops make source order unreliable,
 so either order fails closed. -/
@@ -2466,6 +2467,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           | some (.localVar binding) => env.yulFreePointerBindings.contains binding
           | _ => false
         if savedDest then
+          noteReturndataRead stmt
           out := out.push .revertReturndata
           skipNext := true
           continue

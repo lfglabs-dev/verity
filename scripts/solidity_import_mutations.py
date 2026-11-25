@@ -790,12 +790,12 @@ def linked_library_call_rejections() -> None:
     print("pass linked library call located rejections", flush=True)
 
 
-def linked_library_frame_mutant() -> None:
-    result = module_campaign("check_linked_library_call_rejections", "linked-library-frame",
-                             2 * MUTANT_TIMEOUT, "--mutant")
-    if result.get("mutant") != "frame-check" or not result.get("detected"):
-        raise SystemExit("linked library frame-check mutant was not detected")
-    print("pass linked-library-frame-check", flush=True)
+def linked_library_mutant(mutant: str) -> None:
+    result = module_campaign("check_linked_library_call_rejections", f"linked-library-{mutant}",
+                             2 * MUTANT_TIMEOUT, "--mutant", mutant)
+    if result.get("mutant") != mutant or not result.get("detected"):
+        raise SystemExit(f"linked library {mutant} mutant was not detected")
+    print(f"pass linked-library-{mutant}", flush=True)
 
 
 def interface_static_call_mutant(mutant: str) -> None:
@@ -920,7 +920,9 @@ def tasks(update_golden: bool) -> list:
              ("interface-word-static-call-rejections", 1, interface_word_static_call_rejections),
              ("library-call-rejections", 1, library_call_rejections),
              ("linked-library-call-rejections", 1, linked_library_call_rejections),
-             ("linked-library-frame-check", 2, linked_library_frame_mutant),
+             ("linked-library-frame-check", 2, lambda: linked_library_mutant("frame-check")),
+             ("linked-library-returndata-check", 2,
+              lambda: linked_library_mutant("returndata-check")),
              ("create2-struct-emit-rejections", 1, create2_struct_emit_rejections),
              ("external-code-low-level-call-rejections", 1, low_level_call_rejections),
              ("extcodecopy-struct-decode-rejections", 1, extcodecopy_struct_decode_rejections),

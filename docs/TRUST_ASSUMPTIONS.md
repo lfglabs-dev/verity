@@ -2205,8 +2205,9 @@ assumption:
   the import digest.
 - **Evidence**: `LinkedLibraryCallSequence` (A/B/C with both libraries deployed and linked:
   storage effects, events, forwarded custom-error, `Error(string)` and panic data,
-  nested library-to-library calls) and `check_linked_library_call_rejections` (located
-  rejections and a frame-check mutant).
+  nested library-to-library calls; via-IR only, the legacy pipeline is admitted but not
+  run differentially) and `check_linked_library_call_rejections` (located rejections, a
+  frame-check mutant and a return-data-check mutant).
 
 ### Imported typed external calls without return values
 

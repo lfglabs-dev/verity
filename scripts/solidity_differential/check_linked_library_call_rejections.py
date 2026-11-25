@@ -7,8 +7,8 @@ the body reaches (internal helpers and modifiers, transitively) depends on the D
 frame. Each case below must reject at the stated token with the stated diagnostic, or import.
 Without the flag the same calls keep the `check_library_call_rejections` diagnostic.
 
-`--mutant` builds a snapshot whose frame check is disabled and requires the frame cases to
-import there, then this suite to fail on that snapshot (mutation detection).
+`--mutant frame-check` (or `returndata-check`) builds a snapshot with that guard disabled,
+requires the cases it guards to import there, then this suite to fail on that snapshot.
 """
 import argparse
 import json
@@ -69,6 +69,19 @@ CASES = [
      'uint256 z;\n        assembly { z := returndatasize() }\n        uint256 r = S.h(a);\n'
      '        root = r + z + b;', '', 'S.h',
      'linked library calls in a function that reads Yul returndatasize'),
+    ('bubbled-revert-after-call',
+     '    function h(uint256 a) external pure returns (uint256) { return a + 1; }\n',
+     'uint256 r = S.h(a);\n        root = r + b;\n        assembly {\n'
+     '            let p := mload(0x40)\n            returndatacopy(p, 0, returndatasize())\n'
+     '            revert(p, returndatasize())\n        }', '', 'returndatacopy',
+     'Yul returndatasize in a function that makes a linked library call'),
+    ('bubbled-revert-before-call',
+     '    function h(uint256 a) external pure returns (uint256) { return a + 1; }\n',
+     'if (b == 1) {\n            assembly {\n                let p := mload(0x40)\n'
+     '                returndatacopy(p, 0, returndatasize())\n'
+     '                revert(p, returndatasize())\n            }\n        }\n'
+     '        root = S.h(a);', '', 'S.h',
+     'linked library calls in a function that reads Yul returndatasize'),
     ('using-for',
      '    function h(uint256 a, uint256 b) public pure returns (uint256) { return a ^ b; }\n',
      'root = a.h(b);', '    using S for uint256;\n', 'a.h(b)',
@@ -108,8 +121,16 @@ CASES = [
 # rejected elsewhere; the frame check rejects it first, as defense in depth.
 FRAME_CASES = ('msg-data', 'msg-sig-in-internal-helper', 'msg-data-in-modifier',
                'inline-assembly')
-MUTANT_ANCHOR = '  if let some (node, reason) := linkedLibraryFrameHazard? decl fn then\n'
-MUTANT_REPLACEMENT = '  if let some (node, reason) := (none : Option (Json × String)) then\n'
+# (name, anchor, replacement, cases the mutant must admit)
+MUTANTS = [
+    ('frame-check',
+     '  if let some (node, reason) := linkedLibraryFrameHazard? decl fn then\n',
+     '  if let some (node, reason) := (none : Option (Json × String)) then\n', FRAME_CASES),
+    ('returndata-check',
+     '  unless env.rootLinkedLibraryCalls.isEmpty do\n    failAt j ("Yul returndatasize in a function',
+     '  unless true do\n    failAt j ("Yul returndatasize in a function',
+     ('returndatasize-after-call', 'bubbled-revert-after-call')),
+]
 
 
 def run_case(output, name, library, body, members, token, diagnostic, cwd=None):
@@ -150,27 +171,28 @@ def suite(output, cwd=None):
     write_json(output / 'complete.json', {'exit': 0, 'cases': len(CASES)})
 
 
-def mutant(output):
+def mutant(output, name):
     from .mutations import snapshot
+    _, anchor, replacement, must_admit = next(m for m in MUTANTS if m[0] == name)
     directory = output / 'snapshot'
     snapshot(directory)
     source = directory / 'Compiler/SolidityImport/Import.lean'
     original = source.read_text()
-    if original.count(MUTANT_ANCHOR) != 1:
+    if original.count(anchor) != 1:
         raise HarnessError('mutation anchor not unique')
-    source.write_text(original.replace(MUTANT_ANCHOR, MUTANT_REPLACEMENT))
+    source.write_text(original.replace(anchor, replacement))
     command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
             timeout=MUTANT_BUILD_TIMEOUT, log=output / 'build.log')
     admitted = []
     (output / 'admitted').mkdir()
-    for name, library, body, members, _token, _diagnostic in CASES:
-        if name in FRAME_CASES:
-            ok, _ = run_case(output / 'admitted', name, library, body, members, None, None,
+    for case, library, body, members, _token, _diagnostic in CASES:
+        if case in must_admit:
+            ok, _ = run_case(output / 'admitted', case, library, body, members, None, None,
                              cwd=directory)
-            admitted.append({'case': name, 'admitted': ok})
+            admitted.append({'case': case, 'admitted': ok})
     write_json(output / 'admitted.json', admitted)
-    if not all(row['admitted'] for row in admitted):
-        raise HarnessError(f'mutant did not admit every frame case: {admitted}')
+    if len(admitted) != len(must_admit) or not all(row['admitted'] for row in admitted):
+        raise HarnessError(f'{name} mutant did not admit every targeted case: {admitted}')
     env = dict(os.environ, PYTHONPATH=str(directory / 'scripts'))
     check = subprocess.run([sys.executable, '-m',
                             'solidity_differential.check_linked_library_call_rejections',
@@ -178,20 +200,20 @@ def mutant(output):
                            cwd=directory, env=env, capture_output=True, text=True, timeout=3600)
     (output / 'mutated.log').write_text(check.stdout + check.stderr)
     if check.returncode == 0:
-        raise HarnessError('frame-check mutant survived the rejection suite')
-    write_json(output / 'complete.json', {'exit': 0, 'mutant': 'frame-check', 'detected': True})
+        raise HarnessError(f'{name} mutant survived the rejection suite')
+    write_json(output / 'complete.json', {'exit': 0, 'mutant': name, 'detected': True})
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--mutant', action='store_true')
+    parser.add_argument('--mutant', choices=[m[0] for m in MUTANTS])
     args = parser.parse_args()
     output = args.output.resolve()
     if args.mutant:
         output.mkdir(parents=True, exist_ok=False)
-        mutant(output)
-        print('linked library frame-check mutant detected')
+        mutant(output, args.mutant)
+        print(f'linked library {args.mutant} mutant detected')
     else:
         suite(output)
         print(f'{len(CASES)} linked library call acceptance/rejection controls pass')
