@@ -33,12 +33,27 @@ library LinkedPackLib {
         return v;
     }
 
-    function roundTripNarrow(uint8 u, int8 s, bool flag, Narrow8 wrapped)
+    function roundTripNarrow(
+        uint8 u,
+        int8 s,
+        bool flag,
+        Narrow8 wrapped,
+        address addr,
+        bytes4 sel
+    ) external pure returns (uint8, int8, bool, Narrow8, address, bytes4) {
+        return (u, s, flag, wrapped, addr, sel);
+    }
+
+    function narrowSingleFromWide(uint256 raw) external pure returns (uint8) {
+        return uint8(raw);
+    }
+
+    function narrowMultiFromWide(uint256 rawAddr, bytes32 rawSel)
         external
         pure
-        returns (uint8, int8, bool, Narrow8)
+        returns (address, bytes4)
     {
-        return (u, s, flag, wrapped);
+        return (address(uint160(rawAddr)), bytes4(rawSel));
     }
 }
 
@@ -72,6 +87,14 @@ library LinkedCounterLib {
 
     function addAmount(Counter storage c, uint256 amount) external {
         c.total += amount;
+        c.calls += 1;
+    }
+
+    function sinkNarrow(Counter storage c, uint8, address, bytes4) external {
+        c.calls += 1;
+    }
+
+    function sinkNarrowInternal(Counter storage c, uint8, address, bytes4) internal {
         c.calls += 1;
     }
 
@@ -127,35 +150,91 @@ contract LinkedLibraryCallFixture {
         LinkedCounterLib.addAmount(counters[key], amount);
     }
 
-    function cleanNarrow(uint256 rawU, uint256 rawS, uint256 rawFlag, uint256 rawWrapped)
-        external
-        pure
-        returns (uint256, uint256, uint256, uint256)
-    {
+    function rawAddress(uint256 x) internal pure returns (address a) {
+        assembly {
+            a := x
+        }
+    }
+
+    function cleanNarrow(
+        uint256 rawU,
+        uint256 rawS,
+        uint256 rawFlag,
+        uint256 rawWrapped,
+        uint256 rawAddr,
+        uint256 rawSel
+    ) external pure returns (uint256, uint256, uint256, uint256, uint256, uint256) {
         uint8 u = 0;
         int8 s = 0;
         bool flag = false;
         Narrow8 wrapped = Narrow8.wrap(0);
+        address addr = rawAddress(rawAddr);
+        bytes4 sel = bytes4(0);
         assembly {
             u := rawU
             s := rawS
             flag := rawFlag
             wrapped := rawWrapped
+            sel := rawSel
         }
         uint8 singleU = LinkedPackLib.passUint8(u);
-        (, int8 rS, bool rFlag, Narrow8 rWrapped) =
-            LinkedPackLib.roundTripNarrow(u, s, flag, wrapped);
+        (, int8 rS, bool rFlag, Narrow8 rWrapped, address rAddr, bytes4 rSel) =
+            LinkedPackLib.roundTripNarrow(u, s, flag, wrapped, addr, sel);
         uint256 outU;
         uint256 outS;
         uint256 outFlag;
         uint256 outWrapped;
+        uint256 outAddr;
+        uint256 outSel;
         assembly {
             outU := singleU
             outS := rS
             outFlag := rFlag
             outWrapped := rWrapped
+            outAddr := rAddr
+            outSel := rSel
         }
-        return (outU, outS, outFlag, outWrapped);
+        return (outU, outS, outFlag, outWrapped, outAddr, outSel);
+    }
+
+    function cleanReturnFromWide(uint256 rawU, uint256 rawAddr, bytes32 rawSel)
+        external
+        pure
+        returns (uint256, uint256, uint256)
+    {
+        uint8 rU = LinkedPackLib.narrowSingleFromWide(rawU);
+        (address rAddr, bytes4 rSel) = LinkedPackLib.narrowMultiFromWide(rawAddr, rawSel);
+        uint256 outU;
+        uint256 outAddr;
+        uint256 outSel;
+        assembly {
+            outU := rU
+            outAddr := rAddr
+            outSel := rSel
+        }
+        return (outU, outAddr, outSel);
+    }
+
+    function entryCleanVoid(bytes32 key, uint256 rawU, uint256 rawAddr, uint256 rawSel) external {
+        uint8 u = 0;
+        address addr = rawAddress(rawAddr);
+        bytes4 sel = bytes4(0);
+        assembly {
+            u := rawU
+            sel := rawSel
+        }
+        LinkedCounterLib.sinkNarrow(counters[key], u, addr, sel);
+    }
+
+    function internalRawVoid(bytes32 key, uint256 rawU, uint256 rawAddr, uint256 rawSel) external {
+        uint8 u = 0;
+        address addr = rawAddress(rawAddr);
+        bytes4 sel = bytes4(0);
+        assembly {
+            u := rawU
+            sel := rawSel
+        }
+        LinkedCounterLib.sinkNarrowInternal(counters[key], u, addr, sel);
     }
 
     function share(bytes32 key, uint256 parts) external view returns (uint256) {

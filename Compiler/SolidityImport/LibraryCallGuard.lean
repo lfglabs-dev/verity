@@ -164,21 +164,37 @@ def linkedLibraryParamKind (decl : Json) : LinkedLibraryOperandKind :=
   linkedLibraryOperandKind ((jsonStrField? decl "storageLocation").getD "")
     (((jsonField? decl "typeDescriptions").bind (jsonStrField? · "typeIdentifier")).getD "")
 
+/-- Strip redundant parentheses (single-component, non-inline-array `TupleExpression`s).
+Returns `none` if `fuel` runs out while parentheses remain, so callers fail closed. -/
+def stripTupleParens : Nat → Json → Option Json
+  | 0, j =>
+      if astNodeType? j == some "TupleExpression" then none else some j
+  | fuel + 1, j =>
+      if astNodeType? j == some "TupleExpression" &&
+          ((jsonField? j "isInlineArray").bind (·.getBool?.toOption)) == some false then
+        match (jsonField? j "components").bind (·.getArr?.toOption) with
+        | some #[only] => if only.isNull then some j else stripTupleParens fuel only
+        | _ => some j
+      else some j
+
 /-- The reason node `j` depends on the `DELEGATECALL` frame, if it does: inline assembly,
-`msg.data`, `msg.sig` or `gasleft`. -/
+`msg.data`, `msg.sig` (including parenthesized `(msg).sig` / `(msg).data`) or `gasleft`. -/
 def linkedLibraryFrameHazard (j : Json) : Option String :=
   let builtin (n : Json) : Bool := ((jsonIntField? n "referencedDeclaration").getD 0) < 0
   match astNodeType? j with
   | some "InlineAssembly" =>
       some "inline assembly in a linked library call can observe the library's call frame"
   | some "MemberAccess" =>
-      match jsonField? j "expression" with
-      | some base =>
-          if astNodeType? base == some "Identifier" && astNodeName? base == some "msg" &&
-              builtin base && ["data", "sig"].contains ((jsonStrField? j "memberName").getD "") then
+      if ["data", "sig"].contains ((jsonStrField? j "memberName").getD "") then
+        match (jsonField? j "expression").bind (stripTupleParens 256) with
+        | some base =>
+            if astNodeType? base == some "Identifier" && astNodeName? base == some "msg" &&
+                builtin base then
+              some "msg.data and msg.sig in a linked library call are the library call's calldata"
+            else none
+        | none =>
             some "msg.data and msg.sig in a linked library call are the library call's calldata"
-          else none
-      | none => none
+      else none
   | some "Identifier" =>
       if astNodeName? j == some "gasleft" && builtin j then
         some "gasleft() in a linked library call reads the library frame's gas"
@@ -231,6 +247,19 @@ theorem witness_linked_library_reference_types :
     linkedLibraryOperandKind "default" "t_bytes_memory_ptr" = .other ∧
     linkedLibraryOperandKind "default" "t_function_external_view$__$returns$__$" = .other ∧
     linkedLibraryOperandKind "default" "t_contract$_C_$5" = .other := by decide
+
+/-- Witness: parenthesized `(msg).sig` is caught as a frame hazard while `(msg).sender` is not. -/
+theorem witness_linked_library_paren_msg_hazard :
+    let msgIdent := Json.mkObj [("nodeType", .str "Identifier"), ("name", .str "msg"),
+      ("referencedDeclaration", .num (-15))]
+    let parenMsg := Json.mkObj [("nodeType", .str "TupleExpression"),
+      ("isInlineArray", .bool false), ("components", .arr #[msgIdent])]
+    let parenSig := Json.mkObj [("nodeType", .str "MemberAccess"), ("memberName", .str "sig"),
+      ("expression", parenMsg)]
+    let parenSender := Json.mkObj [("nodeType", .str "MemberAccess"),
+      ("memberName", .str "sender"), ("expression", parenMsg)]
+    (linkedLibraryFrameHazard parenSig).isSome = true ∧
+    linkedLibraryFrameHazard parenSender = none := by decide
 
 /-! ## Initialization Transcription Helper Descriptors (`#2465`) -/
 

@@ -61,8 +61,12 @@ SIGNATURES = {
     'bumpPacked': ('bumpPacked(bytes32,uint256,address)', ['bytes32', 'uint256', 'address']),
     'reset': ('reset(bytes32)', ['bytes32']),
     'addExternal': ('addExternal(bytes32,uint256)', ['bytes32', 'uint256']),
-    'cleanNarrow': ('cleanNarrow(uint256,uint256,uint256,uint256)',
-                    ['uint256', 'uint256', 'uint256', 'uint256']),
+    'cleanNarrow': ('cleanNarrow(uint256,uint256,uint256,uint256,uint256,uint256)',
+                    ['uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256']),
+    'cleanReturnFromWide': ('cleanReturnFromWide(uint256,uint256,bytes32)',
+                            ['uint256', 'uint256', 'bytes32']),
+    'entryCleanVoid': ('entryCleanVoid(bytes32,uint256,uint256,uint256)',
+                       ['bytes32', 'uint256', 'uint256', 'uint256']),
     'share': ('share(bytes32,uint256)', ['bytes32', 'uint256']),
     'total': ('total(bytes32)', ['bytes32']),
     'last': ('last(bytes32)', ['bytes32']),
@@ -126,14 +130,20 @@ def transactions_for(count, seed, contract):
     add('reset', [keys[0]], expect=('ok', None))
     add('reset', [keys[2]], expect=('ok', None))
     add('addExternal', [keys[0], 11], SENDERS[1], expect=('ok', None))
-    add('cleanNarrow', [0x105, 0x1ff, 2, 0x207], expect=('ok', None))
-    add('cleanNarrow', [0x200, 0x17f, 0, 0x100], expect=('ok', None))
+    add('cleanNarrow', [0x105, 0x1ff, 2, 0x207, (1 << 160) | 0x42,
+                        (0x11223344 << 224) | 0x99], expect=('ok', None))
+    add('cleanNarrow', [0x200, 0x17f, 0, 0x100, (0xff << 160) | 1, 0xdeadbeef], expect=('ok', None))
+    add('cleanReturnFromWide', [0x105, (1 << 160) | 0x42,
+                                ((0x11223344 << 224) | 0x99).to_bytes(32, 'big')],
+        expect=('ok', None))
+    add('entryCleanVoid', [keys[0], 0x105, (1 << 160) | 0x42, (0x11223344 << 224) | 0x99],
+        expect=('ok', None))
     observe(keys[0])
     observe(keys[2])
     while len(calls) < count:
         key = rng.choice(keys)
         sender = rng.choice(SENDERS)
-        choice = rng.randrange(10)
+        choice = rng.randrange(12)
         amount = rng.choice([0, 1, 7, 2 ** 64, HALF - 1, HALF, HALF + 1, rng.getrandbits(256)])
         if choice == 0:
             add('setConfig', [key, rng.choice(pointers), rng.choice([0, 1, 2, 3, 3, 4])], sender)
@@ -154,7 +164,14 @@ def transactions_for(count, seed, contract):
         elif choice == 8:
             add('cleanNarrow', [rng.getrandbits(256), rng.getrandbits(256),
                                 rng.choice([0, 1, 2, rng.getrandbits(256)]),
+                                rng.getrandbits(256), rng.getrandbits(256),
                                 rng.getrandbits(256)], sender)
+        elif choice == 9:
+            add('cleanReturnFromWide', [rng.getrandbits(256), rng.getrandbits(256),
+                                        rng.getrandbits(256).to_bytes(32, 'big')], sender)
+        elif choice == 10:
+            add('entryCleanVoid', [key, rng.getrandbits(256), rng.getrandbits(256),
+                                   rng.getrandbits(256)], sender)
         else:
             observe(key)
     return calls, expected
