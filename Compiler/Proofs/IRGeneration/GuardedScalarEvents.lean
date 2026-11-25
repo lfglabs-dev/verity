@@ -130,6 +130,6 @@ theorem guarded_scalar_events_final_events_eq
         (FunctionBody.initialIRStateForTx model tx initialWorld)).events :=
   (compile_preserves_semantics_guarded_with_scalar_events model selectors
     hSupported ir tx initialWorld htxNormalized hcalldataSizeFits hcompile
-    hfuelPos hhelperFree hstmtDisjoint).2.2.2
+    hfuelPos hhelperFree hstmtDisjoint).2.2.2.1
 
 end Compiler.Proofs.IRGeneration

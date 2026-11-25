@@ -554,9 +554,9 @@ storage and events. The closed native proofs discharge it; the reverts they
 cover (dispatcher guards, selector miss, SimpleStorage) return no bytes on
 both sides. `Backends.Panic.encode_panic_eq_expectedPanicBytes` shows that
 `RevertPayload.encode (.panic c)` is EVMYulLean's native panic payload for
-every code `c`, computed ones (`Stmt.panicCode`) included. On the source-to-IR
-side the step relations compare revert bytes; the top-level contract result
-relation does not yet.
+every code `c`, computed ones (`Stmt.panicCode`) included. The source-to-IR
+theorem compares revert bytes too (`sourceResultMatchesIRResult`), so the
+composed source-to-native relation `sourceResultMatchesNativeOn` does as well.
 
 `projectResult` still maps every other exception to the same failed result
 with rolled-back storage, events and no bytes. It therefore identifies

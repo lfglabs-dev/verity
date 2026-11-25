@@ -2605,6 +2605,8 @@ structure SourceContractResult where
   returnValue : Option Nat
   finalStorage : Nat → Nat
   events : List (List Nat)
+  /-- Bytes a reverted call returns (`RevertPayload.encode`); `[]` otherwise. -/
+  revertData : List UInt8 := []
 
 structure InternalFunctionResult where
   success : Bool
@@ -2619,6 +2621,45 @@ def revertedResult (spec : CompilationModel) (initialWorld : Verity.ContractStat
     returnValue := none
     finalStorage := encodeStorage spec initialWorld
     events := encodeEvents initialWorld.events }
+
+/-- `revertedResult` returning the bytes of a statement's revert payload. -/
+def revertedResultWith (spec : CompilationModel) (initialWorld : Verity.ContractState)
+    (payload : Verity.Core.RevertPayload) : SourceContractResult :=
+  { revertedResult spec initialWorld with revertData := payload.encode }
+
+@[simp] theorem revertedResultWith_success (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).success = (revertedResult spec world).success := rfl
+
+@[simp] theorem revertedResultWith_returnValue (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).returnValue =
+      (revertedResult spec world).returnValue := rfl
+
+@[simp] theorem revertedResultWith_finalStorage (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).finalStorage =
+      (revertedResult spec world).finalStorage := rfl
+
+@[simp] theorem revertedResultWith_events (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).events = (revertedResult spec world).events := rfl
+
+@[simp] theorem revertedResultWith_revertData (spec : CompilationModel)
+    (world : Verity.ContractState) (payload : Verity.Core.RevertPayload) :
+    (revertedResultWith spec world payload).revertData = payload.encode := rfl
+
+@[simp] theorem revertedResult_revertData (spec : CompilationModel)
+    (world : Verity.ContractState) : (revertedResult spec world).revertData = [] := rfl
+
+@[simp] theorem revertedResultWith_empty (spec : CompilationModel)
+    (world : Verity.ContractState) :
+    revertedResultWith spec world .empty = revertedResult spec world := rfl
+
+@[simp] theorem revertedResultWith_raw (spec : CompilationModel)
+    (world : Verity.ContractState) (bytes : List UInt8) :
+    revertedResultWith spec world (.raw bytes) =
+      { revertedResult spec world with revertData := bytes } := rfl
 
 def successResult (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat) :
     SourceContractResult :=
@@ -3203,7 +3244,7 @@ def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
-      | .revert _ => revertedResult spec worldWithTx
+      | .revert payload => revertedResultWith spec worldWithTx payload
 
 def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
@@ -3225,7 +3266,7 @@ def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
         | .return value state => successResult spec state.world (some value)
-        | .revert _ => revertedResult spec constructorWorldWithTx
+        | .revert payload => revertedResultWith spec constructorWorldWithTx payload
 
 def interpretContract (spec : CompilationModel) (selectors : List Nat)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
@@ -4257,7 +4298,7 @@ def interpretFunctionWithHelpers
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
-      | .revert _ => revertedResult spec worldWithTx
+      | .revert payload => revertedResultWith spec worldWithTx payload
 
 def interpretConstructorWithHelpers
     (spec : CompilationModel)
@@ -4283,7 +4324,7 @@ def interpretConstructorWithHelpers
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
         | .return value state => successResult spec state.world (some value)
-        | .revert _ => revertedResult spec constructorWorldWithTx
+        | .revert payload => revertedResultWith spec constructorWorldWithTx payload
 
 def interpretContractWithHelpers
     (spec : CompilationModel)
