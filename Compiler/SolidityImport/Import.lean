@@ -74,6 +74,22 @@ private def solcReleases : Array SolcRelease := #[
     hasNoImportCallbackFlag := false,
     supportedEvmVersions := #["istanbul"],
     supportsViaIR := false },
+  { longVersion := "0.8.38+commit.1835d247",
+    binaryName := "solc-0.8.38",
+    sha256s := #[
+      "65c3180a336eabb6bdc4bbd49cc405aeb233976964ae6c11fba2a6c8be8f3243",
+      "b18ac1d1f48394c71ca9aefbf0fb94fef24c87b358f48578de5941e234e0a2a9"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.38+commit.1835d247.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.38+commit.1835d247.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    -- solc 0.8.38 names `amsterdam` but gates it behind `settings.experimental`;
+    -- the pin admits only the targets this binary compiles without that flag.
+    supportedEvmVersions := #[
+      "osaka", "prague", "cancun", "shanghai", "paris", "london", "berlin",
+      "istanbul", "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true },
   { longVersion := "0.8.35+commit.47b9dedd",
     binaryName := "solc-0.8.35",
     sha256s := #[

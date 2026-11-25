@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// A minimal contract compiled by two pinned solc releases: the default
-/// 0.8.34/Osaka profile and the 0.8.35/Amsterdam profile.
+/// A minimal contract compiled by three pinned solc releases: the default
+/// 0.8.34/Osaka profile, the 0.8.35/Amsterdam profile and a 0.8.38/Cancun profile.
 contract SolcVersionProbe {
     bytes32 public constant DOMAIN_TYPEHASH =
         keccak256("ProbeDomain(uint256 chainId,address verifyingContract)");

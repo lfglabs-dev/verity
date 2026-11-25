@@ -11,7 +11,7 @@ Use this page to adapt the [working quickstart](/solidity-import) to a different
 
 Install the compiler with `python3 scripts/setup_solc_import.py --version 0.8.34` from the Verity checkout. A downstream package can pass `--output /path/to/package/.lake/solidity-import/solc-0.8.34`. Do not substitute the system `solc`. The importer checks the binary before and after use.
 
-Select the exact release in `solidity_profile` (default: `0.8.34+commit.80d5c536`). The other pins are `0.8.28+commit.7893614a` (up to Prague), `0.8.26+commit.8a97fa7a` (up to Cancun) and `0.8.10+commit.fc410830` (up to London, `viaIR := false`). Match the EVM fork, optimizer runs (`none` disables optimization), `viaIR` and metadata hash to the build you intend to study.
+Select the exact release in `solidity_profile` (default: `0.8.34+commit.80d5c536`). The other pins are `0.8.38+commit.1835d247` (up to Osaka), `0.8.35+commit.47b9dedd` (up to Amsterdam, passed to solc as `@future`), `0.8.28+commit.7893614a` (up to Prague), `0.8.26+commit.8a97fa7a` (up to Cancun) and `0.8.10+commit.fc410830` (up to London, `viaIR := false`). Match the EVM fork, optimizer runs (`none` disables optimization), `viaIR` and metadata hash to the build you intend to study.
 
 ## Select the source and roots
 
