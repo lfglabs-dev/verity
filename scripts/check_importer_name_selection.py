@@ -187,8 +187,9 @@ SOLC_JSON_FIELDS |= {
 SOLIDITY_PRAGMA_WORDS = {"ABIEncoderV2", "abicoder", "experimental", "v2"}
 # EVM hard-fork names (solc `evmVersion` values).
 EVM_VERSIONS = {
-    "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul", "london", "osaka",
-    "paris", "petersburg", "prague", "shanghai", "spuriousDragon", "tangerineWhistle",
+    "amsterdam", "berlin", "byzantium", "cancun", "constantinople", "homestead", "istanbul",
+    "london", "osaka", "paris", "petersburg", "prague", "shanghai", "spuriousDragon",
+    "tangerineWhistle",
 }
 # Yul keywords.
 YUL_KEYWORDS = {"break", "case", "continue", "default", "for", "function", "if", "leave", "let", "switch"}

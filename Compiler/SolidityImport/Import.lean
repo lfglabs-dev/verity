@@ -58,6 +58,8 @@ private structure SolcRelease where
   hasNoImportCallbackFlag : Bool
   supportedEvmVersions : Array String
   supportsViaIR : Bool
+  /-- Pinned names solc spells differently, e.g. the next planned fork is `@future`. -/
+  evmNameAliases : Array (String × String) := #[]
 
 private def solcReleases : Array SolcRelease := #[
   { longVersion := "0.7.6+commit.7338295f",
@@ -72,6 +74,23 @@ private def solcReleases : Array SolcRelease := #[
     hasNoImportCallbackFlag := false,
     supportedEvmVersions := #["istanbul"],
     supportsViaIR := false },
+  { longVersion := "0.8.35+commit.47b9dedd",
+    binaryName := "solc-0.8.35",
+    sha256s := #[
+      "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4",
+      "6e432580d973cae74c869ef4f737529e73fec5b200dce3c08d5e76c4a6b19159"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.35+commit.47b9dedd.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.35+commit.47b9dedd.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    supportedEvmVersions := #[
+      "amsterdam", "osaka", "prague", "cancun", "shanghai", "paris", "london", "berlin",
+      "istanbul", "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true,
+    -- solc 0.8.35 predates a named Amsterdam target; `@future` selects the next
+    -- planned fork, which is the closest executable target for this profile.
+    evmNameAliases := #[("amsterdam", "@future")] },
   { longVersion := "0.8.34+commit.80d5c536",
     binaryName := "solc-0.8.34",
     sha256s := #[
@@ -136,6 +155,14 @@ private def resolveSolcRelease (profile : Profile) : MetaM SolcRelease := do
   if profile.viaIR && !release.supportsViaIR then
     throwError "viaIR is not supported for solc {release.longVersion}"
   pure release
+
+/-- The `evmVersion` spelling this release's `--standard-json` accepts. Pinned
+aliases keep the importer's vocabulary independent of a compiler build that
+has not named a future fork yet. -/
+private def solcEvmVersion (release : SolcRelease) (evmVersion : String) : String :=
+  match release.evmNameAliases.find? (fun entry => entry.1 == evmVersion) with
+  | some entry => entry.2
+  | none => evmVersion
 
 private def buildField (types item : Json) (isTransient : Bool := false) : M FieldInfo := do
   let name ← mStr (← mField item "label")
@@ -4165,8 +4192,8 @@ private partial def lowerRef (j : Json) : M Ref := do
             -- `data[i]` of a root `bytes[]`: bounds check, then the element's
             -- `bytes` descriptor under a synthetic id (above every AST id), so
             -- the descriptor-based `bytes` lowerings (`.length`, hashing,
-            -- packed encoding, `bytes calldata` helper arguments) apply to it
-            -- unchanged. Slices and `abi.decode` of `data[i]` stay rejected.
+            -- packed encoding, `bytes calldata` helper arguments, slices,
+            -- `bytes calldata` locals, and `abi.decode`) apply to it unchanged.
             let sid := 2 ^ 62 + (← get).next
             discard fresh
             let elemHeader ← fresh
@@ -6393,6 +6420,28 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
       pure (some (pre, Expr.literal 0, Expr.calldatasize, true, true))
     else
       pure none
+  else if (← mKind base) == "IndexAccess" then
+    -- `items[i]` of a `bytes[]`: the element's descriptor (its lazy calldata
+    -- tail checks or its memory header) is the slice base, so
+    -- `bytes4(items[i][:4])` and `abi.decode(items[i][4:], (...))` stay on
+    -- calldata and a memory element slices its copied buffer.
+    let element? ← try
+      (do
+        match ← lowerRef base with
+        | .calldataBytes sid pre =>
+          match (← get).calldataBytes.find? sid with
+          | some cb => pure (some (pre, cb))
+          | none => pure none
+        | _ => pure none)
+    catch _ => pure none
+    match element? with
+    | some (pre, cb) =>
+        if !cb.inMemory then
+          pure (some (pre, Expr.localVar cb.dataBinding, Expr.localVar cb.lengthBinding, true, false))
+        else
+          pure (some (pre, Expr.add (.localVar cb.memoryPointer) (.literal 32),
+            Expr.localVar cb.lengthBinding, false, false))
+    | none => pure none
   else if (← mKind base) == "Identifier" then
     let id ← refInt base
     if id ≥ 0 then
@@ -6949,6 +6998,29 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
         .letVar ptrVar buf.pointer,
         .letVar lenVar buf.size
       ], false, .localVar ptrVar, .localVar lenVar)
+    if (← mType inner) == "bytes calldata" || (← mType inner) == "bytes memory" then
+      let element? ← try
+        (do
+          match ← lowerRef inner with
+          | .calldataBytes sid pre =>
+            match (← get).calldataBytes.find? sid with
+            | some cb => pure (some (pre, cb))
+            | none => pure none
+          | _ => pure none)
+      catch _ => pure none
+      if let some (pre, cb) := element? then
+        let ptrVar ← fresh
+        let lenVar ← fresh
+        if cb.inMemory then
+          return (pre ++ #[
+            .letVar ptrVar (.add (.localVar cb.memoryPointer) (.literal 32)),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], false, .localVar ptrVar, .localVar lenVar)
+        else
+          return (pre ++ #[
+            .letVar ptrVar (.localVar cb.dataBinding),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], true, .localVar ptrVar, .localVar lenVar)
   if (← mKind inner) == "MemberAccess" then
     if ← isAddressCodeAccess inner then
       let buf ← lowerExtCodeCopy inner
@@ -11090,6 +11162,18 @@ private partial def lowerCalldataBytesExpr (j : Json) : M (Array Stmt × Calldat
   if ← isParameterizedCalldataBytesCall j then
     let (fnId, vals) ← resolveCallTargetAndArgs j
     return ← inlineCalldataBytesFn fnId vals j
+  if (← mKind j) == "IndexAccess" && (← mType j) == "bytes calldata" then
+    let element? ← try
+      (do
+        match ← lowerRef j with
+        | .calldataBytes sid pre =>
+          match (← get).calldataBytes.find? sid with
+          | some cb => pure (some (pre, cb))
+          | none => pure none
+        | _ => pure none)
+    catch _ => pure none
+    if let some (pre, cb) := element? then
+      if !cb.inMemory && !cb.isString then return (pre, cb)
   if (← mKind j) == "Identifier" then
     let id ← refInt j
     if id ≥ 0 then
@@ -17261,6 +17345,14 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                writableLocals := e.writableLocals.insert id binding,
                zeroInitLocals := if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id }
     return #[.letVar binding (.literal 0)]
+  if loc == "calldata" && (← mType d) == "bytes" then
+    if (← get).bodyAssigned.contains id then
+      failAt d "reassigned calldata bytes locals are outside this slice"
+    let (cbPre, cb) ← lowerCalldataBytesExpr init
+    modify fun e =>
+      { e with calldataBytes := e.calldataBytes.insert id { cb with param := name },
+               yulNames := e.yulNames.erase name }
+    return cbPre
   if loc == "memory" && ((← mType d) == "bytes" || (← mType d) == "string") then
     let isString := (← mType d) == "string"
     if isString && (← get).bodyAssigned.contains id then
@@ -20180,8 +20272,12 @@ private def importSlice
   for (logical, text) in sources do
     fileBytes := fileBytes.insert logical (text.toUTF8)
     sourceObj := sourceObj.push (logical, Json.mkObj [("content", Json.str text)])
+  let solcEvm := solcEvmVersion release profile.evmVersion
+  -- Experimental fork names such as `@future` are gated behind this flag.
+  let experimentalSettings : List (String × Json) :=
+    if solcEvm.startsWith "@" then [("experimental", Json.bool true)] else []
   let baseSettings : List (String × Json) := [
-    ("evmVersion", Json.str profile.evmVersion),
+    ("evmVersion", Json.str solcEvm),
     ("metadata", Json.mkObj [("bytecodeHash", Json.str profile.bytecodeHash)]),
     ("optimizer", Json.mkObj [("enabled", Json.bool profile.optimizerRuns.isSome),
       ("runs", profile.optimizerRuns.getD 200)]),
@@ -20189,9 +20285,9 @@ private def importSlice
       ("", Json.arr #[Json.str "ast"]),
       ("*", Json.arr #[Json.str "storageLayout", Json.str "transientStorageLayout"])])]),
     ("remappings", Json.arr (remaps.map fun p => Json.str s!"{p.1}={p.2}"))]
-  let settings := Json.mkObj (if release.supportsViaIR then
+  let settings := Json.mkObj ((if release.supportsViaIR then
     baseSettings ++ [("viaIR", Json.bool profile.viaIR)]
-  else baseSettings)
+  else baseSettings) ++ experimentalSettings)
   let input := Json.mkObj [
     ("language", Json.str "Solidity"),
     ("settings", settings),
