@@ -694,9 +694,9 @@ private theorem stmtListCompileCore_of_scopeNamesIncluded
       exact .assignVar hvalue
         (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
         (ih hincluded)
-  | require_ hcond hinScope hrest ih =>
+  | require_ hcond hinScope hfits hrest ih =>
       exact .require_ hcond
-        (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
+        (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded) hfits
         (ih hincluded)
   | return_ hvalue hinScope hrest ih =>
       exact .return_ hvalue
@@ -732,9 +732,9 @@ private theorem stmtListTerminalCore_of_scopeNamesIncluded
       exact .assignVar hvalue
         (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
         (ih hincluded)
-  | require_ hcond hinScope hrest ih =>
+  | require_ hcond hinScope hfits hrest ih =>
       exact .require_ hcond
-        (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
+        (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded) hfits
         (ih hincluded)
   | return_ hvalue hinScope hrest =>
       exact .return_ hvalue
@@ -809,6 +809,7 @@ private theorem stmtListGenericCore_require_cons_of_scopeNamesIncluded
     (hcond : FunctionBody.ExprCompileCore cond)
     (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
     (hincluded : FunctionBody.scopeNamesIncluded scope largerScope)
+    (hfits : FunctionBody.requireMessageFits message)
     (htail : StmtListGenericCore fields
       (stmtNextScope largerScope (.require cond message)) rest) :
     StmtListGenericCore fields largerScope (.require cond message :: rest) := by
@@ -817,7 +818,7 @@ private theorem stmtListGenericCore_require_cons_of_scopeNamesIncluded
   exact StmtListGenericCore.cons
     (compiledStmtStep_require (hcore := hcond)
       (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
-      (hfailCompile := hfailCond))
+      (hfailCompile := hfailCond) (hfits := hfits))
     htail
 
 /-- Prepend a compile-core `return` head, checked in a larger scope, to a generic-core
@@ -895,8 +896,8 @@ private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
   | assignVar hvalue hinScope _ ih =>
       exact stmtListGenericCore_assignVar_cons_of_scopeNamesIncluded hvalue hinScope hincluded
         (ih hincluded)
-  | require_ hcond hinScope _ ih =>
-      exact stmtListGenericCore_require_cons_of_scopeNamesIncluded hcond hinScope hincluded
+  | require_ hcond hinScope hfits _ ih =>
+      exact stmtListGenericCore_require_cons_of_scopeNamesIncluded hcond hinScope hincluded hfits
         (ih (scopeNamesIncluded_scope_stmtNextScope hincluded))
   | return_ hvalue hinScope _ ih =>
       exact stmtListGenericCore_return_cons_of_scopeNamesIncluded hvalue hinScope hincluded
@@ -925,8 +926,8 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
   | assignVar hvalue hinScope _ ih =>
       exact stmtListGenericCore_assignVar_cons_of_scopeNamesIncluded hvalue hinScope hincluded
         (ih hincluded)
-  | require_ hcond hinScope _ ih =>
-      exact stmtListGenericCore_require_cons_of_scopeNamesIncluded hcond hinScope hincluded
+  | require_ hcond hinScope hfits _ ih =>
+      exact stmtListGenericCore_require_cons_of_scopeNamesIncluded hcond hinScope hincluded hfits
         (ih (scopeNamesIncluded_scope_stmtNextScope hincluded))
   | return_ hvalue hinScope hrest =>
       exact stmtListGenericCore_return_cons_of_scopeNamesIncluded hvalue hinScope hincluded
@@ -1073,6 +1074,7 @@ theorem stmtStepMatchesIRExec_of_included
     FunctionBody.scopeNamesPresent_of_included hscope hincluded⟩
   · exact hmatch
   · exact hmatch
+  · exact hmatch
 
 theorem stmtStepMatchesIRExecWithInternals_of_included
     {fields : List Field}
@@ -1089,6 +1091,7 @@ theorem stmtStepMatchesIRExecWithInternals_of_included
     FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexact hincluded,
     hbounded,
     FunctionBody.scopeNamesPresent_of_included hscope hincluded⟩
+  · exact hmatch
   · exact hmatch
   · exact hmatch
 
@@ -2349,15 +2352,18 @@ theorem compiledStmtStep_forEach_literal_core
 private theorem stmtListGenericCore_singleton_require_of_compileCore
     {fields : List Field} {scope : List String} {cond : Expr} {message : String}
     (hcond : FunctionBody.ExprCompileCore cond)
-    (hinScope : FunctionBody.exprBoundNamesInScope cond scope) :
+    (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
+    (hfits : FunctionBody.requireMessageFits message) :
     StmtListGenericCore fields scope [Stmt.require cond message] :=
   stmtListGenericCore_of_stmtListCompileCore
-    (FunctionBody.StmtListCompileCore.require_ hcond hinScope FunctionBody.StmtListCompileCore.nil)
+    (FunctionBody.StmtListCompileCore.require_ hcond hinScope hfits
+      FunctionBody.StmtListCompileCore.nil)
 
 private theorem stmtListGenericCore_singleton_requireLiteralGuardFamilyClause
     {fields : List Field}
     {scope : List String}
-    (clause : Verity.Core.Free.RequireLiteralGuardFamilyClause) :
+    (clause : Verity.Core.Free.RequireLiteralGuardFamilyClause)
+    (hfits : FunctionBody.requireMessageFits clause.message) :
     StmtListGenericCore fields scope [clause.toStmt] := by
   obtain ⟨family, n, m, p, q, message⟩ := clause
   have hinScope {cond : Expr} (hnames : FunctionBody.exprBoundNames cond = []) :
@@ -2368,10 +2374,10 @@ private theorem stmtListGenericCore_singleton_requireLiteralGuardFamilyClause
   | binary op =>
       cases op <;>
         exact stmtListGenericCore_singleton_require_of_compileCore (by repeat constructor)
-          (hinScope (by simp [FunctionBody.exprBoundNames]))
+          (hinScope (by simp [FunctionBody.exprBoundNames])) hfits
   | _ =>
       exact stmtListGenericCore_singleton_require_of_compileCore (by repeat constructor)
-        (hinScope (by simp [FunctionBody.exprBoundNames]))
+        (hinScope (by simp [FunctionBody.exprBoundNames])) hfits
 
 theorem stmtListGenericCore_append
     {fields : List Field}
@@ -2437,6 +2443,7 @@ private theorem stmtListGenericCore_of_supportedStmtList_requireClause_of_surfac
     {scope : List String}
     {rest : List Stmt}
     (clause : Verity.Core.Free.RequireLiteralGuardFamilyClause)
+    (hfits : FunctionBody.requireMessageFits clause.message)
     (ihRest :
       stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites rest = false →
         StmtListGenericCore fields scope rest)
@@ -2447,7 +2454,7 @@ private theorem stmtListGenericCore_of_supportedStmtList_requireClause_of_surfac
     Bool.or_eq_false_iff] at hsurface
   apply stmtListGenericCore_append
     (stmtListGenericCore_singleton_requireLiteralGuardFamilyClause
-      (fields := fields) (scope := scope) clause)
+      (fields := fields) (scope := scope) clause hfits)
   simp only [List.foldl, stmtNextScope_requireLiteralGuardFamilyClause clause]
   exact ihRest hsurface.2
 
@@ -2476,13 +2483,14 @@ private theorem stmtListGenericCore_singleton_of_compiledStmtStep
 private theorem stmtListGenericCore_of_supportedStmtList_requireClause_of_surface
     {fields : List Field} {scope : List String} {rest : List Stmt}
     (clause : Verity.Core.Free.RequireLiteralGuardFamilyClause)
+    (hfits : FunctionBody.requireMessageFits clause.message)
     (ihRest : stmtListTouchesUnsupportedContractSurface rest = false →
       StmtListGenericCore fields scope rest)
     (hsurface : stmtListTouchesUnsupportedContractSurface (clause.toStmt :: rest) = false) :
     StmtListGenericCore fields scope (clause.toStmt :: rest) := by
   simp [stmtListTouchesUnsupportedContractSurface] at hsurface
   apply stmtListGenericCore_append
-    (stmtListGenericCore_singleton_requireLiteralGuardFamilyClause clause)
+    (stmtListGenericCore_singleton_requireLiteralGuardFamilyClause clause hfits)
   simp only [List.foldl, stmtNextScope_requireLiteralGuardFamilyClause clause]
   exact ihRest hsurface.2
 
@@ -2517,8 +2525,8 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
   | ite hcond hinScope hthen helse hnoBindThen hnoBindElse =>
       exact stmtListGenericCore_singleton_of_compiledStmtStep
         (compiledStmtStep_ite_core hcond hinScope hthen helse hnoBindThen hnoBindElse)
-  | requireClause clause _ ih =>
-      exact stmtListGenericCore_of_supportedStmtList_requireClause_of_surface clause ih hsurface
+  | requireClause clause hf _ ih =>
+      exact stmtListGenericCore_of_supportedStmtList_requireClause_of_surface clause hf ih hsurface
   | append _ _ ihPrefix ihSuffix =>
       exact stmtListGenericCore_of_supportedStmtList_append_of_surface ihPrefix ihSuffix hsurface
   | _ =>
@@ -2903,9 +2911,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | setStructMember2Single hk1 hsk1 hk2 hsk2 hv hsv hslot hmembers hmember =>
       exact stmtListGenericCore_setStructMember2_of_stmtSafety
         hk1 hsk1 hk2 hsk2 hv hsv hslot hmembers hmember hsafety
-  | requireClause clause hrest ih =>
+  | requireClause clause hfits hrest ih =>
       exact stmtListGenericCore_of_supportedStmtList_requireClause_of_surface_exceptMappingWrites
-        clause (ih (fun stmt hmem => hsafety stmt (List.mem_cons_of_mem _ hmem)) · hrest) hsurface
+        clause hfits (ih (fun stmt hmem => hsafety stmt (List.mem_cons_of_mem _ hmem)) · hrest)
+        hsurface
   | append hpfx hsfx ihPrefix ihSuffix =>
       exact stmtListGenericCore_of_supportedStmtList_append_of_surface_exceptMappingWrites hpfx hsfx
         (ihPrefix (fun stmt hmem => hsafety stmt (List.mem_append_left _ hmem)) · hpfx)
@@ -2950,7 +2959,7 @@ private theorem stmtMappingWriteSlotSafe_of_supportedStmtList
   | setStructMember2Single hk1 hsk1 hk2 hsk2 hv hsv hslot hmembers hmember =>
       exact List.forall_mem_singleton.2 ⟨_, _, _, hslot, hmembers, hmember,
         hsafety.setStructMember2Single hk1 hsk1 hk2 hsk2 hv hsv hslot hmembers hmember⟩
-  | requireClause clause _ ih =>
+  | requireClause clause _ _ ih =>
       refine List.forall_mem_cons.2 ⟨?_, ih⟩
       cases clause
       simp [Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt, StmtMappingWriteSlotSafe]

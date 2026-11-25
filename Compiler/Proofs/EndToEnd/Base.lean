@@ -3857,7 +3857,7 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
   case setStructMember2Single hKey1 _ hKey2 _ hValue _ _ _ _ => exact bridgedSafeStmts_setStructMember2Single_of_safety hKey1 hKey2 hValue hSafety
   case forEachLiteralBounded _ _ body _ _ _ => exact bridgedSafeStmts_forEachLiteralBounded_of_except_mapping_writes body hState
   case forEachLiteralCore _ hBody _ => exact bridgedSafeStmts_forEachLiteralCore_single hBody
-  case requireClause _ _ _ ih => exact bridgedSafeStmts_requireClause_of_except_mapping_writes hSafety hState hCall hEffects ih
+  case requireClause _ _ _ _ ih => exact bridgedSafeStmts_requireClause_of_except_mapping_writes hSafety hState hCall hEffects ih
   case ite hCond _ hThen hElse _ _ => exact bridgedSafeStmts_iteCore_single hCond hThen hElse
   case iteTerminal hCond hBound hThen hElse => exact bridgedSafeStmts_externalTerminalCore (.ite hCond hBound hThen hElse .nil)
   case append _ _ _ _ ihPfx ihSfx => exact bridgedSafeStmts_append_of_except_mapping_writes hSafety hState hCall hEffects ihPfx ihSfx

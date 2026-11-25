@@ -1,3 +1,2 @@
-import Compiler.Proofs.IRGeneration.GenericInduction.ErrorRevert
 import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord

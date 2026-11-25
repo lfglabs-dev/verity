@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
+import Compiler.Proofs.IRGeneration.ErrorStringPayloadIR
 
 set_option linter.unnecessarySimpa false
 set_option linter.unusedSimpArgs false
@@ -564,7 +565,7 @@ def stmtResultMatchesIRExec
   | .stop runtime, .stop state => runtimeStateMatchesIR fields runtime state
   | .return value runtime, .return value' state =>
       value = value' ∧ runtimeStateMatchesIR fields runtime state
-  | .revert _, .revert _ => True
+  | .revert payload, .revert state => payload.encode = state.revertData
   | _, _ => False
 
 def stmtResultToSourceResult
@@ -1647,7 +1648,7 @@ theorem compileStmtList_core_ok
       exact ⟨[], by
         simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
           Pure.pure, Except.pure]⟩
-  | letVar _ _ _ ih | assignVar _ _ _ ih | require_ _ _ _ ih | return_ _ _ _ ih | stop _ ih
+  | letVar _ _ _ ih | assignVar _ _ _ ih | require_ _ _ _ _ ih | return_ _ _ _ ih | stop _ ih
   | mstore _ _ _ _ _ ih | tstore _ _ _ _ _ ih =>
       exact compileStmtList_cons_ok_of_head_ok
         (compileStmt_core_ok_any_scope (by constructor <;> assumption)) ih
@@ -1678,7 +1679,7 @@ theorem compileStmtList_terminal_core_ok
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hterminal generalizing inScopeNames with
-  | letVar _ _ _ ih | assignVar _ _ _ ih | require_ _ _ _ ih | mstore _ _ _ _ _ ih
+  | letVar _ _ _ ih | assignVar _ _ _ ih | require_ _ _ _ _ ih | mstore _ _ _ _ _ ih
   | tstore _ _ _ _ _ ih =>
       exact compileStmtList_cons_ok_of_head_ok
         (compileStmt_core_ok_any_scope (by constructor <;> assumption)) ih
@@ -2828,21 +2829,24 @@ private theorem stmtResultMatches_require_fail_cons_extraFuel
     {cond : Expr} {message : String} {rest : List Stmt} {failCond : YulExpr}
     {tailIR : List YulStmt} {extraFuel : Nat}
     (hsrc : SourceSemantics.evalExpr fields runtime cond = some 0)
-    (hfail : evalIRExpr state failCond = some 1) :
+    (hfail : evalIRExpr state failCond = some 1)
+    (hfits : requireMessageFits message)
+    (hfuel : (CompilationModel.revertWithMessage message).length + 1 ≤
+      tailIR.length + extraFuel) :
     let src := SourceSemantics.execStmtList fields runtime (.require cond message :: rest)
     let irExec := execIRStmts
       (([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR).length +
         extraFuel + 1) state
       ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR)
     stmtResultMatchesIRExec fields src irExec ∧ stmtResultMatchesIRExecExact src irExec := by
-  rcases execIRStmts_revertWithMessage_revert (fuel := tailIR.length + extraFuel)
-      (state := state) message with ⟨revState, hrev⟩
+  rcases execIRStmts_revertWithMessage_revertData_of_fuel message (tailIR.length + extraFuel)
+      state hfits hfuel with ⟨revState, hrev, hbytes⟩
   have hirExec := execIRStmts_cons_of_execIRStmt_revert_extraFuel extraFuel state revState
     (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) tailIR
     (by simp [execIRStmt, hfail, hrev])
   rw [length_singleton_append_add_one, List.singleton_append, hirExec]
   simp [SourceSemantics.execStmtList, SourceSemantics.execStmt, hsrc, stmtResultMatchesIRExec,
-    stmtResultMatchesIRExecExact]
+    stmtResultMatchesIRExecExact, hbytes]
 
 private theorem stmtResultMatches_require_cons_extraFuel
     {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
@@ -2854,7 +2858,10 @@ private theorem stmtResultMatches_require_cons_extraFuel
     (htailSem : stmtResultMatchesIRExec fields (SourceSemantics.execStmtList fields runtime rest)
       (execIRStmts (tailIR.length + extraFuel + 1) state tailIR))
     (htailExact : stmtResultMatchesIRExecExact (SourceSemantics.execStmtList fields runtime rest)
-      (execIRStmts (tailIR.length + extraFuel + 1) state tailIR)) :
+      (execIRStmts (tailIR.length + extraFuel + 1) state tailIR))
+    (hfits : requireMessageFits message)
+    (hfuel : (CompilationModel.revertWithMessage message).length + 1 ≤
+      tailIR.length + extraFuel) :
     let src := SourceSemantics.execStmtList fields runtime (.require cond message :: rest)
     let irExec := execIRStmts
       (([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR).length +
@@ -2864,7 +2871,7 @@ private theorem stmtResultMatches_require_cons_extraFuel
   by_cases hzero : condVal = 0
   · subst hzero
     exact stmtResultMatches_require_fail_cons_extraFuel hsrc
-      (by simpa [hsrc, SourceSemantics.boolWord] using hfail)
+      (by simpa [hsrc, SourceSemantics.boolWord] using hfail) hfits hfuel
   · have hfail0 : evalIRExpr state failCond = some 0 := by
       simpa [hsrc, hzero, SourceSemantics.boolWord] using hfail
     exact stmtResultMatches_cons_continue_extraFuel
@@ -2899,17 +2906,45 @@ private def CoreListExecMatches (fields : List Field) (extraFuel : Nat) (scope :
     ∃ bodyIR,
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR ∧
-      let sourceResult := SourceSemantics.execStmtList fields runtime stmts
-      let irExec := execIRStmts (bodyIR.length + extraFuel + 1) state bodyIR
-      stmtResultMatchesIRExec fields sourceResult irExec ∧
-      stmtResultMatchesIRExecExact sourceResult irExec
+      (sizeOf bodyIR ≤ bodyIR.length + extraFuel →
+        let sourceResult := SourceSemantics.execStmtList fields runtime stmts
+        let irExec := execIRStmts (bodyIR.length + extraFuel + 1) state bodyIR
+        stmtResultMatchesIRExec fields sourceResult irExec ∧
+        stmtResultMatchesIRExecExact sourceResult irExec)
+
+/-- A statement list's `sizeOf` exceeds its length. -/
+theorem yulStmtList_length_succ_le_sizeOf :
+    (stmts : List YulStmt) → stmts.length + 1 ≤ sizeOf stmts
+  | [] => by simp
+  | _ :: rest => by
+      have := yulStmtList_length_succ_le_sizeOf rest
+      simp; omega
+
+/-- The `sizeOf` fuel slack of a statement list covers its tail. -/
+private theorem yulStmtList_sizeOf_fuel_tail {extraFuel : Nat} :
+    (headIR tailIR : List YulStmt) →
+    sizeOf (headIR ++ tailIR) ≤ (headIR ++ tailIR).length + extraFuel →
+    sizeOf tailIR ≤ tailIR.length + extraFuel
+  | [], _, h => by simpa using h
+  | _ :: headIR, tailIR, h =>
+      yulStmtList_sizeOf_fuel_tail headIR tailIR (by simp at h ⊢; omega)
+
+/-- The `sizeOf` fuel slack runs a failing `require`'s whole revert block. -/
+private theorem require_revert_fuel_of_sizeOf {failCond : YulExpr} {message : String}
+    {tailIR : List YulStmt} {extraFuel : Nat}
+    (h : sizeOf ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR) ≤
+      ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR).length +
+        extraFuel) :
+    (CompilationModel.revertWithMessage message).length + 1 ≤ tailIR.length + extraFuel := by
+  have := yulStmtList_length_succ_le_sizeOf (CompilationModel.revertWithMessage message)
+  simp at h; omega
 
 private theorem coreListExecMatches_nil {fields : List Field} {extraFuel : Nat}
     {scope : List String} : CoreListExecMatches fields extraFuel scope [] := by
   intro runtime state inScopeNames _ hexact hbounded hruntime
   refine ⟨[], by
     simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
-      Pure.pure, Except.pure], ?_⟩
+      Pure.pure, Except.pure], fun _ => ?_⟩
   constructor
   · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
   · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
@@ -2931,9 +2966,10 @@ private theorem coreListExecMatches_letVar
       (bindingsExactlyMatchIRVars_setVar_bindValue hexact name v)
       (bindingsBounded_bindValue hbounded name v hlt)
       (runtimeStateMatchesIR_setVar_bindValue hruntime name v) with
-    ⟨tailIR, htailCompile, htailSem, htailExact⟩
+    ⟨tailIR, htailCompile, htail⟩
   refine ⟨_, compileStmtList_core_cons_ok
-    (compileStmt_letVar_eq_of_compileExpr hvalueIR) htailCompile, ?_⟩
+    (compileStmt_letVar_eq_of_compileExpr hvalueIR) htailCompile, fun hfuel => ?_⟩
+  obtain ⟨htailSem, htailExact⟩ := htail (yulStmtList_sizeOf_fuel_tail _ _ hfuel)
   exact stmtResultMatches_cons_continue_extraFuel (execStmtList_letVar_cons_eq hsrc)
     (by simp [execIRStmt, hIR]) htailSem htailExact
 
@@ -2954,9 +2990,10 @@ private theorem coreListExecMatches_assignVar
       (bindingsExactlyMatchIRVars_setVar_bindValue hexact name v)
       (bindingsBounded_bindValue hbounded name v hlt)
       (runtimeStateMatchesIR_setVar_bindValue hruntime name v) with
-    ⟨tailIR, htailCompile, htailSem, htailExact⟩
+    ⟨tailIR, htailCompile, htail⟩
   refine ⟨_, compileStmtList_core_cons_ok
-    (compileStmt_assignVar_eq_of_compileExpr hvalueIR) htailCompile, ?_⟩
+    (compileStmt_assignVar_eq_of_compileExpr hvalueIR) htailCompile, fun hfuel => ?_⟩
+  obtain ⟨htailSem, htailExact⟩ := htail (yulStmtList_sizeOf_fuel_tail _ _ hfuel)
   exact stmtResultMatches_cons_continue_extraFuel (execStmtList_assignVar_cons_eq hsrc)
     (by simp [execIRStmt, hIR]) htailSem htailExact
 
@@ -2964,6 +3001,7 @@ private theorem coreListExecMatches_require
     {fields : List Field} {extraFuel : Nat} {scope : List String} {cond : Expr}
     {message : String} {rest : List Stmt}
     (hcond : ExprCompileCore cond) (hinScope : exprBoundNamesInScope cond scope)
+    (hfits : requireMessageFits message)
     (ih : CoreListExecMatches fields extraFuel scope rest) :
     CoreListExecMatches fields extraFuel scope (.require cond message :: rest) := by
   intro runtime state inScopeNames hscope hexact hbounded hruntime
@@ -2976,10 +3014,12 @@ private theorem coreListExecMatches_require
     ⟨failCond, hfailCompile, hfailEval⟩
   rcases ih runtime state (collectStmtBindNames (.require cond message) ++ inScopeNames)
       hscope hexact hbounded hruntime with
-    ⟨tailIR, htailCompile, htailSem, htailExact⟩
+    ⟨tailIR, htailCompile, htail⟩
   refine ⟨_, compileStmtList_core_cons_ok
-    (compileStmt_require_eq_of_compileRequireFailCond hfailCompile) htailCompile, ?_⟩
-  exact stmtResultMatches_require_cons_extraFuel hCondSrc hfailEval htailSem htailExact
+    (compileStmt_require_eq_of_compileRequireFailCond hfailCompile) htailCompile, fun hfuel => ?_⟩
+  obtain ⟨htailSem, htailExact⟩ := htail (yulStmtList_sizeOf_fuel_tail _ _ hfuel)
+  exact stmtResultMatches_require_cons_extraFuel hCondSrc hfailEval htailSem htailExact hfits
+    (require_revert_fuel_of_sizeOf hfuel)
 
 private theorem coreListExecMatches_return
     {fields : List Field} {extraFuel : Nat} {scope : List String} {value : Expr}
@@ -2995,7 +3035,7 @@ private theorem coreListExecMatches_return
       (inScopeNames := collectStmtBindNames (.return value) ++ inScopeNames) hrest with
     ⟨tailIR, htailCompile⟩
   refine ⟨_, compileStmtList_core_cons_ok
-    (compileStmt_return_eq_of_compileExpr hvalueIR) htailCompile, ?_⟩
+    (compileStmt_return_eq_of_compileExpr hvalueIR) htailCompile, fun _ => ?_⟩
   exact stmtResultMatches_return_cons_extraFuel hIR hsrc hlt hexact hbounded hruntime
 
 private theorem coreListExecMatches_stop
@@ -3007,7 +3047,7 @@ private theorem coreListExecMatches_stop
       (inScopeNames := collectStmtBindNames (.stop) ++ inScopeNames) hrest with
     ⟨tailIR, htailCompile⟩
   exact ⟨_, compileStmtList_core_cons_ok compileStmt_stop_eq htailCompile,
-    stmtResultMatches_stop_cons_extraFuel hexact hbounded hruntime⟩
+    fun _ => stmtResultMatches_stop_cons_extraFuel hexact hbounded hruntime⟩
 
 private theorem coreListExecMatches_mstore
     {fields : List Field} {extraFuel : Nat} {scope : List String} {offset value : Expr}
@@ -3028,9 +3068,10 @@ private theorem coreListExecMatches_mstore
       (collectStmtBindNames (.mstore offset value) ++ inScopeNames)
       hscope (bindingsExactlyMatchIRVars_setMemory hexact o v) hbounded
       (runtimeStateMatchesIR_writePhysicalMemoryValue hruntime o v) with
-    ⟨tailIR, htailCompile, htailSem, htailExact⟩
+    ⟨tailIR, htailCompile, htail⟩
   refine ⟨_, compileStmtList_core_cons_ok
-    (compileStmt_mstore_eq_of_compileExpr hoffsetIR hvalueIR) htailCompile, ?_⟩
+    (compileStmt_mstore_eq_of_compileExpr hoffsetIR hvalueIR) htailCompile, fun hfuel => ?_⟩
+  obtain ⟨htailSem, htailExact⟩ := htail (yulStmtList_sizeOf_fuel_tail _ _ hfuel)
   exact stmtResultMatches_cons_continue_extraFuel (execStmtList_mstore_cons_eq hoffSrc hvalSrc)
     (by simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, Nat.mod_eq_of_lt hoffLt])
     htailSem htailExact
@@ -3056,9 +3097,10 @@ private theorem coreListExecMatches_tstore
       (collectStmtBindNames (.tstore offset value) ++ inScopeNames)
       hscope (bindingsExactlyMatchIRVars_setTransientStorage hexact _ v) hbounded
       (runtimeStateMatchesIR_setTransientStorage hruntime _ v hvalLt) with
-    ⟨tailIR, htailCompile, htailSem, htailExact⟩
+    ⟨tailIR, htailCompile, htail⟩
   refine ⟨_, compileStmtList_core_cons_ok
-    (compileStmt_tstore_eq_of_compileExpr hoffsetIR hvalueIR) htailCompile, ?_⟩
+    (compileStmt_tstore_eq_of_compileExpr hoffsetIR hvalueIR) htailCompile, fun hfuel => ?_⟩
+  obtain ⟨htailSem, htailExact⟩ := htail (yulStmtList_sizeOf_fuel_tail _ _ hfuel)
   exact stmtResultMatches_cons_continue_extraFuel (execStmtList_tstore_cons_eq hoffSrc hvalSrc)
     (by simp [execIRStmt, evalIRExprs, hIROffset, hIRValue]) htailSem htailExact
 
@@ -3074,42 +3116,23 @@ theorem exec_compileStmtList_core_extraFuel
     ∃ bodyIR,
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR ∧
-      let sourceResult := SourceSemantics.execStmtList fields runtime stmts
-      let irExec := execIRStmts (bodyIR.length + extraFuel + 1) state bodyIR
-      stmtResultMatchesIRExec fields sourceResult irExec ∧
-      stmtResultMatchesIRExecExact sourceResult irExec := by
+      (sizeOf bodyIR ≤ bodyIR.length + extraFuel →
+        let sourceResult := SourceSemantics.execStmtList fields runtime stmts
+        let irExec := execIRStmts (bodyIR.length + extraFuel + 1) state bodyIR
+        stmtResultMatchesIRExec fields sourceResult irExec ∧
+        stmtResultMatchesIRExecExact sourceResult irExec) := by
   have key : CoreListExecMatches fields extraFuel scope stmts := by
     clear hscope
     induction hcore with
     | nil => exact coreListExecMatches_nil
     | letVar hv hs _ ih => exact coreListExecMatches_letVar hv hs ih
     | assignVar hv hs _ ih => exact coreListExecMatches_assignVar hv hs ih
-    | require_ hc hs _ ih => exact coreListExecMatches_require hc hs ih
+    | require_ hc hs hf _ ih => exact coreListExecMatches_require hc hs hf ih
     | return_ hv hs hrest => exact coreListExecMatches_return hv hs hrest
     | stop hrest => exact coreListExecMatches_stop hrest
     | mstore ho hso hv hsv _ ih => exact coreListExecMatches_mstore ho hso hv hsv ih
     | tstore ho hso hv hsv _ ih => exact coreListExecMatches_tstore ho hso hv hsv ih
   exact key runtime state inScopeNames hscope hexact hbounded hruntime
-
-theorem exec_compileStmtList_core
-    {fields : List Field}
-    {runtime : SourceSemantics.RuntimeState}
-    {state : IRState}
-    {scope inScopeNames : List String}
-    {stmts : List Stmt}
-    (hcore : StmtListCompileCore scope stmts)
-    (hscope : scopeNamesPresent scope runtime.bindings)
-    (hexact : bindingsExactlyMatchIRVars runtime.bindings state)
-    (hbounded : bindingsBounded runtime.bindings)
-    (hruntime : runtimeStateMatchesIR fields runtime state) :
-    ∃ bodyIR,
-      CompilationModel.compileStmtList
-        fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR ∧
-      let sourceResult := SourceSemantics.execStmtList fields runtime stmts
-      let irExec := execIRStmts (bodyIR.length + 1) state bodyIR
-      stmtResultMatchesIRExec fields sourceResult irExec ∧
-      stmtResultMatchesIRExecExact sourceResult irExec := by
-  exact exec_compileStmtList_core_extraFuel 0 hcore hscope hexact hbounded hruntime
 
 private theorem compiled_terminal_ite_body_thenBranch_extraFuel_eq
     (extraFuel : Nat)
@@ -3645,7 +3668,7 @@ theorem execStmtList_terminal_core_not_continue
     ∀ next, SourceSemantics.execStmtList fields runtime stmts ≠ .continue next := by
   induction hterminal generalizing runtime with
   | ite _ _ _ _ _ ihThen ihElse => exact execStmtList_ite_cons_not_continue ihThen ihElse
-  | require_ hcond hinScope hrest ih =>
+  | require_ hcond hinScope _ hrest ih =>
       intro next
       simp only [SourceSemantics.execStmtList, SourceSemantics.execStmt]
       cases heval : SourceSemantics.evalExpr fields runtime _ with
@@ -4248,6 +4271,30 @@ private theorem execIRStmts_if_revertWithMessage_append_wholeFuel
     (sizeOf_singleton_append_extraFuel_ne_zero _ _ _) hfail (by decide)]
   exact hrev
 
+/-- `execIRStmts_if_revertWithMessage_append_wholeFuel` with the bytes: the
+`sizeOf` fuel runs the whole revert block, which returns the `Error(string)`
+payload. -/
+private theorem execIRStmts_if_revertWithMessage_append_wholeFuel_revertData
+    {state : IRState} {failCond : YulExpr} {message : String} {tailIR : List YulStmt}
+    {extraFuel : Nat}
+    (hfail : evalIRExpr state failCond = some 1) (hfits : requireMessageFits message) :
+    ∃ revState,
+      execIRStmts
+          (sizeOf ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR) +
+            extraFuel + 1) state
+          ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR) =
+        .revert revState ∧
+      revState.revertData = Compiler.CompilationModel.Denote.errorStringBytes message := by
+  have hlen := yulStmtList_length_succ_le_sizeOf (CompilationModel.revertWithMessage message)
+  rcases execIRStmts_revertWithMessage_revertData_of_fuel message
+      (sizeOf ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++
+        tailIR) + extraFuel - 1) state hfits (by simp; omega) with ⟨revState, hrev, hbytes⟩
+  refine ⟨revState, execIRStmts_singleton_append_of_execIRStmt_revert_wholeFuel _ _ _ _ _ ?_,
+    hbytes⟩
+  rw [execIRStmt_if_true_of_eval_nonzeroFuel _ _ _ _ _
+    (sizeOf_singleton_append_extraFuel_ne_zero _ _ _) hfail (by decide)]
+  exact hrev
+
 theorem execIRStmts_compiled_require_core_pass_append_wholeFuel_of_scope
     {fields : List Field}
     {runtime : SourceSemantics.RuntimeState}
@@ -4725,7 +4772,8 @@ private theorem stmtResultMatches_require_cons_sizeOf
     (htailSem : stmtResultMatchesIRExec fields (SourceSemantics.execStmtList fields runtime rest)
       (execIRStmts (sizeOf tailIR + (extraFuel +
         sizeOf (YulStmt.if_ failCond (CompilationModel.revertWithMessage message))) + 1)
-        state tailIR)) :
+        state tailIR))
+    (hfits : requireMessageFits message) :
     stmtResultMatchesIRExec fields
       (SourceSemantics.execStmtList fields runtime (.require cond message :: rest))
       (execIRStmts
@@ -4734,11 +4782,13 @@ private theorem stmtResultMatches_require_cons_sizeOf
         ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR)) := by
   by_cases hzero : condVal = 0
   · subst hzero
-    rcases execIRStmts_if_revertWithMessage_append_wholeFuel (message := message)
+    rcases execIRStmts_if_revertWithMessage_append_wholeFuel_revertData (message := message)
         (tailIR := tailIR) (extraFuel := extraFuel)
-        (by simpa [hsrc, SourceSemantics.boolWord] using hfail) with ⟨revState, hrev⟩
+        (by simpa [hsrc, SourceSemantics.boolWord] using hfail) hfits with
+      ⟨revState, hrev, hbytes⟩
     rw [hrev]
-    simp [SourceSemantics.execStmtList, SourceSemantics.execStmt, hsrc, stmtResultMatchesIRExec]
+    simp [SourceSemantics.execStmtList, SourceSemantics.execStmt, hsrc, stmtResultMatchesIRExec,
+      hbytes]
   · have hfail0 : evalIRExpr state failCond = some 0 := by
       simpa [hsrc, hzero, SourceSemantics.boolWord] using hfail
     exact stmtResultMatches_cons_continue_sizeOf
@@ -4927,6 +4977,7 @@ private theorem terminalListExecMatches_require
     {fields : List Field} {scope : List String} {cond : Expr} {message : String}
     {rest : List Stmt}
     (hcond : ExprCompileCore cond) (hinScope : exprBoundNamesInScope cond scope)
+    (hfits : requireMessageFits message)
     (ih : TerminalListExecMatches fields scope rest) :
     TerminalListExecMatches fields scope (.require cond message :: rest) := by
   intro extraFuel runtime state inScopeNames hincluded hscope hexact hbounded hruntime
@@ -4943,7 +4994,7 @@ private theorem terminalListExecMatches_require
     ⟨tailIR, htailCompile, htailSem⟩
   refine ⟨_, compileStmtList_core_cons_ok
     (compileStmt_require_eq_of_compileRequireFailCond hfailCompile) htailCompile, ?_⟩
-  exact stmtResultMatches_require_cons_sizeOf hCondSrc hfailEval htailSem
+  exact stmtResultMatches_require_cons_sizeOf hCondSrc hfailEval htailSem hfits
 
 private theorem terminalListExecMatches_return
     {fields : List Field} {scope : List String} {value : Expr} {rest : List Stmt}
@@ -5078,7 +5129,7 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
     induction hterminal with
     | letVar hv hs _ ih => exact terminalListExecMatches_letVar hv hs ih
     | assignVar hv hs _ ih => exact terminalListExecMatches_assignVar hv hs ih
-    | require_ hc hs _ ih => exact terminalListExecMatches_require hc hs ih
+    | require_ hc hs hf _ ih => exact terminalListExecMatches_require hc hs hf ih
     | return_ hv hs hrest => exact terminalListExecMatches_return hv hs hrest
     | stop hrest => exact terminalListExecMatches_stop hrest
     | mstore ho hso hv hsv _ ih => exact terminalListExecMatches_mstore ho hso hv hsv ih

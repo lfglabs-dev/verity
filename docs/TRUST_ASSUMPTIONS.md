@@ -52,7 +52,10 @@ establish general Solidity memory or ABI-decoder correctness. The proof-layer
 source semantics carries the same bytes as the payload of `StmtResult.revert`
 (`.raw` of Denote's bytes; `.empty` where Denote's data-free `.revert` marks an
 unsupported or failed evaluation), so `DenoteAgreement` relates revert bytes
-exactly. The source-to-IR theorem does not compare them yet.
+exactly. The source-to-IR step relations compare them with the IR's `revertData`
+(`require`, `revertEmpty`, `revertMemory`, `revertReturndata`, failed evaluations); the
+top-level contract result relation (`sourceResultMatchesIRResult`) does not yet. Custom
+errors are outside the proved fragment.
 
 Only a syntactic `requireError (literal 0)` receives terminal custom-error
 metadata. `Verity/Core/Model/DenoteErrorGuard.lean` establishes metadata

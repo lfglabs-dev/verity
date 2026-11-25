@@ -311,6 +311,30 @@ theorem execIRStmts_revertWithMessage_revertData (message : String) (fuel : Nat)
   rw [IRState.recordRevert_revertData _ _ _ (by simp [errorStringPayloadSize]), ← hslice]
   simp [revertBytes, Compiler.CompilationModel.DenoteMemory.Memory.slice, errorStringPayloadSize]
 
+/-- The ECM model's `revertWithMessage` is the compiler's: the same statements,
+over the module's own copies of the byte helpers. -/
+theorem ecm_revertWithMessage_eq (message : String) :
+    revertWithMessage message = Compiler.CompilationModel.revertWithMessage message := by
+  simp only [revertWithMessage, Compiler.CompilationModel.revertWithMessage, ecm_chunker_eq]
+  rfl
+
+/-- `execIRStmts_revertWithMessage_revertData` at any fuel above the statement
+count, the form the fuel-generic statement proofs consume. -/
+theorem execIRStmts_revertWithMessage_revertData_of_fuel (message : String) (fuel : Nat)
+    (state : IRState)
+    (extent : 68 + 32 * (Compiler.CompilationModel.chunkBytes32
+      (Compiler.CompilationModel.bytesFromString message)).length ≤ Verity.Core.Uint256.modulus)
+    (hfuel : (Compiler.CompilationModel.revertWithMessage message).length + 1 ≤ fuel) :
+    ∃ finalState,
+      execIRStmts fuel state (Compiler.CompilationModel.revertWithMessage message) =
+        .revert finalState ∧
+      finalState.revertData = Compiler.CompilationModel.Denote.errorStringBytes message := by
+  rw [← ecm_revertWithMessage_eq] at hfuel ⊢
+  rw [revertWithMessage_shape, List.length_append, List.length_singleton] at hfuel
+  obtain ⟨k, rfl⟩ : ∃ k, fuel = (errorStringStmts message).length + k + 2 :=
+    ⟨fuel - ((errorStringStmts message).length + 2), by omega⟩
+  exact execIRStmts_revertWithMessage_revertData message k state extent
+
 /-! ## Pointer-based stores
 
 Event payloads and ABI tails write through a base pointer
@@ -344,7 +368,7 @@ theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
         .continue (PhysicalPayloadStores.applyStores state
           (writes.map fun ow =>
             ((p + ow.1) % Compiler.Constants.evmModulus, ow.2)))
-  | [], _, state, _ => by simp [execIRStmts, PhysicalPayloadStores.applyStores]
+  | [], _, state, _ => by simp [PhysicalPayloadStores.applyStores]
   | (o, w) :: rest, fuel, state, hptr => by
       have hptr' : (state.writePhysicalMemoryValue
           ((p + o) % Compiler.Constants.evmModulus) w).getVar ptrName = some p := hptr

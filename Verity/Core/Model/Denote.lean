@@ -326,6 +326,13 @@ inductive StmtOutcome where
 def wordBytes (value : Nat) : List UInt8 :=
   (List.range 32).map fun i => UInt8.ofNat (value / 2^(8*(31-i)) % 256)
 
+/-- The bytes `revertReturndata` (`returndatacopy(0, 0, returndatasize())` then
+`revert(0, returndatasize())`) returns from a buffer of words. `returndatasize()` is a
+256-bit word, so the copied length is `32 * |words|` modulo `2^256`; for any buffer an
+EVM can hold that is the whole buffer. -/
+def returndataRevertBytes (words : List Nat) : List UInt8 :=
+  (words.flatMap wordBytes).take (32 * words.length % 2 ^ 256)
+
 /-- Exact Solidity `Panic(uint256)` revert encoding. -/
 def panicBytes (code : Nat) : List UInt8 :=
   [0x4e, 0x48, 0x7b, 0x71] ++ wordBytes code
@@ -2332,7 +2339,7 @@ mutual
             | none => .revert
     | _, .revertEmpty => .revertWithData []
     | state, .revertReturndata => .revertWithData
-        (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes))
+        (state.rawReturndata.getD (returndataRevertBytes state.world.returndata))
     | state, .revertMemory offset size =>
         match evalExpr oracle fields state offset, evalExpr oracle fields state size with
         | some off, some sz =>
