@@ -265,12 +265,14 @@ solidity_import baseOnly from "Contracts/SolidityImportSmoke" entry "TransientSt
 
 -- A full-word Yul local in a modifier is transient-neutral (#2915): the root imports and
 -- writes `number` into a clean or dirty packed slot as solc does (both pipelines).
-solidity_import fullWordModifierIr from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
+solidity_import fullWordModifierIr from "Contracts/SolidityImportSmoke"
+  entry "TransientStateVarSequence.sol"
   using irProfile
   contract TransientStateVarSequence
   function rawInModifier()
 
-solidity_import fullWordModifierLegacy from "Contracts/SolidityImportSmoke" entry "TransientStateVarSequence.sol"
+solidity_import fullWordModifierLegacy from "Contracts/SolidityImportSmoke"
+  entry "TransientStateVarSequence.sol"
   using legacyProfile
   contract TransientStateVarSequence
   function rawInModifier()
