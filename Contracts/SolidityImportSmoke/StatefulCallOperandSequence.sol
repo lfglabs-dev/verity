@@ -7,11 +7,12 @@ library WordDoubling {
     }
 }
 
-// A stateful helper call as the right operand of `+` beside a local or parameter identifier,
-// and as the lone argument (or using-for receiver) of a helper, in a contract with a single
-// state variable. change(x) selects a case by x % 4 and drives it with y = x / 4: `bump` writes
-// the state variable and returns it, `readPlus` reads it after its argument ran. Large inputs
-// overflow the checked arithmetic (Panic 0x11) inside or after the call.
+// A stateful helper call as the right operand of `+` beside a local or parameter identifier
+// (also a helper parameter bound to `block.chainid`), and as the lone argument (or using-for
+// receiver) of a helper, in a contract with a single state variable. change(x) selects a case
+// by x % 5 and drives it with y = x / 5: `bump` writes the state variable and returns it,
+// `readPlus` reads it after its argument ran. Large inputs overflow the checked arithmetic
+// (Panic 0x11) inside or after the call. The chain id is subtracted again before it is stored.
 // `StatefulCallOperandSolc0810Sequence` is the same contract under solc 0.8.10, which the
 // stateful harness compiles with the legacy pipeline; this one runs via-IR.
 contract SequenceFixture {
@@ -28,9 +29,13 @@ contract SequenceFixture {
         return v * 1000 + stored;
     }
 
+    function bumpAfter(uint256 p) internal returns (uint256) {
+        return p + bump(3);
+    }
+
     function change(uint256 x) external {
-        uint256 c = x % 4;
-        uint256 y = x / 4;
+        uint256 c = x % 5;
+        uint256 y = x / 5;
         uint256 r;
         if (c == 0) {
             r = y + bump(1);
@@ -38,8 +43,11 @@ contract SequenceFixture {
             r = x + bump(2);
         } else if (c == 2) {
             r = readPlus(bump(y));
-        } else {
+        } else if (c == 3) {
             r = bump(y).twice();
+        } else {
+            uint256 t = bumpAfter(block.chainid);
+            r = t - block.chainid;
         }
         stored = r;
     }

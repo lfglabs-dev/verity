@@ -4821,7 +4821,8 @@ private partial def lowerBinary (j : Json) : M Val := do
      (((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
       !statefulCallIn leftNode env && !assignmentIn leftNode))) ||
     -- `local + helper()`: legacy evaluates the right operand first, via-IR the left one. A
-    -- left identifier bound to a local or parameter (or to a literal or immutable value), or
+    -- left identifier bound to a local or parameter (or to a literal, an immutable or a
+    -- transaction-context value such as `block.timestamp`, not `address(this).balance`), or
     -- naming a constant (contract or file level) or an `immutable` state variable, reads a
     -- value no call can change, so both orders agree with solc for any state-variable count.
     -- A mutable state variable is not admitted: `total + bump()` with `bump` writing `total`
@@ -4829,7 +4830,8 @@ private partial def lowerBinary (j : Json) : M Val := do
     (op == "+" && (← mKind leftNode) == "Identifier" &&
       ((field? leftNode "referencedDeclaration").bind (·.getNat?.toOption)).any (fun id =>
         (env.values.find? id).any (fun
-          | .localVar _ | .param _ | .literal _ | .immutable _ => true
+          | .localVar _ | .param _ | .literal _ | .immutable _ | .blockTimestamp | .blockNumber
+          | .caller | .contractAddress | .chainid | .txOrigin | .baseFee | .gasPrice => true
           | _ => false) ||
         env.numericConstants.contains id ||
         (env.stateVars.find? id).any (fun decl => optStr decl "mutability" == some "immutable")))
