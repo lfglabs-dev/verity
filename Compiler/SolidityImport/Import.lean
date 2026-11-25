@@ -20064,7 +20064,11 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
                 | none => vname
               modify fun e =>
                 let userValueTypeById := e.userValueTypeById.insert id uTy
-                let userValueTypes := e.userValueTypes.insert qualName uTy |>.insert vname uTy
+                let userValueTypes := e.userValueTypes.insert qualName uTy
+                let userValueTypes :=
+                  if contract?.isNone || !userValueTypes.contains vname then
+                    userValueTypes.insert vname uTy
+                  else userValueTypes
                 { e with userValueTypeById, userValueTypes }
           | "EventDefinition" =>
               modify fun e => { e with eventDecls := e.eventDecls.insert id j }

@@ -332,15 +332,31 @@ def mArr (j : Json) : M (Array Json) := liftM (arr j)
 def mBool (j : Json) : M Bool := liftM (bool j)
 def mNat (j : Json) : M Nat := liftM (flexNat j)
 def mKind (j : Json) : M String := liftM (nodeKind j)
+/-- Declaration id from a scalar or array `t_userDefinedValueType$_..._$<id>` `typeIdentifier`.
+`solc` escapes `$` inside the identifier as `$$$`, so after `"t_userDefinedValueType$_"` the
+first `"_$"`-delimited segment that parses as a `Nat` is the AST declaration id. -/
+private def udvtDeclIdFromTypeIdentifier? (tid : String) : Option Nat :=
+  if tid.startsWith "t_userDefinedValueType$_" || tid.startsWith "t_array$_" then
+    match tid.splitOn "t_userDefinedValueType$_" with
+    | _ :: after :: _ => (after.splitOn "_$").tail.findSome? String.toNat?
+    | _ => none
+  else none
+
 def mType (j : Json) : M String := do
   let raw ← liftM (typeString j)
   let env ← get
+  let tid? := (field? j "typeDescriptions").bind (optStr · "typeIdentifier")
+  let byId? := tid?.bind udvtDeclIdFromTypeIdentifier? |>.bind env.userValueTypeById.find?
+  if tid?.any (·.startsWith "t_userDefinedValueType$_") then
+    if let some u := byId? then
+      return u
   if let some u := env.userValueTypes.find? raw then
     return u
   let parts := raw.splitOn "["
   if let h :: t := parts then
-    if let some u := env.userValueTypes.find? h then
-      return String.intercalate "[" (u :: t)
+    if !t.isEmpty then
+      if let some u := byId? <|> env.userValueTypes.find? h then
+        return String.intercalate "[" (u :: t)
   return raw
 
 /-- `Contract.function` frames of the current inlining stack, root first. -/

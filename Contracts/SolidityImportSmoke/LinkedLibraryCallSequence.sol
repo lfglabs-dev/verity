@@ -17,6 +17,10 @@ enum Mode {
 
 type Narrow8 is uint8;
 
+library WideShadowLib {
+    type Narrow8 is uint256;
+}
+
 library LinkedPackLib {
     event Packed(address indexed caller, uint256 word);
 
