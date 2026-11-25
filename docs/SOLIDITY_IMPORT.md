@@ -87,9 +87,8 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   `evmVersion := "amsterdam"`, passed to solc as `@future`), 0.8.38 (up to
   `"osaka"`), 0.8.28, 0.8.26, 0.8.10 and 0.7.6 releases. 0.8.28 (`evmVersion`
   up to `"prague"`) and 0.8.26 (up to `"cancun"`) serve sources whose pragma
-  pins them. 0.8.10 requires
-  `viaIR := false` and `evmVersion` up to `"london"`; the experimental 0.7.6
-  boundary is described below.
+  pins them. 0.8.10 requires `viaIR := false` and `evmVersion` up to
+  `"london"`; the experimental 0.7.6 boundary is described below.
 - Each `function` clause selects one root by name and Solidity parameter types.
   A struct may be qualified (`IMidnight.Market`). Roots are lowered
   independently and share one field list.
