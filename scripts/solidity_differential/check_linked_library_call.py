@@ -53,9 +53,9 @@ PANIC_OVERFLOW = '0x' + (selector_of('Panic(uint256)') + (0x11).to_bytes(32, 'bi
 PANIC_DIVISION = '0x' + (selector_of('Panic(uint256)') + (0x12).to_bytes(32, 'big')).hex()
 
 SIGNATURES = {
-    'setScope': ('setScope(bytes32,address,uint8)', ['bytes32', 'address', 'uint256']),
-    'setScopeLogged': ('setScopeLogged(bytes32,address,uint8)', ['bytes32', 'address', 'uint256']),
-    'scope': ('scope(bytes32)', ['bytes32']),
+    'setConfig': ('setConfig(bytes32,address,uint8)', ['bytes32', 'address', 'uint256']),
+    'setConfigLogged': ('setConfigLogged(bytes32,address,uint8)', ['bytes32', 'address', 'uint256']),
+    'word': ('word(bytes32)', ['bytes32']),
     'bump': ('bump(bytes32,uint256)', ['bytes32', 'uint256']),
     'bumpMain': ('bumpMain(uint256)', ['uint256']),
     'bumpPacked': ('bumpPacked(bytes32,uint256,address)', ['bytes32', 'uint256', 'address']),
@@ -88,18 +88,18 @@ def transactions_for(count, seed, contract):
             expected[str(index)] = expect
 
     def observe(key):
-        for name in ('total', 'last', 'calls', 'scope'):
+        for name in ('total', 'last', 'calls', 'word'):
             add(name, [key])
         add('mainState', [])
 
-    for options in range(4):
-        add('setScope', [keys[0], pointers[options % 3], options], expect=('ok', None))
-        add('setScopeLogged', [keys[1], pointers[(options + 1) % 3], options], expect=('ok', None))
+    for mode in range(4):
+        add('setConfig', [keys[0], pointers[mode % 3], mode], expect=('ok', None))
+        add('setConfigLogged', [keys[1], pointers[(mode + 1) % 3], mode], expect=('ok', None))
         observe(keys[0])
         observe(keys[1])
-    for options in (4, 5, 255, 2 ** 256 - 1):
-        add('setScope', [keys[2], pointers[0], options], expect=('revert', '0x'))
-        add('setScopeLogged', [keys[2], pointers[0], options], expect=('revert', '0x'))
+    for mode in (4, 5, 255, 2 ** 256 - 1):
+        add('setConfig', [keys[2], pointers[0], mode], expect=('revert', '0x'))
+        add('setConfigLogged', [keys[2], pointers[0], mode], expect=('revert', '0x'))
     observe(keys[2])
     for sender in SENDERS:
         add('bump', [keys[0], 5], sender, expect=('ok', None))
@@ -130,9 +130,9 @@ def transactions_for(count, seed, contract):
         choice = rng.randrange(8)
         amount = rng.choice([0, 1, 7, 2 ** 64, HALF - 1, HALF, HALF + 1, rng.getrandbits(256)])
         if choice == 0:
-            add('setScope', [key, rng.choice(pointers), rng.choice([0, 1, 2, 3, 3, 4])], sender)
+            add('setConfig', [key, rng.choice(pointers), rng.choice([0, 1, 2, 3, 3, 4])], sender)
         elif choice == 1:
-            add('setScopeLogged', [key, rng.choice(pointers), rng.randrange(6)], sender)
+            add('setConfigLogged', [key, rng.choice(pointers), rng.randrange(6)], sender)
         elif choice == 2:
             add('bump', [key, amount], sender)
         elif choice == 3:
@@ -182,7 +182,7 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
                   if line.startswith('  function ')]
     # The enum parameter's ABI type is uint8.
     write_json(directory / 'selectors.json',
-               [int(identifiers[s.replace('CallOptions', 'uint8')], 16) for s in signatures])
+               [int(identifiers[s.replace('Mode', 'uint8')], 16) for s in signatures])
     command(['lake', 'env', 'lean', '--run', driver, 'compile', directory / 'selectors.json',
              directory / 'model.yul'], timeout=900, log=directory / 'compile.log')
     generated = solc_compile({
@@ -256,8 +256,8 @@ def main():
     output.mkdir(parents=True, exist_ok=args.output is None)
     if args.negative_control:
         source = FIXTURE.read_text()
-        mutated = source.replace('(uint256(options) << 160) | uint160(pointer);\n    }\n\n    function packLogged',
-                                 '(uint256(options) << 161) | uint160(pointer);\n    }\n\n    function packLogged')
+        mutated = source.replace('(uint256(mode) << 160) | uint160(pointer);\n    }\n\n    function packLogged',
+                                 '(uint256(mode) << 161) | uint160(pointer);\n    }\n\n    function packLogged')
         if mutated == source:
             raise HarnessError('negative control anchor missing')
         code, _ = campaign(output, source, DRIVER.read_text(), args.transactions, args.seed, 20,

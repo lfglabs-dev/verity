@@ -74,7 +74,8 @@ a `public` or `external` library function called from outside its library,
 directly (`L.f(...)`) or through `using L for T`. `solc` emits a `DELEGATECALL`
 to the library address linked at deployment, whose code the source does not
 determine (the body may be a stub for bytecode produced by another toolchain),
-so the call is never inlined. -/
+so the call is not inlined unless the import states `Profile.linkedLibrariesMatchSource`
+(see `linkedLibraryParamKind` and `linkedLibraryFrameHazard?`). -/
 def isLibraryDelegateCall (callee : Json) : Bool :=
   match jsonStrField? ((jsonField? callee "typeDescriptions").getD Json.null) "typeIdentifier" with
   | some tid => isDelegateCallTypeIdentifier tid

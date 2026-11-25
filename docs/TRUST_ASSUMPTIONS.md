@@ -2176,14 +2176,17 @@ assumption:
   nested linked call, is linked to an account whose code behaves as solc's compilation
   of that library from the same solc input. The import cannot see the `--libraries`
   linking step or the deployed code. A deployment can discharge it by comparing each
-  linked account's runtime code with solc's `deployedBytecode` of the library (solc
-  replaces the leading `PUSH20` placeholder with the library's own address at deploy
-  time); with different code (for example a stub source for a library built by another
-  toolchain) every proof that uses the root is void.
+  linked account's runtime code with solc's `deployedBytecode` of the library, after
+  linking the libraries it calls itself (`__$…$__` placeholders) and masking the library's
+  own address, which is written at deploy time: the leading `PUSH20` on the legacy
+  pipeline, the `immutableReferences` ranges on via-IR. With different code (for example a
+  stub source for a library built by another toolchain) every proof that uses the root
+  is void.
 - **Model**: a direct `L.f(...)` call is replaced by `f`'s body in the caller's frame.
   Admitted only for value-type and `storage` arguments, value-type results and bodies
-  that reach no `msg.data`, `msg.sig`, `gasleft()` or inline assembly; everything else
-  rejects with its location. The frame equivalence relied on (same storage, transient
+  that reach no `msg.data`, `msg.sig`, `gasleft()` or inline assembly, in a root that
+  reads no Yul `returndatasize()` (the DELEGATECALL sets the return-data buffer, the
+  inlined body does not); everything else rejects with its location. The frame equivalence relied on (same storage, transient
   storage, `msg.sender`, `msg.value`, `address(this)`, logs, block context; the library's
   revert data forwarded; value-type ABI round trips are identities) is EVM and solc
   behaviour, checked differentially, not proved.

@@ -1549,6 +1549,18 @@ private def yulCalldataBytesOffsetRead? (node : Json) : M (Option Expr) := do
       return some (.add base (.literal k))
   return none
 
+/-- Reject the Yul `returndatasize()` read `j` when the current root makes an inlined linked
+library call (its DELEGATECALL would set the return-data buffer, the model's call does not),
+and record it otherwise, so a later linked call rejects. Loops make source order unreliable,
+so either order fails closed. -/
+private def noteReturndataRead (j : Json) : M Unit := do
+  let env ← get
+  unless env.rootLinkedLibraryCalls.isEmpty do
+    failAt j ("Yul returndatasize in a function that makes a linked library call: the " ++
+      "DELEGATECALL sets the return data, the inlined model does not")
+  if env.rootReturndataRead.isNone then
+    set { env with rootReturndataRead := some j }
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1654,6 +1666,7 @@ private partial def lowerYul (j : Json) : M Val := do
                  expr := .localVar result }
       if fname == "returndatasize" then
         unless args.isEmpty do failAt j "Yul returndatasize takes no argument"
+        noteReturndataRead j
         return { pre := #[], expr := .returndataSize }
       if fname == "create2" then
         failAt j "Yul create2 must be the whole value of a Yul assignment or variable declaration"
@@ -3058,6 +3071,9 @@ private def admitLinkedLibraryCall (callee : Json) : M Bool := do
   for r in ← mArr (← mField (← mField fn "returnParameters") "parameters") do
     unless linkedLibraryParamKind r == .value do
       failAt r "linked library call results must be value types"
+  if env.rootReturndataRead.isSome then
+    failAt callee ("linked library calls in a function that reads Yul returndatasize are " ++
+      "outside this slice: the DELEGATECALL sets the return data, the inlined model does not")
   let decl (n : Nat) : Option Json := env.funs.find? n <|> env.modifiers.find? n
   if let some (node, reason) := linkedLibraryFrameHazard? decl fn then
     failAt node reason
@@ -11031,9 +11047,9 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
       return v
     failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
-  -- External library calls (DELEGATECALL) are rejected at the call site
-  -- (`isLibraryDelegateCall`), so a root descriptor only reaches helpers in
-  -- the same call frame.
+  -- External library calls (DELEGATECALL) are rejected at the call site unless
+  -- `admitLinkedLibraryCall` admits them, which needs value-type or storage
+  -- arguments, so a root descriptor only reaches helpers in the same call frame.
   let saved := ← get
   let savedYul := saved.yulNames
   let savedFile := (← get).currentFile
@@ -20474,7 +20490,7 @@ private def importSlice
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                         projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulFreePointerBindings := #[],
                         rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[],
-                        rootLinkedLibraryCalls := #[] }
+                        rootLinkedLibraryCalls := #[], rootReturndataRead := none }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       -- Inline assembly can observe uncleaned stack words and write uncleaned transient
