@@ -20,6 +20,10 @@ contract ERC20DiffModel {
 
     function mint(address to, uint256 amount) external {
         require(msg.sender == _owner, "Caller is not the owner");
+        // Same explicit checks, order and messages as the Verity contract
+        // (`requireSomeUint (safeAdd ..) "..."`), not checked `+=` (Panic(0x11)).
+        require(_balances[to] <= MAX_UINT256 - amount, "Balance overflow");
+        require(_totalSupply <= MAX_UINT256 - amount, "Supply overflow");
         _balances[to] += amount;
         _totalSupply += amount;
     }
@@ -30,6 +34,7 @@ contract ERC20DiffModel {
 
         if (msg.sender == to) return;
 
+        require(_balances[to] <= MAX_UINT256 - amount, "Recipient balance overflow");
         _balances[msg.sender] = senderBal - amount;
         _balances[to] += amount;
     }
@@ -46,6 +51,7 @@ contract ERC20DiffModel {
         require(fromBalance >= amount, "Insufficient balance");
 
         if (fromAddr != to) {
+            require(_balances[to] <= MAX_UINT256 - amount, "Recipient balance overflow");
             _balances[fromAddr] = fromBalance - amount;
             _balances[to] += amount;
         }
@@ -293,6 +299,12 @@ contract DifferentialERC20 is YulTestBase, DiffTestConfig, DifferentialTestBase 
 
         if (evmSuccess != edslSuccess) {
             console2.log("MISMATCH success");
+            testsFailed++;
+            return false;
+        }
+
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
             testsFailed++;
             return false;
         }
@@ -569,6 +581,12 @@ contract DifferentialERC20 is YulTestBase, DiffTestConfig, DifferentialTestBase 
         bool edslSuccess = contains(edslResult, "\"success\":true");
 
         if (evmSuccess != edslSuccess) {
+            testsFailed++;
+            return false;
+        }
+
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
             testsFailed++;
             return false;
         }

@@ -92,6 +92,12 @@ contract DifferentialSafeCounter is YulTestBase, DiffTestConfig, DifferentialTes
             return false;
         }
 
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
+            testsFailed++;
+            return false;
+        }
+
         // Validate: Return values must match on successful calls.
         // Revert payload encodings are compared via success parity, not scalar return value.
         if (evmSuccess && evmReturnValue != edslReturnValue) {
