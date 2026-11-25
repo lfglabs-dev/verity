@@ -130,6 +130,9 @@ private partial def stmtSummary : Stmt → TransitionSummary
       merge { reads := dedup (exprReads count), guards := ["loop:" ++ name] } (stmtsSummary body)
   | .forEachSetBit name bitmap body =>
       merge { reads := dedup (exprReads bitmap), guards := ["setBitLoop:" ++ name] } (stmtsSummary body)
+  | .forEachWhile name count guard body =>
+      merge { reads := dedup (exprReads count ++ exprReads guard), guards := ["whileLoop:" ++ name] }
+        (stmtsSummary body)
   | .letVar _ value | .assignVar _ value | .return value | .mstore _ value | .tstore _ value =>
       { reads := dedup (exprReads value) }
   | .returnValues values => { reads := dedup (values.flatMap exprReads) }

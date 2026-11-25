@@ -294,6 +294,7 @@ private partial def specializeForkStmt
   | .ite cond thenBranch elseBranch => .ite (specializeForkExpr targetFork cond) (thenBranch.map (specializeForkStmt targetFork)) (elseBranch.map (specializeForkStmt targetFork))
   | .forEach varName count body => .forEach varName (specializeForkExpr targetFork count) (body.map (specializeForkStmt targetFork))
   | .forEachSetBit varName bitmap body => .forEachSetBit varName (specializeForkExpr targetFork bitmap) (body.map (specializeForkStmt targetFork))
+  | .forEachWhile varName count guard body => .forEachWhile varName (specializeForkExpr targetFork count) (specializeForkExpr targetFork guard) (body.map (specializeForkStmt targetFork))
   | .emit eventName args => .emit eventName (args.map (specializeForkExpr targetFork))
   | .internalCall functionName args => .internalCall functionName (args.map (specializeForkExpr targetFork))
   | .internalCallAssign names functionName args => .internalCallAssign names functionName (args.map (specializeForkExpr targetFork))
@@ -369,6 +370,9 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
       collectIntrinsicUsesExpr count ++ body.flatMap collectIntrinsicUsesStmt
   | .forEachSetBit _ bitmap body =>
       collectIntrinsicUsesExpr bitmap ++ body.flatMap collectIntrinsicUsesStmt
+  | .forEachWhile _ count guard body =>
+      collectIntrinsicUsesExpr count ++ collectIntrinsicUsesExpr guard ++
+        body.flatMap collectIntrinsicUsesStmt
   | .unsafeBlock _ body =>
       body.flatMap collectIntrinsicUsesStmt
   | .matchAdt _ scrutinee branches =>

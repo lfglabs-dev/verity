@@ -1856,6 +1856,37 @@ def execForEachSetBitLoop
         | .revert => .revert
         | .revertWithData data => .revertWithData data
 
+/-- `Stmt.forEachWhile` iteration (#2916): before every iteration check the guard
+    is evaluated (failure reverts); the loop stops once `remaining` reaches zero or
+    the guard is zero, and otherwise binds `varName` to the index and runs the body.
+    This is the evaluation order of the lowered Yul condition
+    `and(lt(idx, cnt), iszero(iszero(guard)))`, which evaluates the guard on every check. -/
+def execForEachWhileLoop
+    (varName : String)
+    (evalGuard : DenoteState → Option Nat)
+    (runBody : DenoteState → StmtOutcome) :
+    DenoteState → Nat → Nat → StmtOutcome
+  | state, _, 0 =>
+      match evalGuard state with
+      | some _ => .continue state
+      | none => .revert
+  | state, index, remaining + 1 =>
+      match evalGuard state with
+      | none => .revert
+      | some guardValue =>
+          if guardValue = 0 then
+            .continue state
+          else
+            let loopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+            match runBody loopState with
+            | .continue next =>
+                execForEachWhileLoop varName evalGuard runBody next (index + 1) remaining
+            | .stop next => .stop next
+            | .return value next => .return value next
+            | .revert => .revert
+            | .revertWithData data => .revertWithData data
+
 mutual
   def execStmt (oracle : DenoteOracle) (fields : List Field) :
       DenoteState → Stmt → StmtOutcome
@@ -2185,6 +2216,16 @@ mutual
             execForEachSetBitLoop varName
               (fun loopState => execStmtList oracle fields loopState body)
               256 state bits
+        | none => .revert
+    | state, .forEachWhile varName count guard body =>
+        match evalExpr oracle fields state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachWhileLoop varName
+              (fun loopState => evalExpr oracle fields loopState guard)
+              (fun loopState => execStmtList oracle fields loopState body)
+              initialLoopState 0 bound
         | none => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList oracle fields state args with

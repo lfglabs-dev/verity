@@ -1337,6 +1337,35 @@ private theorem stmtOkAnyScope_forEachSetBit
       simp only [hbody2]
       exact ⟨_, rfl⟩
 
+private theorem stmtOkAnyScope_forEachWhile
+    {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+    {internalFunctions : List FunctionSpec} {scope1 scope2 : List String}
+    {varName : String} {count guard : Expr} {body : List Stmt}
+    (hbody : StmtListOkAnyScope fields events errors internalFunctions
+      (CompilationModel.forEachWhileBodyScope scope1 varName count guard body)
+      (CompilationModel.forEachWhileBodyScope scope2 varName count guard body) body) :
+    StmtOkAnyScope fields events errors internalFunctions scope1 scope2
+      (.forEachWhile varName count guard body) := by
+  rintro ⟨ir, hir⟩
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+    compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind] at hir ⊢
+  cases hcount : CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+    count with
+  | error e => simp [hcount] at hir
+  | ok countIR =>
+    cases hguard : CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+      guard with
+    | error e => simp [hcount, hguard] at hir
+    | ok guardIR =>
+      cases hbody1 : CompilationModel.compileStmtList fields events errors .calldata [] false
+          (CompilationModel.forEachWhileBodyScope scope1 varName count guard body) [] body
+          internalFunctions with
+      | error e => simp [hcount, hguard, hbody1] at hir
+      | ok bodyIR1 =>
+        obtain ⟨bodyIR2, hbody2⟩ := hbody ⟨bodyIR1, hbody1⟩
+        simp only [hbody2]
+        exact ⟨_, rfl⟩
+
 /-- One step of the scope-transport induction for a single statement, given transport for
 every strictly smaller statement list. -/
 private theorem stmtOkAnyScope_of_lt
@@ -1352,6 +1381,8 @@ private theorem stmtOkAnyScope_of_lt
   | forEach varName count body => exact stmtOkAnyScope_forEach (hlist _ _ _ (by simp))
   | forEachSetBit varName bitmap body =>
       exact stmtOkAnyScope_forEachSetBit (hlist _ _ _ (by simp))
+  | forEachWhile varName count guard body =>
+      exact stmtOkAnyScope_forEachWhile (hlist _ _ _ (by simp))
   | unsafeBlock _ body =>
       intro hok
       simpa [StmtOkAnyScope, CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,

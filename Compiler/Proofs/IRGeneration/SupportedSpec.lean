@@ -979,6 +979,9 @@ def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedConstructorRawCalldataSurface count ||
         stmtListTouchesUnsupportedConstructorRawCalldataSurface body
+  | .forEachWhile _ count guard body =>
+      exprTouchesUnsupportedConstructorRawCalldataSurface count || exprTouchesUnsupportedConstructorRawCalldataSurface guard ||
+        stmtListTouchesUnsupportedConstructorRawCalldataSurface body
   | .requireError cond _ args =>
       exprTouchesUnsupportedConstructorRawCalldataSurface cond ||
         exprListTouchesUnsupportedConstructorRawCalldataSurface args
@@ -1603,6 +1606,8 @@ def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
         stmtListTouchesUnsupportedEffectSurface elseBranch
   | .forEach _ _ body | .forEachSetBit _ _ body =>
       stmtListTouchesUnsupportedEffectSurface body
+  | .forEachWhile _ _ _ body =>
+      stmtListTouchesUnsupportedEffectSurface body
 
 /-- Statement forms intentionally still outside the current generic-induction
 core, excluding richer state/call/effect surfaces that now have dedicated
@@ -1646,7 +1651,7 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
         stmtListTouchesUnsupportedCoreSurface elseBranch
   | .forEach _ (.literal _) body =>
       stmtListTouchesUnsupportedCoreSurface body
-  | .forEach _ _ _ | .forEachSetBit _ _ _ => true
+  | .forEach _ _ _ | .forEachSetBit _ _ _ | .forEachWhile _ _ _ _ => true
   | .calldatacopy destOffset sourceOffset size
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesUnsupportedCoreSurface destOffset ||
@@ -1706,7 +1711,7 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
         stmtListTouchesUnsupportedStateSurface thenBranch ||
         stmtListTouchesUnsupportedStateSurface elseBranch
   | .forEach _ (.literal _) [] => false
-  | .forEach _ _ _ | .forEachSetBit _ _ _ => true
+  | .forEach _ _ _ | .forEachSetBit _ _ _ | .forEachWhile _ _ _ _ => true
 
 def exprListTouchesUnsupportedStateSurface : List Expr → Bool
   | [] => false
@@ -1781,6 +1786,9 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedCallSurface count ||
         stmtListTouchesUnsupportedCallSurface body
+  | .forEachWhile _ count guard body =>
+      exprTouchesUnsupportedCallSurface count || exprTouchesUnsupportedCallSurface guard ||
+        stmtListTouchesUnsupportedCallSurface body
 
 def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .panicCode _ => false
@@ -1839,6 +1847,9 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedHelperSurface count ||
         stmtListTouchesUnsupportedHelperSurface body
+  | .forEachWhile _ count guard body =>
+      exprTouchesUnsupportedHelperSurface count || exprTouchesUnsupportedHelperSurface guard ||
+        stmtListTouchesUnsupportedHelperSurface body
 
 /-- Narrow helper-effect surface used by the exact helper-aware induction seam:
 this isolates heads that genuinely execute internal helpers, leaving residual
@@ -1895,6 +1906,9 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
         stmtListTouchesInternalHelperSurface elseBranch
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesInternalHelperSurface count ||
+        stmtListTouchesInternalHelperSurface body
+  | .forEachWhile _ count guard body =>
+      exprTouchesInternalHelperSurface count || exprTouchesInternalHelperSurface guard ||
         stmtListTouchesInternalHelperSurface body
 
 /-- Direct statement-position internal helper execution. This is the part of the
@@ -1954,6 +1968,8 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
       exprTouchesInternalHelperSurface cond
   | .forEach _ count _ | .forEachSetBit _ count _ =>
       exprTouchesInternalHelperSurface count
+  | .forEachWhile _ count guard _ =>
+      exprTouchesInternalHelperSurface count || exprTouchesInternalHelperSurface guard
   | .calldatacopy destOffset sourceOffset size
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesInternalHelperSurface destOffset ||
@@ -1983,6 +1999,8 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
       stmtListTouchesInternalHelperSurface thenBranch ||
         stmtListTouchesInternalHelperSurface elseBranch
   | .forEach _ _ body | .forEachSetBit _ _ body =>
+      stmtListTouchesInternalHelperSurface body
+  | .forEachWhile _ _ _ body =>
       stmtListTouchesInternalHelperSurface body
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .require _ _
   | .return _ | .returnCodeData _ | .internalCall _ _ | .internalCallAssign _ _ _
@@ -2059,6 +2077,9 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedForeignSurface count ||
         stmtListTouchesUnsupportedForeignSurface body
+  | .forEachWhile _ count guard body =>
+      exprTouchesUnsupportedForeignSurface count || exprTouchesUnsupportedForeignSurface guard ||
+        stmtListTouchesUnsupportedForeignSurface body
 
 def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .panicCode _ => false
@@ -2115,6 +2136,9 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedLowLevelSurface count ||
         stmtListTouchesUnsupportedLowLevelSurface body
+  | .forEachWhile _ count guard body =>
+      exprTouchesUnsupportedLowLevelSurface count || exprTouchesUnsupportedLowLevelSurface guard ||
+        stmtListTouchesUnsupportedLowLevelSurface body
 
 def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   match stmt with
@@ -2158,7 +2182,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .panicCode _ | .panic _ => true
   | .forEach _ (.literal _) body =>
       stmtListTouchesUnsupportedContractSurface body
-  | .forEach _ _ _ | .forEachSetBit _ _ _ => true
+  | .forEach _ _ _ | .forEachSetBit _ _ _ | .forEachWhile _ _ _ _ => true
 
 def stmtTouchesUnsupportedContractSurfaceWithEvents
     (events : List EventDef) (stmt : Stmt) : Bool :=
@@ -2637,6 +2661,9 @@ mutual
           stmtListExprHelperCallNames elseBranch
     | .forEach _ count body | .forEachSetBit _ count body =>
         exprInternalHelperCallNames count ++ stmtListExprHelperCallNames body
+    | .forEachWhile _ count guard body =>
+        exprInternalHelperCallNames count ++ exprInternalHelperCallNames guard ++
+          stmtListExprHelperCallNames body
     | .internalCall _ args | .internalCallAssign _ _ args =>
         exprListInternalHelperCallNames args
     | .rawLog topics dataOffset dataSize =>
@@ -2709,6 +2736,9 @@ mutual
           stmtListInternalHelperCallNames elseBranch
     | .forEach _ count body | .forEachSetBit _ count body =>
         exprInternalHelperCallNames count ++ stmtListInternalHelperCallNames body
+    | .forEachWhile _ count guard body =>
+        exprInternalHelperCallNames count ++ exprInternalHelperCallNames guard ++
+          stmtListInternalHelperCallNames body
     | .internalCall calleeName args =>
         calleeName :: exprListInternalHelperCallNames args
     | .internalCallAssign _ calleeName args =>
@@ -2824,6 +2854,9 @@ private theorem stmtExprHelperCallNames_subset_stmtInternalHelperCallNames_aux
         (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames thenBranch))
         (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames elseBranch)
   | forEach var count body | forEachSetBit var count body =>
+      simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
+      exact hstmt.imp id (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames body)
+  | forEachWhile var count guard body =>
       simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
       exact hstmt.imp id (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames body)
   | internalCall _ _ | internalCallAssign _ _ _ =>
@@ -4250,6 +4283,12 @@ mutual
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
           stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+    | forEachWhile _ count guard body =>
+        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.1,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.2,
+          stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
     | _ =>
         simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
         simp_all [stmtTouchesInternalHelperSurface,
@@ -4566,6 +4605,13 @@ mutual
         simp only [stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedHelperSurface,
           stmtTouchesUnsupportedForeignSurface, stmtTouchesUnsupportedLowLevelSurface]
         rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
+          stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux body]
+        simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+    | forEachWhile _ count guard body =>
+        simp only [stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedHelperSurface,
+          stmtTouchesUnsupportedForeignSurface, stmtTouchesUnsupportedLowLevelSurface]
+        rw [exprTouchesUnsupportedCallSurface_eq_featureOr count,
+          exprTouchesUnsupportedCallSurface_eq_featureOr guard,
           stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux body]
         simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
     | _ =>
@@ -4896,6 +4942,7 @@ private theorem stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_fals
         (by simpa [stmtTouchesUnsupportedStateSurfaceExceptMappingWrites] using hstate)
         hcalls heffects
   | forEachSetBit _ _ _ => cases hcore
+  | forEachWhile _ _ _ _ => cases hcore
   | _ =>
       simp only [stmtTouchesUnsupportedContractSurfaceExceptMappingWrites]
       exact stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed _

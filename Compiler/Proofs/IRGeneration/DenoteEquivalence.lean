@@ -92,7 +92,8 @@ theorem stmtByteFree_of_contractSurfaceClosed :
           simp only [stmtTouchesUnsupportedContractSurface] at h
           exact stmtListByteFree_of_contractSurfaceClosed body h
       | _ => simp [stmtTouchesUnsupportedContractSurface] at h
-  | .ecm _ _, h | .forEachSetBit _ _ _, h | .unsafeBlock _ _, h | .matchAdt _ _ _, h => by
+  | .ecm _ _, h | .forEachSetBit _ _ _, h | .forEachWhile _ _ _ _, h | .unsafeBlock _ _, h
+  | .matchAdt _ _ _, h => by
       simp [stmtTouchesUnsupportedContractSurface] at h
   | .letVar .., _ | .assignVar .., _ | .setStorage .., _ | .setStorageAddr .., _
   | .setImmutable .., _ | .setStorageWord .., _ | .setMapping .., _ | .setMappingWord .., _

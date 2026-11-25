@@ -347,6 +347,11 @@ private def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       collectLowLevelExprMechanics bitmap ++ body.attach.flatMap (fun ⟨child, hchild⟩ =>
         have := List.sizeOf_lt_of_mem hchild
         collectUnguardedLowLevelStmtMechanics child)
+  | .forEachWhile _ count guard body =>
+      collectLowLevelExprMechanics count ++ collectLowLevelExprMechanics guard ++
+        body.attach.flatMap (fun ⟨child, hchild⟩ =>
+          have := List.sizeOf_lt_of_mem hchild
+          collectUnguardedLowLevelStmtMechanics child)
   | .unsafeBlock _ _ =>
       []
   | .matchAdt _ scrutinee branches =>
@@ -1861,7 +1866,7 @@ def firstPostInteractionWriteStmt : List Stmt → Bool → Option String
       | some msg => some msg
       | none =>
           let isCompound := match s with
-            | .ite _ _ _ | .forEach _ _ _ | .forEachSetBit _ _ _ | .unsafeBlock _ _
+            | .ite _ _ _ | .forEach _ _ _ | .forEachSetBit _ _ _ | .forEachWhile _ _ _ _ | .unsafeBlock _ _
             | .matchAdt _ _ _ => true
             | _ => false
           let newSeenCall := seenCall || stmtMayHaveExternalCallForReport s
@@ -1893,6 +1898,20 @@ def firstInternalPostInteractionWriteStmt : Stmt → Bool → Option String
         some s!"in loop body: {innerMsg}"
       else
         let countSeenCall := seenCall || exprMayHaveExternalCallForReport count
+        match firstPostInteractionWriteStmt body countSeenCall with
+        | some msg => some s!"in loop body: {msg}"
+        | none => none
+  | .forEachWhile _ count guard body, seenCall =>
+      let bodyHasCall := body.any stmtMayHaveExternalCallForReport
+      let bodyHasWrite := body.any stmtMayPersistentlyWriteForReport
+      if bodyHasCall && bodyHasWrite then
+        let innerMsg :=
+          (firstPostInteractionWriteStmt body true).getD
+            "loop body contains both external call and state write"
+        some s!"in loop body: {innerMsg}"
+      else
+        let countSeenCall := seenCall || exprMayHaveExternalCallForReport count ||
+          exprMayHaveExternalCallForReport guard
         match firstPostInteractionWriteStmt body countSeenCall with
         | some msg => some s!"in loop body: {msg}"
         | none => none

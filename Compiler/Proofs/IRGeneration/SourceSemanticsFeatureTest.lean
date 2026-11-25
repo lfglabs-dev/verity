@@ -1,5 +1,6 @@
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Verity.Core.Model.Denote
+import Contracts.Smoke.ForEachWhileSmoke
 
 namespace Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
 
@@ -965,5 +966,77 @@ private theorem denote_transaction_frame_entry_reads_zero_returndatasize :
         bindings := [] }
       .returndataSize = some 0 := by
   native_decide
+
+/-! ## `Stmt.forEachWhile` (#2916)
+
+The executable semantics of `Contracts.Smoke.ForEachWhileSmoke`; `test/ForEachWhileSmoke.t.sol`
+checks the same values on the compiled bytecode against a Solidity `break` loop. Results
+are `hit * 2^255 + found * 2^128 + iterations`. The cases are kernel-checked
+(`decide +kernel`): the elaborator's `whnf` cannot evaluate the interpreter within the
+heartbeat budget. -/
+
+section ForEachWhile
+
+open Contracts.Smoke.ForEachWhileSmoke
+
+private def loopState (args : List (String × Nat)) : SourceSemantics.RuntimeState :=
+  { world := Verity.defaultState, bindings := args }
+
+private def returned? : SourceSemantics.StmtResult → Option Nat
+  | .return value _ => some value
+  | _ => none
+
+private def packed (hit found iters : Nat) : Nat := hit * 2 ^ 255 + found * 2 ^ 128 + iters
+
+private def firstMatch (n target : Nat) : Option Nat :=
+  returned? (SourceSemantics.execStmtList [] (loopState [("n", n), ("target", target)])
+    firstMatchBody)
+
+private def firstMatchForEach (n target : Nat) : Option Nat :=
+  returned? (SourceSemantics.execStmtList [] (loopState [("n", n), ("target", target)])
+    firstMatchForEachBody)
+
+private def countWhileBelow (n limit : Nat) : Option Nat :=
+  returned? (SourceSemantics.execStmtList [] (loopState [("n", n), ("limit", limit)])
+    countWhileBelowBody)
+
+private def evenWordGuard (n limit : Nat) : Option Nat :=
+  returned? (SourceSemantics.execStmtList [] (loopState [("n", n), ("limit", limit)])
+    evenWordGuardBody)
+
+-- Match on the first, a middle and the last iteration; no match; zero count.
+example : firstMatch 10 0 = some (packed 1 0 1) := by decide +kernel
+example : firstMatch 10 4 = some (packed 1 4 5) := by decide +kernel
+example : firstMatch 10 9 = some (packed 1 9 10) := by decide +kernel
+example : firstMatch 10 10 = some (packed 0 0 10) := by decide +kernel
+example : firstMatch 0 0 = some (packed 0 0 0) := by decide +kernel
+
+-- A huge count with an early exit runs only the iterations up to the match.
+example : firstMatch (2 ^ 200) 3 = some (packed 1 3 4) := by decide +kernel
+example : firstMatch (2 ^ 256 - 1) 0 = some (packed 1 0 1) := by decide +kernel
+
+-- The `forEach` flag loop has the same result (it differs only in the empty
+-- iterations it still runs, which gas observes and the semantics does not).
+example : firstMatchForEach 10 4 = some (packed 1 4 5) := by decide +kernel
+example : firstMatchForEach 10 10 = some (packed 0 0 10) := by decide +kernel
+
+-- The guard reads the loop variable's previous value.
+example : countWhileBelow 10 1 = some (packed 0 1 2) := by decide +kernel
+example : countWhileBelow 10 0 = some (packed 0 0 0) := by decide +kernel
+example : countWhileBelow 3 100 = some (packed 0 2 3) := by decide +kernel
+example : countWhileBelow (2 ^ 200) 7 = some (packed 0 7 8) := by decide +kernel
+
+-- Empty body, zero and nonzero count.
+example : returned? (SourceSemantics.execStmtList [] (loopState [("n", 0)]) emptyLoopBody) =
+    some 7 := by decide +kernel
+example : returned? (SourceSemantics.execStmtList [] (loopState [("n", 25)]) emptyLoopBody) =
+    some 7 := by decide +kernel
+
+-- Even nonzero guard word (`2`), exercising `iszero(iszero(guard))` normalization.
+example : evenWordGuard 10 5 = some (packed 0 5 6) := by decide +kernel
+example : evenWordGuard 10 0 = some (packed 0 0 0) := by decide +kernel
+example : evenWordGuard (2 ^ 200) 4 = some (packed 0 4 5) := by decide +kernel
+
+end ForEachWhile
 
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

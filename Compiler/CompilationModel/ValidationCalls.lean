@@ -402,6 +402,9 @@ def validateInternalCallShapesNodeStmt
       validateInternalCallShapesInExpr functions callerName callerParams cond
   | Stmt.forEach _ count _ =>
       validateInternalCallShapesInExpr functions callerName callerParams count
+  | Stmt.forEachWhile _ count guard _ => do
+      validateInternalCallShapesInExpr functions callerName callerParams count
+      validateInternalCallShapesInExpr functions callerName callerParams guard
   | Stmt.unsafeBlock _ _ =>
       pure ()
   | Stmt.matchAdt _ scrutinee _ =>
@@ -556,6 +559,9 @@ def validateExternalCallTargetsNodeStmt
       validateExternalCallTargetsInExpr externals context cond
   | Stmt.forEach _ count _ =>
       validateExternalCallTargetsInExpr externals context count
+  | Stmt.forEachWhile _ count guard _ => do
+      validateExternalCallTargetsInExpr externals context count
+      validateExternalCallTargetsInExpr externals context guard
   | Stmt.unsafeBlock _ _ =>
       pure ()
   | Stmt.matchAdt _ scrutinee _ =>
