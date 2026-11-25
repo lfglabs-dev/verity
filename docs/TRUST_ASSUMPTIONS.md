@@ -176,8 +176,9 @@ reproduction commands. No proof axiom is added by this importer extension.
 The frontend is in the trust base. A covered model is not a proof that the
 model matches the Solidity source or solc's bytecode. `storageLayout` slots and
 packed offsets are copied from the pinned solc release selected by `Profile.solc`
-(`0.8.34+commit.80d5c536`, `0.8.28+commit.7893614a`, `0.8.26+commit.8a97fa7a`,
-`0.8.10+commit.fc410830`, or `0.7.6+commit.7338295f`; linux-amd64 and
+(`0.8.38+commit.1835d247`, `0.8.35+commit.47b9dedd`, `0.8.34+commit.80d5c536`,
+`0.8.28+commit.7893614a`, `0.8.26+commit.8a97fa7a`, `0.8.10+commit.fc410830`,
+or `0.7.6+commit.7338295f`; linux-amd64 and
 macosx-amd64 SHA-256 pins in `Import.lean`). Because `solc 0.8.10` lacks
 `--no-import-callback` and silently ignores unknown standard-JSON settings such
 as `"viaIR"`, the importer rejects `viaIR := true` on `0.8.10+commit.fc410830`,

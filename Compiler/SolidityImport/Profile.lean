@@ -20,9 +20,10 @@ namespace Compiler.CompilationModel.SolidityImport
 
 structure Profile where
   /-- Exact solc release. The importer accepts only its pinned releases
-      (0.7.6, 0.8.10, 0.8.26, 0.8.28, 0.8.34 and 0.8.35 with their exact commit
-      suffixes). The legacy release admits only its documented scalar subset.
-      Solc 0.8.35 adds the `amsterdam` target, lowered to its `@future` fork. -/
+      (0.7.6, 0.8.10, 0.8.26, 0.8.28, 0.8.34, 0.8.35 and 0.8.38 with their exact
+      commit suffixes). The legacy release admits only its documented scalar subset.
+      Solc 0.8.35 adds the `amsterdam` target, lowered to its `@future` fork;
+      0.8.38 accepts targets up to `osaka`. -/
   solc : String := "0.8.34+commit.80d5c536"
   evmVersion : String
   viaIR : Bool

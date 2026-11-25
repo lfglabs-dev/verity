@@ -84,9 +84,10 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
   digest; they should match how the audited bytecode is built. `solc` defaults
   to `0.8.34+commit.80d5c536`, and also accepts pinned 0.8.35 (with
-  `evmVersion := "amsterdam"`, passed to solc as `@future`), 0.8.28, 0.8.26,
-  0.8.10 and 0.7.6 releases. 0.8.28 (`evmVersion` up to `"prague"`) and 0.8.26
-  (up to `"cancun"`) serve sources whose pragma pins them. 0.8.10 requires
+  `evmVersion := "amsterdam"`, passed to solc as `@future`), 0.8.38 (up to
+  `"osaka"`), 0.8.28, 0.8.26, 0.8.10 and 0.7.6 releases. 0.8.28 (`evmVersion`
+  up to `"prague"`) and 0.8.26 (up to `"cancun"`) serve sources whose pragma
+  pins them. 0.8.10 requires
   `viaIR := false` and `evmVersion` up to `"london"`; the experimental 0.7.6
   boundary is described below.
 - Each `function` clause selects one root by name and Solidity parameter types.

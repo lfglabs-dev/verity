@@ -25,6 +25,14 @@ RELEASES = {
             "macosx-amd64": "a6a8f9f9388c5fcd9222474e00270242c832e936b0f5257c20374d27ee5bd1ab",
         },
     },
+    "0.8.38": {
+        "binary_name": "solc-0.8.38",
+        "long_version": "0.8.38+commit.1835d247",
+        "sha256": {
+            "linux-amd64": "65c3180a336eabb6bdc4bbd49cc405aeb233976964ae6c11fba2a6c8be8f3243",
+            "macosx-amd64": "b18ac1d1f48394c71ca9aefbf0fb94fef24c87b358f48578de5941e234e0a2a9",
+        },
+    },
     "0.8.35": {
         "binary_name": "solc-0.8.35",
         "long_version": "0.8.35+commit.47b9dedd",
