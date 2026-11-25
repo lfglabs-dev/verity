@@ -121,7 +121,8 @@ def runtimeStateMatchesIR
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
   state.returndata = runtime.world.returndata ∧
-  runtime.world.byteMemory = state.byteMemory
+  runtime.world.byteMemory = state.byteMemory ∧
+  state.revertData = []
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -167,8 +168,16 @@ theorem runtimeStateMatchesIR_byteMemory
     {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
     (h : runtimeStateMatchesIR fields runtime state) :
     runtime.world.byteMemory = state.byteMemory := by
-  rcases h with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hbytes⟩
+  rcases h with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hbytes, _⟩
   exact hbytes
+
+/-- A state that has not reverted carries no revert bytes: only a terminating
+`revert` sets them. -/
+theorem runtimeStateMatchesIR_revertData
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state) :
+    state.revertData = [] :=
+  h.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
 
 def initialIRStateForTx
     (spec : CompilationModel)

@@ -382,9 +382,9 @@ theorem runtimeStateMatchesIR_writePhysicalMemoryValue
           world := runtime.world.writePhysicalMemoryValue offset (Verity.Core.Uint256.ofNat value) }
       (state.writePhysicalMemoryValue offset value) := by
   obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    -, hret, hevt, hcode, hrd, hbytes⟩ := hmatch
+    -, hret, hevt, hcode, hrd, hbytes, hrevert⟩ := hmatch
   refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    ?_, hret, hevt, hcode, hrd, ?_⟩
+    ?_, hret, hevt, hcode, hrd, ?_, by simpa using hrevert⟩
   · rw [IRState.writePhysicalMemoryValue_storage, hstor]
     funext slot
     exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
