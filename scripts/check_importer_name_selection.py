@@ -127,7 +127,8 @@ YUL_BUILTINS = {
     "smod", "sstore", "staticcall", "sub", "timestamp", "tload", "tstore", "xor",
     # Prefix of the `verbatim_<n>i_<m>o` builtin family.
     "verbatim",
-}# Operators and keys solc writes into the AST JSON (compared as JSON keys or operator words).
+}
+# Operators and keys solc writes into the AST JSON (compared as JSON keys or operator words).
 SOLC_JSON_KEYS = {
     "declaration", "errorName", "id", "kind", "memberName", "modifiers", "mutability", "name",
     "nativeSrc", "nodeType", "operator", "referencedDeclaration", "reorderedReadOnlyArguments",

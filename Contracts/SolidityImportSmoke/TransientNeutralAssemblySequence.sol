@@ -11,7 +11,7 @@ contract TransientNeutralAssemblySequence {
         uint256 checked;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("verity.fixture.namespaced")) - 1)) & ~bytes32(uint256(0xff))
+    // ERC-7201 slot of "verity.fixture.namespaced": keccak256(abi.encode(id - 1)) & ~0xff
     bytes32 private constant MAIN_LOCATION =
         0x9ee206bc124160cd40c828f4614e7d92dc2e9850e42b9bc6bcad127f50b4a500;
 
