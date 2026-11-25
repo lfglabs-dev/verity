@@ -91,6 +91,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "signature-calldata",
     "signature-calldata-rejections",
     "state-count-invariance",
+    "stateful-call-operand",
+    "stateful-call-operand-solc0810",
     "storage-pointer-mapping-helper",
     "storage",
     "storage-byte-constant-conversions",

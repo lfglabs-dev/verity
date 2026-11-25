@@ -379,6 +379,21 @@ def stateful_campaign(output, transactions, seed, jobs=1):
             '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
             '--change-prefix', '0', '1', '999', str(2 ** 256 - 1),
             '--output', str(output / check)]))
+    # A stateful helper call beside a local / parameter `+` operand, as a helper's lone argument
+    # and as a using-for receiver, with one state variable (StatefulCallOperand*Sequence):
+    # x % 4 selects the case, x / 4 drives it. The prefix runs every case at x / 4 = 0, 1, 2 and
+    # with the largest inputs (checked overflow in or after the call). The 0.8.34 fixture runs
+    # via-IR (left operand first); its solc 0.8.10 twin runs the legacy pipeline (right first).
+    for check, fixture, extra in (
+            ('stateful-call-operand', 'StatefulCallOperandSequence', []),
+            ('stateful-call-operand-solc0810', 'StatefulCallOperandSolc0810Sequence',
+             ['--solc-version', '0.8.10'])):
+        checks.append((check, ['-m', 'solidity_differential.check_stateful',
+            '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
+            '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
+            '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
+            '--change-prefix', *map(str, [*range(12), *(2 ** 256 - k for k in range(1, 5))]),
+            '--output', str(output / check)]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',
