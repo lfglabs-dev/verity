@@ -15,6 +15,8 @@ enum Mode {
     D
 }
 
+type Narrow8 is uint8;
+
 library LinkedPackLib {
     event Packed(address indexed caller, uint256 word);
 
@@ -25,6 +27,18 @@ library LinkedPackLib {
     function packLogged(address pointer, Mode mode) public returns (uint256 word) {
         word = (uint256(mode) << 160) | uint160(pointer);
         emit Packed(msg.sender, word);
+    }
+
+    function passUint8(uint8 v) external pure returns (uint8) {
+        return v;
+    }
+
+    function roundTripNarrow(uint8 u, int8 s, bool flag, Narrow8 wrapped)
+        external
+        pure
+        returns (uint8, int8, bool, Narrow8)
+    {
+        return (u, s, flag, wrapped);
     }
 }
 
@@ -54,6 +68,11 @@ library LinkedCounterLib {
     function reset(Counter storage c) public {
         c.total = 0;
         c.calls = 0;
+    }
+
+    function addAmount(Counter storage c, uint256 amount) external {
+        c.total += amount;
+        c.calls += 1;
     }
 
     function share(Counter storage c, uint256 parts) external view returns (uint256) {
@@ -102,6 +121,41 @@ contract LinkedLibraryCallFixture {
 
     function reset(bytes32 key) external {
         LinkedCounterLib.reset(counters[key]);
+    }
+
+    function addExternal(bytes32 key, uint256 amount) external {
+        LinkedCounterLib.addAmount(counters[key], amount);
+    }
+
+    function cleanNarrow(uint256 rawU, uint256 rawS, uint256 rawFlag, uint256 rawWrapped)
+        external
+        pure
+        returns (uint256, uint256, uint256, uint256)
+    {
+        uint8 u = 0;
+        int8 s = 0;
+        bool flag = false;
+        Narrow8 wrapped = Narrow8.wrap(0);
+        assembly {
+            u := rawU
+            s := rawS
+            flag := rawFlag
+            wrapped := rawWrapped
+        }
+        uint8 singleU = LinkedPackLib.passUint8(u);
+        (, int8 rS, bool rFlag, Narrow8 rWrapped) =
+            LinkedPackLib.roundTripNarrow(u, s, flag, wrapped);
+        uint256 outU;
+        uint256 outS;
+        uint256 outFlag;
+        uint256 outWrapped;
+        assembly {
+            outU := singleU
+            outS := rS
+            outFlag := rFlag
+            outWrapped := rWrapped
+        }
+        return (outU, outS, outFlag, outWrapped);
     }
 
     function share(bytes32 key, uint256 parts) external view returns (uint256) {
