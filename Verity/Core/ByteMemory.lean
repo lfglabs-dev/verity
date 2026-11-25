@@ -151,6 +151,11 @@ def wordValue (word : Word) : Verity.Core.Uint256 :=
 def valueWord (value : Verity.Core.Uint256) : Word :=
   fun index => ⟨value.val / 256^(31 - index.val) % 256, Nat.mod_lt _ (by decide)⟩
 
+/-- Byte `index` of a buffer of big-endian 32-byte words, zero past the end:
+the bytes `returndatacopy` reads from the EIP-211 return-data buffer. -/
+def wordListByte (words : List Nat) (index : Nat) : Byte :=
+  ⟨words.getD (index / 32) 0 / 256 ^ (31 - index % 32) % 256, Nat.mod_lt _ (by decide)⟩
+
 theorem expandedLength_covers (endOffset : Nat) : endOffset ≤ expandedLength endOffset := by
   by_cases h : endOffset = 0
   · simp [expandedLength, h]

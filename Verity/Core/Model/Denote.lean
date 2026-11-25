@@ -2099,8 +2099,9 @@ mutual
                 else .revert
             | none =>
                 -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
-                -- IR interpreter: in-bounds extents copy complete words and merge
-                -- a final partial word; out-of-bounds extents revert identically.
+                -- IR interpreter: in-bounds extents copy the bytes, complete words
+                -- and a merged final partial word; out-of-bounds extents revert
+                -- identically.
                 if src + sz ≤ 32 * state.world.returndata.length then
                   .continue {
                     state with
@@ -2108,6 +2109,8 @@ mutual
                       state.world with
                       memory := returndatacopyMemoryPaddedUint256
                         state.world.returndata dst src sz state.world.memory
+                      byteMemory := state.world.byteMemory.copyFrom
+                        (DenoteMemory.wordListByte state.world.returndata) dst src sz
                     }
                   }
                 else .revert

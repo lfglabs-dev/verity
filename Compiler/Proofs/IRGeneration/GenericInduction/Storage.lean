@@ -2859,7 +2859,10 @@ private theorem execStmt_returndataCopy_of_eval
         .continue { runtime with
           world := { runtime.world with
             memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-              runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory } }
+              runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory
+            byteMemory := runtime.world.byteMemory.copyFrom
+              (Compiler.CompilationModel.DenoteMemory.wordListByte runtime.world.returndata)
+              destNat sourceNat sizeNat } }
       else .revert .empty := by
   by_cases hfit : sourceNat + sizeNat ≤ 32 * runtime.world.returndata.length <;>
     simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit]
@@ -2875,7 +2878,10 @@ private theorem execIRStmt_returndatacopy_of_eval
       if sourceNat + sizeNat ≤ 32 * state.returndata.length then
         .continue { state with
           memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-            state.returndata destNat sourceNat sizeNat state.memory }
+            state.returndata destNat sourceNat sizeNat state.memory
+          byteMemory := state.byteMemory.copyFrom
+            (Compiler.CompilationModel.DenoteMemory.wordListByte state.returndata)
+            destNat sourceNat sizeNat }
       else .revert state := by
   by_cases hfit : sourceNat + sizeNat ≤ 32 * state.returndata.length <;>
     simp [execIRStmt, hIRDest, hIRSource, hIRSize, hfit]
@@ -2890,7 +2896,7 @@ private theorem execIRStmts_single_revert_of_execIRStmt
 
 /-- Both layers branch on the same fit guard (the buffers agree by
 `runtimeStateMatchesIR_returndata`), so the step corresponds in either branch: the
-in-bounds copy continues with the same words, the out-of-bounds extent reverts on
+in-bounds copy continues with the same bytes and words, the out-of-bounds extent reverts on
 both sides. -/
 private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
     {fields : List Field} {scope : List String} {destOffset sourceOffset size : Expr}
