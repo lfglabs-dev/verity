@@ -456,6 +456,23 @@ contract C {
     }
 }
 ''', ['run(uint256)']),
+    # A file-level constant is indexed as a constant but not as a state variable.
+    inline('stateful-call-file-constant-operand', '''uint256 constant FILE_OFFSET = 3;
+
+contract C {
+    uint256 private total;
+
+    function bump(uint256 by) internal returns (uint256) {
+        total = total + by;
+        return total;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        total = x;
+        return FILE_OFFSET + bump(5);
+    }
+}
+''', ['run(uint256)']),
     inline('stateful-call-immutable-operand', '''contract C {
     uint256 private immutable base;
     event Bumped(uint256 by);
