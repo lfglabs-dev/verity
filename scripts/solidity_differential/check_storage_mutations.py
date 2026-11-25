@@ -797,6 +797,7 @@ MUTANTS.update({
     'import-overload-const-error-cond-tuple-tload-branch-swap': ('return (pre.push (.ite cond.expr thenB.toList elseB.toList), outRets)', 'return (pre.push (.ite cond.expr elseB.toList thenB.toList), outRets)'),
     'import-overload-const-error-cond-tuple-tload-tload-one': ('| "tload", #[a] => pure { pre, expr := .tload a }', '| "tload", #[_a] => pure { pre, expr := .literal 1 }'),
     'import-overload-const-error-cond-tuple-tload-const-arg-one': ('let bound ← atom cleaned', 'let bound ← atom { pre := #[], expr := .literal 1 }'),
+    'import-overload-const-error-cond-tuple-tload-error-arg-snapshot': ('let errMutates := arguments.any fun arg => assignmentIn arg || statefulCallIn arg errEnv', 'let errMutates := false'),
     'import-struct-fixed-array-read-zero': ('[.assignVar dest (read s!"__solidity_struct_array_{arrInfo.member}_{i}")] [])', '[.assignVar dest (.literal 0)] [])'),
     'import-struct-fixed-array-write-bounds': ('let mut result := (valuePre ++ pre).push (.ite (.lt index (.literal arrInfo.length))\n        [] [.panicCode (.literal 0x32)])', 'let mut result := (valuePre ++ pre)'),
     'import-struct-fixed-array-return-zero': ('out := out.push (.returnValues elements.toList)', 'out := out.push (.returnValues (elements.toList.map fun _ => .literal 0))'),

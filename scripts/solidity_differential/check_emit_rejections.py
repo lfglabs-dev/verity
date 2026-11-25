@@ -142,9 +142,44 @@ def main():
       'event E(uint256 value, string indexed name);',
       'emit E(x, "n"); return x;',
       'unsupported event parameter type string'),
-     ('empty', 'uint256', 'event E();', 'emit E(); return x;', None)]
-    for name, parameter_type, fields, body, expected in cases:
-        returns = parameter_type
+     ('empty', 'uint256', 'event E();', 'emit E(); return x;', None),
+     ('mixed-int16-add-legacy',
+      'int16,int16,uint256',
+      'event E(int16 a, uint256 indexed b);',
+      'emit E(x + y, 100 / z); return x;',
+      'event arguments whose guards revert with different payloads require explicit evaluation-order support',
+      False),
+     ('mixed-int16-sub-legacy',
+      'int16,int16,uint256',
+      'event E(int16 a, uint256 indexed b);',
+      'emit E(x - y, 100 / z); return x;',
+      'event arguments whose guards revert with different payloads require explicit evaluation-order support',
+      False),
+     ('mixed-int16-add-via-ir',
+      'int16,int16,uint256',
+      'event E(int16 a, uint256 indexed b);',
+      'emit E(x + y, 100 / z); return x;',
+      'event arguments whose guards revert with different payloads require explicit evaluation-order support',
+      True),
+     ('mixed-int16-sub-via-ir',
+      'int16,int16,uint256',
+      'event E(int16 a, uint256 indexed b);',
+      'emit E(x - y, 100 / z); return x;',
+      'event arguments whose guards revert with different payloads require explicit evaluation-order support',
+      True),
+     ('same-int16-add-sub-legacy',
+      'int16,int16',
+      'event E(int16 a, int16 indexed b);',
+      'emit E(x + y, x - y); return x;',
+      None,
+      False)]
+    for row in cases:
+        name, parameter_type, fields, body, expected = row[:5]
+        via_ir = row[5] if len(row) > 5 else True
+        param_types = [t.strip() for t in parameter_type.split(',')]
+        param_names = ['x', 'y', 'z'][:len(param_types)]
+        param_decls = ', '.join(f'{t} {n}' for t, n in zip(param_types, param_names))
+        returns = param_types[0]
         directory = output / name
         directory.mkdir()
         result_clause = f'returns ({returns})' if returns else ''
@@ -153,15 +188,16 @@ def main():
 {prefix}
 contract C {{
  {fields}
- function checked({parameter_type} x) external {result_clause} {{
+ function checked({param_decls}) external {result_clause} {{
   {body}
  }}
 }}
 ''')
         driver = directory / 'Check.lean'
+        via_ir_str = 'true' if via_ir else 'false'
         driver.write_text(f'''import Compiler.SolidityImport.Import
 solidity_import tested from "{directory}" entry "Fixture.sol"
-  using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
+  using {{ evmVersion := "osaka", viaIR := {via_ir_str}, optimizerRuns := some 466, bytecodeHash := "none" }}
   contract C
   function checked({parameter_type})
 ''')

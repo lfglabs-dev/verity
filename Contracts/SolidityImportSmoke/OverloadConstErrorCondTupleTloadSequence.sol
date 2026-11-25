@@ -9,6 +9,7 @@ contract SequenceFixture {
     error InvalidApprover(address approver);
     error InvalidSpender(address spender);
     error BoundError(address zeroAddr, uint8 maxByte, uint256 zeroConst);
+    error OrderSnapshotError(uint256 beforeVal, uint256 afterVal);
 
     event ApprovalRecorded(address indexed owner, address indexed spender, uint256 value);
 
@@ -46,6 +47,10 @@ contract SequenceFixture {
 
     function change(uint256 input) external returns (uint256) {
         require(input != 19, BoundError(address(0), type(uint8).max, ZERO_WORD));
+        if (input == 21) {
+            uint256 counter = approvalCount + 1;
+            revert OrderSnapshotError(counter, ++counter);
+        }
         uint256 seed = input % 500000;
         address owner = seed == 96 ? address(0) : msg.sender;
         address spender = seed == 97 ? address(0) : address(this);

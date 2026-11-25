@@ -281,7 +281,7 @@ structure Env where
   /-- Result bindings of the code-hash reads lowered so far in the current root, with their
       nodes (`checkCodeReadTargets` rejects those that run after an account change). -/
   codeHashSites : Array (String × Json) := #[]
-  /-- `bool` / `address` bindings that an inline-assembly assignment set to the cleaned
+  /-- `address` bindings that an inline-assembly assignment set to the cleaned
       form of a possibly dirty word (`cleanYulNarrowWord?`). -/
   yulCleanedNarrowBindings : Array String := #[]
   /-- Bindings read by a Yul identifier in the current root, with the reading node
@@ -1014,23 +1014,23 @@ def checkCodeReadTargets (body : Array Stmt) : M Unit := do
     if late.contains result then
       failAt node "code hash read after an external call or create2 is unsupported"
 
-/-- The cleaned word an inline-assembly assignment stores into a `bool` or `address`
-local whose right-hand side may be dirty: `iszero(iszero(w))` (`cleanup_t_bool`) and
-`and(w, 2^160 - 1)` (`cleanup_t_address`). Under via-IR, solc keeps the dirty word on
-the stack and applies exactly this cleanup at every Solidity-level use (conditions,
-comparisons, conversions, ABI encoding, storage writes, events), so the cleaned binding
-is observationally equal there; only a later raw Yul read could see the difference, and
-`checkYulCleanedNarrowReads` rejects those. Legacy codegen carries dirty bits through
-conversions, so the importer admits this only under via-IR. `none` for every other type. -/
+/-- The cleaned word an inline-assembly assignment stores into an `address`
+local whose right-hand side may be dirty: `and(w, 2^160 - 1)` (`cleanup_t_address`).
+Under via-IR, solc keeps the dirty word on the stack and applies exactly this cleanup at
+every Solidity-level use (comparisons, conversions, ABI encoding, storage writes, events),
+so the cleaned binding is observationally equal there; only a later raw Yul read could see
+the difference, and `checkYulCleanedNarrowReads` rejects those. Legacy codegen carries dirty
+bits through conversions, so the importer admits this only under via-IR. (`bool` locals
+retain the raw stack word on the #2912 consumer-cleaning path under both pipelines.)
+`none` for every other type. -/
 def cleanYulNarrowWord? (scalarType : ParamType) (word : Expr) : Option Expr :=
   match scalarType with
-  | .bool => some (.logicalNot (.logicalNot word))
   | .address => some (.bitAnd word (.literal (2 ^ 160 - 1)))
   | _ => none
 
-/-- The cleaned word is `some` exactly for `bool` and `address`. -/
+/-- The cleaned word is `some` exactly for `address`. -/
 theorem cleanYulNarrowWord?_isSome_iff (p : ParamType) (word : Expr) :
-    (cleanYulNarrowWord? p word).isSome = true ↔ (p = .bool ∨ p = .address) := by
+    (cleanYulNarrowWord? p word).isSome = true ↔ p = .address := by
   cases p <;> simp [cleanYulNarrowWord?]
 
 /-- Reject every raw Yul read of a binding that may hold a word cleaned by
@@ -1357,7 +1357,7 @@ theorem isFullWordYulScalar_iff (p : ParamType) :
 theorem uint8_not_fullWordYulScalar : isFullWordYulScalar .uint8 = false := by
   decide
 
-/-- Only `bool` and `address` words are cleaned; a full-word Yul scalar never is. -/
+/-- Only `address` words are cleaned; a full-word Yul scalar never is. -/
 theorem cleanYulNarrowWord?_eq_none_of_fullWord (p : ParamType) (word : Expr)
     (h : isFullWordYulScalar p = true) : cleanYulNarrowWord? p word = none := by
   cases p <;> first | rfl | simp [isFullWordYulScalar] at h

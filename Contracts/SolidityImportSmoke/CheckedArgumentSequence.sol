@@ -30,6 +30,7 @@ contract CheckedArgumentFixture {
     Entry internal entry;
 
     error FieldTooSmall(uint256 field);
+    error PairOrder(uint256 first, uint256 second);
     event Measured(uint256 sum, uint256 difference);
 
     /// A checked library downcast and a checked subtraction inside a staticcall's arguments.
@@ -73,6 +74,32 @@ contract CheckedArgumentFixture {
     /// A named custom-error argument reading a storage struct member.
     function revertNamedField() external view {
         revert FieldTooSmall({field: entry.weight});
+    }
+
+    /// Effectful external-call argument evaluation: `(a, a++)` passes `(a, a)` left-to-right
+    /// and leaves `a` incremented by 1.
+    function callEffectfulPost(address target, uint256 a) external returns (uint256, uint256) {
+        uint256 result = ICheckedRelay(target).echo(a, a++);
+        total = result;
+        return (result, a);
+    }
+
+    /// Effectful external-call argument evaluation: `(a, ++a)` passes `(a, a + 1)`.
+    function callEffectfulPre(address target, uint256 a) external returns (uint256, uint256) {
+        uint256 result = ICheckedRelay(target).echo(a, ++a);
+        total = result;
+        return (result, a);
+    }
+
+    /// Effectful custom-error argument snapshot: `revert PairOrder(a, ++a)` reports `(a, a + 1)`.
+    function revertEffectful(uint256 a) external pure {
+        revert PairOrder(a, ++a);
+    }
+
+    /// Eager `require(cond, E(args))` error-argument evaluation: `++a` runs even when `ok` holds.
+    function requireEffectful(bool ok, uint256 a) external pure returns (uint256) {
+        require(ok, PairOrder(a, ++a));
+        return a;
     }
 
     /// Seed the storage struct member for concrete execution checks.

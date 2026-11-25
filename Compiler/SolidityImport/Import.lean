@@ -2017,9 +2017,9 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
     match scalarType with
     | .uint8 | .uintN _ | .intN _ | .bool => return .assignVar binding rhsVal.expr
     | _ => pure ()
-    -- Under via-IR, a `bool` / `address` local takes the cleaned word: every Solidity-level
-    -- use (including conversions) applies `cleanup_t_bool` / `cleanup_t_address` to the dirty
-    -- stack word. Legacy codegen carries dirty bits through conversions, so it stays rejected.
+    -- Under via-IR, an `address` local takes the cleaned word: every Solidity-level
+    -- use (including conversions) applies `cleanup_t_address` to the dirty stack word.
+    -- Legacy codegen carries dirty bits through conversions, so it stays rejected.
     -- A later raw Yul read is rejected once the whole root is lowered
     -- (`checkYulCleanedNarrowReads`).
     if env.viaIR then
@@ -16924,22 +16924,27 @@ private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
 private partial def lowerEmit (statement : Json) : M (Array Stmt) :=
   recoverAt statement #[] (lowerEmitCore statement)
 
-/-- The revert payload of an event-argument guard: `0` for empty returndata, otherwise a
-distinct tag per typed panic kind or raw `Panic(code)` word. Both codegen pipelines agree on
-a payload family, so only a mixture across arguments needs an order decision. -/
-private partial def eventGuardPayload? : Stmt → Option Nat
-  | .revertEmpty => some 0
-  | .panic k => some (0x100 + k.toNat)
-  | .panicCode (.literal n) => some (n + 1)
-  | .ite _ [b] _ | .ite _ _ [b] => eventGuardPayload? b
-  | _ => none
+/-- Revert payloads reachable inside an event-argument guard: `0` for empty returndata,
+otherwise a distinct tag per typed panic kind or raw `Panic(code)` literal. Both codegen
+pipelines agree on a single payload family, so only a mixture across arguments needs an
+order decision. Inspects both branches of `.ite` so guards whose non-panic branch assigns
+a checked result (such as signed narrow checked add/sub) never lose their panic payload. -/
+private partial def eventGuardPayloads : Stmt → Array Nat
+  | .revertEmpty => #[0]
+  | .panic k => #[0x100 + k.toNat]
+  | .panicCode (.literal n) => #[n + 1]
+  | .ite _ yes no =>
+      yes.foldl (fun acc s => acc ++ eventGuardPayloads s) #[] ++
+      no.foldl (fun acc s => acc ++ eventGuardPayloads s) #[]
+  | _ => #[]
 
 /-- solc evaluates event arguments left to right under via-IR but indexed arguments last
 to first under legacy codegen. When guards in different arguments revert with different
-payloads, the first failing guard depends on that order, so such events are rejected. -/
+payloads (or an unrecognized payload), the first failing guard depends on that order, so
+such events are rejected. -/
 private partial def rejectMixedEventGuards (guarded : Array (Json × Array Nat)) : M Unit := do
   let payloads := guarded.foldl (fun acc (_, ps) => acc ++ ps) #[]
-  if guarded.size > 1 && payloads.any (· != payloads[0]!) then
+  if guarded.size > 1 && (guarded.any (fun (_, ps) => ps.isEmpty) || payloads.any (· != payloads[0]!)) then
     failAt guarded[1]!.1 "event arguments whose guards revert with different payloads require explicit evaluation-order support"
 
 private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
@@ -17006,8 +17011,8 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     let isGuard : Stmt → Bool := fun
       | .ite _ [.revertEmpty] _ | .ite _ _ [.revertEmpty] => true
       | .ite _ [.panic _] _ | .ite _ _ [.panic _] => true
-      | .ite _ [.panicCode _] _ | .ite _ _ [.panicCode _] => true
-      | .revertEmpty | .panic _ | .panicCode _ => true
+      | .ite _ [.panicCode (.literal _)] _ | .ite _ _ [.panicCode (.literal _)] => true
+      | .revertEmpty | .panic _ | .panicCode (.literal _) => true
       | _ => false
     -- Normalization certified these scalar expressions read-only, with at most one
     -- potential panic. Its prelude cannot compete with another argument's revert.
@@ -17030,7 +17035,7 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
       failAt argument "event arguments currently require total scalar expressions"
     if value.pre.any isGuard then
       guardedArguments := guardedArguments.push argument
-      guardPayloads := guardPayloads.push (argument, value.pre.filterMap eventGuardPayload?)
+      guardPayloads := guardPayloads.push (argument, value.pre.foldl (fun acc s => acc ++ eventGuardPayloads s) #[])
     if value.pre.any isScratch then
       scratchArgument := true
     let rec directParam? : Expr → Option String
@@ -17140,11 +17145,11 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
           | .letVar _ _ => true
           | .ite _ [.revertEmpty] _ | .ite _ _ [.revertEmpty] => true
           | .ite _ [.panic _] _ | .ite _ _ [.panic _] => true
-          | .ite _ [.panicCode _] _ | .ite _ _ [.panicCode _] => true
-          | .revertEmpty | .panic _ | .panicCode _ => true
+          | .ite _ [.panicCode (.literal _)] _ | .ite _ _ [.panicCode (.literal _)] => true
+          | .revertEmpty | .panic _ | .panicCode (.literal _) => true
           | _ => false) do
         failAt argument "event arguments currently require total scalar expressions"
-      let payloads := value.pre.filterMap eventGuardPayload?
+      let payloads := value.pre.foldl (fun acc s => acc ++ eventGuardPayloads s) #[]
       unless payloads.isEmpty do
         guardPayloads := guardPayloads.push (argument, payloads)
       let topic ← atom { value with expr := cleanHelperResultExpr ty value }
