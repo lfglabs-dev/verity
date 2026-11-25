@@ -358,6 +358,12 @@ contract DifferentialERC721 is YulTestBase, DiffTestConfig, DifferentialTestBase
             return false;
         }
 
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
+            testsFailed++;
+            return false;
+        }
+
         if (!contains(edslResult, "\"returnValue\":")) {
             console2.log("MISMATCH malformed JSON");
             testsFailed++;
@@ -712,6 +718,12 @@ contract DifferentialERC721 is YulTestBase, DiffTestConfig, DifferentialTestBase
         bool edslSuccess = contains(edslResult, "\"success\":true");
 
         if (evmSuccess != edslSuccess) {
+            testsFailed++;
+            return false;
+        }
+
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
             testsFailed++;
             return false;
         }
