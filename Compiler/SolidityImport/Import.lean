@@ -1443,6 +1443,7 @@ private partial def yulStmtHasEffect : Stmt → Bool
   | .letVar _ _ | .assignVar _ _ => false
   | .ite _ yes no => yes.any yulStmtHasEffect || no.any yulStmtHasEffect
   | .forEach _ _ body => body.any yulStmtHasEffect
+  | .forEachWhile _ _ _ body => body.any yulStmtHasEffect
   | _ => true
 
 /-- Hoisted statements that touch the outside world (`yulStmtHasEffect`). -/
@@ -12301,13 +12302,14 @@ private partial def accessRootDecl? (j : Json) : M (Option Int) := do
 
 /-- Shared exact loop checks; the caller supplies its own return semantics. -/
 private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
-    (existingCounter : Option String := none) : M (Array Stmt) := do
+    (existingCounter : Option String := none)
+    (earlyExitGuard : Option Expr := none) : M (Array Stmt) := do
   -- Only `for (uint256 i = 0; i < n; i++)` with an invariant `n` and a
   -- counter the body never assigns: then solc's per-iteration `i < n`
   -- test is exactly `forEach i n`, and `i++` cannot overflow.
   let init ← mField s "initializationExpression"
   if optStr init "nodeType" == some "ExpressionStatement" then
-    return ← lowerPredeclaredFor s init lowerBody
+    return ← lowerPredeclaredFor s init lowerBody earlyExitGuard
   unless (← mKind init) == "VariableDeclarationStatement" do
     failAt s "a for loop must declare its counter"
   let decls ← mArr (← mField init "declarations")
@@ -12330,6 +12332,8 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
   else
     pure false
   if isDecrementFor && !writes.contains counter then
+    if earlyExitGuard.isSome then
+      failAt s "break or return in a decrementing helper for loop requires an increasing `i < n` loop"
     let some startNode := (field? init "initialValue").filter (!·.isNull)
       | failAt init "a decrementing for loop counter must have an initial value"
     let step ← mField (← mField s "loopExpression") "expression"
@@ -12497,11 +12501,14 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
          .ite (.eq (.localVar iterIdx) (.literal 0)) []
            [.assignVar counterBinding (.add cleanStart.expr (.localVar iterIdx))]]
     let loopBodyStmts : List Stmt := bindCounter ++ bodyOut.toList
+    let tailLoopStmt := match earlyExitGuard with
+      | some guard => Stmt.forEachWhile iterIdx (.localVar countBinding) guard loopBodyStmts
+      | none => Stmt.forEach iterIdx (.localVar countBinding) loopBodyStmts
     return startVal.pre ++ cleanStart.pre ++ bound.pre ++ #[
       .letVar countBinding (.literal 0),
       .ite (.lt cleanStart.expr bound.expr)
         [.assignVar countBinding (.sub bound.expr cleanStart.expr)] [],
-      .forEach iterIdx (.localVar countBinding) loopBodyStmts
+      tailLoopStmt
     ]
   let binding ← freshFor counterName
   let saved ← get
@@ -12535,7 +12542,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     -- checked `i++` on the uintN counter panics.
     if (← get).unchecked then
       failAt d s!"an unchecked {counterTy} for loop counter can wrap below a wider bound"
-    if (← stmtContainsReturn body) || (← stmtContainsBreakOrContinue body) then
+    if earlyExitGuard.isSome || (← stmtContainsReturn body) || (← stmtContainsBreakOrContinue body) then
       failAt d s!"a {counterTy} for loop counter with a wider bound requires a body without return, break or continue"
     let capped ← fresh
     let cap := Expr.literal (2 ^ counterBits)
@@ -12543,10 +12550,14 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     out := out.push (.ite (.lt limit cap) [.assignVar capped limit] [])
     out := out.push (.forEach binding (.localVar capped) bodyOut.toList)
     out := out.push (.ite (.lt limit cap) [] [.panicCode (.literal 0x11)])
+  else if let some guard := earlyExitGuard then
+    out := out.push (.forEachWhile binding limit guard bodyOut.toList)
   else
     out := out.push (.forEach binding limit bodyOut.toList)
   if let some dest := existingCounter then
-    out := out.push (.assignVar dest limit)
+    match earlyExitGuard with
+    | some guard => out := out.push (.ite guard [.assignVar dest limit] [])
+    | none => out := out.push (.assignVar dest limit)
   pure out
 
 /-- `for (i = 0; i < n; i++)` over a counter `i` declared before the loop. The loop
@@ -12554,7 +12565,8 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     local then receives the counter's exit value `n` (the bound is invariant, and a
     narrow counter whose bound reaches `2^N` panics before the store). A `break`
     would exit with another value and is rejected. -/
-private partial def lowerPredeclaredFor (s init : Json) (lowerBody : Json → M (Array Stmt)) :
+private partial def lowerPredeclaredFor (s init : Json) (lowerBody : Json → M (Array Stmt))
+    (earlyExitGuard : Option Expr := none) :
     M (Array Stmt) := do
   let assign ← mField init "expression"
   unless (← mKind assign) == "Assignment" && optStr assign "operator" == some "=" do
@@ -12580,7 +12592,7 @@ private partial def lowerPredeclaredFor (s init : Json) (lowerBody : Json → M 
   let declStmt := Json.mkObj [("nodeType", Json.str "VariableDeclarationStatement"),
     ("declarations", Json.arr #[decl]), ("initialValue", rhs), ("src", ← mField init "src")]
   let loopStmts ← lowerFor (s.setObjVal! "initializationExpression" declStmt) lowerBody
-    (some binding)
+    (some binding) earlyExitGuard
   modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (· != counterId.toNat) }
   pure loopStmts
 
@@ -13202,35 +13214,28 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   pure #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
 
-/-- A helper `for` whose test is `i < n` with a `uint8` or literal `n ≤ 256` bound: at
-    most 256 iterations, so the empty iterations after a `break` or `return` stay small. -/
-private partial def smallHelperForBound (s : Json) : M Bool := do
-  let cond := (field? s "condition").getD .null
-  let bound := (field? cond "rightExpression").getD .null
-  let ty := ((field? bound "typeDescriptions").bind (optStr · "typeString")).getD ""
-  let smallLiteral := (ty.drop 10).toString.toNat?.any (· ≤ 256)
-  pure (optStr cond "operator" == some "<" &&
-    (ty == "uint8" || (ty.startsWith "int_const " && smallLiteral)))
-
 /-- Lowers an inlined helper `for`/`while` loop. When its body may `break` or
     `continue` (#2710), a fresh exit flag declared before the loop models them: each
     iteration runs only while the flag is below `2` and first resets it to `0`;
     `continue` sets `1` and `break` sets `2`, and the statements after one that may
-    set it run only while it is `0`. A `for` loop's `forEach` still advances the
-    counter after `continue`, as solc's loop expression does. `continue` in a `while`
-    loop would skip its final progress step (solc never terminates) and is rejected;
-    a `while (true)` loop keeps its own break guard. -/
-private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array Stmt)) :
+    set it run only while it is `0`. An increasing `for` loop that may `break` or
+    `return` (#2916) lowers onto `Stmt.forEachWhile` so it exits on the next test
+    without empty tail iterations; `continue` keeps advancing the counter. `continue`
+    in a `while` loop would skip its final progress step (solc never terminates) and
+    is rejected; a `while (true)` loop keeps its own break guard. -/
+private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array Stmt))
+    (returnFlag : Option String := none) :
     M (Array Stmt) := do
   let isFor := (← mKind s) == "ForStatement"
-  let lowerLoop (b : Json → M (Array Stmt)) : M (Array Stmt) :=
-    if isFor then lowerFor s b else lowerWhile s b
+  let lowerLoop (b : Json → M (Array Stmt)) (guard : Option Expr) : M (Array Stmt) :=
+    if isFor then lowerFor s b (earlyExitGuard := guard) else lowerWhile s b
   let cond := (field? s "condition").getD Json.null
   let whileTrue := !isFor && optStr cond "nodeType" == some "Literal" &&
     optStr cond "value" == some "true"
   let outer := (← get).loopExit
   let body ← mField s "body"
   let exits ← stmtContainsBreakOrContinue body
+  let hasBreak ← stmtContainsLoopJump "Break" body
   -- `continue` in a `while` skips the final progress step, so solc would not terminate.
   if !isFor && (← stmtContainsLoopJump "Continue" body) then
     failAt s "continue inside an inlined helper while loop is unsupported"
@@ -13244,19 +13249,20 @@ private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array St
     unless (lhsTy == "uint256" || lhsTy == "int_const 0") &&
            (rhsTy == "uint256" || rhsTy == "int_const 0") do
       failAt cond "helper while loop jumps require a uint256 loop variable"
-  if isFor && (← stmtContainsLoopJump "Break" body) then
+  if isFor && hasBreak then
     let init ← mField s "initializationExpression"
     if optStr init "nodeType" == some "ExpressionStatement" then
       failAt s "a for loop over a pre-declared counter must not break"
-    unless ← smallHelperForBound s do
-      failAt s "break in a helper for loop requires an upper bound of at most 256 iterations"
+    unless optStr cond "operator" == some "<" do
+      failAt s "break in a helper for loop requires an increasing `i < n` loop"
   if whileTrue || !exits then
     let unwrapped (b : Json) : M (Array Stmt) := do
       modify fun e => { e with loopExit := none }
       let out ← lowerBody b
       modify fun e => { e with loopExit := outer }
       pure out
-    return ← lowerLoop unwrapped
+    let retGuard := returnFlag.map fun rf => Expr.eq (.localVar rf) (.literal 0)
+    return ← lowerLoop unwrapped retGuard
   let flag ← fresh
   let wrapped (b : Json) : M (Array Stmt) := do
     modify fun e => { e with loopExit := some flag }
@@ -13264,7 +13270,10 @@ private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array St
     modify fun e => { e with loopExit := outer }
     pure #[.ite (.lt (.localVar flag) (.literal 2))
       (.assignVar flag (.literal 0) :: inner.toList) []]
-  let loopStmts ← lowerLoop wrapped
+  let exitGuard : Option Expr := match returnFlag with
+    | some rf => some (.bitAnd (.lt (.localVar flag) (.literal 2)) (.eq (.localVar rf) (.literal 0)))
+    | none => if hasBreak then some (.lt (.localVar flag) (.literal 2)) else none
+  let loopStmts ← lowerLoop wrapped exitGuard
   pure (#[.letVar flag (.literal 0)] ++ loopStmts)
 
 /-- `break` / `continue` inside an inlined helper loop: set the loop's exit flag. -/
@@ -13328,27 +13337,6 @@ private partial def lowerHelperLoopStmts (stmts : List Json) : M (Array Stmt) :=
     if rest.isEmpty then return out
     let restOut ← lowerHelperLoopStmts rest
     pure (out ++ (← guardAfterLoopExit statement restOut))
-
-private partial def isTailWindowFor (s : Json) : M Bool := do
-  unless (← mKind s) == "ForStatement" do return false
-  let init ← mField s "initializationExpression"
-  unless (← mKind init) == "VariableDeclarationStatement" do return false
-  let some startRaw := (field? init "initialValue").filter (!·.isNull) | return false
-  let start ← stripParens startRaw
-  let cond ← mField s "condition"
-  unless (← mKind start) == "BinaryOperation" && optStr start "operator" == some "-" &&
-         (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
-    return false
-  let sLeft ← stripParens (← mField start "leftExpression")
-  let sRight ← stripParens (← mField start "rightExpression")
-  let cRight ← stripParens (← mField cond "rightExpression")
-  let sRightTy ← mType sRight
-  if (← mKind sLeft) == "Identifier" && (← mKind cRight) == "Identifier" &&
-     sRightTy.startsWith "int_const " && !sRightTy.startsWith "int_const -" then
-    let lId ← refInt sLeft
-    let rId ← refInt cRight
-    return lId ≥ 0 && lId == rId
-  return false
 
 private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (stmts : List Json) : M (Array Stmt) := do
   match stmts with
@@ -13422,8 +13410,7 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
 
 private partial def lowerHelperLoopBodyWithReturn (retFlag retVal : String) (body : Json) : M (Array Stmt) := do
   let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
-  let inner ← lowerHelperLoopStmtsWithReturn retFlag retVal statements.toList
-  return #[.ite (.eq (.localVar retFlag) (.literal 0)) inner.toList []]
+  lowerHelperLoopStmtsWithReturn retFlag retVal statements.toList
 
 /-- Lowers helper statements to a prelude and, when the list returns, its
     result. A returning `if` branch ends the list; the continuation after the
@@ -13504,15 +13491,15 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         pure (revStmts, some ((← get).helperResult.map (fun (b, _) => Expr.localVar b) |>.getD (.literal 0)))
     | "ForStatement" =>
         if ← stmtContainsReturn s then
-          -- Early `return` from a helper `for`: the return sets a flag that guards
-          -- the rest of its iteration, every later iteration and the continuation.
-          -- `Stmt.forEach` reads its count once and cannot stop early, so outside a
-          -- tail window (at most `K` iterations) the bound must be small, as for `break`.
-          unless (← isTailWindowFor s) || (← smallHelperForBound s) do
-            failAt s "return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256"
+          -- Early `return` from a helper `for`: the return sets `retFlag`, which guards
+          -- the rest of its iteration, stops `Stmt.forEachWhile` before the next
+          -- iteration, and skips the post-loop continuation.
+          let cond := (field? s "condition").getD .null
+          unless optStr cond "operator" == some "<" do
+            failAt s "return in a helper for loop requires an increasing `i < n` loop"
           let retFlag ← fresh
           let retVal ← fresh
-          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal)
+          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal) (some retFlag)
           let (tail, result) ← lowerHelperFrom rest retName
           let some tailExpr := result
             | failAt s "inlined helper does not return on every path"

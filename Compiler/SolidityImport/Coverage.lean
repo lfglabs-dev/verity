@@ -96,6 +96,8 @@ mutual
   def abiHeaderPreservingStmt : Stmt → Bool
     | .tstore offset value => exprCovered offset && exprCovered value
     | .forEach _ count body => exprCovered count && abiHeaderPreservingList body
+    | .forEachWhile _ count guard body =>
+        exprCovered count && exprCovered guard && abiHeaderPreservingList body
     | .ite condition yes no =>
         exprCovered condition && abiHeaderPreservingList yes && abiHeaderPreservingList no
     | .panicCode code => exprCovered code
@@ -205,6 +207,8 @@ mutual
     | .tstore offset value => exprCovered offset && exprCovered value
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
+    | .forEachWhile _ count guard body =>
+        exprCovered count && exprCovered guard && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
     | .revertMemory offset size => exprCovered offset && exprCovered size
     | .ecm mod args => closedTransportCovered mod args
@@ -356,6 +360,16 @@ theorem execStmt_forEach_arm (oracle : DenoteOracle) (fields : List Field)
     execStmt oracle fields state (.forEach name count body) =
       (match evalExpr oracle fields state count with
        | some bound => execForEachLoop name
+           (fun next => execStmtList oracle fields next body)
+           { state with bindings := bindValue state.bindings name (wordNormalize 0) } 0 bound
+       | none => .revert) := rfl
+
+theorem execStmt_forEachWhile_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name : String) (count guard : Expr) (body : List Stmt) :
+    execStmt oracle fields state (.forEachWhile name count guard body) =
+      (match evalExpr oracle fields state count with
+       | some bound => execForEachWhileLoop name
+           (fun next => evalExpr oracle fields next guard)
            (fun next => execStmtList oracle fields next body)
            { state with bindings := bindValue state.bindings name (wordNormalize 0) } 0 bound
        | none => .revert) := rfl
