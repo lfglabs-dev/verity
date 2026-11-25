@@ -440,6 +440,40 @@ contract C {
     }
 }
 ''', ['argument(uint256)', 'receiver(uint256)', 'operands(uint256)']),
+    # A `constant` / `immutable` left operand beside a stateful (non-view) helper; the helper's
+    # event makes the call observable. Each is the contract's only state variable.
+    inline('stateful-call-constant-operand', '''contract C {
+    uint256 private constant K = 3;
+    event Bumped(uint256 by);
+
+    function bump(uint256 by) internal returns (uint256) {
+        emit Bumped(by);
+        return by + 1;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        return K + bump(x);
+    }
+}
+''', ['run(uint256)']),
+    inline('stateful-call-immutable-operand', '''contract C {
+    uint256 private immutable base;
+    event Bumped(uint256 by);
+
+    constructor(uint256 b) {
+        base = b;
+    }
+
+    function bump(uint256 by) internal returns (uint256) {
+        emit Bumped(by);
+        return by + 1;
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        return base + bump(x);
+    }
+}
+''', ['run(uint256)']),
     # `total + bump()`: legacy reads `total` after the call, via-IR before it.
     inline('stateful-call-state-operand', '''contract C {
     uint256 private total;

@@ -384,9 +384,14 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     # x % 4 selects the case, x / 4 drives it. The prefix runs every case at x / 4 = 0, 1, 2 and
     # with the largest inputs (checked overflow in or after the call). The 0.8.34 fixture runs
     # via-IR (left operand first); its solc 0.8.10 twin runs the legacy pipeline (right first).
+    # StatefulCallConstantOperand*Sequence: the same beside a `constant` / `immutable` operand
+    # (x % 2 selects it, x / 2 drives it).
     for check, fixture, extra in (
             ('stateful-call-operand', 'StatefulCallOperandSequence', []),
             ('stateful-call-operand-solc0810', 'StatefulCallOperandSolc0810Sequence',
+             ['--solc-version', '0.8.10']),
+            ('stateful-call-constant-operand', 'StatefulCallConstantOperandSequence', []),
+            ('stateful-call-constant-operand-solc0810', 'StatefulCallConstantOperandSolc0810Sequence',
              ['--solc-version', '0.8.10'])):
         checks.append((check, ['-m', 'solidity_differential.check_stateful',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
