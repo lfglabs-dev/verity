@@ -41,6 +41,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "emit-rejections",
     "encoding-arg-super-override",
     "encoding-argument-order",
+    "enum-flat-struct",
     "environment",
     "errors",
     "event-mutations",

@@ -226,6 +226,38 @@ ABI_DECODE_ENUM_STRUCT_PREFIX = (
        _abi_decode_enum_struct_word(1, dirty_id=1),
        2, 6, 10, 14, (1 << 255) | 2, 3, _abi_decode_enum_struct_word(3, 1, 1), (1 << 256) - 1])
 
+
+def _enum_flat_struct_word(shape, y):
+    """`change(x)` of EnumFlatStructSequence: `x % 6` picks the shape, `y = x // 6` the payload."""
+    return (y * 6 + shape) % (1 << 256)
+
+
+# Memory/flat structs with enum members: every in-range (Kind, Stage) pair in shape 0 (populated and
+# zero-default named helper return), out-of-range Kind(3..7) and Stage(5..7) Panic(0x21) casts,
+# multi-return _loadRule/_unpackRule (forwarded and promoted, plus out-of-range abi.decode empty
+# reverts on kind, stage, and uint64), uninitialized local + enum member writes + delete (shape 2),
+# signed int256-to-enum casts (-2, -1, 0..2, 3, 4 in shape 3), unmasked high-word uint256 casts
+# (256, 2^255 in shape 4 -> Panic(0x21)), and raw abi.decode words (0..3, 256, 2^255 in shape 5).
+ENUM_FLAT_STRUCT_PREFIX = (
+    [_enum_flat_struct_word(0, k | (s << 3) | (11 << 24)) for k in range(3) for s in range(5)]
+    + [_enum_flat_struct_word(0, 2 | (4 << 3) | (1 << 6) | (19 << 24)),
+       _enum_flat_struct_word(0, 3), _enum_flat_struct_word(0, 7),
+       _enum_flat_struct_word(0, 5 << 3), _enum_flat_struct_word(0, 7 << 3),
+       _enum_flat_struct_word(1, 5 | (1 << 65) | (3 << 68)),
+       _enum_flat_struct_word(1, 9 | (2 << 65) | (4 << 68) | (1 << 71)),
+       _enum_flat_struct_word(1, 5 | (3 << 65) | (1 << 68)),
+       _enum_flat_struct_word(1, 5 | (1 << 65) | (5 << 68)),
+       _enum_flat_struct_word(1, 1 << 64),
+       _enum_flat_struct_word(2, 0), _enum_flat_struct_word(2, 1),
+       _enum_flat_struct_word(2, 2 | (3 << 4)), _enum_flat_struct_word(2, 4 | (4 << 4)),
+       _enum_flat_struct_word(2, 8 | (2 << 4)),
+       *[_enum_flat_struct_word(3, r) for r in range(7)],
+       _enum_flat_struct_word(4, 0), _enum_flat_struct_word(4, 2),
+       _enum_flat_struct_word(4, 3), _enum_flat_struct_word(4, 256), _enum_flat_struct_word(4, 1 << 255),
+       _enum_flat_struct_word(5, 0), _enum_flat_struct_word(5, 2),
+       _enum_flat_struct_word(5, 3), _enum_flat_struct_word(5, 256), _enum_flat_struct_word(5, 1 << 255),
+       (1 << 256) - 1])
+
 # Fixture name -> Contracts/SolidityImportSmoke/<contract>.sol. One entry per line,
 # sorted, so PRs adding different fixtures do not touch the same line.
 FIXTURE_CONTRACTS = {
