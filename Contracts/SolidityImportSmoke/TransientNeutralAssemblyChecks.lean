@@ -24,7 +24,8 @@ solidity_profile legacyProfile where
   optimizerRuns := some 10
   bytecodeHash := "none"
 
-solidity_import ir from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import ir from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using irProfile
   contract TransientNeutralAssemblySequence
   function enter()
@@ -35,8 +36,10 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "TransientNeutralA
   function signedAndBytes(int256,bytes32)
   function inModifier()
   function namespacedSlotRead()
+  function viaHelper(uint256)
 
-solidity_import legacy from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import legacy from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using legacyProfile
   contract TransientNeutralAssemblySequence
   function enter()
@@ -47,6 +50,7 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "TransientNeut
   function signedAndBytes(int256,bytes32)
   function inModifier()
   function namespacedSlotRead()
+  function viaHelper(uint256)
 
 private def oracle := SolidityImport.Differential.oracle
 
@@ -160,14 +164,27 @@ private def modifierAndSlotRead (model : CompilationModel) : Bool :=
 
 #guard bothModels modifierAndSlotRead
 
+-- A full-word Yul local in a private helper of the closure: a wrapping `add` whose result
+-- is written to a transient variable.
+private def helperLocal (model : CompilationModel) : Bool :=
+  match runTransaction model Verity.defaultState
+      [("viaHelper", [40]), ("viaHelper", [2 ^ 256 - 1]), ("state", [])] with
+  | none => false
+  | some (results, final) =>
+      results == [(true, words [42]), (true, words [1]), (true, words [0, 1, 0, 0])] &&
+      transientWords final == [0, 1, 0]
+
+#guard bothModels helperLocal
+
 -- `Main` stays in persistent storage at the namespaced slot; the flag and queue are
 -- transient fields.
 #guard bothModels fun m =>
-  ["deferred", "queued", "small"].all fun name => m.fields.any fun f => f.name == name && f.isTransient
+  ["deferred", "queued", "small"].all fun name =>
+    m.fields.any fun f => f.name == name && f.isTransient
 
 -- The ordinary Verity compiler accepts the imported model on Cancun.
-#guard (Compiler.CompilationModel.compile ir.model [1, 2, 3, 4, 5, 6, 7, 8] .cancun).isOk
-#guard (Compiler.CompilationModel.compile legacy.model [1, 2, 3, 4, 5, 6, 7, 8] .cancun).isOk
+#guard (Compiler.CompilationModel.compile ir.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .cancun).isOk
+#guard (Compiler.CompilationModel.compile legacy.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .cancun).isOk
 
 -- Assembly that exchanges narrow words with Solidity, names a transient variable, touches
 -- transient storage or calls out still fails closed at the block.
@@ -177,7 +194,8 @@ closure: TransientNeutralAssemblySequence.narrowLocal
 assembly { b := x }
 -/
 #guard_msgs in
-solidity_import narrowLocal from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import narrowLocal from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using irProfile
   contract TransientNeutralAssemblySequence
   function narrowLocal(uint256)
@@ -188,7 +206,8 @@ closure: TransientNeutralAssemblySequence.narrowParameter
 assembly { word := v }
 -/
 #guard_msgs in
-solidity_import narrowParameter from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import narrowParameter from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using legacyProfile
   contract TransientNeutralAssemblySequence
   function narrowParameter(uint8)
@@ -199,7 +218,8 @@ closure: TransientNeutralAssemblySequence.narrowInModifier
 assembly { word := 1 }
 -/
 #guard_msgs in
-solidity_import narrowInModifier from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import narrowInModifier from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using irProfile
   contract TransientNeutralAssemblySequence
   function narrowInModifier()
@@ -210,7 +230,8 @@ closure: TransientNeutralAssemblySequence.transientSlot
 assembly { s := queued.slot }
 -/
 #guard_msgs in
-solidity_import transientSlot from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import transientSlot from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using irProfile
   contract TransientNeutralAssemblySequence
   function transientSlot()
@@ -221,20 +242,102 @@ closure: TransientNeutralAssemblySequence.computedTransientSlot
 assembly { tstore(add(base, n), key) }
 -/
 #guard_msgs in
-solidity_import computedTransientSlot from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import computedTransientSlot from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using irProfile
   contract TransientNeutralAssemblySequence
   function computedTransientSlot(uint256)
 
+-- Calls out of assembly whose external references are all full words, so the transient
+-- gate's builtin ban alone rejects them. (`verbatim_*` is not available in inline
+-- assembly: solc rejects it before the importer sees it.)
 /--
-error: TransientNeutralAssemblySequence.sol:125:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable deferred is unsupported
+error: TransientNeutralAssemblySequence.sol:127:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable deferred is unsupported
 closure: TransientNeutralAssemblySequence.callInAssembly
 assembly { ok := call(gas(), target, 0, 0, 0, 0, 0) }
 -/
 #guard_msgs in
-solidity_import callInAssembly from "Contracts/SolidityImportSmoke" entry "TransientNeutralAssemblySequence.sol"
+solidity_import callInAssembly from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
   using irProfile
   contract TransientNeutralAssemblySequence
-  function callInAssembly(address)
+  function callInAssembly(uint256)
+
+/--
+error: TransientNeutralAssemblySequence.sol:142:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable deferred is unsupported
+closure: TransientNeutralAssemblySequence.staticcallInAssembly
+assembly { ok := staticcall(gas(), target, 0, 0, 0, 0) }
+-/
+#guard_msgs in
+solidity_import staticcallInAssembly from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
+  using legacyProfile
+  contract TransientNeutralAssemblySequence
+  function staticcallInAssembly(uint256)
+
+-- `callcode`, `delegatecall`, `create`, a `create2` outside the checked-initcode shape and a
+-- storage pointer's `.offset` fail closed in the Yul lowering, at their own node, before the
+-- transient gate. The gate also bans them, so a later lowering of one of them still fails
+-- closed here (the checked `create2` shape names a `bytes memory` local, which the
+-- narrow-reference rule rejects).
+/--
+error: TransientNeutralAssemblySequence.sol:132:26: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin callcode
+closure: TransientNeutralAssemblySequence.callcodeInAssembly
+callcode(gas(), target, 0, 0, 0, 0, 0)
+-/
+#guard_msgs in
+solidity_import callcodeInAssembly from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
+  using legacyProfile
+  contract TransientNeutralAssemblySequence
+  function callcodeInAssembly(uint256)
+
+/--
+error: TransientNeutralAssemblySequence.sol:137:26: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin delegatecall
+closure: TransientNeutralAssemblySequence.delegatecallInAssembly
+delegatecall(gas(), target, 0, 0, 0, 0)
+-/
+#guard_msgs in
+solidity_import delegatecallInAssembly from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
+  using irProfile
+  contract TransientNeutralAssemblySequence
+  function delegatecallInAssembly(uint256)
+
+/--
+error: TransientNeutralAssemblySequence.sol:147:31: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin create
+closure: TransientNeutralAssemblySequence.createInAssembly
+create(0, 0, 0)
+-/
+#guard_msgs in
+solidity_import createInAssembly from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
+  using irProfile
+  contract TransientNeutralAssemblySequence
+  function createInAssembly()
+
+/--
+error: TransientNeutralAssemblySequence.sol:152:42: YulLiteral: [solidity-import:unsupported] create2 initcode offset must be add(buffer, 0x20) of a bytes memory local
+closure: TransientNeutralAssemblySequence.create2InAssembly
+0
+-/
+#guard_msgs in
+solidity_import create2InAssembly from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
+  using legacyProfile
+  contract TransientNeutralAssemblySequence
+  function create2InAssembly(uint256)
+
+/--
+error: TransientNeutralAssemblySequence.sol:159:25: YulIdentifier: [solidity-import:unsupported] unbound Yul identifier $.offset
+closure: TransientNeutralAssemblySequence.namespacedOffset
+$.offset
+-/
+#guard_msgs in
+solidity_import namespacedOffset from "Contracts/SolidityImportSmoke"
+  entry "TransientNeutralAssemblySequence.sol"
+  using irProfile
+  contract TransientNeutralAssemblySequence
+  function namespacedOffset()
 
 end SolidityImportSmoke.TransientNeutralAssemblyChecks
