@@ -7347,8 +7347,9 @@ private partial def lowerEncodedStaticStructWords (arg : Json) : M (Array Stmt �
     failAt arg s!"unsupported ABI encoding argument type {ty}"
   for mNode in sMembers do
     let mTy ← mType mNode
-    unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+    unless (paramType mTy).isSome do
       failAt arg s!"unsupported ABI encoding argument type {ty}"
+    discard (validateEnumTypeIfNeeded mNode mTy)
   checkEncodingStructArg arg
   let (_, _, sPre, memberVals) ← lowerFlatStructValue arg (some sid) true
   let mut pre : Array Stmt := sPre
@@ -7698,8 +7699,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           failAt p s!"unsupported ABI encoding argument type {pty}"
         for mNode in pMembers do
           let mTy ← mType mNode
-          unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+          unless (paramType mTy).isSome do
             failAt p s!"unsupported ABI encoding argument type {pty}"
+          discard (validateEnumTypeIfNeeded mNode mTy)
         unless argTy.startsWith "struct " && !argTy.contains "[" do
           failAt arg s!"abi.encodeCall argument type {argTy} does not match parameter {pty}"
         let (argSid, _) ← resolveStructDeclFromType arg
@@ -8870,7 +8872,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
           failAt j "typed interface staticcall arguments are outside this slice"
         let isStaticStruct ← pMembers.allM fun mNode => do
           let mTy ← mType mNode
-          pure (!mTy.startsWith "enum " && (paramType mTy).isSome)
+          pure (paramType mTy).isSome
         if !isStaticStruct then
           let structs := (← get).structs
           match AbiSchema.root (fun id => structs.find? id) pDecl with
@@ -10924,8 +10926,9 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
   for mNode in retMembers do
     let mName ← mStr (← mField mNode "name")
     let mTy ← mType mNode
-    unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+    unless (paramType mTy).isSome do
       failAt mNode s!"unsupported flat struct return member {mName} of type {mTy}"
+    discard (validateEnumTypeIfNeeded mNode mTy)
     let binding ← freshFor s!"{if rname == "" then "ret_struct" else rname}_{mName}"
     pre := pre.push (.letVar binding (.literal 0))
     memberBindings := memberBindings.push (mName, mTy, binding)
@@ -11451,8 +11454,9 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
       for mNode in retMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct return member {mName} of type {mTy}"
+        discard (validateEnumTypeIfNeeded mNode mTy)
         let binding ← freshFor s!"{if rname == "" then "ret_struct" else rname}_{mName}"
         pre := pre.push (.letVar binding (.literal 0))
         results := results.push (binding, mTy, rname != "")
@@ -14280,6 +14284,8 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
     let args ← mArr (← mField j "arguments")
     unless args.size == sMembers.size && !sMembers.isEmpty do
       failAt j "struct constructor argument count mismatch"
+    for mNode in sMembers do
+      discard (validateEnumTypeIfNeeded mNode (← mType mNode))
     if names.isEmpty then
       let mut pre : Array Stmt := #[]
       let mut memberVals : Array (String × String × Expr) := #[]
@@ -14294,7 +14300,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
           pre := pre ++ subPre
           memberVals := memberVals ++ subVals.map fun (n, t, e) => (s!"{mName}.{n}", t, e)
           continue
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
@@ -14337,7 +14343,7 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
           pre := pre ++ subPre
           evaluatedByName := evaluatedByName ++ subVals.map fun (n, t, e) => (s!"{argName}.{n}", t, e)
           continue
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
         let rawVal ← lowerExpr arg
         let convVal ← atom (← convert mTy (← mType arg) rawVal arg)
@@ -14496,8 +14502,9 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
+        discard (validateEnumTypeIfNeeded mNode mTy)
         let readVal ← atom (← readAbiMember srcId #[] mName j)
         pre := pre ++ readVal.pre
         memberVals := memberVals.push (mName, mTy, readVal.expr)
@@ -14816,7 +14823,9 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   markField name
   let mut valuePre := rhsPre
   let mut values : Array (String × Expr) := #[]
-  for (mName, _, mExpr) in memberVals do
+  for (mName, mTy, mExpr) in memberVals do
+    if mTy.startsWith "enum " then
+      failAt target "whole-struct storage assignment with enum members is outside this slice"
     unless info.memberNames.contains mName do
       failAt target s!"unknown struct layout member {mName}"
     if valueFirst then
@@ -15448,7 +15457,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               | _ => failAt target "member assignment requires a mapping struct storage path"
             markField name
             let mut out := pre ++ rhsPre
-            for (leaf, _, v) in members do
+            for (leaf, mTy, v) in members do
+              if mTy.startsWith "enum " then
+                failAt target "nested storage struct assignment with enum members is outside this slice"
               let qualified := qualifySPathMember qualMember leaf
               unless info.memberNames.contains qualified do
                 failAt target s!"unsupported flat struct storage member {qualified}"
@@ -17430,13 +17441,18 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       let some sDecl := (← get).structs.find? sid.toNat | failAt d "unknown struct declaration"
       let sName ← mStr (← mField sDecl "name")
       let sMembers ← mArr (← mField sDecl "members")
+      if sMembers.isEmpty then
+        failAt d s!"empty struct {sName} is unsupported"
       let mut out : Array Stmt := #[]
       let mut members : Array (String × String × String) := #[]
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        if mTy.startsWith "struct " then
+        if mTy.startsWith "struct " && !mTy.contains '[' then
           failAt d "uninitialized nested struct locals are outside this slice"
+        unless (paramType mTy).isSome do
+          failAt mNode s!"unsupported flat struct member type {mTy}"
+        discard (validateEnumTypeIfNeeded mNode mTy)
         let binding ← freshFor s!"{name}_{mName}"
         out := out.push (.letVar binding (.literal 0))
         members := members.push (mName, mTy, binding)
@@ -18024,8 +18040,8 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
 /-- The flat leaves of memory struct `sid`: its members in declaration order,
 with each member of a static struct type replaced by that struct's leaves,
 named `member.leaf` (solc ABI-encodes a static nested struct inline, so the
-leaves are the encoded words in order). `none` when a member is neither a
-non-`enum` ABI scalar nor such a struct. -/
+leaves are the encoded words in order). `none` when a member is neither an
+ABI scalar nor such a struct. -/
 private partial def flatStructLeaves? (sid : Nat) (fuel : Nat := 8) :
     M (Option (Array (String × String))) := do
   if fuel == 0 then return none
@@ -18036,7 +18052,8 @@ private partial def flatStructLeaves? (sid : Nat) (fuel : Nat := 8) :
   for m in members do
     let name ← mStr (← mField m "name")
     let ty ← mType m
-    if !ty.startsWith "enum " && (paramType ty).isSome then
+    if (paramType ty).isSome then
+      discard (validateEnumTypeIfNeeded m ty)
       out := out.push (name, ty)
     else if ty.startsWith "struct " && !ty.contains "[" then
       let subId ← refInt (← mField m "typeName")
@@ -18713,6 +18730,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       -- `localParamType` also admits every `bytes1`..`bytes31` width (left-aligned words).
       let some pty := localParamType ty | failAt p s!"unsupported parameter type {ty}"
       let enumBound? ← validateEnumTypeIfNeeded p ty
+      if enumBound?.isSome && !(← get).viaIR && (← get).abiCoderV1 then
+        failAt p "enum parameter under ABI coder v1 is outside this slice"
       modify fun e =>
         let values := e.values.insert id (.param name)
         let scalarTy := e.scalarTy.insert id pty
