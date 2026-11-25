@@ -3090,6 +3090,15 @@ private def admitLinkedLibraryCall (callee : Json) : M Bool := do
     set { env with rootLinkedLibraryCalls := env.rootLinkedLibraryCalls.push use }
   pure true
 
+/-- True when `call` is a `FunctionCall` whose callee is a `DELEGATECALL` to a linked library
+(`isLibraryDelegateCall`). Such a call reaches `inlineFn`, `inlineVoidFn` or `inlineMultiFn`
+only after `admitLinkedLibraryCall` has admitted it, and its value-type arguments and results
+cross the `DELEGATECALL`'s ABI encoder and decoder. -/
+private def isLinkedLibraryCallSite (call : Json) : Bool :=
+  optStr call "nodeType" == some "FunctionCall" &&
+    optStr call "kind" == some "functionCall" &&
+    isLibraryDelegateCall ((field? call "expression").getD Json.null)
+
 /-- A node of `j` that makes, or may make, a typed-interface call: the call itself, or a
 reference to an internal function (called, or passed as a function value) whose body or
 modifier invocations (arguments, and the body of every modifier of that name, which
@@ -9194,6 +9203,7 @@ private partial def lowerCall (j : Json) : M Val := do
 private partial def bindHelperParams (params : Array Json) (args : Array CallArg) (body : Json) (at_ : Json)
     (savedYul : RBMap String Expr compare) : M (Array Stmt × RBMap String Expr compare) := do
   let mut pre : Array Stmt := #[]
+  let linkedCall := (← get).linkedLibrariesMatchSource && isLinkedLibraryCallSite at_
   -- A caller's `<name>.slot` names its own storage parameter or local, which is out of
   -- scope in the callee; state variable slots are rebound per assembly block.
   let mut yul := savedYul.fold (fun acc name _ => if name.endsWith ".slot" then acc.erase name else acc)
@@ -9222,6 +9232,10 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
     match arg with
     | .scalar value =>
         let converted ← convert pty argTy value at_
+        let converted ← if linkedCall then do
+          let a ← atom converted
+          pure { pre := a.pre, expr := cleanHelperResultExpr pty { pre := #[], expr := a.expr } }
+        else pure converted
         if (bodyCompoundAssignedIds body).contains pid || (bodyDirectAssignedIds body).contains pid then
           let some scalar := paramType pty
             | failAt p s!"unsupported writable helper parameter type {pty}"
@@ -11124,6 +11138,10 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
     let retCapture ← fresh
     pure { pre := (pre ++ result.pre).push (.letVar retCapture result.expr) ++ modPost,
            expr := .localVar retCapture }
+  let finalResult ← if saved.linkedLibrariesMatchSource && isLinkedLibraryCallSite at_ then do
+    let a ← atom finalResult
+    pure { pre := a.pre, expr := cleanHelperResultExpr resultType { pre := #[], expr := a.expr } }
+  else pure finalResult
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
@@ -11133,7 +11151,8 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   let visibility := optStr fn "visibility" |>.getD ""
-  unless visibility == "internal" || visibility == "private" || visibility == "public" do
+  let linkedCall := (← get).linkedLibrariesMatchSource && isLinkedLibraryCallSite at_
+  unless visibility == "internal" || visibility == "private" || visibility == "public" || linkedCall do
     failAt at_ "void helper calls require an internal or private declaration"
   let saved := ← get
   let savedYul := saved.yulNames
@@ -11322,7 +11341,8 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   let visibility := optStr fn "visibility" |>.getD ""
-  unless visibility == "internal" || visibility == "private" || visibility == "public" do
+  let linkedCall := (← get).linkedLibrariesMatchSource && isLinkedLibraryCallSite at_
+  unless visibility == "internal" || visibility == "private" || visibility == "public" || linkedCall do
     failAt at_ "multi-return helper calls require an internal or private declaration"
   let saved := ← get
   let savedYul := saved.yulNames
@@ -11464,10 +11484,15 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
     unless definitelyReturns do
       failAt fn "inlined multi-return helper does not return on every path"
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
+  let cleanPost : Array Stmt :=
+    if linkedCall then
+      results.map fun (binding, rty, _) =>
+        Stmt.assignVar binding (cleanHelperResultExpr rty { pre := #[], expr := .localVar binding })
+    else #[]
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, dynArrayHelperResult := saved.dynArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-  pure (pre ++ modStmts ++ bodyStmts, retExprs)
+  pure (pre ++ modStmts ++ bodyStmts ++ cleanPost, retExprs)
 
 private partial def lowerMultiBranch (j : Json) (expectedTypes : Option (Array (Option String))) :
     M (Array Stmt × Array (Expr × String)) := do
@@ -18394,9 +18419,11 @@ private def immutableInitializer? (immutables : Array Nat) (decl : Json) (init :
   -- Initializers run before the constructors, so another immutable's value there is not the
   -- one its binding models (it may still be `0`). Unbinding every immutable of the chain
   -- makes any read of one, direct or through a helper, fail like an unbound immutable's.
+  -- Constructor-time linked library DELEGATECALLs stay outside this slice.
   modify fun e =>
     { e with values := immutables.foldl (fun m id => m.erase id) e.values,
-             scalarTy := immutables.foldl (fun m id => m.erase id) e.scalarTy }
+             scalarTy := immutables.foldl (fun m id => m.erase id) e.scalarTy,
+             linkedLibrariesMatchSource := false }
   let result ← try
       let raw ← lowerExpr init
       let v ← convert (← mType decl) (← mType init) raw init

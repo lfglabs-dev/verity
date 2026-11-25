@@ -21,6 +21,12 @@ from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 
 PRAGMA = ('pragma solidity 0.8.34;\n'
           'interface I { function g(uint256) external view returns (uint256); }\n')
+UDVT_OPERATOR = (
+    'type TaggedWord is uint256;\n'
+    'function addTaggedWithSig(TaggedWord x, TaggedWord y) pure returns (TaggedWord) {\n'
+    '    return TaggedWord.wrap(TaggedWord.unwrap(x) + TaggedWord.unwrap(y) + uint32(msg.sig));\n'
+    '}\n'
+    'using {addTaggedWithSig as +} for TaggedWord global;\n')
 PROFILE = ('{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, '
            'bytecodeHash := "none"{extra} }')
 CONTRACT = ('contract C {\n'
@@ -46,6 +52,16 @@ CASES = [
     ('void-public-call',
      '    function h(Cell storage c, uint256 a) public { c.v = a; }\n',
      'S.h(cell, a);\n        root = b;', '', None, None),
+    ('void-external-call',
+     '    function h(Cell storage c, uint256 a) external { c.v = a; }\n',
+     'S.h(cell, a);\n        root = b;', '', None, None),
+    ('multi-return-external-call',
+     '    function h(uint256 a, uint256 b) external pure returns (uint256, uint256) { return (a + 1, b + 2); }\n',
+     '(uint256 x, uint256 y) = S.h(a, b);\n        root = x + y;', '', None, None),
+    ('immutable-initializer',
+     '    function h(uint256 a) external pure returns (uint256) { return a + 1; }\n',
+     'root = IMM + a;', '    uint256 internal immutable IMM = S.h(1);\n', 'IMM + a',
+     'immutable state variable IMM is outside this slice'),
     ('internal-call-unchanged',
      '    function h(uint256 a, uint256 b) internal pure returns (uint256) { return a ^ b; }\n',
      'root = S.h(a, b);', '', None, None),
@@ -110,6 +126,10 @@ CASES = [
      '    modifier m() { require(msg.data.length > 4); _; }\n'
      '    function h(uint256 a) external pure m returns (uint256) { return a; }\n',
      'root = S.h(a);', '', 'msg.data', 'msg.data and msg.sig in a linked library call'),
+    ('msg-sig-in-udvt-operator',
+     '    function h(TaggedWord x, TaggedWord y) external pure returns (TaggedWord) { return x + y; }\n',
+     'root = TaggedWord.unwrap(S.h(TaggedWord.wrap(a), TaggedWord.wrap(b)));', '',
+     'msg.sig', 'msg.data and msg.sig in a linked library call'),
     ('gasleft',
      '    function h(uint256 a) external view returns (uint256) { return gasleft() + a; }\n',
      'root = S.h(a);', '', 'gasleft', 'gasleft() in a linked library call'),
@@ -120,21 +140,23 @@ CASES = [
 # Frame cases the importer otherwise lowers, so the mutant must admit them. `gasleft` is also
 # rejected elsewhere; the frame check rejects it first, as defense in depth.
 FRAME_CASES = ('msg-data', 'msg-sig-in-internal-helper', 'msg-data-in-modifier',
-               'inline-assembly')
-# (name, anchor, replacement, cases the mutant must admit)
-MUTANTS = [
-    ('frame-check',
-     '  if let some (node, reason) := linkedLibraryFrameHazard? decl fn then\n',
-     '  if let some (node, reason) := (none : Option (Json × String)) then\n', FRAME_CASES),
-    ('returndata-check',
-     '  unless env.rootLinkedLibraryCalls.isEmpty do\n    failAt j ("Yul returndatasize in a function',
-     '  unless true do\n    failAt j ("Yul returndatasize in a function',
-     ('returndatasize-after-call', 'bubbled-revert-after-call')),
-]
+               'msg-sig-in-udvt-operator', 'inline-assembly')
+# name -> (anchor, replacement, cases the mutant must admit)
+MUTANTS = {
+    'frame-check': (
+        '  if let some (node, reason) := linkedLibraryFrameHazard? decl fn then\n',
+        '  if let some (node, reason) := (none : Option (Json × String)) then\n',
+        FRAME_CASES),
+    'returndata-check': (
+        '  unless env.rootLinkedLibraryCalls.isEmpty do\n    failAt j ("Yul returndatasize in a function',
+        '  unless true do\n    failAt j ("Yul returndatasize in a function',
+        ('returndatasize-after-call', 'bubbled-revert-after-call')),
+}
 
 
 def run_case(output, name, library, body, members, token, diagnostic, cwd=None):
-    source = (PRAGMA + 'library S {\n' + STRUCT + library + '}\n' +
+    preamble = UDVT_OPERATOR if 'TaggedWord' in library else ''
+    source = (PRAGMA + preamble + 'library S {\n' + STRUCT + library + '}\n' +
               CONTRACT.replace('{body}', body).replace('{members}', members))
     project = output / name
     project.mkdir()
@@ -173,7 +195,7 @@ def suite(output, cwd=None):
 
 def mutant(output, name):
     from .mutations import snapshot
-    _, anchor, replacement, must_admit = next(m for m in MUTANTS if m[0] == name)
+    anchor, replacement, must_admit = MUTANTS[name]
     directory = output / 'snapshot'
     snapshot(directory)
     source = directory / 'Compiler/SolidityImport/Import.lean'
@@ -207,7 +229,7 @@ def mutant(output, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--mutant', choices=[m[0] for m in MUTANTS])
+    parser.add_argument('--mutant', choices=tuple(MUTANTS))
     args = parser.parse_args()
     output = args.output.resolve()
     if args.mutant:

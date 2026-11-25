@@ -18,6 +18,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "LinkedLibra
   function bumpMain(uint256)
   function bumpPacked(bytes32,uint256,address)
   function reset(bytes32)
+  function addExternal(bytes32,uint256)
+  function cleanNarrow(uint256,uint256,uint256,uint256)
   function share(bytes32,uint256)
   function total(bytes32)
   function last(bytes32)

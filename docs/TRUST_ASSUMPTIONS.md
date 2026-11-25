@@ -2182,13 +2182,16 @@ assumption:
   pipeline, the `immutableReferences` ranges on via-IR. With different code (for example a
   stub source for a library built by another toolchain) every proof that uses the root
   is void.
-- **Model**: a direct `L.f(...)` call is replaced by `f`'s body in the caller's frame.
+- **Model**: a direct runtime `L.f(...)` call in an imported function (`immutable` inline
+  initializers stay outside this slice) is replaced by `f`'s body in the caller's frame,
+  with value-type arguments and results ABI-cleaned across the call.
   Admitted only for value-type and `storage` arguments, value-type results and bodies
-  that reach no `msg.data`, `msg.sig`, `gasleft()` or inline assembly, in a root that
+  that reach no `msg.data`, `msg.sig`, `gasleft()` or inline assembly (including through
+  helpers, user-defined operators, nested linked calls and modifiers), in a root that
   reads no Yul `returndatasize()` (the DELEGATECALL sets the return-data buffer, the
   inlined body does not); everything else rejects with its location. The frame equivalence relied on (same storage, transient
   storage, `msg.sender`, `msg.value`, `address(this)`, logs, block context; the library's
-  revert data forwarded; value-type ABI round trips are identities) is EVM and solc
+  revert data forwarded; cleaned value-type ABI round trips are identities) is EVM and solc
   behaviour, checked differentially, not proved.
 - **Not preserved**: gas and the call depth limit (as for every call transport); the
   free pointer and unallocated memory after the call, since the library's allocations

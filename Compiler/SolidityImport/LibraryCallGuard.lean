@@ -185,8 +185,9 @@ def linkedLibraryFrameHazard (j : Json) : Option String :=
       else none
   | _ => none
 
-/-- Walk `j` and every function or modifier declaration it references (`decl`, transitively,
-each once). Returns the first frame-dependent node and its reason, or the visited ids. -/
+/-- Walk `j` and every function, operator or modifier declaration it references (`decl`,
+transitively, each once, via `referencedDeclaration` or overloaded-operator `function`).
+Returns the first frame-dependent node and its reason, or the visited ids. -/
 partial def linkedLibraryFrameHazardWalk (decl : Nat → Option Json) :
     List Nat → Json → Except (Json × String) (List Nat)
   | seen, .arr xs => xs.foldl (fun acc x => acc.bind (linkedLibraryFrameHazardWalk decl · x))
@@ -195,14 +196,15 @@ partial def linkedLibraryFrameHazardWalk (decl : Nat → Option Json) :
       match linkedLibraryFrameHazard j with
       | some reason => .error (j, reason)
       | none =>
-        let start : Except (Json × String) (List Nat) :=
-          match jsonNatField? j "referencedDeclaration" with
+        let step (s : List Nat) (edge : String) : Except (Json × String) (List Nat) :=
+          match jsonNatField? j edge with
           | some id =>
-              if seen.contains id then .ok seen
+              if s.contains id then .ok s
               else match decl id with
-                | some d => linkedLibraryFrameHazardWalk decl (id :: seen) d
-                | none => .ok seen
-          | none => .ok seen
+                | some d => linkedLibraryFrameHazardWalk decl (id :: s) d
+                | none => .ok s
+          | none => .ok s
+        let start := (step seen "referencedDeclaration").bind (step · "function")
         o.foldl (fun acc _ v => acc.bind (linkedLibraryFrameHazardWalk decl · v)) start
   | seen, _ => .ok seen
 
