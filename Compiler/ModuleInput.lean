@@ -98,18 +98,41 @@ private def existingSplitPackageSearchRoots : IO SearchPath := do
       roots := roots.concat path
   pure (roots ++ (← packageSearchRoots))
 
+/-- Reuse the last dynamically imported environment when a later call in the same
+process requests a subset of its modules under the same search path. Each distinct
+`Environment` passed to `evalConstCheck` is retained by Lean's interpreter closure
+cache (~3 GB for the `Contracts` cone), which otherwise pushes multi-call driver
+tests past the 10 GB memory cap. -/
+private initialize importedEnvCache :
+    IO.Ref (Option (SearchPath × List Name × Environment)) ← IO.mkRef none
+
 /-- Import modules and evaluate their canonical `<Module>.spec` constants. -/
 unsafe def loadSpecsFromModules (moduleNames : List Name) : IO (Except String (List CompilationModel)) := do
   Lean.enableInitializersExecution
   Lean.initSearchPath (← Lean.findSysroot)
   let originalSearchPath ← searchPathRef.get
   let extraSearchRoots ← existingSplitPackageSearchRoots
-  searchPathRef.set (originalSearchPath ++ extraSearchRoots)
+  let effectiveSearchPath := originalSearchPath ++ extraSearchRoots
+  searchPathRef.set effectiveSearchPath
   try
     -- `loadExts := true` so `evalConstCheck` can evaluate specs that apply imported functions
     -- (the `withReturnModule` ecm from typed-interface calls), not just inductive constructors. (#1951)
-    let env ← Lean.importModules (moduleNames.toArray.map fun moduleName => { module := moduleName }) {}
-                (loadExts := true)
+    let env ← match ← importedEnvCache.get with
+      | some (cachedPath, cachedModules, cachedEnv) =>
+          if cachedPath == effectiveSearchPath && moduleNames.all (· ∈ cachedModules) then
+            pure cachedEnv
+          else
+            let freshEnv ← Lean.importModules
+              (moduleNames.toArray.map fun moduleName => { module := moduleName }) {}
+              (loadExts := true)
+            importedEnvCache.set (some (effectiveSearchPath, moduleNames, freshEnv))
+            pure freshEnv
+      | none =>
+          let freshEnv ← Lean.importModules
+            (moduleNames.toArray.map fun moduleName => { module := moduleName }) {}
+            (loadExts := true)
+          importedEnvCache.set (some (effectiveSearchPath, moduleNames, freshEnv))
+          pure freshEnv
     let opts : Options := {}
     pure <| moduleNames.mapM (fun moduleName => evalSpecConst env opts (specNameOfModule moduleName))
   catch e =>
