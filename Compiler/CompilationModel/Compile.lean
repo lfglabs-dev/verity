@@ -180,6 +180,21 @@ def forEachBodyScope (inScopeNames : List String) (varName : String)
   let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
   idxName :: countName :: varName :: inScopeNames
 
+/-- Names a `Stmt.forEachWhile` lowering must avoid when it picks its counters:
+the loop variable, the outer scope and every name in the count, guard and body. -/
+def forEachWhileUsedNames (inScopeNames : List String) (varName : String)
+    (count guard : Expr) (body : List Stmt) : List String :=
+  varName :: (inScopeNames ++ collectExprNames count ++ collectExprNames guard ++
+    collectStmtListNames body)
+
+/-- Scope visible while compiling a `Stmt.forEachWhile` body (see `forEachBodyScope`). -/
+def forEachWhileBodyScope (inScopeNames : List String) (varName : String)
+    (count guard : Expr) (body : List Stmt) : List String :=
+  let forUsedNames := forEachWhileUsedNames inScopeNames varName count guard body
+  let idxName := pickFreshName "__forEach_idx" forUsedNames
+  let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
+  idxName :: countName :: varName :: inScopeNames
+
 def forEachSetBitBodyScope (inScopeNames : List String) (varName : String)
     (bitmap : Expr) (body : List Stmt) : List String :=
   let usedNames := varName :: (inScopeNames ++ collectExprNames bitmap ++ collectStmtListNames body)
@@ -408,6 +423,28 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
         YulStmt.let_ varName (YulExpr.lit 0)
       ]
       let condExpr := YulExpr.call "lt" [YulExpr.ident idxName, YulExpr.ident countName]
+      let postStmts := [YulStmt.assign idxName (YulExpr.call "add" [YulExpr.ident idxName, YulExpr.lit 1])]
+      let bodyWithBind := YulStmt.assign varName (YulExpr.ident idxName) :: bodyStmts
+      pure [YulStmt.for_ initStmts condExpr postStmts bodyWithBind]
+
+  | Stmt.forEachWhile varName count guard body => do
+      -- Early-exit bounded loop (#2916): the `forEach` lowering with the guard
+      -- conjoined to the loop test, so the loop stops at the first check where the
+      -- guard is zero. `iszero(iszero(·))` makes the bitwise `and` a logical and.
+      let countExpr ← compileExprWithInternals fields dynamicSource internalFunctions count
+      let guardExpr ← compileExprWithInternals fields dynamicSource internalFunctions guard
+      let forUsedNames := forEachWhileUsedNames inScopeNames varName count guard body
+      let idxName := pickFreshName "__forEach_idx" forUsedNames
+      let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
+      let bodyStmts ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal (forEachWhileBodyScope inScopeNames varName count guard body) adtTypes targetFork body internalFunctions
+      let initStmts := [
+        YulStmt.let_ idxName (YulExpr.lit 0),
+        YulStmt.let_ countName countExpr,
+        YulStmt.let_ varName (YulExpr.lit 0)
+      ]
+      let condExpr := YulExpr.call "and" [
+        YulExpr.call "lt" [YulExpr.ident idxName, YulExpr.ident countName],
+        YulExpr.call "iszero" [YulExpr.call "iszero" [guardExpr]]]
       let postStmts := [YulStmt.assign idxName (YulExpr.call "add" [YulExpr.ident idxName, YulExpr.lit 1])]
       let bodyWithBind := YulStmt.assign varName (YulExpr.ident idxName) :: bodyStmts
       pure [YulStmt.for_ initStmts condExpr postStmts bodyWithBind]

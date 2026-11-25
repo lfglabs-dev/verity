@@ -19588,6 +19588,7 @@ private partial def stmtEndsCall : Stmt → Bool
   | .returnCodeData _ | .stop | .unsafeBlock _ _ | .unsafeYul _ => true
   | .ite _ yes no => yes.any stmtEndsCall || no.any stmtEndsCall
   | .forEach _ _ body | .forEachSetBit _ _ body => body.any stmtEndsCall
+  | .forEachWhile _ _ _ body => body.any stmtEndsCall
   | _ => false
 
 /-- Replaces each `let <marker> := 0` (at the top level or in `if` branches) by `inner`,

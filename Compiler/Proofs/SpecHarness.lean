@@ -156,6 +156,9 @@ def stmtLowLevelMechanicsStructural : Stmt → List String
         stmtListLowLevelMechanicsStructural tB ++ stmtListLowLevelMechanicsStructural eB
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprLowLevelMechanicsStructural count ++ stmtListLowLevelMechanicsStructural body
+  | .forEachWhile _ count guard body =>
+      exprLowLevelMechanicsStructural count ++ exprLowLevelMechanicsStructural guard ++
+        stmtListLowLevelMechanicsStructural body
   | .unsafeBlock _ body =>
       stmtListLowLevelMechanicsStructural body
   | .matchAdt _ scrutinee branches =>
@@ -186,6 +189,8 @@ def stmtUnsafeReasonsStructural : Stmt → List String
   | .ite _ tB eB =>
       stmtListUnsafeReasonsStructural tB ++ stmtListUnsafeReasonsStructural eB
   | .forEach _ _ body | .forEachSetBit _ _ body =>
+      stmtListUnsafeReasonsStructural body
+  | .forEachWhile _ _ _ body =>
       stmtListUnsafeReasonsStructural body
   | .matchAdt _ _ branches =>
       matchBranchesUnsafeReasonsStructural branches

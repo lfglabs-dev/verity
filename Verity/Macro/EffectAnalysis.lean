@@ -382,6 +382,11 @@ def stmtEffectSummary (helperEffects : String → MacroEffectSummary) :
       MacroEffectSummary.join
         (exprEffectSummary helperEffects count)
         (stmtListEffectSummary helperEffects body)
+  | .forEachWhile _ count guard body =>
+      MacroEffectSummary.join
+        (MacroEffectSummary.join (exprEffectSummary helperEffects count)
+          (exprEffectSummary helperEffects guard))
+        (stmtListEffectSummary helperEffects body)
   | .unsafeBlock _ body =>
       stmtListEffectSummary helperEffects body
   | .matchAdt _ scrutinee branches =>
@@ -481,7 +486,7 @@ def stmtListPreciseCEIViolation
       | some msg => some msg
       | none =>
           let isCompound := match s with
-            | .ite _ _ _ | .forEach _ _ _ | .forEachSetBit _ _ _
+            | .ite _ _ _ | .forEach _ _ _ | .forEachSetBit _ _ _ | .forEachWhile _ _ _ _
             | .unsafeBlock _ _ | .matchAdt _ _ _ => true
             | _ => false
           let isInternalHelperCall := match s with
@@ -515,6 +520,23 @@ def stmtInternalPreciseCEIViolation
         some "loop body contains both external call and state write (subsequent iterations would violate CEI)"
       else
         let countCall := seenCall || (exprEffectSummary helperEffects count).hasExternalInteraction
+        match stmtListPreciseCEIViolation helperEffects body countCall with
+        | some msg => some s!"in loop body: {msg}"
+        | none => none
+  | .forEachWhile _ count guard body, seenCall =>
+      let countEff := exprEffectSummary helperEffects count
+      let guardEff := exprEffectSummary helperEffects guard
+      let bodyEff := stmtListEffectSummary helperEffects body
+      let guardWrites := guardEff.writesStorage || guardEff.writesTransient
+      let bodyWrites := bodyEff.writesStorage || bodyEff.writesTransient
+      if (seenCall || countEff.hasExternalInteraction) && guardWrites then
+        some "in loop guard: state write after external call"
+      else if (guardEff.hasExternalInteraction || bodyEff.hasExternalInteraction) &&
+          (guardWrites || bodyWrites) then
+        some "loop body contains both external call and state write (subsequent iterations would violate CEI)"
+      else
+        let countCall := seenCall || countEff.hasExternalInteraction ||
+          guardEff.hasExternalInteraction
         match stmtListPreciseCEIViolation helperEffects body countCall with
         | some msg => some s!"in loop body: {msg}"
         | none => none
@@ -993,6 +1015,17 @@ mutual
       let (bodyCalls, bodyViol) := stmtListWriteAfterCallScan helperEffects body countEff.hasExternalInteraction
       let bodyEff := stmtListEffectSummary helperEffects body
       bodyViol || (bodyCalls && (bodyEff.writesStorage || bodyEff.writesTransient))
+    | .forEachWhile _ count guard body =>
+      let countEff := exprEffectSummary helperEffects count
+      let guardEff := exprEffectSummary helperEffects guard
+      let guardWrites := guardEff.writesStorage || guardEff.writesTransient
+      let (bodyCalls, bodyViol) :=
+        stmtListWriteAfterCallScan helperEffects body
+          (countEff.hasExternalInteraction || guardEff.hasExternalInteraction)
+      let bodyEff := stmtListEffectSummary helperEffects body
+      (countEff.hasExternalInteraction && guardWrites) ||
+        bodyViol ||
+        (bodyCalls && (bodyEff.writesStorage || bodyEff.writesTransient || guardWrites))
     | .unsafeBlock _ body =>
       (stmtListWriteAfterCallScan helperEffects body false).2
     | .internalCall functionName args | .internalCallAssign _ functionName args =>
@@ -1035,6 +1068,16 @@ mutual
       let (bodyCalls, bodyViol) := stmtListReadAfterCallScan helperEffects body countEff.hasExternalInteraction
       let bodyEff := stmtListEffectSummary helperEffects body
       bodyViol || (bodyCalls && bodyEff.readsStorage)
+    | .forEachWhile _ count guard body =>
+      let countEff := exprEffectSummary helperEffects count
+      let guardEff := exprEffectSummary helperEffects guard
+      let (bodyCalls, bodyViol) :=
+        stmtListReadAfterCallScan helperEffects body
+          (countEff.hasExternalInteraction || guardEff.hasExternalInteraction)
+      let bodyEff := stmtListEffectSummary helperEffects body
+      (countEff.hasExternalInteraction && guardEff.readsStorage) ||
+        bodyViol ||
+        (bodyCalls && (bodyEff.readsStorage || guardEff.readsStorage))
     | .unsafeBlock _ body =>
       (stmtListReadAfterCallScan helperEffects body false).2
     | .internalCall functionName args | .internalCallAssign _ functionName args =>
@@ -1089,6 +1132,60 @@ theorem hasExternalCallBeforeStorageRead_pair_of_call_then_read
     hasExternalCallBeforeStorageRead helperEffects [s1, s2] = true := by
   unfold hasExternalCallBeforeStorageRead
   simp [stmtListReadAfterCallScan, hcall, hread]
+
+/-- In `forEachWhile`, `guard` executes after `count` on check 0; if `count` calls out and
+    `guard` reads storage, `hasExternalCallBeforeStorageRead` flags the loop (#2916). -/
+theorem hasExternalCallBeforeStorageRead_forEachWhile_of_count_call_guard_read
+    (helperEffects : String → MacroEffectSummary) (v : String) (count guard : Expr)
+    (body : List Stmt)
+    (hcall : (exprEffectSummary helperEffects count).hasExternalInteraction = true)
+    (hread : (exprEffectSummary helperEffects guard).readsStorage = true) :
+    hasExternalCallBeforeStorageRead helperEffects [.forEachWhile v count guard body] = true := by
+  unfold hasExternalCallBeforeStorageRead
+  simp [stmtListReadAfterCallScan, stmtReadsStorageAfterExternalCall, hcall, hread]
+
+/-- In `forEachWhile`, `guard` is re-evaluated after every `body` iteration; if `body`
+    calls out and `guard` reads storage, `hasExternalCallBeforeStorageRead` flags it (#2916). -/
+theorem hasExternalCallBeforeStorageRead_forEachWhile_of_body_call_guard_read
+    (helperEffects : String → MacroEffectSummary) (v : String) (count guard : Expr)
+    (s : Stmt)
+    (hcall : (stmtEffectSummary helperEffects s).hasExternalInteraction = true)
+    (hread : (exprEffectSummary helperEffects guard).readsStorage = true) :
+    hasExternalCallBeforeStorageRead helperEffects [.forEachWhile v count guard [s]] = true := by
+  unfold hasExternalCallBeforeStorageRead
+  simp [stmtListReadAfterCallScan, stmtReadsStorageAfterExternalCall, hcall, hread]
+
+/-- Symmetric post-interaction write detector for `forEachWhile` when `count` calls out and
+    `guard` writes storage via a helper summary (#2916). -/
+theorem hasWriteAfterExternalCall_forEachWhile_of_count_call_guard_write
+    (helperEffects : String → MacroEffectSummary) (v : String) (count guard : Expr)
+    (body : List Stmt)
+    (hcall : (exprEffectSummary helperEffects count).hasExternalInteraction = true)
+    (hwrite : (exprEffectSummary helperEffects guard).writesStorage = true) :
+    hasWriteAfterExternalCall helperEffects [.forEachWhile v count guard body] = true := by
+  unfold hasWriteAfterExternalCall
+  simp [stmtListWriteAfterCallScan, stmtWritesStorageAfterExternalCall, hcall, hwrite]
+
+/-- Symmetric post-interaction write detector for `forEachWhile` when `body` calls out and
+    `guard` writes storage on the next iteration check (#2916). -/
+theorem hasWriteAfterExternalCall_forEachWhile_of_body_call_guard_write
+    (helperEffects : String → MacroEffectSummary) (v : String) (count guard : Expr)
+    (s : Stmt)
+    (hcall : (stmtEffectSummary helperEffects s).hasExternalInteraction = true)
+    (hwrite : (exprEffectSummary helperEffects guard).writesStorage = true) :
+    hasWriteAfterExternalCall helperEffects [.forEachWhile v count guard [s]] = true := by
+  unfold hasWriteAfterExternalCall
+  simp [stmtListWriteAfterCallScan, stmtWritesStorageAfterExternalCall, hcall, hwrite]
+
+example :
+    hasExternalCallBeforeStorageRead (fun _ => .bottom)
+      [.forEachWhile "i" (.param "n") (.storage "active") [.externalCallBind [] "ping" []]] =
+      true := rfl
+
+example :
+    hasExternalCallBeforeStorageRead (fun _ => .bottom)
+      [.forEachWhile "i" (.externalCall "getCount" []) (.storage "active") []] =
+      true := rfl
 
 /-!
 ## 12. Poka-Yoke Static Write-Set Completeness & Slot-Drift Guards

@@ -45,6 +45,7 @@ import Contracts.Smoke.SpillFreeMemorySmoke
 import Contracts.Smoke.SpillReturnArraySmoke
 import Contracts.Smoke.SpillStaticMemorySmoke
 import Contracts.Smoke.LoopSemanticsSmoke
+import Contracts.Smoke.ForEachWhileSmoke
 import Contracts.Smoke.FallbackNonReentrantSmoke
 import Contracts.Smoke.ScalarAbiValidationSmoke
 import Contracts.Smoke.ConstructorEventSmoke

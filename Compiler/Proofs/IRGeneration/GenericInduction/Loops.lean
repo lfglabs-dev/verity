@@ -14,7 +14,7 @@ mutual
 private def stmtBindNamesComplexity : Stmt → Nat
   | .ite _ thenBranch elseBranch =>
       1 + stmtListBindNamesComplexity thenBranch + stmtListBindNamesComplexity elseBranch
-  | .forEach _ _ body | .forEachSetBit _ _ body | .unsafeBlock _ body =>
+  | .forEach _ _ body | .forEachSetBit _ _ body | .forEachWhile _ _ _ body | .unsafeBlock _ body =>
       1 + stmtListBindNamesComplexity body
   | .matchAdt _ _ branches => 1 + matchBranchBindNamesComplexity branches
   | _ => 0

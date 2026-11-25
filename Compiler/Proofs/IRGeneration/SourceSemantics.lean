@@ -952,6 +952,69 @@ theorem execForEachLoop_succ
       | .return value next => .return value next
       | .revert payload => .revert payload := rfl
 
+/-- `Stmt.forEachWhile` iteration (#2916). Before every iteration check the guard
+is evaluated (failure reverts); the loop stops once `remaining` reaches zero or the
+guard is zero, and otherwise binds `varName` to the index and runs the body. This is
+the evaluation order of the lowered Yul condition
+`and(lt(idx, cnt), iszero(iszero(guard)))`, which evaluates the guard on every check. -/
+def execForEachWhileLoop
+    (varName : String)
+    (evalGuard : RuntimeState → Option Nat)
+    (runBody : RuntimeState → StmtResult) :
+    RuntimeState → Nat → Nat → StmtResult
+  | state, _, 0 =>
+      match evalGuard state with
+      | some _ => .continue state
+      | none => .revert .empty
+  | state, index, remaining + 1 =>
+      match evalGuard state with
+      | none => .revert .empty
+      | some guardValue =>
+          if guardValue = 0 then
+            .continue state
+          else
+            let loopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+            match runBody loopState with
+            | .continue next =>
+                execForEachWhileLoop varName evalGuard runBody next (index + 1) remaining
+            | .stop next => .stop next
+            | .return value next => .return value next
+            | .revert payload => .revert payload
+
+theorem execForEachWhileLoop_zero
+    (varName : String)
+    (evalGuard : RuntimeState → Option Nat)
+    (runBody : RuntimeState → StmtResult)
+    (state : RuntimeState)
+    (index : Nat) :
+    execForEachWhileLoop varName evalGuard runBody state index 0 =
+      match evalGuard state with
+      | some _ => .continue state
+      | none => .revert .empty := rfl
+
+theorem execForEachWhileLoop_succ
+    (varName : String)
+    (evalGuard : RuntimeState → Option Nat)
+    (runBody : RuntimeState → StmtResult)
+    (state : RuntimeState)
+    (index remaining : Nat) :
+    execForEachWhileLoop varName evalGuard runBody state index (remaining + 1) =
+      match evalGuard state with
+      | none => .revert .empty
+      | some guardValue =>
+          if guardValue = 0 then
+            .continue state
+          else
+            let loopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+            match runBody loopState with
+            | .continue next =>
+                execForEachWhileLoop varName evalGuard runBody next (index + 1) remaining
+            | .stop next => .stop next
+            | .return value next => .return value next
+            | .revert payload => .revert payload := rfl
+
 @[simp] theorem lookupBinding?_bindValue_same
     (bindings : List (String × Nat))
     (name : String)
@@ -1048,6 +1111,21 @@ theorem execForEachLoop_congr
       cases hrun : runBodyB
         { state with bindings := bindValue state.bindings varName (wordNormalize index) } <;>
         simp [hrun, execForEachLoop_congr hbody]
+
+/-- `execForEachWhileLoop` only depends on its guard and body pointwise. -/
+theorem execForEachWhileLoop_congr
+    {varName : String}
+    {guardA guardB : RuntimeState → Option Nat}
+    {runBodyA runBodyB : RuntimeState → StmtResult}
+    (hguard : ∀ state, guardA state = guardB state)
+    (hbody : ∀ state, runBodyA state = runBodyB state) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      execForEachWhileLoop varName guardA runBodyA state index remaining =
+        execForEachWhileLoop varName guardB runBodyB state index remaining := by
+  cases funext hguard
+  cases funext hbody
+  intro _ _ _
+  rfl
 
 theorem execForEachSetBitLoop_congr
     {varName : String}
@@ -1925,6 +2003,16 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
         | none => .revert .empty
+    | state, .forEachWhile varName count guard body =>
+        match evalExpr fields state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachWhileLoop varName
+              (fun loopState => evalExpr fields loopState guard)
+              (fun loopState => execStmtListWithEvents fields events loopState body)
+              initialLoopState 0 bound
+        | none => .revert .empty
     | _, .revertEmpty => .revert (.raw [])
     | state, .revertReturndata =>
         .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
@@ -2330,6 +2418,16 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               256 state bits
         | none => .revert .empty
+    | state, .forEachWhile varName count guard body =>
+        match evalExpr fields state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachWhileLoop varName
+              (fun loopState => evalExpr fields loopState guard)
+              (fun loopState => execStmtList fields loopState body)
+              initialLoopState 0 bound
+        | none => .revert .empty
     | _, .revertEmpty => .revert (.raw [])
     | state, .revertReturndata =>
         .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
@@ -2575,6 +2673,8 @@ mutual
             (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
               hsurface)]
     case forEachSetBit =>
+        simp [stmtTouchesUnsupportedContractSurface] at hsurface
+    case forEachWhile =>
         simp [stmtTouchesUnsupportedContractSurface] at hsurface
     case emit eventName args =>
         simp [stmtTouchesUnsupportedContractSurface] at hsurface
@@ -4045,6 +4145,16 @@ mutual
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
         | none => .revert .empty
+    | .forEachWhile varName count guard body =>
+        match evalExprWithHelpers spec fields fuel state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachWhileLoop varName
+              (fun loopState => evalExprWithHelpers spec fields fuel loopState guard)
+              (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
+              initialLoopState 0 bound
+        | none => .revert .empty
     | .revertEmpty => .revert (.raw [])
     | .revertReturndata => .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
     | .revertMemory offset size =>
@@ -5354,6 +5464,13 @@ mutual
     simp [Stmt.forEachSetBit.sizeOf_spec]
     omega
 
+  private theorem stmt_sizeOf_lt_forEachWhile_body
+      (varName : String) (count guard : Expr) (body : List Stmt) :
+      sizeOf body + 1 < sizeOf (Stmt.forEachWhile varName count guard body) := by
+    have hcount : 0 < sizeOf count := expr_sizeOf_pos count
+    simp [Stmt.forEachWhile.sizeOf_spec]
+    omega
+
   private theorem stmt_sizeOf_lt_cons (stmt : Stmt) (rest : List Stmt) :
       sizeOf stmt + 1 < sizeOf (stmt :: rest) := by
     cases rest with
@@ -5482,6 +5599,34 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_forEa
               have := stmt_sizeOf_lt_forEachSetBit_body varName bitmap body; omega) hsf))
         256 state bits
 
+private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_forEachWhile
+    (spec : CompilationModel) (fields : List Field) (fuel : Nat) (state : RuntimeState)
+    (varName : String) (count guard : Expr) (body : List Stmt)
+    (hsurface :
+      stmtTouchesUnsupportedHelperSurface (.forEachWhile varName count guard body) = false)
+    (ih : ∀ (st : RuntimeState) (s : Stmt),
+      sizeOf s < sizeOf (Stmt.forEachWhile varName count guard body) →
+      stmtTouchesUnsupportedHelperSurface s = false →
+      execStmtWithHelpers spec fields fuel st s = execStmtWithEvents fields spec.events st s) :
+    execStmtWithHelpers spec fields fuel state (.forEachWhile varName count guard body) =
+      execStmtWithEvents fields spec.events state (.forEachWhile varName count guard body) := by
+  simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+  rcases hsurface with ⟨⟨hcount, hguard⟩, hbody⟩
+  simp only [execStmtWithHelpers, execStmtWithEvents,
+    evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state count hcount]
+  cases evalExpr fields state count with
+  | none => rfl
+  | some bound =>
+      exact execForEachWhileLoop_congr (varName := varName)
+        (fun loopState => evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+          spec fields fuel loopState guard hguard)
+        (fun loopState =>
+          execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner
+            spec fields fuel loopState body hbody
+            (fun st s hs hsf => ih st s (by
+              have := stmt_sizeOf_lt_forEachWhile_body varName count guard body; omega) hsf))
+        { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0 bound
+
 private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_exprList
     (spec : CompilationModel) (fields : List Field) (fuel : Nat) (state : RuntimeState)
     (args : List Expr) (hsurface : exprListTouchesUnsupportedHelperSurface args = false) :
@@ -5508,6 +5653,9 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_cases
   | forEachSetBit v c b =>
       exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_forEachSetBit
         spec fields fuel state v c b hsurface ih
+  | forEachWhile v c g b =>
+      exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_forEachWhile
+        spec fields fuel state v c g b hsurface ih
   | _ =>
       clear ih
       simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff,

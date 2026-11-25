@@ -208,6 +208,10 @@ def validateInteropStmt (context : String) : Stmt → Except String Unit
   | Stmt.forEach _ count body => do
       validateInteropExpr context count
       validateInteropStmtList context body
+  | Stmt.forEachWhile _ count guard body => do
+      validateInteropExpr context count
+      validateInteropExpr context guard
+      validateInteropStmtList context body
   | Stmt.unsafeBlock _ body =>
       validateInteropStmtList context body
   | Stmt.matchAdt _ scrutinee branches => do

@@ -990,6 +990,7 @@ partial def stmtBindings : Stmt → List (String × Expr)
   | .ite _ yes no => yes.flatMap stmtBindings ++ no.flatMap stmtBindings
   | .forEach _ _ body => body.flatMap stmtBindings
   | .forEachSetBit _ _ body => body.flatMap stmtBindings
+  | .forEachWhile _ _ _ body => body.flatMap stmtBindings
   | .unsafeBlock _ body => body.flatMap stmtBindings
   | .matchAdt _ _ branches => branches.flatMap fun (_, _, body) => body.flatMap stmtBindings
   | _ => []

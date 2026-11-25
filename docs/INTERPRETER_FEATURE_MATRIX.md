@@ -124,6 +124,18 @@ proved, and positive literal loops with non-empty bodies remain future work.
 This is the current IR-generation proof boundary, not a claim about arbitrary
 non-empty loop-body preservation.
 
+`Stmt.forEachWhile i n guard body` (#2916) is `forEach` with an early-exit guard
+re-evaluated before every iteration check; it lowers to the `forEach` loop with
+the test `and(lt(idx, cnt), iszero(iszero(guard)))`. It is outside the generic
+proof fragment (like non-literal `forEach` and `forEachSetBit`).
+`Compiler/Proofs/IRGeneration/ForEachWhile.lean` proves that a constant nonzero
+guard gives exactly `forEach`, that a guarded flag loop
+`forEach i n [ite guard inner []]` equals `forEachWhile i n guard [ite guard inner []]`
+up to the loop-scoped `i`, and that the lowered test is `1` exactly when
+`idx < cnt` and the guard is nonzero. The Denote and source interpreters agree
+on it (`DenoteAgreement.execStmt_eq`). Gas is not modeled. The early exit's gas
+behaviour (no empty iterations after the exit) is checked by differential tests.
+
 The EDSL executable that `verity_contract` generates (the Lean function contract
 theorems are stated about) runs loops like the compiled Yul: `forEach i n body`
 runs `body` once for each `i` in `0 … n-1` (`n` evaluated once), and

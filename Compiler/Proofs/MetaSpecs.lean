@@ -676,7 +676,7 @@ def stmtRequiresFreePointerInit : Stmt → Bool
   | .ecm mod _ => ecmTouchesFreePointer mod
   | .ite _ thenB elseB =>
       stmtListRequiresFreePointerInit thenB || stmtListRequiresFreePointerInit elseB
-  | .forEach _ _ body | .forEachSetBit _ _ body | .unsafeBlock _ body =>
+  | .forEach _ _ body | .forEachSetBit _ _ body | .forEachWhile _ _ _ body | .unsafeBlock _ body =>
       stmtListRequiresFreePointerInit body
   | .matchAdt _ _ branches =>
       matchAdtBranchesRequiresFreePointerInit branches
@@ -885,6 +885,11 @@ def stmtEffectSummary (helperEffects : String → EffectSummary) : Stmt → Effe
   | .forEach _ count body | .forEachSetBit _ count body =>
       EffectSummary.merge
         { readsStorage := hasMask (exprSurfaceMask count) bitStateRead }
+        (stmtListEffectSummary helperEffects body)
+  | .forEachWhile _ count guard body =>
+      EffectSummary.merge
+        { readsStorage := hasMask (exprSurfaceMask count) bitStateRead ||
+            hasMask (exprSurfaceMask guard) bitStateRead }
         (stmtListEffectSummary helperEffects body)
   | .unsafeBlock _ body =>
       stmtListEffectSummary helperEffects body

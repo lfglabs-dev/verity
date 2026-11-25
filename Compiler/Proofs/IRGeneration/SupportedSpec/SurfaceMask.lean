@@ -214,6 +214,8 @@ def stmtSurfaceMask : Stmt → SurfaceMask
       bitCoreGap ||| exprSurfaceMask count ||| stmtListSurfaceMask body
   | .forEachSetBit _ count body =>
       bitCoreGap ||| bitForEachSetBit ||| exprSurfaceMask count ||| stmtListSurfaceMask body
+  | .forEachWhile _ count guard body =>
+      bitCoreGap ||| exprSurfaceMask count ||| exprSurfaceMask guard ||| stmtListSurfaceMask body
   | .unsafeBlock _ body =>
       bitCoreGap ||| bitInlineYul ||| stmtListSurfaceMask body
   | .unsafeYul _ =>
