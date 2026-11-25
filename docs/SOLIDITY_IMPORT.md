@@ -1149,13 +1149,17 @@ transaction sees it. Narrow signed integers, `bytes1`..`bytes31`, enums and func
 pointers fail closed with a located `unsupported transient scalar storage type`.
 A root whose closure accesses a transient variable admits inline assembly only when every
 block is transient-neutral: it calls no `tload`, `tstore`, `call`, `callcode`,
-`delegatecall`, `staticcall`, `create`, `create2` or `verbatim*`, and each external
-reference names a full-word (`uint256`, `int256`, `bytes32`) non-transient variable or
-constant, or the `.slot` of a local storage pointer, which covers the namespaced storage
-getter `assembly { $.slot := LOCATION }` and full-word Yul locals in roots, helpers and
-modifiers (`TransientNeutralAssemblyChecks`). Any other block fails closed at that block:
-narrow words, which legacy and via-IR clean differently, a transient variable's `x.slot`,
-Yul transient storage access at a literal or computed slot, and calls out of assembly. A transient variable that shares its name
+`delegatecall`, `staticcall`, `create`, `create2` or `verbatim*` (which solc already
+rejects in inline assembly), and each external reference names a full-word (`uint256`,
+`int256`, `bytes32`) non-transient variable or constant, or the `.slot` of a local storage
+pointer. This covers the namespaced storage getter `assembly { $.slot := LOCATION }` and
+full-word Yul locals in roots, private helpers and modifiers
+(`TransientNeutralAssemblyChecks`). Any other block fails closed at that block: narrow
+words, which legacy and via-IR clean differently, a transient variable's `x.slot`, a
+storage pointer's `.offset`, Yul transient storage access at a literal or computed slot,
+and calls or creations out of assembly (`call` and `staticcall` at the block; `callcode`,
+`delegatecall`, `create`, `.offset` and an unchecked `create2` already at their own node
+in the Yul lowering). A transient variable that shares its name
 with a persistent one in the inheritance chain is not given a layout: roots that use it
 fail with the shadowed-declaration diagnostic, and roots that reach only the persistent
 variable import unchanged.

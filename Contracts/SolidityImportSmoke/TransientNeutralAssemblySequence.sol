@@ -120,8 +120,54 @@ contract TransientNeutralAssemblySequence {
         queued = n + 1;
     }
 
-    function callInAssembly(address target) external returns (uint256 ok) {
+    // Calls and creations out of assembly. Every external reference is a full word, so each
+    // block is rejected for its builtin alone.
+    function callInAssembly(uint256 target) external returns (uint256 ok) {
         deferred = true;
         assembly { ok := call(gas(), target, 0, 0, 0, 0, 0) }
+    }
+
+    function callcodeInAssembly(uint256 target) external returns (uint256 ok) {
+        deferred = true;
+        assembly { ok := callcode(gas(), target, 0, 0, 0, 0, 0) }
+    }
+
+    function delegatecallInAssembly(uint256 target) external returns (uint256 ok) {
+        deferred = true;
+        assembly { ok := delegatecall(gas(), target, 0, 0, 0, 0) }
+    }
+
+    function staticcallInAssembly(uint256 target) external returns (uint256 ok) {
+        deferred = true;
+        assembly { ok := staticcall(gas(), target, 0, 0, 0, 0) }
+    }
+
+    function createInAssembly() external returns (uint256 created) {
+        deferred = true;
+        assembly { created := create(0, 0, 0) }
+    }
+
+    function create2InAssembly(uint256 salt) external returns (uint256 created) {
+        deferred = true;
+        assembly { created := create2(0, 0, 0, salt) }
+    }
+
+    // The `.offset` of a local storage pointer (only `.slot` is admitted).
+    function namespacedOffset() external returns (uint256 o) {
+        Main storage $ = _main();
+        deferred = true;
+        assembly { o := $.offset }
+    }
+
+    // Admitted: a full-word Yul local in a private helper of a transient closure.
+    function _plusTwo(uint256 x) private pure returns (uint256 r) {
+        uint256 t;
+        assembly { t := add(x, 2) }
+        r = t;
+    }
+
+    function viaHelper(uint256 x) external returns (uint256) {
+        queued = _plusTwo(x);
+        return queued;
     }
 }
