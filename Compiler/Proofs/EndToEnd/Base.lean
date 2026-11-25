@@ -76,7 +76,8 @@ abbrev nativeResultsMatchOn :=
 
 This is the public composition target for source-level compiler correctness:
 the storage comparison is intentionally projected to `observableSlots`, matching
-the native harness' materialized-storage boundary. -/
+the native harness' materialized-storage boundary. A reverted call's bytes are
+compared exactly. -/
 def sourceResultMatchesNativeOn
     (observableSlots : List Nat)
     (source : SourceSemantics.SourceContractResult)
@@ -90,7 +91,8 @@ def sourceResultMatchesNativeOn
         IRStorageWord.ofNat
             (source.finalStorage (IRStorageSlot.ofNat slot).toNat) =
           yul.finalStorage (IRStorageSlot.ofNat slot)) ∧
-      source.events = yul.events
+      source.events = yul.events ∧
+      source.revertData = yul.revertData
   | .error _ => False
 
 /-- Compose Layer 2 source-to-IR correctness with native EVMYulLean runtime
@@ -110,9 +112,11 @@ theorem sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeResu
   | error err =>
       cases hNativeIR
   | ok yul =>
-      rcases hSourceIR with ⟨hSourceSuccess, hSourceReturn, hSourceStorage, hSourceEvents⟩
-      rcases hNativeIR with ⟨hNativeSuccess, hNativeReturn, hNativeStorage, hNativeEvents, -⟩
-      refine ⟨?_, ?_, ?_, ?_⟩
+      rcases hSourceIR with
+        ⟨hSourceSuccess, hSourceReturn, hSourceStorage, hSourceEvents, hSourceRevert⟩
+      rcases hNativeIR with
+        ⟨hNativeSuccess, hNativeReturn, hNativeStorage, hNativeEvents, hNativeRevert⟩
+      refine ⟨?_, ?_, ?_, ?_, hSourceRevert.trans hNativeRevert⟩
       · exact hSourceSuccess.trans hNativeSuccess
       · exact hSourceReturn.trans hNativeReturn
       · intro slot hslot

@@ -90,16 +90,17 @@ theorem execResultToIRResult_lock_overlay (spec : CompilationModel)
   rw [initialIRStateForTx_setLock]
   cases r <;> rfl
 
-/-- Locked entry: the source revert matches the IR revert projection. -/
+/-- Locked entry: the source revert matches the IR revert projection of a
+state that carries no revert bytes (the guard's `revert(0, 0)`). -/
 theorem revertedResult_matches_revert_projection (spec : CompilationModel)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (s : IRState) :
+    (s : IRState) (hs : s.revertData = []) :
     FunctionBody.sourceResultMatchesIRResult
       (SourceSemantics.revertedResult spec
         (SourceSemantics.withTransactionContext initialWorld tx))
       (execResultToIRResult
         (FunctionBody.initialIRStateForTx spec tx initialWorld) (.revert s)) := by
-  refine ⟨rfl, rfl, ?_, ?_⟩
+  refine ⟨rfl, rfl, ?_, ?_, by simp [execResultToIRResult, hs]⟩
   · funext x
     simp [SourceSemantics.revertedResult, execResultToIRResult,
       FunctionBody.initialIRStateForTx,
@@ -147,6 +148,7 @@ theorem interpretGuardedFunction_matches (spec : CompilationModel)
   by_cases hlock : (initialWorld.transientStorage lockSlot).val = 1
   · rw [if_pos hlock, hlocked_ir hlock]
     exact revertedResult_matches_revert_projection spec tx initialWorld _
+      (by simp [FunctionBody.initialIRStateForTx])
   · rw [if_neg hlock, hfree_ir hlock]
     exact hfree_base hlock
 

@@ -575,7 +575,7 @@ def stmtResultToSourceResult
   | .continue runtime => SourceSemantics.successResult spec runtime.world none
   | .stop runtime => SourceSemantics.successResult spec runtime.world none
   | .return value runtime => SourceSemantics.successResult spec runtime.world (some value)
-  | .revert _ => SourceSemantics.revertedResult spec initialWorld
+  | .revert payload => SourceSemantics.revertedResultWith spec initialWorld payload
 
 def sourceResultMatchesIRResult
     (source : SourceSemantics.SourceContractResult)
@@ -584,7 +584,8 @@ def sourceResultMatchesIRResult
   source.returnValue = ir.returnValue ∧
   (fun s => Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (source.finalStorage s.toNat)) =
     ir.finalStorage ∧
-  source.events = ir.events
+  source.events = ir.events ∧
+  source.revertData = ir.revertData
 
 /-- Helper: `eval_compileExpr_core` implies both `evalIRExpr` and source `evalExpr`
 succeed with the same `Nat` value. This factored lemma avoids repeating the
@@ -5234,7 +5235,8 @@ theorem stmtResultToSourceResult_matches_irExecResult
       SourceSemantics.successResult, SourceSemantics.encodeStorage,
       hvalue, hstorage, hevents]
   · simp [stmtResultToSourceResult, sourceResultMatchesIRResult, irResultOfExecResult,
-      SourceSemantics.revertedResult, hrollbackStorage, hrollbackEvents]
+      SourceSemantics.revertedResultWith, SourceSemantics.revertedResult, hrollbackStorage,
+      hrollbackEvents, hmatch]
 
 end FunctionBody
 
