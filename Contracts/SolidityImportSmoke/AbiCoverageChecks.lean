@@ -47,4 +47,19 @@ theorem memory_write_is_not_read_only :
 theorem loop_is_not_read_only :
     stmtCovered (.forEach "i" (.literal 1) [.mstore (.literal 0) (.literal 1)]) = false := by rfl
 
+theorem early_exit_loop_is_not_read_only :
+    stmtCovered
+      (.forEachWhile "i" (.literal 1) (.literal 1) [.mstore (.literal 0) (.literal 1)]) = false := by
+  rfl
+
+theorem early_exit_loop_is_executable :
+    executableStmtCovered
+      (.forEachWhile "i" (.param "n") (.eq (.localVar "flag") (.literal 0))
+        [.setStorage "hits" (.add (.storage "hits") (.literal 1))]) = true := by rfl
+
+theorem early_exit_loop_preserves_abi_header :
+    abiHeaderPreservingStmt
+      (.forEachWhile "i" (.param "n") (.lt (.localVar "flag") (.literal 2))
+        [.setStorage "hits" (.add (.storage "hits") (.literal 1))]) = true := by rfl
+
 end SolidityImportSmoke.AbiCoverageChecks

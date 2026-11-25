@@ -5,7 +5,10 @@ from pathlib import Path
 import sys
 import tempfile
 
-from .engine import command, write_json
+from .anvil import Anvil, SequenceAdapter as EVMAdapter
+from .denote import SequenceAdapter as DenoteAdapter
+from .engine import HarnessError, SOLC, command, solc_compile, write_json
+from .stateful import replay_three_routes, validate_observation
 from .programs import call_arg_source
 from .programs import storage_struct_param_slot_source
 from .programs import (
@@ -112,7 +115,172 @@ from .programs import (
 
 
 
-from .stateful import validate_observation
+from .stateful import replay_three_routes, validate_observation
+
+
+def _call_calldata(selector_hex: str, args: list[int]) -> str:
+    return '0x' + selector_hex + ''.join(format(arg, '064x') for arg in args)
+
+
+def _check_helper_loop_early_exit_routes(root: Path, output: Path) -> None:
+    """Verify helper-loop early `return` / `break` (#2916) across Denote, pinned
+    solc legacy, pinned solc via-IR, and Verity Yul: first/middle/last match,
+    no match, n == 0, uint256-large n with early exit, and large n without exit
+    hitting the gas cap with identical out-of-gas rollback on all EVM routes."""
+    sub = output / 'early-exit-routes'
+    sub.mkdir(parents=True, exist_ok=True)
+    fixture_path = root / 'Contracts/SolidityImportSmoke/HelperLoopReturnSequence.sol'
+    driver_path = root / 'Contracts/SolidityImportSmoke/HelperLoopReturnSequenceModel.lean'
+    source_text = fixture_path.read_text()
+    names = [
+        'change(uint256)',
+        'fail()',
+        'read()',
+        'scanLarge(uint256,uint256,uint32)',
+        'countUntilBreak(uint256,uint256)',
+    ]
+    via_ir = solc_compile({
+        'language': 'Solidity',
+        'sources': {'Sequence.sol': {'content': source_text}},
+        'settings': {
+            'evmVersion': 'osaka',
+            'viaIR': True,
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}},
+        },
+    }, fixture_path.parent, sub / 'solc-via-ir', solc=SOLC)['contracts']['Sequence.sol']['SequenceFixture']['evm']
+    legacy = solc_compile({
+        'language': 'Solidity',
+        'sources': {'Sequence.sol': {'content': source_text}},
+        'settings': {
+            'evmVersion': 'osaka',
+            'viaIR': False,
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}},
+        },
+    }, fixture_path.parent, sub / 'solc-legacy', solc=SOLC)['contracts']['Sequence.sol']['SequenceFixture']['evm']
+    selectors = [int(via_ir['methodIdentifiers'][name], 16) for name in names]
+    write_json(sub / 'selectors.json', selectors)
+    command(['lake', 'env', 'lean', '--run', driver_path, 'compile',
+             sub / 'selectors.json', sub / 'model.yul'],
+            timeout=900, log=sub / 'compile-model.log')
+    compiled = solc_compile({
+        'language': 'Yul',
+        'sources': {'Model.yul': {'content': (sub / 'model.yul').read_text()}},
+        'settings': {
+            'evmVersion': 'osaka',
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object']}},
+        },
+    }, fixture_path.parent, sub / 'compiled', solc=SOLC)
+    verity_code = '0x' + next(iter(compiled['contracts']['Model.yul'].values()))['evm']['bytecode']['object']
+    via_ir_code = '0x' + via_ir['bytecode']['object']
+    legacy_code = '0x' + legacy['bytecode']['object']
+
+    with Anvil(sub / 'addr-probe') as probe:
+        senders = probe.rpc('eth_accounts')[:2]
+        deployed = probe.transact({'from': senders[0], 'data': via_ir_code, 'gas': hex(10_000_000)})
+        contract_addr = deployed['receipt']['contractAddress']
+
+    packed = 11 | (22 << 32) | (33 << 64) | (44 << 96) | (55 << 224)
+    huge = 1 << 200
+    max_u256 = (1 << 256) - 1
+    sel = via_ir['methodIdentifiers']
+    calls = [
+        ('scanLarge(uint256,uint256,uint32)', [packed, 0, 11]),
+        ('scanLarge(uint256,uint256,uint32)', [packed, 8, 11]),
+        ('scanLarge(uint256,uint256,uint32)', [packed, 8, 33]),
+        ('scanLarge(uint256,uint256,uint32)', [packed, 8, 55]),
+        ('scanLarge(uint256,uint256,uint32)', [packed, 4, 99]),
+        ('scanLarge(uint256,uint256,uint32)', [1, 300, 99]),
+        ('scanLarge(uint256,uint256,uint32)', [packed, huge, 11]),
+        ('scanLarge(uint256,uint256,uint32)', [packed, huge, 33]),
+        ('scanLarge(uint256,uint256,uint32)', [max_u256, max_u256, 0]),
+        ('countUntilBreak(uint256,uint256)', [0, 5]),
+        ('countUntilBreak(uint256,uint256)', [300, 0]),
+        ('countUntilBreak(uint256,uint256)', [300, 150]),
+        ('countUntilBreak(uint256,uint256)', [300, 299]),
+        ('countUntilBreak(uint256,uint256)', [300, 500]),
+        ('countUntilBreak(uint256,uint256)', [huge, 5]),
+        ('countUntilBreak(uint256,uint256)', [max_u256, 0]),
+        ('read()', []),
+    ]
+    txs = []
+    for idx, (sig, args) in enumerate(calls):
+        txs.append({
+            'id': f'early-exit-{idx}',
+            'function': sig.partition('(')[0],
+            'sender': senders[idx % len(senders)],
+            'target': contract_addr,
+            'value': '0x0',
+            'timestamp': 1_000_000_001 + idx,
+            'blockNumber': 2 + idx,
+            'args': args,
+            'data': _call_calldata(sel[sig], args),
+        })
+
+    for label, solc_code in (('via-ir', via_ir_code), ('legacy', legacy_code)):
+        run_dir = sub / f'abc-{label}'
+        adapters = {
+            'source': EVMAdapter(run_dir / 'source', [solc_code]),
+            'model': DenoteAdapter(run_dir / 'model', driver_path, contract_addr),
+            'compiled': EVMAdapter(run_dir / 'compiled', [verity_code]),
+        }
+        report = replay_three_routes(txs, adapters)
+        write_json(run_dir / 'report.json', report)
+        if report['divergences']:
+            raise RuntimeError(f'helper-loop-return {label} A/B/C diverged: {report["divergences"][0]}')
+
+    # Gas-capped EVM check across solc legacy, solc via-IR, and Verity Yul:
+    # huge n WITH early exit succeeds identically; huge n WITHOUT exit runs out
+    # of gas identically and rolls back storage on all three routes.
+    gas_cap = 500_000
+    with Anvil(sub / 'gas-bound') as node:
+        deployer = node.rpc('eth_accounts')[0]
+        addrs = {}
+        for route, code in (('legacy', legacy_code), ('via_ir', via_ir_code), ('verity', verity_code)):
+            dep = node.transact({'from': deployer, 'data': code, 'gas': hex(10_000_000)})
+            addrs[route] = dep['receipt']['contractAddress']
+
+        for ok_data in (
+            _call_calldata(sel['scanLarge(uint256,uint256,uint32)'], [packed, huge, 33]),
+            _call_calldata(sel['countUntilBreak(uint256,uint256)'], [huge, 4]),
+        ):
+            outputs = {}
+            for route, addr in addrs.items():
+                rec = node.transact({'from': deployer, 'to': addr, 'data': ok_data, 'gas': hex(gas_cap)})
+                if rec['receipt'].get('status') != '0x1':
+                    raise RuntimeError(f'{route} failed under {gas_cap} gas on early-exit call: {rec["call"]}')
+                outputs[route] = rec['call'].get('output', '0x')
+            if len(set(outputs.values())) != 1:
+                raise RuntimeError(f'early-exit outputs differed across routes: {outputs}')
+
+        read_data = _call_calldata(sel['read()'], [])
+        before_states = {
+            route: node.transact({'from': deployer, 'to': addr, 'data': read_data, 'gas': hex(gas_cap)})['call'].get('output')
+            for route, addr in addrs.items()
+        }
+        if len(set(before_states.values())) != 1:
+            raise RuntimeError(f'pre-OOG state differed across routes: {before_states}')
+
+        for oog_data in (
+            _call_calldata(sel['scanLarge(uint256,uint256,uint32)'], [0, huge, 7]),
+            _call_calldata(sel['countUntilBreak(uint256,uint256)'], [huge, huge]),
+        ):
+            for route, addr in addrs.items():
+                rec = node.transact({'from': deployer, 'to': addr, 'data': oog_data, 'gas': hex(gas_cap)})
+                err = str(rec['call'].get('error', ''))
+                if rec['receipt'].get('status') != '0x0' or not err.startswith('out of gas'):
+                    raise RuntimeError(f'{route} did not hit out-of-gas as expected: {rec["call"]}')
+                if rec['call'].get('output', '0x') != '0x':
+                    raise RuntimeError(f'{route} returned unexpected data on out-of-gas: {rec["call"]}')
+
+        after_states = {
+            route: node.transact({'from': deployer, 'to': addr, 'data': read_data, 'gas': hex(gas_cap)})['call'].get('output')
+            for route, addr in addrs.items()
+        }
+        if after_states != before_states:
+            raise RuntimeError(f'out-of-gas call did not preserve state identically: {after_states} != {before_states}')
 
 
 # 25 hits the out-of-range small[small.length] += 1 (x % 13 == 12, Panic(0x32));
@@ -774,9 +942,22 @@ def main():
             # breaking void helper (x % 9 >= 7), and grid sums past 500.
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])]
         if args.fixture == 'helper-loop-return':
-            # Matches on the first, a middle and the last iteration, no match, an empty
-            # bound, the unchecked return at i == 2, the `break` at 9 and the fall-through.
-            extra = ['--change-prefix', *map(str, [0, 1, 3355393, 115339776388732929035197660848497720713218148788040405586178471965091600352261, 5427754182999196660479889922282245680622030531201901439497581965808238696711, 5427754182999196660479889922282245680622030531201901439349574250392419434499, 3618502788666131106986593281521497120414687020801267626344091381866793796871, 1356938545749799165119972480570561420155507632800475359837920554324574865158, 12345, 4096, (1 << 256) - 1])]
+            # Matches on the first, a middle and the last iteration, no match, n == 0,
+            # bounds > 256 (300 and 2000), the unchecked return, and the `break` at 9.
+            extra = ['--change-prefix', *map(str, [
+                0, 1, 7, 3355393,
+                (300 << 24) | (0 << 40),
+                (300 << 24) | (150 << 40),
+                (300 << 24) | (299 << 40),
+                (300 << 24) | (300 << 40) | (5 << 56),
+                (260 << 64) | (10 << 16) | 7,
+                115339776388732929035197660848497720713218148788040405586178471965091600352261,
+                5427754182999196660479889922282245680622030531201901439497581965808238696711,
+                5427754182999196660479889922282245680622030531201901439349574250392419434499,
+                3618502788666131106986593281521497120414687020801267626344091381866793796871,
+                1356938545749799165119972480570561420155507632800475359837920554324574865158,
+                (1 << 256) - 1,
+            ])]
         if args.fixture == 'governor-slice-proposer-delay':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'access-manager-target-role':
@@ -822,6 +1003,8 @@ def main():
             raise RuntimeError(f'storage variant {variant} changed observable behavior')
         completed.append(variant)
         write_json(output / 'completed.json', completed)
+    if args.fixture == 'helper-loop-return':
+        _check_helper_loop_early_exit_routes(Path.cwd(), output)
     print(f'Imported storage variants agree: {output}')
 
 

@@ -197,6 +197,9 @@ partial def quoteStmt : Stmt → m Term
   | .forEach name count body => do
       `(Compiler.CompilationModel.Stmt.forEach $(quote name) $(← quoteExpr count)
         $(← list (← body.mapM quoteStmt)))
+  | .forEachWhile name count guard body => do
+      `(Compiler.CompilationModel.Stmt.forEachWhile $(quote name) $(← quoteExpr count)
+        $(← quoteExpr guard) $(← list (← body.mapM quoteStmt)))
   | .letVar x v => do `(Compiler.CompilationModel.Stmt.letVar $(quote x) $(← quoteExpr v))
   | .setStorage x v => do `(Compiler.CompilationModel.Stmt.setStorage $(quote x) $(← quoteExpr v))
   | .setStorageArrayElement f i v => do
