@@ -1956,8 +1956,8 @@ def firstReentrancyWindowStmt (stmts : List Stmt) : Option String :=
     none
     stmts
 
-/-- Summary of a static analysis opt-out annotation (`allow_post_interaction_writes`
-    or `reentrancy_trusted`) and the statement it suppressed. -/
+/-- Summary of a static analysis opt-out annotation (`allow_post_interaction_writes`,
+    `reentrancy_trusted`, or `reentrancy_adversarial`) and the statement it suppressed. -/
 structure StaticOptOutEntry where
   function : String
   isInternal : Bool
@@ -1993,7 +1993,21 @@ def collectStaticOptOuts (spec : CompilationModel) : List StaticOptOutEntry :=
            suppressedStatement := stmtSummary }]
       else
         []
-    postInteractionEntries ++ reentrancyTrustedEntries
+    let reentrancyAdversarialEntries :=
+      if fn.reentrancyAdversarial then
+        let stmtSummary :=
+          if fn.isView || fn.isPure || fn.nonReentrantLock.isSome then
+            "none (redundant opt-out)"
+          else
+            (firstReentrancyWindowStmt fn.body).getD "none (redundant opt-out)"
+        [{ function := fn.name
+           isInternal := fn.isInternal
+           optOut := "reentrancy_adversarial"
+           firstPostInteractionWrite := "none"
+           suppressedStatement := stmtSummary }]
+      else
+        []
+    postInteractionEntries ++ reentrancyTrustedEntries ++ reentrancyAdversarialEntries
 
 private def staticOptOutJson (entry : StaticOptOutEntry) : String :=
   jsonObject [

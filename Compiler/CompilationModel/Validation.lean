@@ -1474,7 +1474,9 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
     a transiently-exploitable state live during its callback). Such a function
     must therefore carry a *sound* reentrancy disposition: either a runtime
     `nonreentrant(<lock>)` guard (closes the window at the external dispatch
-    boundary, #1893) or an explicit audited `reentrancy_trusted` assertion.
+    boundary, #1893), an explicit audited `reentrancy_trusted` assertion, or
+    `reentrancyAdversarial` (an imported function whose open post-call window is
+    modelled adversarially rather than assuming trusted callees).
     `cei_safe` / `allow_post_interaction_writes` only concern single-function CEI
     and are intentionally NOT accepted here. `view`/`pure` functions are exempt:
     a read-only (staticcall) context cannot mutate state and so cannot open a
@@ -1490,7 +1492,7 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
 def validateReentrancyDisposition (spec : FunctionSpec) : Except String Unit := do
   if spec.body.any stmtOpensReentrancyWindow
       && !spec.isView && !spec.isPure
-      && !(spec.nonReentrantLock.isSome || spec.reentrancyTrusted) then
+      && !(spec.nonReentrantLock.isSome || spec.reentrancyTrusted || spec.reentrancyAdversarial) then
     throw s!"Compilation error: function '{spec.name}' makes an external call but declares no reentrancy disposition. An external call hands control to an untrusted callee that may re-enter another entrypoint while this contract's state is mid-update (cross-function reentrancy). Add `nonreentrant(<lock>)` to synthesise a runtime guard, or `reentrancy_trusted` to assert — and own — that every external callee is trusted not to re-enter ({issue1728Ref}). cei_safe / allow_post_interaction_writes cover only single-function CEI and do not satisfy this gate."
 
 /-- Node-local constructor return check; nested statement bodies are reached

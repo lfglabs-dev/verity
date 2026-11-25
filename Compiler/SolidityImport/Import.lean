@@ -20496,6 +20496,9 @@ private def importSlice
       -- storage writes and logs after the call are admitted when every interaction of the
       -- body is a closed transport (`onlyClosedCallStateWindows`): Denote runs them against
       -- the world the callee committed, so the model is exact for any callee behaviour.
+      -- All non-closed interactions currently reject earlier during lowering with
+      -- construct-specific diagnostics; the `failAt` check below is defense in depth so a
+      -- future non-closed lowering can never silently gain `reentrancyAdversarial`.
       let postCallState := body.toList.any stmtContainsClosedLowLevelCall && (
         let ceiClean := (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isNone ||
           onlyStaticCallCEIBarriers body.toList || onlyClosedTransportCEIBarriers body.toList
@@ -20547,7 +20550,8 @@ private def importSlice
             (postCallState &&
               (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isSome),
           reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList ||
-            onlyTrailingCallReentrancyWindows body.toList || postCallState,
+            onlyTrailingCallReentrancyWindows body.toList,
+          reentrancyAdversarial := postCallState,
           localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
             name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
             obligation := if legacyScalarPrelude then
@@ -20593,11 +20597,11 @@ private def importSlice
                 "runs them against the world the callee's response committed, which an " ++
                 "unconstrained adversary chooses freely, including by re-entering any " ++
                 "entrypoint, so the model assumes nothing about the callee. The source has no " ++
-                "reentrancy guard: `reentrancyTrusted` and the CEI opt-out record that the " ++
-                "post-call window is open, and a proof about this function must assume a " ++
-                "callee hypothesis (`Denote.CallKeepsCallerStorage`) or account for re-entry " ++
-                "(`ReentrantCallees`). That every interaction is closed is checked by the " ++
-                "importer, not proved."
+                "reentrancy guard: `reentrancyAdversarial` and the CEI opt-out record that the " ++
+                "post-call window is open and modelled adversarially (without asserting trusted " ++
+                "callees), and a proof about this function must assume a callee hypothesis " ++
+                "(`Denote.CallKeepsCallerStorage`) or account for re-entry (`ReentrantCallees`). " ++
+                "That every interaction is closed is checked by the importer, not proved."
               proofStatus := .unchecked }] else []) }
       rootShortcuts := rootShortcuts.push (functionName, env.rootShortcuts.toList)
       for proj in env.projections do

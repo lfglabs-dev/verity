@@ -1,18 +1,20 @@
 import Compiler.SolidityImport.Import
 import Compiler.SolidityImport.Differential
 import Compiler.SolidityImport.AdversarialEntryPointInvariants
+import Compiler.CompilationModel.TrustSurface
 import Verity.Core.Model.ByteCallStorageFrames
 
 /-!
 Storage reads, storage writes and logs after a closed value-free `CALL`
 (`PostCallStateAccess.sol`). The trust flags record the open post-call window
-(`solidity_post_call_state_access`), and Denote runs each post-call statement against the
-world the callee committed: an inert callee, a failing callee, an account without code, and a
-callee that calls back into the contract once. The callback's writes are visible to the
-outer frame's post-call reads, so a re-entrant double spend is modelled exactly as on the
-EVM, and a re-entrant spend of the same credit makes the outer checked subtraction panic.
-Source EVM and compiled-model parity for non-re-entrant callees is the A/B/C campaign
-`check_post_call_state_access.py`.
+(`reentrancyAdversarial`, NOT `reentrancyTrusted`, plus `solidity_post_call_state_access`),
+and Denote runs each post-call statement against the world the callee committed: an inert
+callee, a failing callee, an account without code, and a callee that calls back into the
+contract once. The callback's writes are visible to the outer frame's post-call reads, so a
+re-entrant double spend is modelled exactly as on the EVM, and a re-entrant spend of the same
+credit makes the outer checked subtraction panic. Source EVM and compiled-model parity runs in
+`check_post_call_state_access.py` (recording responders) and `check_reentrant_callback.py`
+(re-entrant callbacks through `ReentrantCallbackHook` / `ReentrantCallResponderMocks`).
 -/
 namespace SolidityImportSmoke.PostCallStateAccessChecks
 open Compiler.CompilationModel Compiler.CompilationModel.SolidityImport
@@ -23,6 +25,11 @@ solidity_import postCallWriteIr from "Contracts/SolidityImportSmoke" entry "Post
   contract SyntheticPostCallWrite
   function pingThenCount(address,uint256)
   function pingThenRead(address)
+  function twoPingsThenCount(address,address,uint256)
+  function pingThenRequire(address,uint256)
+  function pingLoop(address,uint256)
+  function pingThenBalance(address)
+  function pingThenView(address,address)
   function read()
 
 solidity_import postCallWriteLegacy from "Contracts/SolidityImportSmoke"
@@ -46,6 +53,7 @@ solidity_import postCallEventIr from "Contracts/SolidityImportSmoke" entry "Post
   contract SyntheticPostCallEvent
   function notify(address,uint256)
   function tryNotify(address,uint256)
+  function tryNotifyRead(address,uint256)
   function read()
 
 private def postCallWrite : CompilationModel := postCallWriteIr.model
@@ -53,26 +61,41 @@ private def legacyWrite : CompilationModel := postCallWriteLegacy.model
 private def callbackTransfer : CompilationModel := callbackTransferIr.model
 private def postCallEvent : CompilationModel := postCallEventIr.model
 
-private def flags (model : CompilationModel) (name : String) : Option (Bool × Bool × List String) :=
+private def flags (model : CompilationModel) (name : String) :
+    Option (Bool × Bool × Bool × List String) :=
   (model.functions.find? (·.name == name)).map fun f =>
-    (f.allowPostInteractionWrites, f.reentrancyTrusted, f.localObligations.map (·.name))
+    (f.allowPostInteractionWrites, f.reentrancyTrusted, f.reentrancyAdversarial,
+      f.localObligations.map (·.name))
 
-private def postCall (abi : String) : Option (Bool × Bool × List String) :=
-  some (true, true, [abi, "solidity_post_call_state_access"])
+private def postCall (abi : String) : Option (Bool × Bool × Bool × List String) :=
+  some (true, false, true, [abi, "solidity_post_call_state_access"])
 
--- A write after the call: the CEI opt-out, the open reentrancy window and its obligation.
+-- A write after the call: the CEI opt-out, the adversarial reentrancy disposition (never
+-- `reentrancyTrusted`), and its obligation.
 #guard flags postCallWrite "pingThenCount" == postCall "solidity_scalar_abi_entry"
 #guard flags legacyWrite "pingThenCount" == postCall "solidity_scalar_abi_entry"
+#guard flags postCallWrite "twoPingsThenCount" == postCall "solidity_scalar_abi_entry"
+#guard flags postCallWrite "pingThenRequire" == postCall "solidity_scalar_abi_entry"
+#guard flags postCallWrite "pingLoop" == postCall "solidity_scalar_abi_entry"
 #guard flags callbackTransfer "transferOut" == postCall "solidity_scalar_abi_entry"
 #guard flags postCallEvent "notify" == postCall "solidity_scalar_abi_entry"
 #guard flags postCallEvent "tryNotify" == postCall "solidity_scalar_abi_entry"
 -- A read after the call. The CEI opt-out comes from the call following the closed code-size
 -- check, as for every typed void call (`InterfaceVoidCallTrustChecks`).
-#guard flags postCallWrite "pingThenRead" == some (true, true,
+#guard flags postCallWrite "pingThenRead" == some (true, false, true,
   ["solidity_scalar_abi_entry", "solidity_closed_transport_cei", "solidity_post_call_state_access"])
+#guard flags postCallWrite "pingThenBalance" == some (true, false, true,
+  ["solidity_scalar_abi_entry", "solidity_closed_transport_cei", "solidity_post_call_state_access"])
+#guard flags postCallWrite "pingThenView" == some (true, false, true,
+  ["solidity_scalar_abi_entry", "solidity_closed_transport_cei", "solidity_post_call_state_access"])
+#guard flags postCallEvent "tryNotifyRead" == some (true, false, true,
+  ["solidity_scalar_abi_entry", "solidity_closed_transport_cei", "solidity_post_call_state_access"])
+-- Trust report labels open post-call windows `reentrancy_adversarial`, never `reentrancy_trusted`.
+#guard (collectStaticOptOuts postCallWrite).any (·.optOut == "reentrancy_adversarial")
+#guard (collectStaticOptOuts postCallWrite).all (·.optOut != "reentrancy_trusted")
 -- No call: no flag.
-#guard flags postCallWrite "read" == some (false, false, [])
-#guard flags callbackTransfer "deposit" == some (false, false, ["solidity_scalar_abi_entry"])
+#guard flags postCallWrite "read" == some (false, false, false, [])
+#guard flags callbackTransfer "deposit" == some (false, false, false, ["solidity_scalar_abi_entry"])
 
 private def self : Nat := 0xc0ffee
 private def user : Nat := 0x1111
@@ -219,9 +242,16 @@ private def spendAgain : Denote.ByteCallEnvironment :=
 
 /-- The re-entrant callee does not keep the caller's storage, so imported models must not
 (and do not) assume `Denote.CallKeepsCallerStorage`; the inert callee does
-(`Denote.callKeepsCallerStorage_inertCallee`). -/
+(`Denote.callKeepsCallerStorage_inertCallee`), framing both `storageWords` and `storageArray`. -/
 example : Denote.CallKeepsCallerStorage Denote.inertCallee :=
   Denote.callKeepsCallerStorage_inertCallee
+
+example {request : Request} {before : Verity.ContractState}
+    {observed : Observation Verity.ContractState Verity.StorageKey}
+    (h : executeChecked Denote.inertCallee request before = .ok observed) :
+    observed.world.storageArray = before.storageArray :=
+  Denote.executeChecked_storageArray_of_callKeepsCallerStorage
+    Denote.callKeepsCallerStorage_inertCallee h
 
 /-! Admission classifier on hand-built bodies. Only the exact closed `CALL` transport (and
 the other closed transports) is erased: an internal call, a non-closed external call or a

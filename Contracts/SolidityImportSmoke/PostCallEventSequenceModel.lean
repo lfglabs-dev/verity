@@ -1,15 +1,15 @@
 import Compiler.SolidityImport.Import
 import Compiler.SolidityImport.Differential
 import Compiler.SolidityImport.SequenceRunner
-import Compiler.SolidityImport.CallResponderMocks
+import Compiler.SolidityImport.ReentrantCallResponderMocks
 import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
 /-!
-A/B/C driver for `PostCallStateAccess.sol` (`check_post_call_state_access.py`):
-A log after a typed void interface call, and storage writes in the clauses of `try`
-(`SyntheticPostCallEvent`).
+A/B/C driver for `PostCallStateAccess.sol` (`check_post_call_state_access.py` and
+`check_reentrant_callback.py`): a log after a typed void interface call, and storage
+reads/writes in the clauses of `try` (`SyntheticPostCallEvent`).
 -/
 namespace SolidityImportSmoke.PostCallEventSequenceModel
 open Compiler.CompilationModel
@@ -18,6 +18,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "PostCallSta
   contract SyntheticPostCallEvent
   function notify(address,uint256)
   function tryNotify(address,uint256)
+  function tryNotifyRead(address,uint256)
   function read()
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
@@ -37,4 +38,6 @@ def main (args : List String) : IO UInt32 := do
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run
         SolidityImportSmoke.PostCallEventSequenceModel.model
         SolidityImportSmoke.PostCallEventSequenceModel.oracle args
-        (configure := Compiler.CompilationModel.SolidityImport.CallResponderMocks.configure)
+        (configure := Compiler.CompilationModel.SolidityImport.ReentrantCallResponderMocks.configure
+          SolidityImportSmoke.PostCallEventSequenceModel.model
+          SolidityImportSmoke.PostCallEventSequenceModel.oracle)

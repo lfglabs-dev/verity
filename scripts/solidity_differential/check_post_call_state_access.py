@@ -1,17 +1,20 @@
 """Imported storage reads, storage writes and logs after a closed CALL through source EVM, Denote and compiled model.
 
 `PostCallStateAccess.sol` holds three synthetic contracts whose effects follow an
-interaction: `SyntheticPostCallWrite` reads and writes storage after a typed void
-interface call, `SyntheticCallbackTransfer` subtracts from and adds to storage after an
-optional-bool low-level `CALL`, and `SyntheticPostCallEvent` logs after a typed void call
-and writes storage in both clauses of a `try`. Each contract runs its own A/B/C sequence
+interaction: `SyntheticPostCallWrite` reads and writes storage, runs follow-up closed
+calls, checks `require` over storage, loops over a closed call + write, reads
+`address(this).balance`, and runs a typed `view` call after a typed void interface call;
+`SyntheticCallbackTransfer` subtracts from and adds to storage after an optional-bool
+low-level `CALL`; and `SyntheticPostCallEvent` logs after a typed void call and reads and
+writes storage in both clauses of a `try`. Each contract runs its own A/B/C sequence
 against the recording call responders (every response shape, success and failure; each
 writes its own storage on every answered call), one account without code and the sender
 EOA. Storage touched on any route, return and revert bytes and logs are compared after
 every transaction. A divergence is shrunk to a deletion-minimal sequence.
 
-Re-entrant callees are covered by `PostCallStateAccessChecks.lean`, which runs the same
-models in Denote against a callee that calls back into the contract.
+Re-entrant callees on all three routes (source EVM, Denote, compiled model) are covered by
+`check_reentrant_callback.py` using `ReentrantCallbackHook` / `ReentrantCallResponderMocks`
+(and Denote-level checks in `PostCallStateAccessChecks.lean`).
 """
 import argparse
 from pathlib import Path
@@ -68,14 +71,40 @@ def post_call_write(count, seed, caller, responders):
         plan.add('pingThenCount(address,uint256)', ['address', 'uint256'], [target, 5 + index])
         plan.add('pingThenRead(address)', ['address'], [target])
         plan.add('read()', [], [])
+    # Exercise two sequential calls, post-call require (passing and failing), loop with call+write,
+    # post-call `address(this).balance`, and post-call typed `view` call.
+    plan.add('twoPingsThenCount(address,address,uint256)', ['address', 'address', 'uint256'],
+             [plan.targets[0], plan.targets[1], 11])
+    plan.add('twoPingsThenCount(address,address,uint256)', ['address', 'address', 'uint256'],
+             [plan.targets[0], plan.targets[6], 11])
+    plan.add('pingThenRequire(address,uint256)', ['address', 'uint256'], [plan.targets[0], 8])
+    plan.add('pingThenRequire(address,uint256)', ['address', 'uint256'], [plan.targets[0], 999])
+    plan.add('pingLoop(address,uint256)', ['address', 'uint256'], [plan.targets[0], 13])
+    plan.add('pingLoop(address,uint256)', ['address', 'uint256'], [plan.targets[6], 13])
+    plan.add('pingThenBalance(address)', ['address'], [plan.targets[0]])
+    plan.add('pingThenView(address,address)', ['address', 'address'], [plan.targets[0], plan.targets[0]])
+    plan.add('pingThenView(address,address)', ['address', 'address'], [plan.targets[0], EMPTY])
     # `total += amount` overflows after the call: the post-call checked addition panics.
     plan.add('pingThenCount(address,uint256)', ['address', 'uint256'], [plan.targets[0], 2 ** 256 - 1])
     while len(plan.calls) < count:
-        target, choice = rng.choice(plan.targets), rng.randrange(3)
+        target, choice = rng.choice(plan.targets), rng.randrange(8)
         if choice == 0:
             plan.add('pingThenCount(address,uint256)', ['address', 'uint256'], [target, amounts(rng)])
         elif choice == 1:
             plan.add('pingThenRead(address)', ['address'], [target])
+        elif choice == 2:
+            plan.add('twoPingsThenCount(address,address,uint256)', ['address', 'address', 'uint256'],
+                     [target, rng.choice(plan.targets), amounts(rng)])
+        elif choice == 3:
+            plan.add('pingThenRequire(address,uint256)', ['address', 'uint256'],
+                     [target, rng.randrange(20)])
+        elif choice == 4:
+            plan.add('pingLoop(address,uint256)', ['address', 'uint256'], [target, amounts(rng)])
+        elif choice == 5:
+            plan.add('pingThenBalance(address)', ['address'], [target])
+        elif choice == 6:
+            plan.add('pingThenView(address,address)', ['address', 'address'],
+                     [target, rng.choice(plan.targets)])
         else:
             plan.add('read()', [], [])
     return plan.calls
@@ -110,13 +139,16 @@ def post_call_event(count, seed, caller, responders):
     for index, target in enumerate(plan.targets):
         plan.add('notify(address,uint256)', ['address', 'uint256'], [target, 3 + index])
         plan.add('tryNotify(address,uint256)', ['address', 'uint256'], [target, 9 + index])
+        plan.add('tryNotifyRead(address,uint256)', ['address', 'uint256'], [target, 11 + index])
         plan.add('read()', [], [])
     while len(plan.calls) < count:
-        target, choice = rng.choice(plan.targets), rng.randrange(3)
+        target, choice = rng.choice(plan.targets), rng.randrange(4)
         if choice == 0:
             plan.add('notify(address,uint256)', ['address', 'uint256'], [target, amounts(rng)])
         elif choice == 1:
             plan.add('tryNotify(address,uint256)', ['address', 'uint256'], [target, amounts(rng)])
+        elif choice == 2:
+            plan.add('tryNotifyRead(address,uint256)', ['address', 'uint256'], [target, amounts(rng)])
         else:
             plan.add('read()', [], [])
     return plan.calls
@@ -137,7 +169,7 @@ def main():
     parser.add_argument('--only', choices=sorted(PLANS))
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    minimum = 3 * (len(RESPONDERS) + 2) + 2
+    minimum = 4 * (len(RESPONDERS) + 2) + 2
     if args.transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every target and call shape')
     output = (args.output.resolve() if args.output else

@@ -1,9 +1,15 @@
-"""Positive controls for storage access, logs, and follow-up calls after a closed CALL.
+"""Positive controls and located negative controls for post-CALL state access and callbacks.
 
 Once post-CALL storage reads, storage writes, logs, and follow-up closed calls are admitted
-under `onlyClosedCallStateWindows` (carrying `solidity_post_call_state_access`), every closed
-shape below imports cleanly. Non-closed interactions after a CALL stay rejected (covered by
-`PostCallStateAccessChecks.lean` and `check_extcodehash_rejections.py`).
+under `onlyClosedCallStateWindows` (carrying `reentrancyAdversarial` and
+`solidity_post_call_state_access`), every closed shape below imports cleanly. Disallowed
+post-CALL shapes (a code-hash read after a CALL, value-bearing calls, `delegatecall`, and a
+second CALL carrying value) fail with exact `Fixture.sol:line:column` diagnostics.
+
+All non-closed external interactions currently reject earlier during lowering with their
+construct-specific diagnostics; the post-CALL `onlyClosedCallStateWindows` check at the
+function definition in `Import.lean` is defense in depth (pinned on hand-built `Stmt` bodies
+in `PostCallStateAccessChecks.lean` and exercised via mutation in `check_memory_call_mutations.py`).
 """
 import argparse
 import hashlib
@@ -12,35 +18,51 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-POST_CALL = ('storage reads, storage writes and logs after an external CALL are '
-             'supported only when every external interaction of the function is a closed '
-             'transport: another interaction follows a CALL that may re-enter this contract')
+MESSAGES = {
+    'codehash-after-call': 'code hash read after an external call or create2 is unsupported',
+    'external-call': 'external contract calls are outside this slice',
+}
 CALL = 'IHook(target).hook();'
 TRY = 'try IHook(target).hook() {{{success}}} catch {{{failure}}}'
 
-# name, body of `checked`, expected rejection (True) or positive control (False)
+# name, body of `checked`, expected: None (positive control) or (marker, construct, message key)
 CASES = [
-    ('trailing-call', f'pending = value;\n        {CALL}', False),
-    ('trailing-try', 'pending = value;\n        ' + TRY.format(success='', failure=''), False),
-    ('emit-before-call', f'emit Poked(value);\n        {CALL}', False),
+    ('trailing-call', f'pending = value;\n        {CALL}', None),
+    ('trailing-try', 'pending = value;\n        ' + TRY.format(success='', failure=''), None),
+    ('emit-before-call', f'emit Poked(value);\n        {CALL}', None),
     ('local-after-call', f'pending = value;\n        {CALL}\n        uint256 local = value + 1;\n'
-                         '        require(local != 0, Failed());', False),
-    ('read-after-call', f'{CALL}\n        seen = pending;', False),
-    ('write-after-call', f'{CALL}\n        pending = value;', False),
-    ('require-storage-after-call', f'{CALL}\n        require(pending == value, Failed());', False),
-    ('emit-after-call', f'pending = value;\n        {CALL}\n        emit Poked(value);', False),
-    ('second-call', f'pending = value;\n        {CALL}\n        {CALL}', False),
-    ('try-success-write', TRY.format(success=' pending = value; ', failure=''), False),
-    ('try-catch-write', TRY.format(success='', failure=' pending = value; '), False),
-    ('try-catch-read', TRY.format(success='', failure=' seen = pending; '), False),
+                         '        require(local != 0, Failed());', None),
+    ('read-after-call', f'{CALL}\n        seen = pending;', None),
+    ('write-after-call', f'{CALL}\n        pending = value;', None),
+    ('require-storage-after-call', f'{CALL}\n        require(pending == value, Failed());', None),
+    ('emit-after-call', f'pending = value;\n        {CALL}\n        emit Poked(value);', None),
+    ('second-call', f'pending = value;\n        {CALL}\n        {CALL}', None),
+    ('try-success-write', TRY.format(success=' pending = value; ', failure=''), None),
+    ('try-catch-write', TRY.format(success='', failure=' pending = value; '), None),
+    ('try-catch-read', TRY.format(success='', failure=' seen = pending; '), None),
+    # Located negative controls for disallowed post-call shapes.
+    ('call-then-codehash', f'{CALL}\n        lastHash = target.codehash;',
+     ('target.codehash;', 'MemberAccess', 'codehash-after-call')),
+    ('value-call-then-write',
+     '(bool ok, bytes memory data) = target.call{value: 1}("");\n'
+     '        require(ok, Failed());\n        pending = value + data.length;',
+     ('target.call{value: 1}', 'FunctionCallOptions', 'external-call')),
+    ('delegatecall-then-write',
+     '(bool ok,) = target.delegatecall("");\n        require(ok, Failed());\n        pending = value;',
+     ('target.delegatecall', 'MemberAccess', 'external-call')),
+    ('second-call-value',
+     f'{CALL}\n        IPayableHook(target).hook{{value: 1}}();',
+     ('IPayableHook(target).hook{value: 1}', 'FunctionCallOptions', 'external-call')),
 ]
 
 
 def source(statements):
     return ('// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n'
             'interface IHook {\n    function hook() external;\n}\n\n'
+            'interface IPayableHook {\n    function hook() external payable;\n}\n\n'
             'contract C {\n    error Failed();\n    event Poked(uint256 value);\n'
-            '    uint256 private pending;\n    uint256 private seen;\n\n'
+            '    uint256 private pending;\n    uint256 private seen;\n'
+            '    bytes32 private lastHash;\n\n'
             '    function checked(address target, uint256 value) external {\n'
             f'        {statements}\n    }}\n}}\n')
 
@@ -65,7 +87,7 @@ def main():
     if args.only and args.only not in {name for name, _, _ in CASES}:
         parser.error(f'unknown case {args.only}')
     results = []
-    for name, statements, rejected in CASES:
+    for name, statements, expected in CASES:
         if args.only and args.only != name:
             continue
         directory = output / name
@@ -84,14 +106,15 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
                                 cwd=root, text=True, capture_output=True, timeout=300)
         log = result.stdout + result.stderr
         (directory / 'check.log').write_text(log)
-        if not rejected:
+        if expected is None:
             if result.returncode or not artifact.exists():
                 raise SystemExit(f'{name}: positive control failed\n{log}')
             diagnostic = None
         else:
-            line, column = location(text, 'function checked(')
-            diagnostic = (f'Fixture.sol:{line}:{column}: FunctionDefinition: '
-                          f'[solidity-import:unsupported] {POST_CALL}')
+            marker, construct, message_key = expected
+            line, column = location(text, marker)
+            diagnostic = (f'Fixture.sol:{line}:{column}: {construct}: '
+                          f'[solidity-import:unsupported] {MESSAGES[message_key]}')
             if result.returncode == 0 or artifact.exists() or diagnostic not in log:
                 raise SystemExit(f'{name}: expected exact located rejection {diagnostic!r}\n{log}')
         results.append({'case': name, 'diagnostic': diagnostic,

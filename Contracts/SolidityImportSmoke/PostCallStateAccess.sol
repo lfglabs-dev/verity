@@ -9,12 +9,18 @@ interface ISyntheticToken {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
+interface ISyntheticViewOracle {
+    function peek() external view returns (uint256);
+}
+
 /// Storage reads and writes after a typed external call to a function without return
 /// values. The callee may re-enter, so each post-call read observes whatever the call
 /// left in this contract's storage.
 contract SyntheticPostCallWrite {
     uint256 private counter;
     uint256 private total;
+
+    error CounterMismatch(uint256 observed);
 
     function pingThenCount(address target, uint256 amount) external {
         ISyntheticCallee(target).ping(amount);
@@ -26,6 +32,43 @@ contract SyntheticPostCallWrite {
     function pingThenRead(address target) external returns (uint256) {
         ISyntheticCallee(target).ping(0);
         return counter;
+    }
+
+    /// Two sequential closed calls with storage updates between and after them.
+    function twoPingsThenCount(address first, address second, uint256 amount) external {
+        ISyntheticCallee(first).ping(amount);
+        counter += 1;
+        ISyntheticCallee(second).ping(amount);
+        total += amount;
+    }
+
+    /// A post-call `require` reading storage.
+    function pingThenRequire(address target, uint256 expected) external {
+        ISyntheticCallee(target).ping(0);
+        uint256 observed = counter;
+        require(observed == expected, CounterMismatch(observed));
+        total += 1;
+    }
+
+    /// A closed call and storage write inside a bounded `for` loop.
+    function pingLoop(address target, uint256 amount) external {
+        for (uint256 i = 0; i < 2; i++) {
+            ISyntheticCallee(target).ping(amount);
+            counter += 1;
+        }
+        total += amount;
+    }
+
+    /// Reading `address(this).balance` after a closed call (`Expr.selfBalance`).
+    function pingThenBalance(address target) external returns (uint256) {
+        ISyntheticCallee(target).ping(0);
+        return counter + address(this).balance;
+    }
+
+    /// A typed `view` call (`STATICCALL`) after a closed `CALL`.
+    function pingThenView(address target, address oracle) external returns (uint256) {
+        ISyntheticCallee(target).ping(0);
+        return counter + ISyntheticViewOracle(oracle).peek();
     }
 
     function read() external view returns (uint256, uint256) {
@@ -63,7 +106,7 @@ contract SyntheticCallbackTransfer {
     }
 }
 
-/// Logs after a typed external call, and storage writes in the clauses of `try`.
+/// Logs after a typed external call, and storage reads/writes in the clauses of `try`.
 contract SyntheticPostCallEvent {
     uint256 private count;
     uint256 private failures;
@@ -83,6 +126,15 @@ contract SyntheticPostCallEvent {
             failures += 1;
         }
         return count;
+    }
+
+    /// Reading storage in both `try` and `catch` clauses after a closed call.
+    function tryNotifyRead(address target, uint256 amount) external returns (uint256) {
+        try ISyntheticCallee(target).ping(amount) {
+            return count;
+        } catch {
+            return failures;
+        }
     }
 
     function read() external view returns (uint256, uint256) {

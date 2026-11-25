@@ -1,12 +1,13 @@
 """Memory-call mutants in isolated source/cache snapshots: inline-assembly `call` /
 `staticcall` over memory, typed external calls without return values and the `ecrecover`
-builtin, which share the closed memory-call transport, and the Yul `calldataload` split of a
-`bytes calldata` signature in front of it.
+builtin, which share the closed memory-call transport, the Yul `calldataload` split of a
+`bytes calldata` signature in front of it, and post-CALL state-access admission and
+re-entrant callback commit semantics.
 
 Each runtime mutant must survive an unmodified positive control of its A/B/C campaign and then
 produce a divergence with a reproduced deletion-minimal witness. An admission-guard mutant must
-turn a pinned located rejection into a failure of that exact near-miss check. A mutant that
-fails to build is invalid, never detected.
+turn a pinned located rejection (or positive/classifier check) into a failure of that exact
+check. A mutant that fails to build is invalid, never detected.
 """
 import argparse
 import json
@@ -20,9 +21,11 @@ from solidity_differential.engine import HarnessError, command, write_json
 from solidity_differential.mutations import release, snapshot
 
 IMPORT = 'Compiler/SolidityImport/Import.lean'
+TRANSPORT = 'Compiler/SolidityImport/TransportBarriers.lean'
 DENOTE = 'Verity/Core/Model/Denote.lean'
 ECM = 'Verity/Core/Model/ECM.lean'
 PRECOMPILE = 'Compiler/SolidityImport/PrecompileResponderMocks.lean'
+REENTRANT_MOCK = 'Compiler/SolidityImport/ReentrantCallResponderMocks.lean'
 YUL = ('solidity_differential.check_yul_memory_call', '--transactions', '64', '--seed', '2531',
        'Contracts.SolidityImportSmoke.YulMemoryCallSequenceModel')
 VOID = ('solidity_differential.check_interface_void_call', '--transactions', '160', '--seed', '4219',
@@ -31,12 +34,27 @@ ECRECOVER = ('solidity_differential.check_ecrecover', '--transactions', '200', '
              'Contracts.SolidityImportSmoke.EcrecoverSequenceModel')
 SIGNATURE = ('solidity_differential.check_signature_calldata', '--transactions', '200', '--seed', '2920',
              'Contracts.SolidityImportSmoke.SignatureCalldataSequenceModel')
+REENTRANT_WRITE = ('solidity_differential.check_reentrant_callback', '--only', 'SyntheticPostCallWrite',
+                   '--transactions', '64', '--seed', '2911',
+                   'Contracts.SolidityImportSmoke.PostCallWriteSequenceModel')
 
 
 def rejection_case(case):
     """An admission-guard mutant's campaign: the pinned located rejection `case` of
     `check_signature_calldata_rejections.py` must pass unmodified and fail mutated."""
     return ('rejection', 'solidity_differential.check_signature_calldata_rejections', case)
+
+
+def positive_case(module, case, expected_diagnostic):
+    """A positive-control admission mutant: `case` must elaborate unmodified and fail with
+    `expected_diagnostic` when mutated."""
+    return ('positive_control', module, case, expected_diagnostic)
+
+
+def guard_check_case(lean_file, expected_expr):
+    """A Lean `#guard` classifier check: `lean_file` must elaborate unmodified and fail on a
+    `#guard` assertion mentioning `expected_expr` when mutated."""
+    return ('guard_check', lean_file, expected_expr)
 
 
 # name: (file, anchor, replacement, campaign)
@@ -55,6 +73,16 @@ MUTANTS = {
     'denote-yul-call-empty-range': (DENOTE,
         'if (inSize != 0 && yulMemoryCallRangeLimit < inOffset + inSize) ||',
         'if (yulMemoryCallRangeLimit < inOffset + inSize) ||', YUL),
+    # Post-CALL committed world in Denote and in the re-entrant callback responder.
+    'denote-yul-call-commit-world': (DENOTE,
+        'let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)\n'
+        '    outOffset 0 copied',
+        'let world := state.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)\n'
+        '    outOffset 0 copied',
+        REENTRANT_WRITE),
+    'reentrant-callback-commit-world': (REENTRANT_MOCK,
+        'else .success (commitCallback counted result.world) [] touched',
+        'else .success counted [] touched', REENTRANT_WRITE),
     'ecm-yul-call-value': (ECM,
         'YulExpr.call "call" [gas, target, .lit 0, inOffset, inSize, outOffset, outSize]',
         'YulExpr.call "call" [gas, target, .lit 1, inOffset, inSize, outOffset, outSize]', YUL),
@@ -115,9 +143,28 @@ MUTANTS = {
     'import-calldataload-literal-bound': (IMPORT,
         'unless k < 2^64 do return none', 'unless k < 2^256 do return none',
         rejection_case('wide-literal')),
+    # Post-CALL transport-barrier classifiers (`TransportBarriers.lean`):
+    # 1. Dropping closed-CALL erasure in `eraseClosedInteractions` causes `write-after-call` to
+    #    hit the located defense-in-depth rejection at `Import.lean`.
+    'transport-erase-closed-interactions': (TRANSPORT,
+        'if isClosedLowLevelCall mod then .letVar (mod.resultVars.headD "") (.literal 0)',
+        'if false then .letVar (mod.resultVars.headD "") (.literal 0)',
+        positive_case('solidity_differential.check_reentrant_callback_rejections',
+                      'write-after-call',
+                      'storage reads, storage writes and logs after an external CALL are '
+                      'supported only when every external interaction of the function is a '
+                      'closed transport')),
+    # 2. Dropping the CEI-after-erasure conjunct in `onlyClosedCallStateWindows` causes the
+    #    classifier `#guard` on `[closedCall, .internalCall "helper" [], write]` to fail.
+    'transport-only-closed-call-state-windows': (TRANSPORT,
+        '(Compiler.CompilationModel.stmtListCEIViolation erased false).isNone &&',
+        'true &&',
+        guard_check_case('Contracts/SolidityImportSmoke/PostCallStateAccessChecks.lean',
+                         '!onlyClosedCallStateWindows')),
 }
 MODULES = ['Compiler.SolidityImport.Import', 'Compiler.SolidityImport.Differential',
            'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.CallResponderMocks',
+           'Compiler.SolidityImport.ReentrantCallResponderMocks',
            'Compiler.Codegen', 'Compiler.Yul.PrettyPrint']
 
 
@@ -140,12 +187,24 @@ def runtime(directory, campaign, output):
 
 
 def rejection(directory, campaign, output):
-    _, module, case = campaign
+    module, case = campaign[1], campaign[2]
     argv = [sys.executable, '-m', module, '--only', case, '--output', str(output)]
     result = subprocess.run(argv, cwd=directory, env=environment(directory), text=True,
                             capture_output=True, timeout=1800)
     output.with_suffix('.log').write_text(result.stdout + result.stderr)
     return result.returncode, result.stdout + result.stderr
+
+
+def guard_check(directory, campaign, output):
+    lean_file = campaign[1]
+    artifact = output.with_suffix('.olean')
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(['lake', 'env', 'lean', lean_file, '-o', str(artifact)],
+                            cwd=directory, env=environment(directory), text=True,
+                            capture_output=True, timeout=1800)
+    log = result.stdout + result.stderr
+    output.with_suffix('.log').write_text(log)
+    return result.returncode, log
 
 
 def mutation_campaign(output, selected=None):
@@ -159,16 +218,20 @@ def mutation_campaign(output, selected=None):
     reports = []
     for name in selected or MUTANTS:
         relative, before, after, campaign = MUTANTS[name]
-        admission = campaign[0] == 'rejection'
-        modules = MODULES if admission else [*MODULES, campaign[-1]]
+        kind = campaign[0] if campaign[0] in ('rejection', 'positive_control', 'guard_check') else 'runtime'
+        modules = MODULES if kind != 'runtime' else [*MODULES, campaign[-1]]
         directory = output / name
         snapshot(directory)
         try:
             command(['lake', 'build', *modules], cwd=directory, timeout=3600, log=directory / 'baseline-build.log')
-            if admission:
+            if kind in ('rejection', 'positive_control'):
                 code, log = rejection(directory, campaign, directory / '.lake/baseline-rejection')
                 if code:
-                    raise HarnessError(f'{name}: unmodified located rejection failed\n{log[-2000:]}')
+                    raise HarnessError(f'{name}: unmodified admission check failed\n{log[-2000:]}')
+            elif kind == 'guard_check':
+                code, log = guard_check(directory, campaign, directory / '.lake/baseline-guard')
+                if code:
+                    raise HarnessError(f'{name}: unmodified classifier guard failed\n{log[-2000:]}')
             else:
                 code, baseline = runtime(directory, campaign, directory / '.lake/baseline')
                 if code or baseline['divergences'] or not baseline['transactions']:
@@ -179,12 +242,24 @@ def mutation_campaign(output, selected=None):
                 raise HarnessError(f'{name}: nonunique mutation anchor')
             source.write_text(text.replace(before, after))
             command(['lake', 'build', *modules], cwd=directory, timeout=3600, log=directory / 'build.log')
-            if admission:
+            if kind == 'rejection':
                 case = campaign[2]
                 code, log = rejection(directory, campaign, directory / '.lake/mutated-rejection')
                 if code == 0 or f'{case}: expected exact located rejection' not in log:
                     raise HarnessError(f'{name}: guard removal escaped the {case} near-miss check')
                 entry = {'kind': 'unsupported-admission', 'case': case}
+            elif kind == 'positive_control':
+                case, expected_diagnostic = campaign[2], campaign[3]
+                code, log = rejection(directory, campaign, directory / '.lake/mutated-rejection')
+                if code == 0 or f'{case}: positive control failed' not in log or expected_diagnostic not in log:
+                    raise HarnessError(f'{name}: positive control {case} did not fail with expected diagnostic')
+                entry = {'kind': 'positive-control-rejection', 'case': case}
+            elif kind == 'guard_check':
+                expected_expr = campaign[2]
+                code, log = guard_check(directory, campaign, directory / '.lake/mutated-guard')
+                if code == 0 or 'did not evaluate to `true`' not in log or expected_expr not in log:
+                    raise HarnessError(f'{name}: classifier guard did not detect mutation\n{log[-2000:]}')
+                entry = {'kind': 'classifier-guard', 'file': campaign[1]}
             else:
                 mutated = directory / '.lake/mutated'
                 code, report = runtime(directory, campaign, mutated)

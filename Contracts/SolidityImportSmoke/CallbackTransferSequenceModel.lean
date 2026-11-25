@@ -1,15 +1,15 @@
 import Compiler.SolidityImport.Import
 import Compiler.SolidityImport.Differential
 import Compiler.SolidityImport.SequenceRunner
-import Compiler.SolidityImport.CallResponderMocks
+import Compiler.SolidityImport.ReentrantCallResponderMocks
 import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
 /-!
-A/B/C driver for `PostCallStateAccess.sol` (`check_post_call_state_access.py`):
-Mapping writes and a checked subtraction after an optional-bool low-level `CALL`
-(`SyntheticCallbackTransfer`).
+A/B/C driver for `PostCallStateAccess.sol` (`check_post_call_state_access.py` and
+`check_reentrant_callback.py`): mapping writes and a checked subtraction after an
+optional-bool low-level `CALL` (`SyntheticCallbackTransfer`).
 -/
 namespace SolidityImportSmoke.CallbackTransferSequenceModel
 open Compiler.CompilationModel
@@ -37,4 +37,6 @@ def main (args : List String) : IO UInt32 := do
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run
         SolidityImportSmoke.CallbackTransferSequenceModel.model
         SolidityImportSmoke.CallbackTransferSequenceModel.oracle args
-        (configure := Compiler.CompilationModel.SolidityImport.CallResponderMocks.configure)
+        (configure := Compiler.CompilationModel.SolidityImport.ReentrantCallResponderMocks.configure
+          SolidityImportSmoke.CallbackTransferSequenceModel.model
+          SolidityImportSmoke.CallbackTransferSequenceModel.oracle)
