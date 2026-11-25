@@ -81,7 +81,7 @@ verity_contract TryCatchDynamicArgRejected where
 def writeLast (n : Uint256) : Contract Unit :=
   setStorage ⟨0⟩ n
 
-def failHandler : String → Contract Unit := fun _ => writeLast 2
+def failHandler : Verity.Core.RevertPayload → Contract Unit := fun _ => writeLast 2
 def okHandler : Unit → Contract Unit := fun _ => writeLast 1
 def boomHandler : Unit → Contract Unit := fun _ => require false "success-body"
 

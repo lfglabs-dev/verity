@@ -314,7 +314,7 @@ theorem isSuccess_success {α : Type} (a : α) (s : ContractState) :
     (ContractResult.success a s).isSuccess = true := rfl
 
 @[simp]
-theorem isSuccess_revert {α : Type} (msg : String) (s : ContractState) :
+theorem isSuccess_revert {α : Type} (msg : Verity.Core.RevertPayload) (s : ContractState) :
     (ContractResult.revert msg s : ContractResult α).isSuccess = false := rfl
 
 -- Lemmas for getState
@@ -323,7 +323,7 @@ theorem getState_success {α : Type} (a : α) (s : ContractState) :
     (ContractResult.success a s).getState = s := rfl
 
 @[simp]
-theorem getState_revert {α : Type} (msg : String) (s : ContractState) :
+theorem getState_revert {α : Type} (msg : Verity.Core.RevertPayload) (s : ContractState) :
     (ContractResult.revert msg s : ContractResult α).getState = s := rfl
 
 /-!
@@ -1475,7 +1475,7 @@ theorem Contract.run_bind_success_chain {α β : Type} (m : Contract α) (f : α
 /-- Compositional `Verity.bind` short-circuit lemma when the prefix computation reverts. -/
 @[simp]
 theorem Contract.run_bind_revert {α β : Type} (m : Contract α) (f : α → Contract β)
-    (s s₁ : ContractState) (msg : String)
+    (s s₁ : ContractState) (msg : Verity.Core.RevertPayload)
     (h : m.run s = ContractResult.revert msg s₁) :
     (Verity.bind m f).run s = ContractResult.revert msg s₁ := by
   unfold Contract.run at h

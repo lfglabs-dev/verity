@@ -255,14 +255,14 @@ theorem run_bound_executes_callee :
     (G14Caller.run ExecutableCallContext.stub calleeAddr 3 g14State).getState.readSlot 0 = 3 := by
   decide
 
-def revertMessage? {α : Type} : ContractResult α → Option String
+def revertMessage? {α : Type} : ContractResult α → Option Verity.Core.RevertPayload
   | .revert msg _ => some msg
   | .success _ _ => none
 
 /-- A callee revert bubbles with its message, and the callee's namespaced
 `counter` is restored (the hop snapshot is rolled back). -/
 theorem run_bound_revert_bubbles :
-    revertMessage? (G14Caller.run ExecutableCallContext.stub calleeAddr 0 g14State) = some "zero" ∧
+    revertMessage? (G14Caller.run ExecutableCallContext.stub calleeAddr 0 g14State) = some (.errorString "zero") ∧
     (G14Caller.run ExecutableCallContext.stub calleeAddr 0 g14State).getState.readContractSlot
       calleeAddr.toNat 0 = 7 := by
   decide

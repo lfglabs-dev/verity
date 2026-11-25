@@ -76,12 +76,12 @@ private theorem mint_isolation (s : ContractState) (toAddr : Address) (amount : 
     h_owner, beq_self_eq_true, ite_true]
   unfold Stdlib.Math.requireSomeUint
   cases safeAdd (s.storageMap 1 toAddr) amount <;>
-    simp_all [Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure, beq_iff_eq,
+    simp_all [Verity.requireWith, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
+      beq_iff_eq,
       ContractState.storage_unfold, ContractState.storageAddr_unfold,
       ContractState.storageMap_unfold]
   cases safeAdd (s.storageWords (StorageKey.slot 2)) amount <;>
-    simp_all [Verity.require, Verity.pure, Verity.bind,
-       ]
+    simp_all [Verity.requireWith, Verity.pure, Verity.bind]
 
 /-- Mint only writes Uint256 slotIdx 2. -/
 theorem mint_supply_storage_isolated (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -125,7 +125,7 @@ private theorem transfer_isolation (s : ContractState) (toAddr : Address) (amoun
         h_balance, h_eq, beq_iff_eq,
         ContractState.readMap, ContractState.writeMap]
     all_goals cases safeAdd (s.storageMap 1 toAddr) amount <;>
-        simp_all [Verity.require, Verity.pure, Verity.bind,
+        simp_all [Verity.requireWith, Verity.pure, Verity.bind,
       ContractState.storage_unfold, ContractState.storageAddr_unfold,
       ContractState.storageMap_unfold]
 

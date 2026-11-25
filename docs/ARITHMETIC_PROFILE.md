@@ -151,10 +151,9 @@ panic AST returns the exact canonical 36-byte payload for any initial memory,
 using EVMYulLean's byte-addressed memory and revert operations. It includes both
 typed constructors and a general theorem interpreting numeric codes as EVM words.
 
-The direct Lean definitions of the four wrappers retain their historical
-diagnostic strings. Those messages are executable-model compatibility behavior,
-not compiled revert bytes; the macro-generated path bypasses them and emits the
-canonical payload above.
+The direct Lean definitions of the four wrappers revert with the same payload
+(`.panic 0x11` / `.panic 0x12` in `ContractResult.revert`), so the EDSL and the
+compiled code return the same revert bytes.
 
 The same `addPanic`/`subPanic`/`mulPanic`/`divPanic` bind sources accept
 `Int256` operands. Those lower to signed overflow guards (`slt` same-sign /

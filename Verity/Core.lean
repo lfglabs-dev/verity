@@ -2337,10 +2337,14 @@ def defaultState : ContractState where
 instance : Repr ContractState where
   reprPrec s _ := s!"ContractState(sender={repr s.sender}, thisAddress={repr s.thisAddress})"
 
--- Contract execution result (explicit success/failure)
+/-- A plain message reverts as Solidity's `Error(string)`. -/
+instance : Coe String Verity.Core.RevertPayload := ⟨Verity.Core.RevertPayload.errorString⟩
+
+-- Contract execution result (explicit success/failure). A revert carries the
+-- payload whose ABI bytes (`RevertPayload.encode`) the call returns.
 inductive ContractResult (α : Type) where
   | success : α → ContractState → ContractResult α
-  | revert : String → ContractState → ContractResult α
+  | revert : Verity.Core.RevertPayload → ContractState → ContractResult α
   deriving Repr
 
 namespace ContractResult
@@ -2369,7 +2373,7 @@ def snd {α : Type} : ContractResult α → ContractState
 @[simp] theorem snd_success (a : α) (s : ContractState) :
   (ContractResult.success a s).snd = s := rfl
 
-@[simp] theorem snd_revert (msg : String) (s : ContractState) :
+@[simp] theorem snd_revert (msg : Verity.Core.RevertPayload) (s : ContractState) :
   (ContractResult.revert (α := α) msg s).snd = s := rfl
 
 end ContractResult
@@ -2396,7 +2400,8 @@ def Contract.run {α : Type} (c : Contract α) (s : ContractState) : ContractRes
 /-- Execute `attempt` with per-call rollback semantics and, on revert, run
 `handler` from the original pre-call snapshot. Successful attempts keep their
 post-state and do not invoke the handler. -/
-def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → Contract Unit) :
+def Contract.tryCatch {α : Type} (attempt : Contract α)
+    (handler : Verity.Core.RevertPayload → Contract Unit) :
     Contract Unit :=
   fun s =>
     match Contract.run attempt s with
@@ -2409,7 +2414,7 @@ def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → 
     propagates with that continuation's state. Failed-call returndata is not
     bound into the handler; read `ContractState.returndata` if needed. -/
 def Contract.tryWith {α : Type} (attempt : Contract α)
-    (onSuccess : α → Contract Unit) (onFailure : String → Contract Unit) :
+    (onSuccess : α → Contract Unit) (onFailure : Verity.Core.RevertPayload → Contract Unit) :
     Contract Unit :=
   fun s =>
     match Contract.run attempt s with
@@ -2511,7 +2516,7 @@ set_option warning.simp.varHead false in
 
 /-- A reverting prefix makes the whole bind revert to the pre-call snapshot. -/
 theorem bind_run_revert {α β : Type} (ma : Contract α) (f : α → Contract β)
-    (s : ContractState) (msg : String)
+    (s : ContractState) (msg : Verity.Core.RevertPayload)
     (h : ma.run s = ContractResult.revert msg s) :
     (bind ma f).run s = ContractResult.revert msg s := by
   unfold Contract.run at h
@@ -2541,7 +2546,7 @@ theorem bind_run_success {α β : Type} (ma : Contract α) (f : α → Contract 
   (pure a : Contract α).run state = ContractResult.success a state := rfl
 
 @[simp] theorem tryCatch_success_run
-    (attempt : Contract α) (handler : String → Contract Unit) (state state' : ContractState)
+    (attempt : Contract α) (handler : Verity.Core.RevertPayload → Contract Unit) (state state' : ContractState)
     (value : α)
     (h : attempt.run state = ContractResult.success value state') :
     (Contract.tryCatch attempt handler).run state = ContractResult.success () state' := by
@@ -2549,8 +2554,8 @@ theorem bind_run_success {α β : Type} (ma : Contract α) (f : α → Contract 
   simp [h]
 
 @[simp] theorem tryCatch_revert_run
-    (attempt : Contract α) (handler : String → Contract Unit) (state : ContractState)
-    (msg : String)
+    (attempt : Contract α) (handler : Verity.Core.RevertPayload → Contract Unit) (state : ContractState)
+    (msg : Verity.Core.RevertPayload)
     (h : attempt.run state = ContractResult.revert msg state) :
     (Contract.tryCatch attempt handler).run state = (handler msg).run state := by
   unfold Contract.tryCatch Contract.run at *
@@ -2559,7 +2564,7 @@ theorem bind_run_success {α β : Type} (ma : Contract α) (f : α → Contract 
 /-- Caught failure runs the handler from the pre-call snapshot. -/
 theorem caught_failure_starts_at_snapshot {α : Type}
     (attempt : Contract α) (onSuccess : α → Contract Unit)
-    (onFailure : String → Contract Unit) (s : ContractState) (msg : String)
+    (onFailure : Verity.Core.RevertPayload → Contract Unit) (s : ContractState) (msg : Verity.Core.RevertPayload)
     (h : attempt.run s = ContractResult.revert msg s) :
     Contract.tryWith attempt onSuccess onFailure s = onFailure msg s := by
   unfold Contract.tryWith
@@ -2568,8 +2573,8 @@ theorem caught_failure_starts_at_snapshot {α : Type}
 /-- A revert inside the success continuation is not caught. -/
 theorem success_body_failure_not_caught {α : Type}
     (attempt : Contract α) (onSuccess : α → Contract Unit)
-    (onFailure : String → Contract Unit) (s s' s'' : ContractState)
-    (v : α) (msg : String)
+    (onFailure : Verity.Core.RevertPayload → Contract Unit) (s s' s'' : ContractState)
+    (v : α) (msg : Verity.Core.RevertPayload)
     (h : attempt.run s = ContractResult.success v s')
     (hfail : onSuccess v s' = ContractResult.revert msg s'') :
     Contract.tryWith attempt onSuccess onFailure s =
@@ -2581,7 +2586,7 @@ theorem success_body_failure_not_caught {α : Type}
 /-- Successful hop plus successful continuation commit the continuation state. -/
 theorem try_success_commits {α : Type}
     (attempt : Contract α) (onSuccess : α → Contract Unit)
-    (onFailure : String → Contract Unit) (s s' s'' : ContractState) (v : α)
+    (onFailure : Verity.Core.RevertPayload → Contract Unit) (s s' s'' : ContractState) (v : α)
     (h : attempt.run s = ContractResult.success v s')
     (hok : onSuccess v s' = ContractResult.success () s'') :
     Contract.tryWith attempt onSuccess onFailure s =
@@ -3432,7 +3437,17 @@ def chainid : Contract Uint256 :=
 def require (condition : Bool) (message : String) : Contract Unit :=
   fun s => if condition
            then ContractResult.success () s
-           else ContractResult.revert message s
+           else ContractResult.revert (.errorString message) s
+
+/-- Revert with an explicit payload (`Panic(uint256)`, a custom error, raw bytes). -/
+def revertWith {α : Type} (payload : Verity.Core.RevertPayload) : Contract α :=
+  fun s => ContractResult.revert payload s
+
+/-- `require` with an explicit revert payload. -/
+def requireWith (condition : Bool) (payload : Verity.Core.RevertPayload) : Contract Unit :=
+  fun s => if condition
+           then ContractResult.success () s
+           else ContractResult.revert payload s
 
 @[simp] theorem require_run (condition : Bool) (message : String) (s : ContractState) :
     (require condition message).run s =

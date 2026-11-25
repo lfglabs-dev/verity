@@ -22,10 +22,12 @@ verity_contract RevertReturndataSmoke where
       pure ()
     setStorage marker 1
 
-/-- When the bubbling branch is taken, the call reverts and the write after it never happens. -/
+/-- When the bubbling branch is taken, the call reverts with the returndata bytes and the
+write after it never happens. -/
 theorem bubbleIf_reverts (s : ContractState) :
     (RevertReturndataSmoke.bubbleIf true).run s =
-      .revert Contracts.revertReturndataReason s := rfl
+      .revert (.raw (Compiler.CompilationModel.Denote.returndataRevertBytes s.returndata)) s :=
+  rfl
 
 /-- Otherwise execution continues and writes `marker`. -/
 theorem bubbleIf_continues (s : ContractState) :
