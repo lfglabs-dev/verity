@@ -61,6 +61,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "interface-void-call",
     "interface-word-static-call",
     "interface-word-static-call-rejections",
+    "linked-library-call",
+    "linked-library-call-negative",
     "mapping-dirty",
     "mapping-write-order",
     "mocks",

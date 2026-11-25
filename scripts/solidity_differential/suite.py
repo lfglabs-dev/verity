@@ -389,6 +389,13 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'ecrecover')]))
     checks.append(('ecrecover-rejections', ['-m', 'solidity_differential.check_ecrecover_rejections',
         '--output', str(output / 'ecrecover-rejections')]))
+    checks.append(('linked-library-call', ['-m', 'solidity_differential.check_linked_library_call',
+        '--transactions', str(max(200, min(transactions, 240))), '--seed', str(seed),
+        '--output', str(output / 'linked-library-call')]))
+    checks.append(('linked-library-call-negative', ['-m',
+        'solidity_differential.check_linked_library_call', '--negative-control',
+        '--transactions', '60', '--seed', str(seed),
+        '--output', str(output / 'linked-library-call-negative')]))
     checks.append(('signature-calldata', ['-m', 'solidity_differential.check_signature_calldata',
         '--transactions', str(max(200, min(transactions, 240))), '--seed', str(seed),
         '--output', str(output / 'signature-calldata')]))

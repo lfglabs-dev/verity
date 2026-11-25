@@ -111,7 +111,7 @@ SOLIDITY_BUILTINS = {
     "abi", "addmod", "address", "balance", "basefee", "block", "call", "chainid", "code",
     "codehash", "concat", "data", "days", "decode", "delegatecall", "delete", "ecrecover", "encode",
     "encodeCall", "encodePacked", "encodeWithSelector", "encodeWithSignature", "ether", "false",
-    "gas", "gasprice", "gwei", "hours", "interfaceId", "keccak256", "length", "max", "min",
+    "gas", "gasleft", "gasprice", "gwei", "hours", "interfaceId", "keccak256", "length", "max", "min",
     "minutes", "msg", "mulmod", "name", "number", "origin", "pop", "push", "require", "return",
     "revert", "seconds", "selector", "send", "sender", "sig", "slot", "staticcall", "super", "this",
     "timestamp", "transfer", "true", "tx", "type", "unwrap", "value", "weeks", "wei", "wrap",
@@ -203,11 +203,13 @@ IMPORTER_BINDINGS = {
     "struct_param", "node", "denote_prefix", "denote_step", "solidity_closed_transport_cei",
     "solidity_create2_initcode_reentrancy", "solidity_explicit_abi", "solidity_scalar_abi_entry",
     "solidity_static_call_cei", "solidity_trailing_low_level_call_reentrancy", "entry",
+    "solidity_linked_library_matches_source",
 }
 # Keys of the importer's own JSON (report, differential driver, sequence runner, remapping scan).
 IMPORTER_JSON_KEYS = {
     "account", "accounts", "blockNumber", "compilable", "compileError", "compilerProof",
     "configs", "creator", "denoteCovered", "deployment", "digest", "events", "full", "functions",
+    "linkedLibrariesMatchSource",
     "importable", "importerSources", "importerVersion", "member", "modelParam", "nonce",
     "panicPayloadObserved", "parameter", "params", "projections", "shortcuts", "solcInput",
     "solcVersion", "target", "topics", "touched", "words", "libs", "script", "lakefile",

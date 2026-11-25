@@ -286,7 +286,8 @@ external library calls (a `public` or `external` library function called from
 outside its library, directly or through `using for`: solc emits a
 `DELEGATECALL` to the library linked at deployment, whose code the source does
 not determine; internal library functions, and public ones called by name
-inside their own library, are inlined),
+inside their own library, are inlined; see "Linked library calls" for the
+opt-in that inlines direct calls under a stated linking assumption),
 modifiers, recursion, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root
@@ -415,7 +416,41 @@ import (`CollectUnsupportedSurveyChecks`).
 solc's AST and storage layout, and the lowering in `Import.lean`, are trusted.
 Inlined helper bodies are the code solc compiles into the contract. Code that
 runs behind a `DELEGATECALL` to a linked library is chosen at deployment and is
-never inlined (`check_library_call_rejections`).
+not inlined (`check_library_call_rejections`), unless the profile sets
+`linkedLibrariesMatchSource` (below).
+
+### Linked library calls
+
+`linkedLibrariesMatchSource := true` in the profile states a trust assumption:
+every library a `DELEGATECALL` reaches is linked to an account whose code
+behaves as solc's compilation of that library in the same solc input. With it, a
+direct call `L.f(...)` of an implemented `public` or `external` library function
+is modelled by `f`'s body run in the caller's frame, which is what the
+`DELEGATECALL` does: storage, transient storage, `msg.sender`, `msg.value`,
+`address(this)`, logs and the block and transaction context are the caller's,
+and a failed library call's return data becomes the caller's revert data
+unchanged. The call is admitted only when:
+
+- every parameter is a value type (elementary, enum or user-defined value
+  type) or a `storage` reference (passed as its slot), and every result is a
+  value type: memory, calldata and function-typed values are ABI-encoded and
+  decoded across the call, and copies are not modelled;
+- the callee is named as `L.f` (attached `using L for T` calls reject);
+- nothing the body reaches, through internal helpers, nested linked calls and
+  modifiers, uses `msg.data`, `msg.sig`, `gasleft()` or inline assembly: in the
+  library frame those observe the library call's calldata, gas, return data,
+  code and memory.
+
+Each other shape rejects with `file:line:column` (`check_linked_library_call_rejections`).
+The flag is part of the digest when set. Each root's report lists the calls it
+relies on (`linked library L.f decl N at file:line:column`) and its model
+carries the `.assumed` local obligation `solidity_linked_library_matches_source`.
+Not modelled, as for the other call transports: gas (the 63/64 rule, out of gas
+in the library) and the call depth limit; the library's memory allocations are
+made in the caller's memory, so the free pointer after the call and unallocated
+memory differ from solc's, which only code reading memory it did not allocate
+or write can observe. `LinkedLibraryCallSequence` compares the source (libraries
+deployed and linked), Denote and the compiled model (`check_linked_library_call`).
 The model is built as ordinary values and quoted (`Quote.lean`); after
 elaboration the definitions are evaluated back and must equal those values.
 The digest (`sourceDigest`) is SHA-256 over framed JSON of the importer
