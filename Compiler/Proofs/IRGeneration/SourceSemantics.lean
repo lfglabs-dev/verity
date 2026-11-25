@@ -1926,7 +1926,8 @@ mutual
               256 state bits
         | none => .revert .empty
     | _, .revertEmpty => .revert (.raw [])
-    | state, .revertReturndata => .revert (.raw (state.world.returndata.flatMap Denote.wordBytes))
+    | state, .revertReturndata =>
+        .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
     | state, .revertMemory offset size =>
         match evalExpr fields state offset, evalExpr fields state size with
         | some off, some sz =>
@@ -2330,7 +2331,8 @@ mutual
               256 state bits
         | none => .revert .empty
     | _, .revertEmpty => .revert (.raw [])
-    | state, .revertReturndata => .revert (.raw (state.world.returndata.flatMap Denote.wordBytes))
+    | state, .revertReturndata =>
+        .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
     | state, .revertMemory offset size =>
         match evalExpr fields state offset, evalExpr fields state size with
         | some off, some sz =>
@@ -4003,7 +4005,7 @@ mutual
               256 state bits
         | none => .revert .empty
     | .revertEmpty => .revert (.raw [])
-    | .revertReturndata => .revert (.raw (state.world.returndata.flatMap Denote.wordBytes))
+    | .revertReturndata => .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
     | .revertMemory offset size =>
         match evalExpr fields state offset, evalExpr fields state size with
         | some off, some sz =>

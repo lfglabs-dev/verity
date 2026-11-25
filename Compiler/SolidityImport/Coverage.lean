@@ -523,7 +523,7 @@ theorem execStmt_revertEmpty_arm (oracle : DenoteOracle) (fields : List Field)
 theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :
     execStmt oracle fields state .revertReturndata = .revertWithData
-      (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes)) := rfl
+      (state.rawReturndata.getD (returndataRevertBytes state.world.returndata)) := rfl
 
 /-- A memory-range revert reverts with the bytes of `[offset, offset + size)` of the
 frame's physical memory; an unevaluable argument is a payload-free `.revert`. -/

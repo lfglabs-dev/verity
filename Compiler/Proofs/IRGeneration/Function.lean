@@ -1168,40 +1168,6 @@ private theorem exactState_compileStmtList_effectiveFields
       scope [] stmts = Except.ok bodyStmts := by
   simpa [hnormalized, hnoEvents, hnoErrors] using h
 
-theorem supported_function_body_correct_from_exact_state_core
-    (model : CompilationModel) (fn : FunctionSpec) (bodyStmts : List YulStmt)
-    (tx : IRTransaction) (initialWorld : Verity.ContractState) (state : IRState)
-    (bindings : List (String × Nat))
-    (hnormalized : SourceSemantics.effectiveFields model = model.fields)
-    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
-    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
-    (hcore : FunctionBody.StmtListCompileCore (fn.params.map (·.name)) fn.body)
-    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
-      (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
-    (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
-      { world := SourceSemantics.withTransactionContext initialWorld tx
-        bindings := [], selector := tx.functionSelector, errors := model.errors } state)
-    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
-    ∃ sourceResult irExec,
-      SourceSemantics.execStmtList (SourceSemantics.effectiveFields model)
-        { world := SourceSemantics.withTransactionContext initialWorld tx
-          bindings := bindings, selector := tx.functionSelector,
-          errors := model.errors } fn.body = sourceResult ∧
-      execIRStmts (bodyStmts.length + 1) state bodyStmts = irExec ∧
-      FunctionBody.stmtResultMatchesIRExec
-        (SourceSemantics.effectiveFields model) sourceResult irExec := by
-  rcases FunctionBody.exec_compileStmtList_core
-      (fields := SourceSemantics.effectiveFields model) (state := state)
-      (inScopeNames := fn.params.map (·.name)) hcore
-      (exactState_scopeNamesPresent_of_bindSupportedParams hbind) hstateBindings
-      (FunctionBody.bindingsBounded_of_bindSupportedParams hbind)
-      (exactState_runtimeStateMatchesIR_rebind bindings hstateRuntime) with
-    ⟨bodyIR, hbodyCoreCompile, hcoreSem, _⟩
-  rw [exactState_compileStmtList_effectiveFields hnormalized hnoEvents hnoErrors
-    hbodyCompile] at hbodyCoreCompile
-  cases hbodyCoreCompile
-  exact ⟨_, _, rfl, rfl, hcoreSem⟩
-
 theorem supported_function_body_correct_from_exact_state_core_extraFuel
     (model : CompilationModel) (fn : FunctionSpec) (bodyStmts : List YulStmt)
     (tx : IRTransaction) (initialWorld : Verity.ContractState) (state : IRState)
@@ -1216,7 +1182,8 @@ theorem supported_function_body_correct_from_exact_state_core_extraFuel
     (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
       { world := SourceSemantics.withTransactionContext initialWorld tx
         bindings := [], selector := tx.functionSelector, errors := model.errors } state)
-    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hfuel : sizeOf bodyStmts ≤ bodyStmts.length + extraFuel) :
     ∃ sourceResult irExec,
       SourceSemantics.execStmtList (SourceSemantics.effectiveFields model)
         { world := SourceSemantics.withTransactionContext initialWorld tx
@@ -1231,11 +1198,11 @@ theorem supported_function_body_correct_from_exact_state_core_extraFuel
       (exactState_scopeNamesPresent_of_bindSupportedParams hbind) hstateBindings
       (FunctionBody.bindingsBounded_of_bindSupportedParams hbind)
       (exactState_runtimeStateMatchesIR_rebind bindings hstateRuntime) with
-    ⟨bodyIR, hbodyCoreCompile, hcoreSem, _⟩
+    ⟨bodyIR, hbodyCoreCompile, hcoreSem⟩
   rw [exactState_compileStmtList_effectiveFields hnormalized hnoEvents hnoErrors
     hbodyCompile] at hbodyCoreCompile
   cases hbodyCoreCompile
-  exact ⟨_, _, rfl, rfl, hcoreSem⟩
+  exact ⟨_, _, rfl, rfl, (hcoreSem hfuel).1⟩
 
 /-- Terminal-core fuel slack: running at `sizeOf` plus the leftover slack is the
 same as running at the body length plus the full extra fuel. -/
@@ -1533,7 +1500,8 @@ private theorem supported_function_correct_bodyExecMatches_of_core
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hcore : FunctionBody.StmtListCompileCore (fn.params.map (·.name)) fn.body)
     (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
-      (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts) :
+      (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hfuel : sizeOf bodyStmts ≤ bodyStmts.length + extraFuel) :
     SupportedFunctionBodyExecMatches model fn tx initialWorld bindings bodyStmts extraFuel :=
   supported_function_body_correct_from_exact_state_core_extraFuel model fn bodyStmts tx
     initialWorld _ bindings extraFuel
@@ -1541,7 +1509,7 @@ private theorem supported_function_correct_bodyExecMatches_of_core
     hSupported.noEvents hSupported.noErrors hbind hcore hbodyCompile
     (supported_function_correct_state_runtime model fn tx initialWorld bindings htxNormalized
       hcalldataSizeFits)
-    (supported_function_correct_state_bindings hSupported hfn hbind)
+    (supported_function_correct_state_bindings hSupported hfn hbind) hfuel
 
 /-- Terminal-core bodies satisfy the body-level agreement above the body's own
 size slack. -/
@@ -1743,8 +1711,12 @@ theorem supported_function_correct
   refine supported_function_correct_of_bodyExecMatches hSupported hfn hvalidate hreturns
     hbodyCompile hcompile hbind hcalldataSizeFits ?_
   by_cases hcore : FunctionBody.StmtListCompileCore (fn.params.map (·.name)) fn.body
-  · exact supported_function_correct_bodyExecMatches_of_core hSupported _ hfn htxNormalized
-      hcalldataSizeFits hbind hcore hbodyCompile
+  · have hslack := supported_function_correct_extraFuel_le
+      (habi := (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
+      hvalidate hreturns hbodyCompile hcompile
+    have hlen := yulStmtList_length_le_sizeOf bodyStmts
+    exact supported_function_correct_bodyExecMatches_of_core hSupported _ hfn htxNormalized
+      hcalldataSizeFits hbind hcore hbodyCompile (by omega)
   · exact supported_function_correct_bodyExecMatches_of_compile hSupported hvalidateInputs hfn
       hvalidate hreturns hbodyCompile hcompile htxNormalized hcalldataSizeFits hbind
 
@@ -2898,7 +2870,7 @@ theorem stmtListCompileCore_compiledLegacyCompatible
   | nil => exact .nil
   | letVar _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_letVar fields _ _ _) ih
   | assignVar _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_assignVar fields _ _ _) ih
-  | require_ _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_require fields _ _ _) ih
+  | require_ _ _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_require fields _ _ _) ih
   | return_ _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_return fields _ _) ih
   | stop _ ih => exact .cons (compiledHeadLegacyCompatible_stop fields _) ih
   | mstore _ _ _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_mstore fields _ _ _) ih
@@ -2916,7 +2888,7 @@ theorem stmtListTerminalCore_compiledLegacyCompatible
   induction h generalizing compilerScope with
   | letVar _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_letVar fields _ _ _) ih
   | assignVar _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_assignVar fields _ _ _) ih
-  | require_ _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_require fields _ _ _) ih
+  | require_ _ _ _ _ ih => exact .cons (compiledHeadLegacyCompatible_require fields _ _ _) ih
   | return_ _ _ hrest =>
       exact .cons (compiledHeadLegacyCompatible_return fields _ _)
         (stmtListCompileCore_compiledLegacyCompatible fields hrest)

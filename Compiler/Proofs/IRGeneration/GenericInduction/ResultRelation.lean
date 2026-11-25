@@ -42,7 +42,7 @@ def stmtStepMatchesIRExec
   | .return value runtime, .return value' state =>
       value = value' ∧
       FunctionBody.runtimeStateMatchesIR fields runtime state
-  | .revert _, .revert _ => True
+  | .revert payload, .revert state => payload.encode = state.revertData
   | _, _ => False
 
 /-- Helper-aware compiled-side counterpart of `stmtStepMatchesIRExec`. `leave`
@@ -61,7 +61,7 @@ def stmtStepMatchesIRExecWithInternals
   | .return value runtime, .return value' state =>
       value = value' ∧
       FunctionBody.runtimeStateMatchesIR fields runtime state
-  | .revert _, .revert _ => True
+  | .revert payload, .revert state => payload.encode = state.revertData
   | _, _ => False
 
 /-- Helper-aware compiled-side counterpart of
