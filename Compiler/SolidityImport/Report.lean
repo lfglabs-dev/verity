@@ -91,6 +91,22 @@ structure ShortcutUse where
 def ShortcutUse.toText (u : ShortcutUse) : String :=
   s!"  shortcut {u.fingerprintName} lowering {u.lowering} fingerprint {u.fingerprint} at {u.file}:{u.line}:{u.column}"
 
+/-- A direct call `library.function(...)` at `file:line:column` that solc lowers to a
+`DELEGATECALL` into the linked library and that the model replaces by the body of the
+declaration `declId` (`Profile.linkedLibrariesMatchSource`). A proof about the root relies on
+the deployment linking `library` to code that behaves as solc's compilation of that source. -/
+structure LinkedLibraryCall where
+  library : String
+  function : String
+  declId : Nat
+  file : String
+  line : Nat
+  column : Nat
+  deriving Repr, BEq
+
+def LinkedLibraryCall.toText (u : LinkedLibraryCall) : String :=
+  s!"  linked library {u.library}.{u.function} decl {u.declId} at {u.file}:{u.line}:{u.column}"
+
 /-- Static status of one root. Without `collectUnsupported` a root is listed
 only if it was importable. With it, a root whose lowering recorded a construct
 is listed with `unsupported` non-empty and `denoteCovered = false`; such a root
@@ -108,12 +124,16 @@ structure FunctionStatus where
   /-- Shortcuts the lowered body uses, in lowering order. Empty for a root recorded as
   unsupported: its lowering is discarded. -/
   shortcuts : List ShortcutUse := []
+  /-- Linked library calls the lowered body inlines, in lowering order (empty for a root
+  recorded as unsupported). -/
+  linkedLibraryCalls : List LinkedLibraryCall := []
   deriving Repr, BEq
 
 /-- The `status` line of one root, followed by its unsupported constructs, then by the
-shortcuts its model uses. -/
+shortcuts and linked library calls its model uses. -/
 def FunctionStatus.toText (st : FunctionStatus) : String :=
-  let shortcuts := st.shortcuts.map ShortcutUse.toText
+  let shortcuts := st.shortcuts.map ShortcutUse.toText ++
+    st.linkedLibraryCalls.map LinkedLibraryCall.toText
   if st.unsupported.isEmpty then
     String.intercalate "\n" <|
       s!"status {st.function} importable denoteCovered {st.denoteCovered} compilerProof {st.compilerProof.toText}" ::

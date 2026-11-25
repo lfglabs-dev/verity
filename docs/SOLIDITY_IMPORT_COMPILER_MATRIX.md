@@ -6,13 +6,25 @@ lowering, and it never changes what the importer accepts.
 
 ## Pinned releases
 
-The importer pins two solc releases (`solcReleases` in
-`Compiler/SolidityImport/Import.lean`). `Profile.solc` defaults to the first:
+The importer pins seven solc releases (`solcReleases` in
+`Compiler/SolidityImport/Import.lean`). `Profile.solc` defaults to
+`0.8.34+commit.80d5c536`:
 
 | Release | Linux sha256 | macOS sha256 |
 | --- | --- | --- |
+| `0.8.38+commit.1835d247` | `65c3180a…8f3243` | `b18ac1d1…e0a2a9` |
+| `0.8.35+commit.47b9dedd` | `fa8ac9a3…a617f4` | `6e432580…b19159` |
 | `0.8.34+commit.80d5c536` | `d40adc6f…726b39` | `0a282929…fa7746` |
+| `0.8.28+commit.7893614a` | `9a0fb7e0…636f25` | `81515b0e…76d9ea` |
+| `0.8.26+commit.8a97fa7a` | `d5f23436…f149ef` | `0ff016ae…c30ab9` |
 | `0.8.10+commit.fc410830` | `c7effacf…dd06d89` | `a79fff23…dd2a4cc` |
+| `0.7.6+commit.7338295f` | `bd69ea85…58a6bb` | `a6a8f9f9…5bd1ab` |
+
+`0.8.35` accepts the importer's `amsterdam` EVM target and passes solc its
+`@future` spelling; `0.8.34` and older keep `osaka` as the newest named target.
+`0.8.38` accepts `homestead` through `osaka`: it names `amsterdam` (and
+`@future`) only behind solc's `settings.experimental` flag, which the importer
+does not set for a named target, so the pin rejects `amsterdam` on `0.8.38`.
 
 `IMPORTER_SOLC` and `IMPORTER_DEFAULT_SOLC` in the script mirror these values.
 `scripts/test_solidity_import_coverage.py` fails if they drift from the Lean

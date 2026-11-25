@@ -440,7 +440,7 @@ theorem bridgedSourceExternalRecursiveBodyWithRawLogStmts_of_stmtListCompileCore
       exact .cons (bridgedExternalRawLogLetVar hValue) ih
   | assignVar hValue _hScope _hRest ih =>
       exact .cons (bridgedExternalRawLogAssignVar hValue) ih
-  | require_ hCond _hScope _hRest ih =>
+  | require_ hCond _hScope _ _hRest ih =>
       exact .cons (bridgedExternalRawLogRequire hCond) ih
   | return_ hValue _hScope _hRest ih =>
       exact .cons (bridgedExternalRawLogReturn hValue) ih
@@ -469,7 +469,7 @@ theorem bridgedSourceExternalRecursiveBodyWithRawLogStmts_of_stmtListTerminalCor
       exact .cons (bridgedExternalRawLogLetVar hValue) ih
   | assignVar hValue _hScope _hRest ih =>
       exact .cons (bridgedExternalRawLogAssignVar hValue) ih
-  | require_ hCond _hScope _hRest ih =>
+  | require_ hCond _hScope _ _hRest ih =>
       exact .cons (bridgedExternalRawLogRequire hCond) ih
   | return_ hValue _hScope hRest =>
       exact .cons (bridgedExternalRawLogReturn hValue)

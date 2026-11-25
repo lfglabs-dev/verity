@@ -539,7 +539,7 @@ Pinned Solidity/solc/Yul/AST, older quoted nodes, models and golden files are
 unchanged. Focused command receipts and source hashes are in
 `dispatcher-environment.json`.
 
-## Blocking issue: no theorem compares the native revert bytes
+## Revert bytes in the native result
 
 Since lfglabs-dev/EVMYulLean#13 (pinned), Yul `REVERT` throws
 `Exception.Revert data` with the bytes it returns, and a reverted child call
@@ -547,9 +547,16 @@ exposes them as the caller's returndata (#14). Verity's native `projectResult`
 in `Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean`
 keeps them: `YulResult.revertData` (`Compiler/Proofs/YulGeneration/RuntimeTypes.lean`)
 holds a `REVERT`'s bytes (`projectResult_revert_revertData`), so `Panic(0x11)`
-and `Panic(0x12)` executions project to different results. No IR-to-Yul theorem
-states those bytes yet: the Layer-3 statements compare success, return value,
-storage and events only.
+and `Panic(0x12)` executions project to different results. The IR-to-native
+observable `nativeResultsMatchOn` (`EvmYulLeanNativeHarness/Runtime.lean`)
+compares them (`ir.revertData = yul.revertData`) with success, return value,
+storage and events. The closed native proofs discharge it; the reverts they
+cover (dispatcher guards, selector miss, SimpleStorage) return no bytes on
+both sides. `Backends.Panic.encode_panic_eq_expectedPanicBytes` shows that
+`RevertPayload.encode (.panic c)` is EVMYulLean's native panic payload for
+every code `c`, computed ones (`Stmt.panicCode`) included. The source-to-IR
+theorem compares revert bytes too (`sourceResultMatchesIRResult`), so the
+composed source-to-native relation `sourceResultMatchesNativeOn` does as well.
 
 `projectResult` still maps every other exception to the same failed result
 with rolled-back storage, events and no bytes. It therefore identifies

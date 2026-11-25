@@ -92,7 +92,8 @@ theorem stmtByteFree_of_contractSurfaceClosed :
           simp only [stmtTouchesUnsupportedContractSurface] at h
           exact stmtListByteFree_of_contractSurfaceClosed body h
       | _ => simp [stmtTouchesUnsupportedContractSurface] at h
-  | .ecm _ _, h | .forEachSetBit _ _ _, h | .unsafeBlock _ _, h | .matchAdt _ _ _, h => by
+  | .ecm _ _, h | .forEachSetBit _ _ _, h | .forEachWhile _ _ _ _, h | .unsafeBlock _ _, h
+  | .matchAdt _ _ _, h => by
       simp [stmtTouchesUnsupportedContractSurface] at h
   | .letVar .., _ | .assignVar .., _ | .setStorage .., _ | .setStorageAddr .., _
   | .setImmutable .., _ | .setStorageWord .., _ | .setMapping .., _ | .setMappingWord .., _
@@ -197,7 +198,7 @@ theorem denote_eq_sourceSemantics
         (SourceSemantics.effectiveFields spec) spec.events fn.body hsurface
         { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
           bindings := bindings
-          selector := tx.functionSelector }
+          selector := tx.functionSelector, errors := spec.errors }
       rw [hevents]
       have hagree :
           toStmtResult (Denote.execStmtList sourceOracle
@@ -208,7 +209,7 @@ theorem denote_eq_sourceSemantics
             SourceSemantics.execStmtList (SourceSemantics.effectiveFields spec)
               { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
                 bindings := bindings
-                selector := tx.functionSelector } fn.body := by
+                selector := tx.functionSelector, errors := spec.errors } fn.body := by
         simpa only [DenoteAgreement.toRuntimeState] using
           statement_list_composition (SourceSemantics.effectiveFields spec)
             { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)

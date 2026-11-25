@@ -845,7 +845,7 @@ theorem directInternalHelperStatementContextBridge_sourceCallEvidence
         (Stmt.internalCall calleeName args) =
           (if result.success then
             .continue { state with world := result.world }
-          else .revert) ∧
+          else .revert result.revertPayload) ∧
       hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world := by
   intro result
@@ -891,8 +891,8 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
                 .continue { state with
                     world := result.world
                     bindings := SourceSemantics.bindValue state.bindings name value }
-            | _, _ => .revert
-          else .revert) ∧
+            | _, _ => .revert .empty
+          else .revert result.revertPayload) ∧
       hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world := by
   intro result
@@ -1070,7 +1070,7 @@ theorem directInternalHelperStatementContextBridge_sourceCallEvidence
         (Stmt.internalCall calleeName args) =
           (if result.success then
             .continue { state with world := result.world }
-          else .revert) ∧
+          else .revert result.revertPayload) ∧
       hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world := by
   intro result
@@ -1099,8 +1099,8 @@ abbrev directInternalHelperAssignSourceResult
         .continue { state with
             world := result.world
             bindings := SourceSemantics.bindValue state.bindings name value }
-    | _, _ => .revert
-  else .revert
+    | _, _ => .revert .empty
+  else .revert result.revertPayload
 
 abbrev DirectInternalHelperAssignSourceEvidence
     {runtimeContract : IRContract} {spec : CompilationModel}
@@ -1148,7 +1148,7 @@ abbrev directInternalHelperCallSourceResult
     SourceSemantics.StmtResult :=
   if result.success then
     .continue { state with world := result.world }
-  else .revert
+  else .revert result.revertPayload
 
 abbrev directInternalHelperCallIRResult
     (callerState : IRState) (helper : IRInternalFunctionDef)

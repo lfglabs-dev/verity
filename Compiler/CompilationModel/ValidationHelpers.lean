@@ -209,6 +209,8 @@ def collectStmtNames : Stmt → List String
       varName :: collectExprNames count ++ collectStmtListNames body
   | Stmt.forEachSetBit varName bitmap body =>
       varName :: collectExprNames bitmap ++ collectStmtListNames body
+  | Stmt.forEachWhile varName count guard body =>
+      varName :: collectExprNames count ++ collectExprNames guard ++ collectStmtListNames body
   | Stmt.unsafeBlock _ body =>
       collectStmtListNames body
   | Stmt.matchAdt _ scrutinee branches =>

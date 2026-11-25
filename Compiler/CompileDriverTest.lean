@@ -1607,7 +1607,8 @@ unsafe def runTests : IO Unit := do
     ("matchAdt", fun body => .matchAdt "Choice" (.literal 0)
       [("None", [], []), ("Some", [], body)]),
     ("ite", fun body => .ite (.literal 1) [] body),
-    ("forEach", fun body => .forEach "idx" (.literal 1) body)
+    ("forEach", fun body => .forEach "idx" (.literal 1) body),
+    ("forEachWhile", fun body => .forEachWhile "idx" (.literal 1) (.literal 1) body)
   ]
   for (label, wrap) in wrappers do
     let body := [wrap [nestedEcm, nestedEcm]]
@@ -2208,7 +2209,8 @@ unsafe def runTests : IO Unit := do
       [("unsafeBlock", Stmt.unsafeBlock "explicit boundary" [nestedEcm]),
        ("matchAdt", Stmt.matchAdt "Choice" (.adtTag "Choice" "choice")
          [("Some", [], [nestedEcm])]),
-       ("forEachSetBit", Stmt.forEachSetBit "bit" (.literal 1) [nestedEcm])] do
+       ("forEachSetBit", Stmt.forEachSetBit "bit" (.literal 1) [nestedEcm]),
+       ("forEachWhile", Stmt.forEachWhile "idx" (.literal 1) (.literal 1) [nestedEcm])] do
     let spec : CompilationModel :=
       { name := "NestedEcmBoundary"
         fields := [{ name := "choice", ty := .adt "Choice" 0 }]

@@ -938,9 +938,9 @@ def build_spec() -> dict:
 
 # Solidity slice differential changes require the compiled-model validation lane.
 for _lane in ("build_paths", "compiler_paths"):
-    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/solidity_differential/**', 'scripts/solidity_import_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_import_mutations.py', 'scripts/test_solidity_stateful*.py', 'scripts/setup_solc_import.py', 'scripts/solidity_import_coverage.py', 'scripts/solidity_import_corpus/**', 'scripts/test_solidity_import_coverage.py']
-SPEC["expected_uploaded_artifacts"]["compiler-regressions"] = ["solidity-import-differential", "solidity-import-coverage"]
-SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/import-differential/**\n.lake/stateful-*/**\n.lake/denote-rejections-*/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**", ".lake/solidity-import-coverage/**"]
+    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/solidity_differential/**', 'scripts/solidity_import_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_import_mutations.py', 'scripts/test_solidity_stateful*.py', 'scripts/setup_solc_import.py', 'scripts/solidity_import_coverage.py', 'scripts/solidity_import_corpus/**']
+SPEC["expected_uploaded_artifacts"]["compiler-regressions"] = ["solidity-import-differential"]
+SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/import-differential/**\n.lake/stateful-*/**\n.lake/denote-rejections-*/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**"]
 for _key in ("expected_uploaded_artifacts", "expected_uploaded_artifact_paths"):
     _profile = SPEC[_key].pop("lean-profile")
     SPEC[_key]["lean-profile"] = _profile
@@ -1011,7 +1011,7 @@ SPEC['expected_job_outputs']['changes']['importer'] = '${{ steps.effective.outpu
 
 _eff = next(st for st in SPEC['expected_step_contracts']['changes'] if st.get('id') == 'effective')
 _eff['env'] = {'FORCE_FULL_RUN': '${{ env.VERIFY_FORCE_FULL_RUN }}', 'CODE_CHANGED': '${{ steps.filter.outputs.code }}', 'BUILD_CHANGED': '${{ steps.filter.outputs.build }}', 'COMPILER_CHANGED': '${{ steps.filter.outputs.compiler }}', 'CHANGED_FILES': '${{ steps.filter.outputs.changed_files }}', 'IMPORTER_CHANGED': '${{ steps.filter.outputs.importer }}', 'EVENT_NAME': '${{ github.event_name }}', 'FULL_TIER': "${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}"}
-_eff['run'] = '# FULL_TIER uses the same tier test as compiler-regressions: main pushes,\n# nightly, dispatch and ci:full PRs.\n# `compiler` is decided per changed file here, not by the paths-filter\n# output: with the default `some` quantifier a `!Verity/Proofs/**` entry\n# matches every file outside Verity/Proofs, so any change (docs too) used\n# to count as a compiler change. The list below is the filter\'s intent.\n# Importer paths are excluded: the compiler executables, Contracts and the\n# Foundry suites never import Compiler.SolidityImport (checked against\n# their Lake import cones), and `importer-differential` covers them.\n# A lakefile.lean change counts as importer-only when every changed line\n# names a SolidityImportSmoke target (pull requests only; pushes stay strict).\n# On the full tier an importer change still counts as a compiler change, so\n# compiler-regressions (stateful checks, import coverage) keeps running there.\nlakefile_only_smoke() {\n  [ "$EVENT_NAME" = "pull_request" ] || return 1\n  git rev-parse --verify -q HEAD^1 >/dev/null || return 1\n  ! git diff HEAD^1 HEAD -- lakefile.lean \\\n    | grep -E \'^[+-]\' | grep -vE \'^(\\+\\+\\+|---)\' \\\n    | grep -vE \'SolidityImportSmoke|^[+-][[:space:]]*$\' | grep -q .\n}\nis_compiler_path() {\n  case "$1" in\n    # Proof directories are not excluded: difftest-interpreter and\n    # compiler-main-test import executable code under */Proofs/**\n    # (e.g. Compiler/Proofs/MappingSlot.lean via Contracts/Common.lean).\n    Compiler/SolidityImport/*|Contracts/SolidityImportSmoke/*) return 1 ;;\n    .github/actions/*|.github/workflows/verify.yml) return 0 ;;\n    Verity/*|Compiler/*|Compiler.lean|Contracts/*|Contracts.lean|examples/*|packages/*|test/*) return 0 ;;\n    lake-manifest.json|lean-toolchain|foundry.toml|foundry.lock|.gitmodules|lib/*) return 0 ;;\n    scripts/check_gas.py|scripts/check_patch_gas_delta.py|scripts/check_selectors.py|scripts/check_yul.py) return 0 ;;\n    scripts/keccak256.py|scripts/lean_cc_ccache_clang.sh|scripts/property_utils.py) return 0 ;;\n    lakefile.lean) lakefile_only_smoke && return 1; return 0 ;;\n  esac\n  return 1\n}\ncompiler_needed=false\neval "set -- $CHANGED_FILES"\nfor f in "$@"; do\n  if is_compiler_path "$f"; then\n    echo "compiler path changed: $f"\n    compiler_needed=true\n    break\n  fi\ndone\nif [ "$FULL_TIER" = "true" ] && [ "$IMPORTER_CHANGED" = "true" ]; then\n  echo "importer change on the full tier: running the compiler jobs"\n  compiler_needed=true\nfi\n\nif [ "$FORCE_FULL_RUN" = "true" ]; then\n  code=true\n  build=true\n  compiler=true\nelse\n  code="$CODE_CHANGED"\n  build="$BUILD_CHANGED"\n  compiler="$compiler_needed"\nfi\n# compiler-regressions already runs the same slice comparisons on the full tier.\nimporter="$IMPORTER_CHANGED"\nif [ "$FORCE_FULL_RUN" = "true" ] || [ "$FULL_TIER" = "true" ]; then importer=false; fi\n\n{\n  echo "code=$code"\n  echo "build=$build"\n  echo "compiler=$compiler"\n  echo "importer=$importer"\n} >> "$GITHUB_OUTPUT"'
+_eff['run'] = '# FULL_TIER uses the same tier test as compiler-regressions: main pushes,\n# nightly, dispatch and ci:full PRs.\n# `compiler` is decided per changed file here, not by the paths-filter\n# output: with the default `some` quantifier a `!Verity/Proofs/**` entry\n# matches every file outside Verity/Proofs, so any change (docs too) used\n# to count as a compiler change. The list below is the filter\'s intent.\n# Importer paths are excluded: the compiler executables, Contracts and the\n# Foundry suites never import Compiler.SolidityImport (checked against\n# their Lake import cones), and `importer-differential` covers them.\n# A lakefile.lean change counts as importer-only when every changed line\n# names a SolidityImportSmoke target (pull requests only; pushes stay strict).\n# On the full tier an importer change still counts as a compiler change, so\n# compiler-regressions (stateful checks) keeps running there.\nlakefile_only_smoke() {\n  [ "$EVENT_NAME" = "pull_request" ] || return 1\n  git rev-parse --verify -q HEAD^1 >/dev/null || return 1\n  ! git diff HEAD^1 HEAD -- lakefile.lean \\\n    | grep -E \'^[+-]\' | grep -vE \'^(\\+\\+\\+|---)\' \\\n    | grep -vE \'SolidityImportSmoke|^[+-][[:space:]]*$\' | grep -q .\n}\nis_compiler_path() {\n  case "$1" in\n    # Proof directories are not excluded: difftest-interpreter and\n    # compiler-main-test import executable code under */Proofs/**\n    # (e.g. Compiler/Proofs/MappingSlot.lean via Contracts/Common.lean).\n    Compiler/SolidityImport/*|Contracts/SolidityImportSmoke/*) return 1 ;;\n    .github/actions/*|.github/workflows/verify.yml) return 0 ;;\n    Verity/*|Compiler/*|Compiler.lean|Contracts/*|Contracts.lean|examples/*|packages/*|test/*) return 0 ;;\n    lake-manifest.json|lean-toolchain|foundry.toml|foundry.lock|.gitmodules|lib/*) return 0 ;;\n    scripts/check_gas.py|scripts/check_patch_gas_delta.py|scripts/check_selectors.py|scripts/check_yul.py) return 0 ;;\n    scripts/keccak256.py|scripts/lean_cc_ccache_clang.sh|scripts/property_utils.py) return 0 ;;\n    lakefile.lean) lakefile_only_smoke && return 1; return 0 ;;\n  esac\n  return 1\n}\ncompiler_needed=false\neval "set -- $CHANGED_FILES"\nfor f in "$@"; do\n  if is_compiler_path "$f"; then\n    echo "compiler path changed: $f"\n    compiler_needed=true\n    break\n  fi\ndone\nif [ "$FULL_TIER" = "true" ] && [ "$IMPORTER_CHANGED" = "true" ]; then\n  echo "importer change on the full tier: running the compiler jobs"\n  compiler_needed=true\nfi\n\nif [ "$FORCE_FULL_RUN" = "true" ]; then\n  code=true\n  build=true\n  compiler=true\nelse\n  code="$CODE_CHANGED"\n  build="$BUILD_CHANGED"\n  compiler="$compiler_needed"\nfi\n# compiler-regressions already runs the same slice comparisons on the full tier.\nimporter="$IMPORTER_CHANGED"\nif [ "$FORCE_FULL_RUN" = "true" ] || [ "$FULL_TIER" = "true" ]; then importer=false; fi\n\n{\n  echo "code=$code"\n  echo "build=$build"\n  echo "compiler=$compiler"\n  echo "importer=$importer"\n} >> "$GITHUB_OUTPUT"'
 
 def _insert_after(mapping, after, key, value):
     out = {}
@@ -1041,47 +1041,71 @@ SPEC['expected_downloaded_artifacts'] = _insert_after(
 SPEC['expected_downloaded_artifact_paths'] = _insert_after(
     SPEC['expected_downloaded_artifact_paths'], 'import-mutations', 'importer-differential', [None])
 
-# Runner router: `route` (ubuntu-latest) picks build-medium or lean-8vcpu at run
-# time for the jobs both pools can run, so they stop queueing behind the three
-# build-medium hosts. ROUTED_RUNS_ON is the only runs-on those jobs may use.
-ROUTED_RUNS_ON = '${{ fromJSON(needs.route.outputs.runs_on) }}'
-ROUTED_RUNNER_JOBS = ['build-audits', 'import-mutations', 'compiler-audits',
-                      'foundry-gas-calibration', 'foundry', 'foundry-patched',
-                      'foundry-multi-seed']
-SPEC['routed_runs_on'] = ROUTED_RUNS_ON
-SPEC['routed_runner_jobs'] = list(ROUTED_RUNNER_JOBS)
-SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index('changes') + 1, 'route')
-SPEC['expected_job_needs'] = _insert_after(SPEC['expected_job_needs'], 'changes', 'route', ['changes'])
-SPEC['expected_job_runs_on'] = _insert_after(SPEC['expected_job_runs_on'], 'changes', 'route', 'ubuntu-latest')
-SPEC['expected_job_timeouts'] = _insert_after(SPEC['expected_job_timeouts'], 'changes', 'route', 5)
-SPEC['expected_job_permissions'] = _insert_after(
-    SPEC['expected_job_permissions'], 'closed-pr-cleanup', 'route', {'actions': 'read'})
-SPEC['expected_job_outputs']['route'] = {
-    'runs_on': '${{ steps.route.outputs.runs_on }}',
-    'on_lean': '${{ steps.route.outputs.on_lean }}',
-    'pool': '${{ steps.route.outputs.pool }}',
+# Runner routers: `route-build` (after `build`) and `route-compiler` (after
+# `build-compiler-binaries`) run scripts/ci_route_pools.py on ubuntu-latest right
+# before their job groups fan out, and pick build-medium while it has free slots
+# for the group, else lean-8vcpu. ROUTED_RUNS_ON[job] is the only runs-on a
+# routed job may use, and the job must need the router it names.
+ROUTERS = {
+    'route-build': ('build', 'after build',
+                    [('build-audits', '1'), ('import-mutations', '24')]),
+    'route-compiler': ('build-compiler-binaries', 'after build-compiler-binaries',
+                       [('compiler-audits', '1'), ('foundry-gas-calibration', '1'),
+                        ('foundry', '4/2'), ('foundry-patched', '1'),
+                        ('foundry-multi-seed', '7/1')]),
 }
+ROUTER_OF = {job: router for router, (_, _, groups) in ROUTERS.items() for job, _ in groups}
+
+
+def _route_output(job, field):
+    return f"needs.{ROUTER_OF[job]}.outputs.{job.replace('-', '_')}_{field}"
+
+
+ROUTED_RUNS_ON = {job: '${{ fromJSON(' + _route_output(job, 'runs_on') + ') }}'
+                  for job in ROUTER_OF}
+ROUTED_RUNNER_JOBS = list(ROUTER_OF)
+SPEC['routed_runs_on'] = dict(ROUTED_RUNS_ON)
+SPEC['routed_runner_jobs'] = list(ROUTED_RUNNER_JOBS)
 SPEC['expected_workflow_env']['VERIFY_ROUTE_POOLS_DEFAULT'] = (
     '[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],'
-    '"max_queue":6},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]')
+    '"slots":3},{"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]')
+for _router, (_after, _title, _groups) in ROUTERS.items():
+    _first = _groups[0][0]
+    SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index(_first), _router)
+    SPEC['expected_job_needs'] = _insert_before(SPEC['expected_job_needs'], _first, _router, [_after])
+    SPEC['expected_job_runs_on'] = _insert_before(
+        SPEC['expected_job_runs_on'], _first, _router, 'ubuntu-latest')
+    SPEC['expected_job_timeouts'] = _insert_before(SPEC['expected_job_timeouts'], _first, _router, 5)
+    SPEC['expected_job_permissions'] = _insert_before(
+        SPEC['expected_job_permissions'], 'failure-hints',
+        _router, {'actions': 'read', 'contents': 'read'})
+    SPEC['expected_job_outputs'][_router] = {
+        f"{job.replace('-', '_')}_{field}":
+            '${{ steps.route.outputs.' + f"{job.replace('-', '_')}_{field}" + ' }}'
+        for job, _ in _groups for field in ('runs_on', 'on_lean')
+    }
+    SPEC['expected_step_contracts'][_router] = [
+        {'uses': 'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803',
+         'with': {'persist-credentials': 'false', 'sparse-checkout-cone-mode': 'false'}},
+        {'id': 'route', 'name': 'Choose runner pools',
+         'env': {'GH_TOKEN': '${{ github.token }}', 'REPO': '${{ github.repository }}',
+                 'RUNNER_ROUTE': "${{ inputs.runner_route || 'auto' }}",
+                 'ROUTE_POOLS': '${{ vars.ROUTE_POOLS }}'},
+         'run': f'python3 scripts/ci_route_pools.py --title "{_title}" \\\n'
+                + ' \\\n'.join(f'  --group {job}={count}' for job, count in _groups)},
+    ]
 for _job in ROUTED_RUNNER_JOBS:
-    SPEC['expected_job_needs'][_job].insert(1, 'route')
-    SPEC['expected_job_runs_on'][_job] = ROUTED_RUNS_ON
-SPEC['expected_job_needs']['ci-gate'].insert(1, 'route')
+    SPEC['expected_job_needs'][_job].insert(1, ROUTER_OF[_job])
+    SPEC['expected_job_runs_on'][_job] = ROUTED_RUNS_ON[_job]
+SPEC['expected_job_needs']['ci-gate'][1:1] = list(ROUTERS)
 # build-medium keeps main's matrix throttles; lean.ci runs every shard at once.
 SPEC['expected_job_strategy_max_parallel']['foundry'] = (
-    "${{ needs.route.outputs.on_lean == 'true' && 4 || 2 }}")
+    "${{ " + _route_output('foundry', 'on_lean') + " == 'true' && 4 || 2 }}")
 SPEC['expected_job_strategy_max_parallel']['foundry-multi-seed'] = (
-    "${{ needs.route.outputs.on_lean == 'true' && 7 || 1 }}")
-SPEC['expected_step_contracts']['route'] = [
-    {'id': 'route', 'name': 'Choose runner pool',
-     'env': {'GH_TOKEN': '${{ github.token }}', 'REPO': '${{ github.repository }}',
-             'RUNNER_ROUTE': "${{ inputs.runner_route || 'auto' }}",
-             'ROUTE_POOLS': '${{ vars.ROUTE_POOLS }}'}},
-]
+    "${{ " + _route_output('foundry-multi-seed', 'on_lean') + " == 'true' && 7 || 1 }}")
 SPEC['expected_step_contracts']['build-audits'].insert(0, {
     'name': 'Cap Lean threads on build-medium',
-    'if': "needs.route.outputs.on_lean != 'true'",
+    'if': _route_output('build-audits', 'on_lean') + " != 'true'",
     'run': 'echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"',
 })
 # Lake parallelism follows the VM's memory on lean.ci (3 GiB per Lean/clang
@@ -1096,6 +1120,6 @@ for _job in ('build', 'build-compiler-binaries', 'compiler-regressions', 'lean-p
 for _job in ('build-audits', 'compiler-audits'):
     SPEC['expected_step_contracts'][_job].append({
         'name': 'Bound Lean threads by VM memory',
-        'if': "needs.route.outputs.on_lean == 'true'",
+        'if': _route_output(_job, 'on_lean') + " == 'true'",
         'run': 'scripts/ci_lean_threads.sh',
     })

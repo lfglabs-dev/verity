@@ -397,14 +397,15 @@ private theorem exec_validatedScalarLoad_revert
     ∃ reverted, execIRStmts ((genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty
         (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
       (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty (4 + 32 * idx) ++
-        rest) = .revert reverted := by
+        rest) = .revert reverted ∧ reverted.revertData = state.revertData := by
   obtain ⟨cleanExpr, clean, hshape, hlet, hlt, hdec⟩ := hload
   rw [hdec, DynamicAbi.validatedWord_eq_none_iff] at hdecode
   have hexec := exec_validatedScalarLoad state rest name cleanExpr idx clean
     (rest.length + extraFuel) hlet hlt
   rw [if_neg hdecode] at hexec
   rw [hshape]
-  exact ⟨_, by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hexec⟩
+  exact ⟨_, by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hexec,
+    by simp [IRState.setVar]⟩
 
 theorem exec_genScalarLoad_supported_then
     (state : IRState) (rest : List YulStmt) (name : String) (ty : ParamType) (idx value extraFuel : Nat)
@@ -430,7 +431,7 @@ theorem exec_genScalarLoad_supported_revert
     ∃ reverted, execIRStmts ((genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty
         (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
       (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty (4 + 32 * idx) ++
-        rest) = .revert reverted := by
+        rest) = .revert reverted ∧ reverted.revertData = state.revertData := by
   by_cases hwide : ty = .uint256 ∨ ty = .int256 ∨ ty = .bytes32
   · rcases hwide with rfl | rfl | rfl <;>
       simp [SourceSemantics.decodeSupportedParamWord] at hdecode
@@ -691,7 +692,7 @@ theorem exec_genParamLoadBodyFrom_supported_revert
         rest.length + extraFuel + 1) state
       (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
         (YulExpr.call "calldatasize" []) headSize baseOffset params (4 + 32 * idx) ++ rest) =
-      .revert reverted := by
+      .revert reverted ∧ reverted.revertData = state.revertData := by
   induction params generalizing state idx rest with
   | nil => simp [SourceSemantics.bindSupportedParams] at hnone
   | cons param restParams ih =>
@@ -701,13 +702,13 @@ theorem exec_genParamLoadBodyFrom_supported_revert
       · simpa only [List.length_append, List.append_assoc, Nat.add_assoc] using
           exec_genScalarLoad_supported_revert state (_ ++ rest) param.name param.ty idx
             extraFuel hparam hdecode
-      · obtain ⟨reverted, hih⟩ := ih (state.setVar param.name value) rest (idx + 1)
+      · obtain ⟨reverted, hih, hdata⟩ := ih (state.setVar param.name value) rest (idx + 1)
           (fun next hnext => hsupported next (by simp [hnext]))
           (by simp at hlen ⊢; omega) (by simpa using hrest)
         rw [← List.length_append] at hih
         exact ⟨reverted, by simpa only [List.length_append, List.append_assoc, Nat.add_assoc] using
           (exec_genScalarLoad_supported_then state _ param.name param.ty idx value
-            extraFuel hparam hdecode).trans hih⟩
+            extraFuel hparam hdecode).trans hih, by simpa [IRState.setVar] using hdata⟩
 
 private theorem execIRStmts_cons_of_execIRStmt_revert_extraFuel
     (extraFuel : Nat) (state reverted : IRState) (stmt : YulStmt) (rest : List YulStmt)
@@ -724,7 +725,8 @@ theorem exec_genParamLoads_supported_revert
     (hlen : params.length ≤ state.calldata.length)
     (hnone : SourceSemantics.bindSupportedParams params state.calldata = none) :
     ∃ reverted, execIRStmts ((genParamLoads params).length + rest.length + extraFuel + 1) state
-      (genParamLoads params ++ rest) = .revert reverted := by
+      (genParamLoads params ++ rest) = .revert reverted ∧
+        reverted.revertData = state.revertData := by
   let body := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
     (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4
   have hshape : genParamLoads params = YulStmt.if_ (YulExpr.call "lt"
@@ -736,13 +738,14 @@ theorem exec_genParamLoads_supported_revert
   rcases execIRStmt_revert_guard_cases ((body ++ rest).length + extraFuel) state
       (YulExpr.call "lt" [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
     with hguard | hguard
-  · obtain ⟨reverted, hbody⟩ := exec_genParamLoadBodyFrom_supported_revert state rest
+  · obtain ⟨reverted, hbody, hdata⟩ := exec_genParamLoadBodyFrom_supported_revert state rest
       (32 * params.length) 4 params 0 extraFuel hsupported (by simpa using hlen)
       (by simpa using hnone)
-    refine ⟨reverted, ?_⟩
+    refine ⟨reverted, ?_, hdata⟩
     rw [execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state _ _ hguard]
     simpa [body, List.length_append, Nat.add_assoc] using hbody
-  · exact ⟨state, execIRStmts_cons_of_execIRStmt_revert_extraFuel extraFuel state state _ _ hguard⟩
+  · exact ⟨state, execIRStmts_cons_of_execIRStmt_revert_extraFuel extraFuel state state _ _ hguard,
+      rfl⟩
 
 end ParamLoading
 

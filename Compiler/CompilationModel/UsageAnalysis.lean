@@ -13,6 +13,8 @@ def collectStmtBindNames : Stmt → List String
       collectStmtListBindNames thenBranch ++ collectStmtListBindNames elseBranch
   | .forEach varName _ body | .forEachSetBit varName _ body =>
       varName :: collectStmtListBindNames body
+  | .forEachWhile varName _ _ body =>
+      varName :: collectStmtListBindNames body
   | .unsafeBlock _ body => collectStmtListBindNames body
   | .matchAdt _ _ branches => collectMatchBranchBindNames branches
   | .unsafeYul fragment => fragment.scopeEffects.bindNames
@@ -42,6 +44,7 @@ def collectStmtAssignedNames : Stmt → List String
   | .ite _ thenBranch elseBranch =>
       collectStmtListAssignedNames thenBranch ++ collectStmtListAssignedNames elseBranch
   | .forEach _ _ body | .forEachSetBit _ _ body => collectStmtListAssignedNames body
+  | .forEachWhile _ _ _ body => collectStmtListAssignedNames body
   | .matchAdt _ _ branches => collectMatchBranchAssignedNames branches
   | .unsafeYul fragment => fragment.scopeEffects.assignNames
   | _ => []
@@ -95,6 +98,8 @@ def stmtMayUseCheckedArithmetic : Stmt → Bool
       stmtListMayUseCheckedArithmetic thenBranch ||
         stmtListMayUseCheckedArithmetic elseBranch
   | Stmt.forEach _ _ body =>
+      stmtListMayUseCheckedArithmetic body
+  | Stmt.forEachWhile _ _ _ body =>
       stmtListMayUseCheckedArithmetic body
   | Stmt.unsafeBlock _ body =>
       stmtListMayUseCheckedArithmetic body
@@ -306,6 +311,10 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
   | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesArrayElementKind includePlain includeWord count ||
         stmtListUsesArrayElementKind includePlain includeWord body
+  | Stmt.forEachWhile _ count guard body =>
+      exprUsesArrayElementKind includePlain includeWord count ||
+        exprUsesArrayElementKind includePlain includeWord guard ||
+        stmtListUsesArrayElementKind includePlain includeWord body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesArrayElementKind includePlain includeWord body
   | Stmt.matchAdt _ scrutinee branches =>
@@ -474,6 +483,8 @@ def stmtUsesArrayElement : Stmt → Bool
         stmtListUsesArrayElement elseBranch
   | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesArrayElement count || stmtListUsesArrayElement body
+  | Stmt.forEachWhile _ count guard body =>
+      exprUsesArrayElement count || exprUsesArrayElement guard || stmtListUsesArrayElement body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesArrayElement body
   | Stmt.matchAdt _ scrutinee branches =>
@@ -685,6 +696,8 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
         stmtListUsesParamDynamicHeadWord elseBranch
   | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesParamDynamicHeadWord count || stmtListUsesParamDynamicHeadWord body
+  | Stmt.forEachWhile _ count guard body =>
+      exprUsesParamDynamicHeadWord count || exprUsesParamDynamicHeadWord guard || stmtListUsesParamDynamicHeadWord body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesParamDynamicHeadWord body
   | Stmt.matchAdt _ scrutinee branches =>
@@ -838,6 +851,8 @@ def stmtUsesMulDiv512 : Stmt → Bool
         stmtListUsesMulDiv512 elseBranch
   | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesMulDiv512 count || stmtListUsesMulDiv512 body
+  | Stmt.forEachWhile _ count guard body =>
+      exprUsesMulDiv512 count || exprUsesMulDiv512 guard || stmtListUsesMulDiv512 body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesMulDiv512 body
   | Stmt.matchAdt _ scrutinee branches =>
@@ -1018,6 +1033,8 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprUsesStorageArrayElement cond || stmtListUsesStorageArrayElement thenBranch || stmtListUsesStorageArrayElement elseBranch
   | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesStorageArrayElement count || stmtListUsesStorageArrayElement body
+  | Stmt.forEachWhile _ count guard body =>
+      exprUsesStorageArrayElement count || exprUsesStorageArrayElement guard || stmtListUsesStorageArrayElement body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesStorageArrayElement body
   | Stmt.matchAdt _ scrutinee branches =>
@@ -1180,6 +1197,8 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprUsesDynamicBytesEq cond || stmtListUsesDynamicBytesEq thenBranch || stmtListUsesDynamicBytesEq elseBranch
   | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesDynamicBytesEq count || stmtListUsesDynamicBytesEq body
+  | Stmt.forEachWhile _ count guard body =>
+      exprUsesDynamicBytesEq count || exprUsesDynamicBytesEq guard || stmtListUsesDynamicBytesEq body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesDynamicBytesEq body
   | Stmt.matchAdt _ scrutinee branches =>

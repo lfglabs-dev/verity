@@ -1355,6 +1355,12 @@ inductive Stmt
       Lowering uses the EIP-7939 CLZ/MSB pattern:
       `idx := 255 - clz(bitmap); bitmap := bitmap & ~(1 << idx)`. -/
   | forEachSetBit (varName : String) (bitmap : Expr) (body : List Stmt)
+  /-- Bounded loop with an early-exit guard (#2916). `count` is evaluated once, as
+      for `forEach`; `guard` is re-evaluated before every iteration check, and the
+      loop stops as soon as it is zero or `count` iterations have run. Lowering:
+      `for { idx := 0; cnt := count; varName := 0 } and(lt(idx, cnt), iszero(iszero(guard)))
+      { idx := add(idx, 1) } { varName := idx; body }`. -/
+  | forEachWhile (varName : String) (count : Expr) (guard : Expr) (body : List Stmt)
   | emit (eventName : String) (args : List Expr)  -- Emit event (#153)
   | internalCall (functionName : String) (args : List Expr)  -- Internal call as statement (#181)
   | internalCallAssign (names : List String) (functionName : String) (args : List Expr)
@@ -1416,6 +1422,7 @@ def childLists : Stmt → List (List Stmt)
   | .ite _ thenBranch elseBranch => [thenBranch, elseBranch]
   | .forEach _ _ body => [body]
   | .forEachSetBit _ _ body => [body]
+  | .forEachWhile _ _ _ body => [body]
   | .unsafeBlock _ body => [body]
   | .matchAdt _ _ branches => branches.map (fun (_, _, body) => body)
   | _ => []
@@ -1489,6 +1496,8 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [count], scopeEffects := { bindNames := [varName] } }
   | .forEachSetBit varName bitmap _ =>
       { subexpressions := [bitmap], scopeEffects := { bindNames := [varName] } }
+  | .forEachWhile varName count guard _ =>
+      { subexpressions := [count, guard], scopeEffects := { bindNames := [varName] } }
   | .emit _ args =>
       { subexpressions := args }
   | .internalCall _ args =>
@@ -1635,6 +1644,8 @@ def controlFlow : Stmt → ControlFlowSummary
       -- even if some body path returns or reverts.
       ControlFlowSummary.union .fallsThrough (controlFlowList body)
   | .forEachSetBit _ _ body =>
+      ControlFlowSummary.union .fallsThrough (controlFlowList body)
+  | .forEachWhile _ _ _ body =>
       ControlFlowSummary.union .fallsThrough (controlFlowList body)
   | .unsafeBlock _ body =>
       controlFlowList body

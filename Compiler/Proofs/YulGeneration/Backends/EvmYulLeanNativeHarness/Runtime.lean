@@ -305,7 +305,8 @@ def interpretIRRuntimeNative
     (contract := nativeContract) (hFragment := hFragment) (hLower := hLower)
     (hEnv := hEnv)]
 
-/-- Observable result comparison surface for native EVMYulLean execution. -/
+/-- Observable result comparison surface for native EVMYulLean execution,
+including the bytes a revert returns. -/
 def nativeResultsMatchOn
     (observableSlots : List Nat)
     (ir : IRResult)
@@ -318,7 +319,8 @@ def nativeResultsMatchOn
       (∀ slot, slot ∈ observableSlots →
         ir.finalStorage (IRStorageSlot.ofNat slot) =
           yul.finalStorage (IRStorageSlot.ofNat slot)) ∧
-      ir.events = yul.events
+      ir.events = yul.events ∧
+      ir.revertData = yul.revertData
   | .error _ => False
 
 /-- Variant of `exec_block_leave_ok_add_ten` that splices a

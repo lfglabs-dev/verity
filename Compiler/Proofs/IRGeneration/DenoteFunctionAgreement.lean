@@ -29,12 +29,14 @@ def ofIRTransaction (tx : IRTransaction) : Denote.DenoteTransaction :=
     functionSelector := tx.functionSelector
     args := tx.args }
 
-/-- Denote result → source result (the two structures coincide). -/
+/-- Denote result → source result. Denote's `none` revert data (no observed bytes)
+is the source's empty payload. -/
 def toSourceResult (r : Denote.DenoteResult) : SourceSemantics.SourceContractResult :=
   { success := r.success
     returnValue := r.returnValue
     finalStorage := r.finalStorage
-    events := r.events }
+    events := r.events
+    revertData := r.revertData.getD [] }
 
 theorem dedupNatPreserve_go_eq :
     ∀ (xs seen : List Nat),
@@ -172,9 +174,10 @@ theorem findDynamicArrayElementAtSlot_go_eq
   simp only [Denote.encodeStorage, SourceSemantics.encodeStorage, effectiveFields_eq]
   exact encodeStorageAt_eq (SourceSemantics.effectiveFields spec) world slot
 
-/-- Exact revert bytes are a Denote-only observation. -/
+/-- Observed revert bytes become the source result's revert bytes. -/
 theorem toSourceResult_revertData (r : Denote.DenoteResult) (data : Option (List UInt8)) :
-    toSourceResult { r with revertData := data } = toSourceResult r := rfl
+    toSourceResult { r with revertData := data } =
+      { toSourceResult r with revertData := data.getD [] } := rfl
 
 @[simp] theorem toSourceResult_revertedResult
     (spec : CompilationModel) (world : Verity.ContractState) :

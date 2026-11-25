@@ -83,8 +83,11 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
   digest; they should match how the audited bytecode is built. `solc` defaults
-  to `0.8.34+commit.80d5c536`, and also accepts pinned 0.8.26, 0.8.10 and
-  0.7.6 releases. 0.8.10 requires `viaIR := false` and `evmVersion` up to
+  to `0.8.34+commit.80d5c536`, and also accepts pinned 0.8.35 (with
+  `evmVersion := "amsterdam"`, passed to solc as `@future`), 0.8.38 (up to
+  `"osaka"`), 0.8.28, 0.8.26, 0.8.10 and 0.7.6 releases. 0.8.28 (`evmVersion`
+  up to `"prague"`) and 0.8.26 (up to `"cancun"`) serve sources whose pragma
+  pins them. 0.8.10 requires `viaIR := false` and `evmVersion` up to
   `"london"`; the experimental 0.7.6 boundary is described below.
 - Each `function` clause selects one root by name and Solidity parameter types.
   A struct may be qualified (`IMidnight.Market`). Roots are lowered
@@ -283,7 +286,8 @@ external library calls (a `public` or `external` library function called from
 outside its library, directly or through `using for`: solc emits a
 `DELEGATECALL` to the library linked at deployment, whose code the source does
 not determine; internal library functions, and public ones called by name
-inside their own library, are inlined),
+inside their own library, are inlined; see "Linked library calls" for the
+opt-in that inlines direct calls under a stated linking assumption),
 modifiers, recursion, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root
@@ -412,7 +416,47 @@ import (`CollectUnsupportedSurveyChecks`).
 solc's AST and storage layout, and the lowering in `Import.lean`, are trusted.
 Inlined helper bodies are the code solc compiles into the contract. Code that
 runs behind a `DELEGATECALL` to a linked library is chosen at deployment and is
-never inlined (`check_library_call_rejections`).
+not inlined (`check_library_call_rejections`), unless the profile sets
+`linkedLibrariesMatchSource` (below).
+
+### Linked library calls
+
+`linkedLibrariesMatchSource := true` in the profile states a trust assumption:
+every library a `DELEGATECALL` reaches is linked to an account whose code
+behaves as solc's compilation of that library in the same solc input. With it, a
+direct runtime call `L.f(...)` of an implemented `public` or `external` library
+function in an imported function (not an `immutable` inline initializer) is
+modelled by `f`'s body run in the caller's frame, which is what the
+`DELEGATECALL` does: storage, transient storage, `msg.sender`, `msg.value`,
+`address(this)`, logs and the block and transaction context are the caller's,
+and a failed library call's return data becomes the caller's revert data
+unchanged. The call is admitted only when:
+
+- every parameter is a value type (elementary, enum or user-defined value
+  type) or a `storage` reference (passed as its slot), and every result is a
+  value type (value-type arguments and results are ABI-cleaned across the call;
+  memory, calldata and function-typed values are ABI-encoded and decoded across
+  the call, and copies are not modelled);
+- the callee is named as `L.f` (attached `using L for T` calls reject);
+- nothing the body reaches, through internal helpers, user-defined operators,
+  nested linked calls and modifiers, uses `msg.data`, `msg.sig`, `gasleft()` or
+  inline assembly: in the library frame those observe the library call's
+  calldata, gas, return data, code and memory;
+- the calling root reads no Yul `returndatasize()` (including a bubbled
+  `returndatacopy` / `revert` pair), before or after the call: the DELEGATECALL
+  sets the return-data buffer, the inlined body does not.
+
+Each other shape rejects with `file:line:column` (`check_linked_library_call_rejections`).
+The flag is part of the digest when set. Each root's report lists the calls it
+relies on (`linked library L.f decl N at file:line:column`) and its model
+carries the `.assumed` local obligation `solidity_linked_library_matches_source`.
+Not modelled, as for the other call transports: gas (the 63/64 rule, out of gas
+in the library) and the call depth limit; the library's memory allocations are
+made in the caller's memory, so the free pointer after the call and unallocated
+memory differ from solc's, which only code reading memory it did not allocate
+or write can observe. `LinkedLibraryCallSequence` compares the source (libraries
+deployed and linked), Denote and the compiled model (`check_linked_library_call`, via-IR
+only).
 The model is built as ordinary values and quoted (`Quote.lean`); after
 elaboration the definitions are evaluated back and must equal those values.
 The digest (`sourceDigest`) is SHA-256 over framed JSON of the importer
@@ -576,13 +620,23 @@ independent result decoding, and must not replace Foundry.
 ## Pinned-corpus import coverage
 
 `python3 scripts/solidity_import_coverage.py --fetch` checks the immutable
-corpus in `scripts/solidity_import_corpus/manifest.json`: Midnight, Uniswap
-v2/v3 core contracts, Pareto credit vaults, and OpenZeppelin ERC20/ERC4626.
-`--fetch` permits downloading pinned source commits and checksum-verified
-inventory compilers and dependency archives. No npm lifecycle scripts run.
-Subsequent runs can omit it. Artifacts go to `.lake/solidity-import-coverage`;
-CI publishes JSON, Markdown, per-function import logs, and the inventory
-compiler input/output without making coverage a build gate.
+corpus in `scripts/solidity_import_corpus/manifest.json`: DeFi protocols
+(money markets, AMMs, stablecoins, vaults, governance) and the token, access
+and governance templates they build on (OpenZeppelin, Solmate, Solady), each
+at a pinned commit. The manifest is the list; `--project <id>` (repeatable)
+measures a subset, and `--jobs N` runs N probes at once (each is one Lean
+process over the importer cone). `--fetch` permits downloading pinned source
+commits, the git submodules a target actually imports (each at its pinned
+commit) and checksum-verified inventory compilers and dependency archives.
+No npm lifecycle scripts run. Sources resolve as the importer resolves them:
+relative paths and the remappings of `remappings.txt` and `foundry.toml`;
+Foundry's inferred remappings are not applied, so a target that relies on them
+cannot be listed. Subsequent runs can omit `--fetch`. Artifacts go to
+`.lake/solidity-import-coverage`; the `Solidity import coverage` workflow
+(`.github/workflows/solidity-import-coverage.yml`: nightly, manual, and on pull
+requests that change the corpus or the script) publishes JSON, Markdown,
+per-function import logs, and the inventory compiler input/output without
+making coverage a build gate.
 
 The current denominator is **implemented functions in the selected
 contract and its solc C3 inheritance chain**, including internal/private helpers.
@@ -790,7 +844,7 @@ No release validation or Midnight coverage improvement is claimed for this draft
 
 `HelperEffectSequence` checks writes, packed siblings, conditional effects, deletion, caller continuation and rollback. Compound operations, parameter writes, unsupported reference targets and external expression calls remain rejected. This draft has not passed native validation or full release gates.
 
-The current revision also guards stateful helper calls inside ordinary binary operands and helper call arguments until their evaluation order is independently validated. Non-view declarations are conservatively classified as stateful. Short-circuit boolean branches retain their existing selected-branch evaluation; the fixture checks that a dead helper cannot write. These guards and the expanded fixture are development changes awaiting compilation and mutation controls.
+The current revision also guards stateful helper calls inside ordinary binary operands and helper call arguments until their evaluation order is independently validated. Non-view declarations are conservatively classified as stateful. Short-circuit boolean branches retain their existing selected-branch evaluation; the fixture checks that a dead helper cannot write. These guards and the expanded fixture are development changes awaiting compilation and mutation controls. Two shapes are admitted whatever the number of state variables (#2830): a stateful call as the right operand of `+` whose left operand is an identifier bound to a local or parameter (including a helper parameter bound to a transaction-context value such as `block.timestamp`; `address(this).balance`, which a call can change, is not admitted), or naming a contract or file-level `constant` or an `immutable` state variable (`a + bump()`, `K + bump()`: no call can change that value, so legacy's right-first and via-IR's left-first orders agree), and a stateful call as a helper's only argument or as a using-for receiver without arguments (`h(bump())`, `bump().twice()`: there is no sibling to order against). A state-variable left operand stays rejected for every count: `total + bump()` with `bump` writing `total` gives 24 on legacy and 19 under via-IR (solc 0.8.34, `total = 7`, `bump` adding 5). `StatefulCallOperandSequence` (one state variable) and `StatefulCallConstantOperandSequence` (three, counting the constant and the immutable) with their `Solc0810` twins check the values (A/B/C via-IR and 0.8.10 legacy); the `check_state_count_invariance` cases `fixture-stateful-call-operand`, `stateful-call-lone-argument`, `stateful-call-constant-operand`, `stateful-call-file-constant-operand`, `stateful-call-context-operand`, `stateful-call-immutable-operand` and `stateful-call-state-operand` check that one and two state variables give the same model or the same rejection.
 
 
 ### Development slice: fixed arrays behind mappings
@@ -939,8 +993,8 @@ prerequisite for CREATE2 key-derivation helpers, not an implementation of code d
 | --- | --- |
 | Zero-return internal, private, and internally-called public helpers | Lowered via continuation-passing (`lowerVoidHelperFrom`) so nested early `return;` inside `if`/`else` runs the post-conditional continuation only on fallthrough paths with restored lexical scope. |
 | `revert CustomError(...)` (`RevertStatement`) | Lowered through `lowerErrorArguments` to `Stmt.requireError (.literal 0) name values`. |
-| `bytes1`..`bytes31` custom-error parameters (`error LockedFunction(bytes4 selector)`) | Parameter types resolve through `localParamType` to `ParamType.bytesN n`. `Denote.customErrorScalarType` signs them `bytesN` in the selector, and `errorScalarValueValid` admits only left-aligned words (low `32 - n` bytes zero), matching the compiler's masked encoding. Argument restrictions are unchanged. Event parameters and `errorScalarType` are unaffected. Fixture: `CustomErrorFixedBytesSequence` (`check_storage --fixture custom-error-fixed-bytes`). |
-| `int8`..`int256` custom-error parameters (`error IntDowncastOverflow(uint8 bits, int256 value)`) | Parameter types resolve through `localParamType` to `ParamType.intN n` / `.int256`. `Denote.customErrorScalarType` signs them `intN` in the selector, and `errorScalarValueValid` admits only sign-extended words (`signedWordCanonical`: below `2^(n-1)` or at least `2^256 - 2^(n-1)`); a dirty word fails closed, while the compiler's encoding is `signextend(n/8 - 1, x)`. A negative literal argument (`-1`) is admitted as a constant: it must fold to a canonical literal. Other argument restrictions are unchanged; event parameters and `errorScalarType` are unaffected. Fixture: `SignedCustomErrorSequence` (`check_storage --fixture signed-custom-errors`). |
+| `bytes1`..`bytes31` custom-error parameters (`error LockedFunction(bytes4 selector)`) | Parameter types resolve through `localParamType` to `ParamType.bytesN n`. `Denote.customErrorScalarType` signs them `bytesN` in the selector, and `Denote.customErrorArgWord` encodes the argument as the compiler does (masked to its high `n` bytes); the importer admits only left-aligned literal words (`errorScalarValueValid`: low `32 - n` bytes zero). Argument restrictions are unchanged. Event parameters and `errorScalarType` are unaffected. Fixture: `CustomErrorFixedBytesSequence` (`check_storage --fixture custom-error-fixed-bytes`). |
+| `int8`..`int256` custom-error parameters (`error IntDowncastOverflow(uint8 bits, int256 value)`) | Parameter types resolve through `localParamType` to `ParamType.intN n` / `.int256`. `Denote.customErrorScalarType` signs them `intN` in the selector, and `Denote.customErrorArgWord` encodes the argument as the compiler does, `signextend(n/8 - 1, x)`, so a dirty word gives the bytes the bytecode returns. The importer admits only sign-extended literal words (`errorScalarValueValid` / `signedWordCanonical`: below `2^(n-1)` or at least `2^256 - 2^(n-1)`); a negative literal argument (`-1`) is admitted as a constant and must fold to a canonical literal. Other argument restrictions are unchanged; event parameters and `errorScalarType` are unaffected. Fixture: `SignedCustomErrorSequence` (`check_storage --fixture signed-custom-errors`). |
 | Scalar `bool` storage variables and prefix `!` | Stored as 8-bit packed storage with `logicalNot (logicalNot ...)` normalization on read and write; prefix `!` on `bool` lowers to `Expr.logicalNot`. |
 | Named scalar root return parameters and empty-body scalar hooks | Root functions whose return parameters are all named scalars initialize each to zero and return them on bare `return;` or fallthrough; empty-body root or helper hooks return zero words. |
 
@@ -1134,10 +1188,19 @@ bytes; persistent storage at the same slot number is a separate channel. A modif
 follows the transaction boundary: a fresh transaction clears it, a callback in the same
 transaction sees it. Narrow signed integers, `bytes1`..`bytes31`, enums and function
 pointers fail closed with a located `unsupported transient scalar storage type`.
-A root whose closure accesses a transient variable and contains inline assembly fails
-closed at one of its assembly blocks, including Yul `tload` / `tstore` and `x.slot`. This
-is a conservative bound for this slice: interactions between assembly and transient
-variables are not yet covered by controls. A transient variable that shares its name
+A root whose closure accesses a transient variable admits inline assembly only when every
+block is transient-neutral: it calls no `tload`, `tstore`, `call`, `callcode`,
+`delegatecall`, `staticcall`, `create`, `create2` or `verbatim*` (which solc already
+rejects in inline assembly), and each external reference names a full-word (`uint256`,
+`int256`, `bytes32`) non-transient variable or constant, or the `.slot` of a local storage
+pointer. This covers the namespaced storage getter `assembly { $.slot := LOCATION }` and
+full-word Yul locals in roots, private helpers and modifiers
+(`TransientNeutralAssemblyChecks`). Any other block fails closed at that block: narrow
+words, which legacy and via-IR clean differently, a transient variable's `x.slot`, a
+storage pointer's `.offset`, Yul transient storage access at a literal or computed slot,
+and calls or creations out of assembly (`call` and `staticcall` at the block; `callcode`,
+`delegatecall`, `create`, `.offset` and an unchecked `create2` already at their own node
+in the Yul lowering). A transient variable that shares its name
 with a persistent one in the inheritance chain is not given a layout: roots that use it
 fail with the shadowed-declaration diagnostic, and roots that reach only the persistent
 variable import unchanged.

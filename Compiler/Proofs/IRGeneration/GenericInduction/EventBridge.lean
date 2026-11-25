@@ -2198,9 +2198,9 @@ private theorem eventRuntimeStateMatchesIR_updatePhysical
           byteMemory := bytes
           events := irEvents } := by
   obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    -, hret, -, hcode, hrd, -⟩ := hmatch
+    -, hret, -, hcode, hrd, -, hrevert⟩ := hmatch
   refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    rfl, hret, hevents, hcode, hrd, rfl⟩
+    rfl, hret, hevents, hcode, hrd, rfl, hrevert⟩
   rw [hstor]
   funext slot
   exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)

@@ -941,6 +941,51 @@ class VerifySyncTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("foundry is routed but does not need the route job", err)
 
+    PER_JOB_RUNS_ON = "${{ fromJSON(needs.route-compiler.outputs.foundry_runs_on) }}"
+
+    def _run_per_job_routed_check(self, needs: str, spec_runs_on: dict[str, str]):
+        workflow = textwrap.dedent(
+            f"""
+            name: verify
+            jobs:
+              route-compiler:
+                runs-on: ubuntu-latest
+                steps: []
+              foundry:
+                runs-on: {self.PER_JOB_RUNS_ON}
+                needs: {needs}
+                steps: []
+            """
+        )
+        return self._run_job_contracts_check(
+            workflow,
+            expected_job_needs={"route-compiler": [], "foundry": [n for n in needs.strip("[]").split(", ") if n]},
+            expected_job_if_conditions={"route-compiler": None, "foundry": None},
+            expected_job_runs_on={"route-compiler": "ubuntu-latest", "foundry": self.PER_JOB_RUNS_ON},
+            extra_spec={
+                "medium_runner_jobs": ["foundry"],
+                "routed_runner_jobs": ["foundry"],
+                "routed_runs_on": spec_runs_on,
+            },
+        )
+
+    def test_job_contracts_check_accepts_per_job_router_expression(self) -> None:
+        rc, out, err = self._run_per_job_routed_check(
+            "[route-compiler]", {"foundry": self.PER_JOB_RUNS_ON}
+        )
+        self.assertEqual(rc, 0, err)
+        self.assertIn("[PASS] job-contracts", out)
+
+    def test_job_contracts_check_rejects_per_job_route_without_its_router_need(self) -> None:
+        rc, _, err = self._run_per_job_routed_check("[]", {"foundry": self.PER_JOB_RUNS_ON})
+        self.assertEqual(rc, 1)
+        self.assertIn("foundry is routed but does not need the route-compiler job", err)
+
+    def test_job_contracts_check_rejects_routed_job_missing_from_per_job_map(self) -> None:
+        rc, _, err = self._run_per_job_routed_check("[route-compiler]", {})
+        self.assertEqual(rc, 1)
+        self.assertIn("routed job foundry has no routed_runs_on expression in the spec", err)
+
     def test_job_contracts_check_rejects_router_expression_on_unrouted_medium_job(self) -> None:
         rc, _, err = self._run_job_contracts_check(
             self._routed_foundry_workflow("[route]"),

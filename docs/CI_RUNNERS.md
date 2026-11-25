@@ -50,40 +50,72 @@ runs-on: [self-hosted, linux, x64, paloma-ocr]
 
 Seven Verify jobs (`build-audits`, `import-mutations`, `compiler-audits`,
 `foundry-gas-calibration`, `foundry`, `foundry-patched`, `foundry-multi-seed`)
-are routed at run time instead of naming a pool:
+are routed at run time instead of naming a pool, each through its own router
+output, for example:
 
 ```yaml
-runs-on: ${{ fromJSON(needs.route.outputs.runs_on) }}
+runs-on: ${{ fromJSON(needs.route-compiler.outputs.foundry_runs_on) }}
 ```
 
-The `route` job (`ubuntu-latest`, `actions: read`) walks an ordered list of
-runner pools: the `ROUTE_POOLS` repository variable, or
-`VERIFY_ROUTE_POOLS_DEFAULT` in `verify.yml` when the variable is unset or
-invalid (an invalid value also emits a warning). The default is `build-medium`
-(`["self-hosted","linux","x64","verity","build","build-medium"]`, `max_queue`
-6) then `lean-8` (`["lean-8vcpu-ubuntu-2604"]`). A pool's queue is the number
-of the repository's queued jobs, across queued and in-progress runs, whose
-labels include all of that pool's labels; the first pool below its
-`max_queue` wins and the last pool (no `max_queue`) takes the rest. A GitHub
-API error falls back to the first pool. Adding a pool is a one-line change to
-the variable, for example:
+Two router jobs (`ubuntu-latest`, `actions: read`) run
+`scripts/ci_route_pools.py` right before their groups fan out, so the choice
+sees the runner load when the jobs are about to be created, not at the start
+of the run: `route-build` needs `build` and routes `build-audits` then
+`import-mutations`; `route-compiler` needs `build-compiler-binaries` and
+routes `compiler-audits`, `foundry-gas-calibration`, `foundry`,
+`foundry-patched`, `foundry-multi-seed`, in that order. (Run 45485073018
+routed once at 20:51Z, before `build`; its 16 routed jobs were created 40-55
+minutes later on the three build-medium hosts and 8 of them queued for over
+40 minutes while lean-8 was idle.)
+
+The script walks an ordered list of runner pools: the `ROUTE_POOLS`
+repository variable, or `VERIFY_ROUTE_POOLS_DEFAULT` in `verify.yml` when the
+variable is unset or invalid (an invalid value also emits a warning). Each
+pool is `{"name", "labels", "slots"?, "max_queue"?}`. A job is on a pool when
+its requested labels include all of the pool's labels; the script reads the
+queued and in-progress jobs of every queued or in-progress run of the
+repository. For each group in order, the first pool with room wins and the
+last pool takes the rest:
+
+- `slots` (the pool's runner count): room when the group's concurrent jobs
+  fit in `slots` minus in-progress, queued, and already-routed jobs there. A
+  matrix counts the shards that run at once on build-medium (`foundry` 2,
+  `foundry-multi-seed` 1: their `max-parallel` there), its full size
+  elsewhere. The workflow token cannot list self-hosted runners (that needs
+  repository administration access), so the runner count is configuration:
+  keep `slots` in sync with the build-medium hosts (today 3:
+  `ashur-verity-build-medium-1`, `nippur-verity-build-1`,
+  `old-agent-verity-build-medium-1`). An offline host, or jobs the router
+  cannot see on those hosts, make it overestimate free capacity.
+- `max_queue`: room while queued plus already-routed jobs stay below it.
+- A pool with both needs both; one with neither always has room.
+
+The default is `build-medium`
+(`["self-hosted","linux","x64","verity","build","build-medium"]`, `slots` 3)
+then `lean-8` (`["lean-8vcpu-ubuntu-2604"]`): build-medium first while it has
+free runners for the whole group, lean-8 instead of queueing. A GitHub API
+error routes every group to the first pool, except a group larger than the
+first pool's `slots` (it could never fit), which takes the last pool. Adding a pool is a one-line
+change to the variable, for example:
 
 ```json
-[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],"max_queue":6},
+[{"name":"build-medium","labels":["self-hosted","linux","x64","verity","build","build-medium"],"slots":3},
  {"name":"lean-4","labels":["lean-4vcpu-ubuntu-2604"],"max_queue":4},
  {"name":"lean-8","labels":["lean-8vcpu-ubuntu-2604"]}]
 ```
 
 Manual dispatches can force a pool by name with the `runner_route` input
 (`auto` by default; `lean` still means `lean-8`; an unknown name warns and
-routes automatically). `route` outputs `runs_on`, `pool`, and `on_lean` (true
-when the chosen labels do not include `build-medium`). The pool list, per-pool
-counts, choice and reason are in the `route` job
-summary. On build-medium the routed jobs keep main's per-host limits
-(`LEAN_NUM_THREADS=4` for `build-audits`, `max-parallel` 2 for `foundry` and 1
-for `foundry-multi-seed`); on lean.ci they use the whole VM and run every
-matrix entry at once. `ci-gate` needs `route`, so a failed route (which skips
-the routed jobs) still fails the gate.
+routes automatically); a forced pool applies to every group. Each router
+outputs `<group>_runs_on` and `<group>_on_lean` (true when the chosen labels
+do not include `build-medium`), with `-` in the job name written `_`. The
+per-group choice and reason, and each pool's running, queued and routed
+counts, are in the router job summary. On build-medium the routed jobs keep
+main's per-host limits (`LEAN_NUM_THREADS=4` for `build-audits`,
+`max-parallel` 2 for `foundry` and 1 for `foundry-multi-seed`); on lean.ci
+they use the whole VM and run every matrix entry at once. `ci-gate` needs
+both routers, so a failed route (which skips the routed jobs) still fails
+the gate.
 
 Host labels such as `hz1`, `hz2`, and `ci-host-*` are inventory labels. Use
 them only for temporary debugging or deliberate host pinning via
@@ -100,8 +132,8 @@ them only for temporary debugging or deliberate host pinning via
   `lean-16vcpu-ubuntu-2604` for `importer-differential`,
   `lean-4vcpu-ubuntu-2604` for the turbo-lean cache check) so concurrent PRs
   do not serialize behind fixed self-hosted build pools. The audit, mutation
-  and Foundry jobs go through `route`: build-medium while it has room,
-  `lean-8vcpu-ubuntu-2604` once it backs up (`LEAN_NUM_THREADS=2` per worker
+  and Foundry jobs go through `route-build` / `route-compiler`: build-medium
+  while it has free runners, `lean-8vcpu-ubuntu-2604` once it is busy (`LEAN_NUM_THREADS=2` per worker
   on sharded `import-mutations` on either pool). On lean.ci, the
   Lake-building jobs (`build`, `build-audits`, `build-compiler-binaries`,
   `compiler-audits`, `compiler-regressions`, `importer-differential`,

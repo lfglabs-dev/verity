@@ -2455,7 +2455,7 @@ abbrev InternalCallHelperBodyAlign
        if hresult.success then
          .continue { runtime with world := hresult.world }
        else
-         .revert)
+         .revert hresult.revertPayload)
       (match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
        | .values _ state'' => .continue state''
        | .stop state'' => .stop state''
@@ -2521,9 +2521,9 @@ abbrev InternalCallAssignHelperBodyAlign
                world := hresult.world
                bindings := SourceSemantics.bindValue runtime.bindings name value
              }
-         | _, _ => .revert
+         | _, _ => .revert .empty
        else
-         .revert)
+         .revert hresult.revertPayload)
       (match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
        | .values values state'' =>
            if names.length = values.length then

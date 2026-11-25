@@ -326,6 +326,13 @@ inductive StmtOutcome where
 def wordBytes (value : Nat) : List UInt8 :=
   (List.range 32).map fun i => UInt8.ofNat (value / 2^(8*(31-i)) % 256)
 
+/-- The bytes `revertReturndata` (`returndatacopy(0, 0, returndatasize())` then
+`revert(0, returndatasize())`) returns from a buffer of words. `returndatasize()` is a
+256-bit word, so the copied length is `32 * |words|` modulo `2^256`; for any buffer an
+EVM can hold that is the whole buffer. -/
+def returndataRevertBytes (words : List Nat) : List UInt8 :=
+  (words.flatMap wordBytes).take (32 * words.length % 2 ^ 256)
+
 /-- Exact Solidity `Panic(uint256)` revert encoding. -/
 def panicBytes (code : Nat) : List UInt8 :=
   [0x4e, 0x48, 0x7b, 0x71] ++ wordBytes code
@@ -364,9 +371,10 @@ def signedWordCanonical (bits value : Nat) : Bool :=
   0 < bits && bits ≤ 256 && bits % 8 == 0 && value < 2^256 &&
     (value < 2^(bits - 1) || 2^256 - 2^(bits - 1) ≤ value)
 
-/-- Reject noncanonical narrow ABI words instead of truncating error arguments.
-A `bytesN` value is left-aligned: its low `32 - n` bytes must be zero. A signed
-value must already be sign-extended (`signedWordCanonical`). -/
+/-- Canonical narrow ABI words: a `bytesN` value is left-aligned (its low `32 - n`
+bytes are zero), a signed value is already sign-extended (`signedWordCanonical`).
+The importer requires custom-error literal arguments to be canonical; the model
+itself encodes any word (`customErrorArgWord`). -/
 def errorScalarValueValid (ty : ParamType) (value : Nat) : Bool :=
   match ty with
   | .uint256 | .bytes32 => value < 2^256
@@ -380,25 +388,44 @@ def errorScalarValueValid (ty : ParamType) (value : Nat) : Bool :=
   | .bool => value ≤ 1
   | _ => false
 
+/-- The ABI word a custom-error argument is encoded as: the compiler's
+`encodeStaticCustomErrorArg` applied to the argument word. Narrow types are masked
+(`uintN`, `bytesN`, `address`), signed types sign-extended from their width (`intN`),
+`bool` collapsed to `0`/`1`; full-width types pass the word through. A noncanonical
+word is therefore encoded as the bytecode encodes it, not rejected. -/
+def customErrorArgWord (ty : ParamType) (value : Nat) : Nat :=
+  let word := value % 2 ^ 256
+  match ty with
+  | .uint8 => word &&& 255
+  | .uint16 => word &&& 65535
+  | .uintN bits => word &&& (2 ^ bits - 1)
+  | .intN bits =>
+      (Verity.Core.Uint256.signextend (.ofNat (bits / 8 - 1)) (.ofNat word)).val
+  | .bytesN n => word &&& ((2 ^ (8 * n) - 1) * 2 ^ (8 * (32 - n)))
+  | .address => word &&& Compiler.Constants.addressMask
+  | .bool => if word = 0 then 0 else 1
+  | _ => word
+
 /-- Reconstruct a byte slice as word-addressed EVM memory for the existing hash
 oracle. The temporary buffer is not a mutation of the contract world. -/
 def signatureMemory (bytes : List UInt8) (offset : Nat) : Verity.Core.Uint256 :=
   Verity.Core.Uint256.ofNat ((List.range 32).foldl
     (fun word index => word * 256 + ((bytes[offset + index]?).getD 0).toNat) 0)
 
-/-- Exact selector and argument words for a uniquely resolved scalar error.
+/-- Exact selector and argument words for a uniquely resolved scalar error, each
+argument encoded by `customErrorArgWord` as the compiled code encodes it.
 Hash faithfulness has the same explicit oracle boundary as model keccak256. -/
 def customErrorBytes (oracle : DenoteOracle) (errors : List ErrorDef)
     (name : String) (values : List Nat) : Option (List UInt8) := do
   let [definition] := errors.filter (·.name == name) | none
   if definition.params.length != values.length then none else do
-    if !(definition.params.zip values).all (fun pair => errorScalarValueValid pair.1 pair.2) then none else do
-      let types ← definition.params.mapM customErrorScalarType
-      let signature := name ++ "(" ++ String.intercalate "," types ++ ")"
-      let bytes := signature.toUTF8.data.toList
-      let hash := oracle.keccakMemorySlice (signatureMemory bytes) 0 bytes.length
-      let selector := (wordBytes hash).take 4
-      return selector ++ values.flatMap wordBytes
+    let types ← definition.params.mapM customErrorScalarType
+    let signature := name ++ "(" ++ String.intercalate "," types ++ ")"
+    let bytes := signature.toUTF8.data.toList
+    let hash := oracle.keccakMemorySlice (signatureMemory bytes) 0 bytes.length
+    let selector := (wordBytes hash).take 4
+    return selector ++
+      (definition.params.zip values).flatMap fun pair => wordBytes (customErrorArgWord pair.1 pair.2)
 
 theorem wordBytes_length (value : Nat) : (wordBytes value).length = 32 := by
   simp [wordBytes]
@@ -1856,6 +1883,37 @@ def execForEachSetBitLoop
         | .revert => .revert
         | .revertWithData data => .revertWithData data
 
+/-- `Stmt.forEachWhile` iteration (#2916): before every iteration check the guard
+    is evaluated (failure reverts); the loop stops once `remaining` reaches zero or
+    the guard is zero, and otherwise binds `varName` to the index and runs the body.
+    This is the evaluation order of the lowered Yul condition
+    `and(lt(idx, cnt), iszero(iszero(guard)))`, which evaluates the guard on every check. -/
+def execForEachWhileLoop
+    (varName : String)
+    (evalGuard : DenoteState → Option Nat)
+    (runBody : DenoteState → StmtOutcome) :
+    DenoteState → Nat → Nat → StmtOutcome
+  | state, _, 0 =>
+      match evalGuard state with
+      | some _ => .continue state
+      | none => .revert
+  | state, index, remaining + 1 =>
+      match evalGuard state with
+      | none => .revert
+      | some guardValue =>
+          if guardValue = 0 then
+            .continue state
+          else
+            let loopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+            match runBody loopState with
+            | .continue next =>
+                execForEachWhileLoop varName evalGuard runBody next (index + 1) remaining
+            | .stop next => .stop next
+            | .return value next => .return value next
+            | .revert => .revert
+            | .revertWithData data => .revertWithData data
+
 mutual
   def execStmt (oracle : DenoteOracle) (fields : List Field) :
       DenoteState → Stmt → StmtOutcome
@@ -2099,8 +2157,9 @@ mutual
                 else .revert
             | none =>
                 -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
-                -- IR interpreter: in-bounds extents copy complete words and merge
-                -- a final partial word; out-of-bounds extents revert identically.
+                -- IR interpreter: in-bounds extents copy the bytes, complete words
+                -- and a merged final partial word; out-of-bounds extents revert
+                -- identically.
                 if src + sz ≤ 32 * state.world.returndata.length then
                   .continue {
                     state with
@@ -2108,6 +2167,8 @@ mutual
                       state.world with
                       memory := returndatacopyMemoryPaddedUint256
                         state.world.returndata dst src sz state.world.memory
+                      byteMemory := state.world.byteMemory.copyFrom
+                        (DenoteMemory.wordListByte state.world.returndata) dst src sz
                     }
                   }
                 else .revert
@@ -2185,6 +2246,16 @@ mutual
             execForEachSetBitLoop varName
               (fun loopState => execStmtList oracle fields loopState body)
               256 state bits
+        | none => .revert
+    | state, .forEachWhile varName count guard body =>
+        match evalExpr oracle fields state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachWhileLoop varName
+              (fun loopState => evalExpr oracle fields loopState guard)
+              (fun loopState => execStmtList oracle fields loopState body)
+              initialLoopState 0 bound
         | none => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList oracle fields state args with
@@ -2309,7 +2380,7 @@ mutual
             | none => .revert
     | _, .revertEmpty => .revertWithData []
     | state, .revertReturndata => .revertWithData
-        (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes))
+        (state.rawReturndata.getD (returndataRevertBytes state.world.returndata))
     | state, .revertMemory offset size =>
         match evalExpr oracle fields state offset, evalExpr oracle fields state size with
         | some off, some sz =>
