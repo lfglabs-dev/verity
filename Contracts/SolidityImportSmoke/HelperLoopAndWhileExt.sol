@@ -14,7 +14,7 @@ library ScanHelperLib {
     function findMatchingWord(
         uint256[] memory words,
         uint256 start,
-        uint256 bound,
+        uint8 bound,
         uint256 target
     ) internal pure returns (uint256) {
         for (uint256 i = start; i < bound; i++) {
@@ -27,10 +27,11 @@ library ScanHelperLib {
 
     function findFirstSetInRange(
         uint256 bitmap,
-        uint256 startBit,
-        uint256 count
+        uint8 startBit,
+        uint8 count
     ) internal pure returns (bool found, uint256 bitIdx) {
-        for (uint256 i = startBit; i < startBit + count; ++i) {
+        uint8 endBit = startBit + count;
+        for (uint256 i = startBit; i < endBit; ++i) {
             if (((bitmap >> i) & 1) != 0) {
                 return (true, i);
             }
@@ -39,6 +40,22 @@ library ScanHelperLib {
     }
 
     function scanUncheckedStep(
+        uint256 start,
+        uint8 bound,
+        uint256 divisor
+    ) internal pure returns (uint256) {
+        for (uint256 i = start; i < bound;) {
+            if (i % divisor == 0) {
+                return i;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return 0;
+    }
+
+    function findUnboundedRejected(
         uint256 start,
         uint256 bound,
         uint256 divisor
@@ -85,6 +102,10 @@ contract HelperLoopAndWhileExt {
         return remaining > 0;
     }
 
+    function _hasRemaining8(uint8 remaining) internal pure returns (bool) {
+        return remaining > 0;
+    }
+
     function _isEligible(uint256 remaining) internal pure returns (bool) {
         if (remaining == 0) {
             return false;
@@ -92,7 +113,7 @@ contract HelperLoopAndWhileExt {
         return (remaining & 1) == 1 || remaining > 2;
     }
 
-    function _voidScan(uint256 start, uint256 bound, uint256 stopAt) internal {
+    function _voidScan(uint256 start, uint8 bound, uint256 stopAt) internal {
         for (uint256 i = start; i < bound; i++) {
             recorded += i;
             if (i == stopAt) {
@@ -102,7 +123,25 @@ contract HelperLoopAndWhileExt {
         tailHits += 1;
     }
 
-    function _helperWhileFind(uint256 remaining, uint256 want)
+    function _helperWhileFind(uint8 remaining, uint8 want)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 acc = 0;
+        while (_hasRemaining8(remaining)) {
+            acc += remaining;
+            if (remaining == want) {
+                return acc * 10 + remaining;
+            }
+            unchecked {
+                --remaining;
+            }
+        }
+        return acc;
+    }
+
+    function _helperWhileFindUnbounded(uint256 remaining, uint256 want)
         internal
         pure
         returns (uint256)
@@ -120,7 +159,7 @@ contract HelperLoopAndWhileExt {
         return acc;
     }
 
-    function scanWords(uint256[] memory words, uint256 start, uint256 bound, uint256 target)
+    function scanWords(uint256[] memory words, uint256 start, uint8 bound, uint256 target)
         external
         pure
         returns (uint256)
@@ -128,7 +167,7 @@ contract HelperLoopAndWhileExt {
         return ScanHelperLib.findMatchingWord(words, start, bound, target);
     }
 
-    function scanBitmapRange(uint256 bitmap, uint256 startBit, uint256 count)
+    function scanBitmapRange(uint256 bitmap, uint8 startBit, uint8 count)
         external
         pure
         returns (bool, uint256)
@@ -136,7 +175,7 @@ contract HelperLoopAndWhileExt {
         return ScanHelperLib.findFirstSetInRange(bitmap, startBit, count);
     }
 
-    function scanDivisible(uint256 start, uint256 bound, uint256 divisor)
+    function scanDivisible(uint256 start, uint8 bound, uint256 divisor)
         external
         pure
         returns (uint256)
@@ -144,12 +183,29 @@ contract HelperLoopAndWhileExt {
         return ScanHelperLib.scanUncheckedStep(start, bound, divisor);
     }
 
-    function voidUint256Scan(uint256 start, uint256 bound, uint256 stopAt)
+    function voidBoundedScan(uint256 start, uint8 bound, uint256 stopAt)
         external
         returns (uint256, uint256)
     {
         _voidScan(start, bound, stopAt);
         return (recorded, tailHits);
+    }
+
+    // Fail-closed controls: helper early returns with unbounded uint256 bounds must reject.
+    function scanUnboundedForRejected(uint256 start, uint256 bound, uint256 divisor)
+        external
+        pure
+        returns (uint256)
+    {
+        return ScanHelperLib.findUnboundedRejected(start, bound, divisor);
+    }
+
+    function whileHelperUnboundedReturnRejected(uint256 remaining, uint256 want)
+        external
+        pure
+        returns (uint256)
+    {
+        return _helperWhileFindUnbounded(remaining, want);
     }
 
     function whileUncheckedDecNeqZero(uint256 remaining) external pure returns (uint256 acc) {
@@ -216,7 +272,7 @@ contract HelperLoopAndWhileExt {
         }
     }
 
-    function whileHelperEarlyReturn(uint256 remaining, uint256 want)
+    function whileHelperEarlyReturn(uint8 remaining, uint8 want)
         external
         pure
         returns (uint256)

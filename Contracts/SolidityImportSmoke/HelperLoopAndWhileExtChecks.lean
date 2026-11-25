@@ -13,10 +13,10 @@ solidity_profile extLoopProfile where
 solidity_import imported from "Contracts/SolidityImportSmoke" entry "HelperLoopAndWhileExt.sol"
   using extLoopProfile
   contract HelperLoopAndWhileExt
-  function scanWords(«uint256[]»,uint256,uint256,uint256)
-  function scanBitmapRange(uint256,uint256,uint256)
-  function scanDivisible(uint256,uint256,uint256)
-  function voidUint256Scan(uint256,uint256,uint256)
+  function scanWords(«uint256[]»,uint256,uint8,uint256)
+  function scanBitmapRange(uint256,uint8,uint8)
+  function scanDivisible(uint256,uint8,uint256)
+  function voidBoundedScan(uint256,uint8,uint256)
   function whileUncheckedDecNeqZero(uint256)
   function whileUncheckedInc(uint256,uint256)
   function whileBoolHelperUncheckedDec(uint256)
@@ -24,7 +24,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "HelperLoopA
   function whileRangeIter(uint256,uint256)
   function whileMaskIter(uint256)
   function whileComplexHelperCheckedDec(uint256)
-  function whileHelperEarlyReturn(uint256,uint256)
+  function whileHelperEarlyReturn(uint8,uint8)
 
 #guard imported.report.functions.length == 12
 #guard imported.report.functions.all (·.denoteCovered)
@@ -46,21 +46,21 @@ private def run (name : String) (args : List Nat) :
 -- Out-of-bounds index triggers Panic(0x32).
 #guard run "scanWords" [128, 1, 6, 99, 5, 10, 20, 30, 40, 50] == some (false, some (panicBytes 0x32), [])
 
--- Multi-return bitmap scan helper with computed uint256 bound `startBit + count`.
+-- Multi-return bitmap scan helper with computed uint8 bound `startBit + count`.
 -- bitmap = 0b1010000 (bits 4 and 6 set)
 #guard run "scanBitmapRange" [80, 2, 6] == some (true, none, [1, 4])
 #guard run "scanBitmapRange" [80, 5, 3] == some (true, none, [1, 6])
 #guard run "scanBitmapRange" [80, 7, 4] == some (true, none, [0, 0])
--- Overflow on `startBit + count` triggers Panic(0x11).
-#guard run "scanBitmapRange" [80, 2^256 - 1, 2] == some (false, some (panicBytes 0x11), [])
+-- Overflow on `uint8(startBit + count)` triggers Panic(0x11).
+#guard run "scanBitmapRange" [80, 250, 10] == some (false, some (panicBytes 0x11), [])
 
 -- Helper for-loop with empty loopExpression and `unchecked { ++i; }` body step.
 #guard run "scanDivisible" [10, 20, 7] == some (true, none, [14])
 #guard run "scanDivisible" [15, 20, 7] == some (true, none, [0])
 
--- Void helper for-loop with uint256 bound & non-zero start early return.
-#guard run "voidUint256Scan" [2, 10, 4] == some (true, none, [9, 0])
-#guard run "voidUint256Scan" [2, 6, 99] == some (true, none, [14, 1])
+-- Void helper for-loop with uint8 bound & non-zero start early return.
+#guard run "voidBoundedScan" [2, 10, 4] == some (true, none, [9, 0])
+#guard run "voidBoundedScan" [2, 6, 99] == some (true, none, [14, 1])
 
 -- `while (remaining != 0) { unchecked { acc += remaining; --remaining; } }`
 #guard run "whileUncheckedDecNeqZero" [5] == some (true, none, [15])
@@ -92,9 +92,40 @@ private def run (name : String) (args : List Nat) :
 #guard run "whileComplexHelperCheckedDec" [1] == some (true, none, [1])
 #guard run "whileComplexHelperCheckedDec" [0] == some (true, none, [0])
 
--- Helper `while (_hasRemaining(remaining))` with early return + `unchecked { --remaining; }`.
+-- Helper `while (_hasRemaining8(remaining))` with early return + `unchecked { --remaining; }`.
 -- remaining=5, want=3: 5 (acc=5), 4 (acc=9), 3 (acc=12 -> return 123).
 #guard run "whileHelperEarlyReturn" [5, 3] == some (true, none, [123])
 #guard run "whileHelperEarlyReturn" [5, 99] == some (true, none, [15])
+
+-- Fail-closed control: unbounded uint256 helper `for` early return stays rejected.
+/--
+error: HelperLoopAndWhileExt.sol:63:9: ForStatement: [solidity-import:unsupported] return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256
+closure: HelperLoopAndWhileExt.scanUnboundedForRejected -> ScanHelperLib.findUnboundedRejected
+for (uint256 i = start; i < bound;) {
+            if (i % divisor == 0) {
+                return i;
+            }
+      
+-/
+#guard_msgs in
+solidity_import unboundedForRejected from "Contracts/SolidityImportSmoke" entry "HelperLoopAndWhileExt.sol"
+  using extLoopProfile
+  contract HelperLoopAndWhileExt
+  function scanUnboundedForRejected(uint256,uint256,uint256)
+
+-- Fail-closed control: unbounded uint256 helper `while` early return stays rejected.
+/--
+error: HelperLoopAndWhileExt.sol:150:9: WhileStatement: [solidity-import:unsupported] return in a helper while loop requires a bounded loop of at most 256 iterations
+closure: HelperLoopAndWhileExt.whileHelperUnboundedReturnRejected -> HelperLoopAndWhileExt._helperWhileFindUnbounded
+while (_hasRemaining(remaining)) {
+            acc += remaining;
+            if (remaining == want) {
+                re
+-/
+#guard_msgs in
+solidity_import unboundedWhileRejected from "Contracts/SolidityImportSmoke" entry "HelperLoopAndWhileExt.sol"
+  using extLoopProfile
+  contract HelperLoopAndWhileExt
+  function whileHelperUnboundedReturnRejected(uint256,uint256)
 
 end SolidityImportSmoke.HelperLoopAndWhileExtChecks

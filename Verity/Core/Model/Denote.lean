@@ -1726,11 +1726,14 @@ allowance in memory expansion, so the call is an exceptional halt with empty ret
 empty range expands no memory on the EVM, whatever its offset. -/
 def yulMemoryCallRangeLimit : Nat := 2 ^ 32
 
-/-- Inline-assembly `call` / `staticcall` over physical memory. The calldata is the
-`[inOffset, inOffset + inSize)` bytes, the gas is the call boundary's allowance, and the value
-is zero. As on the EVM, the first `min(outSize, returndatasize)` bytes of the returned or
-revert data are copied to `outOffset` whether or not the call succeeds, the return-data buffer
-is replaced, and the frame continues with `resultVar` bound to `1` or `0`. -/
+/-- Inline-assembly `call` / `staticcall` / `delegatecall` over physical memory. The calldata is
+the `[inOffset, inOffset + inSize)` bytes and the gas is the call boundary's allowance. For
+`call` and `staticcall`, the request carries `caller := thisAddress` and `value := 0`; for
+`delegatecall`, the EVM preserves the outer frame's `CALLER` (`state.world.sender`) and
+`CALLVALUE` (`state.world.msgValue`). As on the EVM, the first `min(outSize, returndatasize)`
+bytes of the returned or revert data are copied to `outOffset` whether or not the call succeeds,
+the return-data buffer is replaced, and the frame continues with `resultVar` bound to `1` or
+`0`. -/
 private def executeByteYulMemoryCallWithKind (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (kind : ByteExternalCall.Kind)
     (resultVar : String) (args : List Expr) :
@@ -1745,7 +1748,10 @@ private def executeByteYulMemoryCallWithKind (oracle : DenoteOracle) (fields : L
     return (.revertWithData [], [])
   let request : ByteExternalCall.Request :=
     { kind,
-      caller := state.world.thisAddress.val, target := target % 2^160, value := 0, gas,
+      caller := if kind == .delegatecall then state.world.sender.val else state.world.thisAddress.val,
+      target := target % 2^160,
+      value := if kind == .delegatecall then state.world.msgValue.val else 0,
+      gas,
       calldata := (List.range inSize).map fun index =>
         UInt8.ofNat (state.world.physicalByte (inOffset + index)).val }
   let observed ← ByteExternalCall.executeChecked adversary request state.world

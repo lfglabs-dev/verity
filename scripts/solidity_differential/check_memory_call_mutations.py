@@ -25,6 +25,9 @@ ECM = 'Verity/Core/Model/ECM.lean'
 PRECOMPILE = 'Compiler/SolidityImport/PrecompileResponderMocks.lean'
 YUL = ('solidity_differential.check_yul_memory_call', '--transactions', '64', '--seed', '2531',
        'Contracts.SolidityImportSmoke.YulMemoryCallSequenceModel')
+YUL_VALUE = ('solidity_differential.check_yul_memory_call', '--variant', 'value',
+             '--transactions', '96', '--seed', '2531',
+             'Contracts.SolidityImportSmoke.ValueCallSequenceModel')
 VOID = ('solidity_differential.check_interface_void_call', '--transactions', '160', '--seed', '4219',
         'Contracts.SolidityImportSmoke.InterfaceVoidCallSequenceModel')
 ECRECOVER = ('solidity_differential.check_ecrecover', '--transactions', '200', '--seed', '2698',
@@ -58,6 +61,15 @@ MUTANTS = {
     'ecm-yul-call-value': (ECM,
         'YulExpr.call "call" [gas, target, .lit 0, inOffset, inSize, outOffset, outSize]',
         'YulExpr.call "call" [gas, target, .lit 1, inOffset, inSize, outOffset, outSize]', YUL),
+    # Value-transferring low-level call: dropping the selfBalance debit in Denote or swapping
+    # target and value in ECM compilation must diverge against the A/B/C value-call campaign.
+    'denote-yul-value-call-debit': (DENOTE,
+        'else { before with selfBalance := before.selfBalance - Verity.Core.Uint256.ofNat value }',
+        'else before', YUL_VALUE),
+    'ecm-yul-value-call-swap': (ECM,
+        '(.call "call" [.call "gas" [], target, value, inOffset, inSize, outOffset, outSize])]',
+        '(.call "call" [.call "gas" [], value, target, inOffset, inSize, outOffset, outSize])]',
+        YUL_VALUE),
     'import-void-call-code-check': (IMPORT,
         '.ite (.eq (.localVar codeSize) (.literal 0)) [.revertEmpty] []]',
         '.ite (.eq (.localVar codeSize) (.literal 0)) [] []]', VOID),

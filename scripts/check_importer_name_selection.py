@@ -214,7 +214,7 @@ IMPORTER_JSON_KEYS = {
     # Differential driver and sequence-runner input (`args`, `observe`, account setup, mocks).
     "accountBalance", "accountCode", "accountNonce", "args", "byteCallEnvironment",
     "emptyAccounts", "externalStorage", "foreignNonce", "observe", "observeAccounts", "program",
-    "transactions",
+    "selfBalance", "transactions",
 }
 
 ALLOWED_IDENTIFIERS = (
@@ -258,6 +258,9 @@ FILE_EXCEPTIONS = {
     ("Compiler/SolidityImport/ModelResponders.lean", "imported-model-static-v1"): (
         "the program id of the importer's own byte-call responder configuration, written by the "
         "differential harness; not a name in the imported code"),
+    ("Compiler/SolidityImport/ModelResponders.lean", "imported-model-self-delegate-v1"): (
+        "the program id of the importer's own self-delegatecall responder configuration, written "
+        "by the differential harness; not a name in the imported code"),
     ("Compiler/SolidityImport/ReentrantCallResponderMocks.lean", "reentrant-callback-v1"): (
         "the program id of the importer's own byte-call responder configuration, written by the "
         "differential harness; not a name in the imported code"),

@@ -132,4 +132,58 @@ def configure (oracle : DenoteOracle) (models : List CompilationModel) (input : 
     throw "model responder does not supply immutable values"
   return environment oracle (accounts.zip models) (← decimal (← config.getObjVal? "gas"))
 
+/-- The unique external function of `model` with this selector. -/
+def externalFunction? (model : CompilationModel) (selector : Nat) : Option FunctionSpec :=
+  match model.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name &&
+      (KeccakEngine.keccak256_selector (functionSignature fn)).toNat == selector) with
+  | [fn] => some fn
+  | _ => none
+
+/-- Self-delegatecall response of `model` executing in the caller's own storage and
+transaction context (`sender := request.caller`, `msgValue := request.value`,
+`thisAddress := world.thisAddress`) with fresh child memory. Nested external calls are
+out of domain (`byteCalls := {}`), so execution terminates directly in Denote without
+recursion. -/
+def selfDelegateAnswer (oracle : DenoteOracle) (model : CompilationModel)
+    (request : Request) (world : Verity.ContractState) :
+    Option (Bool × Verity.ContractState × Bytes × List Verity.StorageKey) := do
+  unless request.kind == .delegatecall && request.target == world.thisAddress.val do none
+  let (selector, args) ← calldataWords request.calldata
+  let fn ← externalFunction? model selector
+  let tx : DenoteTransaction :=
+    { sender := request.caller, txOrigin := world.txOrigin.val,
+      thisAddress := world.thisAddress.val, msgValue := request.value,
+      blockTimestamp := world.blockTimestamp.val, blockNumber := world.blockNumber.val,
+      chainId := world.chainId.val, blobBaseFee := world.blobBaseFee.val,
+      functionSelector := selector, args }
+  let initial : Verity.ContractState :=
+    { withTransactionContext world tx with
+      memory := fun _ => 0
+      byteMemory := DenoteMemory.Memory.empty
+      returndata := [] }
+  let bindings ← bindExternalParams selector fn.bindingParams args
+  let .ok result := executeTracedBody oracle (effectiveFields model) initial bindings fn.body
+      model.events model.errors selector {} | none
+  some (result.frame.success, result.frame.world, result.frame.data, result.touched.eraseDups)
+
+/-- Byte-call environment for self-dispatch `address(this).delegatecall(...)` on `model`. -/
+def selfDelegateEnvironment (oracle : DenoteOracle) (model : CompilationModel) (gas : Nat) :
+    ByteCallEnvironment :=
+  { gas := some gas
+    adversary := some { (callAdversary fun request world =>
+      (selfDelegateAnswer oracle model request world).getD (false, world, [], [])) with
+        accepts := fun request world =>
+          (selfDelegateAnswer oracle model request world).isSome } }
+
+/-- Parse `imported-model-self-delegate-v1` for a contract dispatching to itself. -/
+def configureSelfDelegate (oracle : DenoteOracle) (model : CompilationModel) (input : Lean.Json) :
+    Except String ByteCallEnvironment := do
+  let config ← input.getObjVal? "byteCallEnvironment"
+  let program ← config.getObjValAs? String "program"
+  unless program == "imported-model-self-delegate-v1" do
+    throw "unsupported self-delegatecall model program"
+  unless model.immutables.isEmpty do
+    throw "self-delegatecall model responder does not supply immutable values"
+  return selfDelegateEnvironment oracle model (← decimal (← config.getObjVal? "gas"))
+
 end Compiler.CompilationModel.SolidityImport.ModelResponders

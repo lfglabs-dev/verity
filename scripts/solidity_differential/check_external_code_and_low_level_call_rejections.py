@@ -97,6 +97,24 @@ CASES = [
      '(bool success, ) = to.call{value: amount}("");\n        counter += 1;\n'
      '        require(success, TransferFailed());',
      ('function checked', 0, 'FunctionDefinition', 'post-call')),
+    # Located negative controls for widened `stmtAfterTrailingCall` (`forEach` after trailing call):
+    # a storage read or a second value-call loop after a trailing call must stay rejected.
+    ('call-value-then-foreach-storage-read', '', '',
+     '(bool success, ) = to.call{value: amount}("");\n'
+     '        require(success, TransferFailed());\n'
+     '        uint256 acc = 0;\n'
+     '        for (uint256 i = 0; i < 2; i++) {\n'
+     '            acc += counter;\n'
+     '        }',
+     ('function checked', 0, 'FunctionDefinition', 'post-call')),
+    ('call-value-then-value-loop', '', '',
+     '(bool success, ) = to.call{value: amount}("");\n'
+     '        require(success, TransferFailed());\n'
+     '        for (uint256 i = 0; i < 2; i++) {\n'
+     '            (bool ok2, ) = to.call{value: 1}("");\n'
+     '            require(ok2, TransferFailed());\n'
+     '        }',
+     ('function checked', 0, 'FunctionDefinition', 'post-call')),
     ('missing-returndata', '', '',
      f'(bool success, ) = {CALL};\n        require(success, TransferFailed());',
      ('(bool success, )', 0, 'VariableDeclarationStatement', 'bind')),

@@ -127,4 +127,18 @@ contract SelfDelegateAndRawSlotEip712Fixture {
         }
         counter += executed;
     }
+
+    // Fail-closed control: payable self-delegatecall reuses msg.value across sub-calls and
+    // imported roots compile as nonpayable.
+    function payableMulticallRejected(bytes[] calldata data) external payable returns (uint256 executed) {
+        for (uint256 i = 0; i < data.length; i++) {
+            (bool success, bytes memory result) = address(this).delegatecall(data[i]);
+            if (!success) {
+                assembly {
+                    revert(add(result, 0x20), mload(result))
+                }
+            }
+            executed += 1;
+        }
+    }
 }

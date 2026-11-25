@@ -61,4 +61,8 @@ contract EthSender {
     function read() external view returns (uint256) {
         return sent;
     }
+
+    function contractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
 }

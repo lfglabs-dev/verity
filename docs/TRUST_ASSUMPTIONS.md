@@ -2240,10 +2240,42 @@ Trust boundary changes:
   does; reassigning it rejects.
 - Compilation keeps `proofStatus := .assumed`. The evidence is the Denote observations of
   `ValueCallChecks` (value and calldata delivery, debit, underfunded and failed calls,
-  error forwarding, the helper form) and located controls in
+  error forwarding, the helper form), located controls in
   `check_external_code_and_low_level_call_rejections.py` and
-  `check_storage_rejections.py`; no A/B/C campaign against solc bytecode exists yet for
-  this transport.
+  `check_storage_rejections.py`, the A/B/C differential campaign
+  `check_yul_memory_call --variant value` (against `RecordingValueCallResponder` and
+  `recording-value-call-responder-v1`, covering funded transfers, refunds, underfunded
+  failures and empty accounts), and the value-call mutation anchor in
+  `check_memory_call_mutations.py`.
+
+### Imported self-dispatch delegatecall
+
+`solidity_import` admits `(bool success, bytes memory result) = address(this).delegatecall(data);`
+(either component may be omitted) on `address(this)` without call options, both standalone and
+inside a storage-free `multicall` batch loop. It lowers to the closed byte transport
+`YulMemoryDelegateCall.module resultVar`, compiled to
+`delegatecall(gas(), address(), p, len, 0, 0)` and executed in Denote by
+`executeByteYulMemoryDelegateCall`, pinned by `execStmt_ecm_yulMemoryDelegateCall_arm` and
+admitted by `closedTransportCovered`.
+
+Trust boundary changes:
+- As on the EVM, `DELEGATECALL` preserves the outer frame's `CALLER` (`state.world.sender`)
+  and `CALLVALUE` (`state.world.msgValue`) on the byte-call request, with `target := address(this)`.
+  `payable` callers containing a self-delegatecall are rejected at import because imported
+  roots compile as nonpayable (`isPayable := false`) and a `payable` batch loop reuses
+  `msg.value` across every sub-call.
+- External targets (`target.delegatecall(...)`) and call options (`{gas: ...}`) reject.
+- A standalone self-delegatecall is a trailing reentrancy window (`isClosedLowLevelCall`);
+  a batch loop is admitted only under `onlySelfDelegateLoopCEIClean`, which requires every
+  statement in and after the loop to be storage-free (`stmtAfterTrailingSelfDelegate` /
+  `stmtAfterTrailingCall`), rejecting post-loop storage reads, writes, or logs.
+- Gas is not tracked, as for the other call transports.
+- Compilation keeps `proofStatus := .assumed`. The evidence is the Denote observations in
+  `SelfDelegateAndRawSlotEip712Checks` (success, outer `sender`/`msgValue` preservation,
+  adversary revert with data bubbling, empty revert, and batch rollback), located fail-closed
+  controls for external targets, `{gas: ...}`, post-loop writes, and `payable` callers, and
+  the A/B/C differential campaign `check_self_delegate_call` (`SelfDelegateCallSequence`
+  against `imported-model-self-delegate-v1`).
 
 ### Validation instrument: imported-model static responder
 

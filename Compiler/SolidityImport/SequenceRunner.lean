@@ -177,6 +177,13 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
       | throw "account nonce exceeds 64 bits"
     let current := world.accountWorld (Address.ofNat account)
     world := world.writeAccount (Address.ofNat account) { current with nonce := bounded }
+  -- Initial balance of the caller contract, as funded on the EVM routes.
+  if let .ok bal := input.getObjVal? "selfBalance" then
+    let bal ← word bal
+    let current := world.accountWorld (Address.ofNat account)
+    world := { world.writeAccount (Address.ofNat account)
+      { current with balance := Uint256.ofNat bal } with
+      selfBalance := Uint256.ofNat bal }
   -- The deployment's immutables, by name: the same values for every transaction.
   let immutableRows ← match input.getObjVal? "immutables" with
     | .error _ => pure []

@@ -3870,6 +3870,21 @@ private inductive WhileBoundPlan where
 private def isZeroNodeOut (env : Env) (j : Json) : Bool :=
   parseNatConstOut env j == some 0
 
+/-- True when `base` is a single-argument `type(...)` call expression (used for `type(T).max`/`.min`). -/
+private def isTypeCallExpr (base : Json) : Bool :=
+  optStr base "nodeType" == some "FunctionCall" &&
+    (match field? base "expression" with
+     | some callee =>
+         optStr callee "nodeType" == some "Identifier" && optStr callee "name" == some "type"
+     | none => false) &&
+    (match (field? base "arguments").bind (·.getArr?.toOption) with
+     | some args => args.size == 1
+     | none => false)
+
+/-- Conservative syntactic loop-invariance check for scalar bound expressions.
+Trusting unassigned identifiers in `env.values` and `.length` of memory arrays/buffers relies on
+Solidity's semantics: scalar locals are passed by value and allocated memory arrays/buffers have
+fixed length, so called helpers cannot mutate caller locals or memory-array lengths. -/
 private partial def exprIsLoopInvariantOut (env : Env) (j body : Json) (writes : List Nat) : Bool :=
   let j := stripParensOut j
   match optStr j "nodeType" with
@@ -3891,7 +3906,7 @@ private partial def exprIsLoopInvariantOut (env : Env) (j body : Json) (writes :
           | none => false
         else false
       else if member == "max" || member == "min" then
-        optStr base "nodeType" == some "FunctionCall"
+        isTypeCallExpr base
       else if optStr base "nodeType" == some "Identifier" &&
           ((field? base "referencedDeclaration").bind (·.getNat?.toOption)).any (fun bid =>
             env.flatStructs.contains bid && !stmtWritesStructMember body bid member) then
@@ -13705,9 +13720,12 @@ private partial def parseNatConstExpr? (j : Json) : M (Option Nat) := do
       return none
   | _ => return none
 
-/-- Conservative loop-invariance check for scalar bound expressions: depends only on
+/-- Conservative syntactic loop-invariance check for scalar bound expressions: depends only on
 literals, numeric constants, parameters/unassigned locals, `.length` of unassigned
-calldata/memory arrays/buffers, and pure scalar operations on them. -/
+calldata/memory arrays/buffers, `type(T).max`/`.min`, and pure scalar operations on them.
+Trusting unassigned identifiers in `env.values` and memory-array `.length` relies on Solidity's
+semantics: scalar locals are passed by value and allocated memory arrays/buffers have fixed
+length, so called helpers never mutate caller locals or memory-array lengths. -/
 private partial def exprIsLoopInvariant (j : Json) (writes : List Nat) : M Bool := do
   let j ← stripParens j
   match ← mKind j with
@@ -13733,7 +13751,7 @@ private partial def exprIsLoopInvariant (j : Json) (writes : List Nat) : M Bool 
               return true
         return false
       if member == "max" || member == "min" then
-        return (← mKind base) == "FunctionCall"
+        return isTypeCallExpr base
       let id := (field? j "referencedDeclaration").bind (·.getInt?.toOption) |>.getD (-1)
       return id ≥ 0 && (← get).numericConstants.contains id.toNat
   | "BinaryOperation" =>
@@ -14039,6 +14057,13 @@ private partial def lowerLinearWhile? (s cond : Json) (lowerBody : Json → M (A
     if ← listContainsReturn bodyStmts then
       unless allowReturn do
         failAt s "return inside a while loop is unsupported"
+      -- `Stmt.forEach` reads its count once and cannot stop early, so early returns require
+      -- a statically bounded iteration count of at most 256.
+      let boundConst? ← parseNatConstExpr? boundNode
+      let smallBound : Bool := decide (bits ≤ 8) ||
+        (increasing && boundConst?.any (fun b => if inclusive then decide (b < 256) else decide (b ≤ 256)))
+      unless smallBound do
+        failAt s "return in a helper while loop requires a bounded loop of at most 256 iterations"
     for st in bodyStmts do
       if ← stmtContainsBreakOrContinue st then
         failAt st "break or continue inside a linear while loop is unsupported"
@@ -14107,6 +14132,17 @@ private partial def lowerGeneralBoolWhile? (s cond : Json) (lowerBody : Json →
   if ← listContainsReturn bodyStmts then
     unless allowReturn do
       failAt s "return inside a while loop is unsupported"
+    -- `Stmt.forEach` reads its count once and cannot stop early, so early returns require
+    -- a statically bounded iteration count of at most 256.
+    let smallBound : Bool ← match plan with
+      | .logBits bits => pure (decide (bits ≤ 256))
+      | .linear _ boundNode _ _ bits _ increasing inclusive => do
+          let boundConst? ← parseNatConstExpr? boundNode
+          pure (decide (bits ≤ 8) ||
+            (increasing && boundConst?.any (fun b => if inclusive then decide (b < 256) else decide (b ≤ 256))))
+      | .checkedDec _ _ => pure false
+    unless smallBound do
+      failAt s "return in a helper while loop requires a bounded loop of at most 256 iterations"
   for st in bodyStmts do
     if ← stmtContainsLoopJump "Continue" st then
       failAt st "continue inside a while loop is unsupported"
@@ -14742,7 +14778,8 @@ private partial def isTailWindowFor (s : Json) : M Bool := do
      sRightTy.startsWith "int_const " && !sRightTy.startsWith "int_const -" then
     let lId ← refInt sLeft
     let rId ← refInt cRight
-    return lId ≥ 0 && lId == rId
+    let smallK := (sRightTy.drop 10).toString.toNat?.any (· ≤ 256)
+    return lId ≥ 0 && lId == rId && smallK
   return false
 
 private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (stmts : List Json) : M (Array Stmt) := do
@@ -14848,6 +14885,8 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
         | "Break" | "Continue" => lowerLoopExit statement
         | "ForStatement" =>
             if ← stmtContainsReturn statement then
+              unless (← isTailWindowFor statement) || (← smallHelperForBound statement) do
+                failAt statement "return in a nested helper for loop requires a bounded loop of at most 256 iterations"
               lowerHelperLoop statement (lowerHelperLoopBodyWithReturn retFlag retVal) (allowReturn := true)
             else
               lowerHelperLoop statement lowerHelperLoopBody
@@ -14953,6 +14992,10 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         if ← stmtContainsReturn s then
           -- Early `return` from a helper `for`: the return sets a flag that guards
           -- the rest of its iteration, every later iteration and the continuation.
+          -- `Stmt.forEach` reads its count once and cannot stop early, so outside a
+          -- tail window (at most `K` iterations) the bound must be small, as for `break`.
+          unless (← isTailWindowFor s) || (← smallHelperForBound s) do
+            failAt s "return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256"
           let retFlag ← fresh
           let retVal ← fresh
           let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal) (allowReturn := true)
@@ -15312,6 +15355,8 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
         pure (extPre ++ asmStmts ++ tailStmts)
     | "ForStatement" =>
         if (← stmtContainsReturn s) && ((← plainVoidHelperContext) || (← get).multiHelperResults.isSome) then
+          unless (← isTailWindowFor s) || (← smallHelperForBound s) do
+            failAt s "return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256"
           if !(← get).helperPost.isEmpty && (← listContainsReturn rest.toArray) then
             failAt s "a return after a returning helper loop is outside this slice"
           let retFlag ← fresh
@@ -22316,6 +22361,11 @@ private def importSlice
               cleanScalarWord (paramTypeToSolidityString ty) rawWord
             abiGuards := abiGuards.push (.letVar binding word)
       let body := abiGuards ++ body
+      -- A `payable` self-delegatecall reuses `msg.value` across sub-calls and imported roots
+      -- compile as nonpayable (`isPayable := false`), so reject `payable` self-delegatecall callers.
+      if optStr fn "stateMutability" == some "payable" &&
+          body.toList.any stmtContainsClosedSelfDelegateCall then
+        (failAt fn "payable self-delegatecall is outside this slice").run' env
       -- A closed low-level CALL hands control to an arbitrary account, which may re-enter.
       -- It is admitted only where the body is CEI-clean around it and only local computation,
       -- memory writes, returns and reverts follow it (`onlyTrailingCallReentrancyWindows`).
