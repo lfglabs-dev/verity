@@ -25,6 +25,7 @@ solidity_import withLinked from "Contracts/SolidityImportSmoke" entry "LinkedLib
   function setConfig(bytes32,address,Mode)
   function bumpPacked(bytes32,uint256,address)
   function addExternal(bytes32,uint256)
+  function cleanNarrow(uint256,uint256,uint256,uint256,uint256,uint256)
   function cleanReturnFromWide(uint256,uint256,bytes32)
   function entryCleanVoid(bytes32,uint256,uint256,uint256)
   function internalRawVoid(bytes32,uint256,uint256,uint256)
@@ -60,6 +61,9 @@ private def has (text needle : String) : Bool := (text.splitOn needle).length > 
    ("bumpPacked", [("LinkedCounterLib", "bumpPacked", "LinkedLibraryCallSequence.sol"),
                    ("LinkedPackLib", "pack", "LinkedLibraryCallSequence.sol")]),
    ("addExternal", [("LinkedCounterLib", "addAmount", "LinkedLibraryCallSequence.sol")]),
+   ("cleanNarrow",
+    [("LinkedPackLib", "passUint8", "LinkedLibraryCallSequence.sol"),
+     ("LinkedPackLib", "roundTripNarrow", "LinkedLibraryCallSequence.sol")]),
    ("cleanReturnFromWide",
     [("LinkedPackLib", "narrowSingleFromWide", "LinkedLibraryCallSequence.sol"),
      ("LinkedPackLib", "narrowMultiFromWide", "LinkedLibraryCallSequence.sol")]),
@@ -80,6 +84,7 @@ private def has (text needle : String) : Bool := (text.splitOn needle).length > 
   [("setConfig", [("solidity_linked_library_matches_source", .assumed)]),
    ("bumpPacked", [("solidity_linked_library_matches_source", .assumed)]),
    ("addExternal", [("solidity_linked_library_matches_source", .assumed)]),
+   ("cleanNarrow", [("solidity_linked_library_matches_source", .assumed)]),
    ("cleanReturnFromWide", [("solidity_linked_library_matches_source", .assumed)]),
    ("entryCleanVoid", [("solidity_linked_library_matches_source", .assumed)]),
    ("internalRawVoid", []),
@@ -129,6 +134,10 @@ private def observesWords (model : CompilationModel) (name : String) (args words
     let r := Denote.denoteFunction SolidityImport.Differential.oracle model f
       { sender := 1, functionSelector := 0, args } Verity.defaultState
     r.success && r.returnWords == words
+
+#guard observesWords withLinked.model "cleanNarrow"
+  [0x105, 0x1ff, 2, 0x207, 2 ^ 160 + 0x42, 0x11223344 * 2 ^ 224 + 0x99]
+  [5, 2 ^ 256 - 1, 1, 7, 0x42, 0x11223344 * 2 ^ 224]
 
 #guard observesWords legacyLinked.model "cleanReturnFromWide"
   [0x105, 2 ^ 160 + 0x42, 0x11223344 * 2 ^ 224 + 0x99]

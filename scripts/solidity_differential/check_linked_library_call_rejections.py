@@ -27,6 +27,10 @@ UDVT_OPERATOR = (
     '    return TaggedWord.wrap(TaggedWord.unwrap(x) + TaggedWord.unwrap(y) + uint32(msg.sig));\n'
     '}\n'
     'using {addTaggedWithSig as +} for TaggedWord global;\n')
+SHADOW_UDVT_PREAMBLE = (
+    'import "./A_Shadow.sol" as AShadow;\n'
+    'import "./Z_Shadow.sol" as ZShadow;\n'
+    'type HomonymVal is uint8;\n')
 PROFILE = ('{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, '
            'bytecodeHash := "none"{extra} }')
 CONTRACT = ('contract C {\n'
@@ -58,6 +62,11 @@ CASES = [
     ('multi-return-external-call',
      '    function h(uint256 a, uint256 b) external pure returns (uint256, uint256) { return (a + 1, b + 2); }\n',
      '(uint256 x, uint256 y) = S.h(a, b);\n        root = x + y;', '', None, None),
+    ('homonymous-file-udvt-clean',
+     '    function h(HomonymVal v) external pure returns (HomonymVal) { return v; }\n',
+     'HomonymVal v = HomonymVal.wrap(0);\n        assembly { v := a }\n'
+     '        HomonymVal r = S.h(v);\n        uint256 out;\n        assembly { out := r }\n'
+     '        root = out + b;', '', None, None),
     ('immutable-initializer',
      '    function h(uint256 a) external pure returns (uint256) { return a + 1; }\n',
      'root = IMM + a;', '    uint256 internal immutable IMM = S.h(1);\n', 'IMM + a',
@@ -158,19 +167,36 @@ MUTANTS = {
 
 
 def run_case(output, name, library, body, members, token, diagnostic, cwd=None):
-    preamble = UDVT_OPERATOR if 'TaggedWord' in library else ''
+    preamble = (UDVT_OPERATOR if 'TaggedWord' in library else
+                SHADOW_UDVT_PREAMBLE if 'HomonymVal' in library else '')
     source = (PRAGMA + preamble + 'library S {\n' + STRUCT + library + '}\n' +
               CONTRACT.replace('{body}', body).replace('{members}', members))
     project = output / name
     project.mkdir()
+    if 'HomonymVal' in library:
+        for shadow in ('A_Shadow.sol', 'Z_Shadow.sol'):
+            (project / shadow).write_text('pragma solidity 0.8.34;\ntype HomonymVal is uint256;\n')
     (project / 'Case.sol').write_text(source)
     extra = '' if name.startswith('flag-off') else ', linkedLibrariesMatchSource := true'
+    guard = ''
+    if name == 'homonymous-file-udvt-clean':
+        guard = (
+            'import Compiler.SolidityImport.Differential\n'
+            '#guard match tested.model.functions.find? (·.name == "f") with\n'
+            '  | none => false\n'
+            '  | some fn =>\n'
+            '    let r := Compiler.CompilationModel.Denote.denoteFunction\n'
+            '      Compiler.CompilationModel.SolidityImport.Differential.oracle tested.model fn\n'
+            '      { sender := 1, functionSelector := 0, args := [0x105, 10] } Verity.defaultState\n'
+            '    r.success && r.finalStorage 0 == 15\n')
     driver = project / 'Check.lean'
     driver.write_text('import Compiler.SolidityImport.Import\n'
+        + ('import Compiler.SolidityImport.Differential\n' if guard else '') +
         'open Compiler.CompilationModel Compiler.CompilationModel.SolidityImport\n'
         f'solidity_import tested from {json.dumps(str(project))} entry "Case.sol"\n'
         f'  using {PROFILE.replace("{extra}", extra)}\n'
-        '  contract C\n  function f(uint256, uint256)\n')
+        '  contract C\n  function f(uint256, uint256)\n' +
+        guard.replace('import Compiler.SolidityImport.Differential\n', ''))
     result = subprocess.run(['lake', 'env', 'lean', str(driver)], capture_output=True,
                             text=True, timeout=300, cwd=cwd)
     log = result.stdout + result.stderr
