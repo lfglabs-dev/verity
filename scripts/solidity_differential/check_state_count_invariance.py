@@ -473,6 +473,25 @@ contract C {
     }
 }
 ''', ['run(uint256)']),
+    # A helper parameter bound to a transaction-context value (`block.timestamp`).
+    inline('stateful-call-context-operand', '''contract C {
+    uint256 private total;
+
+    function bump(uint256 by) internal returns (uint256) {
+        total = total + by;
+        return total;
+    }
+
+    function later(uint256 p) internal returns (uint256) {
+        return p + bump(1);
+    }
+
+    function run(uint256 x) external returns (uint256) {
+        total = x;
+        return later(block.timestamp);
+    }
+}
+''', ['run(uint256)']),
     inline('stateful-call-immutable-operand', '''contract C {
     uint256 private immutable base;
     event Bumped(uint256 by);
