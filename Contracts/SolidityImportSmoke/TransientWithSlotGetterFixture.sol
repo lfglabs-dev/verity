@@ -129,14 +129,19 @@ library CustomBridge {
     }
 }
 
-/// Clean-room fixture for R9 + R9b:
+/// Clean-room fixture for R9 + R9b + R9c:
 /// - R9: EIP-7201 constant-slot storage-pointer getters (`$.slot := STORE_SLOT` and literal)
 ///   combined with a `transient bool` state variable.
 /// - R9b: Recognized structured OpenZeppelin v5 `LowLevelCall` helpers (`staticcallNoReturn`,
 ///   `callNoReturn`, `returnDataSize`, `returnData`, `bubbleRevert`) inside closures that also
 ///   read/write a `transient bool` state variable and use `$.slot := CONST`.
-/// - Negative controls: arbitrary inline assembly, dynamic-slot assembly, non-structured Yul
-///   call assembly, and both Solidity-level and Yul-level `delegatecall` remain REJECTED.
+/// - R9c: Single-statement full-width 256-bit hashed-base transient `tstore`/`tload` blocks
+///   (`tstore(add(slot, count), key)` / `key := tload(add(slot, index))` and direct-slot form)
+///   anchored at compile-time `bytes32` constants `>= 2^128` inside closures combining
+///   `transient bool` + `transient uint256` + `$.slot := CONST` + `Address.functionStaticCall`.
+/// - Negative controls: arbitrary inline assembly, dynamic-slot assembly, low-slot `tstore`/`tload`,
+///   dynamic-base `tstore`, reassigned base slot, sub-word `tload`, multi-statement assembly,
+///   non-structured Yul call assembly, and Solidity/Yul `delegatecall` remain REJECTED.
 contract TransientWithSlotGetterFixture {
     struct Store {
         uint256 value;
@@ -146,8 +151,41 @@ contract TransientWithSlotGetterFixture {
 
     bytes32 private constant STORE_SLOT =
         0x1111111111111111111111111111111111111111111111111111111111111100;
+    bytes32 private constant QUEUE_BASE = keccak256("synthetic.transient.queue");
+    bytes32 private constant DIRECT_TRANSIENT_SLOT =
+        0x2222222222222222222222222222222222222222222222222222222222222200;
+    bytes32 private constant LOW_TRANSIENT_SLOT = bytes32(uint256(1));
 
     bool private transient _inBatch;
+    uint256 private transient _queueCount;
+
+    function _queuePush(uint256 count, uint256 key) private {
+        bytes32 slot = QUEUE_BASE;
+        assembly ("memory-safe") {
+            tstore(add(slot, count), key)
+        }
+    }
+
+    function _queueAt(uint256 index) private view returns (uint256 key) {
+        bytes32 slot = QUEUE_BASE;
+        assembly ("memory-safe") {
+            key := tload(add(slot, index))
+        }
+    }
+
+    function _tagSet(bytes32 val) private {
+        bytes32 slot = DIRECT_TRANSIENT_SLOT;
+        assembly ("memory-safe") {
+            tstore(slot, val)
+        }
+    }
+
+    function _tagGet() private view returns (bytes32 val) {
+        bytes32 slot = DIRECT_TRANSIENT_SLOT;
+        assembly ("memory-safe") {
+            val := tload(slot)
+        }
+    }
 
     function _getStore() private pure returns (Store storage $) {
         assembly {
@@ -261,6 +299,51 @@ contract TransientWithSlotGetterFixture {
         return ($.value, $.batchRuns, $.credits[account], _inBatch);
     }
 
+    function queuePushAndSumInBatch(
+        uint256 k0,
+        uint256 k1,
+        address target,
+        bytes calldata payload,
+        address account
+    ) external returns (uint256) {
+        require(!_inBatch, "reentrant batch");
+        _inBatch = true;
+        uint256 count = _queueCount;
+        _queuePush(count, k0);
+        count += 1;
+        _queuePush(count, k1);
+        count += 1;
+        bytes memory ret = Address.functionStaticCall(target, payload);
+        uint256 extVal = abi.decode(ret, (uint256));
+        _queuePush(count, extVal);
+        count += 1;
+        _queueCount = count;
+        uint256 sum = _queueAt(0) + _queueAt(1) + _queueAt(2);
+        _tagSet(bytes32(sum));
+        uint256 taggedSum = uint256(_tagGet());
+        uint256 total = _addValue(taggedSum, account);
+        _queueCount = 0;
+        _inBatch = false;
+        return total;
+    }
+
+    function queuePushAndRevert(uint256 k0, address account) external {
+        _inBatch = true;
+        _queuePush(_queueCount, k0);
+        _queueCount += 1;
+        _tagSet(bytes32(k0));
+        _addValue(k0, account);
+        require(false, "queue rollback");
+    }
+
+    function readQueueProbe(uint256 index)
+        external
+        view
+        returns (uint256 count, uint256 entry, bytes32 tag)
+    {
+        return (_queueCount, _queueAt(index), _tagGet());
+    }
+
     // Negative control 1: arbitrary tload assembly in a transient closure
     function badArbitraryAsm() external returns (uint256 word) {
         _inBatch = true;
@@ -316,6 +399,66 @@ contract TransientWithSlotGetterFixture {
         _inBatch = true;
         assembly {
             ok := call(gas(), target, 0, 0, 0, 0, 0)
+        }
+        _inBatch = false;
+    }
+
+    // Negative control 7: raw low-slot tstore(0, val) in a transient closure
+    function badLowSlotTstoreInTransient(uint256 val) external {
+        _inBatch = true;
+        assembly ("memory-safe") {
+            tstore(0, val)
+        }
+        _inBatch = false;
+    }
+
+    // Negative control 8: low compile-time constant bytes32 slot (< 2^128) in a transient closure
+    function badLowConstSlotTstoreInTransient(uint256 val) external {
+        _inBatch = true;
+        bytes32 slot = LOW_TRANSIENT_SLOT;
+        assembly ("memory-safe") {
+            tstore(slot, val)
+        }
+        _inBatch = false;
+    }
+
+    // Negative control 9: dynamic parameter base slot in tstore in a transient closure
+    function badDynamicBaseTstoreInTransient(bytes32 userSlot, uint256 idx, uint256 val) external {
+        _inBatch = true;
+        assembly ("memory-safe") {
+            tstore(add(userSlot, idx), val)
+        }
+        _inBatch = false;
+    }
+
+    // Negative control 10: reassigned local bytes32 base slot in a transient closure
+    function badReassignedSlotTstoreInTransient(uint256 val) external {
+        _inBatch = true;
+        bytes32 slot = QUEUE_BASE;
+        slot = bytes32(0);
+        assembly ("memory-safe") {
+            tstore(slot, val)
+        }
+        _inBatch = false;
+    }
+
+    // Negative control 11: sub-word variable target in hashed-base tload in a transient closure
+    function badSubwordTloadInTransient(uint256 idx) external returns (uint128 smallVal) {
+        _inBatch = true;
+        bytes32 slot = QUEUE_BASE;
+        assembly ("memory-safe") {
+            smallVal := tload(add(slot, idx))
+        }
+        _inBatch = false;
+    }
+
+    // Negative control 12: multi-statement tstore+tload assembly block in a transient closure
+    function badMultiStmtTransientAsm(uint256 idx, uint256 val) external returns (uint256 out) {
+        _inBatch = true;
+        bytes32 slot = QUEUE_BASE;
+        assembly ("memory-safe") {
+            tstore(add(slot, idx), val)
+            out := tload(add(slot, idx))
         }
         _inBatch = false;
     }

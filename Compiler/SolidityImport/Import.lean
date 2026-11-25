@@ -22662,8 +22662,9 @@ private def importSlice
       env := env2
       -- Inline assembly can observe uncleaned stack words and write uncleaned transient
       -- words; transient lowering is admitted only in closures without disallowed assembly
-      -- (pure constant-slot getters and recognized structured LowLevelCall helpers are exempt
-      -- via `isAllowedAssemblyInTransientClosure`).
+      -- (pure constant-slot getters, recognized structured LowLevelCall helpers, and
+      -- single-statement full-width hashed-base transient `tstore`/`tload` blocks are
+      -- exempt via `isAllowedAssemblyInTransientClosure`).
       if let (some asmNode, some tname) := (env.rootAssembly, env.rootTransientFields[0]?) then
         (failAt asmNode
           s!"inline assembly in a closure that accesses transient state variable {tname} is unsupported").run' env

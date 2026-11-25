@@ -1,10 +1,14 @@
-"""Three-route Anvil differential check for R9 + R9b:
+"""Three-route Anvil differential check for R9 + R9b + R9c:
 - R9: EIP-7201 constant-slot storage-pointer getters (`$.slot := STORE_SLOT` and literal)
   inside functions accessing a `transient bool` state variable.
 - R9b: Recognized structured OpenZeppelin v5 `LowLevelCall` helpers (`staticcallNoReturn`,
   `callNoReturn`, `returnDataSize`, `returnData`, `bubbleRevert`) and renamed equivalent
   helpers inside closures combining `transient bool` + `$.slot := CONST` + `Address.functionStaticCall`
   / `Address.functionCall`.
+- R9c: Single-statement full-width 256-bit hashed-base transient `tstore`/`tload` blocks
+  (`tstore(add(slot, count), key)` / `key := tload(add(slot, index))` and direct-slot form)
+  anchored at compile-time `bytes32` constants `>= 2^128` inside closures combining
+  `transient bool` + `transient uint256` + `$.slot := CONST` + `Address.functionStaticCall`.
 
 Compares:
   Route A: solc 0.8.34 (viaIR, osaka, runs=466) bytecode on Anvil
@@ -32,6 +36,9 @@ FUNCTIONS = [
     'callInBatch(address,bytes,address)',
     'renamedStaticCallInBatch(address,bytes,address)',
     'readState(address)',
+    'queuePushAndSumInBatch(uint256,uint256,address,bytes,address)',
+    'queuePushAndRevert(uint256,address)',
+    'readQueueProbe(uint256)',
 ]
 
 USER_A = 0x100000000000000000000000000000000000a11c
@@ -119,6 +126,12 @@ def encode_addr_bytes_addr(target: str, payload: bytes, account: int) -> bytes:
     padded = payload + b'\x00' * ((32 - len(payload) % 32) % 32)
     return (u256_bytes(addr_int(target)) + u256_bytes(96) + u256_bytes(account) +
             u256_bytes(len(payload)) + padded)
+
+
+def encode_queue_batch(k0: int, k1: int, target: str, payload: bytes, account: int) -> bytes:
+    padded = payload + b'\x00' * ((32 - len(payload) % 32) % 32)
+    return (u256_bytes(k0) + u256_bytes(k1) + u256_bytes(addr_int(target)) +
+            u256_bytes(160) + u256_bytes(account) + u256_bytes(len(payload)) + padded)
 
 
 def main():
@@ -276,7 +289,22 @@ def main():
     add_encoded('renamedStaticCallInBatch(address,bytes,address)',
                 encode_addr_bytes_addr(EMPTY, b'\x99', USER_B))
 
-    # 5. Post-call direct + overflow rollback + final state check
+    # 5. R9c: hashed-base transient tstore/tload queue + transient bool/uint256 + $.slot + functionStaticCall
+    add_encoded('queuePushAndSumInBatch(uint256,uint256,address,bytes,address)',
+                encode_queue_batch(10, 20, accounts[4], b'\x01\x02\x03\x04', USER_A))
+    add('readQueueProbe(uint256)', [0])
+    add('readState(address)', [USER_A])
+    add_encoded('queuePushAndSumInBatch(uint256,uint256,address,bytes,address)',
+                encode_queue_batch(5, 6, accounts[5], b'\xaa', USER_A))
+    add_encoded('queuePushAndSumInBatch(uint256,uint256,address,bytes,address)',
+                encode_queue_batch(5, 6, accounts[6], b'\xbb', USER_A))
+    add_encoded('queuePushAndSumInBatch(uint256,uint256,address,bytes,address)',
+                encode_queue_batch(5, 6, EMPTY, b'\xcc', USER_A))
+    add('queuePushAndRevert(uint256,address)', [77, USER_B])
+    add('readQueueProbe(uint256)', [0])
+    add('readState(address)', [USER_B])
+
+    # 6. Post-call direct + overflow rollback + final state check
     add('addDirect(uint256,address)', [1, USER_A])
     add('addInBatch(uint256,uint256,address)', [2**255, 1, USER_B])
     add('readState(address)', [USER_A])
@@ -300,11 +328,11 @@ def main():
     identity.verify()
     write_json(output / 'campaign.json', {'transactions': transactions, **result})
     if result['divergences']:
-        raise HarnessError(f"3-route A/B/C divergence in R9+R9b transient+slot-getter+LowLevelCall: {output / 'campaign.json'}")
+        raise HarnessError(f"3-route A/B/C divergence in R9+R9b+R9c transient+slot-getter+LowLevelCall+hashed-tstore: {output / 'campaign.json'}")
     rows = result['observations']['source']
     if {r['status'] for r in rows} != {'ok', 'revert'}:
-        raise HarnessError('R9+R9b campaign must exercise both ok and revert transactions')
-    print(f"R9+R9b Anvil 3-route A/B/C PASS: {len(transactions)}/{len(transactions)} transactions agree bit-for-bit across solc, Lean Denote, and Verity Yul ({output})")
+        raise HarnessError('R9+R9b+R9c campaign must exercise both ok and revert transactions')
+    print(f"R9+R9b+R9c Anvil 3-route A/B/C PASS: {len(transactions)}/{len(transactions)} transactions agree bit-for-bit across solc, Lean Denote, and Verity Yul ({output})")
 
 
 if __name__ == '__main__':

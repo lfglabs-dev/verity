@@ -1,9 +1,10 @@
 import Compiler.SolidityImport.Import
 import Compiler.SolidityImport.Differential
 import Compiler.SolidityImport.Transactions
+import Compiler.Keccak.Sponge
 
 /-!
-Synthetic clean-room smoke checks for R9 + R9b:
+Synthetic clean-room smoke checks for R9 + R9b + R9c:
 - R9: Pure constant-slot storage-pointer getters (`assembly { $.slot := STORE_SLOT }` and
   `assembly ("memory-safe") { $.slot := 0x1111...1100 }`) allowed inside call closures
   that read/write a `transient bool` state variable (under both via-IR and legacy pipelines).
@@ -11,9 +12,15 @@ Synthetic clean-room smoke checks for R9 + R9b:
   `callNoReturn`, `returnDataSize`, `returnData`, `bubbleRevert`) allowed inside closures
   that also access a `transient bool` state variable and use `$.slot := CONST` — matched
   strictly by Yul AST structure (100% library-name independent, verified with `CustomBridge`).
-- Negative controls: arbitrary assembly (`tload`), dynamic parameter slot assembly
+- R9c: Single-statement full-width 256-bit hashed-base transient `tstore`/`tload` blocks
+  (`tstore(add(slot, count), key)` / `key := tload(add(slot, index))` and direct-slot form)
+  anchored at compile-time `bytes32` constants `≥ 2^128` inside closures combining
+  `transient bool` + `transient uint256` + `$.slot := CONST` + `Address.functionStaticCall`.
+- Negative controls: arbitrary assembly (`tload(0)`), dynamic parameter slot assembly
   (`$.slot := slot`), multi-statement getter assembly, non-structured scratch-space Yul `call`,
-  and both Solidity-level and Yul-level `delegatecall` remain REJECTED in transient closures.
+  raw low-slot `tstore(0, ...)`, low constant slot `< 2^128`, dynamic base slot
+  `tstore(add(userSlot, idx), ...)`, reassigned base slot, sub-word `tload`, multi-statement
+  transient assembly, and Solidity/Yul `delegatecall` remain REJECTED in transient closures.
 -/
 namespace SolidityImportSmoke.TransientWithSlotGetterChecks
 open Compiler.CompilationModel Denote ByteExternalCall
@@ -41,6 +48,9 @@ solidity_import ir from "Contracts/SolidityImportSmoke" entry "TransientWithSlot
   function callInBatch(address,bytes,address)
   function renamedStaticCallInBatch(address,bytes,address)
   function readState(address)
+  function queuePushAndSumInBatch(uint256,uint256,address,bytes,address)
+  function queuePushAndRevert(uint256,address)
+  function readQueueProbe(uint256)
 
 solidity_import legacy from "Contracts/SolidityImportSmoke" entry "TransientWithSlotGetterFixture.sol"
   using legacyProfile
@@ -52,10 +62,13 @@ solidity_import legacy from "Contracts/SolidityImportSmoke" entry "TransientWith
   function callInBatch(address,bytes,address)
   function renamedStaticCallInBatch(address,bytes,address)
   function readState(address)
+  function queuePushAndSumInBatch(uint256,uint256,address,bytes,address)
+  function queuePushAndRevert(uint256,address)
+  function readQueueProbe(uint256)
 
-#guard ir.report.functions.length == 7
+#guard ir.report.functions.length == 10
 #guard ir.report.functions.all (·.denoteCovered)
-#guard legacy.report.functions.length == 7
+#guard legacy.report.functions.length == 10
 #guard legacy.report.functions.all (·.denoteCovered)
 
 private def oracle := SolidityImport.Differential.oracle
@@ -159,7 +172,24 @@ private def checkSequence (model : CompilationModel) : Bool :=
       ([wordTarget, 96, userA] ++ bytesTail [7])
     let (okR2, dR2, stR2) ← runTx model stR1 "renamedStaticCallInBatch"
       ([revertPayloadTarget, 96, userA] ++ bytesTail [7])
-    let (okState, dState, stState) ← runTx model stR2 "readState" [userA]
+    -- R9c: transient bool + transient uint256 + QUEUE_BASE tstore/tload + DIRECT_TRANSIENT_SLOT
+    -- + $.slot := CONST + Address.functionStaticCall:
+    -- wordTarget returns 40 + 4 = 44; sum = 10 + 20 + 44 = 74;
+    -- _addValue(74, userA) in batch: value = 279 + 148 = 427, runs = 5, credit = 215
+    let (okQ1, dQ1, stQ1) ← runTx model stR2 "queuePushAndSumInBatch"
+      ([10, 20, wordTarget, 160, userA] ++ bytesTail [5, 6, 7, 8])
+    let (okQ2, dQ2, stQ2) ← runTx model stQ1 "queuePushAndSumInBatch"
+      ([1, 2, revertPayloadTarget, 160, userA] ++ bytesTail [5])
+    let (okQ3, _, stQ3) ← runTx model stQ2 "queuePushAndRevert" [77, userA]
+    let (okQP0, dQP0, stQP0) ← runTx model stQ3 "readQueueProbe" [0]
+    let (okState, dState, stState) ← runTx model stQP0 "readState" [userA]
+    -- Same-transaction transient probe over seeded QUEUE_BASE, DIRECT_TRANSIENT_SLOT, and _queueCount:
+    let queueBase : Nat := KeccakEngine.keccak256_str_nat "synthetic.transient.queue"
+    let directSlot : Nat := 0x2222222222222222222222222222222222222222222222222222222222222200
+    let seededQueueWorld :=
+      ((stState.writeTransient 1 (.ofNat 3)).writeTransient ((queueBase + 2) % 2 ^ 256) (.ofNat 0xbeef)).writeTransient
+        directSlot (.ofNat 0xcafe)
+    let (okQP1, dQP1, _) ← runTx model seededQueueWorld "readQueueProbe" [2] (resetTransient := false)
     -- Reentrant frame with transient slot 0 (_inBatch) already set to 1:
     let reentrantWorld := stState.writeTransient 0 (.ofNat 1)
     let (ok5, _, _) ← runTx model reentrantWorld "addInBatch" [1, 1, userA] (resetTransient := false)
@@ -167,6 +197,8 @@ private def checkSequence (model : CompilationModel) : Bool :=
       ([wordTarget, 96, userA] ++ bytesTail [1]) (resetTransient := false)
     let (ok5c, _, _) ← runTx model reentrantWorld "callInBatch"
       ([wordTarget, 96, userA] ++ bytesTail [1]) (resetTransient := false)
+    let (ok5q, _, _) ← runTx model reentrantWorld "queuePushAndSumInBatch"
+      ([1, 2, wordTarget, 160, userA] ++ bytesTail [1]) (resetTransient := false)
     let (ok6, d6, st6) ← runTx model reentrantWorld "addDirect" [4, userA] (resetTransient := false)
     let (ok7, d7, _) ← runTx model st6 "readState" [userA] (resetTransient := false)
     return ok0 && d0 == (wordBytes 0 ++ wordBytes 0 ++ wordBytes 0 ++ wordBytes 0) &&
@@ -183,16 +215,21 @@ private def checkSequence (model : CompilationModel) : Bool :=
            !okC3 && dC3 == failedCallBytes &&
            okR1 && dR1 == wordBytes 279 &&
            !okR2 && dR2 == [0xde, 0xad, 0xbe, 0xef, 0x01, 0x02] &&
-           okState && dState == (wordBytes 279 ++ wordBytes 4 ++ wordBytes 141 ++ wordBytes 0) &&
-           !ok5 && !ok5s && !ok5c &&
-           ok6 && d6 == wordBytes 287 &&
-           ok7 && d7 == (wordBytes 287 ++ wordBytes 5 ++ wordBytes 145 ++ wordBytes 1)) == some true
+           okQ1 && dQ1 == wordBytes 427 &&
+           !okQ2 && dQ2 == [0xde, 0xad, 0xbe, 0xef, 0x01, 0x02] &&
+           !okQ3 &&
+           okQP0 && dQP0 == (wordBytes 0 ++ wordBytes 0 ++ wordBytes 0) &&
+           okState && dState == (wordBytes 427 ++ wordBytes 5 ++ wordBytes 215 ++ wordBytes 0) &&
+           okQP1 && dQP1 == (wordBytes 3 ++ wordBytes 0xbeef ++ wordBytes 0xcafe) &&
+           !ok5 && !ok5s && !ok5c && !ok5q &&
+           ok6 && d6 == wordBytes 435 &&
+           ok7 && d7 == (wordBytes 435 ++ wordBytes 6 ++ wordBytes 219 ++ wordBytes 1)) == some true
 
 #guard checkSequence ir.model
 #guard checkSequence legacy.model
 
 /--
-error: TransientWithSlotGetterFixture.sol:269:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+error: TransientWithSlotGetterFixture.sol:352:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
 closure: TransientWithSlotGetterFixture.badArbitraryAsm
 assembly {
             word := tload(0)
@@ -205,7 +242,7 @@ solidity_import rejectArbitraryAsm from "Contracts/SolidityImportSmoke" entry "T
   function badArbitraryAsm()
 
 /--
-error: TransientWithSlotGetterFixture.sol:165:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+error: TransientWithSlotGetterFixture.sol:203:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
 closure: TransientWithSlotGetterFixture.badDynamicSlotAsm
 assembly {
             $.slot := slot
@@ -218,7 +255,7 @@ solidity_import rejectDynamicSlotAsm from "Contracts/SolidityImportSmoke" entry 
   function badDynamicSlotAsm(bytes32)
 
 /--
-error: TransientWithSlotGetterFixture.sol:175:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+error: TransientWithSlotGetterFixture.sol:213:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
 closure: TransientWithSlotGetterFixture.badExtraAsmInGetter
 assembly {
             junk := tload(0)
@@ -231,7 +268,7 @@ solidity_import rejectExtraAsmInGetter from "Contracts/SolidityImportSmoke" entr
   function badExtraAsmInGetter()
 
 /--
-error: TransientWithSlotGetterFixture.sol:296:39: MemberAccess: [solidity-import:unsupported] external contract calls are outside this slice
+error: TransientWithSlotGetterFixture.sol:379:39: MemberAccess: [solidity-import:unsupported] external contract calls are outside this slice
 closure: TransientWithSlotGetterFixture.badDelegateCallInTransient
 target.delegatecall
 -/
@@ -242,7 +279,7 @@ solidity_import rejectDelegateCallInTransient from "Contracts/SolidityImportSmok
   function badDelegateCallInTransient(address,bytes)
 
 /--
-error: TransientWithSlotGetterFixture.sol:309:19: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin delegatecall
+error: TransientWithSlotGetterFixture.sol:392:19: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin delegatecall
 closure: TransientWithSlotGetterFixture.badYulDelegateCallInTransient
 delegatecall(gas(), target, add(payload, 0x20), mload(payload), 0x00, 0x00)
 -/
@@ -253,7 +290,7 @@ solidity_import rejectYulDelegateCallInTransient from "Contracts/SolidityImportS
   function badYulDelegateCallInTransient(address,bytes)
 
 /--
-error: TransientWithSlotGetterFixture.sol:317:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+error: TransientWithSlotGetterFixture.sol:400:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
 closure: TransientWithSlotGetterFixture.badNonStructuredCallAsmInTransient
 assembly {
             ok := call(gas(), target, 0, 0, 0, 0, 0)
@@ -264,5 +301,84 @@ solidity_import rejectNonStructuredCallAsmInTransient from "Contracts/SolidityIm
   using irProfile
   contract TransientWithSlotGetterFixture
   function badNonStructuredCallAsmInTransient(address)
+
+/--
+error: TransientWithSlotGetterFixture.sol:409:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+closure: TransientWithSlotGetterFixture.badLowSlotTstoreInTransient
+assembly ("memory-safe") {
+            tstore(0, val)
+        }
+-/
+#guard_msgs in
+solidity_import rejectLowSlotTstoreInTransient from "Contracts/SolidityImportSmoke" entry "TransientWithSlotGetterFixture.sol"
+  using irProfile
+  contract TransientWithSlotGetterFixture
+  function badLowSlotTstoreInTransient(uint256)
+
+/--
+error: TransientWithSlotGetterFixture.sol:419:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+closure: TransientWithSlotGetterFixture.badLowConstSlotTstoreInTransient
+assembly ("memory-safe") {
+            tstore(slot, val)
+        }
+-/
+#guard_msgs in
+solidity_import rejectLowConstSlotTstoreInTransient from "Contracts/SolidityImportSmoke" entry "TransientWithSlotGetterFixture.sol"
+  using irProfile
+  contract TransientWithSlotGetterFixture
+  function badLowConstSlotTstoreInTransient(uint256)
+
+/--
+error: TransientWithSlotGetterFixture.sol:428:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+closure: TransientWithSlotGetterFixture.badDynamicBaseTstoreInTransient
+assembly ("memory-safe") {
+            tstore(add(userSlot, idx), val)
+        }
+-/
+#guard_msgs in
+solidity_import rejectDynamicBaseTstoreInTransient from "Contracts/SolidityImportSmoke" entry "TransientWithSlotGetterFixture.sol"
+  using irProfile
+  contract TransientWithSlotGetterFixture
+  function badDynamicBaseTstoreInTransient(bytes32,uint256,uint256)
+
+/--
+error: TransientWithSlotGetterFixture.sol:439:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+closure: TransientWithSlotGetterFixture.badReassignedSlotTstoreInTransient
+assembly ("memory-safe") {
+            tstore(slot, val)
+        }
+-/
+#guard_msgs in
+solidity_import rejectReassignedSlotTstoreInTransient from "Contracts/SolidityImportSmoke" entry "TransientWithSlotGetterFixture.sol"
+  using irProfile
+  contract TransientWithSlotGetterFixture
+  function badReassignedSlotTstoreInTransient(uint256)
+
+/--
+error: TransientWithSlotGetterFixture.sol:449:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+closure: TransientWithSlotGetterFixture.badSubwordTloadInTransient
+assembly ("memory-safe") {
+            smallVal := tload(add(slot, idx))
+        }
+-/
+#guard_msgs in
+solidity_import rejectSubwordTloadInTransient from "Contracts/SolidityImportSmoke" entry "TransientWithSlotGetterFixture.sol"
+  using irProfile
+  contract TransientWithSlotGetterFixture
+  function badSubwordTloadInTransient(uint256)
+
+/--
+error: TransientWithSlotGetterFixture.sol:459:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _inBatch is unsupported
+closure: TransientWithSlotGetterFixture.badMultiStmtTransientAsm
+assembly ("memory-safe") {
+            tstore(add(slot, idx), val)
+            out := tload(add(slot, idx))
+        }
+-/
+#guard_msgs in
+solidity_import rejectMultiStmtTransientAsm from "Contracts/SolidityImportSmoke" entry "TransientWithSlotGetterFixture.sol"
+  using irProfile
+  contract TransientWithSlotGetterFixture
+  function badMultiStmtTransientAsm(uint256,uint256)
 
 end SolidityImportSmoke.TransientWithSlotGetterChecks

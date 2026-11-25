@@ -20,6 +20,9 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "TransientWi
   function callInBatch(address,bytes,address)
   function renamedStaticCallInBatch(address,bytes,address)
   function readState(address)
+  function queuePushAndSumInBatch(uint256,uint256,address,bytes,address)
+  function queuePushAndRevert(uint256,address)
+  function readQueueProbe(uint256)
 
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

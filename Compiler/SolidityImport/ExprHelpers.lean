@@ -1,5 +1,6 @@
 import Lean
 import Compiler.Sha256.Engine
+import Compiler.Keccak.Sponge
 import Compiler.Hex
 import Compiler.SolidityImport.Access
 import Compiler.SolidityImport.Profile
@@ -1488,6 +1489,12 @@ private def isBoolDecl (decl : Json) : Bool :=
 private def isUint256Decl (decl : Json) : Bool :=
   declTypeStr decl == "uint256"
 
+private def isBytes32Decl (decl : Json) : Bool :=
+  declTypeStr decl == "bytes32"
+
+private def isFullWidthTransientWordDecl (decl : Json) : Bool :=
+  isUint256Decl decl || isBytes32Decl decl
+
 private def isAddressLikeDecl (decl : Json) : Bool :=
   let ty := declTypeStr decl
   ty == "address" || ty == "address payable" || ty.startsWith "contract "
@@ -1496,10 +1503,10 @@ private def isBytesMemoryDecl (decl : Json) : Bool :=
   let ty := declTypeStr decl
   optStr decl "storageLocation" == some "memory" && (ty == "bytes" || ty == "bytes memory")
 
-private def rbMapKeysSubset (m : RBMap String Json compare) (allowed : Array String) : Bool :=
+private def rbMapKeysSubset {α : Type} (m : RBMap String α compare) (allowed : Array String) : Bool :=
   m.fold (fun ok k _ => ok && allowed.contains k) true
 
-private def rbMapCount (m : RBMap String Json compare) : Nat :=
+private def rbMapCount {α : Type} (m : RBMap String α compare) : Nat :=
   m.fold (fun n _ _ => n + 1) 0
 
 /-- Recognizes OpenZeppelin v5 `LowLevelCall.callNoReturn` and `staticcallNoReturn`
@@ -1629,19 +1636,354 @@ private def isStructuredBubbleRevert (fn asmNode : Json) : Bool := Id.run do
     return isBytesMemoryDecl bufDecl
   return false
 
+/-- Minimum compile-time constant base slot (`2^128`) admitted for hashed-base transient
+`tstore`/`tload` assembly blocks inside transient-accessing closures, guaranteeing the base
+slot is strictly disjoint from Solidity's low linear transient storage slots `0..N`. -/
+private def minHashedTransientSlot : Nat := 2 ^ 128
+
+private def isHighConstSlotVal (v : Nat) : Bool :=
+  minHashedTransientSlot ≤ v && v < 2 ^ 256
+
+private def hexStringToBytes? (hex : String) : Option ByteArray := Id.run do
+  if hex.length % 2 != 0 then return none
+  let chars := hex.toList.toArray
+  let mut out := ByteArray.emptyWithCapacity (chars.size / 2)
+  let hexNib (c : Char) : Option Nat :=
+    if '0' ≤ c && c ≤ '9' then some (c.toNat - '0'.toNat)
+    else if 'a' ≤ c && c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
+    else if 'A' ≤ c && c ≤ 'F' then some (c.toNat - 'A'.toNat + 10)
+    else none
+  for i in [:chars.size / 2] do
+    let some hi := hexNib chars[2 * i]! | return none
+    let some lo := hexNib chars[2 * i + 1]! | return none
+    out := out.push (UInt8.ofNat (hi * 16 + lo))
+  return some out
+
+private def natToBytes32BE (n : Nat) : ByteArray :=
+  ByteArray.mk ((List.range 32).toArray.map fun i =>
+    UInt8.ofNat (n / 2 ^ (8 * (31 - i)) % 256))
+
+private def isConstantVarDecl (decl : Json) : Bool :=
+  (field? decl "constant").bind (·.getBool?.toOption) == some true ||
+  optStr decl "mutability" == some "constant"
+
+private def isUnsignedOrBytes32Type (ty : String) : Bool :=
+  ty == "bytes32" || ty == "uint256" || ty.startsWith "int_const " ||
+  (ty.startsWith "uint" &&
+    match (ty.drop 4).toNat? with
+    | some b => 8 ≤ b && b ≤ 256 && b % 8 == 0
+    | none => false)
+
+mutual
+
+/-- Evaluates a compile-time constant byte-sequence expression (string/hex literals,
+`bytes(...)` conversions, or `abi.encode(...)` of compile-time 32-byte words) for
+hashed transient base-slot verification. -/
+private def evalCompileTimeBytes? (env : Env) : Nat → Json → Option ByteArray
+  | 0, _ => none
+  | fuel + 1, e =>
+      match optStr e "nodeType" with
+      | some "TupleExpression" =>
+          if (field? e "isInlineArray").bind (·.getBool?.toOption) == some true then none
+          else match (field? e "components").bind (·.getArr?.toOption) with
+          | some #[inner] => evalCompileTimeBytes? env fuel inner
+          | _ => none
+      | some "Literal" =>
+          let kind := optStr e "kind" |>.getD ""
+          if kind == "string" || kind == "unicodeString" || kind == "hexString" then
+            (optStr e "hexValue").bind hexStringToBytes?
+          else none
+      | some "FunctionCall" =>
+          let kind := optStr e "kind" |>.getD ""
+          if kind == "typeConversion" then
+            let ty := ((field? e "typeDescriptions").bind (optStr · "typeString")).getD ""
+            if ty == "bytes" || ty == "bytes memory" then
+              match (field? e "arguments").bind (·.getArr?.toOption) with
+              | some #[arg] => evalCompileTimeBytes? env fuel arg
+              | _ => none
+            else none
+          else if kind == "functionCall" then
+            match field? e "expression", (field? e "arguments").bind (·.getArr?.toOption) with
+            | some callee, some args =>
+                if optStr callee "nodeType" == some "MemberAccess" &&
+                    optStr callee "memberName" == some "encode" &&
+                    (field? callee "expression").any (fun base =>
+                      optStr base "nodeType" == some "Identifier" &&
+                      optStr base "name" == some "abi" &&
+                      (field? base "referencedDeclaration").bind (·.getInt?.toOption) == some (-1)) then
+                  args.foldlM (fun acc arg => do
+                    let w ← evalCompileTimeSlotConst? env fuel arg
+                    return acc ++ natToBytes32BE w) ByteArray.empty
+                else none
+            | _, _ => none
+          else none
+      | _ => none
+
+/-- Evaluates a compile-time constant `bytes32`/`uint256` slot expression (hex/decimal
+literals, `keccak256(...)`, `bytes32`/`uint256` conversions, bitwise/arithmetic
+combinations, and `bytes32`/`uint` constants in `env.numericConstants`). -/
+private def evalCompileTimeSlotConst? (env : Env) : Nat → Json → Option Nat
+  | 0, _ => none
+  | fuel + 1, e =>
+      match optStr e "nodeType" with
+      | some "TupleExpression" =>
+          if (field? e "isInlineArray").bind (·.getBool?.toOption) == some true then none
+          else match (field? e "components").bind (·.getArr?.toOption) with
+          | some #[inner] => evalCompileTimeSlotConst? env fuel inner
+          | _ => none
+      | some "Literal" =>
+          if optStr e "kind" == some "number" then
+            match optStr e "value" with
+            | some raw =>
+                let clean := (raw.splitOn "_").foldl (· ++ ·) ""
+                match Compiler.Hex.parseHexNat? clean <|> clean.toNat? with
+                | some n => if n < 2 ^ 256 then some n else none
+                | none => none
+            | none => none
+          else none
+      | some "Identifier" | some "MemberAccess" =>
+          match (field? e "referencedDeclaration").bind (·.getNat?.toOption) with
+          | some cid =>
+              match env.numericConstants.find? cid with
+              | some decl =>
+                  if isConstantVarDecl decl && isUnsignedOrBytes32Type (declTypeStr decl) then
+                    (field? decl "value").bind (evalCompileTimeSlotConst? env fuel)
+                  else none
+              | none => none
+          | none => none
+      | some "FunctionCall" =>
+          let kind := optStr e "kind" |>.getD ""
+          if kind == "typeConversion" then
+            let ty := ((field? e "typeDescriptions").bind (optStr · "typeString")).getD ""
+            if ty == "bytes32" || ty == "uint256" then
+              match (field? e "arguments").bind (·.getArr?.toOption) with
+              | some #[arg] =>
+                  let argTy := ((field? arg "typeDescriptions").bind (optStr · "typeString")).getD ""
+                  if isUnsignedOrBytes32Type argTy then
+                    evalCompileTimeSlotConst? env fuel arg
+                  else none
+              | _ => none
+            else none
+          else if kind == "functionCall" then
+            match field? e "expression", (field? e "arguments").bind (·.getArr?.toOption) with
+            | some callee, some #[arg] =>
+                if optStr callee "nodeType" == some "Identifier" &&
+                    optStr callee "name" == some "keccak256" &&
+                    (field? callee "referencedDeclaration").bind (·.getInt?.toOption) == some (-8) then
+                  (evalCompileTimeBytes? env fuel arg).map fun bytes =>
+                    KeccakEngine.byteArrayToNatBE (KeccakEngine.keccak256 bytes)
+                else none
+            | _, _ => none
+          else none
+      | some "UnaryOperation" =>
+          if optStr e "operator" == some "~" then
+            (field? e "subExpression").bind (evalCompileTimeSlotConst? env fuel) |>.bind fun v =>
+              if v < 2 ^ 256 then some ((2 ^ 256 - 1) - v) else none
+          else none
+      | some "BinaryOperation" =>
+          let op := optStr e "operator" |>.getD ""
+          match (field? e "leftExpression").bind (evalCompileTimeSlotConst? env fuel),
+                (field? e "rightExpression").bind (evalCompileTimeSlotConst? env fuel) with
+          | some l, some r =>
+              match op with
+              | "+" => some ((l + r) % 2 ^ 256)
+              | "-" => some ((l + 2 ^ 256 - r) % 2 ^ 256)
+              | "&" => some (l &&& r)
+              | "|" => some (l ||| r)
+              | "^" => some (l ^^^ r)
+              | _ => none
+          | _, _ => none
+      | _ => none
+
+end
+
+private partial def findLocalVarInit? (targetId : Nat) : Json → Option Json
+  | j@(.obj fields) =>
+      if optStr j "nodeType" == some "VariableDeclarationStatement" then
+        match (field? j "declarations").bind (·.getArr?.toOption), field? j "initialValue" with
+        | some #[decl], some initVal =>
+            if !initVal.isNull &&
+                optStr decl "nodeType" == some "VariableDeclaration" &&
+                (field? decl "id").bind (·.getNat?.toOption) == some targetId then
+              some initVal
+            else none
+        | _, _ => none
+      else fields.foldl (fun found _ v => found <|> findLocalVarInit? targetId v) none
+  | .arr xs => xs.findSome? (findLocalVarInit? targetId)
+  | _ => none
+
+private partial def astContainsRefId (targetId : Nat) : Json → Bool
+  | j@(.obj fields) =>
+      if (field? j "referencedDeclaration").bind (·.getNat?.toOption) == some targetId then true
+      else fields.foldl (fun found _ v => found || astContainsRefId targetId v) false
+  | .arr xs => xs.any (astContainsRefId targetId)
+  | _ => false
+
+private partial def yulAstAssignsName (targetName : String) : Json → Bool
+  | j@(.obj fields) =>
+      let here :=
+        if optStr j "nodeType" == some "YulAssignment" then
+          ((field? j "variableNames").bind (·.getArr?.toOption)).any (fun vars =>
+            vars.any (fun v => yulIdentName? v == some targetName))
+        else false
+      here || fields.foldl (fun found _ v => found || yulAstAssignsName targetName v) false
+  | .arr xs => xs.any (yulAstAssignsName targetName)
+  | _ => false
+
+private partial def varAssignedInBody (targetId : Nat) (targetName : String) : Json → Bool
+  | j@(.obj fields) =>
+      let here :=
+        match optStr j "nodeType" with
+        | some "Assignment" =>
+            astContainsRefId targetId ((field? j "leftHandSide").getD .null)
+        | some "UnaryOperation" =>
+            let op := optStr j "operator" |>.getD ""
+            (op == "++" || op == "--" || op == "delete") &&
+              astContainsRefId targetId ((field? j "subExpression").getD .null)
+        | some "InlineAssembly" =>
+            let refsTarget :=
+              ((field? j "externalReferences").bind (·.getArr?.toOption)).any (fun refs =>
+                refs.any (fun ref =>
+                  (field? ref "declaration").bind (·.getNat?.toOption) == some targetId))
+            refsTarget && yulAstAssignsName targetName ((field? j "AST").getD .null)
+        | _ => false
+      here || fields.foldl (fun found _ v => found || varAssignedInBody targetId targetName v) false
+  | .arr xs => xs.any (varAssignedInBody targetId targetName)
+  | _ => false
+
+/-- Resolves every `externalReferences` entry of `asmNode` to either a plain local/parameter
+`VariableDeclaration` inside `fn` (`isConst = false`) or a contract/file `bytes32` constant
+in `env.numericConstants` (`isConst = true`). Rejects `.slot`/`.offset`, multi-word values,
+and any non-constant contract/transient state variable reference. -/
+private def resolveTransientSlotExternalRefs? (env : Env) (fn asmNode : Json) :
+    Option (RBMap String (Json × Bool) compare) := do
+  let refs ← (field? asmNode "externalReferences").bind (·.getArr?.toOption)
+  let mut byName : RBMap String (Json × Bool) compare := RBMap.empty
+  for ref in refs do
+    guard ((field? ref "isSlot").bind (·.getBool?.toOption) == some false)
+    guard ((field? ref "isOffset").bind (·.getBool?.toOption) == some false)
+    guard ((field? ref "suffix").isNone)
+    guard ((field? ref "valueSize").bind (·.getNat?.toOption) == some 1)
+    let declId ← (field? ref "declaration").bind (·.getNat?.toOption)
+    let (decl, isConst) ←
+      match findVarDeclById? declId fn with
+      | some localDecl => some (localDecl, false)
+      | none =>
+          match env.numericConstants.find? declId with
+          | some cdecl =>
+              if isConstantVarDecl cdecl && isBytes32Decl cdecl then some (cdecl, true)
+              else none
+          | none => none
+    let name ← optStr decl "name"
+    guard (!name.isEmpty)
+    match byName.find? name with
+    | some (prev, prevConst) =>
+        guard ((field? prev "id").bind (·.getNat?.toOption) == some declId && prevConst == isConst)
+    | none =>
+        byName := byName.insert name (decl, isConst)
+  return byName
+
+/-- Verifies that `slotNode` names either a `bytes32` constant or an immutable-in-body local
+`bytes32` variable initialized from a compile-time constant `≥ 2^128`. -/
+private def resolveHighConstBaseSlot? (env : Env) (fn : Json)
+    (refs : RBMap String (Json × Bool) compare) (slotNode : Json) : Option (String × Nat) := do
+  let slotName ← yulIdentName? slotNode
+  let (decl, isConst) ← refs.find? slotName
+  guard (isBytes32Decl decl)
+  let declId ← (field? decl "id").bind (·.getNat?.toOption)
+  if isConst then
+    let initExpr ← field? decl "value"
+    let v ← evalCompileTimeSlotConst? env 16 initExpr
+    guard (isHighConstSlotVal v)
+    return (slotName, v)
+  else
+    let body ← field? fn "body"
+    let initExpr ← findLocalVarInit? declId body
+    guard (!varAssignedInBody declId slotName body)
+    let v ← evalCompileTimeSlotConst? env 16 initExpr
+    guard (isHighConstSlotVal v)
+    return (slotName, v)
+
+/-- Matches a hashed-base transient slot operand: either `slotVar` directly or
+`add(slotVar, idxVar)` / `add(idxVar, slotVar)` where `slotVar` is a compile-time
+high-constant `bytes32` base slot (`≥ 2^128`) and `idxVar` is a full-width 256-bit
+(`uint256`/`bytes32`) local or safe constant offset. -/
+private def matchHashedBaseSlotExpr? (env : Env) (fn : Json)
+    (refs : RBMap String (Json × Bool) compare) (slotArg : Json) : Option (Array String) :=
+  match resolveHighConstBaseSlot? env fn refs slotArg with
+  | some (slotName, _) => some #[slotName]
+  | none =>
+      match yulCallArgs? slotArg "add" with
+      | some #[a, b] =>
+          let checkPair (baseNode offNode : Json) : Option (Array String) := do
+            let (slotName, baseVal) ← resolveHighConstBaseSlot? env fn refs baseNode
+            if let some offName := yulIdentName? offNode then
+              let (offDecl, isOffConst) ← refs.find? offName
+              guard (!isOffConst && isFullWidthTransientWordDecl offDecl)
+              return #[slotName, offName]
+            else if let some lit := yulLitNat? offNode then
+              guard (lit < 2 ^ 256 && isHighConstSlotVal ((baseVal + lit) % 2 ^ 256))
+              return #[slotName]
+            else none
+          checkPair a b <|> checkPair b a
+      | _ => none
+
+/-- Recognizes single-statement full-width 256-bit hashed-base transient `tstore`/`tload`
+assembly blocks:
+- `tstore(add(slotVar, idxVar), valVar)` or `tstore(slotVar, valVar)` (or literal value)
+- `outVar := tload(add(slotVar, idxVar))` or `outVar := tload(slotVar)`
+where every referenced local variable is a full-width 256-bit `uint256` or `bytes32`
+(zero sub-word dirty bits) and `slotVar` is bound to a compile-time `bytes32` constant
+`≥ 2^128` (disjoint from Solidity's low linear transient slots `0..N`) and never
+reassigned in `fn`. -/
+private def isHashedBaseTransientSlotOp (env : Env) (fn asmNode : Json) : Bool := Id.run do
+  if optStr fn "nodeType" != some "FunctionDefinition" then return false
+  if optStr asmNode "nodeType" != some "InlineAssembly" then return false
+  let some ast := field? asmNode "AST" | return false
+  if optStr ast "nodeType" != some "YulBlock" then return false
+  let some stmts := (field? ast "statements").bind (·.getArr?.toOption) | return false
+  if stmts.size != 1 then return false
+  let some refs := resolveTransientSlotExternalRefs? env fn asmNode | return false
+  let st := stmts[0]!
+  if let some #[slotArg, valArg] := yulExprCallArgs? st "tstore" then
+    let some slotUsed := matchHashedBaseSlotExpr? env fn refs slotArg | return false
+    if let some valName := yulIdentName? valArg then
+      let some (valDecl, isValConst) := refs.find? valName | return false
+      return !isValConst && isFullWidthTransientWordDecl valDecl &&
+        rbMapKeysSubset refs (slotUsed.push valName)
+    else if let some v := yulLitNat? valArg then
+      return v < 2 ^ 256 && rbMapKeysSubset refs slotUsed
+    else return false
+  if optStr st "nodeType" == some "YulAssignment" then
+    let some vars := (field? st "variableNames").bind (·.getArr?.toOption) | return false
+    if vars.size != 1 then return false
+    let some outName := yulIdentName? vars[0]! | return false
+    let some rhs := field? st "value" | return false
+    let some #[slotArg] := yulCallArgs? rhs "tload" | return false
+    let some (outDecl, isOutConst) := refs.find? outName | return false
+    if isOutConst || !isFullWidthTransientWordDecl outDecl then return false
+    let some slotUsed := matchHashedBaseSlotExpr? env fn refs slotArg | return false
+    return rbMapKeysSubset refs (slotUsed.push outName)
+  return false
+
 /-- Recognizes inline-assembly blocks that are safe inside a call closure accessing
 `transient` state variables:
 1. Pure constant-slot storage-pointer getters (`assembly { $.slot := CONST }`).
 2. Recognized structured OpenZeppelin v5 `LowLevelCall` helpers (`callNoReturn`,
    `staticcallNoReturn`, `returnDataSize`, `returnData`, `bubbleRevert`), matched strictly
    by Yul AST structure and local parameter types (100% library-name independent).
-Arbitrary inline assembly and `delegatecall` remain strictly rejected. -/
+3. Single-statement full-width 256-bit hashed-base transient `tstore`/`tload` blocks
+   (`tstore(add(slot, idx), val)` / `val := tload(add(slot, idx))`) anchored at a
+   compile-time `bytes32` constant `≥ 2^128`.
+Arbitrary inline assembly, low-slot `tstore`/`tload`, dynamic base slots, sub-word
+variables, and `delegatecall` remain strictly rejected. -/
 def isAllowedAssemblyInTransientClosure (env : Env) (fn asmNode : Json) : Bool :=
   isPureConstSlotBindingAssembly env fn asmNode ||
   isStructuredLowLevelCallNoReturn fn asmNode ||
   isStructuredReturnDataSize fn asmNode ||
   isStructuredReturnDataCopy fn asmNode ||
-  isStructuredBubbleRevert fn asmNode
+  isStructuredBubbleRevert fn asmNode ||
+  isHashedBaseTransientSlotOp env fn asmNode
 
 private partial def firstDisallowedTransientAssembly? (env : Env) (fn : Json) : Json → Option Json
   | j@(.obj fields) =>
