@@ -118,6 +118,9 @@ CASES = [
     ('msg-data',
      '    function h(uint256 a) external pure returns (uint256) { return msg.data.length + a; }\n',
      'root = S.h(a);', '', 'msg.data', 'msg.data and msg.sig in a linked library call'),
+    ('paren-msg-sig',
+     '    function h(uint256 a) external pure returns (uint256) { return uint32((msg).sig) + a; }\n',
+     'root = S.h(a);', '', '(msg).sig', 'msg.data and msg.sig in a linked library call'),
     ('msg-sig-in-internal-helper',
      '    function g() internal pure returns (uint256) { return uint32(msg.sig); }\n'
      '    function h(uint256 a) external pure returns (uint256) { return g() + a; }\n',
@@ -139,8 +142,8 @@ CASES = [
 ]
 # Frame cases the importer otherwise lowers, so the mutant must admit them. `gasleft` is also
 # rejected elsewhere; the frame check rejects it first, as defense in depth.
-FRAME_CASES = ('msg-data', 'msg-sig-in-internal-helper', 'msg-data-in-modifier',
-               'msg-sig-in-udvt-operator', 'inline-assembly')
+FRAME_CASES = ('msg-data', 'paren-msg-sig', 'msg-sig-in-internal-helper',
+               'msg-data-in-modifier', 'msg-sig-in-udvt-operator', 'inline-assembly')
 # name -> (anchor, replacement, cases the mutant must admit)
 MUTANTS = {
     'frame-check': (
