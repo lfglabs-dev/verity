@@ -143,13 +143,13 @@ theorem supply_after_mint_per_target :
       some (5 : Uint256) := by
   decide
 
-def revertMessage? {α : Type} : ContractResult α → Option String
+def revertMessage? {α : Type} : ContractResult α → Option Verity.Core.RevertPayload
   | .revert msg _ => some msg
   | .success _ _ => none
 
 /-- A callee revert bubbles with its message and rolls AA back. -/
 theorem burnFrom_revert_bubbles :
-    revertMessage? (RtVault.burnFrom ExecutableCallContext.stub bbAddr 6 trancheState) = some "burn exceeds supply" ∧
+    revertMessage? (RtVault.burnFrom ExecutableCallContext.stub bbAddr 6 trancheState) = some (.errorString "burn exceeds supply") ∧
     (RtVault.burnFrom ExecutableCallContext.stub bbAddr 6 trancheState).getState.readContractSlot bbAddr.toNat 0 = 5 := by
   decide
 

@@ -1,6 +1,7 @@
 import Compiler.CompilationModel
 import Compiler.Proofs.MappingSlot
 import Compiler.Keccak.MemorySlice
+import Compiler.Selectors
 import Verity.Core
 import Verity.Core.Semantics
 import Verity.Core.Model.ContractExternalCall
@@ -152,21 +153,21 @@ macro_rules
       `(doElem| $tryCatchFn:ident $attempt (fun _ => do $[$elems:doElem]*))
   | `(doElem| revert $errorName:ident($args,*)) => do
       let revertFn := Lean.mkIdentFrom errorName `_root_.Contracts.revertCustomError
-      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.encode
+      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.toEncoded
       let encodedArgs ← args.getElems.mapM fun arg => `(term| $encodeFn:ident $arg)
       `(doElem| $revertFn:ident
           $(Lean.quote (toString errorName.getId))
           [ $[$encodedArgs],* ])
   | `(doElem| revertError $errorName:ident($args,*)) => do
       let revertFn := Lean.mkIdentFrom errorName `_root_.Contracts.revertCustomError
-      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.encode
+      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.toEncoded
       let encodedArgs ← args.getElems.mapM fun arg => `(term| $encodeFn:ident $arg)
       `(doElem| $revertFn:ident
           $(Lean.quote (toString errorName.getId))
           [ $[$encodedArgs],* ])
   | `(doElem| requireError $cond:term $errorName:ident($args,*)) => do
       let requireFn := Lean.mkIdentFrom errorName `_root_.Contracts.requireCustomError
-      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.encode
+      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.toEncoded
       let encodedArgs ← args.getElems.mapM fun arg => `(term| $encodeFn:ident $arg)
       `(doElem| $requireFn:ident
           $cond
@@ -177,7 +178,7 @@ macro_rules
       `(doElem| $panicFn:ident $code)
   | `(requireSomeUintError $optExpr:term $errorName:ident($args,*)) => do
       let requireFn := Lean.mkIdentFrom errorName `_root_.Contracts.requireSomeUintCustomError
-      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.encode
+      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.toEncoded
       let encodedArgs ← args.getElems.mapM fun arg => `(term| $encodeFn:ident $arg)
       `($requireFn:ident
           $optExpr
@@ -220,52 +221,106 @@ abbrev Int256 := Verity.Core.Int256
 abbrev toInt256 := Verity.toInt256
 abbrev toUint256 := Verity.toUint256
 
+/-- A custom-error argument as the EDSL reverts with it: its ABI type (for the
+error signature), its ABI word when the type is static, and a text rendering. -/
+structure CustomErrorEncoded where
+  abiType : String
+  word : Option Nat
+  text : String
+
 class CustomErrorArg (α : Type) where
   encode : α → String
+  abiType : String
+  /-- The ABI word of a static argument, as `encodeStaticCustomErrorArg` stores it;
+  `none` for a dynamic type. -/
+  abiWord : α → Option Nat
+
+def CustomErrorArg.toEncoded {α : Type} [CustomErrorArg α] (value : α) : CustomErrorEncoded :=
+  { abiType := CustomErrorArg.abiType α
+    word := CustomErrorArg.abiWord value
+    text := CustomErrorArg.encode value }
 
 instance : CustomErrorArg Uint256 where
   encode value := toString (value : Nat)
+  abiType := "uint256"
+  abiWord value := some (value : Nat)
 
 instance : CustomErrorArg Uint16 where
   encode value := toString value.toNat
+  abiType := "uint16"
+  abiWord value := some value.toNat
 
 instance : CustomErrorArg (UIntN bits) where
   encode value := toString value.toNat
+  abiType := s!"uint{bits}"
+  abiWord value := some value.toNat
 
 instance : CustomErrorArg (IntN bits) where
   encode value := toString value.toInt
+  abiType := s!"int{bits}"
+  abiWord value := some (value.toUint256 : Nat)
 
 instance : CustomErrorArg (BytesN bytes) where
   encode value := toString value.toNat
+  abiType := s!"bytes{bytes}"
+  abiWord value := some (value.toUint256 : Nat)
 
 instance : CustomErrorArg Nat where
   encode value := toString value
+  abiType := "uint256"
+  abiWord value := some (value % 2 ^ 256)
 
 instance : CustomErrorArg Address where
   encode value := toString value.toNat
+  abiType := "address"
+  abiWord value := some value.toNat
 
 instance : CustomErrorArg Bool where
   encode value := if value then "true" else "false"
+  abiType := "bool"
+  abiWord value := some (if value then 1 else 0)
 
 instance : CustomErrorArg String where
   encode value := value
+  abiType := "string"
+  abiWord _ := none
 
 instance : CustomErrorArg ByteArray where
   encode value := reprStr value.toList
+  abiType := "bytes"
+  abiWord _ := none
 
 instance [CustomErrorArg α] : CustomErrorArg (Array α) where
   encode values := "[" ++ String.intercalate ", " (values.toList.map CustomErrorArg.encode) ++ "]"
+  abiType := CustomErrorArg.abiType α ++ "[]"
+  abiWord _ := none
 
 instance [CustomErrorArg α] [CustomErrorArg β] : CustomErrorArg (α × β) where
   encode value := "(" ++ CustomErrorArg.encode value.1 ++ ", " ++ CustomErrorArg.encode value.2 ++ ")"
+  abiType := "(" ++ CustomErrorArg.abiType α ++ "," ++ CustomErrorArg.abiType β ++ ")"
+  abiWord _ := none
 
 def formatCustomError (name : String) (args : List String) : String :=
   name ++ "(" ++ String.intercalate ", " args ++ ")"
 
-def revertCustomError (name : String) (args : List String) : Contract Unit :=
-  require false (formatCustomError name args)
+/-- The revert payload of custom error `name(args)`: its 4-byte selector,
+`keccak256("name(type,…)")`, and the static argument words, as the compiled
+`revertWithCustomError` emits them. An argument of dynamic ABI type (`string`,
+`bytes`, arrays, tuples) has no word encoding here, so such an error falls back
+to its text rendering (`Error(string)`), which is not the on-chain payload. -/
+def customErrorPayload (name : String) (args : List CustomErrorEncoded) :
+    Verity.Core.RevertPayload :=
+  match args.mapM (·.word) with
+  | some words =>
+      .custom (Compiler.keccak256_first_4_bytes
+        (name ++ "(" ++ String.intercalate "," (args.map (·.abiType)) ++ ")")) words
+  | none => .errorString (formatCustomError name (args.map (·.text)))
 
-def requireCustomError (condition : Bool) (name : String) (args : List String) : Contract Unit :=
+def revertCustomError (name : String) (args : List CustomErrorEncoded) : Contract Unit :=
+  requireWith false (customErrorPayload name args)
+
+def requireCustomError (condition : Bool) (name : String) (args : List CustomErrorEncoded) :
+    Contract Unit :=
   if condition then pure () else revertCustomError name args
 
 /-- Typed-error counterpart to `Verity.Stdlib.Math.requireSomeUint`. When the
@@ -276,7 +331,8 @@ named `requireSomeUintCustomError` rather than `requireSomeUintError` because
 the latter is a reserved EDSL keyword (see `Verity/Macro/Syntax.lean`); the
 fallback `return 0` is unreachable in real execution because the preceding
 revert always returns. -/
-def requireSomeUintCustomError (opt : Option Uint256) (name : String) (args : List String) : Contract Uint256 := do
+def requireSomeUintCustomError (opt : Option Uint256) (name : String)
+    (args : List CustomErrorEncoded) : Contract Uint256 := do
   match opt with
   | some value => return value
   | none => do
@@ -300,33 +356,31 @@ def narrowAddPanic {bits : Nat} (a b : UIntN bits) : Contract (UIntN bits) := fu
   if a.val + b.val < 2 ^ bits then
     ContractResult.success (Verity.Core.UIntN.ofNat bits (a.val + b.val)) state
   else
-    ContractResult.revert "Panic(0x11): narrow arithmetic overflow" state
+    ContractResult.revert (.panic 0x11) state
 
 def narrowSubPanic {bits : Nat} (a b : UIntN bits) : Contract (UIntN bits) := fun state =>
   if b.val ≤ a.val then
     ContractResult.success (Verity.Core.UIntN.ofNat bits (a.val - b.val)) state
   else
-    ContractResult.revert "Panic(0x11): narrow arithmetic underflow" state
+    ContractResult.revert (.panic 0x11) state
 
 def narrowMulPanic {bits : Nat} (a b : UIntN bits) : Contract (UIntN bits) := fun state =>
   if a.val * b.val < 2 ^ bits then
     ContractResult.success (Verity.Core.UIntN.ofNat bits (a.val * b.val)) state
   else
-    ContractResult.revert "Panic(0x11): narrow arithmetic overflow" state
+    ContractResult.revert (.panic 0x11) state
 
 /-- Executable counterpart to the `Stmt.panicCode` model/IR surface. Reverts
-unconditionally, mirroring Solidity's built-in `Panic(uint256)` payload that the
-Yul lowering emits (`solidityPanicPayloadExpr`). The runtime message carries the
-decimal panic code; on-chain the compiled contract reverts with the ABI-encoded
-`Panic(uint256)` selector + code instead. -/
+unconditionally with Solidity's built-in `Panic(uint256)` payload, the bytes the
+Yul lowering emits (`solidityPanicPayloadExpr`). -/
 def revertPanic (code : Uint256) : Contract Unit :=
-  revertCustomError "Panic" [CustomErrorArg.encode code]
+  revertWith (.panic code.val)
 
 /-- Polymorphic executable counterpart used when a terminating panic appears in
 an expression-valued generated body. Keep `revertPanic`'s public signature
 source-compatible for direct callers. -/
 def revertPanicAs {α : Type} (code : Uint256) : Contract α :=
-  fun state => ContractResult.revert s!"Panic({code.val})" state
+  fun state => ContractResult.revert (.panic code.val) state
 
 private def wordToSigned (value : Uint256) : Int :=
   (toInt256 value : Int)
@@ -336,6 +390,8 @@ private def signedToWord (value : Int) : Uint256 :=
 
 instance : CustomErrorArg Int256 where
   encode value := toString (value : Int)
+  abiType := "int256"
+  abiWord value := some (toUint256 value : Nat)
 
 private def pow2 (n : Nat) : Nat := 2 ^ n
 
@@ -486,18 +542,18 @@ def calldatacopyLive (destOffset sourceOffset size : Uint256) : Contract Unit :=
         (Compiler.CompilationModel.Denote.calldatacopyMemoryPadded state.selector state.calldata
           destOffset.val sourceOffset.val size.val (fun a => (state.memory a).val) offset) }
 def returndataCopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
-/-- The revert reason `revertReturndata` records. The compiled code reverts with the last
-call's returndata bytes; the EDSL's `String` reason cannot carry them, so it only marks the
-revert as bubbled. -/
-def revertReturndataReason : String := "revertReturndata"
-
-/-- `returndatacopy(0, 0, returndatasize())` then `revert(0, returndatasize())`: the call ends
-with a revert, as in the compiled code (`Stmt.revertReturndata`). -/
+/-- `returndatacopy(0, 0, returndatasize())` then `revert(0, returndatasize())`: the call
+reverts with the last call's returndata bytes, as the compiled code and the model
+(`Stmt.revertReturndata`, `Denote.returndataRevertBytes`) do. -/
 def revertReturndata : Contract Unit := fun state =>
-  ContractResult.revert revertReturndataReason state
+  ContractResult.revert
+    (.raw (Compiler.CompilationModel.Denote.returndataRevertBytes state.returndata)) state
 
 @[simp] theorem revertReturndata_run (state : ContractState) :
-    revertReturndata.run state = ContractResult.revert revertReturndataReason state := rfl
+    revertReturndata.run state =
+      ContractResult.revert
+        (.raw (Compiler.CompilationModel.Denote.returndataRevertBytes state.returndata))
+        state := rfl
 /-- Executable length surface for `arrayLength`: dynamic ABI values that
 carry a length word (`bytes`, `string`, `T[]`). Deliberately not
 instantiated for word types: `Bytes32` is a reducible abbrev of `Uint256`,
@@ -1204,7 +1260,7 @@ theorem externalStaticCallContractWordsTo_withViewLinks_revert {α : Type} [Exte
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
     (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
     (s : ContractState) (body : List Uint256 → Contract (List Uint256))
-    (msg : String) (s' : ContractState)
+    (msg : Verity.Core.RevertPayload) (s' : ContractState)
     (hlink : links name target = some body)
     (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
     (externalStaticCallContractWordsTo (α := α) name target args
@@ -1343,7 +1399,7 @@ theorem externalCallContractWordsTo_withLinks_revert {α : Type} [ExternalResult
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
     (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
     (s : ContractState) (body : List Uint256 → Contract (List Uint256))
-    (msg : String) (s' : ContractState)
+    (msg : Verity.Core.RevertPayload) (s' : ContractState)
     (hlink : links name target = some body)
     (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
     (externalCallContractWordsTo (α := α) name target args
@@ -1387,7 +1443,7 @@ theorem externalCallEffectWordsTo_withLinks_revert
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
     (name : String) (target : Address) (args : List Uint256) (siteId : Nat)
     (s : ContractState) (body : List Uint256 → Contract (List Uint256))
-    (msg : String) (s' : ContractState)
+    (msg : Verity.Core.RevertPayload) (s' : ContractState)
     (hlink : links name target = some body)
     (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
     (externalCallEffectWordsTo name target args (base.withLinks links) siteId).run s =
@@ -1440,7 +1496,7 @@ theorem externalStaticCallContractWordsTo_withLinks_revert {α : Type} [External
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
     (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
     (s : ContractState) (body : List Uint256 → Contract (List Uint256))
-    (msg : String) (s' : ContractState)
+    (msg : Verity.Core.RevertPayload) (s' : ContractState)
     (hlink : links name target = some body)
     (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
     (externalStaticCallContractWordsTo (α := α) name target args

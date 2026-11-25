@@ -851,7 +851,7 @@ private theorem ecmDoWords_raw_of_run_success
 
 private theorem ecmDoWords_raw_of_run_revert
     (mod : Compiler.ECM.ExternalCallModule) (adv : AdversaryModel)
-    (args : List Uint256) (ret : Nat) (s s' : ContractState) (msg : String)
+    (args : List Uint256) (ret : Nat) (s s' : ContractState) (msg : Verity.Core.RevertPayload)
     (hecm : (Contracts.ecmDoWords mod adv args ret).run s = .revert msg s') :
     ∃ s_rev, Contracts.ecmDoWords mod adv args ret s = .revert msg s_rev := by
   simp only [Contract.run] at hecm
