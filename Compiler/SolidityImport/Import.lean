@@ -3266,17 +3266,59 @@ private partial def revertFreeAssignmentTarget (j : Json) : Bool :=
         (key == some "Identifier" || key == some "Literal") && revertFreeAssignmentTarget base
   | _ => false
 
+/-- Base of a mapping member inside a storage struct (1-key or 2-key), or a `mapping(...)
+storage` parameter bound to a raw storage slot. -/
+private partial def isStructMappingBase (env : Env) (j : Json) : Bool :=
+  let j := unparenJson j
+  match optStr j "nodeType" with
+  | some "MemberAccess" =>
+      ((field? j "expression").bind (field? · "typeDescriptions")
+        |>.bind (optStr · "typeString")).any (·.startsWith "struct ")
+  | some "IndexAccess" =>
+      let outer := unparenJson ((field? j "baseExpression").getD .null)
+      optStr outer "nodeType" == some "MemberAccess" &&
+        ((field? outer "typeDescriptions").bind (optStr · "typeString")).any
+          (·.startsWith "mapping(") &&
+        isStructMappingBase env outer
+  | some "Identifier" =>
+      match (field? j "referencedDeclaration").bind (·.getNat?.toOption) with
+      | some id => (env.paths.find? id).any fun
+          | .rawSlot 0 _ => true
+          | _ => false
+      | none => false
+  | _ => false
+
+/-- Scalar element target `s.map[k]` of a storage-struct mapping whose lowering evaluates the
+right-hand side into a temporary before the target's outer and inner key preludes. -/
+private def isStructMappingElementTarget (env : Env) (j : Json) : Bool :=
+  let j := unparenJson j
+  if optStr j "nodeType" != some "IndexAccess" || assignmentIn j then false
+  else
+    let base := unparenJson ((field? j "baseExpression").getD .null)
+    let baseTy := (field? base "typeDescriptions").bind (optStr · "typeString") |>.getD ""
+    let valTy := (field? j "typeDescriptions").bind (optStr · "typeString") |>.getD ""
+    baseTy.startsWith "mapping(" &&
+      !valTy.startsWith "mapping(" && !valTy.startsWith "struct " &&
+      !valTy.contains "[" && !valTy.startsWith "bytes " && !valTy.startsWith "string " &&
+      isStructMappingBase env base
+
 /-- solc evaluates an assignment's right-hand side before the target's index keys and
 bounds checks on both pipelines, while the lowering evaluates the target first. A
 typed-interface call can revert, so an assignment statement that makes one, directly or
 through an internal callee, is admitted only when its target cannot revert
-(`revertFreeAssignmentTarget`). -/
+(`revertFreeAssignmentTarget`), or for a plain `=` to a scalar storage-struct mapping
+element whose lowering evaluates the right-hand side first (still rejecting calls in the
+target's own keys). -/
 private def checkInterfaceCallAssignmentOrder (statement : Json) : M Unit := do
   let some expression := field? statement "expression" | return
   unless optStr expression "nodeType" == some "Assignment" do return
   let some target := field? expression "leftHandSide" | return
   if revertFreeAssignmentTarget target then return
-  if let some call ← interfaceCallIn? (← IO.mkRef #[]) expression then
+  let inspected :=
+    if optStr expression "operator" == some "=" && isStructMappingElementTarget (← get) target then
+      target
+    else expression
+  if let some call ← interfaceCallIn? (← IO.mkRef #[]) inspected then
     failAt call ("typed interface staticcall in an assignment to an array element or " ++
       "computed key is unsupported: solc evaluates the right-hand side first")
 
@@ -4687,7 +4729,10 @@ private partial def lowerRef (j : Json) : M Ref := do
       -- An outer mapping key can still be a reference to a writable local.
       -- Do not defer its read across an inner key that can change it.
       match base with
-      | .structMapping .. | .path _ (.outer ..) =>
+      | .structMapping .. =>
+          if assignmentIn indexExpression then
+            failAt indexExpression "effectful inner mapping key requires outer key capture"
+      | .path _ (.outer ..) =>
           if assignmentIn indexExpression || statefulCallIn indexExpression (← get) then
             failAt indexExpression "effectful inner mapping key requires outer key capture"
       | _ => pure ()
@@ -4778,6 +4823,22 @@ private partial def lowerRef (j : Json) : M Ref := do
           pure (.structFixedElement ((pre ++ key.pre).push (.letVar captured key.expr))
             path arrInfo (.localVar captured))
       | .structMapping pre path mapInfo =>
+          let (outerCapture, path) ← if statefulCallIn indexExpression (← get) then
+            match path with
+            | .one rawName k1 => do
+                let ok1 ← fresh
+                pure (#[Stmt.letVar ok1 k1], SPath.one rawName (.localVar ok1))
+            | .two rawName k1 k2 => do
+                let ok1 ← fresh
+                let ok2 ← fresh
+                pure (#[Stmt.letVar ok1 k1, Stmt.letVar ok2 k2],
+                  SPath.two rawName (.localVar ok1) (.localVar ok2))
+            | .rawSlot sid baseSlot => do
+                let obs ← fresh
+                pure (#[Stmt.letVar obs baseSlot], SPath.rawSlot sid (.localVar obs))
+            | _ => pure (#[], path)
+          else pure (#[], path)
+          let pre := pre ++ outerCapture
           match path with
           | .rawSlot _ _ => pure ()
           | .bytesSlot _ _ => failAt j "struct mapping element on StorageSlot.BytesSlot is outside this slice"
@@ -5563,7 +5624,14 @@ private partial def lowerBinary (j : Json) : M Val := do
   if let some test ← lowerThisCodeLengthZeroTest? op leftNode rightNode then
     return test
   let env ← get
-  let admittedCall := ((op == "==" || op == "!=") && !env.admittedInterfaceCalls.isEmpty &&
+  let admittedComparison := ["==", "!=", "<", "<=", ">", ">="].contains op &&
+    ((field? j "function").bind (·.getNat?.toOption)).isNone &&
+    !assignmentIn leftNode && !assignmentIn rightNode &&
+    !memoryWriteOrderHazard leftNode rightNode env
+  let hasStatefulComparison := !env.forwardingBytesTuple && admittedComparison &&
+    (statefulCallIn leftNode env || statefulCallIn rightNode env)
+  let admittedCall := admittedComparison ||
+    ((op == "==" || op == "!=") && !env.admittedInterfaceCalls.isEmpty &&
     ((((field? (unparenJson leftNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
       !statefulCallIn rightNode env && !assignmentIn rightNode) ||
      (((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
@@ -5593,8 +5661,17 @@ private partial def lowerBinary (j : Json) : M Val := do
     if memoryWriteOrderHazard leftNode rightNode env then
       failAt j "memory-writing helper operands require explicit evaluation-order support"
   let commonTy := (field? j "commonType").bind (optStr · "typeString") |>.getD ""
-  let mut left ← lowerExprAs commonTy leftNode
-  let mut right ← lowerExprAs commonTy rightNode
+  let (initLeft, initRight) ←
+    if hasStatefulComparison && !env.viaIR then do
+      let r ← lowerExprAs commonTy rightNode
+      let l ← lowerExprAs commonTy leftNode
+      pure (l, r)
+    else do
+      let l ← lowerExprAs commonTy leftNode
+      let r ← lowerExprAs commonTy rightNode
+      pure (l, r)
+  let mut left := initLeft
+  let mut right := initRight
   unless op == "&&" || op == "||" do
     if (assignmentIn leftNode && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
         (assignmentIn rightNode && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
@@ -5603,7 +5680,8 @@ private partial def lowerBinary (j : Json) : M Val := do
     -- A literal has no effects to order; leave its empty prelude intact for
     -- checked exponentiation and other constant-sensitive lowerings.
     -- An overloaded operator is a positional function call on both pipelines.
-    if !env.viaIR && ((field? j "function").bind (·.getNat?.toOption)).isNone &&
+    if !hasStatefulComparison && !env.viaIR &&
+        ((field? j "function").bind (·.getNat?.toOption)).isNone &&
         !right.pre.isEmpty && !isConstLiteralVal left then
       let b ← atom right
       let a ← atom left
@@ -5708,6 +5786,17 @@ private partial def lowerBinary (j : Json) : M Val := do
       right ← convert common rightTy right rightNode
   unless (bitsOf common).isSome || common == "bool" || (fixedBytesWidth? common).isSome || isSigned do
     failAt j s!"unsupported operand type {common}"
+  if hasStatefulComparison then
+    if env.viaIR then
+      let a ← captureAssignedValue left
+      let b ← captureAssignedValue right
+      left := { pre := a.pre ++ b.pre, expr := a.expr }
+      right := { pre := #[], expr := b.expr }
+    else
+      let b ← captureAssignedValue right
+      let a ← captureAssignedValue left
+      left := { pre := b.pre ++ a.pre, expr := a.expr }
+      right := { pre := #[], expr := b.expr }
   match op with
   | "&&" | "||" =>
       unless common == "bool" do failAt j s!"unsupported logical operand type {common}"
@@ -17662,12 +17751,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
         validateStoredEnumValue target right (← atom (← lowerConverted (← mType target) right))
       if !pre.isEmpty && !deleting then
         let right ← mField expression "rightHandSide"
-        if assignmentIn right || statefulCallIn right (← get) then
+        if assignmentIn right || (assignmentIn target && statefulCallIn right (← get)) then
           failAt target "struct mapping write key prelude with stateful RHS is unsupported"
-      if !deleting && (assignmentIn target || statefulCallIn target (← get)) then
-        let capturedValue ← fresh
-        let valuePre := value.pre.push (.letVar capturedValue value.expr)
-        return ← writeStructMappingElement (valuePre ++ pre) path mapInfo key (.localVar capturedValue) false target
       let value ← if deleting then pure value else captureAssignedValue value
       return ← writeStructMappingElement (value.pre ++ pre) path mapInfo key value.expr deleting target
     let .path pre path := reference

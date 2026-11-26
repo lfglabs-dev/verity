@@ -258,6 +258,13 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         'solidity_differential.check_post_call_state_access',
         '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
         '--output', str(output / 'post-call-state-access')]))
+    checks.append(('stateful-comparison-struct-map-rhs', ['-m',
+        'solidity_differential.check_stateful_comparison_and_struct_map_rhs',
+        '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
+        '--output', str(output / 'stateful-comparison-struct-map-rhs')]))
+    checks.append(('stateful-comparison-struct-map-rhs-rejections', ['-m',
+        'solidity_differential.check_stateful_comparison_and_struct_map_rhs_rejections',
+        '--output', str(output / 'stateful-comparison-struct-map-rhs-rejections')]))
     checks.append(('reentrant-callback-rejections', ['-m',
         'solidity_differential.check_reentrant_callback_rejections',
         '--output', str(output / 'reentrant-callback-rejections')]))
