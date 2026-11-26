@@ -294,4 +294,28 @@ solidity_import rejCalldataArrayBeforeStorageArray from "Contracts/SolidityImpor
   contract EncodingScalarUnorderedOrderRejects
   function calldataArrayBeforeStorageArray(«uint8[]»)
 
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:115:48: Conditional: [solidity-import:unsupported] non-deferred storage bytes/string encoding argument after a storage bytes/string argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageStringBeforeStorageConditionalEncode
+c ? sigMap[1] : sigMap[2]
+-/
+#guard_msgs in
+solidity_import rejStorageStringBeforeStorageCondEncode from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageStringBeforeStorageConditionalEncode(bool,uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:119:54: Conditional: [solidity-import:unsupported] non-deferred storage bytes/string encoding argument after a storage bytes/string argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageStringBeforeStorageConditionalPacked
+c ? sigMap[1] : sigMap[2]
+-/
+#guard_msgs in
+solidity_import rejStorageStringBeforeStorageCondPacked from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageStringBeforeStorageConditionalPacked(bool,uint256)
+
 end SolidityImportSmoke.EncodingScalarUnorderedChecks

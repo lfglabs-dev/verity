@@ -7327,6 +7327,11 @@ private partial def deferredStorageBytesArgument? (args : Array Json) (idx : Nat
   match ← resolveStorageBytesTarget? arg with
   | some (refPre, name, slotExpr, _) => return some (refPre, name, slotExpr)
   | none =>
+      for prev in args.extract 0 idx do
+        let prevTy ← mType prev
+        if (prevTy.startsWith "bytes " || prevTy.startsWith "string ") &&
+            (prevTy.splitOn " storage").length > 1 then
+          failAt arg "non-deferred storage bytes/string encoding argument after a storage bytes/string argument is unsupported"
       for later in args.extract (idx + 1) args.size do
         unless ← orderInert later do
           failAt arg "storage bytes/string encoding argument before a sibling that can revert or write is unsupported"

@@ -787,6 +787,14 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-string-before-storage-conditional', '''contract C {
+    mapping(uint256 => string) private sigs;
+
+    function run(bool c, uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(sigs[0], c ? sigs[1] : sigs[2], x == 0 ? 1 : 2));
+    }
+}
+''', ['run(bool,uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry
