@@ -1370,7 +1370,8 @@ private def yulPositiveWordOffsetLiteral? (node : Json) : M (Option Nat) := do
   unless value ≥ 32 && value < 2^256 && value % 32 == 0 do return none
   return some value
 
-private def yulByteBufferLoad? (addrNode : Json) (lowerYulFn : Json → M Val) : M (Option Val) := do
+private def yulByteBufferLoad? (mloadNode addrNode : Json)
+    (lowerYulFn : Json → M Val) : M (Option Val) := do
   if let some buf ← yulByteBufferByName? addrNode then
     return some { pre := buf.pre, expr := buf.size }
   if (← mKind addrNode) != "YulFunctionCall" then return none
@@ -1405,6 +1406,8 @@ private def yulByteBufferLoad? (addrNode : Json) (lowerYulFn : Json → M Val) :
     else
       pure none
   if let some (buf, lhsNode, k) := tailMatched? then
+    modify fun e => { e with yulByteWordLoadSites :=
+      e.yulByteWordLoadSites.push (buf.pointer, mloadNode, e.currentFile, e.stack) }
     let lhsVal ← lowerYulFn lhsNode
     let addrVar ← fresh
     let remVar ← fresh
@@ -1423,11 +1426,15 @@ private def yulByteBufferLoad? (addrNode : Json) (lowerYulFn : Json → M Val) :
   let matched? ← do
     if let some off ← yulPositiveWordOffsetLiteral? outerArgs[1]! then
       if let some buf ← yulByteBufferByName? outerArgs[0]! then
+        modify fun e => { e with yulByteWordLoadSites :=
+          e.yulByteWordLoadSites.push (buf.pointer, mloadNode, e.currentFile, e.stack) }
         pure (some (buf, off))
       else
         pure none
     else if let some off ← yulPositiveWordOffsetLiteral? outerArgs[0]! then
       if let some buf ← yulByteBufferByName? outerArgs[1]! then
+        modify fun e => { e with yulByteWordLoadSites :=
+          e.yulByteWordLoadSites.push (buf.pointer, mloadNode, e.currentFile, e.stack) }
         pure (some (buf, off))
       else
         pure none
@@ -1636,7 +1643,7 @@ private partial def lowerYul (j : Json) : M Val := do
         if args.size == 1 then
           if let some v ← yulMemoryArrayElementLoad? args[0]! lowerYul then
             return v
-          if let some v ← yulByteBufferLoad? args[0]! lowerYul then
+          if let some v ← yulByteBufferLoad? j args[0]! lowerYul then
             return v
           -- A scratch word this block wrote, or the zero slot. Anything else below 0x80 holds
           -- what solc's code generator left there (mapping hashes, the free-memory pointer),
@@ -3078,6 +3085,15 @@ private def withAdmittedInterfaceCall (node? : Option Json) (k : M α) : M α :=
     modify fun e => { e with admittedInterfaceCalls := saved }
     throw error
 
+/-- Strip redundant parentheses (single-component, non-inline tuples). -/
+private partial def unparenJson (j : Json) : Json :=
+  if optStr j "nodeType" == some "TupleExpression" &&
+      (field? j "isInlineArray").bind (·.getBool?.toOption) == some false then
+    match field? j "components" with
+    | some (.arr #[only]) => if only.isNull then j else unparenJson only
+    | _ => j
+  else j
+
 /-- A function call whose callee is a member of an interface-typed receiver and
 resolves to a declaration of an interface. Library and qualified base calls are
 not interface members; other contract-typed receivers keep the generic
@@ -3087,7 +3103,8 @@ private def isInterfaceExternalCall (j : Json) : M Bool := do
     return false
   let some callee := field? j "expression" | return false
   unless optStr callee "nodeType" == some "MemberAccess" do return false
-  let some base := field? callee "expression" | return false
+  let some baseRaw := field? callee "expression" | return false
+  let base := unparenJson baseRaw
   if optStr base "nodeType" == some "Identifier" && optStr base "name" == some "this" then
     return false
   unless (← mType base).startsWith "contract " do return false
@@ -3305,16 +3322,6 @@ private structure TryParts where
   no : Array Json
   yesSetup : M (Array Stmt) := pure #[]
   noSetup : M (Array Stmt) := pure #[]
-
-/-- Strip redundant parentheses (single-component, non-inline tuples). -/
-private partial def unparenJson (j : Json) : Json :=
-  if optStr j "nodeType" == some "TupleExpression" &&
-      (field? j "isInlineArray").bind (·.getBool?.toOption) == some false then
-    match field? j "components" with
-    | some (.arr #[only]) => if only.isNull then j else unparenJson only
-    | _ => j
-  else j
-
 /-- A string literal (`"…"`, `unicode"…"`, `hex"…"`) read as a `bytesN` value: its bytes
 left-aligned in one word, as solc's implicit literal conversion produces. `none` when `ty`
 is not `bytesN` or `j` is not such a literal. -/
@@ -4499,6 +4506,14 @@ private partial def lowerRef (j : Json) : M Ref := do
   match ← mKind j with
   | "Identifier" =>
       let id ← refInt j
+      -- The contract-typed `this` as a value: solc represents a contract-typed value by
+      -- its address (ABI encoding, packed encoding, comparisons, event and internal
+      -- call arguments all use the 160-bit word with clean upper bits), so it is the
+      -- same word as `address(this)`. Member access on `this` rejects in `MemberAccess`.
+      if id == -28 && optStr j "name" == some "this" then
+        unless (← mType j).startsWith "contract " do
+          failAt j "this does not resolve to the current contract builtin"
+        return .expr { pre := #[], expr := .contractAddress }
       if id < 0 then failAt j "unresolved builtin identifier"
       let n := id.toNat
       let env ← get
@@ -5127,7 +5142,7 @@ private partial def lowerRef (j : Json) : M Ref := do
         lowerTypeBound j base member
       else if member == "interfaceId" then
         lowerInterfaceId j base
-      else if member == "selector" then
+      else if member == "selector" && (field? j "referencedDeclaration").isNone then
         lowerSelectorMemberAccess j base
       else if member == "balance" &&
           ((← mType base) == "address" || (← mType base) == "address payable") then
@@ -5152,6 +5167,12 @@ private partial def lowerRef (j : Json) : M Ref := do
         let some (_, _, mExpr) := memberVals.find? (fun (mName, _, _) => mName == member)
           | failAt j s!"{member} is not a member of {sName}"
         pure (.expr { pre := initPre, expr := mExpr })
+      else if (let b := unparenJson base
+          optStr b "nodeType" == some "Identifier" && optStr b "name" == some "this" &&
+          (field? b "referencedDeclaration").bind (·.getInt?.toOption) == some (-28)) then
+        -- `this.f` as a value (an external function of this contract) and its
+        -- `.address` / `.selector` members are not the contract's address word.
+        failAt j s!"member {member} of this is outside this slice"
       else
         match ← lowerRef base with
         | .path pre path =>
@@ -6467,7 +6488,9 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
         failAt j "effectful ABI encoding argument is unsupported"
       checkEncodingScalar (← mField j "rightHandSide") ordered
   | "MemberAccess" =>
-      if optStr j "memberName" == some "interfaceId" || optStr j "memberName" == some "selector" then pure ()
+      if (field? j "referencedDeclaration").isNone &&
+          (optStr j "memberName" == some "interfaceId" ||
+           optStr j "memberName" == some "selector") then pure ()
       else checkEncodingScalar (← mField j "expression") ordered
   | "UnaryOperation" =>
       if ordered && (optStr j "operator" == some "++" || optStr j "operator" == some "--") &&
@@ -6788,7 +6811,8 @@ private partial def lowerLiteralBytes (j : Json) : M EncodedBytes := do
 
 private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
   let ty ← mType j
-  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" && ty == "bytes4" then
+  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
+      (field? j "referencedDeclaration").isNone && ty == "bytes4" then
     return ← lowerSelectorBytes j
   if let some _ := paramType ty then
     -- Hash builtins consume only admitted byte buffers; other function calls
@@ -6957,7 +6981,7 @@ containing the left-aligned 32-bit selector. -/
 private partial def lowerSelectorBytes (j : Json) : M EncodedBytes := do
   let ty ← mType j
   if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
-      ty == "bytes4" then
+      (field? j "referencedDeclaration").isNone && ty == "bytes4" then
     let fnExpr ← mField j "expression"
     if (← mKind fnExpr) == "Identifier" then
       let declId ← refInt fnExpr
@@ -6983,12 +7007,13 @@ private partial def lowerSelectorBytes (j : Json) : M EncodedBytes := do
       ty.startsWith "literal_string " then
     unless ty.startsWith "literal_string " do
       checkEncodingScalar j
-    let selVal ← atom (← lowerConverted "bytes4" j)
-    let cleaned := cleanHelperResultExpr "bytes4" selVal
+    let value ← atom (← lowerConverted "bytes4" j)
     let pointer ← fresh
     let finish ← fresh
     modify fun e => { e with encodingMemory := true }
-    return { pre := selVal.pre ++ (AbiEncoding.staticWords pointer finish [cleaned]).toArray,
+    let mask := cleanHelperResultExpr "bytes4" value
+    let word := if (← get).viaIR then value.expr else mask
+    return { pre := value.pre ++ (AbiEncoding.staticWords pointer finish [word]).toArray,
              pointer := .localVar pointer, size := .literal 4 }
   failAt j "selector argument must be a bytes4 or function .selector expression"
 
@@ -8144,7 +8169,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         optStr j "kind" == some "unicodeString" do
       failAt j "unsupported literal byte buffer"
     return ← lowerLiteralBytes j
-  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" then
+  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
+      (field? j "referencedDeclaration").isNone then
     return ← lowerSelectorBytes j
   if ← isStorageStructBytesMember j then
     if let some (pre, name, slotExpr, _) ← resolveStorageBytesTarget? j then
@@ -10189,6 +10215,83 @@ private partial def lowerEcrecover (j callee : Json) : M Val := do
     .ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [],
     .letVar result (.bitAnd (.mload (.literal 0)) (.literal (2 ^ 160 - 1)))]
   return { pre, expr := .localVar result }
+
+/-- The `staticcall` member of `target.staticcall(...)` on an address-typed receiver, or
+`none`. Call options (`target.staticcall{gas: g}(...)`) reject at the options node. -/
+private partial def lowLevelStaticcallMember? (call : Json) : M (Option Json) := do
+  unless optStr call "nodeType" == some "FunctionCall" &&
+      optStr call "kind" == some "functionCall" do
+    return none
+  let some calleeRaw := field? call "expression" | return none
+  let callee := unparenJson calleeRaw
+  if optStr callee "nodeType" == some "FunctionCallOptions" then
+    let some innerRaw := field? callee "expression" | return none
+    let inner := unparenJson innerRaw
+    if optStr inner "nodeType" == some "MemberAccess" &&
+        optStr inner "memberName" == some "staticcall" &&
+        (field? inner "referencedDeclaration").isNone then
+      failAt callee "low-level staticcall options are outside this slice"
+    return none
+  unless optStr callee "nodeType" == some "MemberAccess" &&
+      optStr callee "memberName" == some "staticcall" &&
+      (field? callee "referencedDeclaration").isNone do
+    return none
+  let some base := field? callee "expression" | return none
+  let ty ← mType base
+  return if ty == "address" || ty == "address payable" then some callee else none
+
+/-- Solidity's low-level `target.staticcall(payload)` with a `bytes memory` payload, as
+solc 0.8.34 lowers it (legacy and via-IR): the receiver, then the payload, are evaluated;
+`staticcall(gas(), target, add(payload, 0x20), mload(payload), 0, 0)` runs through the
+closed `YulMemoryCall` staticcall transport (no value; the EVM runs the callee in a static
+context, so it changes no state); success and failure are both values (`ok = 0` on a
+revert, an exceptional halt or any failure, with nothing forwarded); there is no
+`extcodesize` check, so an account without code succeeds with empty return data. The
+return data is then materialised as solc's `extract_returndata`: empty return data is the
+zero-length array at `0x60`; otherwise a fresh allocation at the free pointer of
+`32 + roundUp(returndatasize())` bytes (`Panic(0x41)` past 64 bits) holding the length and
+the complete return (or revert) data. Returns the statements, the success binding, and
+the return data's data pointer and length bindings. -/
+private partial def lowerLowLevelStaticcall (call member : Json) :
+    M (Array Stmt × String × String × String) := do
+  unless (← mArr (← mField call "names")).isEmpty do
+    failAt call "named call arguments are outside this slice"
+  let args ← mArr (← mField call "arguments")
+  unless args.size == 1 do failAt call "low-level staticcall takes one bytes memory argument"
+  let payloadNode := args[0]!
+  let payloadTy ← mType payloadNode
+  unless payloadTy == "bytes memory" || payloadTy == "bytes" do
+    failAt payloadNode s!"low-level staticcall payload must be bytes memory, found {payloadTy}"
+  let target ← convert "address" (← mType (← mField member "expression"))
+    (← lowerExpr (← mField member "expression")) member
+  let targetVar ← fresh
+  let payload ← lowerEncodedBytes payloadNode
+  let inPtr ← fresh
+  let inSize ← fresh
+  let success ← fresh
+  let size ← fresh
+  let header ← fresh
+  let finish ← fresh
+  let data ← fresh
+  modify fun e =>
+    { e with encodingMemory := true,
+             unpaddedByteDataBindings := e.unpaddedByteDataBindings.push data }
+  let roundedWords := Expr.div (.add (.localVar size) (.literal 31)) (.literal 32)
+  let alloc :=
+    [Stmt.ite (.le (.localVar size) (.literal (2 ^ 64 - 1))) [] [.panicCode (.literal 0x41)]] ++
+      AbiEncoding.reserve header finish (.add (.literal 32) (.mul roundedWords (.literal 32)))
+  let pre : Array Stmt := target.pre.push (.letVar targetVar target.expr) ++ payload.pre ++ #[
+    .letVar inPtr payload.pointer,
+    .letVar inSize payload.size,
+    .ecm (Compiler.ECM.YulMemoryCall.module true success)
+      [.localVar targetVar, .localVar inPtr, .localVar inSize, .literal 0, .literal 0],
+    .letVar size .returndataSize,
+    .letVar data (.literal 128),
+    .ite (.eq (.localVar size) (.literal 0)) [] (alloc ++ [
+      .mstore (.localVar header) (.localVar size),
+      .assignVar data (.add (.localVar header) (.literal 32)),
+      .returndataCopy (.localVar data) (.literal 0) (.localVar size)])]
+  return (pre, success, data, size)
 
 private partial def lowerCall (j : Json) : M Val := do
   let names ← mArr (← mField j "names")
@@ -18895,7 +18998,8 @@ private partial def selectorComparisonCall? (expr : Json) : M (Option Json) := d
   let lhs ← mField expr "leftExpression"
   let rhs ← mField expr "rightExpression"
   for (call, peer) in [(lhs, rhs), (rhs, lhs)] do
-    unless optStr peer "memberName" == some "selector" do continue
+    unless optStr peer "memberName" == some "selector" &&
+        (field? peer "referencedDeclaration").isNone do continue
     let some member := field? peer "expression" | continue
     let some receiver := field? member "expression" | continue
     if (← mType receiver).startsWith "type(contract " && (← mType call) == "bytes4" &&
@@ -18925,6 +19029,50 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     unless decls.any (!·.isNull) do failAt s "empty tuple declaration"
     let init := field? s "initialValue" |>.getD Json.null
     if init.isNull then failAt s "tuple variable declaration requires an initializer"
+    let initCall := unparenJson init
+    if let some member ← lowLevelStaticcallMember? initCall then
+      unless decls.size == 2 do
+        failAt s "low-level staticcall declares (bool success, bytes memory returndata)"
+      let (callPre, success, data, size) ← lowerLowLevelStaticcall initCall member
+      let mut out := callPre
+      if let some d := decls[0]? then
+        unless d.isNull do
+          let name ← mStr (← mField d "name")
+          let id ← mNat (← mField d "id")
+          let dLoc := optStr d "storageLocation" |>.getD "default"
+          unless (← mType d) == "bool" && dLoc == "default" do
+            failAt d "low-level staticcall success must be a bool local"
+          let binding ← freshFor name
+          let expr := Expr.localVar binding
+          out := out.push (.letVar binding (.localVar success))
+          modify fun e =>
+            { e with values := e.values.insert id expr,
+                     scalarTy := e.scalarTy.insert id .bool,
+                     yulNames := e.yulNames.insert name expr,
+                     yulMemoryArrays := e.yulMemoryArrays.erase name,
+                     yulMemoryStructs := e.yulMemoryStructs.erase name,
+                     writableLocals := e.writableLocals.insert id binding,
+                     zeroInitLocals := e.zeroInitLocals.filter (· != id) }
+      if let some d := decls[1]? then
+        unless d.isNull do
+          let name ← mStr (← mField d "name")
+          let id ← mNat (← mField d "id")
+          let dTy ← mType d
+          unless (optStr d "storageLocation" |>.getD "default") == "memory" &&
+              (dTy == "bytes" || dTy == "bytes memory") do
+            failAt d "low-level staticcall return data must be a bytes memory local"
+          if (← get).bodyAssigned.contains id then
+            failAt d "reassigned low-level staticcall return data is outside this slice"
+          let retained : EncodedBytes :=
+            { pre := #[], pointer := .localVar data, size := .localVar size }
+          modify fun e =>
+            { e with byteBuffers := e.byteBuffers.insert id retained,
+                     nonLiteralByteLocals := if e.nonLiteralByteLocals.contains id then
+                       e.nonLiteralByteLocals else e.nonLiteralByteLocals.push id,
+                     yulNames := e.yulNames.erase name,
+                     yulMemoryArrays := e.yulMemoryArrays.erase name,
+                     yulMemoryStructs := e.yulMemoryStructs.insert name id }
+      return out
     if ← isAbiDecodeCall init then
       let (decodePre, decoded) ← lowerAbiDecodeItems init
       unless decls.size == decoded.size do
@@ -21813,12 +21961,14 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   pure (out, srcParams)
 
 /-- `lowerRoot`, then the whole-body recheck of its code-read operands
-(`checkCodeReadTargets`) and of raw Yul reads of cleaned narrow locals
-(`checkYulCleanedNarrowReads`). -/
+(`checkCodeReadTargets`), of raw Yul reads of cleaned narrow locals
+(`checkYulCleanedNarrowReads`), and of Yul byte-buffer word loads
+(`checkYulByteWordLoads`). -/
 private def lowerRootChecked (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let lowered ← lowerRoot fn
   checkCodeReadTargets lowered.1
   checkYulCleanedNarrowReads lowered.1
+  checkYulByteWordLoads lowered.1
   return lowered
 
 /-! ### Named call arguments
@@ -22551,6 +22701,7 @@ private def importSlice
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                         projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, forwardingBytesTuple := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootDynamicStructReturn := none, rootDynamicTupleReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulCleanedNarrowBindings := #[], yulBindingReadSites := #[], yulFreePointerBindings := #[],
+                        unpaddedByteDataBindings := #[], yulByteWordLoadSites := #[],
                         rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[],
                         rootLinkedLibraryCalls := #[], rootReturndataRead := none }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env

@@ -69,6 +69,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "linked-library-call",
     "linked-library-call-negative",
     "loops-storage-guards-enum-decode",
+    "low-level-staticcall",
+    "low-level-staticcall-rejections",
     "mapping-dirty",
     "mapping-write-order",
     "mocks",

@@ -1311,11 +1311,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'FunctionCallOptions: [solidity-import:unsupported] low-level call options other than a single `value` are outside this slice'),
-        ('low-level-call-rejected',
-         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    (bool ok, ) = address(uint160(x)).staticcall(\"\");\n    return ok ? 1 : 0;\n  }\n}\n",
+        ('low-level-staticcall-positive',
+         'pragma solidity 0.8.34;\ncontract C {\n'
+         '  function checked(uint256 x) external view returns (uint256) {\n'
+         '    (bool ok, ) = address(uint160(x)).staticcall(abi.encode(x));\n'
+         '    return ok ? 1 : 0;\n  }\n}\n',
          None,
-         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'MemberAccess: [solidity-import:unsupported] external contract calls are outside this slice'),
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, '
+         'bytecodeHash := "none" }',
+         None),
+        ('low-level-call-rejected',
+         'pragma solidity 0.8.34;\ncontract C {\n'
+         '  function checked(uint256 x) external returns (uint256) {\n'
+         '    address target = address(uint160(x));\n'
+         '    (bool ok, ) = target.delegatecall("");\n'
+         '    return ok ? 1 : 0;\n  }\n}\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, '
+         'bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] '
+         'external contract calls are outside this slice'),
         # Yul `basefee()` / `gasprice()` never imported: c4e34760d (#2567) added their lowerYul
         # arms but not their arity, so `unsupported Yul builtin` rejects them first, and this case
         # (a positive control until #2831) failed since. They stay rejected (#2831). Note: no

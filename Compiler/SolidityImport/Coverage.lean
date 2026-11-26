@@ -1057,6 +1057,33 @@ theorem execStmt_returnBytes_arm (oracle : DenoteOracle) (fields : List Field)
             observedStop := false }
       | none => .revert) := rfl
 
+/-- `Stmt.returndataCopy` copies `size` bytes starting at `sourceOffset` from raw
+byte returndata (`state.rawReturndata`) when present, or from word returndata
+(`state.world.returndata`) otherwise, reverting out of bounds. -/
+theorem execStmt_returndataCopy_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (destOffset sourceOffset size : Expr) :
+    execStmt oracle fields state (.returndataCopy destOffset sourceOffset size) =
+      (match evalExpr oracle fields state destOffset,
+          evalExpr oracle fields state sourceOffset,
+          evalExpr oracle fields state size with
+      | some dst, some src, some sz =>
+          match state.rawReturndata with
+          | some bytes =>
+              if src + sz ≤ bytes.length then
+                .continue { state with
+                  world := state.world.copyPhysicalMemory (rawPhysicalByte bytes) dst src sz }
+              else .revert
+          | none =>
+              if src + sz ≤ 32 * state.world.returndata.length then
+                .continue { state with
+                  world := { state.world with
+                    memory := returndatacopyMemoryPaddedUint256
+                      state.world.returndata dst src sz state.world.memory
+                    byteMemory := state.world.byteMemory.copyFrom
+                      (DenoteMemory.wordListByte state.world.returndata) dst src sz } }
+              else .revert
+      | _, _, _ => .revert) := rfl
+
 /-- Every function body of a model is in the slice whitelist. -/
 def modelImportCovered (model : CompilationModel) : Bool :=
   model.functions.all fun fn => executableStmtListCovered fn.body

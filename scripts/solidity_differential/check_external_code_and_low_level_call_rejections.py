@@ -149,7 +149,7 @@ CASES = [
      ('token.call', 0, 'MemberAccess', 'placement')),
     ('staticcall', '', '',
      sequence(call='token.staticcall(abi.encodeCall(IToken.transfer, (to, amount)))'),
-     ('token.staticcall', 0, 'MemberAccess', 'external')),
+     None),
     ('delegatecall', '', '',
      sequence(call='token.delegatecall(abi.encodeCall(IToken.transfer, (to, amount)))'),
      ('token.delegatecall', 0, 'MemberAccess', 'external')),
