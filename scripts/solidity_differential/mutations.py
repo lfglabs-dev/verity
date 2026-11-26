@@ -14,7 +14,7 @@ MUTANTS = {
     "denote-require-selector": ("Verity/Core/Model/Denote.lean", '[0x08, 0xc3, 0x79, 0xa0]', '[0x08, 0xc3, 0x79, 0xa1]'),
     "import-custom-require-condition": ("Compiler/SolidityImport/Import.lean", '(.requireError condition.expr name values)', '(.requireError (.literal 1) name values)'),
     "denote-custom-require-selector": ("Verity/Core/Model/Denote.lean", '(wordBytes hash).take 4', '((wordBytes hash).drop 1).take 4'),
-    "denote-custom-require-argument": ("Verity/Core/Model/Denote.lean", 'return selector ++ values.flatMap wordBytes', 'return selector ++ values.flatMap (fun value => wordBytes (value + 1))'),
+    "denote-custom-require-argument": ("Verity/Core/Model/Denote.lean", 'fun pair => wordBytes (customErrorArgWord pair.1 pair.2)', 'fun pair => wordBytes (customErrorArgWord pair.1 pair.2 + 1)'),
     "denote-panic-selector": ("Verity/Core/Model/Denote.lean", '[0x4e, 0x48, 0x7b, 0x71]', '[0x4e, 0x48, 0x7b, 0x70]'),
     "denote-panic-endian": ("Verity/Core/Model/Denote.lean", 'value / 2^(8*(31-i))', 'value / 2^(8*i)'),
     "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" =>\n      if isSigned then cmp .slt left right else cmp .lt left right', '| "<" =>\n      if isSigned then cmp .slt left right else cmp .gt left right'),
@@ -45,7 +45,7 @@ def snapshot(destination):
     else:
         command(["cp", "-aL", "--reflink=auto", build, cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
-    for compiler_name in ("solc-0.7.6", "solc-0.8.34", "solc-0.8.26", "solc-0.8.10"):
+    for compiler_name in ("solc-0.7.6", "solc-0.8.38", "solc-0.8.35", "solc-0.8.34", "solc-0.8.28", "solc-0.8.26", "solc-0.8.10"):
         compiler_src = WORKSPACE / ".lake/solidity-import" / compiler_name
         if compiler_src.exists():
             shutil.copy2(compiler_src, cache / "solidity-import" / compiler_name)

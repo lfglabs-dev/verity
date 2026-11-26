@@ -218,11 +218,21 @@ structure Env where
   transientLayoutTypes : Json := .null
   /-- Transient state variables the current root's closure accesses. -/
   rootTransientFields : Array String := #[]
-  /-- First inline-assembly block in a body the current root's closure lowers. -/
+  /-- First inline-assembly block in a body the current root's closure lowers that is not
+  transient-neutral (`transientNeutralAssembly`). -/
   rootAssembly : Option Json := none
   /-- Trusted shortcuts (`trustedImporterShortcuts`) the current root's lowering applied, in
   order. Reported per root in `FunctionStatus.shortcuts`. -/
   rootShortcuts : Array ShortcutUse := #[]
+  /-- `Profile.linkedLibrariesMatchSource`: admit and inline direct linked library calls. -/
+  linkedLibrariesMatchSource : Bool := false
+  /-- Linked library calls the current root's lowering inlined, in order. Reported per root in
+  `FunctionStatus.linkedLibraryCalls`. -/
+  rootLinkedLibraryCalls : Array LinkedLibraryCall := #[]
+  /-- First Yul `returndatasize()` the current root's lowering reached. An inlined linked
+  library call issues no call, so the model's return-data buffer after it is not the
+  DELEGATECALL's: a root may not combine both (`admitLinkedLibraryCall`). -/
+  rootReturndataRead : Option Json := none
   included : Array FnRec
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec
@@ -281,7 +291,7 @@ structure Env where
   /-- Result bindings of the code-hash reads lowered so far in the current root, with their
       nodes (`checkCodeReadTargets` rejects those that run after an account change). -/
   codeHashSites : Array (String × Json) := #[]
-  /-- `bool` / `address` bindings that an inline-assembly assignment set to the cleaned
+  /-- `address` bindings that an inline-assembly assignment set to the cleaned
       form of a possibly dirty word (`cleanYulNarrowWord?`). -/
   yulCleanedNarrowBindings : Array String := #[]
   /-- Bindings read by a Yul identifier in the current root, with the reading node
@@ -329,15 +339,31 @@ def mArr (j : Json) : M (Array Json) := liftM (arr j)
 def mBool (j : Json) : M Bool := liftM (bool j)
 def mNat (j : Json) : M Nat := liftM (flexNat j)
 def mKind (j : Json) : M String := liftM (nodeKind j)
+/-- Declaration id from a scalar or array `t_userDefinedValueType$_..._$<id>` `typeIdentifier`.
+`solc` escapes `$` inside the identifier as `$$$`, so after `"t_userDefinedValueType$_"` the
+first `"_$"`-delimited segment that parses as a `Nat` is the AST declaration id. -/
+private def udvtDeclIdFromTypeIdentifier? (tid : String) : Option Nat :=
+  if tid.startsWith "t_userDefinedValueType$_" || tid.startsWith "t_array$_" then
+    match tid.splitOn "t_userDefinedValueType$_" with
+    | _ :: after :: _ => (after.splitOn "_$").tail.findSome? String.toNat?
+    | _ => none
+  else none
+
 def mType (j : Json) : M String := do
   let raw ← liftM (typeString j)
   let env ← get
+  let tid? := (field? j "typeDescriptions").bind (optStr · "typeIdentifier")
+  let byId? := tid?.bind udvtDeclIdFromTypeIdentifier? |>.bind env.userValueTypeById.find?
+  if tid?.any (·.startsWith "t_userDefinedValueType$_") then
+    if let some u := byId? then
+      return u
   if let some u := env.userValueTypes.find? raw then
     return u
   let parts := raw.splitOn "["
   if let h :: t := parts then
-    if let some u := env.userValueTypes.find? h then
-      return String.intercalate "[" (u :: t)
+    if !t.isEmpty then
+      if let some u := byId? <|> env.userValueTypes.find? h then
+        return String.intercalate "[" (u :: t)
   return raw
 
 /-- `Contract.function` frames of the current inlining stack, root first. -/
@@ -970,6 +996,7 @@ partial def stmtBindings : Stmt → List (String × Expr)
   | .ite _ yes no => yes.flatMap stmtBindings ++ no.flatMap stmtBindings
   | .forEach _ _ body => body.flatMap stmtBindings
   | .forEachSetBit _ _ body => body.flatMap stmtBindings
+  | .forEachWhile _ _ _ body => body.flatMap stmtBindings
   | .unsafeBlock _ body => body.flatMap stmtBindings
   | .matchAdt _ _ branches => branches.flatMap fun (_, _, body) => body.flatMap stmtBindings
   | _ => []
@@ -1014,23 +1041,23 @@ def checkCodeReadTargets (body : Array Stmt) : M Unit := do
     if late.contains result then
       failAt node "code hash read after an external call or create2 is unsupported"
 
-/-- The cleaned word an inline-assembly assignment stores into a `bool` or `address`
-local whose right-hand side may be dirty: `iszero(iszero(w))` (`cleanup_t_bool`) and
-`and(w, 2^160 - 1)` (`cleanup_t_address`). Under via-IR, solc keeps the dirty word on
-the stack and applies exactly this cleanup at every Solidity-level use (conditions,
-comparisons, conversions, ABI encoding, storage writes, events), so the cleaned binding
-is observationally equal there; only a later raw Yul read could see the difference, and
-`checkYulCleanedNarrowReads` rejects those. Legacy codegen carries dirty bits through
-conversions, so the importer admits this only under via-IR. `none` for every other type. -/
+/-- The cleaned word an inline-assembly assignment stores into an `address`
+local whose right-hand side may be dirty: `and(w, 2^160 - 1)` (`cleanup_t_address`).
+Under via-IR, solc keeps the dirty word on the stack and applies exactly this cleanup at
+every Solidity-level use (comparisons, conversions, ABI encoding, storage writes, events),
+so the cleaned binding is observationally equal there; only a later raw Yul read could see
+the difference, and `checkYulCleanedNarrowReads` rejects those. Legacy codegen carries dirty
+bits through conversions, so the importer admits this only under via-IR. (`bool` locals
+retain the raw stack word on the #2912 consumer-cleaning path under both pipelines.)
+`none` for every other type. -/
 def cleanYulNarrowWord? (scalarType : ParamType) (word : Expr) : Option Expr :=
   match scalarType with
-  | .bool => some (.logicalNot (.logicalNot word))
   | .address => some (.bitAnd word (.literal (2 ^ 160 - 1)))
   | _ => none
 
-/-- The cleaned word is `some` exactly for `bool` and `address`. -/
+/-- The cleaned word is `some` exactly for `address`. -/
 theorem cleanYulNarrowWord?_isSome_iff (p : ParamType) (word : Expr) :
-    (cleanYulNarrowWord? p word).isSome = true ↔ (p = .bool ∨ p = .address) := by
+    (cleanYulNarrowWord? p word).isSome = true ↔ p = .address := by
   cases p <;> simp [cleanYulNarrowWord?]
 
 /-- Reject every raw Yul read of a binding that may hold a word cleaned by
@@ -1061,8 +1088,8 @@ def checkYulCleanedNarrowReads (body : Array Stmt) : M Unit := do
 def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256
   else if ty == "bytes32" then some 256
-  else if ty == "address" || ty == "address payable" || ty.startsWith "contract " then some 160
-  else if ty.startsWith "enum " then some 8
+  else if ty == "address" || ty == "address payable" || (ty.startsWith "contract " && !ty.contains '[') then some 160
+  else if ty.startsWith "enum " && !ty.contains '[' then some 8
   else if ty.startsWith "uint" then (ty.drop 4).toNat?
   else none
 
@@ -1084,8 +1111,8 @@ def paramType (ty : String) : Option ParamType :=
   | "bytes1" => some (.bytesN 1)
   | "bool" => some .bool
   | _ =>
-      if ty.startsWith "contract " then some .address
-      else if ty.startsWith "enum " then some (.uintN 8)
+      if ty.startsWith "contract " && !ty.contains '[' then some .address
+      else if ty.startsWith "enum " && !ty.contains '[' then some (.uintN 8)
       else match signedBitsOf ty with
       | some n => if n < 256 then some (.intN n) else some .int256
       | none =>
@@ -1182,7 +1209,7 @@ def resolveEnumMembers (j : Json) (ty : String) : M (Array String) := do
   pure ms
 
 def validateEnumTypeIfNeeded (j : Json) (ty : String) : M (Option Nat) := do
-  if ty.startsWith "enum " then
+  if ty.startsWith "enum " && !ty.contains '[' then
     let bound := (← resolveEnumMembers j ty).size
     if optStr j "nodeType" == some "VariableDeclaration" then
       if let some id := (field? j "id").bind (·.getNat?.toOption) then
@@ -1236,10 +1263,81 @@ def rejectForwardedAssembly (body : Json) : M Unit := do
     if let some asmNode := firstInlineAssembly? body then
       failAt asmNode "inline assembly in a forwarded tuple call tree is unsupported"
 
+private partial def inlineAssemblyBlocks : Json → Array Json
+  | j@(.obj fields) =>
+      if optStr j "nodeType" == some "InlineAssembly" then #[j]
+      else fields.foldl (fun found _ v => found ++ inlineAssemblyBlocks v) #[]
+  | .arr xs => xs.foldl (fun found v => found ++ inlineAssemblyBlocks v) #[]
+  | _ => #[]
+
+/-- `VariableDeclaration` nodes below `j` (parameters, returns and locals), by id. -/
+private partial def variableDeclarations (acc : RBMap Nat Json compare) :
+    Json → RBMap Nat Json compare
+  | j@(.obj fields) =>
+      let acc := match optStr j "nodeType", (field? j "id").bind (·.getNat?.toOption) with
+        | some "VariableDeclaration", some id => acc.insert id j
+        | _, _ => acc
+      fields.foldl (fun acc _ v => variableDeclarations acc v) acc
+  | .arr xs => xs.foldl variableDeclarations acc
+  | _ => acc
+
+/-- Yul builtins a transient-neutral block may not call: transient storage access, and
+calls or creations that could run code observing or writing this contract's transient
+storage in the middle of the block. -/
+private def transientSensitiveYulBuiltins : List String :=
+  ["tload", "tstore", "call", "callcode", "delegatecall", "staticcall", "create", "create2"]
+
+private partial def yulCallsTransientSensitive : Json → Bool
+  | j@(.obj fields) =>
+      let own := optStr j "nodeType" == some "YulFunctionCall" &&
+        match (field? j "functionName").bind (optStr · "name") with
+        | some name => transientSensitiveYulBuiltins.contains name || name.startsWith "verbatim"
+        | none => true
+      own || fields.foldl (fun found _ v => found || yulCallsTransientSensitive v) false
+  | .arr xs => xs.any yulCallsTransientSensitive
+  | _ => false
+
+/-- Whether one `externalReferences` entry of a block in a transient closure is
+transient-neutral: a full-word (`uint256`, `int256`, `bytes32`) non-transient variable or
+constant named without suffix, or the `.slot` of a local storage pointer (the namespaced
+storage getter `$.slot := LOCATION`). Narrow words, where legacy and via-IR differ on
+cleaning, and every reference to a transient variable stay out. -/
+private def transientNeutralReference (decls stateVars : RBMap Nat Json compare)
+    (ref : Json) : Bool :=
+  match (field? ref "declaration").bind (·.getNat?.toOption) with
+  | none => false
+  | some id =>
+      match decls.find? id <|> stateVars.find? id with
+      | none => false
+      | some decl =>
+          let transient := optStr decl "mutability" == some "transient"
+          let isState := (field? decl "stateVariable").bind (·.getBool?.toOption) == some true
+          let ty := (field? decl "typeDescriptions").bind (optStr · "typeString")
+          let isSlot := (field? ref "isSlot").bind (·.getBool?.toOption) == some true
+          let isOffset := (field? ref "isOffset").bind (·.getBool?.toOption) == some true
+          !transient && !isOffset &&
+            match optStr ref "suffix" with
+            | none => !isSlot && ["uint256", "int256", "bytes32"].any (ty == some ·)
+            | some "slot" => isSlot && !isState && optStr decl "storageLocation" == some "storage"
+            | some _ => false
+
+/-- A block that neither touches transient storage nor exchanges narrow stack words with
+Solidity, so it composes with the transient-state lowering. -/
+private def transientNeutralAssembly (decls stateVars : RBMap Nat Json compare)
+    (asm : Json) : Bool :=
+  !yulCallsTransientSensitive ((field? asm "AST").getD .null) &&
+    match field? asm "externalReferences" with
+    | some (.arr refs) => refs.all (transientNeutralReference decls stateVars)
+    | none => true
+    | some _ => false
+
 def noteFn (fn : Json) : M Unit := do
   rejectForwardedAssembly ((field? fn "body").getD .null)
   if (← get).rootAssembly.isNone then
-    if let some asmNode := firstInlineAssembly? ((field? fn "body").getD .null) then
+    let decls := variableDeclarations RBMap.empty fn
+    let stateVars := (← get).stateVars
+    let blocks := inlineAssemblyBlocks ((field? fn "body").getD .null)
+    if let some asmNode := blocks.find? (!transientNeutralAssembly decls stateVars ·) then
       modify fun e => { e with rootAssembly := some asmNode }
   let id ← mNat (← mField fn "id")
   let env ← get
@@ -1357,7 +1455,7 @@ theorem isFullWordYulScalar_iff (p : ParamType) :
 theorem uint8_not_fullWordYulScalar : isFullWordYulScalar .uint8 = false := by
   decide
 
-/-- Only `bool` and `address` words are cleaned; a full-word Yul scalar never is. -/
+/-- Only `address` words are cleaned; a full-word Yul scalar never is. -/
 theorem cleanYulNarrowWord?_eq_none_of_fullWord (p : ParamType) (word : Expr)
     (h : isFullWordYulScalar p = true) : cleanYulNarrowWord? p word = none := by
   cases p <;> first | rfl | simp [isFullWordYulScalar] at h

@@ -105,6 +105,8 @@ partial def eraseClosedStaticCalls : Stmt → Stmt
   | .ite cond yes no => .ite cond (yes.map eraseClosedStaticCalls) (no.map eraseClosedStaticCalls)
   | .forEach name count body => .forEach name count (body.map eraseClosedStaticCalls)
   | .forEachSetBit name bitmap body => .forEachSetBit name bitmap (body.map eraseClosedStaticCalls)
+  | .forEachWhile name count guard body =>
+      .forEachWhile name count guard (body.map eraseClosedStaticCalls)
   | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedStaticCalls)
   | .matchAdt adt scrutinee branches =>
       .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
@@ -140,6 +142,8 @@ partial def eraseClosedTransports : Stmt → Stmt
   | .forEach name count body => .forEach name count (body.map eraseClosedTransports)
   | .forEachSetBit name bitmap body =>
       .forEachSetBit name bitmap (body.map eraseClosedTransports)
+  | .forEachWhile name count guard body =>
+      .forEachWhile name count guard (body.map eraseClosedTransports)
   | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedTransports)
   | .matchAdt adt scrutinee branches =>
       .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
@@ -164,6 +168,8 @@ partial def eraseAccountPreservingTransports : Stmt → Stmt
   | .forEach name count body => .forEach name count (body.map eraseAccountPreservingTransports)
   | .forEachSetBit name bitmap body =>
       .forEachSetBit name bitmap (body.map eraseAccountPreservingTransports)
+  | .forEachWhile name count guard body =>
+      .forEachWhile name count guard (body.map eraseAccountPreservingTransports)
   | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseAccountPreservingTransports)
   | .matchAdt adt scrutinee branches =>
       .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
@@ -195,6 +201,8 @@ partial def codeHashesAfterChange (seen : Bool) (statements : List Stmt) : Bool 
           let (afterNo, foundNo) := codeHashesAfterChange seen no
           (afterYes || afterNo, foundYes ++ foundNo)
       | .forEach _ _ body | .forEachSetBit _ _ body =>
+          codeHashesAfterChange (seen || body.any stmtMayChangeAccounts) body
+      | .forEachWhile _ _ _ body =>
           codeHashesAfterChange (seen || body.any stmtMayChangeAccounts) body
       | .unsafeBlock _ body => codeHashesAfterChange seen body
       | .matchAdt _ _ branches =>
@@ -300,6 +308,7 @@ partial def stmtContainsClosedSelfDelegateCall : Stmt → Bool
   | .ite _ yes no =>
       yes.any stmtContainsClosedSelfDelegateCall || no.any stmtContainsClosedSelfDelegateCall
   | .forEach _ _ body | .forEachSetBit _ _ body => body.any stmtContainsClosedSelfDelegateCall
+  | .forEachWhile _ _ _ body => body.any stmtContainsClosedSelfDelegateCall
   | .unsafeBlock _ body => body.any stmtContainsClosedSelfDelegateCall
   | .matchAdt _ _ branches =>
       branches.any fun (_, _, body) => body.any stmtContainsClosedSelfDelegateCall
@@ -310,6 +319,7 @@ partial def stmtContainsClosedLowLevelCall : Stmt → Bool
   | .ecm mod _ => isClosedLowLevelCall mod
   | .ite _ yes no => yes.any stmtContainsClosedLowLevelCall || no.any stmtContainsClosedLowLevelCall
   | .forEach _ _ body | .forEachSetBit _ _ body => body.any stmtContainsClosedLowLevelCall
+  | .forEachWhile _ _ _ body => body.any stmtContainsClosedLowLevelCall
   | .unsafeBlock _ body => body.any stmtContainsClosedLowLevelCall
   | .matchAdt _ _ branches => branches.any fun (_, _, body) => body.any stmtContainsClosedLowLevelCall
   | _ => false
@@ -351,6 +361,8 @@ partial def eraseClosedSelfDelegateCalls : Stmt → Stmt
       .ite cond (yes.map eraseClosedSelfDelegateCalls) (no.map eraseClosedSelfDelegateCalls)
   | .forEach name count body => .forEach name count (body.map eraseClosedSelfDelegateCalls)
   | .forEachSetBit name count body => .forEachSetBit name count (body.map eraseClosedSelfDelegateCalls)
+  | .forEachWhile name count guard body =>
+      .forEachWhile name count guard (body.map eraseClosedSelfDelegateCalls)
   | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedSelfDelegateCalls)
   | .matchAdt adt scrutinee branches =>
       .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
@@ -379,6 +391,7 @@ def stmtRequiresFreePointerInit : Stmt → Bool
       stmtListRequiresFreePointerInit yes || stmtListRequiresFreePointerInit no
   | .forEach _ _ body => stmtListRequiresFreePointerInit body
   | .forEachSetBit _ _ body => stmtListRequiresFreePointerInit body
+  | .forEachWhile _ _ _ body => stmtListRequiresFreePointerInit body
   | .unsafeBlock _ body => stmtListRequiresFreePointerInit body
   | .matchAdt _ _ branches =>
       stmtBranchesRequireFreePointerInit branches

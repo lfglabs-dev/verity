@@ -105,6 +105,36 @@ def wordEnvironment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat 
           request.target != world.thisAddress.val && !reservedPrecompile request.target &&
           (accounts.contains request.target || emptyAccounts.contains request.target) } }
 
+/-- Three-word response buffer for `MultiWordStaticOracle` in
+`Contracts/SolidityImportSmoke/MultiWordStaticOracle.sol`: writes `w0`, `w1`, `w2`
+at offsets `0`, `32`, `64` and slices `length` bytes (zero-padded past byte 96). -/
+def multiWordResponseBytes (w0 w1 w2 length : Nat) : Bytes :=
+  let memory := ((DenoteMemory.Memory.empty.writeWord 0
+    (DenoteMemory.valueWord (Verity.Core.Uint256.ofNat w0))).writeWord 32
+    (DenoteMemory.valueWord (Verity.Core.Uint256.ofNat w1))).writeWord 64
+    (DenoteMemory.valueWord (Verity.Core.Uint256.ofNat w2))
+  (List.range length).map fun offset => UInt8.ofNat (memory.readByte offset).val
+
+/-- `MultiWordStaticOracle`: slots 0..5 are `word0`, `word1`, `word2`, failure flag,
+response length and mask, all read before responding. `word0` is XORed with
+`calldataFold calldata & mask`, so multi-return ABI decoding (valid, dirty narrow words,
+short returndata, extra words, revert forwarding) and calldata folding are all observable. -/
+def multiWordEnvironment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := []) :
+    ByteCallEnvironment :=
+  { gas := some gas
+    adversary := some { (staticAdversary fun request world =>
+      if request.kind != .staticcall || request.value != 0 then (false, [], [])
+      else if accounts.contains request.target then
+        let slot := fun index => (world.storageWords (.contractSlot request.target index)).val
+        let touched := (List.range 6).map (Verity.StorageKey.contractSlot request.target)
+        let w0 := Nat.xor (slot 0) (Nat.land (calldataFold request.calldata) (slot 5))
+        (slot 3 % 256 == 0, multiWordResponseBytes w0 (slot 1) (slot 2) (slot 4), touched)
+      else (true, [], [])) with
+        accepts := fun request world =>
+          request.kind == .staticcall && request.value == 0 &&
+          request.target != world.thisAddress.val && !reservedPrecompile request.target &&
+          (accounts.contains request.target || emptyAccounts.contains request.target) } }
+
 private def decimal (value : Lean.Json) : Except String Nat := do
   let text ← value.getStr?
   let some n := text.toNat? | throw "oracle mock expects decimal words"
@@ -116,8 +146,8 @@ The account list is a code deployment model, not inferred from requested slots. 
 def configure (input : Lean.Json) : Except String ByteCallEnvironment := do
   let config ← input.getObjVal? "byteCallEnvironment"
   let program ← config.getObjValAs? String "program"
-  unless ["raw-static-oracle-v1", "checked-static-oracle-v1", "word-static-oracle-v1"].contains
-      program do
+  unless ["raw-static-oracle-v1", "checked-static-oracle-v1", "word-static-oracle-v1",
+      "multi-word-static-oracle-v1"].contains program do
     throw "unsupported byte-call mock program"
   let caller ← decimal (← input.getObjVal? "account")
   let accounts ← (← (← config.getObjVal? "accounts").getArr?).toList.mapM fun entry => do
@@ -138,6 +168,7 @@ def configure (input : Lean.Json) : Except String ByteCallEnvironment := do
   let gas ← decimal (← config.getObjVal? "gas")
   return if program == "checked-static-oracle-v1" then checkedEnvironment accounts gas emptyAccounts
     else if program == "word-static-oracle-v1" then wordEnvironment accounts gas emptyAccounts
+    else if program == "multi-word-static-oracle-v1" then multiWordEnvironment accounts gas emptyAccounts
     else environment accounts gas emptyAccounts
 
 end Compiler.CompilationModel.SolidityImport.StaticOracleMocks

@@ -13,6 +13,7 @@ is never compiled with an unselected release or rewritten.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import base64
 import io
 import tarfile
@@ -32,7 +33,10 @@ MANIFEST = ROOT / 'scripts/solidity_import_corpus/manifest.json'
 # and its default (`Profile.solc`). The coverage tests keep these synchronized.
 IMPORTER_SOLC = {
     '0.7.6': '0.7.6+commit.7338295f',
+    '0.8.38': '0.8.38+commit.1835d247',
+    '0.8.35': '0.8.35+commit.47b9dedd',
     '0.8.34': '0.8.34+commit.80d5c536',
+    '0.8.28': '0.8.28+commit.7893614a',
     '0.8.26': '0.8.26+commit.8a97fa7a',
     '0.8.10': '0.8.10+commit.fc410830',
 }
@@ -239,12 +243,66 @@ def ast_request(version, target, source_root, solc):
         command = [solc, '--standard-json']
         if entry not in sources:
             raise MeasurementError(f'target entry omitted from solc input: {entry}')
-    remapping_file = source_root / 'remappings.txt'
-    remappings = [line.strip() for line in remapping_file.read_text().splitlines()
-                  if line.strip() and not line.lstrip().startswith('#')] if remapping_file.exists() else []
     request = {'language': 'Solidity', 'sources': sources,
-               'settings': {'remappings': remappings, 'outputSelection': {'*': {'': ['ast']}}}}
+               'settings': {'remappings': project_remappings(source_root),
+                            'outputSelection': {'*': {'': ['ast']}}}}
     return command, request
+
+
+def foundry_toml_remappings(text):
+    """`remappings = [...]` entries of a foundry.toml, as the importer's
+    `parseFoundryTomlRemappings` reads them: quoted `prefix=target` items of every
+    such array, single- or multi-line, `#` comments dropped."""
+    pairs, collecting, buffer = [], False, ''
+    for line in text.split('\n'):
+        trimmed = line.strip()
+        if trimmed.startswith('#'):
+            continue
+        code = trimmed.split('#')[0]
+        if not collecting:
+            if not code.startswith('remappings'):
+                continue
+            rest = code[len('remappings'):].strip()
+            if not rest.startswith('='):
+                continue
+            rhs = rest[1:].strip()
+            if not rhs.startswith('['):
+                continue
+            after = rhs[1:]
+            if ']' not in after:
+                collecting, buffer = True, after
+                continue
+            inside = after.split(']')[0]
+        elif ']' in code:
+            inside = buffer + '\n' + code.split(']')[0]
+            collecting, buffer = False, ''
+        else:
+            buffer += '\n' + code
+            continue
+        for double, single in re.findall(r'"([^"]*)"|\'([^\']*)\'', inside):
+            parts = (double or single).split('=')
+            if len(parts) == 2 and parts[0] and parts[1]:
+                pairs.append(f'{parts[0]}={parts[1]}')
+    return pairs
+
+
+def project_remappings(source_root):
+    """The importer's `readRemappings`: remappings.txt, then foundry.toml entries not already listed."""
+    remappings = []
+    remapping_file = source_root / 'remappings.txt'
+    if remapping_file.exists():
+        for line in remapping_file.read_text().split('\n'):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#') or stripped.startswith('//'):
+                continue
+            if len(stripped.split('=')) == 2:
+                remappings.append(stripped)
+    foundry = source_root / 'foundry.toml'
+    if foundry.exists():
+        for pair in foundry_toml_remappings(foundry.read_text()):
+            if pair not in remappings:
+                remappings.append(pair)
+    return remappings
 
 
 def importer_compiler(target):
@@ -490,14 +548,18 @@ def version_blocked(functions, target, source_root, out, workspace, timeout, sel
             for i, fn in enumerate(functions)]
 
 
-def measure(functions, target, source_root, out, workspace, timeout, selected, matrix):
-    """Probe every function, unless the selected release rejects the source's version pragma."""
+def measure(functions, target, source_root, out, workspace, timeout, selected, matrix, jobs=1):
+    """Probe every function, unless the selected release rejects the source's version pragma.
+
+    Each probe is an independent `lake env lean` process with its own attempt
+    directory, so up to `jobs` of them run at once; rows keep inventory order.
+    """
     gate = next(row for row in matrix if row['release'] == selected['release'])
     if gate['status'] == 'version_rejected':
         return version_blocked(functions, target, source_root, out, workspace, timeout,
                                selected, matrix)
-    rows = []
-    for i, fn in enumerate(functions):
+
+    def one(i, fn):
         attempt = out / str(i)
         attempt.mkdir(exist_ok=True)
         try:
@@ -508,8 +570,12 @@ def measure(functions, target, source_root, out, workspace, timeout, selected, m
                 and result['blocker']['reason'].startswith('source version incompatible')):
             result = {'status': 'error', 'error': 'importer reported a version pragma '
                       'rejection the compiler matrix does not reproduce'}
-        rows.append({**fn, **result})
-    return rows
+        return {**fn, **result}
+
+    if jobs <= 1:
+        return [one(i, fn) for i, fn in enumerate(functions)]
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        return list(pool.map(one, range(len(functions)), functions))
 
 
 def summarize(rows):
@@ -611,6 +677,8 @@ def main():
     parser.add_argument('--fetch', action='store_true')
     parser.add_argument('--project', action='append', help='measure only named projects (recorded in report)')
     parser.add_argument('--timeout', type=int, default=120)
+    parser.add_argument('--jobs', type=int, default=1,
+                        help='concurrent importer probes per contract (each is one Lean process)')
     args = parser.parse_args()
     workspace, output, cache = args.workspace.resolve(), args.output.resolve(), args.cache.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -621,6 +689,8 @@ def main():
     projects = [p for p in manifest['projects'] if not args.project or p['id'] in args.project]
     if not projects or (args.project and set(args.project) - {p['id'] for p in projects}):
         parser.error('unknown or empty project selection')
+    if args.jobs < 1:
+        parser.error('--jobs must be at least 1')
     try:
         for project in projects:
             excluded_functions(project)
@@ -669,7 +739,7 @@ def main():
                 item['source_sha256'] = sha(source_root / target['entry'])
                 functions = inventory(project, target, source_root, solc, dest)
                 item['functions'] = measure(functions, target, source_root, dest, workspace,
-                                            args.timeout, selected, matrix)
+                                            args.timeout, selected, matrix, jobs=args.jobs)
             except (MeasurementError, OSError, ValueError, KeyError) as exc:
                 item['error'] = str(exc)
             if implementation_hashes(workspace) != report['implementation_sha256']:

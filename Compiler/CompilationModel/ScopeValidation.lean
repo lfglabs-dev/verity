@@ -528,6 +528,16 @@ def validateScopedStmtIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount bitmap
       let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames (varName :: localScope) constructorArgCount body
       pure localScope
+  | Stmt.forEachWhile varName count guard body => do
+      validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount count
+      if paramScope.contains varName then
+        throw s!"Compilation error: {context} declares loop variable '{varName}' that shadows a parameter"
+      if localScope.contains varName then
+        throw s!"Compilation error: {context} redeclares local variable '{varName}' in the same scope"
+      -- The guard is evaluated in the loop scope, where the loop variable is bound.
+      validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames (varName :: localScope) constructorArgCount guard
+      let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames (varName :: localScope) constructorArgCount body
+      pure localScope
   | Stmt.unsafeBlock _ body => do
       let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount body
       pure localScope

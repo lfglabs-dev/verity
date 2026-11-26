@@ -494,6 +494,18 @@ mutual
               (fun loopState => execStmtListWithCalls env fields loopState body)
               256 post bits
         | none => .revert
+    | state, .forEachWhile varName count guard body =>
+        match evalExprCall env fields state count with
+        | some (bound, post) =>
+            let initialLoopState :=
+              { post with bindings := bindValue post.bindings varName (wordNormalize 0) }
+            -- The guard is call-free (validation rejects calls in it), so it is
+            -- evaluated without the call environment.
+            execForEachWhileLoop varName
+              (fun loopState => evalExpr env.oracle fields loopState guard)
+              (fun loopState => execStmtListWithCalls env fields loopState body)
+              initialLoopState 0 bound
+        | none => .revert
     | state, other =>
         execStmt env.oracle fields state other
 

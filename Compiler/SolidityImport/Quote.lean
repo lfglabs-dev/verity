@@ -209,6 +209,9 @@ partial def quoteStmt : Stmt → m Term
   | .forEach name count body => do
       `(Compiler.CompilationModel.Stmt.forEach $(quote name) $(← quoteExpr count)
         $(← list (← body.mapM quoteStmt)))
+  | .forEachWhile name count guard body => do
+      `(Compiler.CompilationModel.Stmt.forEachWhile $(quote name) $(← quoteExpr count)
+        $(← quoteExpr guard) $(← list (← body.mapM quoteStmt)))
   | .letVar x v => do `(Compiler.CompilationModel.Stmt.letVar $(quote x) $(← quoteExpr v))
   | .setStorage x v => do `(Compiler.CompilationModel.Stmt.setStorage $(quote x) $(← quoteExpr v))
   | .setStorageArrayElement f i v => do
@@ -375,9 +378,15 @@ def quoteReport (r : ImportReport) : m Term := do
            lowering := $(quote u.lowering), file := $(quote u.file), line := $(quote u.line),
            column := $(quote u.column) } :
           Compiler.CompilationModel.SolidityImport.ShortcutUse))
+    let linked (u : LinkedLibraryCall) : m Term := do
+      `(({ library := $(quote u.library), function := $(quote u.function),
+           declId := $(quote u.declId), file := $(quote u.file), line := $(quote u.line),
+           column := $(quote u.column) } :
+          Compiler.CompilationModel.SolidityImport.LinkedLibraryCall))
     `(({ function := $(quote st.function), denoteCovered := $(quote st.denoteCovered),
          compilerProof := $proof, unsupported := $(← list (← st.unsupported.mapM construct)),
-         shortcuts := $(← list (← st.shortcuts.mapM shortcut)) } :
+         shortcuts := $(← list (← st.shortcuts.mapM shortcut)),
+         linkedLibraryCalls := $(← list (← st.linkedLibraryCalls.mapM linked)) } :
         Compiler.CompilationModel.SolidityImport.FunctionStatus))
   `(({ importerVersion := $(quote r.importerVersion), solcLongVersion := $(quote r.solcLongVersion),
        solcSha256 := $(quote r.solcSha256), settingsJson := $(quote r.settingsJson),

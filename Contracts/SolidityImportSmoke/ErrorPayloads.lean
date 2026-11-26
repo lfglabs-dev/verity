@@ -65,25 +65,39 @@ def runChecks : IO Unit := do
   unless customErrorBytes oracle [{ name := "Wide", params := [.intN 248] }] "Wide"
       [2 ^ 256 - 2 ^ 247] == some ([0xb3, 0x50, 0x79, 0xb4] ++ wordBytes (2 ^ 256 - 2 ^ 247)) do
     throw (IO.userError "int248 custom error differs")
+  -- A noncanonical argument word is encoded as the compiled code encodes it
+  -- (`customErrorArgWord`: masked, sign-extended or collapsed to 0/1), so it gives the
+  -- bytes of the canonical word the bytecode stores.
+  for (name, declarations, dirty, canonical) in [
+      ("Narrow", narrow, [128, 0, 0], [2 ^ 256 - 128, 0, 0]),
+      ("Narrow", narrow, [0x1ff, 0, 0], [2 ^ 256 - 1, 0, 0]),
+      ("Narrow", narrow, [2 ^ 256 - 129, 0, 0], [127, 0, 0]),
+      ("Narrow", narrow, [0, 2 ^ 103, 0], [0, 2 ^ 256 - 2 ^ 103, 0]),
+      ("Narrow", narrow, [0, 0, 2 ^ 255], [0, 0, 0]),
+      ("Narrow", narrow, [2 ^ 256, 0, 0], [0, 0, 0]),
+      ("IntDowncastOverflow", downcast, [104, 2 ^ 256], [104, 0]),
+      ("Wide", [{ name := "Wide", params := [.intN 248] }], [2 ^ 247], [2 ^ 256 - 2 ^ 247]),
+      ("LockedSelector", [{ name := "LockedSelector", params := [.bytesN 4] }],
+        [selectorWord + 1], [selectorWord]),
+      ("Wide", [{ name := "Wide", params := [.bytesN 31] }], [2 ^ 256], [0]),
+      ("Odd", [{ name := "Odd", params := [.bytesN 31] }], [1], [0]),
+      ("BadValue", errors, [7, 9, 2], [7, 9, 1]),
+      ("Narrow", [{ name := "Narrow", params := [.uintN 8] }], [256], [0])] do
+    match customErrorBytes oracle declarations name dirty with
+    | some bytes =>
+        unless bytes.length == 4 + 32 * canonical.length &&
+            bytes.drop 4 == canonical.flatMap wordBytes do
+          throw (IO.userError s!"noncanonical custom-error argument not normalised: {name}")
+    | none => throw (IO.userError s!"noncanonical custom-error argument rejected: {name}")
+  -- Unsupported types, widths, arities and ambiguous names stay rejected.
   for (name, declarations, values) in [
-      -- Dirty signed words (not sign-extended from `bits`) fail closed.
-      ("Narrow", narrow, [128, 0, 0]), ("Narrow", narrow, [0x1ff, 0, 0]),
-      ("Narrow", narrow, [2 ^ 256 - 129, 0, 0]), ("Narrow", narrow, [0, 2 ^ 103, 0]),
-      ("Narrow", narrow, [0, 0, 2 ^ 255]), ("Narrow", narrow, [2 ^ 256, 0, 0]),
-      ("IntDowncastOverflow", downcast, [104, 2 ^ 256]),
-      ("Wide", [{ name := "Wide", params := [.intN 248] }], [2 ^ 247]),
       ("ZeroInt", [{ name := "ZeroInt", params := [.intN 0] }], [0]),
       ("OddInt", [{ name := "OddInt", params := [.intN 12] }], [0]),
       ("HugeInt", [{ name := "HugeInt", params := [.intN 264] }], [0]),
-      ("LockedSelector", [{ name := "LockedSelector", params := [.bytesN 4] }], [selectorWord + 1]),
-      ("Wide", [{ name := "Wide", params := [.bytesN 31] }], [2 ^ 256]),
-      ("Odd", [{ name := "Odd", params := [.bytesN 31] }], [1]),
       ("Zero", [{ name := "Zero", params := [.bytesN 0] }], [0]),
       ("Full", [{ name := "Full", params := [.bytesN 32] }], [0]),
       ("Missing", errors, []), ("Unauthorized", errors, [1]),
-      ("BadValue", errors, [7, 9, 2]),
       ("Unauthorized", errors ++ [{ name := "Unauthorized", params := [] }], []),
-      ("Narrow", [{ name := "Narrow", params := [.uintN 8] }], [256]),
       ("InvalidWidth", [{ name := "InvalidWidth", params := [.uintN 17] }], [0]),
       ("Dynamic", [{ name := "Dynamic", params := [.bytes] }], [0])] do
     unless (customErrorBytes oracle declarations name values).isNone do
@@ -118,7 +132,7 @@ def runChecks : IO Unit := do
       unless bytes == (unicodeExpected.drop 3).take 5 do
         throw (IO.userError "unaligned memory revert lost its bytes")
   | _ => throw (IO.userError "unaligned memory revert did not revert with data")
-  IO.println "Exact message/custom-error payload and fail-closed scalar checks passed"
+  IO.println "Exact message/custom-error payload, normalised-argument and unsupported-type checks passed"
 end SolidityImportSmoke.ErrorPayloads
 
 def main : IO Unit := SolidityImportSmoke.ErrorPayloads.runChecks

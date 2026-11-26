@@ -211,7 +211,7 @@ theorem mint_reverts_balance_overflow (s : ContractState) (toAddr : Address) (am
   (h_overflow : (s.storageMap 1 toAddr : Nat) + (amount : Nat) > MAX_UINT256) :
   ∃ msg, (mint toAddr amount).run s = ContractResult.revert msg s := by
   have h_none := safeAdd_none (s.storageMap 1 toAddr) amount h_overflow
-  simp [mint, Contracts.SimpleToken.onlyOwner, isOwner, requireSomeUint,
+  simp [mint, Contracts.SimpleToken.onlyOwner, isOwner, requireSomeUint, Verity.requireWith,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.balancesSlot, Contracts.SimpleToken.totalSupplySlot,
     msgSender, getStorageAddr, setStorageAddr, getStorage, setStorage, getMapping, setMapping,
     ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
@@ -374,7 +374,7 @@ theorem transfer_reverts_recipient_overflow (s : ContractState) (toAddr : Addres
   ∃ msg, (transfer toAddr amount).run s = ContractResult.revert msg s := by
   have h_balance' := uint256_ge_val_le h_balance
   have h_none := safeAdd_none (s.storageMap 1 toAddr) amount h_overflow
-  simp [transfer, requireSomeUint, Contracts.SimpleToken.balancesSlot,
+  simp [transfer, requireSomeUint, Verity.requireWith, Contracts.SimpleToken.balancesSlot,
     msgSender, getMapping, setMapping,
     ContractState.readMap, ContractState.writeMap,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,

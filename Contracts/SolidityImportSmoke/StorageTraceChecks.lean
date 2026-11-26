@@ -78,4 +78,22 @@ def main : IO Unit := do
   match traceStraightLine oracle fields initial [.forEach "i" (.literal 1) [forbidden]] with
   | .error _ => pure ()
   | .ok _ => throw (IO.userError "loop accepted an executed unsupported read")
+  let earlyExit ← IO.ofExcept (traceStraightLine oracle fields initial
+    [.letVar "flag" (.literal 0),
+     .forEachWhile "i" (.literal 1000000) (.eq (.localVar "flag") (.literal 0))
+       [.setStorage "out" (.add (.storage "out") (.literal 1)),
+        .ite (.eq (.localVar "i") (.literal 1)) [.assignVar "flag" (.literal 1)] []],
+     .returnValues [.storage "out"]])
+  unless earlyExit.touched == [.slot 1, .slot 1, .slot 1, .slot 1, .slot 1] do
+    throw (IO.userError "forEachWhile trace observed unexecuted tail iterations")
+  match earlyExit.outcome with
+  | .stop state =>
+      unless state.observedReturnWords == some [7] do
+        throw (IO.userError "forEachWhile did not stop after guard became zero")
+  | _ => throw (IO.userError "forEachWhile return was not observed")
+  let zeroCountGuard ← IO.ofExcept (traceStraightLine oracle fields initial
+    [.forEachWhile "i" (.literal 0) (.storage "gate") [forbidden],
+     .returnValues [.localVar "i"]])
+  unless zeroCountGuard.touched == [.slot 0] do
+    throw (IO.userError "zero-count forEachWhile missed initial guard read or observed body")
   IO.println "selected branch, state advancement, early return, panic and rejection checks passed"

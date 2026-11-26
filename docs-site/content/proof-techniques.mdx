@@ -16,12 +16,12 @@ The `ContractResult` type models Solidity's `require` explicitly:
 ```verity
 inductive ContractResult (α : Type) where
   | success : α → ContractState → ContractResult α
-  | revert : String → ContractState → ContractResult α
+  | revert : RevertPayload → ContractState → ContractResult α
 
 def require (condition : Bool) (message : String) : Contract Unit :=
   fun s => if condition
            then ContractResult.success () s
-           else ContractResult.revert message s
+           else ContractResult.revert (.errorString message) s
 ```
 
 This lets proofs reason about both the success path and the revert path of

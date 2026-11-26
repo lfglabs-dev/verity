@@ -228,6 +228,37 @@ def forEachAccesses (varName : String)
           return accesses ++ (← forEachAccesses varName observeBody runBody next (index + 1) remaining)
       | _ => return accesses
 
+/-- Observe the same guard checks and executed iterations as
+`Denote.execForEachWhileLoop`. Each iteration check observes the guard; once
+the guard is zero or `remaining` reaches zero, the body is not observed. -/
+def forEachWhileAccesses (varName : String)
+    (observeGuard : DenoteState → Except String (List Verity.StorageKey))
+    (evalGuard : DenoteState → Option Nat)
+    (observeBody : DenoteState → Except String (List Verity.StorageKey))
+    (runBody : DenoteState → StmtOutcome) :
+    DenoteState → Nat → Nat → Except String (List Verity.StorageKey)
+  | state, _, 0 => do
+      let guardReads ← observeGuard state
+      let some _ := evalGuard state
+        | throw "loop observation could not evaluate the guard"
+      return guardReads
+  | state, index, remaining + 1 => do
+      let guardReads ← observeGuard state
+      let some guardValue := evalGuard state
+        | throw "loop observation could not evaluate the guard"
+      if guardValue == 0 then
+        return guardReads
+      else
+        let loopState :=
+          { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+        let accesses ← observeBody loopState
+        match runBody loopState with
+        | .continue next =>
+            return guardReads ++ accesses ++
+              (← forEachWhileAccesses varName observeGuard evalGuard observeBody runBody
+                next (index + 1) remaining)
+        | _ => return guardReads ++ accesses
+
 mutual
 
 /-- Error arguments are evaluated only on the failing Denote branch. Observe
@@ -252,6 +283,17 @@ def observedStatementAccesses (oracle : DenoteOracle) (fields : List Field)
         | throw "loop observation could not evaluate the count"
       let initial := { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
       let accesses ← forEachAccesses varName
+        (fun loopState => observedBodyAccesses oracle fields loopState body events)
+        (fun loopState => execStmtList oracle fields loopState body) initial 0 bound
+      return reads ++ accesses
+  | .forEachWhile varName count guard body => do
+      let reads ← expressionAccesses oracle fields state count
+      let some bound := evalExpr oracle fields state count
+        | throw "loop observation could not evaluate the count"
+      let initial := { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+      let accesses ← forEachWhileAccesses varName
+        (fun loopState => expressionAccesses oracle fields loopState guard)
+        (fun loopState => evalExpr oracle fields loopState guard)
         (fun loopState => observedBodyAccesses oracle fields loopState body events)
         (fun loopState => execStmtList oracle fields loopState body) initial 0 bound
       return reads ++ accesses

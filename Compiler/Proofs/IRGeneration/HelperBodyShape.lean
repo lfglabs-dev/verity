@@ -48,6 +48,8 @@ def stmtUsesReturnFamily : Stmt → Bool
         stmtListUsesReturnFamily elseBranch
   | .forEach _ _ body | .forEachSetBit _ _ body =>
       stmtListUsesReturnFamily body
+  | .forEachWhile _ _ _ body =>
+      stmtListUsesReturnFamily body
   | _ => false
 
 /-- List form of `stmtUsesReturnFamily`. -/
@@ -130,6 +132,13 @@ theorem compileStmtWithFork_internal_shape_irrelevant_of_returnFree
       compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
         fields events errors dynamicSource internalRetNames isInternal
         (CompilationModel.forEachSetBitFallbackBodyScope inScopeNames varName bitmap body) adtTypes
+        targetFork body internalFunctions hreturnFree
+    ]
+  case forEachWhile varName count guard body =>
+    simp [
+      compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
+        fields events errors dynamicSource internalRetNames isInternal
+        (CompilationModel.forEachWhileBodyScope inScopeNames varName count guard body) adtTypes
         targetFork body internalFunctions hreturnFree
     ]
 

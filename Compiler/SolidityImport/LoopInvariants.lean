@@ -122,4 +122,64 @@ theorem forEach_memory_cell_frame (oracle : DenoteOracle) (fields : List Field)
     (fun _ after => after.world.memory address = state.world.memory address)
     exit state bound evaluated rfl step
 
+/-- State-level invariant for `execForEachWhileLoop`: preserved when the loop
+stops at `remaining = 0` or a zero guard, and stepped on each executed iteration. -/
+theorem execForEachWhileLoop_invariant
+    (varName : String) (evalGuard : DenoteState → Option Nat)
+    (runBody : DenoteState → StmtOutcome)
+    (invariant : DenoteState → Prop) (exit : StmtOutcome → Prop)
+    (guardRevert : exit .revert)
+    (step : ∀ index state, invariant state →
+      LoopOutcomePost invariant exit
+        (runBody { state with bindings := bindValue state.bindings varName (wordNormalize index) }))
+    (remaining index : Nat) (state : DenoteState)
+    (initial : invariant state) :
+    LoopOutcomePost invariant exit
+      (execForEachWhileLoop varName evalGuard runBody state index remaining) := by
+  induction remaining generalizing index state with
+  | zero =>
+      simp only [execForEachWhileLoop]
+      cases evalGuard state with
+      | some _ => simpa [LoopOutcomePost] using initial
+      | none => simpa [LoopOutcomePost] using guardRevert
+  | succ remaining ih =>
+      simp only [execForEachWhileLoop]
+      cases evalGuard state with
+      | none => simpa [LoopOutcomePost] using guardRevert
+      | some guardValue =>
+          by_cases h0 : guardValue = 0
+          · simpa [h0, LoopOutcomePost] using initial
+          · simp only [h0, ↓reduceIte]
+            have next := step index state initial
+            cases result : runBody
+                { state with bindings := bindValue state.bindings varName (wordNormalize index) } with
+            | «continue» after =>
+                rw [result] at next
+                exact ih (index + 1) after next
+            | stop after => simpa [result, LoopOutcomePost] using next
+            | «return» value after => simpa [result, LoopOutcomePost] using next
+            | revert => simpa [result, LoopOutcomePost] using next
+            | revertWithData bytes => simpa [result, LoopOutcomePost] using next
+
+/-- Reusable memory-cell frame rule for `Stmt.forEachWhile`. -/
+theorem forEachWhile_memory_cell_frame (oracle : DenoteOracle) (fields : List Field)
+    (varName : String) (count guard : Expr) (body : List Stmt)
+    (state : DenoteState) (bound address : Nat) (exit : StmtOutcome → Prop)
+    (evaluated : evalExpr oracle fields state count = some bound)
+    (guardRevert : exit .revert)
+    (step : ∀ (index : Nat) (before : DenoteState),
+      before.world.memory address = state.world.memory address →
+      LoopOutcomePost (fun after => after.world.memory address = state.world.memory address) exit
+        (execStmtList oracle fields
+          { before with bindings := bindValue before.bindings varName (wordNormalize index) } body)) :
+    LoopOutcomePost (fun after => after.world.memory address = state.world.memory address) exit
+      (execStmt oracle fields state (.forEachWhile varName count guard body)) := by
+  have result := execForEachWhileLoop_invariant varName
+    (fun loopState => evalExpr oracle fields loopState guard)
+    (fun loopState => execStmtList oracle fields loopState body)
+    (fun after => after.world.memory address = state.world.memory address)
+    exit guardRevert step bound 0
+    { state with bindings := bindValue state.bindings varName (wordNormalize 0) } rfl
+  simpa only [execStmt, evaluated] using result
+
 end Compiler.CompilationModel.Denote

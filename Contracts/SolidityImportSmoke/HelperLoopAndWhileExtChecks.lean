@@ -97,21 +97,21 @@ private def run (name : String) (args : List Nat) :
 #guard run "whileHelperEarlyReturn" [5, 3] == some (true, none, [123])
 #guard run "whileHelperEarlyReturn" [5, 99] == some (true, none, [15])
 
--- Fail-closed control: unbounded uint256 helper `for` early return stays rejected.
-/--
-error: HelperLoopAndWhileExt.sol:63:9: ForStatement: [solidity-import:unsupported] return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256
-closure: HelperLoopAndWhileExt.scanUnboundedForRejected -> ScanHelperLib.findUnboundedRejected
-for (uint256 i = start; i < bound;) {
-            if (i % divisor == 0) {
-                return i;
-            }
-      
--/
-#guard_msgs in
-solidity_import unboundedForRejected from "Contracts/SolidityImportSmoke" entry "HelperLoopAndWhileExt.sol"
+-- `Stmt.forEachWhile` (#2916): unbounded uint256 helper `for` early return exits immediately
+-- without no-op tail iterations (even at bound = 2^256 - 1).
+solidity_import unboundedForEarlyExit from "Contracts/SolidityImportSmoke" entry "HelperLoopAndWhileExt.sol"
   using extLoopProfile
   contract HelperLoopAndWhileExt
   function scanUnboundedForRejected(uint256,uint256,uint256)
+
+#guard
+  match unboundedForEarlyExit.model.functions.find? (·.name == "scanUnboundedForRejected") with
+  | some fn =>
+      let r := denoteFunction oracle unboundedForEarlyExit.model fn
+        { sender := 1, functionSelector := 0, args := [0, 2^256 - 1, 1] } Verity.defaultState
+      let words := if r.returnWords.isEmpty then r.returnValue.toList else r.returnWords
+      r.success && r.revertData == none && words == [0]
+  | none => false
 
 -- Fail-closed control: unbounded uint256 helper `while` early return stays rejected.
 /--

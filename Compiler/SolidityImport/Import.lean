@@ -58,6 +58,8 @@ private structure SolcRelease where
   hasNoImportCallbackFlag : Bool
   supportedEvmVersions : Array String
   supportsViaIR : Bool
+  /-- Pinned names solc spells differently, e.g. the next planned fork is `@future`. -/
+  evmNameAliases : Array (String × String) := #[]
 
 private def solcReleases : Array SolcRelease := #[
   { longVersion := "0.7.6+commit.7338295f",
@@ -72,6 +74,39 @@ private def solcReleases : Array SolcRelease := #[
     hasNoImportCallbackFlag := false,
     supportedEvmVersions := #["istanbul"],
     supportsViaIR := false },
+  { longVersion := "0.8.38+commit.1835d247",
+    binaryName := "solc-0.8.38",
+    sha256s := #[
+      "65c3180a336eabb6bdc4bbd49cc405aeb233976964ae6c11fba2a6c8be8f3243",
+      "b18ac1d1f48394c71ca9aefbf0fb94fef24c87b358f48578de5941e234e0a2a9"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.38+commit.1835d247.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.38+commit.1835d247.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    -- solc 0.8.38 names `amsterdam` but gates it behind `settings.experimental`;
+    -- the pin admits only the targets this binary compiles without that flag.
+    supportedEvmVersions := #[
+      "osaka", "prague", "cancun", "shanghai", "paris", "london", "berlin",
+      "istanbul", "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true },
+  { longVersion := "0.8.35+commit.47b9dedd",
+    binaryName := "solc-0.8.35",
+    sha256s := #[
+      "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4",
+      "6e432580d973cae74c869ef4f737529e73fec5b200dce3c08d5e76c4a6b19159"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.35+commit.47b9dedd.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.35+commit.47b9dedd.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    supportedEvmVersions := #[
+      "amsterdam", "osaka", "prague", "cancun", "shanghai", "paris", "london", "berlin",
+      "istanbul", "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true,
+    -- solc 0.8.35 predates a named Amsterdam target; `@future` selects the next
+    -- planned fork, which is the closest executable target for this profile.
+    evmNameAliases := #[("amsterdam", "@future")] },
   { longVersion := "0.8.34+commit.80d5c536",
     binaryName := "solc-0.8.34",
     sha256s := #[
@@ -84,6 +119,20 @@ private def solcReleases : Array SolcRelease := #[
     supportedEvmVersions := #[
       "osaka", "prague", "cancun", "shanghai", "paris", "london", "berlin",
       "istanbul", "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true },
+  { longVersion := "0.8.28+commit.7893614a",
+    binaryName := "solc-0.8.28",
+    sha256s := #[
+      "9a0fb7e0db2c0641dbae1c5cc645dc686820c83af516226abb1c0a2f76636f25",
+      "81515b0e53deaa266d549545ccaac0a5a96e6d4e8201c77f673b2c710976d9ea"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.28+commit.7893614a.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.28+commit.7893614a.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    supportedEvmVersions := #[
+      "prague", "cancun", "shanghai", "paris", "london", "berlin", "istanbul",
+      "petersburg", "constantinople", "byzantium",
       "spuriousDragon", "tangerineWhistle", "homestead"],
     supportsViaIR := true },
   { longVersion := "0.8.26+commit.8a97fa7a",
@@ -122,6 +171,14 @@ private def resolveSolcRelease (profile : Profile) : MetaM SolcRelease := do
   if profile.viaIR && !release.supportsViaIR then
     throwError "viaIR is not supported for solc {release.longVersion}"
   pure release
+
+/-- The `evmVersion` spelling this release's `--standard-json` accepts. Pinned
+aliases keep the importer's vocabulary independent of a compiler build that
+has not named a future fork yet. -/
+private def solcEvmVersion (release : SolcRelease) (evmVersion : String) : String :=
+  match release.evmNameAliases.find? (fun entry => entry.1 == evmVersion) with
+  | some entry => entry.2
+  | none => evmVersion
 
 private def buildField (types item : Json) (isTransient : Bool := false) : M FieldInfo := do
   let name ← mStr (← mField item "label")
@@ -1403,6 +1460,7 @@ private partial def yulStmtHasEffect : Stmt → Bool
   | .letVar _ _ | .assignVar _ _ => false
   | .ite _ yes no => yes.any yulStmtHasEffect || no.any yulStmtHasEffect
   | .forEach _ _ body => body.any yulStmtHasEffect
+  | .forEachWhile _ _ _ body => body.any yulStmtHasEffect
   | _ => true
 
 /-- Hoisted statements that touch the outside world (`yulStmtHasEffect`). -/
@@ -1525,6 +1583,19 @@ private def yulCalldataBytesOffsetRead? (node : Json) : M (Option Expr) := do
       return some (.add base (.literal k))
   return none
 
+/-- Reject the Yul `returndatasize()` read `j` (an expression, or a bubbled-revert
+`returndatacopy` statement) when the current root makes an inlined linked
+library call (its DELEGATECALL would set the return-data buffer, the model's call does not),
+and record it otherwise, so a later linked call rejects. Loops make source order unreliable,
+so either order fails closed. -/
+private def noteReturndataRead (j : Json) : M Unit := do
+  let env ← get
+  unless env.rootLinkedLibraryCalls.isEmpty do
+    failAt j ("Yul returndatasize in a function that makes a linked library call: the " ++
+      "DELEGATECALL sets the return data, the inlined model does not")
+  if env.rootReturndataRead.isNone then
+    set { env with rootReturndataRead := some j }
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1633,6 +1704,7 @@ private partial def lowerYul (j : Json) : M Val := do
                  expr := .localVar result }
       if fname == "returndatasize" then
         unless args.isEmpty do failAt j "Yul returndatasize takes no argument"
+        noteReturndataRead j
         return { pre := #[], expr := .returndataSize }
       if fname == "create2" then
         failAt j "Yul create2 must be the whole value of a Yul assignment or variable declaration"
@@ -2028,9 +2100,9 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
     match scalarType with
     | .uint8 | .uintN _ | .intN _ | .bool => return .assignVar binding rhsVal.expr
     | _ => pure ()
-    -- Under via-IR, a `bool` / `address` local takes the cleaned word: every Solidity-level
-    -- use (including conversions) applies `cleanup_t_bool` / `cleanup_t_address` to the dirty
-    -- stack word. Legacy codegen carries dirty bits through conversions, so it stays rejected.
+    -- Under via-IR, an `address` local takes the cleaned word: every Solidity-level
+    -- use (including conversions) applies `cleanup_t_address` to the dirty stack word.
+    -- Legacy codegen carries dirty bits through conversions, so it stays rejected.
     -- A later raw Yul read is rejected once the whole root is lowered
     -- (`checkYulCleanedNarrowReads`).
     if env.viaIR then
@@ -2436,6 +2508,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           | some (.localVar binding) => env.yulFreePointerBindings.contains binding
           | _ => false
         if savedDest then
+          noteReturndataRead stmt
           out := out.push .revertReturndata
           skipNext := true
           continue
@@ -3043,6 +3116,67 @@ private def internalFunctionTyped (j : Json) : Bool :=
   ((field? j "typeDescriptions").bind (optStr · "typeIdentifier")).any
     (·.startsWith "t_function_internal")
 
+/-- Whether the callee of a call is a `DELEGATECALL` into a linked library that this import
+inlines. Without `Profile.linkedLibrariesMatchSource` every such callee is rejected
+(`externalLibraryCallDiagnostic`). With it, only a direct `L.f(...)` call of an implemented
+`public` or `external` function of library `L` is admitted, when every parameter is a value
+type or a `storage` reference, every result is a value type, and nothing `f` reaches depends
+on the `DELEGATECALL` frame (`linkedLibraryFrameHazard?`); everything else is rejected at its
+source location. An admitted call is recorded for the current root's report and returns
+`true`; a callee of any other type returns `false`. -/
+private def admitLinkedLibraryCall (callee : Json) : M Bool := do
+  unless isLibraryDelegateCall callee do return false
+  let env ← get
+  unless env.linkedLibrariesMatchSource do failAt callee externalLibraryCallDiagnostic
+  unless (← mKind callee) == "MemberAccess" do
+    failAt callee "linked library calls must name the function as L.f"
+  let base ← mField callee "expression"
+  unless (← mType base).startsWith "type(library " do
+    failAt callee "attached linked library calls (using L for T) are outside this slice"
+  let id ← refInt callee
+  unless id ≥ 0 do failAt callee "unresolved linked library function"
+  let some fn := env.funs.find? id.toNat | failAt callee "unresolved linked library function"
+  let some cid := env.funContractId.find? id.toNat
+    | failAt callee "linked library function is not declared in a library"
+  unless env.contractKinds.find? cid == some "library" do
+    failAt callee "linked library function is not declared in a library"
+  unless ["public", "external"].contains (optStr fn "visibility" |>.getD "") do
+    failAt callee "linked library calls require a public or external function"
+  let implemented := (field? fn "implemented").bind (·.getBool?.toOption) |>.getD true
+  unless implemented && ((field? fn "body").any (!·.isNull)) do failNoBody fn callee
+  for p in ← mArr (← mField (← mField fn "parameters") "parameters") do
+    if linkedLibraryParamKind p == .other then
+      failAt p ("linked library call parameters must be value types or storage references: " ++
+        "memory, calldata and function-typed values are re-encoded by the DELEGATECALL")
+  for r in ← mArr (← mField (← mField fn "returnParameters") "parameters") do
+    unless linkedLibraryParamKind r == .value do
+      failAt r "linked library call results must be value types"
+  if env.rootReturndataRead.isSome then
+    failAt callee ("linked library calls in a function that reads Yul returndatasize are " ++
+      "outside this slice: the DELEGATECALL sets the return data, the inlined model does not")
+  let decl (n : Nat) : Option Json := env.funs.find? n <|> env.modifiers.find? n
+  if let some (node, reason) := linkedLibraryFrameHazard? decl fn then
+    failAt node reason
+  let (file, site) := nodeSite env callee
+  let (line, column) := match site with
+    | some (line, column, _) => (line, column)
+    | none => (0, 0)
+  let use : LinkedLibraryCall :=
+    { library := env.contractNames.find? cid |>.getD s!"library#{cid}",
+      function := optStr fn "name" |>.getD "", declId := id.toNat, file, line, column }
+  unless env.rootLinkedLibraryCalls.contains use do
+    set { env with rootLinkedLibraryCalls := env.rootLinkedLibraryCalls.push use }
+  pure true
+
+/-- True when `call` is a `FunctionCall` whose callee is a `DELEGATECALL` to a linked library
+(`isLibraryDelegateCall`). Such a call reaches `inlineFn`, `inlineVoidFn` or `inlineMultiFn`
+only after `admitLinkedLibraryCall` has admitted it, and its value-type arguments and results
+cross the `DELEGATECALL`'s ABI encoder and decoder. -/
+private def isLinkedLibraryCallSite (call : Json) : Bool :=
+  optStr call "nodeType" == some "FunctionCall" &&
+    optStr call "kind" == some "functionCall" &&
+    isLibraryDelegateCall ((field? call "expression").getD Json.null)
+
 /-- A node of `j` that makes, or may make, a typed-interface call: the call itself, or a
 reference to an internal function (called, or passed as a function value) whose body or
 modifier invocations (arguments, and the body of every modifier of that name, which
@@ -3068,7 +3202,11 @@ private partial def interfaceCallIn? (clean : IO.Ref (Array Nat)) (j : Json)
           if (← interfaceCallIn? clean body (mid :: seen)).isSome then return some j
         clean.modify (·.push mid)
   let kind := optStr j "nodeType"
-  if (kind == some "Identifier" || kind == some "MemberAccess") && internalFunctionTyped j then
+  -- Under `linkedLibrariesMatchSource` a linked library function's body runs in this frame
+  -- (`admitLinkedLibraryCall`), so the walk follows it too.
+  let linkedLibraryBody := (← get).linkedLibrariesMatchSource && isLibraryDelegateCall j
+  if (kind == some "Identifier" || kind == some "MemberAccess") &&
+      (internalFunctionTyped j || linkedLibraryBody) then
     if let some id := (field? j "referencedDeclaration").bind (·.getNat?.toOption) then
       let env ← get
       let targets := match env.fnPtrs.find? id with
@@ -4747,8 +4885,8 @@ private partial def lowerRef (j : Json) : M Ref := do
             -- `data[i]` of a root `bytes[]`: bounds check, then the element's
             -- `bytes` descriptor under a synthetic id (above every AST id), so
             -- the descriptor-based `bytes` lowerings (`.length`, hashing,
-            -- packed encoding, `bytes calldata` helper arguments) apply to it
-            -- unchanged. Slices and `abi.decode` of `data[i]` stay rejected.
+            -- packed encoding, `bytes calldata` helper arguments, slices,
+            -- `bytes calldata` locals, and `abi.decode`) apply to it unchanged.
             let sid := 2 ^ 62 + (← get).next
             discard fresh
             let elemHeader ← fresh
@@ -5404,8 +5542,21 @@ private partial def lowerBinary (j : Json) : M Val := do
       !statefulCallIn rightNode env && !assignmentIn rightNode) ||
      (((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
       !statefulCallIn leftNode env && !assignmentIn leftNode))) ||
+    -- `local + helper()`: legacy evaluates the right operand first, via-IR the left one. A
+    -- left identifier bound to a local or parameter (or to a literal, an immutable or a
+    -- transaction-context value such as `block.timestamp`, not `address(this).balance`), or
+    -- naming a constant (contract or file level) or an `immutable` state variable, reads a
+    -- value no call can change, so both orders agree with solc for any state-variable count.
+    -- A mutable state variable is not admitted: `total + bump()` with `bump` writing `total`
+    -- reads the written value on legacy and the old one on via-IR (solc 0.8.34: 24 vs 19).
     (op == "+" && (← mKind leftNode) == "Identifier" &&
-      !statefulCallIn leftNode env && !assignmentIn leftNode && env.stateVars.size > 1)
+      ((field? leftNode "referencedDeclaration").bind (·.getNat?.toOption)).any (fun id =>
+        (env.values.find? id).any (fun
+          | .localVar _ | .param _ | .literal _ | .immutable _ | .blockTimestamp | .blockNumber
+          | .caller | .contractAddress | .chainid | .txOrigin | .baseFee | .gasPrice => true
+          | _ => false) ||
+        env.numericConstants.contains id ||
+        (env.stateVars.find? id).any (fun decl => optStr decl "mutability" == some "immutable")))
   unless op == "&&" || op == "||" || (admittedCall && !env.forwardingBytesTuple) do
     if statefulCallIn leftNode env ||
         statefulCallIn rightNode env then
@@ -7039,6 +7190,28 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
       pure (some (pre, Expr.literal 0, Expr.calldatasize, true, true))
     else
       pure none
+  else if (← mKind base) == "IndexAccess" then
+    -- `items[i]` of a `bytes[]`: the element's descriptor (its lazy calldata
+    -- tail checks or its memory header) is the slice base, so
+    -- `bytes4(items[i][:4])` and `abi.decode(items[i][4:], (...))` stay on
+    -- calldata and a memory element slices its copied buffer.
+    let element? ← try
+      (do
+        match ← lowerRef base with
+        | .calldataBytes sid pre =>
+          match (← get).calldataBytes.find? sid with
+          | some cb => pure (some (pre, cb))
+          | none => pure none
+        | _ => pure none)
+    catch _ => pure none
+    match element? with
+    | some (pre, cb) =>
+        if !cb.inMemory then
+          pure (some (pre, Expr.localVar cb.dataBinding, Expr.localVar cb.lengthBinding, true, false))
+        else
+          pure (some (pre, Expr.add (.localVar cb.memoryPointer) (.literal 32),
+            Expr.localVar cb.lengthBinding, false, false))
+    | none => pure none
   else if (← mKind base) == "Identifier" then
     let id ← refInt base
     if id ≥ 0 then
@@ -7629,6 +7802,29 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
         .letVar ptrVar buf.pointer,
         .letVar lenVar buf.size
       ], false, .localVar ptrVar, .localVar lenVar)
+    if (← mType inner) == "bytes calldata" || (← mType inner) == "bytes memory" then
+      let element? ← try
+        (do
+          match ← lowerRef inner with
+          | .calldataBytes sid pre =>
+            match (← get).calldataBytes.find? sid with
+            | some cb => pure (some (pre, cb))
+            | none => pure none
+          | _ => pure none)
+      catch _ => pure none
+      if let some (pre, cb) := element? then
+        let ptrVar ← fresh
+        let lenVar ← fresh
+        if cb.inMemory then
+          return (pre ++ #[
+            .letVar ptrVar (.add (.localVar cb.memoryPointer) (.literal 32)),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], false, .localVar ptrVar, .localVar lenVar)
+        else
+          return (pre ++ #[
+            .letVar ptrVar (.localVar cb.dataBinding),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], true, .localVar ptrVar, .localVar lenVar)
   if (← mKind inner) == "MemberAccess" then
     if ← isAddressCodeAccess inner then
       let buf ← lowerExtCodeCopy inner
@@ -7845,8 +8041,9 @@ private partial def lowerEncodedStaticStructWords (arg : Json) : M (Array Stmt �
     failAt arg s!"unsupported ABI encoding argument type {ty}"
   for mNode in sMembers do
     let mTy ← mType mNode
-    unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+    unless (paramType mTy).isSome do
       failAt arg s!"unsupported ABI encoding argument type {ty}"
+    discard (validateEnumTypeIfNeeded mNode mTy)
   checkEncodingStructArg arg
   let (_, _, sPre, memberVals) ← lowerFlatStructValue arg (some sid) true
   let mut pre : Array Stmt := sPre
@@ -8232,8 +8429,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           failAt p s!"unsupported ABI encoding argument type {pty}"
         for mNode in pMembers do
           let mTy ← mType mNode
-          unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+          unless (paramType mTy).isSome do
             failAt p s!"unsupported ABI encoding argument type {pty}"
+          discard (validateEnumTypeIfNeeded mNode mTy)
         unless argTy.startsWith "struct " && !argTy.contains "[" do
           failAt arg s!"abi.encodeCall argument type {argTy} does not match parameter {pty}"
         let (argSid, _) ← resolveStructDeclFromType arg
@@ -8705,7 +8903,11 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
             (← mArr (← mField arg "arguments")).all scalarLeaf do
           failAt arg "expected a helper returning only a storage path"
       else
-        unless nodes.size == 1 && (← get).stateVars.size > 1 do
+        -- A lone stateful node (the only argument, or a using-for receiver without
+        -- arguments) has no sibling to order against: both pipelines run it, then bind its
+        -- value and enter the callee, which is the lowering's order for any state-variable
+        -- count (a branching function pointer's condition is already bound to a local).
+        unless nodes.size == 1 do
           failAt arg "stateful helper call arguments require explicit evaluation-order support"
     if nodes.size > 1 && assignmentIn arg && !sequence then
       failAt arg "assignment expression in multi-argument call requires explicit evaluation-order support"
@@ -9090,8 +9292,7 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   let names ← mArr (← mField j "names")
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
   let callee ← mField j "expression"
-  if isLibraryDelegateCall callee then
-    failAt callee "external library calls are outside this slice"
+  discard <| admitLinkedLibraryCall callee
   let (fnId, receiver?) ← match ← mKind callee with
     | "FunctionCallOptions" =>
         failAt callee "external contract calls are outside this slice"
@@ -9586,7 +9787,7 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
           failAt j "typed interface staticcall arguments are outside this slice"
         let isStaticStruct ← pMembers.allM fun mNode => do
           let mTy ← mType mNode
-          pure (!mTy.startsWith "enum " && (paramType mTy).isSome)
+          pure (paramType mTy).isSome
         if !isStaticStruct then
           let structs := (← get).structs
           let enums := (← get).enums
@@ -10071,6 +10272,7 @@ private partial def lowerCall (j : Json) : M Val := do
 private partial def bindHelperParams (params : Array Json) (args : Array CallArg) (body : Json) (at_ : Json)
     (savedYul : RBMap String Expr compare) : M (Array Stmt × RBMap String Expr compare) := do
   let mut pre : Array Stmt := #[]
+  let linkedCall := (← get).linkedLibrariesMatchSource && isLinkedLibraryCallSite at_
   -- A caller's `<name>.slot` names its own storage parameter or local, which is out of
   -- scope in the callee; state variable slots are rebound per assembly block.
   let mut yul := savedYul.fold (fun acc name _ => if name.endsWith ".slot" then acc.erase name else acc)
@@ -10099,6 +10301,10 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
     match arg with
     | .scalar value =>
         let converted ← convert pty argTy value at_
+        let converted ← if linkedCall then do
+          let a ← atom converted
+          pure { pre := a.pre, expr := cleanHelperResultExpr pty { pre := #[], expr := a.expr } }
+        else pure converted
         if (bodyCompoundAssignedIds body).contains pid || (bodyDirectAssignedIds body).contains pid then
           let some scalar := paramType pty
             | failAt p s!"unsupported writable helper parameter type {pty}"
@@ -11764,8 +11970,9 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
   for mNode in retMembers do
     let mName ← mStr (← mField mNode "name")
     let mTy ← mType mNode
-    unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+    unless (paramType mTy).isSome do
       failAt mNode s!"unsupported flat struct return member {mName} of type {mTy}"
+    discard (validateEnumTypeIfNeeded mNode mTy)
     let binding ← freshFor s!"{if rname == "" then "ret_struct" else rname}_{mName}"
     pre := pre.push (.letVar binding (.literal 0))
     memberBindings := memberBindings.push (mName, mTy, binding)
@@ -11937,9 +12144,9 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
       return v
     failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
-  -- External library calls (DELEGATECALL) are rejected at the call site
-  -- (`isLibraryDelegateCall`), so a root descriptor only reaches helpers in
-  -- the same call frame.
+  -- External library calls (DELEGATECALL) are rejected at the call site unless
+  -- `admitLinkedLibraryCall` admits them, which needs value-type or storage
+  -- arguments, so a root descriptor only reaches helpers in the same call frame.
   let saved := ← get
   let savedYul := saved.yulNames
   let savedFile := (← get).currentFile
@@ -12012,6 +12219,10 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
     let retCapture ← fresh
     pure { pre := (pre ++ result.pre).push (.letVar retCapture result.expr) ++ modPost,
            expr := .localVar retCapture }
+  let finalResult ← if saved.linkedLibrariesMatchSource && isLinkedLibraryCallSite at_ then do
+    let a ← atom finalResult
+    pure { pre := a.pre, expr := cleanHelperResultExpr resultType { pre := #[], expr := a.expr } }
+  else pure finalResult
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
@@ -12021,7 +12232,8 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   let visibility := optStr fn "visibility" |>.getD ""
-  unless visibility == "internal" || visibility == "private" || visibility == "public" do
+  let linkedCall := (← get).linkedLibrariesMatchSource && isLinkedLibraryCallSite at_
+  unless visibility == "internal" || visibility == "private" || visibility == "public" || linkedCall do
     failAt at_ "void helper calls require an internal or private declaration"
   let saved := ← get
   let savedYul := saved.yulNames
@@ -12120,6 +12332,18 @@ private partial def lowerCalldataBytesExpr (j : Json) : M (Array Stmt × Calldat
   if ← isParameterizedCalldataBytesCall j then
     let (fnId, vals) ← resolveCallTargetAndArgs j
     return ← inlineCalldataBytesFn fnId vals j
+  if (← mKind j) == "IndexAccess" && (← mType j) == "bytes calldata" then
+    let element? ← try
+      (do
+        match ← lowerRef j with
+        | .calldataBytes sid pre =>
+          match (← get).calldataBytes.find? sid with
+          | some cb => pure (some (pre, cb))
+          | none => pure none
+        | _ => pure none)
+    catch _ => pure none
+    if let some (pre, cb) := element? then
+      if !cb.inMemory && !cb.isString then return (pre, cb)
   if (← mKind j) == "Identifier" then
     let id ← refInt j
     if id ≥ 0 then
@@ -12198,7 +12422,8 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   let visibility := optStr fn "visibility" |>.getD ""
-  unless visibility == "internal" || visibility == "private" || visibility == "public" do
+  let linkedCall := (← get).linkedLibrariesMatchSource && isLinkedLibraryCallSite at_
+  unless visibility == "internal" || visibility == "private" || visibility == "public" || linkedCall do
     failAt at_ "multi-return helper calls require an internal or private declaration"
   let saved := ← get
   let savedYul := saved.yulNames
@@ -12273,8 +12498,9 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
       for mNode in retMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct return member {mName} of type {mTy}"
+        discard (validateEnumTypeIfNeeded mNode mTy)
         let binding ← freshFor s!"{if rname == "" then "ret_struct" else rname}_{mName}"
         pre := pre.push (.letVar binding (.literal 0))
         results := results.push (binding, mTy, rname != "")
@@ -12340,10 +12566,15 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
     unless definitelyReturns do
       failAt fn "inlined multi-return helper does not return on every path"
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
+  let cleanPost : Array Stmt :=
+    if linkedCall then
+      results.map fun (binding, rty, _) =>
+        Stmt.assignVar binding (cleanHelperResultExpr rty { pre := #[], expr := .localVar binding })
+    else #[]
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, fixedArrayHelperResult := saved.fixedArrayHelperResult, dynArrayHelperResult := saved.dynArrayHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-  pure (pre ++ modStmts ++ bodyStmts, retExprs)
+  pure (pre ++ modStmts ++ bodyStmts ++ cleanPost, retExprs)
 
 private partial def lowerMultiBranch (j : Json) (expectedTypes : Option (Array (Option String))) :
     M (Array Stmt × Array (Expr × String)) := do
@@ -13121,13 +13352,14 @@ private partial def accessRootDecl? (j : Json) : M (Option Int) := do
 
 /-- Shared exact loop checks; the caller supplies its own return semantics. -/
 private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
-    (existingCounter : Option String := none) : M (Array Stmt) := do
+    (existingCounter : Option String := none)
+    (earlyExitGuard : Option Expr := none) : M (Array Stmt) := do
   -- Only `for (uint256 i = 0; i < n; i++)` with an invariant `n` and a
   -- counter the body never assigns: then solc's per-iteration `i < n`
   -- test is exactly `forEach i n`, and `i++` cannot overflow.
   let init ← mField s "initializationExpression"
   if optStr init "nodeType" == some "ExpressionStatement" then
-    return ← lowerPredeclaredFor s init lowerBody
+    return ← lowerPredeclaredFor s init lowerBody earlyExitGuard
   unless (← mKind init) == "VariableDeclarationStatement" do
     failAt s "a for loop must declare its counter"
   let decls ← mArr (← mField init "declarations")
@@ -13198,11 +13430,14 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
          .ite (.eq (.localVar iterIdx) (.literal 0)) []
            [.assignVar decBinding (.sub cleanStart.expr (.localVar iterIdx))]]
     let loopBodyStmts : List Stmt := bindCounter ++ bodyOut.toList
+    let decLoopStmt := match earlyExitGuard with
+      | some guard => Stmt.forEachWhile iterIdx (.localVar countBinding) guard loopBodyStmts
+      | none => Stmt.forEach iterIdx (.localVar countBinding) loopBodyStmts
     return startVal.pre ++ cleanStart.pre ++ #[
       .letVar countBinding (.literal 0),
       .ite (.gt cleanStart.expr lowerVal.expr)
         [.assignVar countBinding (.sub cleanStart.expr lowerVal.expr)] [],
-      .forEach iterIdx (.localVar countBinding) loopBodyStmts
+      decLoopStmt
     ]
   let isTailWindowStart ← match (field? init "initialValue").filter (!·.isNull) with
     | some startRaw => do
@@ -13361,11 +13596,14 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
          .ite (.eq (.localVar iterIdx) (.literal 0)) []
            [.assignVar counterBinding (.add cleanStart.expr (.localVar iterIdx))]]
     let loopBodyStmts : List Stmt := bindCounter ++ bodyOut.toList
+    let tailLoopStmt := match earlyExitGuard with
+      | some guard => Stmt.forEachWhile iterIdx (.localVar countBinding) guard loopBodyStmts
+      | none => Stmt.forEach iterIdx (.localVar countBinding) loopBodyStmts
     return startVal.pre ++ cleanStart.pre ++ bound.pre ++ #[
       .letVar countBinding (.literal 0),
       .ite (.lt cleanStart.expr bound.expr)
         [.assignVar countBinding (.sub bound.expr cleanStart.expr)] [],
-      .forEach iterIdx (.localVar countBinding) loopBodyStmts
+      tailLoopStmt
     ]
   if let some startRaw := plainStart then
     -- solc runs `i = start; while (i < bound) { body; i++ }`: the loop body runs for
@@ -13420,13 +13658,14 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
       .ite (.lt cleanStart.expr limit)
         [.assignVar countBinding (.sub limit cleanStart.expr)] []
     ]
-    let exitAssign : Array Stmt := match existingCounter with
-      | some dest => #[.ite (.lt cleanStart.expr limit) [.assignVar dest limit] []]
-      | none => #[]
+    let exitAssign : Array Stmt := match existingCounter, earlyExitGuard with
+      | some dest, some guard => #[.ite guard [.ite (.lt cleanStart.expr limit) [.assignVar dest limit] []] []]
+      | some dest, none => #[.ite (.lt cleanStart.expr limit) [.assignVar dest limit] []]
+      | none, _ => #[]
     if ← narrowCounterMayWrap counterBits bound boundNode then
       if (← get).unchecked || bodyUncheckedStep then
         failAt d s!"an unchecked {counterTy} for loop counter can wrap below a wider bound"
-      if (← stmtContainsReturn body) || (← stmtContainsBreakOrContinue body) then
+      if earlyExitGuard.isSome || (← stmtContainsReturn body) || (← stmtContainsBreakOrContinue body) then
         failAt d s!"a {counterTy} for loop counter with a wider bound requires a body without return, break or continue"
       let capped ← fresh
       let capStart := .sub (.literal (2 ^ counterBits)) cleanStart.expr
@@ -13437,7 +13676,10 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
         .forEach iterIdx (.localVar capped) loopBodyStmts,
         .ite (.lt (.localVar capped) capStart) [] [.panicCode (.literal 0x11)]
       ] ++ exitAssign
-    return countPre ++ #[.forEach iterIdx (.localVar countBinding) loopBodyStmts] ++ exitAssign
+    let plainLoopStmt := match earlyExitGuard with
+      | some guard => Stmt.forEachWhile iterIdx (.localVar countBinding) guard loopBodyStmts
+      | none => Stmt.forEach iterIdx (.localVar countBinding) loopBodyStmts
+    return countPre ++ #[plainLoopStmt] ++ exitAssign
   let binding ← freshFor counterName
   let saved ← get
   modify fun e =>
@@ -13470,7 +13712,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     -- checked `i++` on the uintN counter panics.
     if (← get).unchecked || bodyUncheckedStep then
       failAt d s!"an unchecked {counterTy} for loop counter can wrap below a wider bound"
-    if (← stmtContainsReturn body) || (← stmtContainsBreakOrContinue body) then
+    if earlyExitGuard.isSome || (← stmtContainsReturn body) || (← stmtContainsBreakOrContinue body) then
       failAt d s!"a {counterTy} for loop counter with a wider bound requires a body without return, break or continue"
     let capped ← fresh
     let cap := Expr.literal (2 ^ counterBits)
@@ -13478,10 +13720,14 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     out := out.push (.ite (.lt limit cap) [.assignVar capped limit] [])
     out := out.push (.forEach binding (.localVar capped) bodyOut.toList)
     out := out.push (.ite (.lt limit cap) [] [.panicCode (.literal 0x11)])
+  else if let some guard := earlyExitGuard then
+    out := out.push (.forEachWhile binding limit guard bodyOut.toList)
   else
     out := out.push (.forEach binding limit bodyOut.toList)
   if let some dest := existingCounter then
-    out := out.push (.assignVar dest limit)
+    match earlyExitGuard with
+    | some guard => out := out.push (.ite guard [.assignVar dest limit] [])
+    | none => out := out.push (.assignVar dest limit)
   pure out
 
 /-- `for (i = 0; i < n; i++)` over a counter `i` declared before the loop. The loop
@@ -13489,7 +13735,8 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     local then receives the counter's exit value `n` (the bound is invariant, and a
     narrow counter whose bound reaches `2^N` panics before the store). A `break`
     would exit with another value and is rejected. -/
-private partial def lowerPredeclaredFor (s init : Json) (lowerBody : Json → M (Array Stmt)) :
+private partial def lowerPredeclaredFor (s init : Json) (lowerBody : Json → M (Array Stmt))
+    (earlyExitGuard : Option Expr := none) :
     M (Array Stmt) := do
   let assign ← mField init "expression"
   unless (← mKind assign) == "Assignment" && optStr assign "operator" == some "=" do
@@ -13516,7 +13763,7 @@ private partial def lowerPredeclaredFor (s init : Json) (lowerBody : Json → M 
   let declStmt := Json.mkObj [("nodeType", Json.str "VariableDeclarationStatement"),
     ("declarations", Json.arr #[decl]), ("initialValue", rhs), ("src", ← mField init "src")]
   let loopStmts ← lowerFor (s.setObjVal! "initializationExpression" declStmt) lowerBody
-    (some binding)
+    (some binding) earlyExitGuard
   modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (· != counterId.toNat) }
   pure loopStmts
 
@@ -14600,63 +14847,37 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt))
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   pure #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
 
-/-- A helper `for` whose iteration count is bounded by 256:
-    - increasing `i < n` with a `uint8` or literal `n ≤ 256` (or constant `start` and `n`
-      with `n - start ≤ 256`), or
-    - decrementing `i > low` whose initial value is a `uint8` or literal `≤ 256`.
-    Then the empty iterations after a `break` or early `return` stay small. -/
-private partial def smallHelperForBound (s : Json) : M Bool := do
-  let cond := (field? s "condition").getD .null
-  let op := optStr cond "operator"
-  let init := (field? s "initializationExpression").getD .null
-  let startNode? : Option Json :=
-    if optStr init "nodeType" == some "VariableDeclarationStatement" then
-      (field? init "initialValue").filter (!·.isNull)
-    else if optStr init "nodeType" == some "ExpressionStatement" then
-      (field? init "expression").bind (field? · "rightHandSide")
-    else none
-  let intConstOf (n : Json) : Option Nat :=
-    let ty := ((field? n "typeDescriptions").bind (optStr · "typeString")).getD ""
-    if ty.startsWith "int_const " && !ty.startsWith "int_const -" then
-      (ty.drop 10).toString.toNat?
-    else none
-  if op == some "<" then
-    let bound := (field? cond "rightExpression").getD .null
-    let ty := ((field? bound "typeDescriptions").bind (optStr · "typeString")).getD ""
-    let smallLiteral := (intConstOf bound).any (· ≤ 256)
-    let smallConstRange := match startNode?.bind intConstOf, intConstOf bound with
-      | some a, some b => b - a ≤ 256
-      | _, _ => false
-    pure (ty == "uint8" || smallLiteral || smallConstRange)
-  else if op == some ">" then
-    match startNode? with
-    | some startNode =>
-        let ty := ((field? startNode "typeDescriptions").bind (optStr · "typeString")).getD ""
-        let smallLiteral := (intConstOf startNode).any (· ≤ 256)
-        pure (ty == "uint8" || smallLiteral)
-    | none => pure false
-  else
-    pure false
-
 /-- Lowers an inlined helper `for`/`while` loop. When its body may `break` or
     `continue` (#2710), a fresh exit flag declared before the loop models them: each
     iteration runs only while the flag is below `2` and first resets it to `0`;
     `continue` sets `1` and `break` sets `2`, and the statements after one that may
-    set it run only while it is `0`. A `for` loop's `forEach` still advances the
-    counter after `continue`, as solc's loop expression does. `continue` in a `while`
-    loop would skip its final progress step (solc never terminates) and is rejected;
-    a `while (true)` loop keeps its own break guard. -/
+    set it run only while it is `0`. A `for` loop that may `break` or `return`
+    (#2916) lowers onto `Stmt.forEachWhile` so it exits on the next test without
+    empty tail iterations; `continue` keeps advancing the counter. `continue` in a
+    `while` loop would skip its final progress step (solc never terminates) and is
+    rejected; a `while (true)` loop keeps its own break guard. -/
 private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array Stmt))
-    (allowReturn : Bool := false) : M (Array Stmt) := do
+    (returnFlag : Option String := none) :
+    M (Array Stmt) := do
   let isFor := (← mKind s) == "ForStatement"
-  let lowerLoop (b : Json → M (Array Stmt)) : M (Array Stmt) :=
-    if isFor then lowerFor s b else lowerWhile s b (allowReturn := allowReturn)
+  let allowReturn := returnFlag.isSome
+  let lowerLoop (b : Json → M (Array Stmt)) (guard : Option Expr) : M (Array Stmt) :=
+    if isFor then lowerFor s b (earlyExitGuard := guard)
+    else lowerWhile s b (allowReturn := allowReturn)
+  let guardBody (b : Json) : M (Array Stmt) := do
+    let inner ← lowerBody b
+    match returnFlag with
+    | some rf =>
+        if isFor then pure inner
+        else pure #[.ite (.eq (.localVar rf) (.literal 0)) inner.toList []]
+    | none => pure inner
   let cond := (field? s "condition").getD Json.null
   let whileTrue := !isFor && optStr cond "nodeType" == some "Literal" &&
     optStr cond "value" == some "true"
   let outer := (← get).loopExit
   let body ← mField s "body"
   let exits ← stmtContainsBreakOrContinue body
+  let hasBreak ← stmtContainsLoopJump "Break" body
   -- `continue` in a `while` skips the final progress step, so solc would not terminate.
   if !isFor && (← stmtContainsLoopJump "Continue" body) then
     failAt s "continue inside an inlined helper while loop is unsupported"
@@ -14675,27 +14896,31 @@ private partial def lowerHelperLoop (s : Json) (lowerBody : Json → M (Array St
           failAt cond "helper while loop jumps require a uint256 loop variable"
     else if condKind != some "FunctionCall" then
       failAt cond "helper loop jumps require a proven while iteration bound"
-  if isFor && (← stmtContainsLoopJump "Break" body) then
+  if isFor && hasBreak then
     let init ← mField s "initializationExpression"
     if optStr init "nodeType" == some "ExpressionStatement" then
       failAt s "a for loop over a pre-declared counter must not break"
-    unless ← smallHelperForBound s do
-      failAt s "break in a helper for loop requires an upper bound of at most 256 iterations"
+    unless optStr cond "operator" == some "<" do
+      failAt s "break in a helper for loop requires an increasing `i < n` loop"
   if whileTrue || !exits then
     let unwrapped (b : Json) : M (Array Stmt) := do
       modify fun e => { e with loopExit := none }
-      let out ← lowerBody b
+      let out ← guardBody b
       modify fun e => { e with loopExit := outer }
       pure out
-    return ← lowerLoop unwrapped
+    let retGuard := returnFlag.map fun rf => Expr.eq (.localVar rf) (.literal 0)
+    return ← lowerLoop unwrapped retGuard
   let flag ← fresh
   let wrapped (b : Json) : M (Array Stmt) := do
     modify fun e => { e with loopExit := some flag }
-    let inner ← lowerBody b
+    let inner ← guardBody b
     modify fun e => { e with loopExit := outer }
     pure #[.ite (.lt (.localVar flag) (.literal 2))
       (.assignVar flag (.literal 0) :: inner.toList) []]
-  let loopStmts ← lowerLoop wrapped
+  let exitGuard : Option Expr := match returnFlag with
+    | some rf => some (.bitAnd (.lt (.localVar flag) (.literal 2)) (.eq (.localVar rf) (.literal 0)))
+    | none => if hasBreak then some (.lt (.localVar flag) (.literal 2)) else none
+  let loopStmts ← lowerLoop wrapped exitGuard
   pure (#[.letVar flag (.literal 0)] ++ loopStmts)
 
 /-- `break` / `continue` inside an inlined helper loop: set the loop's exit flag. -/
@@ -14759,28 +14984,6 @@ private partial def lowerHelperLoopStmts (stmts : List Json) : M (Array Stmt) :=
     if rest.isEmpty then return out
     let restOut ← lowerHelperLoopStmts rest
     pure (out ++ (← guardAfterLoopExit statement restOut))
-
-private partial def isTailWindowFor (s : Json) : M Bool := do
-  unless (← mKind s) == "ForStatement" do return false
-  let init ← mField s "initializationExpression"
-  unless (← mKind init) == "VariableDeclarationStatement" do return false
-  let some startRaw := (field? init "initialValue").filter (!·.isNull) | return false
-  let start ← stripParens startRaw
-  let cond ← mField s "condition"
-  unless (← mKind start) == "BinaryOperation" && optStr start "operator" == some "-" &&
-         (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
-    return false
-  let sLeft ← stripParens (← mField start "leftExpression")
-  let sRight ← stripParens (← mField start "rightExpression")
-  let cRight ← stripParens (← mField cond "rightExpression")
-  let sRightTy ← mType sRight
-  if (← mKind sLeft) == "Identifier" && (← mKind cRight) == "Identifier" &&
-     sRightTy.startsWith "int_const " && !sRightTy.startsWith "int_const -" then
-    let lId ← refInt sLeft
-    let rId ← refInt cRight
-    let smallK := (sRightTy.drop 10).toString.toNat?.any (· ≤ 256)
-    return lId ≥ 0 && lId == rId && smallK
-  return false
 
 private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (stmts : List Json) : M (Array Stmt) := do
   match stmts with
@@ -14885,14 +15088,16 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
         | "Break" | "Continue" => lowerLoopExit statement
         | "ForStatement" =>
             if ← stmtContainsReturn statement then
-              unless (← isTailWindowFor statement) || (← smallHelperForBound statement) do
-                failAt statement "return in a nested helper for loop requires a bounded loop of at most 256 iterations"
-              lowerHelperLoop statement (lowerHelperLoopBodyWithReturn retFlag retVal) (allowReturn := true)
+              let cond := (field? statement "condition").getD .null
+              let op := optStr cond "operator"
+              unless op == some "<" || op == some ">" do
+                failAt statement "return in a helper for loop requires a bounded `<` or `>` loop"
+              lowerHelperLoop statement (lowerHelperLoopBodyWithReturn retFlag retVal) (some retFlag)
             else
               lowerHelperLoop statement lowerHelperLoopBody
         | "WhileStatement" =>
             if ← stmtContainsReturn statement then
-              lowerHelperLoop statement (lowerHelperLoopBodyWithReturn retFlag retVal) (allowReturn := true)
+              lowerHelperLoop statement (lowerHelperLoopBodyWithReturn retFlag retVal) (some retFlag)
             else
               lowerHelperLoop statement lowerHelperLoopBody
         | kind => failAt statement s!"unsupported helper loop statement {kind}"
@@ -14908,8 +15113,7 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
 
 private partial def lowerHelperLoopBodyWithReturn (retFlag retVal : String) (body : Json) : M (Array Stmt) := do
   let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
-  let inner ← lowerHelperLoopStmtsWithReturn retFlag retVal statements.toList
-  return #[.ite (.eq (.localVar retFlag) (.literal 0)) inner.toList []]
+  lowerHelperLoopStmtsWithReturn retFlag retVal statements.toList
 
 /-- Lowers helper statements to a prelude and, when the list returns, its
     result. A returning `if` branch ends the list; the continuation after the
@@ -14990,15 +15194,16 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         pure (revStmts, some ((← get).helperResult.map (fun (b, _) => Expr.localVar b) |>.getD (.literal 0)))
     | "ForStatement" =>
         if ← stmtContainsReturn s then
-          -- Early `return` from a helper `for`: the return sets a flag that guards
-          -- the rest of its iteration, every later iteration and the continuation.
-          -- `Stmt.forEach` reads its count once and cannot stop early, so outside a
-          -- tail window (at most `K` iterations) the bound must be small, as for `break`.
-          unless (← isTailWindowFor s) || (← smallHelperForBound s) do
-            failAt s "return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256"
+          -- Early `return` from a helper `for`: the return sets `retFlag`, which guards
+          -- the rest of its iteration, stops `Stmt.forEachWhile` before the next
+          -- iteration, and skips the post-loop continuation.
+          let cond := (field? s "condition").getD .null
+          let op := optStr cond "operator"
+          unless op == some "<" || op == some ">" do
+            failAt s "return in a helper for loop requires a bounded `<` or `>` loop"
           let retFlag ← fresh
           let retVal ← fresh
-          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal) (allowReturn := true)
+          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal) (some retFlag)
           let (tail, result) ← lowerHelperFrom rest retName
           let some tailExpr := result
             | failAt s "inlined helper does not return on every path"
@@ -15016,7 +15221,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           -- `lowerHelperLoop` / `lowerWhile` require a proven uint256 iteration bound.
           let retFlag ← fresh
           let retVal ← fresh
-          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal) (allowReturn := true)
+          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag retVal) (some retFlag)
           let (tail, result) ← lowerHelperFrom rest retName
           let some tailExpr := result
             | failAt s "inlined helper does not return on every path"
@@ -15355,12 +15560,14 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
         pure (extPre ++ asmStmts ++ tailStmts)
     | "ForStatement" =>
         if (← stmtContainsReturn s) && ((← plainVoidHelperContext) || (← get).multiHelperResults.isSome) then
-          unless (← isTailWindowFor s) || (← smallHelperForBound s) do
-            failAt s "return in a helper for loop requires an increasing `i < n` loop with a uint8 or literal bound of at most 256"
+          let cond := (field? s "condition").getD .null
+          let op := optStr cond "operator"
+          unless op == some "<" || op == some ">" do
+            failAt s "return in a helper for loop requires a bounded `<` or `>` loop"
           if !(← get).helperPost.isEmpty && (← listContainsReturn rest.toArray) then
             failAt s "a return after a returning helper loop is outside this slice"
           let retFlag ← fresh
-          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag "") (allowReturn := true)
+          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag "") (some retFlag)
           let restStmts ← lowerVoidHelperFrom rest (pure #[])
           let tailStmts ← k
           pure (#[.letVar retFlag (.literal 0)] ++ loopPre ++
@@ -15374,7 +15581,7 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
           if !(← get).helperPost.isEmpty && (← listContainsReturn rest.toArray) then
             failAt s "a return after a returning helper loop is outside this slice"
           let retFlag ← fresh
-          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag "") (allowReturn := true)
+          let loopPre ← lowerHelperLoop s (lowerHelperLoopBodyWithReturn retFlag "") (some retFlag)
           let restStmts ← lowerVoidHelperFrom rest (pure #[])
           let tailStmts ← k
           pure (#[.letVar retFlag (.literal 0)] ++ loopPre ++
@@ -15873,6 +16080,8 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
     let args ← mArr (← mField j "arguments")
     unless args.size == sMembers.size && !sMembers.isEmpty do
       failAt j "struct constructor argument count mismatch"
+    for mNode in sMembers do
+      discard (validateEnumTypeIfNeeded mNode (← mType mNode))
     if names.isEmpty then
       let mut pre : Array Stmt := #[]
       let mut memberVals : Array (String × String × Expr) := #[]
@@ -16091,8 +16300,9 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        unless (paramType mTy).isSome do
           failAt mNode s!"unsupported flat struct member type {mTy}"
+        discard (validateEnumTypeIfNeeded mNode mTy)
         let readVal ← atom (← readAbiMember srcId #[] mName j)
         pre := pre ++ readVal.pre
         memberVals := memberVals.push (mName, mTy, readVal.expr)
@@ -16468,8 +16678,7 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       return ← lowerAssert statement
     if (← mKind callee) == "FunctionCallOptions" then
       failAt callee "external contract calls are outside this slice"
-    if isLibraryDelegateCall callee then
-      failAt callee "external library calls are outside this slice"
+    let linkedLibraryCall ← admitLinkedLibraryCall callee
     unless (← mArr (← mField expression "names")).isEmpty do
       failAt expression "named call arguments are outside this slice"
     if ← isInterfaceExternalCall expression then
@@ -16582,7 +16791,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
             | none => false
           unless isThis || isLibrary do
             failAt callee "external contract calls are outside this slice"
-        unless visibility == "internal" || visibility == "private" || (visibility == "public" && internalCallee) do
+        unless visibility == "internal" || visibility == "private" ||
+            (visibility == "public" && internalCallee) || linkedLibraryCall do
           failAt callee "discarded helper calls require an internal or private declaration"
         let rets ← mArr (← mField (← mField declaration "returnParameters") "parameters")
         if rets.isEmpty then
@@ -17062,7 +17272,9 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
               | _ => failAt target "member assignment requires a mapping struct storage path"
             markField name
             let mut out := pre ++ rhsPre
-            for (leaf, _, v) in members do
+            for (leaf, mTy, v) in members do
+              if mTy.startsWith "enum " then
+                failAt target "nested storage struct assignment with enum members is outside this slice"
               let qualified := qualifySPathMember qualMember leaf
               unless info.memberNames.contains qualified do
                 failAt target s!"unsupported flat struct storage member {qualified}"
@@ -18297,22 +18509,27 @@ private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
 private partial def lowerEmit (statement : Json) : M (Array Stmt) :=
   recoverAt statement #[] (lowerEmitCore statement)
 
-/-- The revert payload of an event-argument guard: `0` for empty returndata, otherwise a
-distinct tag per typed panic kind or raw `Panic(code)` word. Both codegen pipelines agree on
-a payload family, so only a mixture across arguments needs an order decision. -/
-private partial def eventGuardPayload? : Stmt → Option Nat
-  | .revertEmpty => some 0
-  | .panic k => some (0x100 + k.toNat)
-  | .panicCode (.literal n) => some (n + 1)
-  | .ite _ [b] _ | .ite _ _ [b] => eventGuardPayload? b
-  | _ => none
+/-- Revert payloads reachable inside an event-argument guard: `0` for empty returndata,
+otherwise a distinct tag per typed panic kind or raw `Panic(code)` literal. Both codegen
+pipelines agree on a single payload family, so only a mixture across arguments needs an
+order decision. Inspects both branches of `.ite` so guards whose non-panic branch assigns
+a checked result (such as signed narrow checked add/sub) never lose their panic payload. -/
+private partial def eventGuardPayloads : Stmt → Array Nat
+  | .revertEmpty => #[0]
+  | .panic k => #[0x100 + k.toNat]
+  | .panicCode (.literal n) => #[n + 1]
+  | .ite _ yes no =>
+      yes.foldl (fun acc s => acc ++ eventGuardPayloads s) #[] ++
+      no.foldl (fun acc s => acc ++ eventGuardPayloads s) #[]
+  | _ => #[]
 
 /-- solc evaluates event arguments left to right under via-IR but indexed arguments last
 to first under legacy codegen. When guards in different arguments revert with different
-payloads, the first failing guard depends on that order, so such events are rejected. -/
+payloads (or an unrecognized payload), the first failing guard depends on that order, so
+such events are rejected. -/
 private partial def rejectMixedEventGuards (guarded : Array (Json × Array Nat)) : M Unit := do
   let payloads := guarded.foldl (fun acc (_, ps) => acc ++ ps) #[]
-  if guarded.size > 1 && payloads.any (· != payloads[0]!) then
+  if guarded.size > 1 && (guarded.any (fun (_, ps) => ps.isEmpty) || payloads.any (· != payloads[0]!)) then
     failAt guarded[1]!.1 "event arguments whose guards revert with different payloads require explicit evaluation-order support"
 
 private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
@@ -18379,8 +18596,8 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
     let isGuard : Stmt → Bool := fun
       | .ite _ [.revertEmpty] _ | .ite _ _ [.revertEmpty] => true
       | .ite _ [.panic _] _ | .ite _ _ [.panic _] => true
-      | .ite _ [.panicCode _] _ | .ite _ _ [.panicCode _] => true
-      | .revertEmpty | .panic _ | .panicCode _ => true
+      | .ite _ [.panicCode (.literal _)] _ | .ite _ _ [.panicCode (.literal _)] => true
+      | .revertEmpty | .panic _ | .panicCode (.literal _) => true
       | _ => false
     -- Normalization certified these scalar expressions read-only, with at most one
     -- potential panic. Its prelude cannot compete with another argument's revert.
@@ -18403,7 +18620,7 @@ private partial def lowerEmitCore (statement : Json) : M (Array Stmt) := do
       failAt argument "event arguments currently require total scalar expressions"
     if value.pre.any isGuard then
       guardedArguments := guardedArguments.push argument
-      guardPayloads := guardPayloads.push (argument, value.pre.filterMap eventGuardPayload?)
+      guardPayloads := guardPayloads.push (argument, value.pre.foldl (fun acc s => acc ++ eventGuardPayloads s) #[])
     if value.pre.any isScratch then
       scratchArgument := true
     let rec directParam? : Expr → Option String
@@ -18513,11 +18730,11 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
           | .letVar _ _ => true
           | .ite _ [.revertEmpty] _ | .ite _ _ [.revertEmpty] => true
           | .ite _ [.panic _] _ | .ite _ _ [.panic _] => true
-          | .ite _ [.panicCode _] _ | .ite _ _ [.panicCode _] => true
-          | .revertEmpty | .panic _ | .panicCode _ => true
+          | .ite _ [.panicCode (.literal _)] _ | .ite _ _ [.panicCode (.literal _)] => true
+          | .revertEmpty | .panic _ | .panicCode (.literal _) => true
           | _ => false) do
         failAt argument "event arguments currently require total scalar expressions"
-      let payloads := value.pre.filterMap eventGuardPayload?
+      let payloads := value.pre.foldl (fun acc s => acc ++ eventGuardPayloads s) #[]
       unless payloads.isEmpty do
         guardPayloads := guardPayloads.push (argument, payloads)
       let topic ← atom { value with expr := cleanHelperResultExpr ty value }
@@ -19028,13 +19245,18 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       let some sDecl := (← get).structs.find? sid.toNat | failAt d "unknown struct declaration"
       let sName ← mStr (← mField sDecl "name")
       let sMembers ← mArr (← mField sDecl "members")
+      if sMembers.isEmpty then
+        failAt d s!"empty struct {sName} is unsupported"
       let mut out : Array Stmt := #[]
       let mut members : Array (String × String × String) := #[]
       for mNode in sMembers do
         let mName ← mStr (← mField mNode "name")
         let mTy ← mType mNode
-        if mTy.startsWith "struct " then
+        if mTy.startsWith "struct " && !mTy.contains '[' then
           failAt d "uninitialized nested struct locals are outside this slice"
+        unless (paramType mTy).isSome do
+          failAt mNode s!"unsupported flat struct member type {mTy}"
+        discard (validateEnumTypeIfNeeded mNode mTy)
         let binding ← freshFor s!"{name}_{mName}"
         out := out.push (.letVar binding (.literal 0))
         members := members.push (mName, mTy, binding)
@@ -19058,6 +19280,14 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                writableLocals := e.writableLocals.insert id binding,
                zeroInitLocals := if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id }
     return #[.letVar binding (.literal 0)]
+  if loc == "calldata" && (← mType d) == "bytes" then
+    if (← get).bodyAssigned.contains id then
+      failAt d "reassigned calldata bytes locals are outside this slice"
+    let (cbPre, cb) ← lowerCalldataBytesExpr init
+    modify fun e =>
+      { e with calldataBytes := e.calldataBytes.insert id { cb with param := name },
+               yulNames := e.yulNames.erase name }
+    return cbPre
   if loc == "memory" && ((← mType d) == "bytes" || (← mType d) == "string") then
     let isString := (← mType d) == "string"
     if isString && (← get).bodyAssigned.contains id then
@@ -19614,8 +19844,8 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
 /-- The flat leaves of memory struct `sid`: its members in declaration order,
 with each member of a static struct type replaced by that struct's leaves,
 named `member.leaf` (solc ABI-encodes a static nested struct inline, so the
-leaves are the encoded words in order). `none` when a member is neither a
-non-`enum` ABI scalar nor such a struct. -/
+leaves are the encoded words in order). `none` when a member is neither an
+ABI scalar nor such a struct. -/
 private partial def flatStructLeaves? (sid : Nat) (fuel : Nat := 8) :
     M (Option (Array (String × String))) := do
   if fuel == 0 then return none
@@ -19626,7 +19856,8 @@ private partial def flatStructLeaves? (sid : Nat) (fuel : Nat := 8) :
   for m in members do
     let name ← mStr (← mField m "name")
     let ty ← mType m
-    if !ty.startsWith "enum " && (paramType ty).isSome then
+    if (paramType ty).isSome then
+      discard (validateEnumTypeIfNeeded m ty)
       out := out.push (name, ty)
     else if ty.startsWith "struct " && !ty.contains "[" then
       let subId ← refInt (← mField m "typeName")
@@ -20031,9 +20262,11 @@ private def immutableInitializer? (immutables : Array Nat) (decl : Json) (init :
   -- Initializers run before the constructors, so another immutable's value there is not the
   -- one its binding models (it may still be `0`). Unbinding every immutable of the chain
   -- makes any read of one, direct or through a helper, fail like an unbound immutable's.
+  -- Constructor-time linked library DELEGATECALLs stay outside this slice.
   modify fun e =>
     { e with values := immutables.foldl (fun m id => m.erase id) e.values,
-             scalarTy := immutables.foldl (fun m id => m.erase id) e.scalarTy }
+             scalarTy := immutables.foldl (fun m id => m.erase id) e.scalarTy,
+             linkedLibrariesMatchSource := false }
   let result ← try
       let raw ← lowerExpr init
       let v ← convert (← mType decl) (← mType init) raw init
@@ -20306,6 +20539,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       -- `localParamType` also admits every `bytes1`..`bytes31` width (left-aligned words).
       let some pty := localParamType ty | failAt p s!"unsupported parameter type {ty}"
       let enumBound? ← validateEnumTypeIfNeeded p ty
+      if enumBound?.isSome && !(← get).viaIR && (← get).abiCoderV1 then
+        failAt p "enum parameter under ABI coder v1 is outside this slice"
       modify fun e =>
         let values := e.values.insert id (.param name)
         let scalarTy := e.scalarTy.insert id pty
@@ -21174,6 +21409,7 @@ private partial def stmtEndsCall : Stmt → Bool
   | .returnCodeData _ | .stop | .unsafeBlock _ _ | .unsafeYul _ => true
   | .ite _ yes no => yes.any stmtEndsCall || no.any stmtEndsCall
   | .forEach _ _ body | .forEachSetBit _ _ body => body.any stmtEndsCall
+  | .forEachWhile _ _ _ body => body.any stmtEndsCall
   | _ => false
 
 /-- Replaces each `let <marker> := 0` (at the top level or in `if` branches) by `inner`,
@@ -21726,7 +21962,11 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
                 | none => vname
               modify fun e =>
                 let userValueTypeById := e.userValueTypeById.insert id uTy
-                let userValueTypes := e.userValueTypes.insert qualName uTy |>.insert vname uTy
+                let userValueTypes := e.userValueTypes.insert qualName uTy
+                let userValueTypes :=
+                  if contract?.isNone || !userValueTypes.contains vname then
+                    userValueTypes.insert vname uTy
+                  else userValueTypes
                 { e with userValueTypeById, userValueTypes }
           | "EventDefinition" =>
               modify fun e => { e with eventDecls := e.eventDecls.insert id j }
@@ -22037,8 +22277,12 @@ private def importSlice
   for (logical, text) in sources do
     fileBytes := fileBytes.insert logical (text.toUTF8)
     sourceObj := sourceObj.push (logical, Json.mkObj [("content", Json.str text)])
+  let solcEvm := solcEvmVersion release profile.evmVersion
+  -- Experimental fork names such as `@future` are gated behind this flag.
+  let experimentalSettings : List (String × Json) :=
+    if solcEvm.startsWith "@" then [("experimental", Json.bool true)] else []
   let baseSettings : List (String × Json) := [
-    ("evmVersion", Json.str profile.evmVersion),
+    ("evmVersion", Json.str solcEvm),
     ("metadata", Json.mkObj [("bytecodeHash", Json.str profile.bytecodeHash)]),
     ("optimizer", Json.mkObj [("enabled", Json.bool profile.optimizerRuns.isSome),
       ("runs", profile.optimizerRuns.getD 200)]),
@@ -22046,9 +22290,9 @@ private def importSlice
       ("", Json.arr #[Json.str "ast"]),
       ("*", Json.arr #[Json.str "storageLayout", Json.str "transientStorageLayout"])])]),
     ("remappings", Json.arr (remaps.map fun p => Json.str s!"{p.1}={p.2}"))]
-  let settings := Json.mkObj (if release.supportsViaIR then
+  let settings := Json.mkObj ((if release.supportsViaIR then
     baseSettings ++ [("viaIR", Json.bool profile.viaIR)]
-  else baseSettings)
+  else baseSettings) ++ experimentalSettings)
   let input := Json.mkObj [
     ("language", Json.str "Solidity"),
     ("settings", settings),
@@ -22072,7 +22316,8 @@ private def importSlice
         throwError "solc: {optStr err "formattedMessage" |>.getD "error"}"
   let mut env := Env.init
   let legacy := release.longVersion == "0.7.6+commit.7338295f"
-  env := { env with files := fileBytes, viaIR := profile.viaIR }
+  env := { env with files := fileBytes, viaIR := profile.viaIR,
+                    linkedLibrariesMatchSource := profile.linkedLibrariesMatchSource }
   env := { env with legacyWrapping := legacy, unchecked := legacy }
   let sourcesOut ← field parsed "sources"
   let .obj sourceUnits := sourcesOut | throwError "solc sources output is not an object"
@@ -22138,6 +22383,8 @@ private def importSlice
   let mut unsupportedRoots : Array (String × List UnsupportedConstruct) := #[]
   -- Shortcuts each importable root's model uses (`Env.rootShortcuts` after its lowering).
   let mut rootShortcuts : Array (String × List ShortcutUse) := #[]
+  -- Linked library calls each importable root's model inlines (`Env.rootLinkedLibraryCalls`).
+  let mut rootLinkedLibraryCalls : Array (String × List LinkedLibraryCall) := #[]
   if profile.collectUnsupported then
     let pending ← IO.mkRef (none : Option (String × UnsupportedConstruct × Array Nat))
     let recorded ← IO.mkRef (#[] : Array UnsupportedConstruct)
@@ -22168,6 +22415,7 @@ private def importSlice
     let specsBefore := specs
     let projectionsBefore := projections
     let rootShortcutsBefore := rootShortcuts
+    let rootLinkedLibraryCallsBefore := rootLinkedLibraryCalls
     if let some sink := env.unsupportedSink then
       sink.pending.set none
       sink.recorded.set #[]
@@ -22178,11 +22426,13 @@ private def importSlice
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                         projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulCleanedNarrowBindings := #[], yulBindingReadSites := #[], yulFreePointerBindings := #[],
-                        rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[] }
+                        rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[],
+                        rootLinkedLibraryCalls := #[], rootReturndataRead := none }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
       env := env2
       -- Inline assembly can observe uncleaned stack words and write uncleaned transient
-      -- words; transient lowering is admitted only in closures without assembly.
+      -- words; transient lowering is admitted only in closures whose assembly blocks are
+      -- all transient-neutral (no transient storage, calls or narrow words).
       if let (some asmNode, some tname) := (env.rootAssembly, env.rootTransientFields[0]?) then
         (failAt asmNode
           s!"inline assembly in a closure that accesses transient state variable {tname} is unsupported").run' env
@@ -22456,8 +22706,19 @@ private def importSlice
                 "nothing, so a re-entrant entrypoint observes only the completed state " ++
                 "updates. Denote lets the callee's committed world change any account, " ++
                 "including this one. The trailing position is checked by the importer, not proved."
-              proofStatus := .unchecked }] else []) }
+              proofStatus := .unchecked }] else []) ++
+            (if env.rootLinkedLibraryCalls.isEmpty then [] else [{
+              name := "solidity_linked_library_matches_source"
+              obligation := "Each linked library call this root makes (listed in the import " ++
+                "report) is modelled by the called function's body in the imported source, " ++
+                "run in the caller's frame. That holds only if the deployment links every " ++
+                "such library to an account whose code behaves as solc's compilation of the " ++
+                "same library source, for example by checking the linked account's runtime " ++
+                "code against solc's deployedBytecode of the library. Assumed, not checked."
+              proofStatus := .assumed }]) }
       rootShortcuts := rootShortcuts.push (functionName, env.rootShortcuts.toList)
+      rootLinkedLibraryCalls :=
+        rootLinkedLibraryCalls.push (functionName, env.rootLinkedLibraryCalls.toList)
       for proj in env.projections do
         let ignored :=
           match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
@@ -22481,6 +22742,7 @@ private def importSlice
         specs := specsBefore
         projections := projectionsBefore
         rootShortcuts := rootShortcutsBefore
+        rootLinkedLibraryCalls := rootLinkedLibraryCallsBefore
         -- Source order (stable, so equal positions keep lowering order), then
         -- one entry per distinct (site, reason, closure).
         let ordered := found.mergeSort fun x y =>
@@ -22585,7 +22847,10 @@ private def importSlice
     ("contract", Json.str contract),
     ("functions", Json.arr signatures),
     ("solcInput", input),
-    ("importerSources", importerSources)]
+    ("importerSources", importerSources)] |>.mergeObj
+    (if profile.linkedLibrariesMatchSource then
+      Json.mkObj [("linkedLibrariesMatchSource", Json.bool true)]
+    else Json.mkObj [])
   let digest := sha256Hex digestInput.compress.toUTF8
   let report : ImportReport :=
     { importerVersion, solcLongVersion := release.longVersion, solcSha256 := solcSha, settingsJson := settings.compress,
@@ -22598,7 +22863,9 @@ private def importSlice
         | none => (specs.find? (·.name == functionName)).map fun f =>
             { function := f.name, denoteCovered := executableStmtListCovered f.body,
               compilerProof := .unavailable noCompilerProofReason,
-              shortcuts := (rootShortcuts.find? (·.1 == functionName)).map (·.2) |>.getD [] },
+              shortcuts := (rootShortcuts.find? (·.1 == functionName)).map (·.2) |>.getD [],
+              linkedLibraryCalls :=
+                (rootLinkedLibraryCalls.find? (·.1 == functionName)).map (·.2) |>.getD [] },
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,

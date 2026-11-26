@@ -418,6 +418,7 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)
       {rest : List Stmt} :
+      FunctionBody.requireMessageFits clause.message →
       SupportedStmtList fields scope rest →
       SupportedStmtList fields scope (clause.toStmt :: rest)
   /-- Non-terminal if-then-else with compile-core branches that do not introduce

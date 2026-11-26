@@ -9,6 +9,7 @@ Run: PYTHONPATH=scripts python3 -m solidity_differential.check_raw_slot_2d_struc
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import tempfile
 
@@ -31,10 +32,17 @@ FUNCTIONS = [
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     fixture = root / 'Contracts/SolidityImportSmoke/RawSlotTwoDimStructMapping.sol'
     driver = root / 'Contracts/SolidityImportSmoke/RawSlotTwoDimStructMappingModel.lean'
-    output = Path(tempfile.mkdtemp(prefix='raw-slot-2d-struct-', dir=root / '.lake')).resolve()
+    if args.output:
+        output = args.output.resolve()
+        output.mkdir(parents=True, exist_ok=True)
+    else:
+        output = Path(tempfile.mkdtemp(prefix='raw-slot-2d-struct-', dir=root / '.lake')).resolve()
 
     source_text = fixture.read_text()
     request = {

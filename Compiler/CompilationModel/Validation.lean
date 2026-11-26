@@ -469,6 +469,8 @@ def stmtWritesStateNode : Stmt → Bool
       exprWritesState cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprWritesState count
+  | Stmt.forEachWhile _ count guard _ =>
+      exprWritesState count || exprWritesState guard
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
@@ -576,6 +578,8 @@ def stmtHasUntrackableWritesNode : Stmt → Bool
       exprHasUntrackableWrites cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprHasUntrackableWrites count
+  | Stmt.forEachWhile _ count guard _ =>
+      exprHasUntrackableWrites count || exprHasUntrackableWrites guard
   | Stmt.unsafeYul fragment =>
       -- Raw Yul storage writes target computed slots that cannot be tied back to
       -- declared storage fields, so any storage-writing fragment is untrackable.
@@ -685,6 +689,8 @@ def stmtContainsExternalCallNode : Stmt → Bool
       exprContainsExternalCall cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprContainsExternalCall count
+  | Stmt.forEachWhile _ count guard _ =>
+      exprContainsExternalCall count || exprContainsExternalCall guard
   | Stmt.matchAdt _ scrutinee _ =>
       exprContainsExternalCall scrutinee
   | Stmt.internalCall _ args | Stmt.internalCallAssign _ _ args =>
@@ -737,6 +743,8 @@ def stmtMayContainExternalCallNode : Stmt → Bool
       exprMayContainExternalCall cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprMayContainExternalCall count
+  | Stmt.forEachWhile _ count guard _ =>
+      exprMayContainExternalCall count || exprMayContainExternalCall guard
   | Stmt.matchAdt _ scrutinee _ =>
       exprMayContainExternalCall scrutinee
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
@@ -838,6 +846,8 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
       exprReadsStateOrEnv cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprReadsStateOrEnv count
+  | Stmt.forEachWhile _ count guard _ =>
+      exprReadsStateOrEnv count || exprReadsStateOrEnv guard
   | Stmt.unsafeBlock _ _ =>
       false
   | Stmt.rawLog topics dataOffset dataSize =>
@@ -935,6 +945,9 @@ def stmtWritesStateWithFunctionEffectsNode
       exprWritesStateWithFunctionEffects effects cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprWritesStateWithFunctionEffects effects count
+  | Stmt.forEachWhile _ count guard _ =>
+      exprWritesStateWithFunctionEffects effects count ||
+        exprWritesStateWithFunctionEffects effects guard
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
   | Stmt.internalCall name args | Stmt.internalCallAssign _ name args =>
@@ -1023,6 +1036,9 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
       exprReadsStateOrEnvWithFunctionEffects effects cond
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprReadsStateOrEnvWithFunctionEffects effects count
+  | Stmt.forEachWhile _ count guard _ =>
+      exprReadsStateOrEnvWithFunctionEffects effects count ||
+        exprReadsStateOrEnvWithFunctionEffects effects guard
   | Stmt.unsafeBlock _ _ =>
       false
   | Stmt.rawLog topics dataOffset dataSize =>
@@ -1152,7 +1168,8 @@ def stmtListCEIViolation : List Stmt → Bool → Option String
           -- For compound statements (ite, forEach, unsafeBlock, matchAdt), the internal
           -- CEI check above already verified ordering within the statement's branches.
           let isCompound := match s with
-            | Stmt.ite _ _ _ | Stmt.forEach _ _ _ | Stmt.forEachSetBit _ _ _ | Stmt.unsafeBlock _ _
+            | Stmt.ite _ _ _ | Stmt.forEach _ _ _ | Stmt.forEachSetBit _ _ _ | Stmt.forEachWhile _ _ _ _
+            | Stmt.unsafeBlock _ _
             | Stmt.matchAdt _ _ _ => true
             | _ => false
           -- Update seenCall conservatively: statement-form internal calls may
@@ -1200,6 +1217,20 @@ def stmtInternalCEIViolation : Stmt → Bool → Option String
         -- Include external calls from the loop count expression, so
         -- `forEach i (externalCall ...) do setStorage ...` is correctly flagged
         let countSeenCall := seenCall || exprMayContainExternalCall count
+        match stmtListCEIViolation body countSeenCall with
+        | some msg => some s!"in loop body: {msg}"
+        | none => none
+  | Stmt.forEachWhile _ count guard body, seenCall =>
+      -- In a loop, if the body has both an external call and a state write,
+      -- a second iteration would violate CEI even if the first doesn't
+      let bodyHasCall := body.any stmtMayContainExternalCall
+      let bodyHasWrite := body.any stmtMayPersistentlyWrite
+      if bodyHasCall && bodyHasWrite then
+        some "loop body contains both external call and state write (subsequent iterations would violate CEI)"
+      else
+        -- Include external calls from the loop count and guard expressions.
+        let countSeenCall := seenCall || exprMayContainExternalCall count ||
+          exprMayContainExternalCall guard
         match stmtListCEIViolation body countSeenCall with
         | some msg => some s!"in loop body: {msg}"
         | none => none
@@ -1312,6 +1343,15 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
   | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ => do
       if exprContainsAdtConstruct count then
         throw "Compilation error: ADT construction cannot be used as a loop bound."
+  | Stmt.forEachWhile _ count guard _ => do
+      if exprContainsAdtConstruct count then
+        throw "Compilation error: ADT construction cannot be used as a loop bound."
+      if exprContainsAdtConstruct guard then
+        throw "Compilation error: ADT construction cannot be used as a loop guard."
+      -- The guard is re-evaluated on every loop check, so a call in it would run
+      -- once per iteration; the source semantics also evaluates it call-free.
+      if exprContainsCallLike guard then
+        throw "Compilation error: a forEachWhile guard must not contain a call-like expression."
   | Stmt.unsafeBlock _ _ =>
       pure ()
   | Stmt.matchAdt _ scrutinee _ => do

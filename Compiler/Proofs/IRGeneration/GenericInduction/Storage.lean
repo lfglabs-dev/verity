@@ -2859,8 +2859,11 @@ private theorem execStmt_returndataCopy_of_eval
         .continue { runtime with
           world := { runtime.world with
             memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-              runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory } }
-      else .revert := by
+              runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory
+            byteMemory := runtime.world.byteMemory.copyFrom
+              (Compiler.CompilationModel.DenoteMemory.wordListByte runtime.world.returndata)
+              destNat sourceNat sizeNat } }
+      else .revert .empty := by
   by_cases hfit : sourceNat + sizeNat ≤ 32 * runtime.world.returndata.length <;>
     simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit]
 
@@ -2875,7 +2878,10 @@ private theorem execIRStmt_returndatacopy_of_eval
       if sourceNat + sizeNat ≤ 32 * state.returndata.length then
         .continue { state with
           memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-            state.returndata destNat sourceNat sizeNat state.memory }
+            state.returndata destNat sourceNat sizeNat state.memory
+          byteMemory := state.byteMemory.copyFrom
+            (Compiler.CompilationModel.DenoteMemory.wordListByte state.returndata)
+            destNat sourceNat sizeNat }
       else .revert state := by
   by_cases hfit : sourceNat + sizeNat ≤ 32 * state.returndata.length <;>
     simp [execIRStmt, hIRDest, hIRSource, hIRSize, hfit]
@@ -2890,7 +2896,7 @@ private theorem execIRStmts_single_revert_of_execIRStmt
 
 /-- Both layers branch on the same fit guard (the buffers agree by
 `runtimeStateMatchesIR_returndata`), so the step corresponds in either branch: the
-in-bounds copy continues with the same words, the out-of-bounds extent reverts on
+in-bounds copy continues with the same bytes and words, the out-of-bounds extent reverts on
 both sides. -/
 private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
     {fields : List Field} {scope : List String} {destOffset sourceOffset size : Expr}
@@ -2932,7 +2938,8 @@ private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
   · rw [if_neg hfit] at hSrcExec
     rw [if_neg (show ¬(sourceNat + sizeNat ≤ 32 * state.returndata.length) from hrd ▸ hfit)]
       at hExecStmt
-    exact ⟨_, _, hSrcExec, execIRStmts_single_revert_of_execIRStmt hExecStmt, trivial⟩
+    exact ⟨_, _, hSrcExec, execIRStmts_single_revert_of_execIRStmt hExecStmt,
+      by simp [stmtStepMatchesIRExec, FunctionBody.runtimeStateMatchesIR_revertData hruntime]⟩
 
 /-- Bounded `returndataCopy` correspondence: the compiled single
 `returndatacopy(destIR, sourceIR, sizeIR)` step agrees with the source
@@ -2978,8 +2985,9 @@ theorem compiledStmtStep_revertEmpty_single
     simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
       pure, Except.pure]
   preserves := by
-    intro runtime state extraFuel _ _ _ _ _
-    refine ⟨.revert, .revert state, rfl, ?_, trivial⟩
+    intro runtime state extraFuel _ _ _ hruntime _
+    refine ⟨.revert _, .revert state, rfl, ?_,
+      by simp [stmtStepMatchesIRExec, FunctionBody.runtimeStateMatchesIR_revertData hruntime]⟩
     have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
     change execIRStmts (1 + extraFuel + 1) state
       [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] = .revert state
@@ -2991,6 +2999,10 @@ whatever its arguments evaluate to, and the source statement reverts as well. -/
 theorem compiledStmtStep_revertMemory_single
     {fields : List Field} {scope : List String} {offset size : Expr}
     {offsetIR sizeIR : YulExpr}
+    (hcoreOffset : FunctionBody.ExprCompileCore offset)
+    (hinScopeOffset : FunctionBody.exprBoundNamesInScope offset scope)
+    (hcoreSize : FunctionBody.ExprCompileCore size)
+    (hinScopeSize : FunctionBody.exprBoundNamesInScope size scope)
     (hoffsetIR : CompilationModel.compileExpr fields .calldata offset = Except.ok offsetIR)
     (hsizeIR : CompilationModel.compileExpr fields .calldata size = Except.ok sizeIR) :
     CompiledStmtStep fields scope (.revertMemory offset size)
@@ -3001,14 +3013,29 @@ theorem compiledStmtStep_revertMemory_single
     simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
       hoffsetIRInternal, hsizeIRInternal, Bind.bind, Except.bind, pure, Except.pure]
   preserves := by
-    intro runtime state extraFuel _ _ _ _ _
+    intro runtime state extraFuel hexact hscope hbounded hruntime _
+    obtain ⟨off, hOffSrc, hOffIR, hOffLt⟩ := exists_eval_of_compileExpr_core_of_scope
+      hcoreOffset hinScopeOffset hexact hscope hbounded hruntime hoffsetIR
+    obtain ⟨sz, hSzSrc, hSzIR, -⟩ := exists_eval_of_compileExpr_core_of_scope
+      hcoreSize hinScopeSize hexact hscope hbounded hruntime hsizeIR
     have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
-    obtain ⟨final, hfinal⟩ : ∃ final, execIRStmts (1 + extraFuel + 1) state
-        [YulStmt.exprStmt (YulExpr.call "revert" [offsetIR, sizeIR])] = .revert final := by
+    refine ⟨.revert (.raw ((runtime.world.byteMemory.slice off sz).map
+        fun (byte : Fin 256) => UInt8.ofNat byte.val)),
+      .revert (state.recordRevert off sz), ?_, ?_, ?_⟩
+    · simp [SourceSemantics.execStmt, hOffSrc, hSzSrc]
+    · change execIRStmts (1 + extraFuel + 1) state
+        [YulStmt.exprStmt (YulExpr.call "revert" [offsetIR, sizeIR])] = _
       rw [hfuel]
-      exact ⟨revertCallState (extraFuel + 1) state offsetIR sizeIR,
-        by simp [execIRStmts, execIRStmt_revertCall]⟩
-    exact ⟨.revert, .revert final, rfl, hfinal, trivial⟩
+      simp [execIRStmts, execIRStmt_revertCall, revertCallState, hOffIR, hSzIR,
+        Verity.Core.Uint256.ofNat, Nat.mod_eq_of_lt hOffLt]
+    · have hbytes := FunctionBody.runtimeStateMatchesIR_byteMemory hruntime
+      by_cases hsz : sz = 0
+      · subst hsz
+        simp [stmtStepMatchesIRExec, IRState.recordRevert,
+          FunctionBody.runtimeStateMatchesIR_revertData hruntime,
+          Compiler.CompilationModel.DenoteMemory.Memory.slice]
+      · simp [stmtStepMatchesIRExec, IRState.recordRevert_revertData _ _ _ hsz, revertBytes,
+          hbytes]
 
 /-- Compiled IR for `revertReturndata`: copy the whole returndata buffer to memory
 and revert with it. -/
@@ -3021,39 +3048,94 @@ private def revertReturndataIR : List YulStmt :=
       [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
   ]]
 
-/-- Whichever branch the copy takes for the current EIP-211 buffer — the in-bounds
-copy continues with a memory update, the out-of-bounds extent reverts immediately —
-the trailing `revert` lands the frame in a reverted state, so only the
-reverted-ness is pinned here. -/
-private theorem execIRStmts_revertReturndataIR_revert (k : Nat) (state : IRState) :
-    ∃ s, execIRStmts (Nat.succ (Nat.succ (Nat.succ (Nat.succ (Nat.succ k))))) state
-      revertReturndataIR = .revert s := by
+private theorem wordListByte_cons_lt (w : Nat) (ws : List Nat) (i : Nat) (hi : i < 32) :
+    UInt8.ofNat (DenoteMemory.wordListByte (w :: ws) i).val =
+      UInt8.ofNat (w / 2 ^ (8 * (31 - i)) % 256) := by
+  simp [DenoteMemory.wordListByte, Nat.div_eq_of_lt hi, Nat.mod_eq_of_lt hi, Nat.pow_mul]
+
+private theorem wordListByte_cons_add (w : Nat) (ws : List Nat) (j : Nat) :
+    DenoteMemory.wordListByte (w :: ws) (32 + j) = DenoteMemory.wordListByte ws j := by
+  have h1 : (32 + j) / 32 = j / 32 + 1 := by omega
+  have h2 : (32 + j) % 32 = j % 32 := by omega
+  simp [DenoteMemory.wordListByte, h1, h2]
+
+/-- Reading a whole returndata buffer byte by byte gives its ABI word bytes. -/
+private theorem range_map_wordListByte (ws : List Nat) :
+    (List.range (32 * ws.length)).map
+        (fun i => UInt8.ofNat (DenoteMemory.wordListByte ws i).val) =
+      ws.flatMap Denote.wordBytes := by
+  induction ws with
+  | nil => simp
+  | cons w ws ih =>
+      rw [List.length_cons, show 32 * (ws.length + 1) = 32 + 32 * ws.length by omega,
+        List.range_add, List.map_append, List.flatMap_cons, List.map_map]
+      have hhead : (List.range 32).map
+          (fun i => UInt8.ofNat (DenoteMemory.wordListByte (w :: ws) i).val) =
+            Denote.wordBytes w := by
+        unfold Denote.wordBytes
+        apply List.map_congr_left
+        intro i hi
+        exact wordListByte_cons_lt w ws i (List.mem_range.mp hi)
+      rw [hhead]
+      congr 1
+      rw [← ih]
+      apply List.map_congr_left
+      intro j _
+      simp [Function.comp, wordListByte_cons_add]
+
+/-- The bytes a `revert(0, n)` returns after `returndatacopy(0, 0, n)` from a
+word buffer are the first `n` of its ABI word bytes. -/
+private theorem revertBytes_copyFrom_wordListByte (memory : DenoteMemory.Memory)
+    (ws : List Nat) (n : Nat) (hn : n ≤ 32 * ws.length) :
+    revertBytes (memory.copyFrom (DenoteMemory.wordListByte ws) 0 0 n) 0 n =
+      (ws.flatMap Denote.wordBytes).take n := by
+  rw [← range_map_wordListByte, ← List.map_take, List.take_range, Nat.min_eq_left hn,
+    revertBytes, DenoteMemory.Memory.slice, List.map_map]
+  apply List.map_congr_left
+  intro i hi
+  have := InitCodeExecution.copyFrom_readByte_at memory (DenoteMemory.wordListByte ws) 0 0 n
+    ⟨i, List.mem_range.mp hi⟩
+  simp only [Nat.zero_add] at this
+  simp [Function.comp, this]
+
+/-- `revertReturndataIR` reverts with exactly `Denote.returndataRevertBytes` of the
+buffer, the bytes the source semantics states. -/
+private theorem execIRStmts_revertReturndataIR_revertData (k : Nat) (state : IRState)
+    (hclean : state.revertData = []) :
+    ∃ s, execIRStmts (k + 6) state revertReturndataIR = .revert s ∧
+      s.revertData = Denote.returndataRevertBytes state.returndata := by
+  have hle : 32 * state.returndata.length % Compiler.Constants.evmModulus ≤
+      32 * state.returndata.length := Nat.mod_le _ _
   simp [revertReturndataIR, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    IRState.getVar, IRState.setVar, execIRStmt_revertCall]
-  split_ifs <;> exact ⟨_, rfl⟩
+    IRState.getVar, IRState.setVar, execIRStmt_revertCall, revertCallState, hle]
+  by_cases hsz : 32 * state.returndata.length % Compiler.Constants.evmModulus = 0
+  · simp [hsz, hclean, Denote.returndataRevertBytes, Compiler.Constants.evmModulus]
+  · simp [IRState.recordRevert_revertData _ _ _ hsz, revertBytes_copyFrom_wordListByte _ _ _ hle,
+      Denote.returndataRevertBytes, Compiler.Constants.evmModulus]
 
-/-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
-temporary is exactly `returndatasize()`; whichever branch the copy takes for the
-current EIP-211 buffer, both it and the following `revert` land in
-`IRExecResult.revert`, matching the source statement's `.revert`. -/
+/-- `revertReturndata` bubbles the callee's revert reason. The compiler's
+temporary is exactly `returndatasize()`; the in-bounds copy writes the buffer's
+bytes to byte memory and the following `revert` returns them, which are the bytes
+the source statement reverts with (`Denote.returndataRevertBytes`). -/
 private theorem compiledStmtStep_revertReturndata_empty_single_preserves
     {fields : List Field}
     {scope : List String} :
     CompiledStmtPreserves fields scope .revertReturndata revertReturndataIR := by
-  intro runtime state extraFuel _ _ _ _ hslack
-  have h3 : 3 ≤ extraFuel := by
-    have : 4 ≤ sizeOf revertReturndataIR := by decide
+  intro runtime state extraFuel _ _ _ hruntime hslack
+  have h4 : 4 ≤ extraFuel := by
+    have : 6 ≤ sizeOf revertReturndataIR := by decide
     have : revertReturndataIR.length = 1 := rfl
     omega
-  obtain ⟨k, rfl⟩ := Nat.exists_eq_add_of_le h3
-  have hfuel : revertReturndataIR.length + (3 + k) + 1 =
-      Nat.succ (Nat.succ (Nat.succ (Nat.succ (Nat.succ k)))) := by
+  obtain ⟨k, rfl⟩ := Nat.exists_eq_add_of_le h4
+  have hfuel : revertReturndataIR.length + (4 + k) + 1 = k + 6 := by
     have : revertReturndataIR.length = 1 := rfl
     omega
   rw [hfuel]
-  obtain ⟨s, hs⟩ := execIRStmts_revertReturndataIR_revert k state
-  exact ⟨.revert, .revert s, rfl, hs, trivial⟩
+  obtain ⟨s, hs, hbytes⟩ := execIRStmts_revertReturndataIR_revertData k state
+    (FunctionBody.runtimeStateMatchesIR_revertData hruntime)
+  refine ⟨.revert _, .revert s, rfl, hs, ?_⟩
+  simp [stmtStepMatchesIRExec, hbytes, FunctionBody.runtimeStateMatchesIR_returndata hruntime]
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :
@@ -5391,9 +5473,9 @@ private theorem terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec
     stmtStepMatchesIRExec fields scope sourceResult irExec := by
   cases sourceResult <;> cases irExec <;>
     simp [stmtStepMatchesIRExec, FunctionBody.stmtResultMatchesIRExec] at hmatch ⊢
-  · exact False.elim (hnotContinue _ rfl)
-  · exact hmatch
-  · exact hmatch
+  all_goals first
+    | exact False.elim (hnotContinue _ rfl)
+    | exact hmatch
 
 /-- Fresh temporary holding the condition value of a compiled terminal `ite`. -/
 private abbrev iteTempName (scope : List String) (cond : Expr)
@@ -5662,7 +5744,7 @@ private theorem execStmt_letVar_of_evalExpr {fields : List Field}
   change (match SourceSemantics.evalExpr fields runtime e with
     | some r => SourceSemantics.StmtResult.continue
         { runtime with bindings := SourceSemantics.bindValue runtime.bindings name r }
-    | none => SourceSemantics.StmtResult.revert) = _
+    | none => SourceSemantics.StmtResult.revert .empty) = _
   rw [h]
 
 private theorem execStmt_assignVar_of_evalExpr {fields : List Field}
@@ -5673,7 +5755,7 @@ private theorem execStmt_assignVar_of_evalExpr {fields : List Field}
   change (match SourceSemantics.evalExpr fields runtime e with
     | some r => SourceSemantics.StmtResult.continue
         { runtime with bindings := SourceSemantics.bindValue runtime.bindings name r }
-    | none => SourceSemantics.StmtResult.revert) = _
+    | none => SourceSemantics.StmtResult.revert .empty) = _
   rw [h]
 
 private theorem execIRStmts_singleton_let_of_eval {state : IRState} {name : String}
@@ -6235,16 +6317,17 @@ theorem stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_
 theorem stmtListGenericCore_of_supportedStmtList_revertMemorySingle_of_surface
     {fields : List Field} {scope : List String} {offset size : Expr}
     (hcoreOffset : FunctionBody.ExprCompileCore offset)
-    (_hinScopeOffset : FunctionBody.exprBoundNamesInScope offset scope)
+    (hinScopeOffset : FunctionBody.exprBoundNamesInScope offset scope)
     (hcoreSize : FunctionBody.ExprCompileCore size)
-    (_hinScopeSize : FunctionBody.exprBoundNamesInScope size scope) :
+    (hinScopeSize : FunctionBody.exprBoundNamesInScope size scope) :
     StmtListGenericCore fields scope [Stmt.revertMemory offset size] := by
   rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreOffset with
     ⟨offsetIR, hoffsetIR⟩
   rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreSize with
     ⟨sizeIR, hsizeIR⟩
   exact StmtListGenericCore.cons
-    (compiledStmtStep_revertMemory_single (hoffsetIR := hoffsetIR) (hsizeIR := hsizeIR))
+    (compiledStmtStep_revertMemory_single hcoreOffset hinScopeOffset hcoreSize hinScopeSize
+      hoffsetIR hsizeIR)
     StmtListGenericCore.nil
 
 

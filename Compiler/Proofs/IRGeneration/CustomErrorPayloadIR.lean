@@ -7,14 +7,11 @@ import Compiler.CompilationModel.AbiEncoding
 Companion to `ErrorStringPayloadIR` (the `Error(string)` observable) and the
 `Panic(uint256)` observable.
 
-The generic-induction step lemmas `compiledStmtStep_requireError` and
-`compiledStmtStep_revertError` are already proved, but both are stated modulo
-the hypothesis
-
-    hrevertExec : ∀ state fuel, ∃ next, execIRStmts fuel state revertStmts = .revert next
-
-which nothing in the tree discharged, leaving those two lemmas without
-consumers. This module supplies the machinery for that hypothesis: it
+Typed errors (`Stmt.requireError` / `Stmt.revertError`) are outside the proved
+fragment (`SupportedSpec.noErrors`). Their generic-induction step lemmas were
+removed when the step relation started comparing revert bytes; re-admitting them
+needs the custom-error payload's bytes, and this module keeps the machinery for
+the reverting part of that proof: it
 characterizes the statement shapes a revert payload is built from
 (`NonEscaping` — statements that can only continue or revert), proves that a
 list reaching a `revert` call through such statements deterministically reverts
@@ -108,7 +105,7 @@ def NonEscapingList (stmts : List YulStmt) : Prop :=
 
 theorem nonEscapingList_nil : NonEscapingList [] := by
   intro _ state
-  exact Or.inl ⟨state, by simp [execIRStmts]⟩
+  exact Or.inl ⟨state, by simp⟩
 
 theorem nonEscapingList_cons {stmt : YulStmt} {rest : List YulStmt}
     (hstmt : NonEscaping stmt) (hrest : NonEscapingList rest) :
@@ -260,9 +257,7 @@ theorem execIRStmts_block_revertsAlways {body : List YulStmt}
 /-! ## The custom-error payload shape
 
 `revertWithCustomError` emits a single `block` whose body is a prefix of
-memory/local writes followed by an unconditional `revert` call. This is the
-`hrevertExec` shape that `compiledStmtStep_requireError` and
-`compiledStmtStep_revertError` take as a hypothesis. -/
+memory/local writes followed by an unconditional `revert` call. -/
 
 theorem RevertsAlways.prefix_revertCall {pre : List YulStmt} (offset size : YulExpr)
     (hpre : ∀ stmt ∈ pre, NonEscaping stmt) :

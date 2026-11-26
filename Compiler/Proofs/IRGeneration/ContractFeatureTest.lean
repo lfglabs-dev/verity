@@ -1098,12 +1098,14 @@ example :
         1
         { world := SourceSemantics.withTransactionContext Verity.defaultState stopOnlyTx
           bindings := []
-          selector := stopOnlyTx.functionSelector }
+          selector := stopOnlyTx.functionSelector
+          errors := stopOnlySpec.errors }
         stopOnlyFunction.body =
       .stop
         { world := SourceSemantics.withTransactionContext Verity.defaultState stopOnlyTx
           bindings := []
-          selector := stopOnlyTx.functionSelector } := by
+          selector := stopOnlyTx.functionSelector
+          errors := stopOnlySpec.errors } := by
     simp [stopOnlyFunction, SourceSemantics.execStmtListWithHelpers,
       SourceSemantics.execStmtWithHelpers]
   have hstate :
@@ -1111,7 +1113,8 @@ example :
         (SourceSemantics.effectiveFields stopOnlySpec)
         { world := SourceSemantics.withTransactionContext Verity.defaultState stopOnlyTx
           bindings := []
-          selector := stopOnlyTx.functionSelector }
+          selector := stopOnlyTx.functionSelector
+          errors := stopOnlySpec.errors }
         (FunctionBody.initialIRStateForTx stopOnlySpec stopOnlyTx Verity.defaultState) := by
     simpa using
       Function.initialIRStateForTx_matches_runtime
@@ -1131,7 +1134,8 @@ example :
       (sourceResult := .stop
         { world := SourceSemantics.withTransactionContext Verity.defaultState stopOnlyTx
           bindings := []
-          selector := stopOnlyTx.functionSelector })
+          selector := stopOnlyTx.functionSelector
+          errors := stopOnlySpec.errors })
       (rollback := FunctionBody.initialIRStateForTx stopOnlySpec stopOnlyTx Verity.defaultState)
       (irResult := .stop (FunctionBody.initialIRStateForTx stopOnlySpec stopOnlyTx Verity.defaultState))
       (bindings := [])
@@ -1182,7 +1186,7 @@ example :
                                { name := "value", ty := .uint256, kind := .unindexed }
                              ] }),
                        Verity.Core.Uint256.ofNat (11 % Compiler.Constants.evmModulus)] }] } }
-    | none => .revert := by
+    | none => .revert .empty := by
   have hunindexed :
       (EventParamKind.unindexed == EventParamKind.indexed) = false := by
     native_decide

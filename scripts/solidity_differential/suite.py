@@ -270,13 +270,19 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '402', '14337', '69', '14355', '61', '65', '108', '14355', '14337', '65', '384', '61', '63',
         str(2**256 - 1),
         '--output', str(output / 'abi-encode-string-helper')]))
-    from .check_storage import ABI_DECODE_ENUM_STRUCT_PREFIX
+    from .check_storage import ABI_DECODE_ENUM_STRUCT_PREFIX, ENUM_FLAT_STRUCT_PREFIX
     checks.append(('abi-decode-enum-struct', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/AbiDecodeEnumStructSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/AbiDecodeEnumStructSequenceModel.lean',
         '--transactions', str(max(48, transactions)), '--seed', str(seed),
         '--change-prefix', *map(str, ABI_DECODE_ENUM_STRUCT_PREFIX),
         '--output', str(output / 'abi-decode-enum-struct')]))
+    checks.append(('enum-flat-struct', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/EnumFlatStructSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/EnumFlatStructSequenceModel.lean',
+        '--transactions', str(max(64, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, ENUM_FLAT_STRUCT_PREFIX),
+        '--output', str(output / 'enum-flat-struct')]))
     checks.append(('assignment-arguments', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/AssignmentArgumentSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/AssignmentArgumentSequenceModel.lean',
@@ -382,6 +388,26 @@ def stateful_campaign(output, transactions, seed, jobs=1):
             '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
             '--change-prefix', '0', '1', '999', str(2 ** 256 - 1),
             '--output', str(output / check)]))
+    # A stateful helper call beside a local / parameter `+` operand, as a helper's lone argument
+    # and as a using-for receiver, with one state variable (StatefulCallOperand*Sequence):
+    # x % 5 selects the case, x / 5 drives it. The prefix runs every case at x / 5 = 0, 1, 2 and
+    # with the largest inputs (checked overflow in or after the call). The 0.8.34 fixture runs
+    # via-IR (left operand first); its solc 0.8.10 twin runs the legacy pipeline (right first).
+    # StatefulCallConstantOperand*Sequence: the same beside a contract or file-level `constant`
+    # or an `immutable` operand (x % 3 selects it, x / 3 drives it).
+    for check, fixture, extra in (
+            ('stateful-call-operand', 'StatefulCallOperandSequence', []),
+            ('stateful-call-operand-solc0810', 'StatefulCallOperandSolc0810Sequence',
+             ['--solc-version', '0.8.10']),
+            ('stateful-call-constant-operand', 'StatefulCallConstantOperandSequence', []),
+            ('stateful-call-constant-operand-solc0810', 'StatefulCallConstantOperandSolc0810Sequence',
+             ['--solc-version', '0.8.10'])):
+        checks.append((check, ['-m', 'solidity_differential.check_stateful',
+            '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
+            '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
+            '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
+            '--change-prefix', *map(str, [*range(15), *(2 ** 256 - k for k in range(1, 6))]),
+            '--output', str(output / check)]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',
@@ -398,6 +424,13 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'ecrecover')]))
     checks.append(('ecrecover-rejections', ['-m', 'solidity_differential.check_ecrecover_rejections',
         '--output', str(output / 'ecrecover-rejections')]))
+    checks.append(('linked-library-call', ['-m', 'solidity_differential.check_linked_library_call',
+        '--transactions', str(max(200, min(transactions, 240))), '--seed', str(seed),
+        '--output', str(output / 'linked-library-call')]))
+    checks.append(('linked-library-call-negative', ['-m',
+        'solidity_differential.check_linked_library_call', '--negative-control',
+        '--transactions', '60', '--seed', str(seed),
+        '--output', str(output / 'linked-library-call-negative')]))
     checks.append(('signature-calldata', ['-m', 'solidity_differential.check_signature_calldata',
         '--transactions', str(max(200, min(transactions, 240))), '--seed', str(seed),
         '--output', str(output / 'signature-calldata')]))
@@ -413,6 +446,14 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('yul-narrow-result', ['-m', 'solidity_differential.check_yul_narrow_result',
         '--transactions', str(max(120, min(transactions, 160))), '--seed', str(seed),
         '--output', str(output / 'yul-narrow-result')]))
+    checks.append(('raw-slot-2d-struct-mapping', ['-m', 'solidity_differential.check_raw_slot_2d_struct_mapping',
+        '--output', str(output / 'raw-slot-2d-struct-mapping')]))
+    checks.append(('interface-multi-return-and-receiver', ['-m', 'solidity_differential.check_interface_multi_return_and_receiver',
+        '--output', str(output / 'interface-multi-return-and-receiver')]))
+    checks.append(('checked-arguments', ['-m', 'solidity_differential.check_checked_arguments',
+        '--output', str(output / 'checked-arguments')]))
+    checks.append(('loops-storage-guards-enum-decode', ['-m', 'solidity_differential.check_loops_storage_guards_and_enum_decode',
+        '--output', str(output / 'loops-storage-guards-enum-decode')]))
     checks.append(('state-count-invariance', ['-m', 'solidity_differential.check_state_count_invariance',
         '--output', str(output / 'state-count-invariance')]))
     # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min

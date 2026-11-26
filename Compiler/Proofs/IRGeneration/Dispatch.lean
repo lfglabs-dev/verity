@@ -49,8 +49,7 @@ theorem compileFunctionSpec_ok_loads_prefix
 /-- The IR rollback record for a transaction matches the reverted source
 result. -/
 theorem reverted_matches_initial_rollback
-    (model : CompilationModel) (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (data : List UInt8 := []) :
+    (model : CompilationModel) (tx : IRTransaction) (initialWorld : Verity.ContractState) :
     FunctionBody.sourceResultMatchesIRResult
       (SourceSemantics.revertedResult model
         (SourceSemantics.withTransactionContext initialWorld tx))
@@ -59,7 +58,7 @@ theorem reverted_matches_initial_rollback
         finalMappings := Compiler.Proofs.storageAsMappings
           (FunctionBody.initialIRStateForTx model tx initialWorld).storage
         events := (FunctionBody.initialIRStateForTx model tx initialWorld).events
-        revertData := data } := by
+        revertData := (FunctionBody.initialIRStateForTx model tx initialWorld).revertData } := by
   simp [FunctionBody.sourceResultMatchesIRResult,
     SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
     FunctionBody.encodeStorage_withTransactionContext,
@@ -84,9 +83,8 @@ theorem execIRFunction_bindFail_matches
   have h := Function.execIRFunction_revert_of_bind_none
     (FunctionBody.initialIRStateForTx model tx initialWorld) irFn fn.params rest hparams hbody
     hsupported hlen hnone
-  obtain ⟨data, h⟩ := h
   rw [show tx.args = (FunctionBody.initialIRStateForTx model tx initialWorld).calldata from rfl, h]
-  exact reverted_matches_initial_rollback model tx initialWorld data
+  exact reverted_matches_initial_rollback model tx initialWorld
 
 /-- Helper-aware analogue of `execIRFunction_bindFail_matches`, for a runtime
 contract whose helper names are reserved (so the loads call no helper). -/
@@ -110,9 +108,8 @@ theorem execIRFunctionWithInternals_bindFail_matches
     (FunctionBody.initialIRStateForTx model tx initialWorld) irFn fn.params rest hparams hbody
     hsupported hlen hnone
     (Function.genParamLoads_callsDisjoint_of_reserved runtimeContract fn.params hsupported hreserved)
-  obtain ⟨data, h⟩ := h
   rw [show tx.args = (FunctionBody.initialIRStateForTx model tx initialWorld).calldata from rfl, h]
-  exact reverted_matches_initial_rollback model tx initialWorld data
+  exact reverted_matches_initial_rollback model tx initialWorld
 
 theorem interpretContract_correct_of_compiled_functions
     (model : CompilationModel)

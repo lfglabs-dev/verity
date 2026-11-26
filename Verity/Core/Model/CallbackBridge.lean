@@ -364,7 +364,7 @@ def callbackContractTransition (ctx : CallbackContext)
   simp [callbackContractTransition, hrun]
 
 @[simp] theorem callbackContractTransition_revert (ctx : CallbackContext)
-    (entrypoint : Verity.Contract α) (outer : Verity.ContractState) (message : String)
+    (entrypoint : Verity.Contract α) (outer : Verity.ContractState) (message : Verity.Core.RevertPayload)
     (hrun : entrypoint.run (withCallbackContext ctx outer) =
       Verity.ContractResult.revert message (withCallbackContext ctx outer)) :
     callbackContractTransition ctx entrypoint outer = outer := by

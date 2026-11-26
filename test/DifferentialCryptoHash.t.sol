@@ -103,6 +103,12 @@ contract DifferentialCryptoHash is YulTestBase, DiffTestConfig, DifferentialTest
             return false;
         }
 
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
+            testsFailed++;
+            return false;
+        }
+
         if (evmReturnValue != edslReturnValue) {
             console2.log("MISMATCH: Return values differ!");
             console2.log("  EVM:", evmReturnValue);

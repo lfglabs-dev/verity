@@ -13,6 +13,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "HelperLoopR
   function change(uint256)
   function fail()
   function read()
+  function scanLarge(uint256,uint256,uint32)
+  function countUntilBreak(uint256,uint256)
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

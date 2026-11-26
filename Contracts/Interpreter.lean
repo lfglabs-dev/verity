@@ -37,7 +37,10 @@ Unified result type that captures what we need to compare between EDSL and EVM.
 structure ExecutionResult where
   success : Bool              -- true if succeeded, false if reverted
   returnValue : Option Nat    -- Return value for successful calls
-  revertReason : Option String  -- Revert message if failed
+  revertReason : Option String  -- Revert message if failed (rendered from the payload)
+  /-- Exact bytes a reverted call returns (`RevertPayload.encode`); `none` on success and
+  for interpreter-level failures that are not contract reverts. -/
+  revertData : Option (List UInt8) := none
   storageChanges : List (Nat × Nat)  -- Changed slots: (slot, newValue)
   storageAddrChanges : List (Nat × Nat)  -- Changed address slots: (slot, newValue as Nat)
   mappingChanges : List (Nat × Address × Nat)  -- Changed mapping entries: (base slot, key, newValue)
@@ -106,8 +109,25 @@ def extractMapping2Changes (before after : ContractState) (keys : List (Nat × A
     let newVal := after.storageMap2 slotIdx key1 key2
     if oldVal ≠ newVal then some (slotIdx, key1, key2, newVal.val) else none
 
-private def revertReturnValue (msg : String) : Nat :=
-  if msg.isEmpty then 0 else errorStringSelectorWord
+/-- The first ABI word of a revert's bytes (zero-padded); `0` for an empty revert. For
+`Error(string)` this is the selector word. -/
+private def revertReturnValue (payload : Verity.Core.RevertPayload) : Nat :=
+  ((payload.encode ++ List.replicate 32 0).take 32).foldl
+    (fun acc (b : UInt8) => acc * 256 + b.toNat) 0
+
+/-- Two lowercase hex digits of a byte. -/
+private def byteHex (b : UInt8) : String :=
+  String.ofList [Compiler.Hex.hexDigit (b.toNat / 16), Compiler.Hex.hexDigit (b.toNat % 16)]
+
+/-- Human-readable rendering of a revert payload for the `revertReason` field. -/
+private def renderRevertPayload : Verity.Core.RevertPayload → String
+  | .errorString msg => msg
+  | .panic code => s!"Panic({code})"
+  | .custom selector args =>
+      Compiler.Hex.natToHex selector 8 ++ "(" ++
+        String.intercalate ", " (args.map toString) ++ ")"
+  | .raw bytes => "0x" ++ String.join (bytes.map byteHex)
+  | .empty => ""
 
 -- Helper: Convert Nat to Address (bounded to 160 bits)
 private def natToAddress (n : Nat) : Address :=
@@ -145,7 +165,8 @@ def resultToExecutionResult
   | ContractResult.revert msg _finalState =>
     { success := false
       returnValue := some (revertReturnValue msg)
-      revertReason := some msg
+      revertReason := some (renderRevertPayload msg)
+      revertData := some msg.encode
       storageChanges := []  -- No changes on revert
       storageAddrChanges := []
       mappingChanges := []
@@ -625,6 +646,10 @@ def ExecutionResult.toJSON (r : ExecutionResult) : String :=
   let revertStr := match r.revertReason with
     | some msg => "\"" ++ escapeJsonString msg ++ "\""
     | none => "null"
+  let revertDataStr := match r.revertData with
+    | some bytes =>
+        "\"0x" ++ String.join (bytes.map byteHex) ++ "\""
+    | none => "null"
   let changesStr := r.storageChanges.foldl (fun acc (slotIdx, val) =>
     acc ++ (if acc == "[" then "" else ",") ++ "{\"slot\":" ++ toString slotIdx ++ ",\"value\":" ++ toString val ++ "}"
   ) "["
@@ -652,6 +677,7 @@ def ExecutionResult.toJSON (r : ExecutionResult) : String :=
   "{\"success\":" ++ successStr
     ++ ",\"returnValue\":" ++ returnStr
     ++ ",\"revertReason\":" ++ revertStr
+    ++ ",\"revertData\":" ++ revertDataStr
     ++ ",\"storageChanges\":" ++ changesStr
     ++ ",\"storageAddrChanges\":" ++ addrChangesStr
     ++ ",\"mappingChanges\":" ++ mappingChangesStr
