@@ -29,6 +29,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "assignment-arguments",
     "baseline",
     "block-rejections",
+    "bytes-member-struct",
     "calldata-narrow-array-copy",
     "calldata-narrow-array-copy-solc0810",
     "checked-arguments",

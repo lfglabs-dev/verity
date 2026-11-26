@@ -926,6 +926,8 @@ MUTANTS.update({
     'import-abi-decode-enum-struct-member-bound': ('          if let some g := abiDecodeScalarGuard? mTy enumBound? (.localVar wordVar) then', '          if let some g := abiDecodeScalarGuard? mTy none (.localVar wordVar) then'),
     'import-enum-flat-struct-cast-bound-drop': ('    let check := Stmt.ite (.lt a.expr (.literal members.size))\n      [.assignVar dest a.expr] [.panicCode (.literal 0x21)]', '    let check := Stmt.ite (.literal 1)\n      [.assignVar dest a.expr] [.panicCode (.literal 0x21)]'),
     'import-enum-flat-struct-multi-return-zero': ('        results := results.push (binding, mTy, rname != "")\n        retExprs := retExprs.push (.localVar binding, mTy)\n        memberBindings := memberBindings.push (mName, mTy, binding)', '        results := results.push (binding, mTy, rname != "")\n        retExprs := retExprs.push (if mTy.startsWith "enum " then .literal 0 else .localVar binding, mTy)\n        memberBindings := memberBindings.push (mName, mTy, binding)'),
+    'import-bytes-member-struct-delete-in-place': ('          if deleting then\n            let (allocPre, zeroDesc) ← zeroedBytesStructAlloc mem.structId target\n            return allocPre.push (.assignVar (mem.abiStem ++ "_memory") (.localVar (zeroDesc.abiStem ++ "_memory")))', '          if deleting then\n            let _ ← zeroedBytesStructAlloc mem.structId target\n            return #[.mstore (.localVar (mem.abiStem ++ "_memory")) (.literal 0)]'),
+    'import-bytes-member-struct-copy-instead-of-share': ('private partial def ensureHeaderedBytes (buf : EncodedBytes) : M EncodedBytes := do\n  if buf.hasHeader then return buf', 'private partial def ensureHeaderedBytes (buf : EncodedBytes) : M EncodedBytes := do\n  if false && buf.hasHeader then return buf'),
     'import-votes-checkpoints-arrays-bitmaps-fnptr-param-branch-invert': ('        modify fun e =>\n          { e with fnPtrs := e.fnPtrs.insert pid ptr }', '        let collapsed := match ptr with | .branch _ t _ => FnPtr.direct t | p => p\n        modify fun e =>\n          { e with fnPtrs := e.fnPtrs.insert pid collapsed }'),
     'import-votes-checkpoints-arrays-bitmaps-discarded-fnptr-skip': ('        else if arity > 1 then\n          let (multiPre, _) ← lowerMultiCall expression\n          return multiPre\n        else\n          let result ← atom (← lowerCall expression)\n          return result.pre', '        else if arity > 1 then\n          let (multiPre, _) ← lowerMultiCall expression\n          return multiPre\n        else\n          let _ ← atom (← lowerCall expression)\n          return #[]'),
     'import-votes-checkpoints-arrays-bitmaps-root-struct-return-zero': ('              for (_, _, valExpr) in memberVals do\n                if env.rootPost.isEmpty then\n                  exprs := exprs.push valExpr', '              for (_, _, valExpr) in memberVals do\n                if env.rootPost.isEmpty then\n                  exprs := exprs.push (.literal 0)'),
@@ -1191,6 +1193,8 @@ def run(directory, output, name):
         fixture = "AbiDecodeEnumStructSequence"
     if name.startswith("import-enum-flat-struct-"):
         fixture = "EnumFlatStructSequence"
+    if name.startswith("import-bytes-member-struct-"):
+        fixture = "BytesMemberStructSequence"
     if name.startswith("import-struct-hash-domain-sep-"):
         fixture = "StructHashAndDomainSeparatorSequence"
     if name.startswith("import-wad-exp-and-three-key-mapping-"):
@@ -1720,6 +1724,17 @@ def run(directory, output, name):
         from solidity_differential.check_storage import ENUM_FLAT_STRUCT_PREFIX
         argv[argv.index('--transactions') + 1] = '64'
         argv.extend(['--change-prefix', *map(str, ENUM_FLAT_STRUCT_PREFIX)])
+    if fixture == 'BytesMemberStructSequence':
+        from solidity_differential.check_storage import _bytes_member_struct_word
+        argv[argv.index('--transactions') + 1] = '8'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [
+            _bytes_member_struct_word(1, 3 | (5 << 0) | (1 << 14)),
+            _bytes_member_struct_word(2, 3 | (11 << 8) | (1 << 16)),
+            _bytes_member_struct_word(0, 1 | (2 << 3) | (3 << 5) | (9 << 17) | (1 << 25)),
+            _bytes_member_struct_word(3, 3 | (2 << 8) | (1 << 10) | (1 << 21)),
+            _bytes_member_struct_word(4, 0),
+        ])])
     if fixture == 'FixedMemoryArraySequence':
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'

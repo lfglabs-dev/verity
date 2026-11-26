@@ -783,6 +783,9 @@ def main():
         'scanLarge(uint256,uint256,uint32)',
         'countUntilBreak(uint256,uint256)',
         'packAndSlice(bytes,bytes,uint256)',
+        'inspectCalldata((uint8,uint8,uint8,bytes,bool),uint256)',
+        'inspectMemory((uint8,uint8,uint8,bytes,bool),bytes)',
+        'decodeCalldata(bytes)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -1581,6 +1584,49 @@ def main():
         byte_buffer_prefix = _byte_buffer_calls() + [('read()', [])]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(byte_buffer_prefix[:remaining_budget])
+    if 'inspectCalldata((uint8,uint8,uint8,bytes,bool),uint256)' in source['methodIdentifiers']:
+        def _pack_bytes_words(raw_bytes):
+            words = [len(raw_bytes)]
+            for off in range(0, len(raw_bytes), 32):
+                chunk = raw_bytes[off:off + 32].ljust(32, b'\x00')
+                words.append(int.from_bytes(chunk, 'big'))
+            return words
+
+        def _clause_tuple_words(parent, kind, mode, raw_bytes, invert):
+            return [parent, kind, mode, 160, invert, *_pack_bytes_words(raw_bytes)]
+
+        sample_payloads = [
+            b'',
+            bytes((i * 7 + 3) & 0xff for i in range(31)),
+            bytes((i * 11 + 5) & 0xff for i in range(32)),
+            bytes((i * 13 + 9) & 0xff for i in range(33)),
+            bytes((i * 17 + 1) & 0xff for i in range(70)),
+        ]
+        bytes_member_calls = []
+        for idx_i, pbytes in enumerate(sample_payloads):
+            ctup = _clause_tuple_words(5 + idx_i, idx_i % 4, idx_i % 3, pbytes, idx_i % 2)
+            bytes_member_calls.append(('inspectCalldata((uint8,uint8,uint8,bytes,bool),uint256)', [64, idx_i, *ctup]))
+            bytes_member_calls.append(('inspectCalldata((uint8,uint8,uint8,bytes,bool),uint256)', [64, 999, *ctup]))
+            extra = sample_payloads[(idx_i + 1) % len(sample_payloads)]
+            extra_off = 64 + 32 * len(ctup)
+            bytes_member_calls.append(('inspectMemory((uint8,uint8,uint8,bytes,bool),bytes)', [64, extra_off, *ctup, *_pack_bytes_words(extra)]))
+            inner = [32, *ctup]
+            bytes_member_calls.append(('decodeCalldata(bytes)', [32, 32 * len(inner), *inner]))
+        # Malformed ABI / enum / scalar / Panic(0x41) / truncated cases on root calldata & abi.decode(bytes calldata):
+        bytes_member_calls.extend([
+            ('inspectCalldata((uint8,uint8,uint8,bytes,bool),uint256)', [64, 0, *_clause_tuple_words(1, 4, 0, b'\x01', 0)]),
+            ('inspectCalldata((uint8,uint8,uint8,bytes,bool),uint256)', [64, 0, *_clause_tuple_words(256, 1, 0, b'\x01', 0)]),
+            ('inspectMemory((uint8,uint8,uint8,bytes,bool),bytes)', [64, 64 + 6 * 32, *_clause_tuple_words(1, 1, 3, b'', 0), 0]),
+            ('decodeCalldata(bytes)', [32, 7 * 32, 32, 1, 4, 0, 160, 0, 0]),
+            ('decodeCalldata(bytes)', [32, 7 * 32, 32, 1, 1, 3, 160, 0, 0]),
+            ('decodeCalldata(bytes)', [32, 7 * 32, 32, 256, 1, 1, 160, 0, 0]),
+            ('decodeCalldata(bytes)', [32, 7 * 32, 32, 1, 1, 1, 160, 2, 0]),
+            ('decodeCalldata(bytes)', [32, 7 * 32, 32, 1, 1, 1, 160, 1, 1 << 64]),
+            ('decodeCalldata(bytes)', [32, 8 * 32, 32, 1, 1, 1, 160, 1, 33, 0xaa << 248]),
+            ('read()', []),
+        ])
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(bytes_member_calls[:remaining_budget])
     if 'echoCalldata(bytes,uint256)' in source['methodIdentifiers']:
         stateless_prefix = _stateless_byte_calls() + [('read()', [])]
         remaining_budget = max(0, args.transactions - len(calls))
@@ -2044,6 +2090,23 @@ def main():
                 [96, 192, 2, 33, w32, 0xa5 << 248, 32, w32],
                 [96, 160, 3, 31, w31, 33, w32, 0xa5 << 248],
                 [96, 128, 3, 2, 0xaabb << 240, 1, 0xcc << 248],
+            ])
+        elif name == 'inspectCalldata((uint8,uint8,uint8,bytes,bool),uint256)':
+            call_args = rng.choice([
+                [64, 0, 3, 1, 2, 160, 1, 0],
+                [64, 999, 7, 2, 1, 160, 0, 33, 0x11223344556677889900aabbccddeeff0011223344556677889900aabbccddee, 0xff << 248],
+                [64, 1, 256, 1, 0, 160, 0, 0],
+            ])
+        elif name == 'inspectMemory((uint8,uint8,uint8,bytes,bool),bytes)':
+            call_args = rng.choice([
+                [64, 256, 4, 2, 1, 160, 1, 0, 0],
+                [64, 288, 9, 3, 2, 160, 0, 4, 0xdeadbeef << 224, 2, 0xcafe << 240],
+            ])
+        elif name == 'decodeCalldata(bytes)':
+            call_args = rng.choice([
+                [32, 7 * 32, 32, 5, 2, 1, 160, 1, 0],
+                [32, 8 * 32, 32, 6, 3, 2, 160, 0, 31, (0xab << 248) | (0xcd << 8)],
+                [32, 7 * 32, 32, 1, 4, 0, 160, 0, 0],
             ])
         else:
             call_args = []

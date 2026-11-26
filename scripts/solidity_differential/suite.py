@@ -296,7 +296,11 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '402', '14337', '69', '14355', '61', '65', '108', '14355', '14337', '65', '384', '61', '63',
         str(2**256 - 1),
         '--output', str(output / 'abi-encode-string-helper')]))
-    from .check_storage import ABI_DECODE_ENUM_STRUCT_PREFIX, ENUM_FLAT_STRUCT_PREFIX
+    from .check_storage import (
+        ABI_DECODE_ENUM_STRUCT_PREFIX,
+        BYTES_MEMBER_STRUCT_PREFIX,
+        ENUM_FLAT_STRUCT_PREFIX,
+    )
     checks.append(('abi-decode-enum-struct', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/AbiDecodeEnumStructSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/AbiDecodeEnumStructSequenceModel.lean',
@@ -309,6 +313,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--transactions', str(max(64, transactions)), '--seed', str(seed),
         '--change-prefix', *map(str, ENUM_FLAT_STRUCT_PREFIX),
         '--output', str(output / 'enum-flat-struct')]))
+    checks.append(('bytes-member-struct', ['-m', 'solidity_differential.check_stateful',
+        '--source-fixture', 'Contracts/SolidityImportSmoke/BytesMemberStructSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/BytesMemberStructSequenceModel.lean',
+        '--transactions', str(max(64, transactions)), '--seed', str(seed),
+        '--change-prefix', *map(str, BYTES_MEMBER_STRUCT_PREFIX),
+        '--output', str(output / 'bytes-member-struct')]))
     checks.append(('assignment-arguments', ['-m', 'solidity_differential.check_stateful',
         '--source-fixture', 'Contracts/SolidityImportSmoke/AssignmentArgumentSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/AssignmentArgumentSequenceModel.lean',

@@ -308,12 +308,12 @@ MUTANTS = {
         'private def copyLinkedBytesBuffer (srcPtr srcLen : Expr) (fromCalldata forReturn : Bool)\n'
         '    (siteNode : Json) (hint : String := "bytes_copy") : M EncodedBytes := do\n'
         '  if !fromCalldata && !forReturn then\n'
-        '    return { pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n',
+        '    return { hasHeader := true, pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n',
         ('bytes-copy-in-isolation',)),
     'drop-copy-out': (
         '  let alloc := AbiEncoding.reserve headerPtr finish totalBytes\n',
         '  if forReturn then\n'
-        '    return { pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n'
+        '    return { hasHeader := true, pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n'
         '  let alloc := AbiEncoding.reserve headerPtr finish totalBytes\n',
         ('bytes-copy-out-disjoint',)),
 }

@@ -82,12 +82,12 @@ contract EnumFlatStructOrderAndRejects {
     }
 
     function _loadWithBytes() internal pure returns (WithBytes memory, uint256) {
-        return (WithBytes(0, Kind.Alpha, ""), 0);
+        return (WithBytes(7, Kind.Beta, hex"1122"), 9);
     }
 
     function multiReturnBytesMember() external pure returns (uint256) {
-        (, uint256 c) = _loadWithBytes();
-        return c;
+        (WithBytes memory w, uint256 c) = _loadWithBytes();
+        return w.idx + uint256(w.kind) + w.payload.length + c;
     }
 
     struct WithEnumArray {
@@ -132,5 +132,17 @@ contract EnumStorageWriteRejects {
 
     function nestedStorageWrite(uint64 r, Kind k) external {
         outer.sub = Pair(r, k);
+    }
+}
+
+contract EnumMultiReturnArrayRejects {
+    enum Kind { Alpha }
+    struct WithArray { Kind kind; bytes32[] items; }
+    function _loadWithArray() internal pure returns (WithArray memory, uint256) {
+        return (WithArray(Kind.Alpha, new bytes32[](0)), 0);
+    }
+    function multiReturnArrayMember() external pure returns (uint256) {
+        (, uint256 c) = _loadWithArray();
+        return c;
     }
 }

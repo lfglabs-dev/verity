@@ -81,10 +81,10 @@ private def isContractTypeName (node : Json) : Bool :=
       | _ => false
   | _ => false
 
-/-- Parse only supported unsigned scalar syntax, with no fallback or coercion.
+/-- Parse only supported unsigned scalar or enum syntax, with no fallback or coercion.
 Interface and contract types (`UserDefinedTypeName` with `contract ...` type
 string) have the exact Solidity ABI encoding and 160-bit validation of `address`.
-Signed/fixed-byte/enum types need their own semantics before admission. -/
+Signed/fixed-byte/user-defined types need their own semantics before admission. -/
 def scalarKind (node : Json) (resolveEnum : Nat → Option Nat := fun _ => none) :
     Except Failure SolidityAbi.ScalarKind := do
   let kind ← stringField node "nodeType"
@@ -96,6 +96,8 @@ def scalarKind (node : Json) (resolveEnum : Nat → Option Nat := fun _ => none)
         if let some count := resolveEnum id then
           if count > 0 && count ≤ 256 then
             return .enum count
+          else
+            fail node s!"ABI schema: invalid enum member count {count}"
   unless kind == "ElementaryTypeName" do
     fail node "ABI schema: expected an unsigned scalar type"
   let name ← stringField node "name"
@@ -136,7 +138,7 @@ def structArrayMember (resolve : Nat → Option Json) (name : String) (ty : Json
   let fields ← (← members decl).mapM (scalarField · resolveEnum)
   return .structArray name fields
 
-/-- Schema for Market- and Offer-shaped roots: unsigned scalars, dynamic bytes,
+/-- Schema for Market- and Offer-shaped roots: unsigned scalars, enums, dynamic bytes,
 nested dynamic structs, and dynamic arrays of unsigned scalars or flat scalar
 structs. Resolves declaration ids, never textual struct names. -/
 def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
@@ -154,12 +156,17 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
         if elementary == "bytes" || elementary == "string" then
           return .bytesField mname (elementary == "string")
         else
-          return .scalar (← scalarField member)
+          return .scalar (← scalarField member resolveEnum)
       if tyKind == "UserDefinedTypeName" then
         if isContractTypeName ty then
           return .scalar { name := mname, kind := .address }
         let ref ← field ty "referencedDeclaration"
         let id ← ref.getNat?.mapError fun _ => ⟨ty, "ABI schema: invalid struct declaration id"⟩
+        if let some variantCount := resolveEnum id then
+          if 0 < variantCount ∧ variantCount ≤ 256 then
+            return .scalar { name := mname, kind := .enum variantCount }
+          else
+            fail ty s!"ABI schema: invalid enum member count {variantCount}"
         if seen.contains id then
           fail ty "ABI schema: recursive struct declaration"
         let some decl := resolve id | fail ty (unsupportedUserTypeMessage ty id)
@@ -176,7 +183,7 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
           fail ty "ABI schema: static nested structs inside dynamic structs are outside this slice"
         return .nestedStruct mname id sname subMembers subSchema
       if tyKind != "ArrayTypeName" then
-        return .scalar (← scalarField member)
+        return .scalar (← scalarField member resolveEnum)
       -- solc omits `length` for dynamic arrays (some AST producers use null).
       if let .ok length := ty.getObjVal? "length" then
         unless length.isNull do fail ty "ABI schema: fixed arrays are unsupported"
@@ -222,6 +229,22 @@ mutual
   def membersHaveString : List Member → Bool
     | [] => false
     | m :: rest => memberHasString m || membersHaveString rest
+  termination_by ms => sizeOf ms
+end
+
+mutual
+  /-- Whether a member is, or (through nested structs) contains, an `enum`. -/
+  def memberHasEnum : Member → Bool
+    | .scalar field => match field.kind with | .enum _ => true | _ => false
+    | .scalarArray field => match field.kind with | .enum _ => true | _ => false
+    | .structArray _ fields => fields.any fun f => match f.kind with | .enum _ => true | _ => false
+    | .nestedStruct _ _ _ _ subSchema => membersHaveEnum subSchema
+    | .bytesField _ _ | .bytesArray _ => false
+  termination_by m => sizeOf m
+
+  def membersHaveEnum : List Member → Bool
+    | [] => false
+    | m :: rest => memberHasEnum m || membersHaveEnum rest
   termination_by ms => sizeOf ms
 end
 
