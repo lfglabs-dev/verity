@@ -43,6 +43,17 @@ function notify (leaves : Array Uint256) : Unit := do
 - **`externalCallBind [v₁, …] "name" [args]`** is statement-position; bind `[]`
   for a no-return ("fire and forget") external.
 
+**Failure bubbles.** A call that is not in a try form and whose callee fails
+reverts the caller with the callee's revert data, byte for byte, as Solidity does
+for a typed call (`test/RevertBubbleSmoke.t.sol` checks a custom error, a
+`Panic`, an `Error(string)`, an empty revert and a 5-byte payload). In the
+proof-side model the call oracle supplies those bytes
+(`ExternalCallOutcome.revertData`). The executable EDSL re-raises the callee's
+returndata as whole words (`Contracts.failedCallPayload`), so a payload whose
+length is not a multiple of 32 is padded there. To catch a failed self-call and
+re-raise it later, bind the payload:
+`tryCall (selfCall f) then (do …) catch err => (do …; revert err)`.
+
 Argument types may be word-like (`Uint256`, `Uint8`, `Address`, `Bytes32`,
 `Bool`) or directly-forwarded `Array<wordLike>` / `Bytes` from the caller's ABI.
 A `Bytes` (or dynamic-array) member projected from a struct-array element may

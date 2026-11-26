@@ -59,6 +59,20 @@ failed evaluations) and the contract result relation (`sourceResultMatchesIRResu
 with the IR-to-native comparison, `sourceResultMatchesNativeOn` compares them end to end.
 Custom errors are outside the proved fragment.
 
+A failed external call or ECM reverts the source semantics with `.raw` of the
+call oracle's bytes (`ExternalCallOutcome.revertData`, mirrored by
+`DenoteState.externalCallRevertData`): the callee's returndata for a forwarding
+module, nothing for precompiles and hashing, a module's own error such as
+ERC20's `SafeERC20FailedOperation`. Calls are outside the proved fragment, so
+that these bytes are what the compiled call step reverts with is trusted, not
+proved; `test/RevertBubbleSmoke.t.sol` checks it for typed interface calls. The
+EIP-211 buffer is word-granular in every layer, so a failure caught and then
+re-raised with `revertReturndata` is padded to whole words, and the executable
+EDSL re-raises an uncaught failure as the word view of the callee's returndata
+(`Contracts.failedCallPayload`). `tryCall … catch err =>` copies the returndata
+to memory on catch entry and `revert err` re-raises that copy exactly
+(`test/TryCatchSmoke.t.sol`).
+
 Only a syntactic `requireError (literal 0)` receives terminal custom-error
 metadata. `Verity/Core/Model/DenoteErrorGuard.lean` establishes metadata
 consistency, exact existing Denote outcomes and no continuation, including
@@ -493,7 +507,8 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   extends this to state-changing sites: a linked `.call` site runs the body
   in `Contract.hopCall` at the target (success commits the post-hop state,
   with one caller-controlled journal entry; a reverting body answers
-  `.revert []`, so the typed call reverts with the caller state restored).
+  `.revert []`, so the typed call reverts with the caller state restored,
+  re-raising empty bytes: the hop's payload is not forwarded).
   Fidelity: `Contracts.externalCallContractWordsTo_withLinks`,
   `Contracts.externalCallEffectWordsTo_withLinks`,
   `Contracts.externalStaticCallContractWordsTo_withLinks` (each with
