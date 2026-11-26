@@ -1,4 +1,5 @@
 import Contracts.Common
+import Contracts.ProofKit
 
 namespace Contracts.Smoke
 
@@ -49,27 +50,29 @@ example :
           (Compiler.CompilationModel.Expr.paramDynamicMemberLength "c" 1)
       ] := rfl
 
-/-- Executable side: the whole copied region hashes as `keccak256(data)` (35 bytes, crossing a
-word boundary; the digest is `cast keccak 0xdeadbeef00112233445566778899aabbccddeeff0102030405060708090a0b0c0d0e0f`). -/
-example :
-    let c : StructBytesMemberCopySmoke.Call :=
-      { target := 0, data := ⟨#[0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
-          0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-          0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]⟩, tag := 0 }
-    ((StructBytesMemberCopySmoke.hashData c).run Verity.defaultState).getValue? =
-      some 0x963a09f68cb830dd9336287d5146e65c3aa6a808af9e200ee5a1d52bd160cf48 := by
-  native_decide
+open Contracts.ProofKit in
+/-- Executable side: `hashData c` returns `keccak256(c.data)` for every struct `c`: the whole
+copied region is hashed, not only its first word. -/
+theorem hashData_is_keccak (c : StructBytesMemberCopySmoke.Call) (s : ContractState)
+    (hsize : 128 + c.data.size + 32 < 2 ^ 256) :
+    ∃ s', StructBytesMemberCopySmoke.hashData c s =
+      .success (Verity.Core.Uint256.ofNat (keccakBytes c.data.data.toList)) s' := by
+  unfold StructBytesMemberCopySmoke.hashData
+  obtain ⟨u, s1, h1⟩ : ∃ u s1, Contracts.copyBytes c.data 128 s = .success u s1 :=
+    ⟨_, _, copyBytes_run _ _ _⟩
+  rw [bind_step h1, bind_step (keccak256Live_eq _ _ _), keccak_after_copyBytes h1 hsize]
+  exact ⟨_, rfl⟩
 
 /-- Executable side: the member's bytes land in memory. -/
 example :
     let c : StructBytesMemberCopySmoke.Call := { target := 0, data := ⟨#[0xab]⟩, tag := 0 }
     ((StructBytesMemberCopySmoke.copyData c).run Verity.defaultState).getValue? =
       some 0xab00000000000000000000000000000000000000000000000000000000000000 := by
-  native_decide
+  rfl
 
 example :
     let c : StructBytesMemberCopySmoke.Call := { target := 0, data := ⟨#[1, 2, 3]⟩, tag := 0 }
     ((StructBytesMemberCopySmoke.dataLength c).run Verity.defaultState).getValue? = some 3 := by
-  native_decide
+  rfl
 
 end Contracts.Smoke
