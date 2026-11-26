@@ -396,6 +396,7 @@ MUTANT_TABLES = {
     "check_nested_dynamic_struct_abi_mutations": "path",
     "check_scalar_array_abi_mutations": "path",
     "check_self_code_length_mutations": "path",
+    "check_stateful_comparison_and_struct_map_rhs": "path",
     "check_storage_mutations": "router",
     "check_struct_abi_mutations": "path",
     "mutations": "path",

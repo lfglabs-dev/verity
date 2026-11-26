@@ -110,6 +110,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "stateful-call-constant-operand-solc0810",
     "stateful-call-operand",
     "stateful-call-operand-solc0810",
+    "stateful-comparison-struct-map-rhs",
+    "stateful-comparison-struct-map-rhs-rejections",
     "storage-pointer-mapping-helper",
     "storage",
     "storage-byte-constant-conversions",
