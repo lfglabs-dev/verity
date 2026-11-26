@@ -720,7 +720,8 @@ theorem execStmt_externalCallBind_call_fails (oracle : DenoteOracle)
     (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
     (hargs : evalExprList oracle fields state args = some vals)
     (hfail : state.externalCallSucceeded state.externalCallIndex = false) :
-    execStmt oracle fields state (.externalCallBind vars name args) = .revert := by
+    execStmt oracle fields state (.externalCallBind vars name args) =
+      .revertWithData (state.externalCallRevertData state.externalCallIndex) := by
   simp [execStmt, hargs, hfail]
 
 /-- A successful source-level external call advances the oracle receipt, binds
@@ -759,7 +760,7 @@ theorem evalExpr_call_outside_base_fragment :
 theorem execStmt_externalCallBind_outside_base_fragment :
     execStmt dummyOracle []
       { world := defaultState, bindings := [] }
-      (.externalCallBind ["r"] "echo" [.literal 42]) = .revert := by
+      (.externalCallBind ["r"] "echo" [.literal 42]) = .revertWithData [] := by
   rfl
 
 end Compiler.CompilationModel.DenoteFunctionCalls

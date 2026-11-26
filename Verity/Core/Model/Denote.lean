@@ -292,6 +292,8 @@ structure DenoteState where
   externalCallSucceeded : Nat → Bool := fun _ => false
   externalCallReturnValues : Nat → List Nat := fun _ => []
   externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none
+  /-- Bytes a failed call step reverts with; mirrors `ExternalCallOutcome.revertData`. -/
+  externalCallRevertData : Nat → List UInt8 := fun _ => []
   externalCallIndex : Nat := 0
   /-- Explicit byte-call environment. Missing instrumentation fails closed. -/
   byteCallAdversary : Option (ByteExternalCall.Adversary Verity.ContractState Verity.StorageKey) := none
@@ -2271,7 +2273,7 @@ mutual
                       bindings := bindValues state.bindings resultVars
                         (retVals.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1, rawReturndata := none }
-            else .revert
+            else .revertWithData (state.externalCallRevertData state.externalCallIndex)
         | none => .revert
     | state, .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprList oracle fields state args with
@@ -2376,7 +2378,7 @@ mutual
                           bindings := bindValues state.bindings mod.resultVars
                             (retVals.map wordNormalize)
                           externalCallIndex := state.externalCallIndex + 1, rawReturndata := none }
-                else .revert
+                else .revertWithData (state.externalCallRevertData state.externalCallIndex)
             | none => .revert
     | _, .revertEmpty => .revertWithData []
     | state, .revertReturndata => .revertWithData
@@ -2538,7 +2540,8 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
     (externalCallReturnValues : Nat → List Nat := fun _ => [])
     (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none)
     (byteCalls : ByteCallEnvironment := {})
-    (immutables : String → Verity.Core.Uint256 := fun _ => 0) : DenoteResult :=
+    (immutables : String → Verity.Core.Uint256 := fun _ => 0)
+    (externalCallRevertData : Nat → List UInt8 := fun _ => []) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
@@ -2550,6 +2553,7 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
             externalCallSucceeded := externalCallSucceeded,
             externalCallReturnValues := externalCallReturnValues,
             externalCallPostWorld := externalCallPostWorld,
+            externalCallRevertData := externalCallRevertData,
             byteCallAdversary := byteCalls.adversary,
             byteCallGas := byteCalls.gas }
           fn.body with
