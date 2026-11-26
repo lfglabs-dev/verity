@@ -467,6 +467,34 @@ example :
     some (.raw customErrorBytes) := by
   native_decide
 
+/-- A caught failed call keeps its exact 68 bytes: `revertReturndata` re-raises
+    them unpadded (the word buffer alone would give 96 bytes). -/
+example :
+    revertPayload? (SourceSemantics.execStmtList []
+      (mkState [("ok", 0)] (fun _ => ⟨false, [], none, customErrorBytes⟩))
+      [.tryExternalCallBind "ok" [] "transfer" [.literal 100], .revertReturndata]) =
+    some (.raw customErrorBytes) := by
+  native_decide
+
+/-- …and `returndatasize()` reads the exact byte length. -/
+example :
+    (match SourceSemantics.execStmt []
+        (mkState [("ok", 0)] (fun _ => ⟨false, [], none, customErrorBytes⟩))
+        (.tryExternalCallBind "ok" [] "transfer" [.literal 100]) with
+      | .continue s => SourceSemantics.evalExpr [] s .returndataSize
+      | _ => none) = some 68 := by
+  native_decide
+
+/-- A later successful call drops the raw buffer: the word view is exact again. -/
+example :
+    revertPayload? (SourceSemantics.execStmtList []
+      (mkState [("ok", 0), ("y", 0)]
+        (fun n => if n == 0 then ⟨false, [], none, customErrorBytes⟩ else ⟨true, [7], none, []⟩))
+      [.tryExternalCallBind "ok" [] "transfer" [.literal 100],
+       .externalCallBind ["y"] "read" [], .revertReturndata]) =
+    some (.raw (Compiler.CompilationModel.Denote.wordBytes 7)) := by
+  native_decide
+
 /-- tryExternalCallBind: oracle returns success → successVar=1, bindings updated -/
 example :
     resultBindings (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleSuccess99)

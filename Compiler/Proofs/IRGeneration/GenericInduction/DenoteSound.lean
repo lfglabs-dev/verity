@@ -42,7 +42,7 @@ private theorem denote_toStmtResult_of_source {fields : List Field}
         errors := errors } body = r) :
     DenoteAgreement.toStmtResult (Denote.execStmtList DenoteAgreement.sourceOracle fields
       (denoteEntryState errors initialWorld tx bindings) body) = r := by
-  rw [DenoteAgreement.execStmtList_eq _ _ _ hbyteFree rfl]
+  rw [DenoteAgreement.execStmtList_eq _ _ _ hbyteFree]
   exact hsource
 
 /-- Generic denote-headed soundness: under the same hypotheses as

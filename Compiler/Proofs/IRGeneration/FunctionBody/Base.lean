@@ -122,7 +122,8 @@ def runtimeStateMatchesIR
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
   state.returndata = runtime.world.returndata ∧
   runtime.world.byteMemory = state.byteMemory ∧
-  state.revertData = []
+  state.revertData = [] ∧
+  runtime.world.rawReturndata = none
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -177,7 +178,15 @@ theorem runtimeStateMatchesIR_revertData
     {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
     (h : runtimeStateMatchesIR fields runtime state) :
     state.revertData = [] :=
-  h.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
+  h.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+
+/-- The IR keeps its returndata as words only, so a matched source world has no
+exact byte buffer: in the proved fragment no call sets one. -/
+theorem runtimeStateMatchesIR_rawReturndata
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state) :
+    runtime.world.rawReturndata = none :=
+  h.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
 
 def initialIRStateForTx
     (spec : CompilationModel)
@@ -501,7 +510,11 @@ theorem evalIRExpr_returndataSize_of_runtimeStateMatchesIR
   have hreturndata : state.returndata = runtime.world.returndata :=
     runtimeStateMatchesIR_returndata hmatch
   have heval : SourceSemantics.evalExpr fields runtime (.returndataSize) =
-      some (32 * runtime.world.returndata.length % Compiler.Constants.evmModulus) := rfl
+      some (32 * runtime.world.returndata.length % Compiler.Constants.evmModulus) := by
+    show some (((runtime.world.rawReturndata.map List.length).getD _ : Nat) :
+      Verity.Core.Uint256).val = _
+    rw [runtimeStateMatchesIR_rawReturndata hmatch]
+    rfl
   rw [heval]
   simp [evalIRExpr, evalIRCall, evalIRExprs, hreturndata]
 
@@ -2299,7 +2312,7 @@ private theorem optionalReturnBoolWord_eq
         % Compiler.Constants.evmModulus
       = world.returndataOptionalBool offset := by
   have hrds : world.returndataSize % Compiler.Constants.evmModulus = world.returndataSize :=
-    Nat.mod_eq_of_lt ((32 * world.returndata.length : Nat) : Verity.Core.Uint256).isLt
+    Nat.mod_eq_of_lt (Verity.Core.Uint256.isLt _)
   have hmem : (world.memory offset).val % Compiler.Constants.evmModulus
       = (world.memory offset).val :=
     Nat.mod_eq_of_lt (world.memory offset).isLt
@@ -2332,6 +2345,7 @@ private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
       some (SourceSemantics.evalExpr fields runtime (.returndataOptionalBoolAt offset)) := by
   rw [compileExpr_returndataOptionalBoolAt_ok hoffset]
   simp only [Except.toOption, Option.getD]
+  have hraw := runtimeStateMatchesIR_rawReturndata hruntime
   obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, hmem, -, -, -, hrd, -⟩ := hruntime
   rcases hIR : evalIRExpr state offsetIR with _ | irVal
   · simp [hIR] at hEvalOffset
@@ -2345,7 +2359,7 @@ private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
     simp only [Option.bind_some]
     have hRDS : evalIRExpr state (YulExpr.call "returndatasize" []) =
         some runtime.world.returndataSize := by
-      simp only [evalIRExpr_returndatasize_nil, hrd]
+      simp only [evalIRExpr_returndatasize_nil, hrd, Verity.ContractState.returndataSize, hraw]
       rfl
     have hMload : evalIRExpr state (YulExpr.call "mload" [offsetIR]) =
         some (runtime.world.memory irVal).val := by

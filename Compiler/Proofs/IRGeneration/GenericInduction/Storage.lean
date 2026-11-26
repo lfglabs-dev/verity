@@ -2813,8 +2813,13 @@ private theorem compiledStmtStep_returndatacopy_empty_single_preserves
     omega
   have hSrcExec : SourceSemantics.execStmt fields runtime
       (.returndataCopy destOffset (.literal 0) (.literal 0)) = .continue runtime := by
+    have hraw := FunctionBody.runtimeStateMatchesIR_rawReturndata hruntime
     simp [SourceSemantics.execStmt, SourceSemantics.evalExpr, hDestSrc, Nat.zero_le,
-      hzeroNoWrite]
+      hzeroNoWrite, hraw]
+    cases runtime with
+    | mk world =>
+      cases world
+      simp_all
   have hExecStmt :
       execIRStmt (extraFuel + 1) state
         (YulStmt.exprStmt
@@ -2853,7 +2858,8 @@ private theorem execStmt_returndataCopy_of_eval
     {destOffset sourceOffset size : Expr} {destNat sourceNat sizeNat : Nat}
     (hDestSrc : SourceSemantics.evalExpr fields runtime destOffset = some destNat)
     (hSourceSrc : SourceSemantics.evalExpr fields runtime sourceOffset = some sourceNat)
-    (hSizeSrc : SourceSemantics.evalExpr fields runtime size = some sizeNat) :
+    (hSizeSrc : SourceSemantics.evalExpr fields runtime size = some sizeNat)
+    {state : IRState} (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
     SourceSemantics.execStmt fields runtime (.returndataCopy destOffset sourceOffset size) =
       if sourceNat + sizeNat ≤ 32 * runtime.world.returndata.length then
         .continue { runtime with
@@ -2864,8 +2870,9 @@ private theorem execStmt_returndataCopy_of_eval
               (Compiler.CompilationModel.DenoteMemory.wordListByte runtime.world.returndata)
               destNat sourceNat sizeNat } }
       else .revert .empty := by
+  have hraw := FunctionBody.runtimeStateMatchesIR_rawReturndata hruntime
   by_cases hfit : sourceNat + sizeNat ≤ 32 * runtime.world.returndata.length <;>
-    simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit]
+    simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit, hraw]
 
 private theorem execIRStmt_returndatacopy_of_eval
     {state : IRState} {destIR sourceIR sizeIR : YulExpr} {destNat sourceNat sizeNat : Nat}
@@ -2922,7 +2929,7 @@ private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
   obtain ⟨sizeNat, hSizeSrc, hIRSize, -⟩ :=
     exists_eval_of_compileExpr_core_of_scope hcoreSize hinScopeSize hexact hscope hbounded
       hruntime hsizeIR
-  have hSrcExec := execStmt_returndataCopy_of_eval hDestSrc hSourceSrc hSizeSrc
+  have hSrcExec := execStmt_returndataCopy_of_eval hDestSrc hSourceSrc hSizeSrc hruntime
   have hExecStmt :=
     execIRStmt_returndatacopy_of_eval (extraFuel := extraFuel) hIRDest hIRSource hIRSize
   have hrd := FunctionBody.runtimeStateMatchesIR_returndata hruntime
@@ -3135,7 +3142,8 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
   obtain ⟨s, hs, hbytes⟩ := execIRStmts_revertReturndataIR_revertData k state
     (FunctionBody.runtimeStateMatchesIR_revertData hruntime)
   refine ⟨.revert _, .revert s, rfl, hs, ?_⟩
-  simp [stmtStepMatchesIRExec, hbytes, FunctionBody.runtimeStateMatchesIR_returndata hruntime]
+  simp [stmtStepMatchesIRExec, hbytes, FunctionBody.runtimeStateMatchesIR_returndata hruntime,
+    FunctionBody.runtimeStateMatchesIR_rawReturndata hruntime]
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :

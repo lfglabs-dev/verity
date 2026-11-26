@@ -371,7 +371,7 @@ theorem spliced_cons_return (slot : Nat)
     | .revert s => .revert s) = _
   rw [execIRStmt_lockRelease (F' + 1) state slot hslot]
   by_cases hb : b = 32 <;>
-    simp [execIRStmts, execIRStmt, evalIRExpr, releasedResult,
+    simp [execIRStmts, execIRStmt, releasedResult,
       releaseState, hb]
 
 /-- An `if` head with a spliced body relates by the body simulation. -/
@@ -838,7 +838,7 @@ theorem execIRStmt_modeledHalt_no_continue (h : YulStmt) (hmh : ModeledHalt h)
       | zero => simp [execIRStmt] at hcontra
       | succ f =>
           by_cases hb : b = 32 <;>
-            simp [execIRStmt, evalIRExpr, hb] at hcontra
+            simp [execIRStmt, hb] at hcontra
   | rev a b =>
       cases fuel with
       | zero => simp [execIRStmt] at hcontra

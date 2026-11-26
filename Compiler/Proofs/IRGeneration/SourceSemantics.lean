@@ -842,12 +842,21 @@ instance : Inhabited ExternalCallOutcome := ⟨⟨false, [], none, []⟩⟩
     returndatasize())` idiom bubble a callee revert reason. -/
 def returndataAfterCall (outcome : ExternalCallOutcome)
     (world : Verity.ContractState) : Verity.ContractState :=
-  { world with returndata := outcome.returnValues.map wordNormalize }
+  { world with
+    returndata := outcome.returnValues.map wordNormalize
+    rawReturndata := if outcome.succeeded then none else some outcome.revertData }
 
 @[simp] theorem returndataAfterCall_returndata
     (outcome : ExternalCallOutcome) (world : Verity.ContractState) :
     (returndataAfterCall outcome world).returndata
       = outcome.returnValues.map wordNormalize := rfl
+
+/-- A failed call leaves its exact revert bytes in the buffer; a successful one
+    leaves only the words. -/
+@[simp] theorem returndataAfterCall_rawReturndata
+    (outcome : ExternalCallOutcome) (world : Verity.ContractState) :
+    (returndataAfterCall outcome world).rawReturndata
+      = if outcome.succeeded then none else some outcome.revertData := rfl
 
 structure RuntimeState where
   world : Verity.ContractState
@@ -1937,19 +1946,27 @@ mutual
             -- carrier receives exactly those bytes; in the word view, complete
             -- words are replaced and a final partial word is merged with its
             -- untouched low bytes, as in EVM memory.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                  byteMemory := state.world.byteMemory.copyFrom
-                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
-                    dst src sz
-                }
-              }
-            else .revert .empty
+            match state.world.rawReturndata with
+            | some bytes =>
+                if src + sz ≤ bytes.length then
+                  let world :=
+                    state.world.copyPhysicalMemory (Denote.rawPhysicalByte bytes) dst src sz
+                  .continue { state with world }
+                else .revert .empty
+            | none =>
+                if src + sz ≤ 32 * state.world.returndata.length then
+                  .continue {
+                    state with
+                    world := {
+                      state.world with
+                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                        state.world.returndata dst src sz state.world.memory
+                      byteMemory := state.world.byteMemory.copyFrom
+                        (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                        dst src sz
+                    }
+                  }
+                else .revert .empty
         | _, _, _ => .revert .empty
     | state, .require cond message =>
         match evalExpr fields state cond with
@@ -2020,7 +2037,8 @@ mutual
         | none => .revert .empty
     | _, .revertEmpty => .revert (.raw [])
     | state, .revertReturndata =>
-        .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
+        .revert (.raw (state.world.rawReturndata.getD
+          (Denote.returndataRevertBytes state.world.returndata)))
     | state, .revertMemory offset size =>
         match evalExpr fields state offset, evalExpr fields state size with
         | some off, some sz =>
@@ -2352,19 +2370,27 @@ mutual
             -- carrier receives exactly those bytes; in the word view, complete
             -- words are replaced and a final partial word is merged with its
             -- untouched low bytes, as in EVM memory.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                  byteMemory := state.world.byteMemory.copyFrom
-                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
-                    dst src sz
-                }
-              }
-            else .revert .empty
+            match state.world.rawReturndata with
+            | some bytes =>
+                if src + sz ≤ bytes.length then
+                  let world :=
+                    state.world.copyPhysicalMemory (Denote.rawPhysicalByte bytes) dst src sz
+                  .continue { state with world }
+                else .revert .empty
+            | none =>
+                if src + sz ≤ 32 * state.world.returndata.length then
+                  .continue {
+                    state with
+                    world := {
+                      state.world with
+                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                        state.world.returndata dst src sz state.world.memory
+                      byteMemory := state.world.byteMemory.copyFrom
+                        (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                        dst src sz
+                    }
+                  }
+                else .revert .empty
         | _, _, _ => .revert .empty
     | state, .require cond message =>
         match evalExpr fields state cond with
@@ -2435,7 +2461,8 @@ mutual
         | none => .revert .empty
     | _, .revertEmpty => .revert (.raw [])
     | state, .revertReturndata =>
-        .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
+        .revert (.raw (state.world.rawReturndata.getD
+          (Denote.returndataRevertBytes state.world.returndata)))
     | state, .revertMemory offset size =>
         match evalExpr fields state offset, evalExpr fields state size with
         | some off, some sz =>
@@ -2564,8 +2591,9 @@ memory (e.g. a precompile digest at the caller-supplied output offset) and
 `externalCall` / `denoteCallJournaled` appends a journal entry to `calls`, so
 `writesState = false` preserves every caller-world field except `memory`,
 `calls` and the EIP-211 `returndata` buffer. The first two follow the receipt's
-post-call world; the buffer is replaced by the receipt's return words, since a
-`staticcall` still leaves its callee's return data in the caller's frame. -/
+post-call world; the buffer is replaced by the receipt's return words (and its
+exact-byte override cleared), since a `staticcall` still leaves its callee's
+return data in the caller's frame. -/
 theorem execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
     {fields : List Field} {state next : RuntimeState}
     {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
@@ -2577,7 +2605,8 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
       calls := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
         state.world).calls
       returndata := (state.externalCallOracle state.externalCallIndex).returnValues.map
-        wordNormalize } := by
+        wordNormalize
+      rawReturndata := none } := by
   simp only [execStmt] at hrun
   split at hrun
   · split at hrun
@@ -2585,7 +2614,7 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
       · cases hrun
       · injection hrun with h
         subst h
-        simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic, returndataAfterCall]
+        simp_all [Compiler.ECM.ExternalCallModule.committedWorld, hstatic, returndataAfterCall]
     · cases hrun
   · cases hrun
 
@@ -2914,7 +2943,8 @@ def withTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
     calldata := tx.args
-    returndata := [] }
+    returndata := []
+    rawReturndata := none }
 
 def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     Verity.ContractState :=
@@ -2929,7 +2959,8 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (tx.args.length * 32)
     calldata := tx.args
-    returndata := [] }
+    returndata := []
+    rawReturndata := none }
 
 /-- EIP-211 makes the returndata buffer frame-local: every transaction frame
     starts empty, so a buffer left over from an earlier execution (e.g. a
@@ -4046,19 +4077,27 @@ mutual
             -- Same bounded-copy semantics as `execStmt`: in-bounds extents copy
             -- the bytes, complete words and the merged final partial word;
             -- out-of-bounds extents revert identically on the IR layer.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                  byteMemory := state.world.byteMemory.copyFrom
-                    (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
-                    dst src sz
-                }
-              }
-            else .revert .empty
+            match state.world.rawReturndata with
+            | some bytes =>
+                if src + sz ≤ bytes.length then
+                  let world :=
+                    state.world.copyPhysicalMemory (Denote.rawPhysicalByte bytes) dst src sz
+                  .continue { state with world }
+                else .revert .empty
+            | none =>
+                if src + sz ≤ 32 * state.world.returndata.length then
+                  .continue {
+                    state with
+                    world := {
+                      state.world with
+                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                        state.world.returndata dst src sz state.world.memory
+                      byteMemory := state.world.byteMemory.copyFrom
+                        (Compiler.CompilationModel.DenoteMemory.wordListByte state.world.returndata)
+                        dst src sz
+                    }
+                  }
+                else .revert .empty
         | _, _, _ => .revert .empty
     | .require cond message =>
         match evalExprWithHelpers spec fields fuel state cond with
@@ -4160,7 +4199,9 @@ mutual
               initialLoopState 0 bound
         | none => .revert .empty
     | .revertEmpty => .revert (.raw [])
-    | .revertReturndata => .revert (.raw (Denote.returndataRevertBytes state.world.returndata))
+    | .revertReturndata =>
+        .revert (.raw (state.world.rawReturndata.getD
+          (Denote.returndataRevertBytes state.world.returndata)))
     | .revertMemory offset size =>
         match evalExpr fields state offset, evalExpr fields state size with
         | some off, some sz =>

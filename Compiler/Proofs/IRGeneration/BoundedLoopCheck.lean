@@ -279,7 +279,7 @@ theorem execIRStmts_getVar_of_checked :
     ∀ (fuel : Nat) (state : IRState),
       ((execIRStmts fuel state xs).state).getVar v = state.getVar v
   | [], _, _, fuel, state => by
-      simp [execIRStmts, IRExecResult.state]
+      simp [IRExecResult.state]
   | x :: rest, hLF, hchk, fuel, state =>
       have hLF' : LoopFree x ∧ LoopFreeList rest := by simpa [LoopFreeList] using hLF
       have hchk' : varUntouchedCheck v x = true ∧ varUntouchedCheckList v rest = true := by

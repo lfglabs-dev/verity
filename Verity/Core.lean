@@ -435,8 +435,13 @@ structure ContractState where
   accountWorld : Verity.Core.AccountWorld := Verity.Core.AccountWorld.empty
   /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
       overwritten by each call-family instruction with the callee's return
-      data; `returndatasize()` is `32 * returndata.length`. -/
+      data; `returndatasize()` is `32 * returndata.length` unless
+      `rawReturndata` holds the exact bytes. -/
   returndata : List Nat := []
+  /-- The exact EIP-211 buffer when the word view cannot hold it, e.g. a caught
+      failed call's revert bytes (a custom error is 4 + 32n bytes). `none`
+      means `returndata` is exact. Every returndata reader consults it first. -/
+  rawReturndata : Option (List UInt8) := none
 
 namespace ContractState
 
@@ -922,8 +927,7 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
 @[simp] theorem storageAddr_writeAddrSlot_same (s : ContractState) (slot : Nat)
     (value : Address) :
     (s.writeAddrSlot slot value).storageAddr slot = value := by
-  simpa [storageAddr, writeAddrSlot] using
-    wordToAddress_writeAddressWord (s.storageWords (.addr slot)) value
+  simp [storageAddr, writeAddrSlot]
 
 @[simp] theorem storageAddr_writeAddrSlot_other (s : ContractState)
     {slot slot' : Nat} (h : slot' ≠ slot) (value : Address) :
@@ -1889,8 +1893,7 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
     (value : Address) {slot : Nat} (h : targets.contains slot = true) :
     (s.writeAddrSlots targets value).storageAddr slot = value := by
   have hmem := mem_of_contains_true h
-  simpa [storageAddr, writeAddrSlots, hmem] using
-    wordToAddress_writeAddressWord (s.storageWords (.addr slot)) value
+  simp [storageAddr, writeAddrSlots, hmem]
 
 @[simp] theorem storageAddr_writeAddrSlots_not_mem (s : ContractState)
     (targets : List Nat) (value : Address) {slot : Nat}
@@ -2235,8 +2238,7 @@ def ofChannels
 
 @[storage_simps] theorem readAddrSlot_writeAddrSlot_same (s : ContractState) (slot : Nat)
     (v : Address) : (s.writeAddrSlot slot v).readAddrSlot slot = v := by
-  simpa [readAddrSlot, storageAddr, writeAddrSlot] using
-    wordToAddress_writeAddressWord (s.storageWords (.addr slot)) v
+  simp [readAddrSlot, storageAddr, writeAddrSlot]
 
 /-- Address-slot get-put holds even when the canonical backing word has
 nonzero bits above the 160-bit address payload. -/
@@ -2302,10 +2304,10 @@ nonzero bits above the 160-bit address payload. -/
 -- need the current raw representation unfold a specific lens by name
 -- (`simp [ContractState.writeSlot]`); those sites are the step-3 burn-down.
 
-/-- `returndatasize()` as a machine word. The EIP-211 buffer is modelled as a
-    list of 32-byte words, so its byte size is `32 * length` wrapped to a word. -/
+/-- `returndatasize()` as a machine word: the exact buffer's length when there
+    is one, else `32 * length` of the word buffer, wrapped to a word. -/
 def returndataSize (s : ContractState) : Nat :=
-  ((32 * s.returndata.length : Nat) : Uint256).val
+  (((s.rawReturndata.map List.length).getD (32 * s.returndata.length) : Nat) : Uint256).val
 
 /-- Word produced by the optional-bool return check the compiler emits for
     ERC-20 style callees, `or(eq(returndatasize(), 0), and(eq(returndatasize(),
@@ -3009,11 +3011,12 @@ def setMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (
     (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
     (calls : List ExternalCall) (codeSize : Nat → Uint256)
     (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (rawReturndata : Option (List UInt8))
     (slot : StorageSlot Uint256) :
     (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
       msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
       calldataSize calldata selector memory byteMemory knownAddresses events calls
-      codeSize accountWorld returndata).readUint slot = s.readUint slot :=
+      codeSize accountWorld returndata rawReturndata).readUint slot = s.readUint slot :=
   ContractState.readUint_writeMap s n k v slot
 
 @[simp] theorem ContractState.readAddr_mk_writeMap
@@ -3026,11 +3029,12 @@ def setMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (
     (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
     (calls : List ExternalCall) (codeSize : Nat → Uint256)
     (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (rawReturndata : Option (List UInt8))
     (slot : StorageSlot Address) :
     (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
       msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
       calldataSize calldata selector memory byteMemory knownAddresses events calls
-      codeSize accountWorld returndata).readAddr slot = s.readAddr slot :=
+      codeSize accountWorld returndata rawReturndata).readAddr slot = s.readAddr slot :=
   ContractState.readAddr_writeMap s n k v slot
 
 @[simp] theorem ContractState.readMap_mk_writeMap
@@ -3043,11 +3047,13 @@ def setMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (
     (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
     (calls : List ExternalCall) (codeSize : Nat → Uint256)
     (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (rawReturndata : Option (List UInt8))
     (slot : StorageSlot (Address → Uint256)) (k' : Address) :
     (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
       msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
       calldataSize calldata selector memory byteMemory knownAddresses events calls
-      codeSize accountWorld returndata).readMap slot k' = (s.writeMap n k v).readMap slot k' := rfl
+      codeSize accountWorld returndata rawReturndata).readMap slot k' =
+        (s.writeMap n k v).readMap slot k' := rfl
 
 @[simp] theorem ContractState.readMap2_mk_writeMap
     (s : ContractState) (n : Nat) (k : Address) (v : Uint256)
@@ -3059,11 +3065,12 @@ def setMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (
     (knownAddresses : Nat → FiniteAddressSet) (events : List Event)
     (calls : List ExternalCall) (codeSize : Nat → Uint256)
     (accountWorld : Verity.Core.AccountWorld) (returndata : List Nat)
+    (rawReturndata : Option (List UInt8))
     (slot : StorageSlot (Address → Address → Uint256)) (k1 k2 : Address) :
     (ContractState.mk (s.writeMap n k v).storageWords storageArray sender thisAddress txOrigin
       msgValue selfBalance blockTimestamp blockNumber chainId blobBaseFee baseFee gasPrice
       calldataSize calldata selector memory byteMemory knownAddresses events calls
-      codeSize accountWorld returndata).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 :=
+      codeSize accountWorld returndata rawReturndata).readMap2 slot k1 k2 = s.readMap2 slot k1 k2 :=
   ContractState.readMap2_writeMap s n k v slot k1 k2
 
 @[simp] theorem readUint_setStorage_same

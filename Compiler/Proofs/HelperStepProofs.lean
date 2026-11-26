@@ -6108,7 +6108,7 @@ theorem exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
           FunctionBody.runtimeStateMatchesIR fields runtime finalState ∧
           FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState ∧
           valueNat < Compiler.Constants.evmModulus)
-    (hvalueNamesInScope :
+    (_hvalueNamesInScope :
       ∀ {scope : List String} {runtime : SourceSemantics.RuntimeState} {state : IRState}
         {helperFuel irFuel : Nat}, 0 < helperFuel → 0 < irFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
@@ -6142,7 +6142,7 @@ theorem exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateRes
           ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
             value valueIR (helperFuel - 1) (irFuel - 1) runtime runtime state state
             finalState valueNat)
-    (hvalueNamesInScope :
+    (_hvalueNamesInScope :
       ∀ {scope : List String} {runtime : SourceSemantics.RuntimeState} {state : IRState}
         {helperFuel irFuel : Nat}, 0 < helperFuel → 0 < irFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →

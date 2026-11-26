@@ -23,55 +23,48 @@ abbrev toRuntimeState := DenoteAgreement.toRuntimeState
 abbrev toStmtResult := DenoteAgreement.toStmtResult
 
 /-! Constructor families used by the compositional statement proof. Expression
-agreement holds on frames without a raw byte-call return buffer; statement
-agreement additionally excludes closed byte transports, which only `Denote`
-executes. -/
+agreement holds on every frame; statement agreement excludes closed byte
+transports, which only `Denote` executes. -/
 
 theorem arithmetic_constructor
-    (fields : List Field) (state : DenoteState) (expr : Expr)
-    (hraw : state.rawReturndata = none) :
+    (fields : List Field) (state : DenoteState) (expr : Expr) :
     Denote.evalExpr sourceOracle fields state expr =
       SourceSemantics.evalExpr fields (toRuntimeState state) expr :=
-  DenoteAgreement.denote_evalExpr_eq fields state hraw expr
+  DenoteAgreement.denote_evalExpr_eq fields state expr
 
 theorem storage_read_constructor
-    (fields : List Field) (state : DenoteState) (expr : Expr)
-    (hraw : state.rawReturndata = none) :
+    (fields : List Field) (state : DenoteState) (expr : Expr) :
     Denote.evalExpr sourceOracle fields state expr =
       SourceSemantics.evalExpr fields (toRuntimeState state) expr :=
-  DenoteAgreement.denote_evalExpr_eq fields state hraw expr
+  DenoteAgreement.denote_evalExpr_eq fields state expr
 
 theorem storage_write_constructor
     (fields : List Field) (state : DenoteState) (stmt : Stmt)
-    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true)
-    (hraw : state.rawReturndata = none) :
+    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true) :
     toStmtResult (Denote.execStmt sourceOracle fields state stmt) =
       SourceSemantics.execStmt fields (toRuntimeState state) stmt :=
-  DenoteAgreement.execStmt_eq fields state stmt hbyteFree hraw
+  DenoteAgreement.execStmt_eq fields state stmt hbyteFree
 
 theorem control_flow_constructor
     (fields : List Field) (state : DenoteState) (stmt : Stmt)
-    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true)
-    (hraw : state.rawReturndata = none) :
+    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true) :
     toStmtResult (Denote.execStmt sourceOracle fields state stmt) =
       SourceSemantics.execStmt fields (toRuntimeState state) stmt :=
-  DenoteAgreement.execStmt_eq fields state stmt hbyteFree hraw
+  DenoteAgreement.execStmt_eq fields state stmt hbyteFree
 
 theorem revert_constructor
     (fields : List Field) (state : DenoteState) (stmt : Stmt)
-    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true)
-    (hraw : state.rawReturndata = none) :
+    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true) :
     toStmtResult (Denote.execStmt sourceOracle fields state stmt) =
       SourceSemantics.execStmt fields (toRuntimeState state) stmt :=
-  DenoteAgreement.execStmt_eq fields state stmt hbyteFree hraw
+  DenoteAgreement.execStmt_eq fields state stmt hbyteFree
 
 theorem statement_list_composition
     (fields : List Field) (state : DenoteState) (stmts : List Stmt)
-    (hbyteFree : DenoteAgreement.stmtListByteFree stmts = true)
-    (hraw : state.rawReturndata = none) :
+    (hbyteFree : DenoteAgreement.stmtListByteFree stmts = true) :
     toStmtResult (Denote.execStmtList sourceOracle fields state stmts) =
       SourceSemantics.execStmtList fields (toRuntimeState state) stmts :=
-  DenoteAgreement.execStmtList_eq fields state stmts hbyteFree hraw
+  DenoteAgreement.execStmtList_eq fields state stmts hbyteFree
 
 mutual
 
@@ -215,7 +208,7 @@ theorem denote_eq_sourceSemantics
             { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
               bindings := bindings
               selector := tx.functionSelector, errors := spec.errors } fn.body
-            (stmtListByteFree_of_contractSurfaceClosed fn.body hsurface) rfl
+            (stmtListByteFree_of_contractSurfaceClosed fn.body hsurface)
       rw [← hagree]
       cases Denote.execStmtList sourceOracle (SourceSemantics.effectiveFields spec)
           { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)

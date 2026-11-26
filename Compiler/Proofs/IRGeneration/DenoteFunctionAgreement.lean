@@ -216,7 +216,7 @@ theorem denoteFunction_eq
       have hexec := execStmtList_eq (SourceSemantics.effectiveFields spec)
         { world := SourceSemantics.withTransactionContext initialWorld tx,
           immutable := fun _ => 0, bindings := bindings,
-          selector := tx.functionSelector, errors := spec.errors } fn.body hbyteFree rfl
+          selector := tx.functionSelector, errors := spec.errors } fn.body hbyteFree
       simp only [toRuntimeState] at hexec
       simp only
       rw [← hexec]

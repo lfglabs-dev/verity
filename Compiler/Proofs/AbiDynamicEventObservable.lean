@@ -433,22 +433,22 @@ theorem eventLogStmt_exec_dataExpr
     simp only [scalarEventIndexedTopicParts, List.map_cons, List.map_nil] at htopics
   · obtain rfl := evalIRExprs_nil_inv _ _ htopics
     simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
-      scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, hsize]
+      scalarEventIndexedTopicParts, evalIRExprs, hptr, htopic0, hsize]
   · obtain ⟨ta, _, ha, h0, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ htopics
     obtain rfl := evalIRExprs_nil_inv _ _ h0
     simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
-      scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, hsize, ha]
+      scalarEventIndexedTopicParts, evalIRExprs, hptr, htopic0, hsize, ha]
   · obtain ⟨ta, _, ha, h1, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ htopics
     obtain ⟨tb, _, hb, h0, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ h1
     obtain rfl := evalIRExprs_nil_inv _ _ h0
     simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
-      scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, hsize, ha, hb]
+      scalarEventIndexedTopicParts, evalIRExprs, hptr, htopic0, hsize, ha, hb]
   · obtain ⟨ta, _, ha, h2, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ htopics
     obtain ⟨tb, _, hb, h1, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ h2
     obtain ⟨tc, _, hc, h0, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ h1
     obtain rfl := evalIRExprs_nil_inv _ _ h0
     simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
-      scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, hsize, ha, hb, hc]
+      scalarEventIndexedTopicParts, evalIRExprs, hptr, htopic0, hsize, ha, hb, hc]
   · simp at hindexed
 
 /-- Fuel bookkeeping for a straight-line block followed by one statement. -/

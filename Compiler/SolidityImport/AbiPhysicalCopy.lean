@@ -21,7 +21,7 @@ theorem abiInsertByteWorld_grid (world : Verity.ContractState) (address byte cel
       abiInsertByte world.memory address byte cell := by
   by_cases same : cell = address / 32 * 32
   · subst cell
-    simp only [abiInsertByteWorld, abiInsertByte, if_pos rfl]
+    simp only [abiInsertByteWorld, abiInsertByte]
     exact writePhysicalMemoryValue_at world (address / 32 * 32) _
   · have gridAligned : (address / 32 * 32) % 32 = 0 := by omega
     have disjoint : cell + 32 ≤ address / 32 * 32 ∨ address / 32 * 32 + 32 ≤ cell := by

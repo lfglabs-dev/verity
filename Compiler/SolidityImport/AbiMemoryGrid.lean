@@ -27,7 +27,7 @@ theorem abiInsertByte_word (memory : Nat → Verity.Core.Uint256) (address byte 
     simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
       using (memory (address / 32 * 32)).isLt
   have laneBound : 31 - address % 32 < 32 := by omega
-  simp only [abiInsertByte, if_pos rfl, Verity.Core.Uint256.val_ofNat]
+  simp only [abiInsertByte]
   change _ % 256^32 = _
   exact SolidityImport.AbiByteLanes.insertion_modulus _ _ _ wordBound laneBound empty bounded
 
