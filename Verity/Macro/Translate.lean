@@ -51,6 +51,34 @@ private def translateCustomErrorArgExprs
       | none => translatePureExprWithTypes fields constDecls immutableDecls params locals arg
     normalizeTranslatedExprForType expectedTy arg raw
 
+/-- In a `tryCall … catch err => …` body, replace every `revert err` statement by
+`replacement`; any other use of `err` is rejected (the compilation path keeps the
+payload only as bytes to re-raise). -/
+private def rewriteRevertPayload (errName : Ident) (replacement : Term) (seq : DoSeq)
+    (checkNoOtherUse : Bool := true) : CommandElabM DoSeq := do
+  let name := errName.getId
+  let out ← seq.raw.replaceM fun stx => do
+    match stx with
+    | `(doElem| revert $x:ident) =>
+        if x.getId == name then
+          return some (← `(doElem| $replacement:term)).raw
+        else
+          throwErrorAt x s!"`revert {x.getId}` re-raises a caught payload; '{x.getId}' is not one"
+    | _ => return none
+  if checkNoOtherUse && syntaxMentionsIdent out (toString name) then
+    throwErrorAt errName
+      s!"catch payload '{name}' can only be re-raised with `revert {name}`"
+  return ⟨out⟩
+
+/-- A `catch err =>` payload is the callee's revert data, so the attempt must be a call. -/
+private def requireSelfCallAttemptForPayload (attempt : Term) (errName : Ident) :
+    CommandElabM Unit := do
+  match stripParens attempt with
+  | `(term| selfCall $_:ident) | `(term| selfCall $_:ident($[$_:term],*)) => pure ()
+  | _ =>
+      throwErrorAt errName
+        "`catch err =>` needs a `selfCall` attempt: a word attempt has no revert payload"
+
 mutual
 private partial def returnTypeContainsEnum : ValueType → Bool
   | .enum _ _ => true
@@ -341,6 +369,12 @@ private partial def validateDoElemExprTypes
           validateTryCatchHandlerDoesNotUsePayload handler payloadName? catchElems
           let _ ← validateDoElemsExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals catchElems
           pure locals
+      | `(doElem| tryCall $attempt:term then $succ:term catch $err:ident => $fail:term) => do
+          requireSelfCallAttemptForPayload attempt err
+          let failSeq ← rewriteRevertPayload err (← `(term| revertEmpty)) (← expectDoBlock fail)
+          let plain ← `(doElem| tryCall $attempt then $succ catch (do $failSeq))
+          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
+            errorDecls eventDecls functions params locals plain
       | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
           match stripParens attempt with
           | `(term| selfCall $fn:ident) =>
@@ -1121,6 +1155,10 @@ private def translateEffectStmt
       `(Compiler.CompilationModel.Stmt.revertEmpty)
   | `(term| revertReturndata) =>
       `(Compiler.CompilationModel.Stmt.revertReturndata)
+  | `(term| revertCaughtPayload $ptr:ident $len:ident) =>
+      `(Compiler.CompilationModel.Stmt.revertMemory
+          (Compiler.CompilationModel.Expr.localVar $(strTerm (toString ptr.getId)))
+          (Compiler.CompilationModel.Expr.localVar $(strTerm (toString len.getId))))
   | `(term| returnValues $values:term) =>
       let valueExprs ← expectExprList fields constDecls immutableDecls params locals values
         (some (translateDeclaredPureExpr
@@ -1837,6 +1875,43 @@ private partial def translateDoElem
             ],
             locals,
             mutableLocals)
+      | `(doElem| tryCall $attempt:term then $succ:term catch $err:ident => $fail:term) => do
+          -- Copy the callee's returndata to fresh memory on catch entry, so later
+          -- calls in the body cannot clobber what `revert err` re-raises.
+          requireSelfCallAttemptForPayload attempt err
+          let ptrName := freshSyntheticLocalName "verity_caught_ptr" params locals mutableLocals
+          let lenName := freshSyntheticLocalName "verity_caught_len" params locals mutableLocals
+          let failSeq ← rewriteRevertPayload err
+            (← `(term| revertCaughtPayload $(mkIdent (Name.mkSimple ptrName))
+                  $(mkIdent (Name.mkSimple lenName))))
+            (← expectDoBlock fail) (checkNoOtherUse := false)
+          let plain ← `(doElem| tryCall $attempt then $succ catch (do $failSeq))
+          let (stmts, locals', mutableLocals') ← translateDoElem fields constDecls immutableDecls
+            externalDecls errorDecls functions returnTy params locals mutableLocals plain
+          let ptr : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm ptrName))
+          let len : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm lenName))
+          let prologue : Array Term := #[
+            ← `(Compiler.CompilationModel.Stmt.letVar $(strTerm ptrName)
+                  (Compiler.CompilationModel.Expr.mload (Compiler.CompilationModel.Expr.literal 64))),
+            ← `(Compiler.CompilationModel.Stmt.letVar $(strTerm lenName)
+                  Compiler.CompilationModel.Expr.returndataSize),
+            ← `(Compiler.CompilationModel.Stmt.returndataCopy $ptr
+                  (Compiler.CompilationModel.Expr.literal 0) $len),
+            ← `(Compiler.CompilationModel.Stmt.mstore (Compiler.CompilationModel.Expr.literal 64)
+                  (Compiler.CompilationModel.Expr.add $ptr
+                    (Compiler.CompilationModel.Expr.mul
+                      (Compiler.CompilationModel.Expr.div
+                        (Compiler.CompilationModel.Expr.add $len
+                          (Compiler.CompilationModel.Expr.literal 31))
+                        (Compiler.CompilationModel.Expr.literal 32))
+                      (Compiler.CompilationModel.Expr.literal 32))))]
+          let some last := stmts.back? | throwErrorAt err "internal: tryCall produced no statements"
+          match last with
+          | `(Compiler.CompilationModel.Stmt.ite $c [ $[$f],* ] [ $[$t],* ]) =>
+              let catchStmts := prologue ++ f
+              let rebuilt ← `(Compiler.CompilationModel.Stmt.ite $c [ $[$catchStmts],* ] [ $[$t],* ])
+              pure (stmts.pop.push rebuilt, locals', mutableLocals')
+          | _ => throwErrorAt err "internal: tryCall did not end in its success test"
       | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
           let trySuccessName :=
             freshSyntheticLocalName "verity_try_success" params locals mutableLocals
@@ -2563,6 +2638,22 @@ private partial def rewriteForEachExecutableDoElem
       | _ =>
           throwErrorAt handler
             "tryCatch handler must be `fun _ => do ...` or a direct `do ...` block"
+  | `(doElem| tryCall $attempt:term then $succ:term catch $err:ident => $fail:term) => do
+      let failSeq ← rewriteRevertPayload err (← `(term| _root_.Verity.revertWith $err))
+        (← expectDoBlock fail) (checkNoOtherUse := false)
+      let succ ← rewriteForEachExecutableDoSeq fields externalDecls params locals (← expectDoBlock succ)
+      let fail ← rewriteForEachExecutableDoSeq fields externalDecls params locals failSeq
+      let attemptLean ←
+        match stripParens attempt with
+        | `(term| selfCall $fn:ident) =>
+            `(term| _root_.Verity.Contract.selfCall ($fn:ident()))
+        | `(term| selfCall $fn:ident($[$args:term],*)) =>
+            `(term| _root_.Verity.Contract.selfCall ($fn:ident($[$args:term],*)))
+        | _ => throwErrorAt err "`catch err =>` needs a `selfCall` attempt"
+      pure (#[← `(doElem|
+        _root_.Verity.Contract.tryWith $attemptLean
+          (fun _ => do $succ)
+          (fun $err => do $fail))], locals)
   | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
       let succSeq ← expectDoBlock succ
       let failSeq ← expectDoBlock fail

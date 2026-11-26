@@ -200,6 +200,11 @@ catch
   (do setStorage last 2)
 ```
 
+`catch err => (do ...)` binds the hop's revert payload; inside the body
+`revert err` re-raises it unchanged (Solidity's `catch (bytes memory r)` then
+`assembly { revert(add(r, 32), mload(r)) }`). `err` has no other use, and the
+binder needs a `selfCall` attempt.
+
 `selfCall f(a, b)` passes arguments to the hop (Solidity `this.f(a, b)`);
 `selfCall f` is the zero-argument form. A hop may make external calls: the
 executable plane threads the call context into it. Argument count and types
@@ -212,9 +217,8 @@ working. Prefer `try`/`selfCall` for modeled hops.
 **Model plane.** `Contract.tryWith` runs the attempt with `Contract.run`
 snapshot rollback. On revert the failure continuation starts at that
 snapshot. On success the success continuation runs from the hop's
-post-state; a revert there is **not** caught. Failed-call returndata is
-not bound into the handler (same compilation-model gap as `tryCatch`
-payload names); read `ContractState.returndata` if needed.
+post-state; a revert there is **not** caught. The failure continuation
+receives the hop's `RevertPayload`; `revert err` is `Verity.revertWith err`.
 
 **Compilation model.** `selfCall f` / `selfCall f(args)` ABI-encode `f`'s
 selector and arguments at the free memory pointer, then lower to `Expr.call`
@@ -222,6 +226,10 @@ targeting `contractAddress` with all available gas (a `2^256 - 1` request,
 capped by EIP-150). The target must be an external function whose parameters
 are single-word static types; anything else is a compile-time error. The `try`
 form is `let successBit := call(...); ite (successBit == 0) failure success`.
+With `catch err =>`, the failure branch first copies the returndata to the free
+memory pointer and advances it past the copy, and `revert err` lowers to
+`Stmt.revertMemory` of that copy, so calls later in the catch body cannot change
+what it re-raises.
 The status-bearing CALL plus conditional matches `docs/REVERT_STATE_MODEL.md`
 bubbling (failure does not revert the outer frame). Refinement of the CALL
 against the EDSL hop (`Contract.selfCall`) remains a manual obligation.
