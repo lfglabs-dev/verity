@@ -49,6 +49,51 @@ verity_contract TryCatchSmoke where
         setStorage last 6
         revert err)
 
+  -- Two tries in one scope, and a try nested in a catch body, each get their
+  -- own synthetic success/pointer locals.
+  function reentrancy_trusted allow_post_interaction_writes sequentialTries ()
+    local_obligations [manual_low_level_refinement := assumed "tryCall/selfCall compiles to an ABI-encoded CALL to this; the CALL-to-EDSL-hop refinement is manual."]
+    : Uint256 := do
+    tryCall (selfCall failHop) then
+      (do setStorage last 1)
+    catch
+      (do setStorage last 2)
+    tryCall (selfCall okHop) then
+      (do setStorage last 4)
+    catch
+      (do setStorage last 5)
+    let v ← getStorage last
+    return v
+
+  function reentrancy_trusted allow_post_interaction_writes nestedTry ()
+    local_obligations [manual_low_level_refinement := assumed "tryCall/selfCall compiles to an ABI-encoded CALL to this; the CALL-to-EDSL-hop refinement is manual."]
+    : Uint256 := do
+    tryCall (selfCall failHop) then
+      (do setStorage last 1)
+    catch
+      (do
+        tryCall (selfCall okHop) then
+          (do setStorage last 7)
+        catch
+          (do setStorage last 8))
+    let v ← getStorage last
+    return v
+
+  -- A binder try nested in a binder's catch body: the inner one re-raises its
+  -- own callee's payload, so the outer `revert err` is never reached.
+  function reentrancy_trusted allow_post_interaction_writes rethrowNested ()
+    local_obligations [manual_low_level_refinement := assumed "tryCall/selfCall compiles to an ABI-encoded CALL to this; the CALL-to-EDSL-hop refinement is manual."]
+    : Unit := do
+    tryCall (selfCall failHop) then
+      (do setStorage last 1)
+    catch err =>
+      (do
+        tryCall (selfCall failHop) then
+          (do setStorage last 9)
+        catch inner =>
+          (do revert inner)
+        revert err)
+
 #check_contract TryCatchSmoke
 
 /-- The EDSL re-raises the callee's payload unchanged. -/
@@ -77,6 +122,40 @@ verity_contract TryCatchPayloadMisuseRejected where
       (do setStorage last 1)
     catch err =>
       (do setStorage last err)
+
+/--
+error: nested catch payload 'err' shadows an enclosing one; rename it
+-/
+#guard_msgs in
+verity_contract TryCatchPayloadShadowRejected where
+  storage
+    last : Uint256 := slot 0
+
+  function failHop () : Unit := do
+    require false "fail"
+
+  function reentrancy_trusted allow_post_interaction_writes shadow ()
+    local_obligations [manual_low_level_refinement := assumed "tryCall/selfCall compiles to an ABI-encoded CALL to this; the CALL-to-EDSL-hop refinement is manual."]
+    : Unit := do
+    tryCall (selfCall failHop) then
+      (do setStorage last 1)
+    catch err =>
+      (do
+        tryCall (selfCall failHop) then
+          (do setStorage last 2)
+        catch err =>
+          (do revert err))
+
+/--
+error: `revert stray` re-raises a payload bound by `catch stray =>`; none is in scope
+-/
+#guard_msgs in
+verity_contract TryCatchPayloadUnboundRejected where
+  storage
+    last : Uint256 := slot 0
+
+  function unbound () : Unit := do
+    revert stray
 
 /--
 error: `catch err =>` needs a `selfCall` attempt: a word attempt has no revert payload
