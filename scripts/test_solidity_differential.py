@@ -163,6 +163,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "storage-void",
     "storage-yul-empty-revert",
     "storage-yul-mcopy",
+    "storage-yul-buffer-mcopy",
     "storage-yul-revert-memory",
     "storage-yul-numeric",
     "struct-abi",

@@ -30,6 +30,9 @@ structure EncodedBytes where
   pre : Array Stmt
   pointer : Expr
   size : Expr
+  /-- True when allocated by `lowerShortStringAllocAssembly?` (32-byte word reservation with an
+  unvalidated user-written length word). -/
+  shortStringAlloc : Bool := false
 
 inductive SPath where
   | zero (field : String)

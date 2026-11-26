@@ -579,6 +579,7 @@ def main():
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
+    parser.add_argument('--evm-version', choices=('london', 'cancun', 'osaka'), default=None)
     parser.add_argument('--no-via-ir', action='store_true')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source-fixture', type=Path,
@@ -608,7 +609,7 @@ def main():
     fixture = args.source_fixture.resolve()
     source_text = stateful_scalar_source(fixture.read_text(), args.variant)
     solc_bin = SOLC if args.solc_version == '0.8.34' else SOLC.with_name('solc-0.8.10')
-    evm_version = 'osaka' if args.solc_version == '0.8.34' else 'london'
+    evm_version = args.evm_version or ('osaka' if args.solc_version == '0.8.34' else 'london')
     optimizer_runs = 466 if args.solc_version == '0.8.34' else 1
     source_settings = {'evmVersion': evm_version,
         'optimizer': {'enabled': True, 'runs': optimizer_runs},
@@ -781,6 +782,7 @@ def main():
         'allowance(address,address)',
         'scanLarge(uint256,uint256,uint32)',
         'countUntilBreak(uint256,uint256)',
+        'packAndSlice(bytes,bytes,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -2031,6 +2033,17 @@ def main():
                 [0x61 << 248, 64, 32, 0x66 << 248],
                 [(0x61 << 248) | 1, 64, 32, 0x66 << 248],
                 [0x61 << 248, 64, 32, (0x66 << 248) | 1],
+            ])
+        elif name == 'packAndSlice(bytes,bytes,uint256)':
+            w31 = 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00
+            w32 = 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+            call_args = rng.choice([
+                [96, 128, 0x123400, 0, 0],
+                [96, 160, 0xabcd00, 31, w31, 33, w32, 0xa5 << 248],
+                [96, 160, 1, 32, w32, 31, w31],
+                [96, 192, 2, 33, w32, 0xa5 << 248, 32, w32],
+                [96, 160, 3, 31, w31, 33, w32, 0xa5 << 248],
+                [96, 128, 3, 2, 0xaabb << 240, 1, 0xcc << 248],
             ])
         else:
             call_args = []
