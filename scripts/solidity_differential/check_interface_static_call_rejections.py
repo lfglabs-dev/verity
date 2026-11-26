@@ -241,7 +241,7 @@ CASES = [
     ('low-level-staticcall', ORACLE, '',
      '(bool ok, bytes memory data) = oracle.staticcall(abi.encodeCall(IPriceOracle.price, ())); '
      'return ok ? data.length : 0;',
-     ('oracle.staticcall', 0, 'MemberAccess', 'external')),
+     None),
 ]
 
 

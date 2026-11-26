@@ -809,6 +809,12 @@ def interface_static_call_mutant(mutant: str) -> None:
     print(f"pass {mutant}", flush=True)
 
 
+def low_level_staticcall_rejections() -> None:
+    module_campaign_output("check_low_level_staticcall_rejections",
+                           "low-level-staticcall-rejections", MUTANT_TIMEOUT)
+    print("pass low-level staticcall located rejections", flush=True)
+
+
 def interface_word_static_call_rejections() -> None:
     module_campaign_output("check_interface_word_static_call_rejections",
                            "interface-word-static-call-rejections", MUTANT_TIMEOUT)
@@ -919,6 +925,7 @@ def tasks(update_golden: bool) -> list:
              ("account-storage", 1, account_storage_mutations),
              ("interface-static-call-rejections", 1, interface_static_call_rejections),
              ("interface-word-static-call-rejections", 1, interface_word_static_call_rejections),
+             ("low-level-staticcall-rejections", 1, low_level_staticcall_rejections),
              ("library-call-rejections", 1, library_call_rejections),
              ("linked-library-call-rejections", 1, linked_library_call_rejections),
              ("linked-library-frame-check", 2, lambda: linked_library_mutant("frame-check")),

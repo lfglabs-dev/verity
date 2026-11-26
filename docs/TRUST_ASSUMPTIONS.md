@@ -2211,6 +2211,23 @@ assumption:
   run differentially) and `check_linked_library_call_rejections` (located rejections, a
   frame-check mutant and a return-data-check mutant).
 
+### Imported Solidity low-level `staticcall`
+
+`solidity_import` admits `(bool ok, bytes memory ret) = target.staticcall(payload)` (and the
+forms that omit `ok` or `ret`) with a `bytes memory` payload. It adds no transport and no
+trust assumption: the call is the closed `YulMemoryCall.module true` transport above, with the
+payload's data pointer and length as input range and an empty output range, so the same
+byte-adversary boundary applies (a `staticcall` callee must preserve the world,
+`Response.valid`; gas is not tracked; the result is `0`/`1` and the transport never reverts
+by itself). The return data is then copied by `Stmt.returndataCopy` from the raw return
+data the transport recorded, into an allocation that mirrors solc's `extract_returndata`
+(zero-length array for empty return data). The model's allocation addresses are not solc's,
+and inline-assembly word loads from `ret` or any alias of `ret` (`mload(add(ret, 0x20))`)
+are rejected (`checkYulByteWordLoads`); only the `returndatasize` bytes of `ret` and its
+length are observable to imported code. Agreement with solc (via-IR and legacy) and Denote
+is differential evidence (`LowLevelStaticcallSequence` against calldata-folding and
+storage-writing responders, an account without code and an EOA), not a proof.
+
 ### Imported typed external calls without return values
 
 `solidity_import` admits `I(a).f(args...)` as a whole expression statement when `f` is

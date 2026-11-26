@@ -297,6 +297,13 @@ structure Env where
   /-- Bindings read by a Yul identifier in the current root, with the reading node
       (`checkYulCleanedNarrowReads`). -/
   yulBindingReadSites : Array (String × Json) := #[]
+  /-- Data-pointer bindings of `bytes memory` buffers whose memory past their runtime
+      length (or at `data` when empty) does not match solc's word-padded layout, such as
+      `extract_returndata` of a low-level `staticcall` (`checkYulByteWordLoads`). -/
+  unpaddedByteDataBindings : Array String := #[]
+  /-- `(pointer, mloadNode, file, stack)` of every inline-assembly word load from a
+      `bytes memory` buffer's payload (`yulByteBufferLoad?`), rechecked over the whole body. -/
+  yulByteWordLoadSites : Array (Expr × Json × String × List Nat) := #[]
   currentFile : String
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
@@ -1084,6 +1091,48 @@ def checkYulCleanedNarrowReads (body : Array Stmt) : M Unit := do
   for (binding, node) in (← get).yulBindingReadSites do
     if marked.contains binding then
       failAt node "Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported"
+
+/-- Whether a pointer expression `expr` mentions a binding in `bindings` (directly or
+through pointer arithmetic, never through a memory load or hash). -/
+def exprMentionsBinding (bindings : Array String) : Expr → Bool
+  | .localVar name => bindings.contains name
+  | .add left right | .sub left right =>
+      exprMentionsBinding bindings left || exprMentionsBinding bindings right
+  | _ => false
+
+/-- Record that `binding` may alias an unpadded byte-buffer data pointer when `value` may. -/
+def noteUnpaddedByteData (binding : String) (value : Expr) : M Unit := do
+  if exprMentionsBinding (← get).unpaddedByteDataBindings value then
+    modify fun e =>
+      if e.unpaddedByteDataBindings.contains binding then e
+      else { e with unpaddedByteDataBindings := e.unpaddedByteDataBindings.push binding }
+
+/-- Propagate unpadded byte-buffer data pointers across all `letVar`/`assignVar` bindings
+in `pre` to a fixpoint over the whole lowered root body. -/
+def noteUnpaddedByteDataStmts (pre : Array Stmt) : M Unit := do
+  let bindings := pre.toList.flatMap stmtBindings
+  for _ in [0:bindings.length + 1] do
+    let before := (← get).unpaddedByteDataBindings.size
+    for (binding, value) in bindings do
+      noteUnpaddedByteData binding value
+    if (← get).unpaddedByteDataBindings.size == before then return
+
+/-- Reject inline-assembly word loads (`mload(add(buf, 0x20))`, etc.) whose buffer pointer
+may alias low-level `staticcall` return data: empty return data leaves `data` unallocated
+(solc points at `0x60`), and partial-word return data leaves trailing bytes untouched. -/
+def checkYulByteWordLoads (body : Array Stmt) : M Unit := do
+  if (← get).unpaddedByteDataBindings.isEmpty || (← get).yulByteWordLoadSites.isEmpty then
+    return
+  noteUnpaddedByteDataStmts body
+  for (pointer, node, file, stack) in (← get).yulByteWordLoadSites do
+    if exprMentionsBinding (← get).unpaddedByteDataBindings pointer then
+      let savedFile := (← get).currentFile
+      let savedStack := (← get).stack
+      modify fun e => { e with currentFile := file, stack := stack }
+      try
+        failAt node "Yul word load from low-level staticcall return data is outside this slice"
+      finally
+        modify fun e => { e with currentFile := savedFile, stack := savedStack }
 
 def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256

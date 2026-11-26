@@ -41,6 +41,15 @@ REENTRANT_WRITE = ('solidity_differential.check_reentrant_callback', '--only', '
                    '--transactions', '64', '--seed', '2911',
                    'Contracts.SolidityImportSmoke.PostCallWriteSequenceModel')
 
+STATICCALL = (
+    'solidity_differential.check_low_level_staticcall', '--single', '--pipeline', 'via-ir',
+    '--part', 'word', '--transactions', '180', '--seed', '2948',
+    'Contracts.SolidityImportSmoke.LowLevelStaticcallSequenceModel')
+THIS_VALUE = (
+    'solidity_differential.check_low_level_staticcall', '--single', '--pipeline', 'via-ir',
+    '--part', 'this', '--transactions', '180', '--seed', '2948',
+    'Contracts.SolidityImportSmoke.ThisValueSequenceModel')
+
 
 def rejection_case(case):
     """An admission-guard mutant's campaign: the pinned located rejection `case` of
@@ -154,6 +163,51 @@ MUTANTS = {
     'import-calldataload-root-guard': (IMPORT,
         '!cb.inMemory && cb.offsetBinding != "" && cb.dataBinding != "" then',
         '!cb.inMemory && cb.dataBinding != "" then', rejection_case('slice-argument')),
+    # Low-level `staticcall` (#2948): the target, the payload range, the returndata copy and the
+    # empty-returndata branch; `this` as a value (#2947) is the contract's own address.
+    'import-staticcall-target': (IMPORT,
+        'target.pre.push (.letVar targetVar target.expr) ++ payload.pre',
+        'target.pre.push (.letVar targetVar .caller) ++ payload.pre',
+        STATICCALL),
+    'import-staticcall-payload-size': (IMPORT,
+        '    .letVar inSize payload.size,\n',
+        '    .letVar inSize (.shr (.literal 1) payload.size),\n', STATICCALL),
+    'import-staticcall-returndata-copy': (IMPORT,
+        '.returndataCopy (.localVar data) (.literal 0) (.localVar size)])]',
+        '.returndataCopy (.localVar data) (.literal 0) (.literal 0)])]', STATICCALL),
+    'import-staticcall-returndata-length': (IMPORT,
+        '    .letVar size .returndataSize,\n'
+        '    .letVar data (.literal 128),\n',
+        '    .letVar size (.shr (.literal 1) .returndataSize),\n'
+        '    .letVar data (.literal 128),\n', STATICCALL),
+    # A `bytes4` selector value (#2948 repro): its four left-aligned bytes are the prefix.
+    'import-selector-value-mask': (IMPORT,
+        '    let mask := cleanHelperResultExpr "bytes4" value\n'
+        '    let word := if (← get).viaIR then value.expr else mask',
+        '    let word := Expr.bitAnd value.expr (.literal (0xffffff * 16 ^ 58))', STATICCALL),
+    'import-this-value-address': (IMPORT,
+        '        return .expr { pre := #[], expr := .contractAddress }',
+        '        return .expr { pre := #[], expr := .caller }', THIS_VALUE),
+    # Admission guards: effectful selector values, reassigned return data, and Yul word loads.
+    'import-selector-value-effect-guard': (IMPORT,
+        '    unless ty.startsWith "literal_string " do\n'
+        '      checkEncodingScalar j\n'
+        '    let value ← atom (← lowerConverted "bytes4" j)',
+        '    let value ← atom (← lowerConverted "bytes4" j)',
+        ('rejection', 'solidity_differential.check_low_level_staticcall_rejections',
+         'selector-value-effect')),
+    'import-staticcall-reassigned-guard': (IMPORT,
+        'if (← get).bodyAssigned.contains id then\n'
+        '            failAt d "reassigned low-level staticcall',
+        'if false then\n'
+        '            failAt d "reassigned low-level staticcall',
+        ('rejection', 'solidity_differential.check_low_level_staticcall_rejections',
+         'staticcall-reassigned-data')),
+    'import-staticcall-yul-mload-guard': (IMPORT,
+        '  checkYulByteWordLoads lowered.1\n',
+        '  pure ()\n',
+        ('rejection', 'solidity_differential.check_low_level_staticcall_rejections',
+         'staticcall-yul-mload')),
     'import-calldataload-literal-bound': (IMPORT,
         'unless k < 2^64 do return none', 'unless k < 2^256 do return none',
         rejection_case('wide-literal')),
@@ -179,6 +233,7 @@ MUTANTS = {
 MODULES = ['Compiler.SolidityImport.Import', 'Compiler.SolidityImport.Differential',
            'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.CallResponderMocks',
            'Compiler.SolidityImport.ReentrantCallResponderMocks',
+           'Compiler.SolidityImport.StaticOracleMocks',
            'Compiler.Codegen', 'Compiler.Yul.PrettyPrint']
 
 
