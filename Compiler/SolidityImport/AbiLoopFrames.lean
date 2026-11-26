@@ -61,6 +61,17 @@ theorem abiHeaderPreservingStmt_memory (oracle : DenoteOracle) (fields : List Fi
           (fun before => execStmtList oracle fields before body) frame bound 0
           { state with bindings := bindValue state.bindings name (wordNormalize 0) }
         simpa [execStmt, evaluated, preservesMemory] using result
+  case forEachWhile name count guard body =>
+    have frame : ∀ before, preservesMemory before (execStmtList oracle fields before body) :=
+      fun before => abiHeaderPreservingList_memory oracle fields body covered.2 before
+    cases evaluated : evalExpr oracle fields state count with
+    | none => simp [execStmt, evaluated, preservesMemory]
+    | some bound =>
+        have result := execForEachWhileLoop_memory_frame name
+          (fun before => evalExpr oracle fields before guard)
+          (fun before => execStmtList oracle fields before body) frame bound 0
+          { state with bindings := bindValue state.bindings name (wordNormalize 0) }
+        simpa [execStmt, evaluated, preservesMemory] using result
   case emit name args => exact execStmt_emit_memory_frame oracle fields state name args
   case returnValues args => exact execStmt_returnValues_memory_frame oracle fields state args
   case stop => simp [execStmt, preservesMemory]

@@ -775,6 +775,8 @@ def main():
         'approve(address,uint256)',
         'spend(address,uint256)',
         'allowance(address,address)',
+        'scanLarge(uint256,uint256,uint32)',
+        'countUntilBreak(uint256,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)

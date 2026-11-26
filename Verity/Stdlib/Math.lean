@@ -216,11 +216,12 @@ def tickWExpReference (x : Int) : Nat :=
 
 -- Helper: Require with Option - fails if None
 -- For Uint256 specifically (can be generalized later if needed)
-def requireSomeUint (opt : Option Uint256) (message : String) : Contract Uint256 := do
+def requireSomeUint (opt : Option Uint256) (message : Verity.Core.RevertPayload) :
+    Contract Uint256 := do
   match opt with
   | some value => return value
   | none => do
-    require false message
+    requireWith false message
     -- This line is unreachable in real execution (require would revert)
     -- Return 0 as a fallback for type checking
     return 0
@@ -249,11 +250,12 @@ The macro lowers `let x ← addPanic a b` to a direct failure check followed by
 the structured Solidity `Panic(0x11)` payload. -/
 
 /-- Require with `Option Int256` — fails if `none`. -/
-def requireSomeInt (opt : Option Int256) (message : String) : Contract Int256 := do
+def requireSomeInt (opt : Option Int256) (message : Verity.Core.RevertPayload) :
+    Contract Int256 := do
   match opt with
   | some value => return value
   | none => do
-    require false message
+    requireWith false message
     return 0
 
 /-- Type-directed Solidity-0.8 panic addition (`Uint256` and `Int256`). -/
@@ -273,33 +275,33 @@ class DivPanic (α : Type) where
   divPanic : α → α → Contract α
 
 instance : AddPanic Uint256 where
-  addPanic a b := requireSomeUint (safeAdd a b) "Panic(0x11): arithmetic overflow"
+  addPanic a b := requireSomeUint (safeAdd a b) (.panic 0x11)
 
 instance : SubPanic Uint256 where
-  subPanic a b := requireSomeUint (safeSub a b) "Panic(0x11): arithmetic underflow"
+  subPanic a b := requireSomeUint (safeSub a b) (.panic 0x11)
 
 instance : MulPanic Uint256 where
-  mulPanic a b := requireSomeUint (safeMul a b) "Panic(0x11): arithmetic overflow"
+  mulPanic a b := requireSomeUint (safeMul a b) (.panic 0x11)
 
 instance : DivPanic Uint256 where
-  divPanic a b := requireSomeUint (safeDiv a b) "Panic(0x12): division by zero"
+  divPanic a b := requireSomeUint (safeDiv a b) (.panic 0x12)
 
 instance : AddPanic Int256 where
-  addPanic a b := requireSomeInt (Core.Int256.safeAdd a b) "Panic(0x11): arithmetic overflow"
+  addPanic a b := requireSomeInt (Core.Int256.safeAdd a b) (.panic 0x11)
 
 instance : SubPanic Int256 where
-  subPanic a b := requireSomeInt (Core.Int256.safeSub a b) "Panic(0x11): arithmetic overflow"
+  subPanic a b := requireSomeInt (Core.Int256.safeSub a b) (.panic 0x11)
 
 instance : MulPanic Int256 where
-  mulPanic a b := requireSomeInt (Core.Int256.safeMul a b) "Panic(0x11): arithmetic overflow"
+  mulPanic a b := requireSomeInt (Core.Int256.safeMul a b) (.panic 0x11)
 
 instance : DivPanic Int256 where
   divPanic a b := do
     if (b : Int) = 0 then
-      require false "Panic(0x12): division by zero"
+      requireWith false (.panic 0x12)
       return 0
     else if (a : Int) = Core.Int256.minValue && (b : Int) = -1 then
-      require false "Panic(0x11): arithmetic overflow"
+      requireWith false (.panic 0x11)
       return 0
     else
       return (a / b)
@@ -311,23 +313,23 @@ export DivPanic (divPanic)
 
 /-- `-a` on `Int256` with Solidity-0.8 panic-on-overflow semantics. -/
 def negPanic (value : Int256) : Contract Int256 :=
-  requireSomeInt (Core.Int256.safeNeg value) "Panic(0x11): arithmetic overflow"
+  requireSomeInt (Core.Int256.safeNeg value) (.panic 0x11)
 
 /-- `a % b` on `Int256` with Solidity-0.8 panic-on-division-by-zero semantics. -/
 def modPanic (a b : Int256) : Contract Int256 :=
-  requireSomeInt (Core.Int256.safeMod a b) "Panic(0x12): division by zero"
+  requireSomeInt (Core.Int256.safeMod a b) (.panic 0x12)
 
 @[simp] theorem requireSomeInt_some (v : Int256) (msg : String) (s : ContractState) :
   (requireSomeInt (some v) msg).run s = ContractResult.success v s := rfl
 
-@[simp] theorem requireSomeInt_none (msg : String) (s : ContractState) :
+@[simp] theorem requireSomeInt_none (msg : Verity.Core.RevertPayload) (s : ContractState) :
   (requireSomeInt none msg).run s = ContractResult.revert msg s := rfl
 
 -- Full-result simp lemmas for requireSomeUint
 @[simp] theorem requireSomeUint_some (v : Uint256) (msg : String) (s : ContractState) :
   (requireSomeUint (some v) msg).run s = ContractResult.success v s := rfl
 
-@[simp] theorem requireSomeUint_none (msg : String) (s : ContractState) :
+@[simp] theorem requireSomeUint_none (msg : Verity.Core.RevertPayload) (s : ContractState) :
   (requireSomeUint none msg).run s = ContractResult.revert msg s := rfl
 
 @[simp] theorem WAD_val : (WAD : Nat) = 1000000000000000000 := by

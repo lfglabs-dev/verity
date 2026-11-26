@@ -237,7 +237,8 @@ def checkedDivU256 (a b : Nat) : Option Nat :=
   if b = 0 then none else some (a / b)
 
 /-- Lift an `Option α` result into the `Contract` monad, reverting with `msg` on `none`. -/
-def requireSome {α : Type} (opt : Option α) (msg : String := "SafeArith: arithmetic failure") :
+def requireSome {α : Type} (opt : Option α)
+    (msg : Verity.Core.RevertPayload := "SafeArith: arithmetic failure") :
     Contract α :=
   fun s =>
     match opt with
@@ -340,7 +341,7 @@ theorem checkedSubU256_mono_left {a₁ a₂ b c₁ c₂ : Nat} :
 @[simp] theorem requireSome_some {α : Type} (v : α) (msg : String) (s : ContractState) :
     (requireSome (some v) msg).run s = .success v s := rfl
 
-@[simp] theorem requireSome_none {α : Type} (msg : String) (s : ContractState) :
+@[simp] theorem requireSome_none {α : Type} (msg : Verity.Core.RevertPayload) (s : ContractState) :
     (requireSome (none : Option α) msg).run s = .revert msg s := rfl
 
 theorem requireSome_eq_success_iff {α : Type} (opt : Option α) (msg : String)

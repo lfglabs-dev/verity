@@ -1088,8 +1088,8 @@ def checkYulCleanedNarrowReads (body : Array Stmt) : M Unit := do
 def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256
   else if ty == "bytes32" then some 256
-  else if ty == "address" || ty == "address payable" || ty.startsWith "contract " then some 160
-  else if ty.startsWith "enum " then some 8
+  else if ty == "address" || ty == "address payable" || (ty.startsWith "contract " && !ty.contains '[') then some 160
+  else if ty.startsWith "enum " && !ty.contains '[' then some 8
   else if ty.startsWith "uint" then (ty.drop 4).toNat?
   else none
 
@@ -1111,8 +1111,8 @@ def paramType (ty : String) : Option ParamType :=
   | "bytes1" => some (.bytesN 1)
   | "bool" => some .bool
   | _ =>
-      if ty.startsWith "contract " then some .address
-      else if ty.startsWith "enum " then some (.uintN 8)
+      if ty.startsWith "contract " && !ty.contains '[' then some .address
+      else if ty.startsWith "enum " && !ty.contains '[' then some (.uintN 8)
       else match signedBitsOf ty with
       | some n => if n < 256 then some (.intN n) else some .int256
       | none =>
@@ -1209,7 +1209,7 @@ def resolveEnumMembers (j : Json) (ty : String) : M (Array String) := do
   pure ms
 
 def validateEnumTypeIfNeeded (j : Json) (ty : String) : M (Option Nat) := do
-  if ty.startsWith "enum " then
+  if ty.startsWith "enum " && !ty.contains '[' then
     let bound := (← resolveEnumMembers j ty).size
     if optStr j "nodeType" == some "VariableDeclaration" then
       if let some id := (field? j "id").bind (·.getNat?.toOption) then

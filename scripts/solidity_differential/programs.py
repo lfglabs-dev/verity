@@ -1707,9 +1707,38 @@ def stateful_helper_loop_return_source(fixture: str, variant: str) -> str:
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
-        return _rename_identifiers(fixture, {'acc', 'cap', 'found', 'hits', 'i', 'limit', 'n', 'needle', 'word', 'r', 'total', 'v', 'x'})
+        return _rename_identifiers(
+            fixture,
+            {'acc', 'c', 'cap', 'cb', 'count', 'found', 'hits', 'i', 'id', 'largeBound',
+             'limit', 'n', 'needle', 'ok', 'packed', 'r', 'span', 'stopAt',
+             'target', 'total', 'v', 'word', 'x'},
+        )
     if variant == 'structured':
         return _replace_anchors(fixture, [
+            ('        for (uint256 i = 0; i < n; ++i) {\n'
+             '            if (_at(packed, i) == id) return true;\n'
+             '        }\n'
+             '        return false;\n',
+             '        bool seen;\n'
+             '        for (uint256 i = 0; i < n; ++i) {\n'
+             '            if (!seen && _at(packed, i) == id) {\n'
+             '                seen = true;\n'
+             '            }\n'
+             '        }\n'
+             '        return seen;\n'),
+            ('        for (uint256 i = 0; i < n; ++i) {\n'
+             '            hits += 1;\n'
+             '            if (_at(packed, i) == id) return true;\n'
+             '        }\n'
+             '        return false;\n',
+             '        bool seen;\n'
+             '        for (uint256 i = 0; i < n; ++i) {\n'
+             '            if (!seen) {\n'
+             '                hits += 1;\n'
+             '                seen = _at(packed, i) == id;\n'
+             '            }\n'
+             '        }\n'
+             '        return seen;\n'),
             ('        for (uint256 i = 0; i < n; i++) {\n'
              '            if (_byteAt(word, i) == needle) {\n'
              '                return i + 1;\n'
@@ -1736,6 +1765,37 @@ def stateful_helper_loop_return_source(fixture: str, variant: str) -> str:
              '            }\n'
              '        }\n'
              '        return seen;\n'),
+            ('        uint256 i;\n'
+             '        for (i = 0; i < n; i++) {\n'
+             '            hits += 1;\n'
+             '            if (i == target) {\n'
+             '                return i + 1;\n'
+             '            }\n'
+             '        }\n'
+             '        return i + 100000;\n',
+             '        uint256 foundStep;\n'
+             '        for (uint256 i = 0; i < n; i++) {\n'
+             '            if (foundStep == 0) {\n'
+             '                hits += 1;\n'
+             '                if (i == target) {\n'
+             '                    foundStep = i + 1;\n'
+             '                }\n'
+             '            }\n'
+             '        }\n'
+             '        return foundStep == 0 ? n + 100000 : foundStep;\n'),
+            ('        for (uint256 i = 0; i < n; ++i) {\n'
+             '            if (i == stopAt) {\n'
+             '                break;\n'
+             '            }\n'
+             '            hits += 1;\n'
+             '            count += 1;\n'
+             '        }\n',
+             '        for (uint256 i = 0; i < n; ++i) {\n'
+             '            if (i < stopAt) {\n'
+             '                hits += 1;\n'
+             '                count += 1;\n'
+             '            }\n'
+             '        }\n'),
             ('        for (uint256 i = 0; i < 4; i++) {\n'
              '            uint256 v = _byteAt(word, i);\n'
              '            if (v > limit) {\n'

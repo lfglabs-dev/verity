@@ -662,8 +662,7 @@ use the closed `PanicCode` domain: the macro emits a matching failure predicate
 plus `Stmt.panic .arithmeticOverflow` or `Stmt.panic .divisionByZero`, which
 compiles to the canonical 36-byte `Panic(uint256)` ABI payload (selector
 `0x4e487b71`, followed by code `0x11` or `0x12`). Direct Lean helper execution
-retains compatibility diagnostic strings; macro-generated compilation bypasses
-that path and does not encode those strings as `Error(string)`.
+reverts with the same `Panic(uint256)` payload (`ContractResult.revert (.panic code)`).
 `Compiler.Proofs.IRGeneration.PanicPayloadIR` proves the complete physical
 poststate after the two overlapping stores, including all overlapping word
 observations, and the revert result for every in-range code and both typed

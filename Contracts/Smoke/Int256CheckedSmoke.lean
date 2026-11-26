@@ -81,6 +81,34 @@ private def int256MaxState : ContractState :=
 example :
     ((Int256CheckedSmoke.applyDelta (Verity.Core.Int256.ofInt 1)).run int256MaxState |> okB) = false := by decide +kernel
 
+/-! Revert bytes of a signed overflow (`maxValue + 1`), on both planes.
+
+Fix #12 (`614a0ec7b`) made the macro lower signed checked arithmetic to
+`Stmt.panic`; before it the model reverted with `Error("Panic(0x11): …")`.
+Both examples pin the exact `Panic(0x11)` ABI bytes: the first fails if the
+macro-generated model regresses, the second if the EDSL does. -/
+
+private def noHashOracle : Compiler.CompilationModel.Denote.DenoteOracle :=
+  { mappingSlot := fun _ _ => 0, keccakMemorySlice := fun _ _ _ => 0 }
+
+private def modelAddOverflowRevertData : Option (List UInt8) :=
+  (Int256CheckedSmoke.spec.functions.find? (·.name == "addChecked")).bind fun fn =>
+    (Compiler.CompilationModel.Denote.denoteFunction noHashOracle Int256CheckedSmoke.spec fn
+      { sender := 0, functionSelector := 0, args := [2 ^ 255 - 1, 1] }
+      Verity.defaultState).revertData
+
+private def edslAddOverflowRevertData : Option (List UInt8) :=
+  match (Int256CheckedSmoke.addChecked (Verity.Core.Int256.ofInt (2 ^ 255 - 1))
+      (Verity.Core.Int256.ofInt 1)).run Verity.defaultState with
+  | .revert payload _ => some payload.encode
+  | .success _ _ => none
+
+example : modelAddOverflowRevertData =
+    some (Verity.Core.RevertPayload.encode (.panic 0x11)) := by decide +kernel
+
+example : edslAddOverflowRevertData =
+    some (Verity.Core.RevertPayload.encode (.panic 0x11)) := by decide +kernel
+
 example : Int256CheckedSmoke.spec.fields.any (fun field =>
     field.name == "last" && field.slot == some 0 &&
       match field.ty with

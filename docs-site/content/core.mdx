@@ -58,10 +58,10 @@ Six persistent storage spaces plus transient storage. `storage` for Uint256 valu
 ```verity
 inductive ContractResult (α : Type) where
   | success : α → ContractState → ContractResult α
-  | revert : String → ContractState → ContractResult α
+  | revert : RevertPayload → ContractState → ContractResult α
 ```
 
-Every contract operation returns either `success` with a value and updated state, or `revert` with an error message and the state at the point of failure.
+Every contract operation returns either `success` with a value and updated state, or `revert` with a revert payload and the state at the point of failure. The payload is what the call returns on-chain: `RevertPayload.encode` gives its ABI bytes. `require cond "msg"` reverts with `Error(string)` (`.errorString`; a `String` coerces to it), checked arithmetic (`addPanic`, …) with `Panic(uint256)` (`.panic 0x11` / `0x12`), a custom error `E(args)` with its 4-byte selector and argument words (`.custom`), and `revertReturndata` with the last call's returndata (`.raw`). `revertWith payload` / `requireWith cond payload` revert with an explicit payload, and `tryCatch` / `tryWith` handlers receive the payload.
 
 > **Important**: `Contract.run` (and therefore `.snd` on its results) normalizes any revert to the **pre-call snapshot** — rollback-by-construction ([#254](https://github.com/lfglabs-dev/verity/issues/254)). Raw `bind` chains that bypass `Contract.run` still carry the intermediate state in the returned `ContractResult.revert`, so in hand-rolled proofs follow the **checks-before-effects pattern** (all `require` guards before `setStorage`/`setMapping` calls) unless you go through `Contract.run`. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) for details.
 
@@ -103,7 +103,7 @@ Every storage operation, context accessor, and event function has a full-result 
   (require true msg).run s = ContractResult.success () s := rfl
 
 @[simp] theorem require_false (msg : String) (s : ContractState) :
-  (require false msg).run s = ContractResult.revert msg s := rfl
+  (require false msg).run s = ContractResult.revert (.errorString msg) s := rfl
 ```
 
 Older `_fst`/`_snd` projection lemmas also exist, but the full-result forms above are preferred, they prove success, value, and state in one shot. Most simple properties can be proven by `simp only [...]` with the right set of definitions.

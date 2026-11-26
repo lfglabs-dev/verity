@@ -905,6 +905,8 @@ MUTANTS.update({
     'import-abi-decode-verifier-array-copy-skip': ('        let loopBody : List Stmt :=\n          [ .letVar elemVal (readAbiDecodeWord fromCalldata elemAddr) ] ++\n          elemChecks ++\n          [ .mstore (.add (.add (.localVar arrPtr) (.literal 32)) (.mul (.localVar copyIdx) (.literal 32))) (.localVar elemVal) ]\n        pre := pre.push (.forEach copyIdx (.localVar arrLen) loopBody)', '        let loopBody : List Stmt :=\n          [ .letVar elemVal (readAbiDecodeWord fromCalldata elemAddr) ] ++\n          elemChecks ++\n          [ .mstore (.add (.add (.localVar arrPtr) (.literal 32)) (.mul (.localVar copyIdx) (.literal 32))) (.localVar elemVal) ]\n        let _ := (copyIdx, loopBody)'),
     'import-abi-decode-verifier-dynamic-bytes-len-zero': ('        let buf : EncodedBytes := {\n          pre := #[]\n          pointer := .add (.localVar bytesPointer) (.literal 32)\n          size := .localVar byteLen\n        }', '        let buf : EncodedBytes := {\n          pre := #[]\n          pointer := .add (.localVar bytesPointer) (.literal 32)\n          size := .literal 0\n        }'),
     'import-abi-decode-enum-struct-member-bound': ('          if let some g := abiDecodeScalarGuard? mTy enumBound? (.localVar wordVar) then', '          if let some g := abiDecodeScalarGuard? mTy none (.localVar wordVar) then'),
+    'import-enum-flat-struct-cast-bound-drop': ('    let check := Stmt.ite (.lt a.expr (.literal members.size))\n      [.assignVar dest a.expr] [.panicCode (.literal 0x21)]', '    let check := Stmt.ite (.literal 1)\n      [.assignVar dest a.expr] [.panicCode (.literal 0x21)]'),
+    'import-enum-flat-struct-multi-return-zero': ('        results := results.push (binding, mTy, rname != "")\n        retExprs := retExprs.push (.localVar binding, mTy)\n        memberBindings := memberBindings.push (mName, mTy, binding)', '        results := results.push (binding, mTy, rname != "")\n        retExprs := retExprs.push (if mTy.startsWith "enum " then .literal 0 else .localVar binding, mTy)\n        memberBindings := memberBindings.push (mName, mTy, binding)'),
     'import-votes-checkpoints-arrays-bitmaps-fnptr-param-branch-invert': ('        modify fun e =>\n          { e with fnPtrs := e.fnPtrs.insert pid ptr }', '        let collapsed := match ptr with | .branch _ t _ => FnPtr.direct t | p => p\n        modify fun e =>\n          { e with fnPtrs := e.fnPtrs.insert pid collapsed }'),
     'import-votes-checkpoints-arrays-bitmaps-discarded-fnptr-skip': ('        else if arity > 1 then\n          let (multiPre, _) ← lowerMultiCall expression\n          return multiPre\n        else\n          let result ← atom (← lowerCall expression)\n          return result.pre', '        else if arity > 1 then\n          let (multiPre, _) ← lowerMultiCall expression\n          return multiPre\n        else\n          let _ ← atom (← lowerCall expression)\n          return #[]'),
     'import-votes-checkpoints-arrays-bitmaps-root-struct-return-zero': ('              for (_, _, valExpr) in memberVals do\n                if env.rootPost.isEmpty then\n                  exprs := exprs.push valExpr', '              for (_, _, valExpr) in memberVals do\n                if env.rootPost.isEmpty then\n                  exprs := exprs.push (.literal 0)'),
@@ -1038,6 +1040,8 @@ MUTANTS.update({
         'let code := if kind == "Break" then 1 else 1'),
     'import-helper-loop-return-ignored': ('pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])',
         'pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 0)])'),
+    'import-helper-loop-return-keep-iterating': ('    out := out.push (.forEachWhile binding limit guard bodyOut.toList)',
+        '    out := out.push (.forEach binding limit bodyOut.toList)'),
 })
 
 
@@ -1134,6 +1138,8 @@ def run(directory, output, name):
         fixture = "AbiDecodeAndVerifierSequence"
     if name.startswith("import-abi-decode-enum-struct-"):
         fixture = "AbiDecodeEnumStructSequence"
+    if name.startswith("import-enum-flat-struct-"):
+        fixture = "EnumFlatStructSequence"
     if name.startswith("import-struct-hash-domain-sep-"):
         fixture = "StructHashAndDomainSeparatorSequence"
     if name.startswith("import-wad-exp-and-three-key-mapping-"):
@@ -1517,8 +1523,21 @@ def run(directory, output, name):
         argv[argv.index('--transactions') + 1] = '20'
         argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 7, 8, 12, 49, 256, 257, 299, 300, 4095, 4096, 12345, (1 << 256) - 1])])
     if fixture == 'HelperLoopReturnSequence':
-        argv[argv.index('--transactions') + 1] = '20'
-        argv.extend(['--change-prefix', *map(str, [0, 1, 3355393, 115339776388732929035197660848497720713218148788040405586178471965091600352261, 5427754182999196660479889922282245680622030531201901439497581965808238696711, 5427754182999196660479889922282245680622030531201901439349574250392419434499, 3618502788666131106986593281521497120414687020801267626344091381866793796871, 1356938545749799165119972480570561420155507632800475359837920554324574865158, 12345, 4096, (1 << 256) - 1])])
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, [
+            0, 1, 7, 3355393,
+            (300 << 24) | (0 << 40),
+            (300 << 24) | (150 << 40),
+            (300 << 24) | (299 << 40),
+            (300 << 24) | (300 << 40) | (5 << 56),
+            (260 << 64) | (10 << 16) | 7,
+            115339776388732929035197660848497720713218148788040405586178471965091600352261,
+            5427754182999196660479889922282245680622030531201901439497581965808238696711,
+            5427754182999196660479889922282245680622030531201901439349574250392419434499,
+            3618502788666131106986593281521497120414687020801267626344091381866793796871,
+            1356938545749799165119972480570561420155507632800475359837920554324574865158,
+            (1 << 256) - 1,
+        ])])
     if fixture == 'FixedBytesWidthSequence':
         # The same boundaries as `check_storage --fixture fixed-bytes-widths`, then every
         # clean and dirty `bytes1` / `bytes19` / `bytes31` / `bytes16` root call: 3 seed calls,
@@ -1633,6 +1652,10 @@ def run(directory, output, name):
         from solidity_differential.check_storage import ABI_DECODE_ENUM_STRUCT_PREFIX
         argv[argv.index('--transactions') + 1] = '48'
         argv.extend(['--change-prefix', *map(str, ABI_DECODE_ENUM_STRUCT_PREFIX)])
+    if fixture == 'EnumFlatStructSequence':
+        from solidity_differential.check_storage import ENUM_FLAT_STRUCT_PREFIX
+        argv[argv.index('--transactions') + 1] = '64'
+        argv.extend(['--change-prefix', *map(str, ENUM_FLAT_STRUCT_PREFIX)])
     if fixture == 'FixedMemoryArraySequence':
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'

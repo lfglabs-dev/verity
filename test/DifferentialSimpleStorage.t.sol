@@ -91,6 +91,12 @@ contract DifferentialSimpleStorage is YulTestBase, DiffTestConfig, DifferentialT
             return false;
         }
 
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
+            testsFailed++;
+            return false;
+        }
+
         // Validate: Return values must match
         if (evmReturnValue != edslReturnValue) {
             console2.log("MISMATCH: Return values differ!");

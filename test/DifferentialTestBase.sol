@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
+import {console2} from "forge-std/console2.sol";
+
 /**
  * @title DifferentialTestBase
  * @notice Shared utilities for differential testing contracts
@@ -300,6 +302,38 @@ abstract contract DifferentialTestBase {
         }
 
         return string(result);
+    }
+
+    /**
+     * @notice Lowercase `0x`-prefixed hex of a byte string
+     */
+    function _bytesToHex(bytes memory data) internal pure returns (string memory) {
+        bytes memory out = new bytes(2 + 2 * data.length);
+        out[0] = "0";
+        out[1] = "x";
+        for (uint256 i = 0; i < data.length; i++) {
+            out[2 + 2 * i] = _hexChar(uint8(data[i]) >> 4);
+            out[3 + 2 * i] = _hexChar(uint8(data[i]) & 0x0f);
+        }
+        return string(out);
+    }
+
+    /**
+     * @notice On a revert, the EVM's revert bytes must equal the interpreter's
+     * `revertData` (the EDSL payload's ABI encoding). Successful calls pass.
+     */
+    function _revertDataMatches(bool evmSuccess, bytes memory evmReturnData, string memory edslResult)
+        internal
+        view
+        returns (bool)
+    {
+        if (evmSuccess) return true;
+        string memory expected = string.concat("\"revertData\":\"", _bytesToHex(evmReturnData), "\"");
+        if (contains(edslResult, expected)) return true;
+        console2.log("MISMATCH: Revert bytes differ!");
+        console2.log("  EVM:", _bytesToHex(evmReturnData));
+        console2.log("  EDSL:", edslResult);
+        return false;
     }
 
     /**

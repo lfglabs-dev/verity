@@ -230,7 +230,7 @@ theorem selfCall_success {α : Type} (body : Contract α) (s : ContractState)
   simp [h, ContractResult.getValue?, ContractResult.getState]
 
 theorem selfCall_failure {α : Type} (body : Contract α) (s : ContractState)
-    (msg : String) (s' : ContractState)
+    (msg : Verity.Core.RevertPayload) (s' : ContractState)
     (h : body { s with sender := s.thisAddress, msgValue := 0, returndata := [] } =
       ContractResult.revert msg s') :
     Contract.selfCall body s = ContractResult.revert msg s := by

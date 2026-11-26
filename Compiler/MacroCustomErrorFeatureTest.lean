@@ -63,7 +63,9 @@ example : requirePositiveExecutablePreservesSuccess = true := by native_decide
 def rejectLargeExecutableUsesRuntimeFallback : Bool :=
   match MacroCustomErrorUsage.rejectLarge 101 Verity.defaultState with
   | .revert msg state =>
-      msg == "AmountTooLarge(101, 100)" && state.sender == Verity.defaultState.sender
+      msg == .custom (Compiler.keccak256_first_4_bytes "AmountTooLarge(uint256,uint256)")
+          [101, 100] &&
+        state.sender == Verity.defaultState.sender
   | .success _ _ => false
 
 example : rejectLargeExecutableUsesRuntimeFallback = true := by native_decide
@@ -148,11 +150,13 @@ example : failRuntimeModelUsesRuntimeCustomErrorArgs = true := by decide
 def failRuntimeExecutableUsesRuntimeFallback : Bool :=
   match MacroCustomErrorRuntimeArgs.failRuntime 3 4 9 true Verity.defaultState with
   | .revert msg state =>
-      msg == "ExecutionResult(7, 5, 9, true)" &&
+      msg == .custom
+          (Compiler.keccak256_first_4_bytes "ExecutionResult(uint256,uint256,address,bool)")
+          [7, 5, 9, 1] &&
         state.sender == Verity.defaultState.sender
   | .success _ _ => false
 
-example : failRuntimeExecutableUsesRuntimeFallback = true := by decide
+example : failRuntimeExecutableUsesRuntimeFallback = true := by native_decide
 
 end MacroCustomErrorRuntimeArgSmoke
 
@@ -250,7 +254,7 @@ example : checkAddExecutableReturnsSumWhenSafe = true := by native_decide
 def checkAddExecutableRevertsOnOverflow : Bool :=
   let maxUint : Uint256 := Verity.Core.Uint256.ofNat Verity.Stdlib.Math.MAX_UINT256
   match RequireSomeUintErrorUsage.checkAdd maxUint 1 Verity.defaultState with
-  | .revert msg _ => msg == "AddOverflow()"
+  | .revert msg _ => msg == .custom (Compiler.keccak256_first_4_bytes "AddOverflow()") []
   | .success _ _ => false
 
 example : checkAddExecutableRevertsOnOverflow = true := by native_decide

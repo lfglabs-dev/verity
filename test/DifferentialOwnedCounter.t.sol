@@ -126,6 +126,12 @@ contract DifferentialOwnedCounter is YulTestBase, DiffTestConfig, DifferentialTe
             return false;
         }
 
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
+            testsFailed++;
+            return false;
+        }
+
         // Validate: Return values must match (for getCount and getOwner)
         if (functionSig == keccak256(bytes("getCount"))) {
             if (evmReturnValue != edslReturnValue) {

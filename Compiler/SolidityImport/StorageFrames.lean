@@ -154,6 +154,39 @@ theorem execForEachLoop_memory_frame (name : String) (runBody : DenoteState → 
       | revert => simp [preservesMemory]
       | revertWithData bytes => simp [preservesMemory]
 
+/-- The early-exit bounded executor composes a body memory frame at every
+executed index; evaluating the guard or stopping early does not modify memory. -/
+theorem execForEachWhileLoop_memory_frame (name : String)
+    (evalGuard : DenoteState → Option Nat) (runBody : DenoteState → StmtOutcome)
+    (bodyFrame : ∀ state, preservesMemory state (runBody state))
+    (remaining index : Nat) (state : DenoteState) :
+    preservesMemory state (execForEachWhileLoop name evalGuard runBody state index remaining) := by
+  induction remaining generalizing index state with
+  | zero =>
+      simp only [execForEachWhileLoop]
+      cases evalGuard state <;> simp [preservesMemory]
+  | succ remaining ih =>
+      simp only [execForEachWhileLoop]
+      cases evalGuard state with
+      | none => simp [preservesMemory]
+      | some guardValue =>
+          by_cases h0 : guardValue = 0
+          · simp [h0, preservesMemory]
+          · simp only [h0, ↓reduceIte]
+            have frame := bodyFrame
+              { state with bindings := bindValue state.bindings name (wordNormalize index) }
+            cases executed : runBody
+                { state with bindings := bindValue state.bindings name (wordNormalize index) } with
+            | «continue» next =>
+                have sameMemory : next.world.memory = state.world.memory := by
+                  simpa [preservesMemory, executed] using frame
+                have tailFrame := ih (index + 1) next
+                simpa [preservesMemory, sameMemory] using tailFrame
+            | stop next => simpa [preservesMemory, executed] using frame
+            | «return» value next => simpa [preservesMemory, executed] using frame
+            | revert => simp [preservesMemory]
+            | revertWithData bytes => simp [preservesMemory]
+
 /-- Every mapping target store preserves memory, regardless of alias slots. -/
 theorem writeMappingTargets_memory_frame (fields : List Field) (name : String)
     (world : Verity.ContractState) (targets : List Nat) (value : Nat) :

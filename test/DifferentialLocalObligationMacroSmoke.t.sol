@@ -37,6 +37,12 @@ contract DifferentialLocalObligationMacroSmoke is YulTestBase, DiffTestConfig, D
             testsFailed++;
             return false;
         }
+
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
+            testsFailed++;
+            return false;
+        }
         if (evmReturnValue != edslReturnValue) {
             console2.log("MISMATCH: return values differ");
             testsFailed++;

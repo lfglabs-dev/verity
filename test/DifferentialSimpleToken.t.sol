@@ -141,6 +141,12 @@ contract DifferentialSimpleToken is YulTestBase, DiffTestConfig, DifferentialTes
             return false;
         }
 
+        // Validate: revert bytes must match
+        if (!_revertDataMatches(evmSuccess, evmReturnData, edslResult)) {
+            testsFailed++;
+            return false;
+        }
+
         // Validate: Return values must match
         if (functionSig == keccak256(bytes("balanceOf")) || functionSig == keccak256(bytes("totalSupply"))) {
             if (evmReturnValue != edslReturnValue) {
