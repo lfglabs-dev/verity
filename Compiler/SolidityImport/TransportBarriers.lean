@@ -16,7 +16,8 @@ Construct-generic classifiers over `CompilationModel.Stmt` and
   `eraseClosedTransports`, `onlyClosedTransportCEIBarriers`,
   `onlyCreate2ReentrancyWindows`, `onlyStaticCallCEIBarriers`,
   `exprStorageFree`, `stmtAfterTrailingCall`, `onlyTrailingLowLevelCallWindows`,
-  `onlyTrailingCallReentrancyWindows`)
+  `onlyTrailingCallReentrancyWindows`, `eraseClosedInteractions`,
+  `onlyClosedCallStateWindows`)
 * Structural free-memory pointer (`0x40`) prologue detector
   (`ecmRequiresFreePointerInit`, `stmtRequiresFreePointerInit`,
   `stmtListRequiresFreePointerInit`) ensuring any root body that invokes a
@@ -33,8 +34,9 @@ def isClosedSelfDelegateCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   | some (.yulMemoryDelegateCall resultVar) => mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar
   | _ => false
 
-/-- The closed optional-bool low-level call transport emitted by the importer. -/
-def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+/-- Closed value-free low-level `CALL` transports emitted by the importer (excludes
+value-bearing `YulMemoryValueCall` and `YulMemoryDelegateCall`, which stay trailing-only). -/
+def isClosedValueFreeLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
   | some (.optionalBoolCall resultVar selector numWordArgs) =>
       mod == Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs
@@ -43,9 +45,15 @@ def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   | some (.callBytesBool resultVar selector) =>
       mod == Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector
   | some (.yulMemoryCall false resultVar) => mod == Compiler.ECM.YulMemoryCall.module false resultVar
-  | some (.yulMemoryValueCall resultVar) => mod == Compiler.ECM.YulMemoryValueCall.module resultVar
-  | some (.yulMemoryDelegateCall resultVar) => mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar
   | _ => false
+
+/-- The closed optional-bool low-level call transport emitted by the importer. -/
+def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  isClosedValueFreeLowLevelCall mod ||
+    match mod.byteTransport with
+    | some (.yulMemoryValueCall resultVar) => mod == Compiler.ECM.YulMemoryValueCall.module resultVar
+    | some (.yulMemoryDelegateCall resultVar) => mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar
+    | _ => false
 
 abbrev isClosedOptionalBoolCall := isClosedLowLevelCall
 
@@ -375,6 +383,39 @@ def onlySelfDelegateLoopCEIClean (body : List Stmt) : Bool :=
   (Compiler.CompilationModel.stmtListCEIViolation body false).isSome &&
     onlyTrailingCallReentrancyWindows body &&
     (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedSelfDelegateCalls) false).isNone
+
+/-- `eraseClosedTransports`, and additionally replace each closed value-free low-level `CALL`
+by its zero-initialised result binding. Value-bearing `YulMemoryValueCall` and
+`YulMemoryDelegateCall` stay unerased so they remain trailing-only. What remains after erasure
+is every interaction not admitted for post-CALL state access. -/
+partial def eraseClosedInteractions : Stmt → Stmt
+  | .ecm mod args =>
+      if isClosedValueFreeLowLevelCall mod then .letVar (mod.resultVars.headD "") (.literal 0)
+      else eraseClosedTransports (.ecm mod args)
+  | .ite cond yes no => .ite cond (yes.map eraseClosedInteractions) (no.map eraseClosedInteractions)
+  | .forEach name count body => .forEach name count (body.map eraseClosedInteractions)
+  | .forEachSetBit name bitmap body =>
+      .forEachSetBit name bitmap (body.map eraseClosedInteractions)
+  | .forEachWhile name count guard body =>
+      .forEachWhile name count guard (body.map eraseClosedInteractions)
+  | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedInteractions)
+  | .matchAdt adt scrutinee branches =>
+      .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
+        (tag, names, body.map eraseClosedInteractions))
+  | statement => eraseClosedTransports statement
+
+/-- A body that makes a closed low-level `CALL` and whose every CEI barrier and
+reentrancy window is a closed value-free transport. Storage reads, storage writes and logs may
+follow the call: Denote runs them against the world the callee's response committed
+(`ByteExternalCall.Response.commit`), which an unconstrained adversary chooses freely,
+including by re-entering this contract, so admission assumes nothing about the callee.
+Any interaction that is not a closed value-free transport (including `YulMemoryValueCall` and
+`YulMemoryDelegateCall`) keeps the body out. -/
+def onlyClosedCallStateWindows (body : List Stmt) : Bool :=
+  let erased := body.map eraseClosedInteractions
+  body.any stmtContainsClosedLowLevelCall &&
+    (Compiler.CompilationModel.stmtListCEIViolation erased false).isNone &&
+    !erased.any Compiler.CompilationModel.stmtOpensReentrancyWindow
 
 /-- True when an external call module uses a closed byte-transport descriptor
 that may read or advance the Solidity free-memory pointer at address `0x40`. -/

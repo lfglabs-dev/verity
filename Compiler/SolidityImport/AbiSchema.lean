@@ -80,6 +80,7 @@ private def isContractTypeName (node : Json) : Bool :=
       | .ok (.str s) => s.startsWith "contract "
       | _ => false
   | _ => false
+
 /-- Parse only supported unsigned scalar syntax, with no fallback or coercion.
 Interface and contract types (`UserDefinedTypeName` with `contract ...` type
 string) have the exact Solidity ABI encoding and 160-bit validation of `address`.

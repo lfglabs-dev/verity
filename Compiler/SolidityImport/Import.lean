@@ -12444,8 +12444,8 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
   if forwardNamedBytes then
     -- The supported helper assigns its two named results and falls through.
     -- Do not let the general tuple-return path treat a buffer as a scalar.
-    unless mods.isEmpty && !(← stmtContainsReturn body) do
-      failAt fn "forwarded bytes tuple requires an unmodified helper with fallthrough results"
+    if ← stmtContainsReturn body then
+      failAt fn "forwarded bytes tuple requires a helper with fallthrough results"
   let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
   let mut pre := boundPre
   modify fun e => { e with yulNames := yul }
@@ -12890,8 +12890,6 @@ private partial def lowerModifiers (mods : Array Json) : M (Array Stmt × Array 
   let mut outPre : Array Stmt := #[]
   let mut outPost : Array Stmt := #[]
   for modInv in mods do
-    if (← get).forwardingBytesTuple then
-      failAt modInv "modifiers in a forwarded tuple call tree are unsupported"
     let (preStmts, postStmts, _) ← lowerModifier modInv
     outPre := outPre ++ preStmts
     outPost := postStmts ++ outPost
@@ -15083,6 +15081,8 @@ private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (st
               else
                 failAt statement "bare helper returns are unsupported"
             else
+              unless retVal != "" do
+                failAt statement "void helper cannot return a value"
               let v ← lowerConverted ((← returnTargetType? statement).getD (← mType expression)) expression
               pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])
         | "Break" | "Continue" => lowerLoopExit statement
@@ -20604,10 +20604,11 @@ private def lowerDynamicTupleReturn (components retDecls : Array Json) (at_ : Js
   return pointer.pre ++ size.pre ++ (← get).rootPost ++
     #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, size.expr], .revertEmpty]
 
-/-- Inline a direct internal call once, then feed its captured scalar and bytes
-buffer to the ordinary root ABI encoder. Helper result declaration IDs are
-unique and serve only as temporary handles for that encoder. -/
-private def lowerForwardedBytesTuple (call : Json) (rets : Array Json) : M (Array Stmt) := do
+/-- Validate a direct internal `(scalar, bytes memory)` helper call for tuple
+forwarding and inline it once, returning its statements, result declarations,
+scalar binding and bytes buffer. -/
+private def inlineForwardedBytesTupleCall (call : Json) (rets : Array Json) :
+    M (Array Stmt × Array Json × Nat × Expr × Nat × EncodedBytes) := do
   let callee ← mField call "expression"
   unless optStr call "kind" == some "functionCall" && (← mKind callee) == "Identifier" do
     failAt call "expected a direct internal helper for a forwarded bytes tuple"
@@ -20619,9 +20620,8 @@ private def lowerForwardedBytesTuple (call : Json) (rets : Array Json) : M (Arra
   unless [some "internal", some "private"].contains (optStr fn "visibility") &&
       types.size == 2 && types == (← rets.mapM mType) && (paramType types[0]!).isSome &&
       types[1]! == "bytes" && optStr results[1]! "storageLocation" == some "memory" &&
-      results.all (fun r => (optStr r "name").getD "" != "") &&
-      !containsNodeKind "InlineAssembly" ((field? fn "body").getD .null) && env.rootPost.isEmpty do
-    failAt call "expected a matching named (scalar, bytes memory) internal helper without assembly or a root epilogue"
+      results.all (fun r => (optStr r "name").getD "" != "") do
+    failAt call "expected a matching named (scalar, bytes memory) internal helper"
   let bytesId ← mNat (← mField results[1]! "id")
   -- Do not admit the external-call-to-bytes assignment transport here: its
   -- result is a word, not the callee's ABI-decoded dynamic buffer.
@@ -20640,13 +20640,24 @@ private def lowerForwardedBytesTuple (call : Json) (rets : Array Json) : M (Arra
   let scalarId ← mNat (← mField results[0]! "id")
   let [(scalar, _), (ptr, _), (size, _)] := words.toList
     | failAt call "invalid forwarded bytes result bindings"
-  let buffer : EncodedBytes := { pre := #[], pointer := ptr, size }
+  return (pre, results, scalarId, scalar, bytesId, { pre := #[], pointer := ptr, size })
+
+/-- Inline a direct internal call once, run the root modifier epilogue, then
+feed the captured scalar and bytes buffer to the ordinary root ABI encoder.
+Helper result declaration IDs are unique and serve only as temporary handles
+for that encoder. -/
+private def lowerForwardedBytesTuple (call : Json) (rets : Array Json) : M (Array Stmt) := do
+  let env ← get
+  let (pre, results, scalarId, scalar, bytesId, buffer) ← inlineForwardedBytesTupleCall call rets
+  let post := env.rootPost
   modify fun e => { e with values := e.values.insert scalarId scalar,
-                           byteBuffers := e.byteBuffers.insert bytesId buffer }
+                           byteBuffers := e.byteBuffers.insert bytesId buffer,
+                           rootPost := #[] }
   let ret ← lowerDynamicTupleReturn (← results.mapM returnParamIdentifier) rets call
   modify fun e => { e with values := env.values, byteBuffers := env.byteBuffers,
-                           nonLiteralByteLocals := env.nonLiteralByteLocals }
-  return pre ++ ret
+                           nonLiteralByteLocals := env.nonLiteralByteLocals,
+                           rootPost := post }
+  return pre ++ post ++ ret
 
 /-- Whether two expressions read the same variable binding. -/
 private def sameVariableRead : Expr → Expr → Bool
@@ -21437,8 +21448,6 @@ private partial def lowerSubstitutedModifiers (mods : List Json) (resets : Array
   match mods with
   | [] => bodyCopy
   | m :: rest =>
-      if (← get).forwardingBytesTuple then
-        failAt m "modifiers in a forwarded tuple call tree are unsupported"
       if ← modifierPlaceholderSimple m then
         let (pre, post, _) ← lowerModifier m
         let inner ← lowerSubstitutedModifiers rest resets bodyCopy
@@ -21451,6 +21460,46 @@ private partial def lowerSubstitutedModifiers (mods : List Json) (resets : Array
         unless count > 0 && replaced == count do
           failAt m s!"modifier placeholder substitution found {replaced} of {count} placeholders"
         pure out.toArray
+
+/-- One copy of a forwarding-tuple root body for `lowerSubstitutedModifiers`:
+lowers statements before the trailing `return helper(...)`, inlines the helper
+call, and stores its scalar and `(pointer, size)` buffer into the root's return
+bindings before falling through to the modifier code after `_;`. -/
+private def lowerSubstitutedForwardedBodyCopy (fn : Json) (stmts rets : Array Json)
+    (scalarBinding ptrBinding sizeBinding : String) : M (Array Stmt) := do
+  let some lastStmt := stmts.back?
+    | failAt fn "expected a trailing forwarded tuple return"
+  unless (← mKind lastStmt) == "Return" do
+    failAt lastStmt "expected a trailing forwarded tuple return"
+  let call := (field? lastStmt "expression").getD .null
+  let saved ← get
+  let (initOut, initReturned) ← lowerRootStatements stmts.pop false
+  if initReturned || initOut.any stmtEndsCall then
+    failAt fn ("a function body that ends the call before its last statement is outside " ++
+      "this slice under a modifier whose _; is in a branch or repeated")
+  let (callPre, _, _, scalar, _, buffer) ← inlineForwardedBytesTupleCall call rets
+  modify fun e =>
+    { e with values := saved.values, writableLocals := saved.writableLocals,
+             zeroInitLocals := saved.zeroInitLocals, fnPtrs := saved.fnPtrs,
+             paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
+             abiElements := saved.abiElements, calldataBytes := saved.calldataBytes,
+             scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers,
+             stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars,
+             storageDynamicArrayVars := saved.storageDynamicArrayVars,
+             flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+             yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays,
+             yulMemoryStructs := saved.yulMemoryStructs }
+  let tScalar ← fresh
+  let tPtr ← fresh
+  let tSize ← fresh
+  pure (initOut ++ callPre ++ #[
+    .letVar tScalar scalar,
+    .letVar tPtr buffer.pointer,
+    .letVar tSize buffer.size,
+    .assignVar scalarBinding (.localVar tScalar),
+    .assignVar ptrBinding (.localVar tPtr),
+    .assignVar sizeBinding (.localVar tSize)
+  ])
 
 /-- One copy of the function body for `lowerSubstitutedModifiers`. The body may return
 only at its last top-level statement; that return assigns the return variables
@@ -21603,11 +21652,13 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
              forwardingBytesTuple := dynamicTupleRet?.isSome && rootReturnTypes.size == 2 &&
                rootReturnTypes[1]? == some "bytes" && containsForwardedReturn body,
              rootDynamicTupleReturn := dynamicTupleRet?.map fun _ => returns }
-  rejectForwardedAssembly body
+  rejectForwardedAssembly fn
   if ← mods.anyM (fun m => do pure !(← modifierPlaceholderSimple m)) then
     -- #2846: substitute the remaining modifiers and the body at each `_;`.
-    unless emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && flatStructRet?.isNone && !msgDataRet &&
-        dynamicBytesRet?.isNone && dynamicStructRet?.isNone && dynamicTupleRet?.isNone do
+    let forwardingTuple := (← get).forwardingBytesTuple
+    unless (emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && flatStructRet?.isNone &&
+        !msgDataRet && dynamicBytesRet?.isNone && dynamicStructRet?.isNone &&
+        dynamicTupleRet?.isNone) || forwardingTuple do
       failAt fn "a function whose modifier has _; in a branch or repeated must return scalar values"
     if containsNodeKind "InlineAssembly" body then
       failAt fn "inline assembly in a function whose modifier has _; in a branch or repeated is outside this slice"
@@ -21620,6 +21671,40 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
       unless i + 1 == stmts.size && (← mKind st) == "Return" do
         if ← stmtContainsReturn st then
           failAt st "return before the last statement of a function whose modifier has _; in a branch or repeated is outside this slice"
+    if forwardingTuple then
+      let #[r0, r1] := returns | failAt fn "expected a two-component forwarded bytes tuple"
+      discard (validateEnumTypeIfNeeded r0 (← mType r0))
+      let r0Id ← mNat (← mField r0 "id")
+      let r1Id ← mNat (← mField r1 "id")
+      let scalarBinding ← if (← mStr (← mField r0 "name")) != "" then do
+          let some b := (← get).writableLocals.find? r0Id
+            | failAt r0 "missing named return binding"
+          pure b
+        else do
+          let b ← fresh
+          rootInit := rootInit.push (.letVar b (.literal 0))
+          modify fun e => { e with values := e.values.insert r0Id (.localVar b) }
+          pure b
+      let (ptrBinding, sizeBinding) ← if (← mStr (← mField r1 "name")) != "" then do
+          let some { pointer := .localVar p, size := .localVar s, .. } :=
+              (← get).byteBuffers.find? r1Id
+            | failAt r1 "missing named bytes return buffer"
+          pure (p, s)
+        else do
+          let p ← fresh
+          let s ← fresh
+          rootInit := rootInit ++ #[.letVar p (.literal 0), .letVar s (.literal 0)]
+          let buf : EncodedBytes := { pre := #[], pointer := .localVar p, size := .localVar s }
+          modify fun e => { e with byteBuffers := e.byteBuffers.insert r1Id buf }
+          pure (p, s)
+      let tupleResets := if (← get).viaIR then
+          #[Stmt.assignVar scalarBinding (.literal 0), Stmt.assignVar ptrBinding (.literal 0),
+            Stmt.assignVar sizeBinding (.literal 0)]
+        else #[]
+      let lowered ← lowerSubstitutedModifiers mods.toList tupleResets
+        (lowerSubstitutedForwardedBodyCopy fn stmts returns scalarBinding ptrBinding sizeBinding)
+      let tail ← lowerDynamicTupleReturn (← returns.mapM returnParamIdentifier) returns fn
+      return (rootInit ++ lowered ++ tail, srcParams)
     let mut retBindings : Array (String × String) := #[]
     for r in returns do
       let rty ← mType r
@@ -21644,6 +21729,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let mut out := rootInit ++ modStmts ++ bodyOut
   unless returned do
     out := out ++ modPost
+    modify fun e => { e with rootPost := #[] }
     if returns.isEmpty then
       out := out.push .stop
     else if emptyBodyArrayRet?.isSome then
@@ -22425,7 +22511,7 @@ private def importSlice
       -- do not leak between functions. Field layouts and the closure are shared.
       env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
-                        projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulCleanedNarrowBindings := #[], yulBindingReadSites := #[], yulFreePointerBindings := #[],
+                        projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, forwardingBytesTuple := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootDynamicStructReturn := none, rootDynamicTupleReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulCleanedNarrowBindings := #[], yulBindingReadSites := #[], yulFreePointerBindings := #[],
                         rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[],
                         rootLinkedLibraryCalls := #[], rootReturndataRead := none }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
@@ -22617,17 +22703,25 @@ private def importSlice
           body.toList.any stmtContainsClosedSelfDelegateCall then
         (failAt fn "payable self-delegatecall is outside this slice").run' env
       -- A closed low-level CALL hands control to an arbitrary account, which may re-enter.
-      -- It is admitted only where the body is CEI-clean around it and only local computation,
-      -- memory writes, returns and reverts follow it (`onlyTrailingCallReentrancyWindows`).
-      if body.toList.any stmtContainsClosedLowLevelCall then
+      -- A trailing call (`onlyTrailingCallReentrancyWindows`: only local computation, memory
+      -- writes, returns and reverts follow it) keeps its CEI-clean admission. Storage reads,
+      -- storage writes and logs after the call are admitted when every interaction of the
+      -- body is a closed transport (`onlyClosedCallStateWindows`): Denote runs them against
+      -- the world the callee committed, so the model is exact for any callee behaviour.
+      -- All non-closed interactions currently reject earlier during lowering with
+      -- construct-specific diagnostics; the `failAt` check below is defense in depth so a
+      -- future non-closed lowering can never silently gain `reentrancyAdversarial`.
+      let postCallState := body.toList.any stmtContainsClosedLowLevelCall && (
         let ceiClean := (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isNone ||
           onlyStaticCallCEIBarriers body.toList || onlyClosedTransportCEIBarriers body.toList ||
           onlySelfDelegateLoopCEIClean body.toList
         let reentrancyClosed := onlyCreate2ReentrancyWindows body.toList ||
           onlyTrailingCallReentrancyWindows body.toList
-        unless ceiClean && reentrancyClosed do
-          (failAt fn ("storage reads, storage writes, logs and other interactions after an " ++
-            "external CALL are unsupported: the call may re-enter this contract")).run' env
+        !(ceiClean && reentrancyClosed))
+      if postCallState && !onlyClosedCallStateWindows body.toList then
+        (failAt fn ("storage reads, storage writes and logs after an external CALL are " ++
+          "supported only when every external interaction of the function is a closed " ++
+          "transport: another interaction follows a CALL that may re-enter this contract")).run' env
       let returns ← (do
         if (← mKind fn) == "VariableDeclaration" then
           return (← get).publicVarGetterReturns
@@ -22666,9 +22760,12 @@ private def importSlice
           abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
           allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
             onlyClosedTransportCEIBarriers body.toList ||
-            onlySelfDelegateLoopCEIClean body.toList,
+            onlySelfDelegateLoopCEIClean body.toList ||
+            (postCallState &&
+              (Compiler.CompilationModel.stmtListCEIViolation body.toList false).isSome),
           reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList ||
             onlyTrailingCallReentrancyWindows body.toList,
+          reentrancyAdversarial := postCallState,
           localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
             name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
             obligation := if legacyScalarPrelude then
@@ -22706,6 +22803,19 @@ private def importSlice
                 "nothing, so a re-entrant entrypoint observes only the completed state " ++
                 "updates. Denote lets the callee's committed world change any account, " ++
                 "including this one. The trailing position is checked by the importer, not proved."
+              proofStatus := .unchecked }] else []) ++
+            (if postCallState then [{
+              name := "solidity_post_call_state_access"
+              obligation := "Storage reads, storage writes or logs follow a closed value-free " ++
+                "low-level CALL, and every external interaction is a closed transport. Denote " ++
+                "runs them against the world the callee's response committed, which an " ++
+                "unconstrained adversary chooses freely, including by re-entering any " ++
+                "entrypoint, so the model assumes nothing about the callee. The source has no " ++
+                "reentrancy guard: `reentrancyAdversarial` and the CEI opt-out record that the " ++
+                "post-call window is open and modelled adversarially (without asserting trusted " ++
+                "callees), and a proof about this function must assume a callee hypothesis " ++
+                "(`Denote.CallKeepsCallerStorage`) or account for re-entry (`ReentrantCallees`). " ++
+                "That every interaction is closed is checked by the importer, not proved."
               proofStatus := .unchecked }] else []) ++
             (if env.rootLinkedLibraryCalls.isEmpty then [] else [{
               name := "solidity_linked_library_matches_source"

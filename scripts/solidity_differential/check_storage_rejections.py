@@ -773,7 +773,67 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          'function checked(uint256 x) external pure returns (uint256, bytes memory) { return pair(x); } }\n',
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'ModifierInvocation: [solidity-import:unsupported] modifiers in a forwarded tuple call tree are unsupported'),
+         'ModifierDefinition: [solidity-import:unsupported] only a single top-level _; placeholder is supported in modifiers'),
+        ('forwarded-bytes-modifiers-accepted',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; bool transient locked; '
+         'modifier nonReentrant() { require(!locked); locked = true; _; locked = false; } '
+         'modifier step() { a += 1; _; a += 2; } '
+         'function pair(uint256 x) private step returns (bool ok, bytes memory data) { '
+         'ok = (x != 0); data = abi.encode(a, x); } '
+         'function checked(uint256 x) external nonReentrant returns (bool ok, bytes memory data) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('forwarded-bytes-modifier-early-return-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; '
+         'modifier early(uint256 x) { if (x == 0) { return; } _; } '
+         'function pair(uint256 x) private pure returns (bool ok, bytes memory data) { ok = true; data = abi.encode(x); } '
+         'function checked(uint256 x) external early(x) returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'ModifierDefinition: [solidity-import:unsupported] return inside a modifier is outside this slice'),
+        ('forwarded-bytes-helper-modifier-early-return-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; '
+         'modifier early(uint256 x) { _; if (x == 0) { return; } } '
+         'function pair(uint256 x) private early(x) returns (bool ok, bytes memory data) { ok = true; data = abi.encode(x); } '
+         'function checked(uint256 x) external returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'ModifierDefinition: [solidity-import:unsupported] return inside a modifier is outside this slice'),
+        ('forwarded-bytes-helper-twice-modifier-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; '
+         'modifier twice() { _; _; } '
+         'function pair(uint256 x) private twice returns (bool ok, bytes memory data) { a += x; ok = true; data = abi.encode(a); } '
+         'function checked(uint256 x) external returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'ModifierDefinition: [solidity-import:unsupported] only a single top-level _; placeholder is supported in modifiers'),
+        ('forwarded-bytes-substituted-early-return-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; '
+         'modifier twice() { _; _; } '
+         'function pair(uint256 x) private returns (bool ok, bytes memory data) { a += x; ok = true; data = abi.encode(a); } '
+         'function checked(uint256 x) external twice returns (bool, bytes memory) { if (x == 0) { return pair(1); } return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IfStatement: [solidity-import:unsupported] return before the last statement of a function whose modifier has _; in a branch or repeated is outside this slice'),
+        ('forwarded-bytes-post-call-modifier-storage-write-rejected',
+         'pragma solidity 0.8.34;\ninterface Ping { function ping() external; }\n'
+         'contract C { bool transient locked; '
+         'modifier nonReentrant() { require(!locked); locked = true; _; locked = false; } '
+         'function pair(uint256 x) private returns (bool ok, bytes memory data) { '
+         'ok = true; data = abi.encode(x); Ping(address(uint160(x))).ping(); } '
+         'function checked(uint256 x) external nonReentrant returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionDefinition: [solidity-import:unsupported] storage reads, storage writes, logs and other interactions after an external CALL are unsupported: the call may re-enter this contract'),
+        ('forwarded-bytes-non-guard-modifier-assembly-rejected',
+         'pragma solidity 0.8.34;\ncontract C { uint256 a; '
+         'modifier badAsm() { assembly { mstore(0, 1) } _; } '
+         'function pair(uint256 x) private pure returns (bool ok, bytes memory data) { ok = true; data = abi.encode(x); } '
+         'function checked(uint256 x) external badAsm returns (bool, bytes memory) { return pair(x); } }\n',
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'InlineAssembly: [solidity-import:unsupported] inline assembly in a forwarded tuple call tree is unsupported'),
         ('forwarded-bytes-dynamic-encode-call-rejected',
          'pragma solidity 0.8.34;\ninterface Sink { function put(bytes calldata payload) external; }\n'
          'contract C { uint256 a; uint256 b; function pair(uint256 x) private pure returns (bool ok, bytes memory data) '

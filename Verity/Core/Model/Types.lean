@@ -1770,6 +1770,17 @@ structure FunctionSpec where
       It generates no code and no proof obligation; it is a trust boundary recorded
       for audit. -/
   reentrancyTrusted : Bool := false
+  /-- Whether this function's cross-function reentrancy window is left open and
+      modelled adversarially (e.g. an imported Solidity function whose closed
+      value-free `CALL`s run post-call statements against
+      `ByteExternalCall.Response.commit`, an unconstrained adversary-chosen world
+      that may include re-entry). Unlike `reentrancyTrusted`, this makes no
+      assertion that callees do not re-enter: proofs about this function must
+      assume a callee hypothesis (`Denote.CallKeepsCallerStorage`) or account for
+      re-entry (`ReentrantCallees`). Satisfies `validateReentrancyDisposition`
+      and is reported separately as `reentrancy_adversarial` in trust reports so
+      adversarial modelling is never conflated with trusted callees. -/
+  reentrancyAdversarial : Bool := false
   /-- Storage field name used as access-control role when annotated `requires(field)`.
       A `require(caller == roleHolder)` check is auto-injected at the start of the
       function body.  (#1728, Axis 2 Step 2c) -/

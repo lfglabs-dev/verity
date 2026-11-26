@@ -32,6 +32,9 @@ solidity_import irAssembly from "Contracts/SolidityImportSmoke" entry "Transient
   function bumpEarly(bool)
   function bumpFail()
   function callGuarded(uint256)
+  function forwardGuarded(uint256)
+  function count()
+  function callerWord()
   function leaveLocked(uint256)
   function lockWord()
 
@@ -42,6 +45,9 @@ solidity_import legacyAssembly from "Contracts/SolidityImportSmoke" entry "Trans
   function bumpEarly(bool)
   function bumpFail()
   function callGuarded(uint256)
+  function forwardGuarded(uint256)
+  function count()
+  function callerWord()
   function leaveLocked(uint256)
   function lockWord()
 
@@ -51,6 +57,7 @@ solidity_import irSlotLib from "Contracts/SolidityImportSmoke" entry "TransientG
   function bump()
   function bumpEarly(bool)
   function bumpFail()
+  function forwardGuarded(uint256)
   function markEntered()
   function entered()
 
@@ -60,6 +67,7 @@ solidity_import legacySlotLib from "Contracts/SolidityImportSmoke" entry "Transi
   function bump()
   function bumpEarly(bool)
   function bumpFail()
+  function forwardGuarded(uint256)
   function markEntered()
   function entered()
 
@@ -68,6 +76,7 @@ solidity_import irStateVar from "Contracts/SolidityImportSmoke" entry "Transient
   contract TransientGuardStateVar
   function bump()
   function bumpFail()
+  function forwardGuarded(uint256)
   function markLocked()
   function isLocked()
 
@@ -76,6 +85,7 @@ solidity_import legacyStateVar from "Contracts/SolidityImportSmoke" entry "Trans
   contract TransientGuardStateVar
   function bump()
   function bumpFail()
+  function forwardGuarded(uint256)
   function markLocked()
   function isLocked()
 
@@ -149,6 +159,10 @@ private def bothStateVar (check : CompilationModel → Bool) : Bool :=
   observe m "callGuarded" [21] assemblySlot 7 1 == some (false, [], some [], 7, 1)
 #guard bothAssembly fun m =>
   observe m "lockWord" [] assemblySlot 7 5 == some (true, [5], none, 7, 5)
+#guard bothAssembly fun m =>
+  observe m "count" [] assemblySlot 7 0 == some (true, [7], none, 7, 0)
+#guard bothAssembly fun m =>
+  observe m "callerWord" [] assemblySlot 7 0 == some (true, [0], none, 7, 0)
 
 -- UDVT slot-library guard (`ReentrancyGuardTransient` / `TransientSlot` pattern).
 #guard bothSlotLib fun m =>
@@ -187,13 +201,16 @@ private def transactionBoundary (model : CompilationModel)
     (expectedReentrantRevert : List UInt8) : Bool := Id.run do
   let some setFn := model.functions.find? (·.name == setLockName) | return false
   let some bumpFn := model.functions.find? (·.name == "bump") | return false
+  let some forwardFn := model.functions.find? (·.name == "forwardGuarded") | return false
   let some readFn := model.functions.find? (·.name == readLockName) | return false
   let fields := effectiveFields model
   let seed := Verity.defaultState.writePhysicalSlot 0 (.ofNat 5)
   let some setBindings := bindExternalParams 0 setFn.bindingParams setLockArgs | return false
+  let some fwdBindings := bindExternalParams 0 forwardFn.bindingParams [0x1234] | return false
   let .ok outer := executeBody oracle fields seed setBindings setFn.body model.errors
     | return false
-  -- Same-transaction frame sees the transient lock set by `outer` and blocks reentrant `bump`.
+  -- Same-transaction frame sees the transient lock set by `outer` and blocks reentrant `bump`
+  -- and `forwardGuarded`.
   let seenLocked := match execStmtList oracle fields
       { world := outer.world, bindings := [], errors := model.errors } readFn.body with
     | .stop st => st.observedReturnWords == some [1]
@@ -203,26 +220,34 @@ private def transactionBoundary (model : CompilationModel)
       { world := outer.world, bindings := [], errors := model.errors } bumpFn.body with
     | .revertWithData bytes => bytes == expectedReentrantRevert
     | _ => false
+  let forwardBlocked := match execStmtList oracle fields
+      { world := outer.world, bindings := fwdBindings, errors := model.errors } forwardFn.body with
+    | .revertWithData bytes => bytes == expectedReentrantRevert
+    | _ => false
   -- Fresh transaction clears transient storage and preserves persistent `count == 5`.
   let .ok nextTxRead := executeBody oracle fields outer.world [] readFn.body model.errors
     | return false
   let .ok nextTxBump := executeBody oracle fields outer.world [] bumpFn.body model.errors
     | return false
-  return outer.success && seenLocked && reentrantBlocked &&
+  let .ok nextTxForward :=
+    executeBody oracle fields nextTxBump.world fwdBindings forwardFn.body model.errors
+    | return false
+  return outer.success && seenLocked && reentrantBlocked && forwardBlocked &&
     nextTxRead.success && nextTxRead.data == wordBytes 0 &&
     nextTxBump.success && nextTxBump.data == wordBytes 6 &&
-    (nextTxBump.world.readSlot 0).val == 6
+    nextTxForward.success && nextTxForward.data.length >= 128 &&
+    (nextTxForward.world.readSlot 0).val == 7
 
 #guard bothAssembly fun m => transactionBoundary m "leaveLocked" [1] "lockWord" []
 #guard bothSlotLib fun m => transactionBoundary m "markEntered" [] "entered" errorReentrantCall
 #guard bothStateVar fun m => transactionBoundary m "markLocked" [] "isLocked" []
 
 -- All imported transient guard models compile cleanly for Cancun and Osaka.
-#guard (Compiler.CompilationModel.compile irAssembly.model [1, 2, 3, 4, 5, 6] .cancun).isOk
-#guard (Compiler.CompilationModel.compile legacyAssembly.model [1, 2, 3, 4, 5, 6] .osaka).isOk
-#guard (Compiler.CompilationModel.compile irSlotLib.model [1, 2, 3, 4, 5] .cancun).isOk
-#guard (Compiler.CompilationModel.compile legacySlotLib.model [1, 2, 3, 4, 5] .osaka).isOk
-#guard (Compiler.CompilationModel.compile irStateVar.model [1, 2, 3, 4] .cancun).isOk
-#guard (Compiler.CompilationModel.compile legacyStateVar.model [1, 2, 3, 4] .osaka).isOk
+#guard (Compiler.CompilationModel.compile irAssembly.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .cancun).isOk
+#guard (Compiler.CompilationModel.compile legacyAssembly.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .osaka).isOk
+#guard (Compiler.CompilationModel.compile irSlotLib.model [1, 2, 3, 4, 5, 6] .cancun).isOk
+#guard (Compiler.CompilationModel.compile legacySlotLib.model [1, 2, 3, 4, 5, 6] .osaka).isOk
+#guard (Compiler.CompilationModel.compile irStateVar.model [1, 2, 3, 4, 5] .cancun).isOk
+#guard (Compiler.CompilationModel.compile legacyStateVar.model [1, 2, 3, 4, 5] .osaka).isOk
 
 end SolidityImportSmoke.TransientGuardChecks

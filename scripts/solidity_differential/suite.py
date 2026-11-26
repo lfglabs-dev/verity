@@ -65,6 +65,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
              'Compiler.Yul.PrettyPrint', 'Compiler.SolidityImport.SequenceRunner',
              'Compiler.SolidityImport.StaticOracleMocks',
              'Compiler.SolidityImport.CallResponderMocks',
+             'Compiler.SolidityImport.ReentrantCallResponderMocks',
              'Compiler.SolidityImport.ModelResponders'], timeout=1800, log=output / 'build.log')
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
@@ -240,6 +241,10 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('reentrant-callback', ['-m', 'solidity_differential.check_reentrant_callback',
         '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
         '--output', str(output / 'reentrant-callback')]))
+    checks.append(('post-call-state-access', ['-m',
+        'solidity_differential.check_post_call_state_access',
+        '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
+        '--output', str(output / 'post-call-state-access')]))
     checks.append(('reentrant-callback-rejections', ['-m',
         'solidity_differential.check_reentrant_callback_rejections',
         '--output', str(output / 'reentrant-callback-rejections')]))
@@ -320,6 +325,18 @@ def stateful_campaign(output, transactions, seed, jobs=1):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
             '--change-prefix', *map(str, [0, 2, 5, 3, 3, 9, 20, 14, 1, 8, 8, 4, 6, 11, 31, 2 ** 256 - 1]),
+            '--output', str(output / name)]))
+    # Modifiers on roots and helpers in forwarded `(bool, bytes memory)` tuple call trees (#2803),
+    # across solc 0.8.34 via-IR and legacy (`--no-via-ir`).
+    for name, driver, extra in (('forwarded-tuple-modifiers',
+                                 'ForwardedTupleModifiersSequenceModel', []),
+                                ('forwarded-tuple-modifiers-legacy',
+                                 'ForwardedTupleModifiersLegacySequenceModel', ['--no-via-ir'])):
+        checks.append((name, ['-m', 'solidity_differential.check_stateful',
+            '--source-fixture', 'Contracts/SolidityImportSmoke/ForwardedTupleModifiersSequence.sol',
+            '--model-driver', f'Contracts/SolidityImportSmoke/{driver}.lean',
+            '--transactions', str(max(44, transactions)), '--seed', str(seed), *extra,
+            '--change-prefix', *map(str, [0, 1, 0x12342, 0x56783, 0x9abc4, 11, 12, 13, 14, 15]),
             '--output', str(output / name)]))
     # `assert` and discarded expression statements (AssertStatementSequence): x = 8 * y + c
     # selects case c. The prefix runs each assert holding and failing (Panic(0x01)), the

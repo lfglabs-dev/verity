@@ -1250,19 +1250,6 @@ partial def publicVarGetterParamTypes (typeName : Json) : M (Array (String × Js
   | _ =>
       return (#[], typeName)
 
-private partial def firstInlineAssembly? : Json → Option Json
-  | j@(.obj fields) =>
-      if optStr j "nodeType" == some "InlineAssembly" then some j
-      else fields.foldl (fun found _ v => found <|> firstInlineAssembly? v) none
-  | .arr xs => xs.findSome? firstInlineAssembly?
-  | _ => none
-
-/-- Forwarded tuples do not model raw assembly words across Solidity bindings. -/
-def rejectForwardedAssembly (body : Json) : M Unit := do
-  if (← get).forwardingBytesTuple then
-    if let some asmNode := firstInlineAssembly? body then
-      failAt asmNode "inline assembly in a forwarded tuple call tree is unsupported"
-
 private partial def inlineAssemblyBlocks : Json → Array Json
   | j@(.obj fields) =>
       if optStr j "nodeType" == some "InlineAssembly" then #[j]
@@ -1280,6 +1267,105 @@ private partial def variableDeclarations (acc : RBMap Nat Json compare) :
       fields.foldl (fun acc _ v => variableDeclarations acc v) acc
   | .arr xs => xs.foldl variableDeclarations acc
   | _ => acc
+
+private partial def yulHasTransientOp : Json → Bool
+  | j@(.obj fields) =>
+      let own := optStr j "nodeType" == some "YulFunctionCall" &&
+        match (field? j "functionName").bind (optStr · "name") with
+        | some "tload" | some "tstore" => true
+        | _ => false
+      own || fields.foldl (fun found _ v => found || yulHasTransientOp v) false
+  | .arr xs => xs.any yulHasTransientOp
+  | _ => false
+
+private partial def yulTransientGuardExpr : Json → Bool
+  | j@(.obj _) =>
+      match optStr j "nodeType" with
+      | some "YulLiteral" | some "YulIdentifier" => true
+      | some "YulFunctionCall" =>
+          match (field? j "functionName").bind (optStr · "name"), field? j "arguments" with
+          | some "tload", some (.arr #[a]) => yulTransientGuardExpr a
+          | some "iszero", some (.arr #[a]) => yulTransientGuardExpr a
+          | some "eq", some (.arr #[a, b]) =>
+              yulTransientGuardExpr a && yulTransientGuardExpr b
+          | _, _ => false
+      | _ => false
+  | _ => false
+
+private def yulZeroLiteral (j : Json) : Bool :=
+  optStr j "nodeType" == some "YulLiteral" &&
+    ((optStr j "value").bind fun raw =>
+      Compiler.Hex.parseHexNat? raw <|> raw.toNat?) == some 0
+
+private partial def yulTransientGuardStmt : Json → Bool
+  | j@(.obj _) =>
+      match optStr j "nodeType" with
+      | some "YulVariableDeclaration" =>
+          match (field? j "value").filter (!·.isNull) with
+          | some v => yulTransientGuardExpr v
+          | none => true
+      | some "YulAssignment" =>
+          match field? j "value" with
+          | some v => yulTransientGuardExpr v && yulHasTransientOp v
+          | none => false
+      | some "YulExpressionStatement" =>
+          match field? j "expression" with
+          | some e =>
+              optStr e "nodeType" == some "YulFunctionCall" &&
+                match (field? e "functionName").bind (optStr · "name"),
+                    field? e "arguments" with
+                | some "tstore", some (.arr #[a, b]) =>
+                    yulTransientGuardExpr a && yulTransientGuardExpr b
+                | some "mstore", some (.arr #[a, b]) =>
+                    yulZeroLiteral a && yulTransientGuardExpr b
+                | some "revert", some (.arr #[a, b]) =>
+                    optStr a "nodeType" == some "YulLiteral" &&
+                      optStr b "nodeType" == some "YulLiteral"
+                | _, _ => false
+          | none => false
+      | some "YulIf" =>
+          match field? j "condition", field? j "body" with
+          | some c, some b =>
+              yulTransientGuardExpr c && optStr b "nodeType" == some "YulBlock" &&
+                match field? b "statements" with
+                | some (.arr ss) => ss.all yulTransientGuardStmt
+                | _ => false
+          | _, _ => false
+      | _ => false
+  | _ => false
+
+private def transientGuardReference (decls : RBMap Nat Json compare) (ref : Json) : Bool :=
+  let isOffset := (field? ref "isOffset").bind (·.getBool?.toOption) == some true
+  let isSlot := (field? ref "isSlot").bind (·.getBool?.toOption) == some true
+  !isOffset && !isSlot && (field? ref "suffix").isNone &&
+    (field? ref "valueSize").bind (·.getNat?.toOption) == some 1 &&
+    match (field? ref "declaration").bind (·.getNat?.toOption) with
+    | none => false
+    | some id =>
+        match decls.find? id with
+        | none => true
+        | some decl => (optStr decl "storageLocation" |>.getD "default") == "default"
+
+/-- Transient-guard `tload`/`tstore` blocks do not inspect memory pointers or stack-dirty
+narrow arithmetic, so they compose with forwarded tuple lowering. -/
+private def transientGuardAssembly (decls : RBMap Nat Json compare) (asm : Json) : Bool :=
+  let ast := (field? asm "AST").getD .null
+  let refsOk := match field? asm "externalReferences" with
+    | some (.arr refs) => refs.all (transientGuardReference decls)
+    | none => true
+    | some _ => false
+  refsOk && optStr ast "nodeType" == some "YulBlock" && yulHasTransientOp ast &&
+    match field? ast "statements" with
+    | some (.arr ss) => ss.all yulTransientGuardStmt
+    | _ => false
+
+/-- Forwarded tuples reject raw assembly except self-contained `tload`/`tstore` guards. -/
+def rejectForwardedAssembly (decl : Json) : M Unit := do
+  if (← get).forwardingBytesTuple then
+    let decls := variableDeclarations RBMap.empty decl
+    let body := (field? decl "body").getD decl
+    if let some asmNode := (inlineAssemblyBlocks body).find? (!transientGuardAssembly decls ·) then
+      failAt asmNode "inline assembly in a forwarded tuple call tree is unsupported"
 
 /-- Yul builtins a transient-neutral block may not call: transient storage access, and
 calls or creations that could run code observing or writing this contract's transient
@@ -1332,7 +1418,7 @@ private def transientNeutralAssembly (decls stateVars : RBMap Nat Json compare)
     | some _ => false
 
 def noteFn (fn : Json) : M Unit := do
-  rejectForwardedAssembly ((field? fn "body").getD .null)
+  rejectForwardedAssembly fn
   if (← get).rootAssembly.isNone then
     let decls := variableDeclarations RBMap.empty fn
     let stateVars := (← get).stateVars

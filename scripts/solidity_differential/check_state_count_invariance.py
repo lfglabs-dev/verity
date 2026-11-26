@@ -245,6 +245,61 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    inline('forwarded-tuple-modifiers', '''contract C {
+    uint256 private total;
+
+    modifier outerMod() {
+        total = total * 10 + 1;
+        _;
+        total = total * 10 + 9;
+    }
+
+    modifier helperMod() {
+        total = total * 10 + 2;
+        _;
+        total = total * 10 + 8;
+    }
+
+    function _pair(uint256 x) private helperMod returns (bool ok, bytes memory data) {
+        total = total * 10 + 3;
+        if (x != 0) {
+            ok = true;
+            data = abi.encodePacked(total, uint16(x));
+        }
+    }
+
+    function run(uint256 x) external outerMod returns (bool ok, bytes memory data) {
+        return _pair(x);
+    }
+}
+''', ['run(uint256)']),
+    inline('forwarded-tuple-substituted-modifier', '''contract C {
+    uint256 private total;
+
+    modifier twice() {
+        total += 1;
+        _;
+        total += 10;
+        _;
+    }
+
+    modifier when(bool on) {
+        if (on) {
+            _;
+        }
+    }
+
+    function _pair(uint256 x) private returns (bool ok, bytes memory data) {
+        total += x;
+        ok = (x != 0);
+        data = abi.encode(total);
+    }
+
+    function run(uint256 x) external twice when((total + x) % 2 == 1) returns (bool, bytes memory) {
+        return _pair(x);
+    }
+}
+''', ['run(uint256)']),
     inline('unchecked-block-declaration', '''contract C {
     uint256 private total;
 

@@ -29,8 +29,10 @@ MESSAGES = {
     'order': 'low-level call operands require explicit evaluation-order support',
     'this-code': 'code length of the executing contract is unsupported',
     'code-read': 'external contract code reads are outside this slice',
-    'post-call': ('storage reads, storage writes, logs and other interactions after an external '
-                  'CALL are unsupported: the call may re-enter this contract'),
+    'post-call': ('storage reads, storage writes and logs after an external CALL are '
+                  'supported only when every external interaction of the function is a '
+                  'closed transport: another interaction follows a CALL that may re-enter '
+                  'this contract'),
 }
 
 INTERFACE = ('interface IToken {\n'

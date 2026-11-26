@@ -155,7 +155,7 @@ solidity_import gassedSelfDelegateForm from "Contracts/SolidityImportSmoke"
 
 -- Fail-closed control: storage write after self-delegatecall loop stays rejected by CEI.
 /--
-error: SelfDelegateAndRawSlotEip712Checks.sol:118:5: FunctionDefinition: [solidity-import:unsupported] storage reads, storage writes, logs and other interactions after an external CALL are unsupported: the call may re-enter this contract
+error: SelfDelegateAndRawSlotEip712Checks.sol:118:5: FunctionDefinition: [solidity-import:unsupported] storage reads, storage writes and logs after an external CALL are supported only when every external interaction of the function is a closed transport: another interaction follows a CALL that may re-enter this contract
 closure: SelfDelegateAndRawSlotEip712Fixture.multicallPostWriteRejected
 function multicallPostWriteRejected(bytes[] calldata data) external returns (uint256 executed) {
         for (uint256 i
