@@ -17240,9 +17240,11 @@ private partial def isStructValueSource (j : Json) : M Bool := do
 /-- An expression whose evaluation cannot revert, call or write: identifiers (other than
 storage enums), literals, non-calldata-struct/non-storage-enum/non-storage-bytes-length member
 reads (`allowEmptyRevert` additionally permits `calldata` struct member reads, whose lazy guards
-only emit `revert(0, 0)`), non-enum mapping lookups, comparisons, logical and bitwise operators,
-conditionals and struct constructors of such. Evaluated before or after a target key prelude or
-deferred encoding read without effects, it gives the same result. -/
+only emit `revert(0, 0)`), non-enum mapping lookups with scalar keys, comparisons, logical and
+bitwise operators, conditionals that do not materialize a `storage` or `calldata` branch into
+memory, and struct constructors without `storage` or `calldata` reference arguments. Evaluated
+before or after a target key prelude or deferred encoding read without effects, it gives the
+same result. -/
 private partial def orderInert (j : Json) (allowEmptyRevert : Bool := false) : M Bool := do
   let j ← stripParens j
   match ← mKind j with
@@ -17273,11 +17275,26 @@ private partial def orderInert (j : Json) (allowEmptyRevert : Bool := false) : M
       let base ← mField j "baseExpression"
       unless (← mType base).startsWith "mapping(" do return false
       let some index := field? j "indexExpression" | return false
+      let idxTy ← mType index
+      if (idxTy.splitOn " storage").length > 1 || idxTy.contains "calldata" then return false
       return (← orderInert base allowEmptyRevert) && (← orderInert index allowEmptyRevert)
   | "Conditional" =>
+      let ty ← mType j
+      let tBranch ← mField j "trueExpression"
+      let fBranch ← mField j "falseExpression"
+      let tTy ← mType tBranch
+      let fTy ← mType fBranch
+      -- When a branch is `storage`- or `calldata`-typed while the conditional itself is not,
+      -- solc copies that branch into memory when evaluating the conditional (`Panic(0x21)`,
+      -- `Panic(0x22)`, `Panic(0x41)` or `revert(0, 0)`), before encoding earlier siblings.
+      if ((tTy.splitOn " storage").length > 1 || (fTy.splitOn " storage").length > 1) &&
+          (ty.splitOn " storage").length <= 1 then
+        return false
+      if (tTy.contains "calldata" || fTy.contains "calldata") && !ty.contains "calldata" then
+        return false
       return (← orderInert (← mField j "condition") allowEmptyRevert) &&
-        (← orderInert (← mField j "trueExpression") allowEmptyRevert) &&
-        (← orderInert (← mField j "falseExpression") allowEmptyRevert)
+        (← orderInert tBranch allowEmptyRevert) &&
+        (← orderInert fBranch allowEmptyRevert)
   | "BinaryOperation" =>
       -- Comparisons, logical and bitwise operators cannot revert (unless user-defined).
       if (field? j "function").isSome then return false
@@ -17291,7 +17308,12 @@ private partial def orderInert (j : Json) (allowEmptyRevert : Bool := false) : M
       orderInert (← mField j "subExpression") allowEmptyRevert
   | "FunctionCall" =>
       unless optStr j "kind" == some "structConstructorCall" do return false
-      (← mArr (← mField j "arguments")).allM (orderInert · allowEmptyRevert)
+      let args ← mArr (← mField j "arguments")
+      args.allM fun arg => do
+        let argTy ← mType arg
+        if (argTy.splitOn " storage").length > 1 || argTy.contains "calldata" then
+          return false
+        orderInert arg allowEmptyRevert
   | _ => return false
 
 /-- Whether the lowering's order of `right` and the target's key prelude `pre` can differ

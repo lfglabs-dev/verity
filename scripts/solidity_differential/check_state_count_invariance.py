@@ -795,6 +795,19 @@ contract C {
     }
 }
 ''', ['run(bool,uint256)'], expect='same-rejection'),
+    inline('encoding-calldata-struct-before-memory-cond-storage', '''contract C {
+    struct NarrowPair {
+        uint8 a;
+        uint256 b;
+    }
+
+    string private sig;
+
+    function run(NarrowPair calldata p, bool c) external view returns (bytes32) {
+        return keccak256(abi.encode(p, c ? sig : "lit"));
+    }
+}
+''', ['run(NarrowPair,bool)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry

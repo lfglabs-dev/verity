@@ -318,4 +318,52 @@ solidity_import rejStorageStringBeforeStorageCondPacked from "Contracts/Solidity
   contract EncodingScalarUnorderedOrderRejects
   function storageStringBeforeStorageConditionalPacked(bool,uint256)
 
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:123:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.enumStorageStructBeforeMemoryCondFromStorage
+enumStored
+-/
+#guard_msgs in
+solidity_import rejEnumStorageBeforeMemCondFromStorage from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function enumStorageStructBeforeMemoryCondFromStorage(bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:127:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.calldataStructBeforeMemoryCondFromStorage
+p
+-/
+#guard_msgs in
+solidity_import rejCalldataStructBeforeMemCondFromStorage from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function calldataStructBeforeMemoryCondFromStorage(NarrowPair,bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:131:37: Identifier: [solidity-import:unsupported] storage array ABI encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageArrayBeforeMemoryCondFromStorage
+arrStored
+-/
+#guard_msgs in
+solidity_import rejStorageArrayBeforeMemCondFromStorage from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageArrayBeforeMemoryCondFromStorage(bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:135:43: Conditional: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageConditionalBeforeMemoryCondFromStorage
+c1 ? sigMap[0] : sigMap[1]
+-/
+#guard_msgs in
+solidity_import rejStorageCondBeforeMemCondFromStorage from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageConditionalBeforeMemoryCondFromStorage(bool,bool)
+
 end SolidityImportSmoke.EncodingScalarUnorderedChecks

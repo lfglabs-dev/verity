@@ -118,4 +118,20 @@ contract EncodingScalarUnorderedOrderRejects {
     function storageStringBeforeStorageConditionalPacked(bool c, uint256 x) external view returns (bytes32) {
         return keccak256(abi.encodePacked(sigMap[0], c ? sigMap[1] : sigMap[2], x == 0 ? 1 : 2));
     }
+
+    function enumStorageStructBeforeMemoryCondFromStorage(bool c) external view returns (bytes32) {
+        return keccak256(abi.encode(enumStored, c ? sigStored : "lit"));
+    }
+
+    function calldataStructBeforeMemoryCondFromStorage(NarrowPair calldata p, bool c) external view returns (bytes32) {
+        return keccak256(abi.encode(p, c ? sigStored : "lit"));
+    }
+
+    function storageArrayBeforeMemoryCondFromStorage(bool c) external view returns (bytes32) {
+        return keccak256(abi.encode(arrStored, c ? sigStored : "lit"));
+    }
+
+    function storageConditionalBeforeMemoryCondFromStorage(bool c1, bool c2) external view returns (bytes32) {
+        return keccak256(abi.encodePacked(c1 ? sigMap[0] : sigMap[1], c2 ? sigMap[2] : "lit"));
+    }
 }
