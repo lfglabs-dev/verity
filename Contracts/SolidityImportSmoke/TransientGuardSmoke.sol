@@ -83,6 +83,18 @@ contract TransientGuardAssembly {
         return guardedEcho(x);
     }
 
+    function _guardedPair(uint256 x) private returns (bool ok, bytes memory payload) {
+        count += 1;
+        if (x != 0) {
+            ok = true;
+            payload = abi.encodePacked(uint32(x), count);
+        }
+    }
+
+    function forwardGuarded(uint256 x) external nonReentrant returns (bool, bytes memory) {
+        return _guardedPair(x);
+    }
+
     function leaveLocked(uint256 v) external {
         assembly ("memory-safe") {
             tstore(_GUARD_TRANSIENT_SLOT, v)
@@ -147,6 +159,18 @@ contract TransientGuardSlotLib {
         require(false, "slotlib rollback");
     }
 
+    function _slotLibPair(uint256 x) private nonReentrant returns (bool ok, bytes memory payload) {
+        count += 1;
+        if (x != 0) {
+            ok = true;
+            payload = abi.encode(count, x);
+        }
+    }
+
+    function forwardGuarded(uint256 x) external returns (bool ok, bytes memory payload) {
+        return _slotLibPair(x);
+    }
+
     function markEntered() external {
         _SLOT_LIB_GUARD.asBool().tstore(true);
     }
@@ -176,6 +200,18 @@ contract TransientGuardStateVar {
         count += 1;
         locked = true;
         require(false, "state rollback");
+    }
+
+    function _stateVarPair(uint256 x) private returns (bool ok, bytes memory payload) {
+        count += 1;
+        if (x != 0) {
+            ok = true;
+            payload = abi.encodePacked(uint16(x), count);
+        }
+    }
+
+    function forwardGuarded(uint256 x) external nonReentrant returns (bool ok, bytes memory payload) {
+        return _stateVarPair(x);
     }
 
     function markLocked() external {
