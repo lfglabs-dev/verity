@@ -1912,8 +1912,13 @@ contract C {
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 interface IBad { function f(uint256 a) external; }
 contract C {
+ error Bad();
+ function _bad(uint256 x) internal pure returns (uint256) {
+  if (x == 0) revert Bad();
+  return x;
+ }
  function checked(uint256 x) external pure returns (bytes32) {
-  return keccak256(abi.encodeCall(IBad.f, (x + 1)));
+  return keccak256(abi.encodeCall(IBad.f, (_bad(x))));
  }
 }
 ''')

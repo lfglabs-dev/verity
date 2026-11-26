@@ -348,8 +348,8 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
-    # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
-    inline('known-encode-conditional', '''contract C {
+    # Conditional ABI encoding argument (#2830).
+    inline('encoding-conditional', '''contract C {
     uint256 private total;
 
     function hashChoice(uint256 x, bool c) external returns (bytes32) {
@@ -580,14 +580,126 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    # Checked binary operations and conditionals in unordered `checkEncodingScalar` positions
+    # (#2830): the A/B/C fixture, dedicated binary and conditional sweeps across every unordered
+    # caller, and encoding-time validation sibling rejections.
+    fixture('fixture-encoding-scalar-unordered',
+            'Contracts/SolidityImportSmoke/EncodingScalarUnorderedSequence.sol',
+            'SequenceFixture', ['change(uint256)', 'fail()', 'read()']),
+    inline('encoding-scalar-binary-unordered', '''interface ITarget {
+    function accept(uint256 a, uint256 b) external;
+    function pair(uint256 a, uint256 b) external view returns (uint256, uint256);
+}
+
+contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    mapping(uint256 => mapping(uint256 => uint256)) private grid;
+
+    event Logged(bytes tag, uint256 value);
+
+    function _touch(uint256 k) internal returns (uint256) {
+        grid[k][0] += 1;
+        return grid[k][0];
+    }
+
+    function digest(address target, bytes calldata b, uint256 x) external returns (uint256, bytes memory) {
+        bytes32 h1 = keccak256(abi.encode(x + 1, 10 / x));
+        bytes32 h2 = keccak256(abi.encode(b, x + 2));
+        bytes32 h3 = keccak256(abi.encodePacked(uint16(x + 3), bytes.concat(bytes32(x - 1))));
+        bytes32 h4 = keccak256(abi.encodeWithSelector(bytes4(uint32(x + 4)), x + 5));
+        bytes32 h5 = keccak256(abi.encodeWithSignature("accept(uint256,uint256)", x + 6, x - 1));
+        bytes32 h6 = keccak256(abi.encodeCall(ITarget.accept, (x + 7, x - 1)));
+        bytes32 h7 = keccak256(abi.encode(Pair(uint8(x % 200) + uint8(1), x + 8)));
+        bytes32 h8 = keccak256(abi.encode(grid[x + 1][x - 1], _touch(x)));
+        (uint256 p, uint256 q) = ITarget(target).pair(x + 9, x - 1);
+        emit Logged(b, x + 10);
+        return (uint256(h1 ^ h2 ^ h3 ^ h4 ^ h5 ^ h6 ^ h7 ^ h8) ^ p ^ q, b);
+    }
+}
+''', ['digest(address,bytes,uint256)']),
+    inline('encoding-scalar-conditional-unordered', '''interface ITarget {
+    function accept(uint256 a, uint256 b) external;
+    function pair(uint256 a, uint256 b) external view returns (uint256, uint256);
+}
+
+contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    mapping(uint256 => mapping(uint256 => uint256)) private grid;
+
+    event Logged(bytes tag, uint256 value);
+
+    function _touch(uint256 k) internal returns (uint256) {
+        grid[k][0] += 1;
+        return grid[k][0];
+    }
+
+    function digest(address target, bytes calldata b, bool c, uint256 x) external returns (uint256, bytes memory) {
+        bytes32 h1 = keccak256(abi.encode(c ? x : uint256(1), c ? uint256(2) : x));
+        bytes32 h2 = keccak256(abi.encode(b, c ? x : uint256(3)));
+        bytes32 h3 = keccak256(abi.encodePacked(c ? uint16(x) : uint16(4), bytes.concat(c ? bytes4(0x11223344) : bytes4(0x55667788))));
+        bytes32 h4 = keccak256(abi.encodeWithSelector(c ? bytes4(0x12345678) : bytes4(0x87654321), c ? x : uint256(5)));
+        bytes32 h5 = keccak256(abi.encodeWithSignature("accept(uint256,uint256)", c ? x : uint256(6), uint256(7)));
+        bytes32 h6 = keccak256(abi.encodeCall(ITarget.accept, (c ? x : uint256(8), uint256(9))));
+        bytes32 h7 = keccak256(abi.encode(Pair(c ? uint8(1) : uint8(2), c ? x : uint256(10))));
+        bytes32 h8 = keccak256(abi.encode(grid[c ? x : 1][c ? 2 : x], _touch(x)));
+        (uint256 p, uint256 q) = ITarget(target).pair(c ? x : uint256(11), uint256(12));
+        emit Logged(b, c ? x : uint256(13));
+        return (uint256(h1 ^ h2 ^ h3 ^ h4 ^ h5 ^ h6 ^ h7 ^ h8) ^ p ^ q, b);
+    }
+}
+''', ['digest(address,bytes,bool,uint256)']),
+    inline('encoding-calldata-static-struct-before-panic', '''contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    uint256 private total;
+
+    function run(Pair calldata p, uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(p, 10 / x + total));
+    }
+}
+''', ['run(Pair,uint256)'], expect='same-rejection'),
+    inline('encoding-storage-enum-before-panic', '''contract C {
+    enum Mode {
+        A,
+        B
+    }
+
+    struct EnumPair {
+        Mode m;
+        uint256 b;
+    }
+
+    EnumPair private s;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(s.m, 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-signature-before-panic', '''contract C {
+    string private sig;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(sig, 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry
 # names the discrepancy kind the harness must observe on every listed profile.
-EXPECTED_DISCREPANCIES = {
-    # checkEncodingScalar: a conditional ABI encoding argument.
-    'known-encode-conditional': 'admission',
-}
+EXPECTED_DISCREPANCIES = {}
 
 # Self-tests of the harness itself; see the module docstring.
 CONTROLS = [

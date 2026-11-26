@@ -446,6 +446,20 @@ def stateful_campaign(output, transactions, seed, jobs=1):
             '--transactions', str(max(32, transactions)), '--seed', str(seed), *extra,
             '--change-prefix', *map(str, [*range(15), *(2 ** 256 - k for k in range(1, 6))]),
             '--output', str(output / check)]))
+    # Checked binary operations and conditionals in unordered `checkEncodingScalar` positions
+    # (#2830), across solc 0.8.34 via-IR and legacy (`--no-via-ir`), in a one-state-variable
+    # contract. `c = x % 8`, `flag = ((x / 8) % 2 == 1)`, `y = x / 16`: `0..31` covers both
+    # `flag` values at `y = 0` (competing panics) and `y = 1`, and the largest words overflow `y * 32`.
+    for check, driver, extra in (
+            ('encoding-scalar-unordered', 'EncodingScalarUnorderedSequenceModel', []),
+            ('encoding-scalar-unordered-legacy', 'EncodingScalarUnorderedLegacySequenceModel',
+             ['--no-via-ir'])):
+        checks.append((check, ['-m', 'solidity_differential.check_stateful',
+            '--source-fixture', 'Contracts/SolidityImportSmoke/EncodingScalarUnorderedSequence.sol',
+            '--model-driver', f'Contracts/SolidityImportSmoke/{driver}.lean',
+            '--transactions', str(max(44, transactions)), '--seed', str(seed), *extra,
+            '--change-prefix', *map(str, [*range(32), *(2 ** 256 - k for k in range(1, 5))]),
+            '--output', str(output / check)]))
     checks.append(('immutable-lowering', ['-m', 'solidity_differential.check_immutable_lowering',
         '--output', str(output / 'immutable-lowering')]))
     checks.append(('yul-memory-call', ['-m', 'solidity_differential.check_yul_memory_call',

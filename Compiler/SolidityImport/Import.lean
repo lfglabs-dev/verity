@@ -6949,7 +6949,13 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
       if (field? j "referencedDeclaration").isNone &&
           (optStr j "memberName" == some "interfaceId" ||
            optStr j "memberName" == some "selector") then pure ()
-      else checkEncodingScalar (← mField j "expression") ordered
+      else
+        let base ← mField j "expression"
+        -- solc checks a storage `enum` ordinal only while ABI-encoding, after all arguments
+        -- have run, whereas `storageEnumRead` checks it (`Panic(0x21)`) at the argument's position.
+        if (← mType j).startsWith "enum " && ((← mType base).splitOn " storage").length > 1 then
+          failAt j "effectful ABI encoding argument is unsupported"
+        checkEncodingScalar base ordered
   | "UnaryOperation" =>
       if ordered && (optStr j "operator" == some "++" || optStr j "operator" == some "--") &&
           (field? j "function").isNone then
@@ -6978,16 +6984,20 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
         checkEncodingScalar (← mField j "leftExpression") ordered
         checkEncodingScalar (← mField j "rightExpression") ordered
       else
-        -- In an ordered argument list (an `abi.encode` or an external call) the checked
-        -- expression is evaluated once at its own position and its panic guard rides in
-        -- the same prelude, so a checked `a + b` sibling is admitted.
-        unless ordered || (← mType j) == "int256" || (← get).stateVars.size > 1 do
-          failAt j "effectful ABI encoding argument is unsupported"
+        -- Every caller of `checkEncodingScalar` (`lowerAbiEncodeArgs`, `lowerPacked`,
+        -- `abi.encodeWithSelector` / `encodeWithSignature` / `encodeCall`, `lowerSelectorBytes`,
+        -- `checkEncodingStructArg`, `checkEncodingIndexedTarget`, `lowerInterfaceStaticCall`)
+        -- lowers its arguments left to right at their own position, as both solc 0.8.34 and
+        -- 0.8.38 pipelines (legacy and via-IR) evaluate them; inside the binary expression
+        -- itself, `lowerBinary` evaluates operands left to right on via-IR, right to left on
+        -- legacy, and short-circuits `&&` / `||`, independent of the state-variable count (#2830).
         checkEncodingScalar (← mField j "leftExpression") ordered
         checkEncodingScalar (← mField j "rightExpression") ordered
   | "Conditional" =>
-      unless ordered || (← get).stateVars.size > 1 do
-        failAt j "effectful ABI encoding argument is unsupported"
+      -- In every ordered and unordered encoding caller above, both solc 0.8.34 and 0.8.38
+      -- pipelines (legacy and via-IR) evaluate the condition at the argument's position and
+      -- then only the selected arm (`lowerConditional` wraps each arm's prelude in `Stmt.ite`),
+      -- independent of the state-variable count (#2830).
       checkEncodingScalar (← mField j "condition") ordered
       checkEncodingScalar (← mField j "trueExpression") ordered
       checkEncodingScalar (← mField j "falseExpression") ordered
@@ -8537,7 +8547,8 @@ private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiD
         headCursor := headCursor + 32
   return (pre, decoded)
 
-private partial def lowerEncodedStaticStructWords (arg : Json) : M (Array Stmt × List Expr) := do
+private partial def lowerEncodedStaticStructWords (arg : Json) (laterArgs : Array Json := #[]) :
+    M (Array Stmt × List Expr) := do
   let ty ← mType arg
   let (sid, sDecl) ← resolveStructDeclFromType arg
   let sMembers ← mArr (← mField sDecl "members")
@@ -8549,6 +8560,22 @@ private partial def lowerEncodedStaticStructWords (arg : Json) : M (Array Stmt �
       failAt arg s!"unsupported ABI encoding argument type {ty}"
     discard (validateEnumTypeIfNeeded mNode mTy)
   checkEncodingStructArg arg
+  -- solc validates `calldata` struct scalar bounds and storage `enum` ordinals while
+  -- ABI-encoding, after every argument expression has run, whereas `lowerFlatStructValue`
+  -- validates them at `arg`'s position.
+  let needsEncodingValidation ←
+    if ty.endsWith " calldata" then
+      sMembers.anyM fun mNode => do
+        let mTy ← mType mNode
+        pure (mTy != "uint256" && mTy != "int256" && mTy != "bytes32")
+    else if (ty.splitOn " storage").length > 1 && !(← isStructValueSource arg) then
+      sMembers.anyM fun mNode => return (← mType mNode).startsWith "enum "
+    else
+      pure false
+  if needsEncodingValidation then
+    for later in laterArgs do
+      unless ← orderInert later do
+        failAt arg "calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported"
   let (_, _, sPre, memberVals) ← lowerFlatStructValue arg (some sid) true
   let mut pre : Array Stmt := sPre
   let mut words : List Expr := []
@@ -8841,10 +8868,11 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       return ← prefixSelector selBuffer payload
     let mut pre := selBuffer.pre
     let mut words := []
-    for arg in restArgs do
+    for idx in [:restArgs.size] do
+      let arg := restArgs[idx]!
       let ty ← mType arg
       if ty.startsWith "struct " && !ty.contains "[" then
-        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg (restArgs.extract (idx + 1) restArgs.size)
         pre := pre ++ sPre
         words := words ++ sWords
       else
@@ -8864,6 +8892,13 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         sigTy == "string storage ref" || sigTy == "string storage pointer" ||
         sigTy.startsWith "literal_string " do
       failAt sigNode s!"unsupported abi.encodeWithSignature signature type {sigTy}"
+    let restArgs := args.extract 1 args.size
+    -- solc evaluates all call arguments before `abi.encodeWithSignature` reads a storage
+    -- signature string (`Panic(0x22)` on a corrupt length), whereas `sigBuf` below reads it first.
+    if (sigTy.splitOn " storage").length > 1 then
+      for later in restArgs do
+        unless ← orderInert later do
+          failAt sigNode "storage bytes/string encoding argument before a sibling that can revert or write is unsupported"
     let sigBuf ← lowerEncodedBytes sigNode
     let selPtr ← fresh
     let selFinish ← fresh
@@ -8873,7 +8908,6 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       { pre := sigBuf.pre ++ (AbiEncoding.staticWords selPtr selFinish [selWord]).toArray,
         pointer := .localVar selPtr,
         size := .literal 4 }
-    let restArgs := args.extract 1 args.size
     let hasDynamic ← restArgs.anyM fun arg => do
       let ty ← mType arg
       pure (ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
@@ -8888,10 +8922,11 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       return ← prefixSelector selBuffer payload
     let mut pre := selBuffer.pre
     let mut words := []
-    for arg in restArgs do
+    for idx in [:restArgs.size] do
+      let arg := restArgs[idx]!
       let ty ← mType arg
       if ty.startsWith "struct " && !ty.contains "[" then
-        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg (restArgs.extract (idx + 1) restArgs.size)
         pre := pre ++ sPre
         words := words ++ sWords
       else
@@ -8952,7 +8987,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         let (argSid, _) ← resolveStructDeclFromType arg
         unless pSid == argSid do
           failAt arg s!"abi.encodeCall argument type {argTy} does not match parameter {pty}"
-        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg (callArgs.extract (idx + 1) params.size)
         pre := pre ++ sPre
         words := words ++ sWords
       else
@@ -9155,7 +9190,7 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         headWords := headWords.push none
         dynTails := dynTails.push (headIdx, .inl (id, schema, arg))
       else if ty.startsWith "struct " && !ty.contains "[" then
-        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg (args.extract (argIdx + 1) args.size)
         pre := pre ++ sPre
         for w in sWords do
           headWords := headWords.push (some w)
@@ -9285,7 +9320,7 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
     if ty.startsWith "struct " && !ty.contains "[" then
       if ordered then
         failAt arg "struct ABI encoding argument beside a state-changing argument is unsupported"
-      let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+      let (sPre, sWords) ← lowerEncodedStaticStructWords arg (args.extract (argIdx + 1) args.size)
       pre := pre ++ sPre
       words := words ++ sWords
     else
@@ -10345,13 +10380,15 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     let hoistEnv ← get
     let hasMutation := args.any fun arg => statefulCallIn arg hoistEnv || assignmentIn arg
     let hoist := hasMutation || args.any fun arg => jsonHasCustomRevert hoistEnv [] arg
-    for (param, arg) in params.zip args do
+    for idx in [:params.size] do
+      let param := params[idx]!
+      let arg := args[idx]!
       let pty ← mType param
       let argTy ← mType arg
       if pty.startsWith "struct " && !pty.contains "[" then
         if hasMutation then
           failAt arg "struct ABI encoding argument beside a state-changing argument is unsupported"
-        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg (args.extract (idx + 1) args.size)
         pre := pre ++ sPre
         words := words ++ sWords.toArray
       else
