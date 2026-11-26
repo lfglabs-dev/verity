@@ -348,11 +348,11 @@ theorem deferred_withLinks :
     (DefVault.mintAndSupply linkedCtx aaAddr holder 7 trancheState).getState.calls.length = 2 := by
   decide
 
-/-- A reverting linked body makes the typed call revert (ABI failed call) and
-rolls the target back. -/
+/-- A reverting linked body makes the typed call revert (ABI failed call),
+re-raising the answer's empty returndata, and rolls the target back. -/
 theorem deferred_withLinks_revert :
     revertMessage? (DefVault.burnFrom linkedCtx bbAddr 6 trancheState) =
-      some "external call failed" ∧
+      some (.raw []) ∧
     (DefVault.burnFrom linkedCtx bbAddr 6 trancheState).getState.readContractSlot
       bbAddr.toNat 0 = 5 := by
   decide
