@@ -55,7 +55,8 @@ class SequenceAdapter:
         self.self_balance = self_balance
         self.timeout = timeout
         # Runtime code of the executing account, or None while it has none (its constructor
-        # runs). Only zero tests of its length are observable, so either route's code serves.
+        # runs). The importer reads it through address(this) only in zero tests, so either
+        # route's code serves; a runtime-only alias is outside the validated domain.
         if self_code is not None and (not isinstance(self_code, str)
                                       or not re.fullmatch(r'0x(?:[0-9a-fA-F]{2})+', self_code)):
             raise HarnessError('executing account code must be nonempty 0x-prefixed hex bytes')

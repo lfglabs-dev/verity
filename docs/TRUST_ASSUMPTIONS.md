@@ -2576,7 +2576,7 @@ closed `SolidityExtCodeSize.module` transport on `address()` and exposes only
 the zero test (`lowerThisCodeLengthZeroTest?`). Every other use of the executing
 contract's code length (the value, a local, arithmetic, other comparisons,
 named constants) still fails closed with a located diagnostic, and so do reads
-through aliases of `address(this)` and inline-assembly `extcodesize` of `address()` or a
+through aliases of `address(this)` and inline-assembly `extcodesize` whose operand mentions `address()` or a
 Yul local bound to it (admitted on `main` before, outside every A/B/C case).
 
 Trust boundary changes:
@@ -2584,7 +2584,8 @@ Trust boundary changes:
   `ContractState.accountWorld`. No other imported statement reads it through
   `address(this)` or a binding of it; an operand equal to it only at runtime (a
   parameter or a value read from storage) is outside the validated domain, as for
-  `codehash`, and a `CALL` adversary may replace it (see below).
+  `codehash`, and a `CALL` or self-`DELEGATECALL` adversary may replace it (see
+  below).
   A statement about the model must say whether that account has code: it has
   none while its constructor runs, including when that constructor
   delegatecalls an imported root (OpenZeppelin's proxy deploys run `initialize`
@@ -2593,10 +2594,13 @@ Trust boundary changes:
   through the admitted shape, and both routes have code exactly when the
   account is deployed.
 - On the EVM an account's code cannot change while its own frame runs, but a
-  successful `CALL` adversary may commit any world, including code for the
-  executing account; a zero test after such a call reads that world. A statement
-  proved for every adversary also covers the EVM's unchanged code, as for
-  `<addr>.code.length` after a call; no A/B/C case exercises it.
+  successful `CALL` or self-`DELEGATECALL` adversary may commit any world,
+  including code for the executing account; a zero test after such a call reads
+  that world. A statement proved for every adversary also covers the EVM's
+  unchanged code, as for `<addr>.code.length` after a call
+  (`Denote.CallKeepsCallerStorage` frames storage only, so a post-`CALL` proof
+  relying on unchanged self-code emptiness must also frame
+  `(accountWorld thisAddress).code`); no A/B/C case exercises it.
 - Differential campaigns install the source route's runtime code for the
   executing account in Denote (`selfCode` input) for runtime transactions, and
   none for the construction replay, where both EVM routes run the sequence by

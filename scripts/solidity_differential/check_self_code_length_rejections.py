@@ -67,7 +67,13 @@ CASES = [
     ('yul-self-local', 'uint256 size;\n        assembly {\n            let self := address()\n'
      '            size := extcodesize(self)\n        }\n        counter = size;',
      ('extcodesize(self)', 0, 'YulFunctionCall', 'self-alias-length')),
+    ('yul-self-compound', 'uint256 size;\n        assembly {\n            size := extcodesize(or(address(), 0))\n'
+     '        }\n        counter = size;',
+     ('extcodesize(or(address(), 0))', 0, 'YulFunctionCall', 'self-alias-length')),
     ('yul-foreign', 'uint256 size;\n        assembly {\n            size := extcodesize(caller())\n'
+     '        }\n        counter = size;', None),
+    ('yul-foreign-compound', 'uint256 size;\n        assembly {\n'
+     '            size := extcodesize(and(caller(), sub(shl(160, 1), 1)))\n'
      '        }\n        counter = size;', None),
     ('this-code-copy', 'flag = address(this).code.length == 0 && address(this).code[0] == 0;',
      ('address(this).code[0]', 0, 'MemberAccess', 'code-read')),
@@ -111,13 +117,16 @@ def main():
         directory.mkdir()
         text = source(statements)
         (directory / 'Fixture.sol').write_text(text)
+        compile_guard = ('import Compiler.Codegen\n' if expected is None else '')
+        compile_check = ('#guard (Compiler.CompilationModel.compile tested.model [0x1] .osaka).isOk\n'
+                         if expected is None else '')
         driver = directory / 'Check.lean'
         driver.write_text(f'''import Compiler.SolidityImport.Import
-solidity_import tested from "{directory}" entry "Fixture.sol"
+{compile_guard}solidity_import tested from "{directory}" entry "Fixture.sol"
   using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
   contract C
   function checked()
-''')
+{compile_check}''')
         artifact = directory / 'Check.olean'
         result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],
                                 cwd=root, text=True, capture_output=True, timeout=300)
