@@ -90,7 +90,7 @@ theorem try_caught_failure_starts_at_snapshot (s : ContractState) :
     (Contract.selfCall TryCatchSmoke.failHop).run s =
       ContractResult.revert "fail" s →
     Contract.tryWith (Contract.selfCall TryCatchSmoke.failHop) okHandler failHandler s =
-      failHandler "fail" s :=
+      failHandler "fail" (s.withCaughtRevert "fail") :=
   fun h =>
     caught_failure_starts_at_snapshot
       (Contract.selfCall TryCatchSmoke.failHop) okHandler failHandler s "fail" h

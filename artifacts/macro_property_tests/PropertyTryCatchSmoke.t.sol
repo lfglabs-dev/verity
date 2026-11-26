@@ -29,4 +29,10 @@ contract PropertyTryCatchSmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("okHop()"));
         require(ok, "okHop reverted unexpectedly");
     }
+    // Property 3: panicHop has no unexpected revert
+    function testAuto_PanicHop_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("panicHop()"));
+        require(ok, "panicHop reverted unexpectedly");
+    }
 }

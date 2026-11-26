@@ -55,6 +55,17 @@ contract TryCatchSmokeTest is Test, YulTestBase {
         assertEq(data, abi.encodeWithSignature("Error(string)", "fail"));
     }
 
+    /// A caught failure leaves the callee's exact bytes in the returndata buffer:
+    /// `revertReturndata` re-raises the 36-byte `Panic(0x11)` unpadded
+    /// (Lean: `rethrowViaReturndata` reverts with `encode (.panic 0x11)`).
+    function testRevertReturndataAfterCatchIsExact() public {
+        (bool ok, bytes memory data) =
+            smoke.call(abi.encodeWithSignature("rethrowViaReturndata()"));
+        assertFalse(ok, "rethrowViaReturndata must revert");
+        assertEq(data, abi.encodeWithSignature("Panic(uint256)", 0x11));
+        assertEq(data.length, 36);
+    }
+
     function testSequentialTriesInOneFunction() public {
         // failHop reverts (catch writes 2), then okHop writes 3 and success writes 4.
         assertEq(_uint(smoke, abi.encodeWithSignature("sequentialTries()")), 4);

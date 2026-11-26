@@ -69,9 +69,12 @@ proved; `test/RevertBubbleSmoke.t.sol` checks it for typed interface calls. The
 source semantics and Denote keep a caught failure's exact bytes
 (`tryExternalCallBind` sets `rawReturndata`), so `returndatasize`,
 `returndatacopy` and `revertReturndata` after it see them unpadded. The
-executable EDSL's buffer is still word-granular: a caught failure re-raised with
-`revertReturndata` is padded to whole words, and an uncaught failure re-raises
-the word view of the callee's returndata (`Contracts.failedCallPayload`).
+executable EDSL keeps a caught payload exactly too (`Contract.tryCatch` /
+`tryWith` hand the handler `withCaughtRevert`, whose `rawReturndata` holds the
+payload's bytes; `revertReturndata`, `returndataSizeLive` and
+`returndataCopyLive` read it first). An uncaught failed typed call still
+re-raises the word view of the callee's returndata (`Contracts.failedCallPayload`):
+adversary answers are word lists.
 `tryCall … catch err =>` copies the returndata to memory on catch entry and
 `revert err` re-raises that copy exactly (`test/TryCatchSmoke.t.sol`).
 
