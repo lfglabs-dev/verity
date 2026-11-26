@@ -83,6 +83,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "nested-storage-struct",
     "pinned-sequence",
     "pinned-sequence-corpus",
+    "post-call-state-access",
     "protocol",
     "reentrant-callback",
     "reentrant-callback-rejections",

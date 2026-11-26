@@ -62,6 +62,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
              'Compiler.Yul.PrettyPrint', 'Compiler.SolidityImport.SequenceRunner',
              'Compiler.SolidityImport.StaticOracleMocks',
              'Compiler.SolidityImport.CallResponderMocks',
+             'Compiler.SolidityImport.ReentrantCallResponderMocks',
              'Compiler.SolidityImport.ModelResponders'], timeout=1800, log=output / 'build.log')
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
@@ -237,6 +238,10 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('reentrant-callback', ['-m', 'solidity_differential.check_reentrant_callback',
         '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
         '--output', str(output / 'reentrant-callback')]))
+    checks.append(('post-call-state-access', ['-m',
+        'solidity_differential.check_post_call_state_access',
+        '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
+        '--output', str(output / 'post-call-state-access')]))
     checks.append(('reentrant-callback-rejections', ['-m',
         'solidity_differential.check_reentrant_callback_rejections',
         '--output', str(output / 'reentrant-callback-rejections')]))

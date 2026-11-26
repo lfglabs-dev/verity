@@ -16,7 +16,8 @@ Construct-generic classifiers over `CompilationModel.Stmt` and
   `eraseClosedTransports`, `onlyClosedTransportCEIBarriers`,
   `onlyCreate2ReentrancyWindows`, `onlyStaticCallCEIBarriers`,
   `exprStorageFree`, `stmtAfterTrailingCall`, `onlyTrailingLowLevelCallWindows`,
-  `onlyTrailingCallReentrancyWindows`)
+  `onlyTrailingCallReentrancyWindows`, `eraseClosedInteractions`,
+  `onlyClosedCallStateWindows`)
 * Structural free-memory pointer (`0x40`) prologue detector
   (`ecmRequiresFreePointerInit`, `stmtRequiresFreePointerInit`,
   `stmtListRequiresFreePointerInit`) ensuring any root body that invokes a
@@ -293,6 +294,35 @@ low-level calls. -/
 def onlyTrailingCallReentrancyWindows (body : List Stmt) : Bool :=
   body.any Compiler.CompilationModel.stmtOpensReentrancyWindow &&
     onlyTrailingLowLevelCallWindows body
+
+/-- `eraseClosedTransports`, and additionally replace each closed low-level `CALL`
+by its zero-initialised result binding. What remains after erasure is every
+interaction the importer did not emit as a closed transport. -/
+partial def eraseClosedInteractions : Stmt → Stmt
+  | .ecm mod args =>
+      if isClosedLowLevelCall mod then .letVar (mod.resultVars.headD "") (.literal 0)
+      else eraseClosedTransports (.ecm mod args)
+  | .ite cond yes no => .ite cond (yes.map eraseClosedInteractions) (no.map eraseClosedInteractions)
+  | .forEach name count body => .forEach name count (body.map eraseClosedInteractions)
+  | .forEachSetBit name bitmap body =>
+      .forEachSetBit name bitmap (body.map eraseClosedInteractions)
+  | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedInteractions)
+  | .matchAdt adt scrutinee branches =>
+      .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
+        (tag, names, body.map eraseClosedInteractions))
+  | statement => eraseClosedTransports statement
+
+/-- A body that makes a closed low-level `CALL` and whose every CEI barrier and
+reentrancy window is a closed transport. Storage reads, storage writes and logs may
+follow the call: Denote runs them against the world the callee's response committed
+(`ByteExternalCall.Response.commit`), which an unconstrained adversary chooses freely,
+including by re-entering this contract, so admission assumes nothing about the callee.
+Any interaction that is not a closed transport keeps the body out. -/
+def onlyClosedCallStateWindows (body : List Stmt) : Bool :=
+  let erased := body.map eraseClosedInteractions
+  body.any stmtContainsClosedLowLevelCall &&
+    (Compiler.CompilationModel.stmtListCEIViolation erased false).isNone &&
+    !erased.any Compiler.CompilationModel.stmtOpensReentrancyWindow
 
 /-- True when an external call module uses a closed byte-transport descriptor
 that may read or advance the Solidity free-memory pointer at address `0x40`. -/
