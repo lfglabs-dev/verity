@@ -33,6 +33,8 @@ solidity_import irAssembly from "Contracts/SolidityImportSmoke" entry "Transient
   function bumpFail()
   function callGuarded(uint256)
   function forwardGuarded(uint256)
+  function count()
+  function callerWord()
   function leaveLocked(uint256)
   function lockWord()
 
@@ -44,6 +46,8 @@ solidity_import legacyAssembly from "Contracts/SolidityImportSmoke" entry "Trans
   function bumpFail()
   function callGuarded(uint256)
   function forwardGuarded(uint256)
+  function count()
+  function callerWord()
   function leaveLocked(uint256)
   function lockWord()
 
@@ -155,6 +159,10 @@ private def bothStateVar (check : CompilationModel → Bool) : Bool :=
   observe m "callGuarded" [21] assemblySlot 7 1 == some (false, [], some [], 7, 1)
 #guard bothAssembly fun m =>
   observe m "lockWord" [] assemblySlot 7 5 == some (true, [5], none, 7, 5)
+#guard bothAssembly fun m =>
+  observe m "count" [] assemblySlot 7 0 == some (true, [7], none, 7, 0)
+#guard bothAssembly fun m =>
+  observe m "callerWord" [] assemblySlot 7 0 == some (true, [0], none, 7, 0)
 
 -- UDVT slot-library guard (`ReentrancyGuardTransient` / `TransientSlot` pattern).
 #guard bothSlotLib fun m =>
@@ -235,8 +243,8 @@ private def transactionBoundary (model : CompilationModel)
 #guard bothStateVar fun m => transactionBoundary m "markLocked" [] "isLocked" []
 
 -- All imported transient guard models compile cleanly for Cancun and Osaka.
-#guard (Compiler.CompilationModel.compile irAssembly.model [1, 2, 3, 4, 5, 6, 7] .cancun).isOk
-#guard (Compiler.CompilationModel.compile legacyAssembly.model [1, 2, 3, 4, 5, 6, 7] .osaka).isOk
+#guard (Compiler.CompilationModel.compile irAssembly.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .cancun).isOk
+#guard (Compiler.CompilationModel.compile legacyAssembly.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .osaka).isOk
 #guard (Compiler.CompilationModel.compile irSlotLib.model [1, 2, 3, 4, 5, 6] .cancun).isOk
 #guard (Compiler.CompilationModel.compile legacySlotLib.model [1, 2, 3, 4, 5, 6] .osaka).isOk
 #guard (Compiler.CompilationModel.compile irStateVar.model [1, 2, 3, 4, 5] .cancun).isOk

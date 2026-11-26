@@ -8,7 +8,7 @@ import Compiler.Yul.PrettyPrint
 namespace SolidityImportSmoke.ForwardedTupleModifiersLegacySequenceModel
 open Compiler.CompilationModel
 solidity_import imported from "Contracts/SolidityImportSmoke"
-  entry "ForwardedTupleModifiersLegacySequence.sol"
+  entry "ForwardedTupleModifiersSequence.sol"
   using { evmVersion := "osaka", viaIR := false, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)

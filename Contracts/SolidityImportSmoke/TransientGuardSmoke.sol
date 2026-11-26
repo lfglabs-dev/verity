@@ -106,6 +106,12 @@ contract TransientGuardAssembly {
             w := tload(_GUARD_TRANSIENT_SLOT)
         }
     }
+
+    function callerWord() external view returns (uint256 who) {
+        assembly ("memory-safe") {
+            who := caller()
+        }
+    }
 }
 
 contract TransientGuardSlotLib {
