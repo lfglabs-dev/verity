@@ -2411,8 +2411,8 @@ def Contract.tryCatch {α : Type} (attempt : Contract α)
 /-- Modeled try/catch over a hop (`selfCall` or a callee body). The attempt
     runs with `Contract.run` snapshot rollback. On revert the handler starts
     at that snapshot. A revert inside `onSuccess` is **not** caught and
-    propagates with that continuation's state. Failed-call returndata is not
-    bound into the handler; read `ContractState.returndata` if needed. -/
+    propagates with that continuation's state. The handler receives the
+    attempt's revert payload (`tryCall … catch err => …` binds it). -/
 def Contract.tryWith {α : Type} (attempt : Contract α)
     (onSuccess : α → Contract Unit) (onFailure : Verity.Core.RevertPayload → Contract Unit) :
     Contract Unit :=

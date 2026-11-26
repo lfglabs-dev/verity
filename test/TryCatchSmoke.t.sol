@@ -41,6 +41,14 @@ contract TryCatchSmokeTest is Test, YulTestBase {
         assertEq(_uint(smoke, abi.encodeWithSignature("catchFail()")), 2);
     }
 
+    /// `catch err => … revert err` re-raises the callee's bytes unchanged
+    /// (Lean: `rethrowFail` reverts with `errorString "fail"`).
+    function testCatchErrReRaisesCalleePayload() public {
+        (bool ok, bytes memory data) = smoke.call(abi.encodeWithSignature("rethrowFail()"));
+        assertFalse(ok, "rethrowFail must revert");
+        assertEq(data, abi.encodeWithSignature("Error(string)", "fail"));
+    }
+
     function testArgumentIsEncodedForHop() public {
         // Lean `tryCatchArgSevenValue`: hopWithArg(7) succeeds, success body writes 7 + 100.
         assertEq(_uint(argSmoke, abi.encodeWithSignature("catchArg(uint256)", 7)), 107);

@@ -148,6 +148,12 @@ syntax "tryCatch " term:max ppSpace term:max : doElem
 /-- Modeled hop try/catch. `tryCatch` remains the word-level stub. -/
 syntax (name := verityTryWith)
   "tryCall " term:max " then " term:max " catch " term:max : doElem
+/-- `tryCall (selfCall f…) then … catch err => do …` binds the callee's revert
+payload as `err`; inside the catch body `revert err` re-raises it unchanged. -/
+syntax (name := verityTryWithErr)
+  "tryCall " term:max " then " term:max " catch " ident " => " term:max : doElem
+/-- Re-raise a payload bound by `tryCall … catch err => …`. -/
+syntax (name := verityRevertPayload) "revert " ident : doElem
 syntax "selfCall " ident : term
 /-- Argument-carrying self-call hop: `selfCall f(a, b)` models `this.f(a, b)`. -/
 syntax "selfCall " ident "(" sepBy(term, ",") ")" : term
