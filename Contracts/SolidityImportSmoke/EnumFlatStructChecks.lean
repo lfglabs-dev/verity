@@ -205,13 +205,8 @@ solidity_import rejUninitArrayMember from "Contracts/SolidityImportSmoke" entry 
   contract EnumFlatStructOrderAndRejects
   function uninitArrayMemberLocal()
 
-/--
-error: EnumFlatStructOrderAndRejects.sol:130:9: Identifier: [solidity-import:unsupported] whole-struct storage assignment with enum members is outside this slice
-closure: EnumStorageWriteRejects.wholeStorageWrite
-stored
--/
-#guard_msgs in
-solidity_import rejWholeStorageWrite from "Contracts/SolidityImportSmoke" entry "EnumFlatStructOrderAndRejects.sol"
+-- Whole-struct storage assignment with enum members is admitted with enum validation.
+solidity_import wholeStorageWriteOk from "Contracts/SolidityImportSmoke" entry "EnumFlatStructOrderAndRejects.sol"
   using viaIr0838
   contract EnumStorageWriteRejects
   function wholeStorageWrite(uint64,Kind)

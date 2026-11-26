@@ -50,6 +50,9 @@ STORAGE_FIXTURES = (
     'struct-memory-array-helpers',
     'signed-narrow-values',
     'signed-custom-errors',
+    'yul-narrow-bool-address',
+    'struct-static-array-gaps',
+    'struct-nested-mappings',
 )
 
 def stateful_campaign(output, transactions, seed, jobs=1):
@@ -454,6 +457,14 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('yul-narrow-result', ['-m', 'solidity_differential.check_yul_narrow_result',
         '--transactions', str(max(120, min(transactions, 160))), '--seed', str(seed),
         '--output', str(output / 'yul-narrow-result')]))
+    checks.append(('raw-slot-2d-struct-mapping', ['-m', 'solidity_differential.check_raw_slot_2d_struct_mapping',
+        '--output', str(output / 'raw-slot-2d-struct-mapping')]))
+    checks.append(('interface-multi-return-and-receiver', ['-m', 'solidity_differential.check_interface_multi_return_and_receiver',
+        '--output', str(output / 'interface-multi-return-and-receiver')]))
+    checks.append(('checked-arguments', ['-m', 'solidity_differential.check_checked_arguments',
+        '--output', str(output / 'checked-arguments')]))
+    checks.append(('loops-storage-guards-enum-decode', ['-m', 'solidity_differential.check_loops_storage_guards_and_enum_decode',
+        '--output', str(output / 'loops-storage-guards-enum-decode')]))
     checks.append(('state-count-invariance', ['-m', 'solidity_differential.check_state_count_invariance',
         '--output', str(output / 'state-count-invariance')]))
     # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min

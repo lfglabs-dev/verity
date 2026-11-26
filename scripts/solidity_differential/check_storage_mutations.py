@@ -136,19 +136,19 @@ MUTANTS.update({
         '      opaqueMemberNames := opaqueMemberNames.push mName'),
     'import-namespaced-inner-mapping-order': (
         'Stmt.mstore (.literal 0) key.expr,\n'
-        '              Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
+        '              Stmt.mstore (.literal 32) memberSlot,',
         'Stmt.mstore (.literal 32) key.expr,\n'
-        '              Stmt.mstore (.literal 0) (rawStructMemberSlot baseSlot mapInfo.wordOffset),'),
+        '              Stmt.mstore (.literal 0) memberSlot,'),
     'import-namespaced-inner-mapping-member': (
-        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot mapInfo.wordOffset),',
-        'Stmt.mstore (.literal 32) (rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1)),')})
+        '| .rawSlot _ baseSlot => pure (#[], rawStructMemberSlot baseSlot mapInfo.wordOffset)',
+        '| .rawSlot _ baseSlot => pure (#[], rawStructMemberSlot baseSlot (mapInfo.wordOffset + 1))')})
 # Fixed-size array members of a raw-slot (ERC-7201) struct: each takes ceil(N / perWord)
 # words from a fresh slot, its elements sit at a computed word and lane, and an index >= N
 # raises Panic(0x32) (StructFixedArrayMemberSequence).
 MUTANTS.update({
     'import-raw-fixed-array-words': (
-        '      currWord := currWord + (length + perWord - 1) / perWord\n',
-        '      currWord := currWord + length / perWord\n'),
+        '          currWord := currWord + (length + perWord - 1) / perWord\n',
+        '          currWord := currWord + length / perWord\n'),
     'import-raw-fixed-array-bound': (
         '  .ite (.lt indexExpr (.literal arrInfo.length)) [] [.panicCode (.literal 0x32)]',
         '  .ite (.lt indexExpr (.literal (arrInfo.length + 1))) [] [.panicCode (.literal 0x32)]'),
@@ -731,7 +731,7 @@ MUTANTS.update({
     'import-helper-effect-argument-guard': ('if !singleEffect && statefulCallIn arg (← get) then', 'if false then'),
     'import-helper-effect-classifier': ('| some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")', '| some _ => false'),
     'import-helper-effect-drop': ('-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre ← lowerEffect s', '-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre : Array Stmt := #[]'),
-    'import-packed-member-delete': ('        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          checkStoredEnumSource target right\n          atom (← lowerConverted ty right)\n        return (pre ++ value.pre).push (write value.expr)', '        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          checkStoredEnumSource target right\n          atom (← lowerConverted ty right)\n        return (pre ++ value.pre).push (write value.expr)'),
+    'import-packed-member-delete': ('        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          validateStoredEnumValue target right (← atom (← lowerConverted ty right))\n        return (pre ++ value.pre).push (write value.expr)', '        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          validateStoredEnumValue target right (← atom (← lowerConverted ty right))\n        return (pre ++ value.pre).push (write value.expr)'),
     'import-packed-member-value': ('return (pre ++ value.pre).push (write value.expr)', 'return (pre ++ value.pre).push (write (.literal 0))'),
     'import-packed-member-target': ('\n              pure (rawField, 1, fun (value : Expr) => Stmt.setStructMember field key qualMember value)', '\n              pure (rawField, 1, fun (value : Expr) => Stmt.setStructMember field key "middle" value)'),
     'import-packed-member-two-keys': ('\n              pure (rawField, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 qualMember value)', '\n              pure (rawField, 2, fun (value : Expr) => Stmt.setStructMember2 field key2 key1 qualMember value)'),
@@ -811,8 +811,8 @@ MUTANTS.update({
     'import-empty-array-bytes-calldata-nonempty-body-guard': ('unless fnStmts.isEmpty && fnMods.isEmpty do return none', 'unless true do return none'),
     'import-overload-const-error-cond-tuple-tload-branch-swap': ('return (pre.push (.ite cond.expr thenB.toList elseB.toList), outRets)', 'return (pre.push (.ite cond.expr elseB.toList thenB.toList), outRets)'),
     'import-overload-const-error-cond-tuple-tload-tload-one': ('| "tload", #[a] => pure { pre, expr := .tload a }', '| "tload", #[_a] => pure { pre, expr := .literal 1 }'),
-    'import-overload-const-error-cond-tuple-tload-const-arg-one': ('let isConstLiteral := match converted.expr with\n        | .literal n => converted.pre.isEmpty && Denote.errorScalarValueValid modelType n\n        | _ => false\n      unless isConstLiteral do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"\n    let value ← atom { converted with expr := cleanHelperResultExpr ty converted }', 'let isConstLiteral := match converted.expr with\n        | .literal n => converted.pre.isEmpty && Denote.errorScalarValueValid modelType n\n        | _ => false\n      unless isConstLiteral do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"\n    let value ← atom (if isDirectScalar then { converted with expr := cleanHelperResultExpr ty converted } else { pre := #[], expr := .literal 1 })'),
-    'import-overload-const-error-cond-tuple-tload-nonconst-error-guard': ('unless isConstLiteral do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"', 'unless true do\n        failAt argument "custom-error arguments currently require literals or scalar bindings"'),
+    'import-overload-const-error-cond-tuple-tload-const-arg-one': ('let bound ← atom cleaned', 'let bound ← atom { pre := #[], expr := .literal 1 }'),
+    'import-overload-const-error-cond-tuple-tload-error-arg-snapshot': ('let errMutates := arguments.any fun arg => assignmentIn arg || statefulCallIn arg errEnv', 'let errMutates := false'),
     'import-struct-fixed-array-read-zero': ('[.assignVar dest (read s!"__solidity_struct_array_{arrInfo.member}_{i}")] [])', '[.assignVar dest (.literal 0)] [])'),
     'import-struct-fixed-array-write-bounds': ('let mut result := (valuePre ++ pre).push (.ite (.lt index (.literal arrInfo.length))\n        [] [.panicCode (.literal 0x32)])', 'let mut result := (valuePre ++ pre)'),
     'import-struct-fixed-array-return-zero': ('out := out.push (.returnValues elements.toList)', 'out := out.push (.returnValues (elements.toList.map fun _ => .literal 0))'),
@@ -859,7 +859,7 @@ MUTANTS.update({
     'import-yul-block-mulmod-tstore-drop': ('          out := out ++ slotVal.pre ++ valVal.pre |>.push (.tstore slotVal.expr valVal.expr)', '          out := out ++ slotVal.pre ++ valVal.pre'),
     'import-yul-block-mulmod-tstore-mulmod-zero': ('  pure { pre := stmts, expr := .localVar accBinding }', '  pure { pre := stmts, expr := .literal 0 }'),
     'import-yul-block-mulmod-tstore-compound-mul-add': ('        checkedMul bits { pre := #[], expr := lhs } { pre := #[], expr := rhs }', '        checkedAdd bits { pre := #[], expr := lhs } { pre := #[], expr := rhs }'),
-    'import-yul-block-mulmod-tstore-narrow-local-guard': ('    unless isFullWordYulScalar scalarType do\n      failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"', '    unless true do\n      failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"'),
+    'import-yul-block-mulmod-tstore-narrow-local-guard': ('    if marked.contains binding then\n      failAt node "Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported"', '    if false then\n      failAt node "Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported"'),
     'import-merkle-and-nonces-scratch-keccak-zero': ('          pure { pre, expr := .keccak256 (.literal off) (.literal size) }', '          pure { pre, expr := .literal 0 }'),
     'import-merkle-and-nonces-mstore-drop': ('          out := out ++ valVal.pre |>.push (.mstore (.literal off) valVal.expr)', '          out := out ++ valVal.pre'),
     'import-merkle-and-nonces-incdec-op-flip': ('  let compoundOp := if operator == "++" then "+=" else "-="', '  let compoundOp := if operator == "++" then "-=" else "+="'),
@@ -943,7 +943,7 @@ MUTANTS.update({
     'import-packed-struct-mapping-ternary-tuple-member-key-stateful-rhs-guard': ('        let hasInvalidKeyPrelude ← if pre.isEmpty then pure false\n          else if !pre.all isStorageKeyCaptureStmt then pure true\n          else if deleting then pure false\n          else do\n            let right ← mField expression "rightHandSide"\n            pure (assignmentIn right || statefulCallIn right (← get))', '        let hasInvalidKeyPrelude ← if pre.isEmpty then pure false\n          else if !pre.all isStorageKeyCaptureStmt then pure true\n          else if deleting then pure false\n          else pure false'),
     'import-timelock-and-bytes4-cast-literal-zero': ('      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal (n * 16 ^ 56) }', '      unless v.pre.isEmpty && n < 2 ^ 32 &&\n          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do\n        failAt j s!"unsupported cast source {src} for bytes4"\n      return { pre := #[], expr := .literal 0 }'),
     'import-timelock-and-bytes4-cast-abi-encode-tail-len-zero': ('          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) bufSize\n          ]', '          pre := pre ++ #[\n            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),\n            .mstore (.localVar tailPtr) (.literal 0)\n          ]'),
-    'import-timelock-and-bytes4-cast-const-error-eval-zero': ('      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some n => { pre := #[], expr := .literal n }\n        | none => rawConverted', '      else match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n        | some _ => { pre := #[], expr := .literal 0 }\n        | none => rawConverted'),
+    'import-timelock-and-bytes4-cast-const-error-eval-zero': ('      match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n      | some n => { pre := #[], expr := .literal n }\n      | none => rawConverted', '      match evalConstVal? { rawConverted with expr := cleanHelperResultExpr ty rawConverted } with\n      | some _ => { pre := #[], expr := .literal 0 }\n      | none => rawConverted'),
     'import-timelock-and-bytes4-cast-encode-stateful-bytes-guard': ('      if ← isDynamicArg argIdx then\n        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then\n          failAt arg "effectful ABI encoding argument is unsupported"', '      if ← isDynamicArg argIdx then\n        if false then\n          failAt arg "effectful ABI encoding argument is unsupported"'),
     'import-string-bytes-mappings-uri-storage-strings-mstore8-zero': ('          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let newByte := Expr.shl shift (.bitAnd valVal.expr (.literal 0xff))\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))', '          let cleared := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)\n          let _ := valVal.expr\n          let newByte := Expr.shl shift (.literal 0)\n          out := out ++ addrVal.pre ++ valVal.pre |>.push (.mstore wordAddr (.bitOr cleared newByte))'),
     'import-string-bytes-mappings-uri-storage-strings-mapping-slot-zero': ('              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, slotExpr) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", slotExpr, info.stringStorage)', '              if info.bytesStorage && info.keyCount == count then\n                markField name\n                let (slotStmts, _) ← computeSPathBaseSlot path info 0 j\n                return some (pre ++ slotStmts, "", .literal 0, info.stringStorage)'),
@@ -1083,6 +1083,23 @@ MUTANTS.update({
         'materializeFromCalldata calldataPointer stem schema (wrapper := false)',
         'materializeFromCalldata calldataPointer stem schema (wrapper := true)'),
 })
+# Synthetic construct fixtures: a one-slot footprint for static-array struct members and the
+# nested struct mapping's member slot one word off each diverge on A/B/C. Storing the dirty
+# Yul word into a `bool` / `address` local instead of its cleanup is an equivalent mutant under
+# via-IR (every Solidity-level consumer cleans it again: branches, comparisons, `!`,
+# conversions, storage, events, mapping keys, `abi.encode` / `abi.encodePacked`); the observable
+# case, a raw Yul read, is covered by `import-yul-block-mulmod-tstore-narrow-local-guard`.
+MUTANTS.update({
+    'import-synthetic-gap-footprint': ('          currWord := currWord + words',
+                                       '          currWord := currWord + 1'),
+    'import-synthetic-nested-mapping-member-slot': (
+        'computeSPathBaseSlot path info mapInfo.wordOffset j',
+        'computeSPathBaseSlot path info (mapInfo.wordOffset + 1) j'),
+})
+SYNTHETIC_MUTANT_FIXTURES = {
+    'import-synthetic-gap-footprint': 'SyntheticGapStorageSequence',
+    'import-synthetic-nested-mapping-member-slot': 'SyntheticNestedMappingSequence',
+}
 ROOT_PARAM_MUTANT_FIXTURES = {
     'import-root-param-string-member-pointer': 'StructStringMemberParamSequence',
     'import-root-param-string-calldata-member': 'StructStringMemberParamSequence',
@@ -1275,6 +1292,8 @@ def run(directory, output, name):
                    else "CalldataNarrowArrayCopySolc0810Sequence")
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         fixture = ROOT_PARAM_MUTANT_FIXTURES[name]
+    if name in SYNTHETIC_MUTANT_FIXTURES:
+        fixture = SYNTHETIC_MUTANT_FIXTURES[name]
     if name.startswith("import-immutable-"):
         fixture = "ImmutableAddressSequence"
     if name.startswith("import-immutable-scalar-"):
@@ -1663,6 +1682,11 @@ def run(directory, output, name):
         from solidity_differential.check_storage import FIXED_MEMORY_ARRAY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, FIXED_MEMORY_ARRAY_PREFIX)])
+    if name in SYNTHETIC_MUTANT_FIXTURES:
+        # The storage campaign's deterministic boundary words, then random calls.
+        from solidity_differential.check_storage import SYNTHETIC_STORAGE_PREFIX
+        argv[argv.index('--transactions') + 1] = '32'
+        argv.extend(['--change-prefix', *map(str, SYNTHETIC_STORAGE_PREFIX)])
     if name in ROOT_PARAM_MUTANT_FIXTURES:
         # The deterministic root-parameter call list (`check_stateful.ROOT_PARAM_CALLS`)
         # runs first; the budget covers all of it.
@@ -1777,17 +1801,6 @@ contract C {
  }
 }
 ''')
-    elif name == 'import-overload-const-error-cond-tuple-tload-nonconst-error-guard':
-        diagnostic = 'custom-error arguments currently require literals or scalar bindings'
-        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
-contract C {
- error Failure(address who);
- function checked(uint256 x) external pure returns (uint256) {
-  if (x > 0) revert Failure(address(uint160(x)));
-  return 0;
- }
-}
-''')
     elif name == 'import-struct-fixed-array-delete-guard':
         diagnostic = 'cannot delete mapping struct with fixed-array members'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -1883,13 +1896,15 @@ contract C is Base {
 }
 ''')
     elif name == 'import-yul-block-mulmod-tstore-narrow-local-guard':
-        diagnostic = 'Yul assignment to narrow local narrow is unsupported'
+        # A cleaned `address` local read back raw in a later Yul block: solc observes the dirty
+        # word, the model the cleaned one, so the read must be rejected.
+        diagnostic = 'Yul read of a narrow local assigned a possibly dirty word in Yul is unsupported'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
- function checked(uint256 x) external pure returns (uint256) {
+ function checked(uint256 x) external pure returns (uint256 r) {
   address narrow;
   assembly { narrow := x }
-  return uint160(narrow);
+  assembly { r := narrow }
  }
 }
 ''')
@@ -2529,9 +2544,11 @@ def mutation_source(directory, name):
                                   else 'Compiler/SolidityImport/AbiLowering.lean' if name.startswith('import-narrow-copy-clean-')
                                   else 'Compiler/SolidityImport/AbiRootLowering.lean' if name.startswith('import-root-param-lowering-')
                                   else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
-                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-namespaced-opaque-slot'
-                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name == 'import-raw-fixed-array-words'
-                                  else 'Compiler/SolidityImport/ExprHelpers.lean' if name == 'import-encoding-arg-super-revert-guard'
+                                  else 'Compiler/SolidityImport/StorageLayout.lean' if name in ('import-namespaced-opaque-slot',
+                                                                                                'import-raw-fixed-array-words',
+                                                                                                'import-synthetic-gap-footprint')
+                                  else 'Compiler/SolidityImport/ExprHelpers.lean' if name in ('import-encoding-arg-super-revert-guard',
+                                                                                              'import-yul-block-mulmod-tstore-narrow-local-guard')
                                   else 'Compiler/SolidityImport/Lowering/EvalOrderHazards.lean' if name == 'import-helper-effect-classifier'
                                   else 'Compiler/SolidityImport/Import.lean')
 
@@ -2570,7 +2587,6 @@ def mutation_campaign(output, selected=None):
                                   'import-tuple-helper-duplicate-target-guard',
                                   'import-fnptr-struct-delete-modifier-opaque-delete-guard',
                                   'import-empty-array-bytes-calldata-nonempty-body-guard',
-                                  'import-overload-const-error-cond-tuple-tload-nonconst-error-guard',
                                   'import-struct-fixed-array-delete-guard',
                                   'import-msg-data-and-enum-encoding-cast-guard',
                                   'import-exp-and-bitwise-shift-dynamic-exp-guard',
