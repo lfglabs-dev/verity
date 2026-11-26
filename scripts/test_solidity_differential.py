@@ -54,6 +54,8 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "extcodehash-rejections",
     "external-code-low-level-call",
     "external-code-low-level-call-rejections",
+    "forwarded-tuple-modifiers",
+    "forwarded-tuple-modifiers-legacy",
     "hashing-programs",
     "hashing-rejections",
     "immutable-lowering",

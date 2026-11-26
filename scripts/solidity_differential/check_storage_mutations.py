@@ -466,6 +466,21 @@ MUTANTS.update({
         '    if containsNodeKind "InlineAssembly" body then\n      failAt fn "inline assembly in a function whose modifier',
         '    if false then\n      failAt fn "inline assembly in a function whose modifier'),
 })
+# Modifiers on roots and helpers in a forwarded `(bool, bytes memory)` tuple call tree (#2803):
+# `ForwardedTupleModifiersSequence` observes pre/post ordering and via-IR substituted resets.
+MUTANTS.update({
+    # Run the root modifier's post-`_;` epilogue before the forwarded helper call.
+    'import-forwarded-tuple-modifier-post-before-call': (
+        '  return pre ++ post ++ ret\n',
+        '  return post ++ pre ++ ret\n'),
+    # Omit via-IR return-variable resets across substituted `_;` copies on a forwarded tuple.
+    'import-forwarded-tuple-substituted-ir-reset': (
+        '      let tupleResets := if (← get).viaIR then\n'
+        '          #[Stmt.assignVar scalarBinding (.literal 0), Stmt.assignVar ptrBinding (.literal 0),\n'
+        '            Stmt.assignVar sizeBinding (.literal 0)]\n'
+        '        else #[]\n',
+        '      let tupleResets : Array Stmt := #[]\n'),
+})
 # An empty storage array push() writes nothing, as solc's does: the new element keeps what
 # its slot held and `x = a.push()` reads it; push(v) keeps a struct's padding bits.
 MUTANTS.update({
@@ -1289,6 +1304,8 @@ def run(directory, output, name):
     if name.startswith("import-modifier-placeholder-"):
         fixture = ("ModifierPlaceholderLegacySequence" if name == "import-modifier-placeholder-legacy-shared"
                    else "ModifierPlaceholderSequence")
+    if name.startswith("import-forwarded-tuple-"):
+        fixture = "ForwardedTupleModifiersSequence"
     if name == "import-abi-encode-string-helper-literal-fixed-bytes":
         fixture = "AbiEncodeStringHelperSequence"
     if name.startswith("import-storage-pointer-mapping-helper-"):
@@ -1402,6 +1419,11 @@ def run(directory, output, name):
         if fixture == 'ModifierPlaceholderLegacySequence':
             argv.extend(['--solc-version', '0.8.10'])
         argv.extend(['--change-prefix', *map(str, [0, 2, 5, 3, 3, 9, 20, 14, 1, 8, 8, 4, 6, 11, 31, 2 ** 256 - 1])])
+    if fixture == 'ForwardedTupleModifiersSequence':
+        argv[argv.index('--transactions') + 1] = '44'
+        argv[argv.index('--seed') + 1] = '2490'
+        argv[argv.index('--shrink-attempts') + 1] = '200'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 0x12342, 0x56783, 0x9abc4, 11, 12, 13, 14, 15])])
     if fixture == 'MappingWriteOrderSequence':
         # x = 16 * y + c selects assignment c; y = 0 makes key and right-hand side revert.
         argv[argv.index('--transactions') + 1] = '32'
