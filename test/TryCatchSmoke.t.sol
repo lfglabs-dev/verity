@@ -49,6 +49,22 @@ contract TryCatchSmokeTest is Test, YulTestBase {
         assertEq(data, abi.encodeWithSignature("Error(string)", "fail"));
     }
 
+    function testNestedCatchErrReRaisesInnerPayload() public {
+        (bool ok, bytes memory data) = smoke.call(abi.encodeWithSignature("rethrowNested()"));
+        assertFalse(ok, "rethrowNested must revert");
+        assertEq(data, abi.encodeWithSignature("Error(string)", "fail"));
+    }
+
+    function testSequentialTriesInOneFunction() public {
+        // failHop reverts (catch writes 2), then okHop writes 3 and success writes 4.
+        assertEq(_uint(smoke, abi.encodeWithSignature("sequentialTries()")), 4);
+    }
+
+    function testTryNestedInCatchBody() public {
+        // failHop reverts; the nested try runs okHop (writes 3), success writes 7.
+        assertEq(_uint(smoke, abi.encodeWithSignature("nestedTry()")), 7);
+    }
+
     function testArgumentIsEncodedForHop() public {
         // Lean `tryCatchArgSevenValue`: hopWithArg(7) succeeds, success body writes 7 + 100.
         assertEq(_uint(argSmoke, abi.encodeWithSignature("catchArg(uint256)", 7)), 107);

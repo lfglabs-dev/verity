@@ -53,7 +53,8 @@ private def translateCustomErrorArgExprs
 
 /-- In a `tryCall … catch err => …` body, replace every `revert err` statement by
 `replacement`; any other use of `err` is rejected (the compilation path keeps the
-payload only as bytes to re-raise). -/
+payload only as bytes to re-raise). `revert other` is left to the nested
+`catch other =>` that binds it; a nested binder reusing `err` is rejected. -/
 private def rewriteRevertPayload (errName : Ident) (replacement : Term) (seq : DoSeq)
     (checkNoOtherUse : Bool := true) : CommandElabM DoSeq := do
   let name := errName.getId
@@ -63,7 +64,12 @@ private def rewriteRevertPayload (errName : Ident) (replacement : Term) (seq : D
         if x.getId == name then
           return some (← `(doElem| $replacement:term)).raw
         else
-          throwErrorAt x s!"`revert {x.getId}` re-raises a caught payload; '{x.getId}' is not one"
+          return none
+    | `(doElem| tryCall $_:term then $_:term catch $x:ident => $_:term) =>
+        if x.getId == name then
+          throwErrorAt x s!"nested catch payload '{name}' shadows an enclosing one; rename it"
+        else
+          return none
     | _ => return none
   if checkNoOtherUse && syntaxMentionsIdent out (toString name) then
     throwErrorAt errName
@@ -369,6 +375,9 @@ private partial def validateDoElemExprTypes
           validateTryCatchHandlerDoesNotUsePayload handler payloadName? catchElems
           let _ ← validateDoElemsExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals catchElems
           pure locals
+      | `(doElem| revert $x:ident) =>
+          -- Bound payloads are rewritten by their `catch x =>` before validation.
+          throwErrorAt x s!"`revert {x.getId}` re-raises a payload bound by `catch {x.getId} =>`; none is in scope"
       | `(doElem| tryCall $attempt:term then $succ:term catch $err:ident => $fail:term) => do
           requireSelfCallAttemptForPayload attempt err
           let failSeq ← rewriteRevertPayload err (← `(term| revertEmpty)) (← expectDoBlock fail)
@@ -1860,8 +1869,9 @@ private partial def translateDoElem
           let (payloadName?, catchElems) ← parseTryCatchHandler handler
           validateTryCatchHandlerDoesNotUsePayload handler payloadName? catchElems
           let attemptExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt
+          let scopeLocals := locals.push (mkTypedLocal trySuccessName .uint256)
           let catchTranslation ←
-            translateDoElems fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals catchElems
+            translateDoElems fields constDecls immutableDecls externalDecls errorDecls functions returnTy params scopeLocals mutableLocals catchElems
           let catchStmts := catchTranslation.1
           pure
             (#[
@@ -1873,21 +1883,23 @@ private partial def translateDoElem
                     [ $[$catchStmts],* ]
                     []))
             ],
-            locals,
+            scopeLocals,
             mutableLocals)
       | `(doElem| tryCall $attempt:term then $succ:term catch $err:ident => $fail:term) => do
           -- Copy the callee's returndata to fresh memory on catch entry, so later
           -- calls in the body cannot clobber what `revert err` re-raises.
           requireSelfCallAttemptForPayload attempt err
           let ptrName := freshSyntheticLocalName "verity_caught_ptr" params locals mutableLocals
-          let lenName := freshSyntheticLocalName "verity_caught_len" params locals mutableLocals
+          let ptrLocals := locals.push (mkTypedLocal ptrName .uint256)
+          let lenName := freshSyntheticLocalName "verity_caught_len" params ptrLocals mutableLocals
+          let caughtLocals := ptrLocals.push (mkTypedLocal lenName .uint256)
           let failSeq ← rewriteRevertPayload err
             (← `(term| revertCaughtPayload $(mkIdent (Name.mkSimple ptrName))
                   $(mkIdent (Name.mkSimple lenName))))
             (← expectDoBlock fail) (checkNoOtherUse := false)
           let plain ← `(doElem| tryCall $attempt then $succ catch (do $failSeq))
           let (stmts, locals', mutableLocals') ← translateDoElem fields constDecls immutableDecls
-            externalDecls errorDecls functions returnTy params locals mutableLocals plain
+            externalDecls errorDecls functions returnTy params caughtLocals mutableLocals plain
           let ptr : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm ptrName))
           let len : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm lenName))
           let prologue : Array Term := #[
@@ -1915,6 +1927,12 @@ private partial def translateDoElem
       | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
           let trySuccessName :=
             freshSyntheticLocalName "verity_try_success" params locals mutableLocals
+          -- The synthetic names stay in scope after this statement, so a later or
+          -- nested `tryCall` in the same function must pick different ones.
+          let successLocals := locals.push (mkTypedLocal trySuccessName .uint256)
+          let ptrName :=
+            freshSyntheticLocalName "verity_self_call_ptr" params successLocals mutableLocals
+          let scopeLocals := successLocals.push (mkTypedLocal ptrName .uint256)
           -- `this.f(args)`: ABI-encode `f`'s selector and single-word static arguments
           -- at the free memory pointer (scratch, not reserved) and CALL this contract
           -- with all available gas (a `2^256 - 1` request is capped by EIP-150).
@@ -1929,7 +1947,6 @@ private partial def translateDoElem
                 throwErrorAt fn s!"selfCall '{fn.getId}' parameter '{param.name}' has type {valueTypeToSolidityString param.ty}; only single-word static parameters are ABI-encoded on the compilation path"
             let selector := Compiler.keccak256_first_4_bytes
               (interfaceFunctionSignature target.name (target.params.map (·.ty)))
-            let ptrName := freshSyntheticLocalName "verity_self_call_ptr" params locals mutableLocals
             let ptr : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm ptrName))
             let mut stmts : Array Term := #[
               (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm ptrName)
@@ -1959,8 +1976,8 @@ private partial def translateDoElem
                 pure (#[], ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt)
           let succSeq ← expectDoBlock succ
           let failSeq ← expectDoBlock fail
-          let succStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals succSeq
-          let failStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals failSeq
+          let succStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params scopeLocals mutableLocals succSeq
+          let failStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params scopeLocals mutableLocals failSeq
           pure
             (encodeStmts ++ #[
               (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm trySuccessName) $attemptExpr)),
@@ -1971,7 +1988,7 @@ private partial def translateDoElem
                     [ $[$failStmts],* ]
                     [ $[$succStmts],* ]))
             ],
-            locals,
+            scopeLocals,
             mutableLocals)
       | `(doElem| forEach $name:term $count:term $body:term) =>
           let loopVar := ← expectStringOrIdent name
