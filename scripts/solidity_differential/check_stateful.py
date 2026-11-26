@@ -579,6 +579,7 @@ def main():
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
+    parser.add_argument('--no-via-ir', action='store_true')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source-fixture', type=Path,
         default=Path(__file__).parent / 'fixtures/Sequence.sol')
@@ -612,7 +613,7 @@ def main():
     source_settings = {'evmVersion': evm_version,
         'optimizer': {'enabled': True, 'runs': optimizer_runs},
         'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}
-    if args.solc_version == '0.8.34':
+    if args.solc_version == '0.8.34' and not args.no_via_ir:
         source_settings['viaIR'] = True
     request = {'language': 'Solidity', 'sources': {'Sequence.sol': {'content': source_text}},
         'settings': source_settings}
@@ -762,6 +763,9 @@ def main():
         'run(uint256)',
         'runShadow(uint256)',
         'runBranch(uint256)',
+        'execAsmGuard(uint256)',
+        'execSubstituted(uint256)',
+        'execBranch(uint256)',
         'writePartMemory(address,(uint128,bool,int24,uint64,uint256))',
         'writePartCalldata(address,(uint128,bool,int24,uint64,uint256))',
         'readPart(address)',
@@ -1591,6 +1595,34 @@ def main():
         fixed_prefix.append(('read()', []))
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(fixed_prefix[:remaining_budget])
+    if 'execSubstituted(uint256)' in source['methodIdentifiers']:
+        # Forwarded `(bool, bytes)` with modifiers (#2803): `--change-prefix` runs `change`
+        # across empty/short/long payloads and root/helper pre/post reverts; this prefix adds
+        # the assembly `tload`/`tstore` guard, fallthrough vs forwarded branch, and substituted
+        # `_;` copies (including a skipped second copy where legacy and via-IR return variables
+        # differ).
+        forwarded_mod_prefix = [
+            ('read()', []),
+            ('execAsmGuard(uint256)', [0]),
+            ('execAsmGuard(uint256)', [0x420 + 1]),
+            ('execAsmGuard(uint256)', [0x770 + 2]),
+            ('execAsmGuard(uint256)', [0x990 + 3]),
+            ('execAsmGuard(uint256)', [13]),
+            ('execAsmGuard(uint256)', [14]),
+            ('execAsmGuard(uint256)', [15]),
+            ('execBranch(uint256)', [2]),
+            ('execBranch(uint256)', [3]),
+            ('execBranch(uint256)', [4]),
+            ('execSubstituted(uint256)', [0]),
+            ('execSubstituted(uint256)', [1]),
+            ('execSubstituted(uint256)', [2]),
+            ('execSubstituted(uint256)', [0x330 + 1]),
+            ('execSubstituted(uint256)', [0x440 + 2]),
+            ('execSubstituted(uint256)', [0x550 + 3]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(forwarded_mod_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1624,6 +1656,8 @@ def main():
             call_args = [rng.choice((0, 1, 2, 255, (1 << 256) - 1))]
         elif name in ('run(uint256)', 'runShadow(uint256)', 'runBranch(uint256)'):
             call_args = [rng.choice((0, 1, 3, 4, 255, (1 << 256) - 2, (1 << 256) - 1))]
+        elif name in ('execAsmGuard(uint256)', 'execSubstituted(uint256)', 'execBranch(uint256)'):
+            call_args = [rng.choice((0, 1, 2, 3, 4, 5, 13, 14, 15, 0x1234, 0xabcd3))]
         elif name in NARROW_COPY_CALLS:
             call_args = rng.choice(NARROW_COPY_CALLS[name])
         elif name == 'echoNarrow(uint8[])':
