@@ -248,11 +248,14 @@ inductive CallArg where
   | calldataBytes (descriptor : CalldataBytesParam) (pre : Array Stmt)
   | storagePath (structId : Nat) (path : SPath) (pre : Array Stmt)
   /-- `byRef`: the argument is a caller's own memory struct local, not a struct built in the
-  argument, so the helper must not write or return it (see `Env.byRefFlatStructs`). -/
+  argument, so the helper must not write or return it (see `Env.byRefFlatStructs`).
+  When `byRefBindings` is `some members`, the caller opted into scoped in-place mutation
+  (e.g. a `while`-loop cursor struct) and shares its member variable bindings directly. -/
   | flatStruct (structId : Nat) (structName : String) (members : Array (String × String × Expr)) (pre : Array Stmt)
-      (byRef : Bool)
+      (byRef : Bool) (byRefBindings : Option (Array (String × String × String)) := none)
   | storageBytes (target : String × Expr × Array Stmt) (isString : Bool)
   | storageDynamicArray (fieldName : String) (slotExpr : Expr) (elemTy : String) (elemStructId : Option Nat) (pre : Array Stmt)
+  | storageFixedArray (path : SPath) (arrInfo? : Option StructFixedArrayInfo) (pre : Array Stmt)
   | fnPtr (ptr : FnPtr) (pre : Array Stmt)
 
 structure FieldInfo where

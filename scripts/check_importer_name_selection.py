@@ -185,6 +185,8 @@ SOLC_JSON_FIELDS |= {
     "valueSize", "valueType", "variables",
     # `PragmaDirective.literals`, the pragma's tokens.
     "literals",
+    # `FunctionCallOptions.options`, the `{value: v, gas: g}` option values.
+    "options",
 }
 # Tokens of the `pragma experimental ABIEncoderV2;` / `pragma abicoder v2;` directives.
 SOLIDITY_PRAGMA_WORDS = {"ABIEncoderV2", "abicoder", "experimental", "v2"}
