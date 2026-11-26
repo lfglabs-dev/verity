@@ -1596,21 +1596,12 @@ def main():
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(fixed_prefix[:remaining_budget])
     if 'execSubstituted(uint256)' in source['methodIdentifiers']:
-        # Forwarded `(bool, bytes)` with modifiers (#2803): empty, short and multi-word
-        # payloads, pre/post modifier reverts on root and helper, assembly `tload`/`tstore`
-        # guard, fallthrough vs forwarded branch, and substituted `_;` copies (including a
-        # skipped second copy where legacy and via-IR return variables differ).
+        # Forwarded `(bool, bytes)` with modifiers (#2803): `--change-prefix` runs `change`
+        # across empty/short/long payloads and root/helper pre/post reverts; this prefix adds
+        # the assembly `tload`/`tstore` guard, fallthrough vs forwarded branch, and substituted
+        # `_;` copies (including a skipped second copy where legacy and via-IR return variables
+        # differ).
         forwarded_mod_prefix = [
-            ('change(uint256)', [0]),
-            ('change(uint256)', [1]),
-            ('change(uint256)', [0x12340 + 2]),
-            ('change(uint256)', [0x56780 + 3]),
-            ('change(uint256)', [0x9abc0 + 4]),
-            ('change(uint256)', [11]),
-            ('change(uint256)', [12]),
-            ('change(uint256)', [13]),
-            ('change(uint256)', [14]),
-            ('change(uint256)', [15]),
             ('read()', []),
             ('execAsmGuard(uint256)', [0]),
             ('execAsmGuard(uint256)', [0x420 + 1]),
