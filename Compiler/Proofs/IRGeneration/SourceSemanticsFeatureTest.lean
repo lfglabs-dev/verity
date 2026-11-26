@@ -400,22 +400,22 @@ example :
   native_decide
 
 private def oracleSuccess42 : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [42], none⟩
+  fun _ => ⟨true, [42], none, []⟩
 
 private def oracleFail : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨false, [], none⟩
+  fun _ => ⟨false, [], none, []⟩
 
 private def oracleSuccess99 : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [99], none⟩
+  fun _ => ⟨true, [99], none, []⟩
 
 private def oracleFail0 : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨false, [0], none⟩
+  fun _ => ⟨false, [0], none, []⟩
 
 private def oracleIndexed : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun n => if n == 0 then ⟨true, [7], none⟩ else ⟨false, [], none⟩
+  fun n => if n == 0 then ⟨true, [7], none, []⟩ else ⟨false, [], none, []⟩
 
 private def mkState (bindings : List (String × Nat))
-    (oracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (oracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none, []⟩)
     (callIdx : Nat := 0) : SourceSemantics.RuntimeState :=
   { world := Verity.defaultState, bindings, externalCallOracle := oracle,
     externalCallIndex := callIdx }
@@ -447,6 +447,24 @@ example :
 example :
     isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleFail)
       (.externalCallBind ["x"] "transfer" [.literal 100])) = true := by
+  native_decide
+
+/-- `AmountTooLarge(uint256,uint256)` with arguments 101 and 100: 4 + 64 bytes,
+    which no word list can hold. -/
+private def customErrorBytes : List UInt8 :=
+  [0x7f, 0x16, 0x27, 0x03] ++ Compiler.CompilationModel.Denote.wordBytes 101 ++
+    Compiler.CompilationModel.Denote.wordBytes 100
+
+private def revertPayload? (r : SourceSemantics.StmtResult) :
+    Option Verity.Core.RevertPayload :=
+  match r with | .revert p => some p | _ => none
+
+/-- externalCallBind: a failed call re-raises the receipt's exact revert bytes -/
+example :
+    revertPayload? (SourceSemantics.execStmt []
+      (mkState [("x", 0)] (fun _ => ⟨false, [], none, customErrorBytes⟩))
+      (.externalCallBind ["x"] "transfer" [.literal 100])) =
+    some (.raw customErrorBytes) := by
   native_decide
 
 /-- tryExternalCallBind: oracle returns success → successVar=1, bindings updated -/
@@ -486,7 +504,7 @@ example :
 
 /-- P1-1: externalCallBind arity mismatch (too few return values) → revert -/
 private def oracleSuccessEmpty : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [], none⟩
+  fun _ => ⟨true, [], none, []⟩
 
 example :
     isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessEmpty)
@@ -503,7 +521,7 @@ example :
 /-- P1-1: a receipt carrying more return values than result variables is an arity
 mismatch as well, so it reverts instead of silently dropping the extras. -/
 private def oracleSuccessExtra : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [10, 20, 30], none⟩
+  fun _ => ⟨true, [10, 20, 30], none, []⟩
 
 private theorem externalCallBind_extraReturnValues_reverts :
     isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessExtra)
@@ -512,7 +530,7 @@ private theorem externalCallBind_extraReturnValues_reverts :
 
 /-- P1-2: return values >= evmModulus are normalized (mod 2^256) -/
 private def oracleSuccessOverflow : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [Compiler.Constants.evmModulus], none⟩
+  fun _ => ⟨true, [Compiler.Constants.evmModulus], none, []⟩
 
 example :
     resultBindings (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessOverflow)
@@ -521,7 +539,7 @@ example :
 
 /-- P1-2: tryExternalCallBind failure path also normalizes -/
 private def oracleFailOverflow : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨false, [Compiler.Constants.evmModulus], none⟩
+  fun _ => ⟨false, [Compiler.Constants.evmModulus], none, []⟩
 
 example :
     resultBindings (SourceSemantics.execStmt []
@@ -592,7 +610,7 @@ private def probeEcmWriting : Compiler.ECM.ExternalCallModule :=
     compile := fun _ _ => .ok [] }
 
 private def oracleCommittedWorld : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [42], some { Verity.defaultState with blockNumber := 5 }⟩
+  fun _ => ⟨true, [42], some { Verity.defaultState with blockNumber := 5 }, []⟩
 
 private def resultBlockNumber (r : SourceSemantics.StmtResult) : Option Nat :=
   match r with | .continue s => some s.world.blockNumber.val | _ => none
@@ -629,7 +647,7 @@ private theorem ecm_static_module_does_not_commit_world :
   native_decide
 
 private def oracleCommittedMemory : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [42], some { Verity.defaultState with memory := fun _ => 7 }⟩
+  fun _ => ⟨true, [42], some { Verity.defaultState with memory := fun _ => 7 }, []⟩
 
 private def resultMemoryAt (r : SourceSemantics.StmtResult) (slot : Nat) : Option Nat :=
   match r with | .continue s => some (s.world.memory slot).val | _ => none
@@ -655,7 +673,7 @@ private def journalEntry : Verity.ExternalCall :=
   { siteId := 0, kind := .staticcall, target := 0, control := .success }
 
 private def oracleCommittedCalls : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [42], some { Verity.defaultState with calls := [journalEntry] }⟩
+  fun _ => ⟨true, [42], some { Verity.defaultState with calls := [journalEntry] }, []⟩
 
 private def resultCallsLength (r : SourceSemantics.StmtResult) : Option Nat :=
   match r with | .continue s => some s.world.calls.length | _ => none
@@ -721,7 +739,7 @@ broke that premise, so the buffer is now a real field. -/
 private def stateWithReturndata (ws : List Nat) : SourceSemantics.RuntimeState :=
   { world := { Verity.defaultState with returndata := ws }
     bindings := []
-    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallOracle := fun _ => ⟨false, [], none, []⟩
     externalCallIndex := 0 }
 
 private def worldWithReturndataAndMemory (ws : List Nat) (m : Nat) : Verity.ContractState :=
@@ -733,7 +751,7 @@ private def stateWithReturndataAndMemory (ws : List Nat) (m : Nat) :
     SourceSemantics.RuntimeState :=
   { world := worldWithReturndataAndMemory ws m
     bindings := []
-    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallOracle := fun _ => ⟨false, [], none, []⟩
     externalCallIndex := 0 }
 
 private def denoteStateWithReturndataAndMemory (ws : List Nat) (m : Nat) :
@@ -932,7 +950,7 @@ transaction's frame. Every entry lane reads `returndatasize() == 0`. -/
 private def runtimeStateIn (world : Verity.ContractState) : SourceSemantics.RuntimeState :=
   { world := world
     bindings := []
-    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallOracle := fun _ => ⟨false, [], none, []⟩
     externalCallIndex := 0 }
 
 private def irTxProbe : IRTransaction :=

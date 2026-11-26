@@ -38,7 +38,8 @@ theorem sourceOracle_eq_denoteOracle : sourceOracle = SourceSemantics.denoteOrac
 def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
   { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector,
     externalCallOracle := fun n =>
-      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩,
+      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n,
+        s.externalCallRevertData n⟩,
     externalCallIndex := s.externalCallIndex,
     observedReturnWords := s.observedReturnWords, errors := s.errors }
 
@@ -56,7 +57,8 @@ def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
 
 @[simp] theorem toRuntimeState_externalCallOracle (s : DenoteState) :
     (toRuntimeState s).externalCallOracle = fun n =>
-      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩ := rfl
+      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n,
+        s.externalCallRevertData n⟩ := rfl
 
 @[simp] theorem toRuntimeState_externalCallIndex (s : DenoteState) :
     (toRuntimeState s).externalCallIndex = s.externalCallIndex := rfl
