@@ -884,6 +884,14 @@ def ExecutableCallContext.ofCallEnv
     (env : Compiler.CompilationModel.DenoteFunctionCalls.CallEnv) : ExecutableCallContext :=
   { adversary := env.adversary
     resolve := fun name _ => env.resolve name }
+/-- What a caller re-raises when a typed call it does not catch fails: the
+callee's returndata, as `revertReturndata` would copy it from the word buffer
+(`Denote.returndataRevertBytes`). The compiled call step forwards the same
+buffer. Exact bytes for payloads that are not whole words (a custom error is
+4 + 32n bytes) need a byte-granular buffer, which the EDSL does not have. -/
+def failedCallPayload (returndata : List Nat) : Verity.Core.RevertPayload :=
+  .raw (Compiler.CompilationModel.Denote.returndataRevertBytes returndata)
+
 def externalCallResultWord (result : ExternalCallResult) : Uint256 :=
   Core.Uint256.ofNat (result.returndata.head?.getD 0)
 
@@ -1009,8 +1017,8 @@ def externalCallContractWords {α : Type} [ExternalResult α]
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else
         .revert "external call returned malformed data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 def externalCallContractWordsResolved {α : Type} [ExternalResult α]
@@ -1022,8 +1030,8 @@ def externalCallContractWordsResolved {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 def externalStaticCallContractWords {α : Type} [ExternalResult α]
@@ -1037,8 +1045,8 @@ def externalStaticCallContractWords {α : Type} [ExternalResult α]
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else
         .revert "external call returned malformed data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 def externalStaticCallContractWordsResolved {α : Type} [ExternalResult α]
@@ -1050,8 +1058,8 @@ def externalStaticCallContractWordsResolved {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 /-- Typed-interface variant whose callee is supplied by the interface value. -/
@@ -1066,8 +1074,8 @@ def externalCallContractWordsTo {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 def externalStaticCallContractWordsTo {α : Type} [ExternalResult α]
@@ -1081,8 +1089,8 @@ def externalStaticCallContractWordsTo {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 def externalCallEffectWords
@@ -1091,16 +1099,16 @@ def externalCallEffectWords
   Verity.bind (commonExternalCall adv (linkedCallSite name args 0 .call 0 0 [] siteId)) fun result =>
     match result with
     | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+    | .failure data | .revert data => fun state =>
+        ContractResult.revert (failedCallPayload data) state
 
 def externalCallEffectWordsResolved (name : String) (args : List Uint256)
     (ctx : ExecutableCallContext) (siteId : Nat := 0) : Contract Unit :=
   Verity.bind (resolvedLinkedCall ctx name args 0 .call siteId) fun result =>
     match result with
     | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+    | .failure data | .revert data => fun state =>
+        ContractResult.revert (failedCallPayload data) state
 
 def externalStaticCallEffectWords
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)
@@ -1109,16 +1117,16 @@ def externalStaticCallEffectWords
       (linkedCallSite name args 0 .staticcall 0 0 [] siteId)) fun result =>
     match result with
     | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+    | .failure data | .revert data => fun state =>
+        ContractResult.revert (failedCallPayload data) state
 
 def externalStaticCallEffectWordsResolved (name : String) (args : List Uint256)
     (ctx : ExecutableCallContext) (siteId : Nat := 0) : Contract Unit :=
   Verity.bind (resolvedLinkedCall ctx name args 0 .staticcall siteId) fun result =>
     match result with
     | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+    | .failure data | .revert data => fun state =>
+        ContractResult.revert (failedCallPayload data) state
 
 def externalCallEffectWordsTo (name : String) (target : Address)
     (args : List Uint256) (adv : AdversaryModel := .stub) (siteId : Nat := 0) :
@@ -1127,8 +1135,8 @@ def externalCallEffectWordsTo (name : String) (target : Address)
       (linkedCallSite name args 0 .call target.toNat 0 [] siteId)) fun result =>
     match result with
     | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+    | .failure data | .revert data => fun state =>
+        ContractResult.revert (failedCallPayload data) state
 
 def externalStaticCallEffectWordsTo (name : String) (target : Address)
     (args : List Uint256) (adv : AdversaryModel := .stub) (siteId : Nat := 0) :
@@ -1137,8 +1145,8 @@ def externalStaticCallEffectWordsTo (name : String) (target : Address)
       (linkedCallSite name args 0 .staticcall target.toNat 0 [] siteId)) fun result =>
     match result with
     | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+    | .failure data | .revert data => fun state =>
+        ContractResult.revert (failedCallPayload data) state
 
 /-! ### Faithful responders for `deferred` linked contracts (G15)
 
@@ -1265,7 +1273,7 @@ theorem externalStaticCallContractWordsTo_withViewLinks_revert {α : Type} [Exte
     (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
     (externalStaticCallContractWordsTo (α := α) name target args
         (base.withViewLinks links) arity siteId).run s =
-      ContractResult.revert "external call failed" s := by
+      ContractResult.revert (failedCallPayload []) s := by
   have hres :
       (base.withViewLinks links).result
           (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s =
@@ -1285,7 +1293,7 @@ target (CALL-shaped frame: `sender := caller`, `thisAddress := target`,
 writes parked under the target's namespace, caller context restored); the
 journaled call boundary then appends exactly one entry for the site. A
 reverting body answers `.revert []`, so the caller rolls back to the pre-call
-state and the typed call reverts with `"external call failed"` (the ABI path
+state and the typed call re-raises the answer's (empty) returndata (the ABI path
 treats a callee revert as a failed call). Selected `.staticcall` sites behave
 exactly as under `withViewLinks`. -/
 
@@ -1404,7 +1412,7 @@ theorem externalCallContractWordsTo_withLinks_revert {α : Type} [ExternalResult
     (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
     (externalCallContractWordsTo (α := α) name target args
         (base.withLinks links) arity siteId).run s =
-      ContractResult.revert "external call failed" s := by
+      ContractResult.revert (failedCallPayload []) s := by
   obtain ⟨hres, _⟩ := withLinks_call_result base links name target args arity siteId s body hlink
   simp only [hhop] at hres
   simp only [externalCallContractWordsTo, Contract.run, commonExternalCall_apply, hres]
@@ -1447,7 +1455,7 @@ theorem externalCallEffectWordsTo_withLinks_revert
     (hlink : links name target = some body)
     (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
     (externalCallEffectWordsTo name target args (base.withLinks links) siteId).run s =
-      ContractResult.revert "external call failed" s := by
+      ContractResult.revert (failedCallPayload []) s := by
   obtain ⟨hres, _⟩ := withLinks_call_result base links name target args 0 siteId s body hlink
   simp only [hhop] at hres
   simp only [externalCallEffectWordsTo, Contract.run, Verity.bind, commonExternalCall_apply, hres]
@@ -1501,7 +1509,7 @@ theorem externalStaticCallContractWordsTo_withLinks_revert {α : Type} [External
     (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
     (externalStaticCallContractWordsTo (α := α) name target args
         (base.withLinks links) arity siteId).run s =
-      ContractResult.revert "external call failed" s := by
+      ContractResult.revert (failedCallPayload []) s := by
   have hres := withLinks_result_staticcall base links
     (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
   rw [← externalStaticCallContractWordsTo_withViewLinks_revert (α := α) base links name target
@@ -1633,8 +1641,8 @@ def externalCallBind {α : Type} [ExternalArg α]
   | .success (.success returndata) post =>
       if names.length = returndata.length then .success () post
       else .revert "external call returned insufficient data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 def externalCallBindResolved {α : Type} [ExternalArg α]
@@ -1645,8 +1653,8 @@ def externalCallBindResolved {α : Type} [ExternalArg α]
   | .success (.success returndata) post =>
       if names.length = returndata.length then .success () post
       else .revert "external call returned insufficient data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 /-- Linked bind with explicit target and ETH value. Debits `selfBalance`
@@ -1666,8 +1674,8 @@ def externalCallBindTo {α : Type} [ExternalArg α]
       | .success (.success returndata) post =>
           if names.length = returndata.length then ContractResult.success () post
           else ContractResult.revert "external call returned insufficient data" state
-      | .success (.failure _) _ | .success (.revert _) _ =>
-          ContractResult.revert "external call failed" state
+      | .success (.failure data) _ | .success (.revert data) _ =>
+          ContractResult.revert (failedCallPayload data) state
       | .revert message _ => ContractResult.revert message state
     else
       ContractResult.revert "insufficient balance" state
@@ -1693,8 +1701,8 @@ definitional (`rfl`). -/
       | .success (.success returndata) post =>
           if names.length = returndata.length then ContractResult.success () post
           else ContractResult.revert "external call returned insufficient data" s
-      | .success (.failure _) _ | .success (.revert _) _ =>
-          ContractResult.revert "external call failed" s
+      | .success (.failure data) _ | .success (.revert data) _ =>
+          ContractResult.revert (failedCallPayload data) s
       | .revert message _ => ContractResult.revert message s := rfl
 
 theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
@@ -1710,8 +1718,8 @@ theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
         | .success (.success returndata) post =>
             if names.length = returndata.length then ContractResult.success () post
             else ContractResult.revert "external call returned insufficient data" s
-        | .success (.failure _) _ | .success (.revert _) _ =>
-            ContractResult.revert "external call failed" s
+        | .success (.failure data) _ | .success (.revert data) _ =>
+            ContractResult.revert (failedCallPayload data) s
         | .revert message _ => ContractResult.revert message s
       else ContractResult.revert "insufficient balance" s := rfl
 
@@ -1755,8 +1763,8 @@ theorem externalCallContractWords_adv_run {α : Type} [ExternalResult α]
                 ((returndata.take arity).map Core.Uint256.ofNat)) post
           else
             ContractResult.revert "external call returned malformed data" s
-      | .success (.failure _) _ | .success (.revert _) _ =>
-          ContractResult.revert "external call failed" s
+      | .success (.failure data) _ | .success (.revert data) _ =>
+          ContractResult.revert (failedCallPayload data) s
       | .revert message _ => ContractResult.revert message s := rfl
 
 /-! The PR1 `.stub` laws retain their original names and observable results;
@@ -1774,7 +1782,7 @@ the post-state now also exposes the canonical EIP-211 returndata buffer. -/
                   (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))]
             returndata := (names.map fun _ =>
               (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat)) }
-      else ContractResult.revert "external call failed" s := by
+      else ContractResult.revert (failedCallPayload []) s := by
   by_cases h : name = "fail" <;>
     simp [Contract.run, externalCallBind, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
@@ -1805,7 +1813,7 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
                     (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))]
               returndata := (names.map fun _ =>
                 (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat)) }
-        else ContractResult.revert "external call failed" s
+        else ContractResult.revert (failedCallPayload []) s
       else ContractResult.revert "insufficient balance" s := by
   by_cases hbal : value ≤ s.selfBalance
   · by_cases h : name = "fail"
@@ -1964,8 +1972,8 @@ def erc20Read (adv : AdversaryModel) (name : String) (token : Address)
       .success (Core.Uint256.ofNat word) post
   | .success (.success _) _ =>
       .revert "external call returned invalid data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
@@ -1982,8 +1990,8 @@ def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
           if Core.Uint256.ofNat word = (1 : Uint256) then .success () post
           else .revert "external call returned false or invalid data" state
       | _ => .revert "external call returned false or invalid data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "external call failed" state
+  | .success (.failure data) _ | .success (.revert data) _ =>
+      .revert (failedCallPayload data) state
   | .revert message _ => .revert message state
 
 /-- Legacy string-error ERC-20 writes require code at the target, but accept
@@ -2001,8 +2009,8 @@ def erc20WriteLegacy (adv : AdversaryModel) (name : String) (token : Address)
         | word :: _ =>
             if Core.Uint256.ofNat word = (1 : Uint256) then .success () post
             else .revert "external call returned false or invalid data" state
-    | .success (.failure _) _ | .success (.revert _) _ =>
-        .revert "external call failed" state
+    | .success (.failure data) _ | .success (.revert data) _ =>
+        .revert (failedCallPayload data) state
     | .revert message _ => .revert message state
 
 def safeTransfer (token toAddr : Address) (amount : Uint256) (adv : AdversaryModel := .stub) : Contract Unit :=

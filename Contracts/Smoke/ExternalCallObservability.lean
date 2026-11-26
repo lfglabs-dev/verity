@@ -395,7 +395,7 @@ example :
 example (s : ContractState) :
     (Contracts.externalCallBind ([] : List String) "fail"
       ([9] : List Uint256)).run s =
-      ContractResult.revert "external call failed" s := rfl
+      ContractResult.revert (.raw []) s := rfl
 
 /-- A monadic revert after a call rolls the journal entry back through
 `Contract.run`'s snapshot semantics: a fully reverted execution leaves
