@@ -188,11 +188,23 @@ partial def quoteStmt : Stmt → m Term
             throwError "internal: closed ECM metadata differs from its descriptor"
           `(Compiler.CompilationModel.Stmt.ecm
             (Compiler.ECM.YulMemoryCall.module $(quote isStatic) $(quote resultVar)) $quotedArgs)
+      | some (.yulMemoryValueCall resultVar) =>
+          unless module == Compiler.ECM.YulMemoryValueCall.module resultVar do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.YulMemoryValueCall.module $(quote resultVar)) $quotedArgs)
+      | some (.yulMemoryDelegateCall resultVar) =>
+          unless module == Compiler.ECM.YulMemoryDelegateCall.module resultVar do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.YulMemoryDelegateCall.module $(quote resultVar)) $quotedArgs)
       | none => throwError "internal: the importer cannot quote an opaque ECM"
   | .mstore offset value => do
       `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))
   | .tstore offset value => do
       `(Compiler.CompilationModel.Stmt.tstore $(← quoteExpr offset) $(← quoteExpr value))
+  | .returndataCopy dest source size => do
+      `(Compiler.CompilationModel.Stmt.returndataCopy $(← quoteExpr dest) $(← quoteExpr source) $(← quoteExpr size))
   | .panicCode code => do `(Compiler.CompilationModel.Stmt.panicCode $(← quoteExpr code))
   | .forEach name count body => do
       `(Compiler.CompilationModel.Stmt.forEach $(quote name) $(← quoteExpr count)

@@ -86,8 +86,8 @@ MUTANTS.update({
 
 
 MUTANTS.update({
-    'import-if-root-swap': ('          let (noOut, noReturned) ← lowerRootStatements no stmtIsTail\n          restore\n          out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)', '          let (noOut, noReturned) ← lowerRootStatements no stmtIsTail\n          restore\n          out := out ++ condition.pre |>.push (.ite condition.expr noOut.toList yesOut.toList)'),
-    'import-if-root-else-drop': ('let (noOut, noReturned) ← lowerRootStatements no',
+    'import-if-root-swap': ('          let (noOut, noReturned) ← lowerRootStatements parts.no stmtIsTail\n          restore\n          out := out ++ condition.pre |>.push (.ite condition.expr (yesSetup ++ yesOut).toList\n            (noSetup ++ noOut).toList)', '          let (noOut, noReturned) ← lowerRootStatements parts.no stmtIsTail\n          restore\n          out := out ++ condition.pre |>.push (.ite condition.expr (noSetup ++ noOut).toList\n            (yesSetup ++ yesOut).toList)'),
+    'import-if-root-else-drop': ('let (noOut, noReturned) ← lowerRootStatements parts.no',
                                  'let (noOut, noReturned) ← lowerRootStatements #[]'),
     'import-if-helper-swap': ('let branch := Stmt.ite condition.expr (assign yesPre yesResult).toList\n            (assign noPre noResult).toList',
                               'let branch := Stmt.ite condition.expr (assign noPre noResult).toList\n            (assign yesPre yesResult).toList'),

@@ -86,6 +86,11 @@ structure RawStructMemberInfo where
   bitWidth : Nat
   isBool : Bool := false
 
+structure RawStructBytesMemberInfo where
+  member : String
+  wordOffset : Nat
+  isString : Bool
+
 structure RawStructInfo where
   structId : Nat
   structName : String
@@ -93,6 +98,7 @@ structure RawStructInfo where
   mappings : Array StructMappingInfo
   dynamicArrays : Array StructDynamicArrayInfo := #[]
   subStructs : Array RawStructSubStructInfo := #[]
+  bytesMembers : Array RawStructBytesMemberInfo := #[]
   wordCount : Nat := 0
   /-- Members whose storage type is outside this slice. Each keeps the slot solc assigns it,
   so later members are placed correctly, and any access to it is rejected. Fixed-size array

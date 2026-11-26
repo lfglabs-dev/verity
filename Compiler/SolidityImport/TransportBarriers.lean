@@ -28,8 +28,15 @@ namespace Compiler.CompilationModel.SolidityImport
 
 open Compiler.CompilationModel
 
-/-- The closed optional-bool low-level call transport emitted by the importer. -/
-def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+/-- The closed self-dispatch `address(this).delegatecall(...)` transport emitted by the importer. -/
+def isClosedSelfDelegateCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.yulMemoryDelegateCall resultVar) => mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar
+  | _ => false
+
+/-- Closed value-free low-level `CALL` transports emitted by the importer (excludes
+value-bearing `YulMemoryValueCall` and `YulMemoryDelegateCall`, which stay trailing-only). -/
+def isClosedValueFreeLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
   | some (.optionalBoolCall resultVar selector numWordArgs) =>
       mod == Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs
@@ -39,6 +46,14 @@ def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
       mod == Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector
   | some (.yulMemoryCall false resultVar) => mod == Compiler.ECM.YulMemoryCall.module false resultVar
   | _ => false
+
+/-- The closed optional-bool low-level call transport emitted by the importer. -/
+def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  isClosedValueFreeLowLevelCall mod ||
+    match mod.byteTransport with
+    | some (.yulMemoryValueCall resultVar) => mod == Compiler.ECM.YulMemoryValueCall.module resultVar
+    | some (.yulMemoryDelegateCall resultVar) => mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar
+    | _ => false
 
 abbrev isClosedOptionalBoolCall := isClosedLowLevelCall
 
@@ -242,26 +257,70 @@ def exprStorageFree (expression : Expr) : Bool :=
 abbrev purePostCallExpr := exprStorageFree
 
 /-- Statements allowed after a closed low-level call in a trailing-call body:
-local bindings, memory writes, checks, returns, reverts (including panics of checked
-arithmetic and forwarding the call's return data) and further closed low-level calls,
-none of which reads or writes storage or logs. (A second CALL after the first still
-fails the separate CEI check, since the first CALL is not erased.) A code-hash read is
-not admitted: the call can change the account world it observes (a value transfer
-makes an empty account exist, moving its hash from `0` to `keccak256("")`). -/
+local bindings, memory writes (including copies of the call's return data), checks,
+returns, memory reverts, reverts (including panics of checked arithmetic and forwarding
+the call's return data) and further closed low-level calls, none of which reads or writes
+storage or logs. (A second CALL after the first still fails the separate CEI check, since
+the first CALL is not erased.) A code-hash read is not admitted: the call can change the
+account world it observes (a value transfer makes an empty account exist, moving its hash
+from `0` to `keccak256("")`). -/
 partial def stmtAfterTrailingCall : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .require value _ => exprStorageFree value
   | .mstore offset value => exprStorageFree offset && exprStorageFree value
+  | .returndataCopy dest source size =>
+      exprStorageFree dest && exprStorageFree source && exprStorageFree size
+  | .revertMemory offset size => exprStorageFree offset && exprStorageFree size
   | .requireError condition _ args => exprStorageFree condition && args.all exprStorageFree
   | .ite condition yes no =>
       exprStorageFree condition && yes.all stmtAfterTrailingCall && no.all stmtAfterTrailingCall
-  | .ecm mod args => (isClosedLowLevelCall mod || isClosedExtCodeSize mod) && args.all exprStorageFree
+  | .forEach _ count body => exprStorageFree count && body.all stmtAfterTrailingCall
+  | .ecm mod args =>
+      (isClosedLowLevelCall mod || isClosedExtCodeSize mod ||
+        isClosedReturnMemory mod || isClosedRevertMemory mod) && args.all exprStorageFree
   | .return value => exprStorageFree value
   | .returnValues values => values.all exprStorageFree
+  | .returnBytes _ => true
   | .panicCode code => exprStorageFree code
   | .revertEmpty | .revertReturndata | .panic _ | .stop => true
   | _ => false
 
 abbrev allowedPostCallStmt := stmtAfterTrailingCall
+
+/-- Statements allowed inside a batch self-delegatecall (`multicall`) loop:
+storage-free local/memory/returndata/revert statements and closed self-delegatecalls
+(no arbitrary external `CALL`s, no storage reads/writes, no logs). -/
+partial def stmtAfterTrailingSelfDelegate : Stmt → Bool
+  | .letVar _ value | .assignVar _ value | .require value _ => exprStorageFree value
+  | .mstore offset value => exprStorageFree offset && exprStorageFree value
+  | .returndataCopy dest src size =>
+      exprStorageFree dest && exprStorageFree src && exprStorageFree size
+  | .revertMemory offset size => exprStorageFree offset && exprStorageFree size
+  | .requireError condition _ args => exprStorageFree condition && args.all exprStorageFree
+  | .ite condition yes no =>
+      exprStorageFree condition && yes.all stmtAfterTrailingSelfDelegate &&
+        no.all stmtAfterTrailingSelfDelegate
+  | .forEach _ count body => exprStorageFree count && body.all stmtAfterTrailingSelfDelegate
+  | .ecm mod args =>
+      (isClosedSelfDelegateCall mod || isClosedExtCodeSize mod ||
+        isClosedReturnMemory mod || isClosedRevertMemory mod) && args.all exprStorageFree
+  | .return value => exprStorageFree value
+  | .returnValues values => values.all exprStorageFree
+  | .returnBytes _ => true
+  | .panicCode code => exprStorageFree code
+  | .revertEmpty | .revertReturndata | .panic _ | .stop => true
+  | _ => false
+
+/-- `statement` or a nested body contains a closed self-delegatecall. -/
+partial def stmtContainsClosedSelfDelegateCall : Stmt → Bool
+  | .ecm mod _ => isClosedSelfDelegateCall mod
+  | .ite _ yes no =>
+      yes.any stmtContainsClosedSelfDelegateCall || no.any stmtContainsClosedSelfDelegateCall
+  | .forEach _ _ body | .forEachSetBit _ _ body => body.any stmtContainsClosedSelfDelegateCall
+  | .forEachWhile _ _ _ body => body.any stmtContainsClosedSelfDelegateCall
+  | .unsafeBlock _ body => body.any stmtContainsClosedSelfDelegateCall
+  | .matchAdt _ _ branches =>
+      branches.any fun (_, _, body) => body.any stmtContainsClosedSelfDelegateCall
+  | _ => false
 
 /-- `statement` or a nested body contains a closed low-level `CALL`. -/
 partial def stmtContainsClosedLowLevelCall : Stmt → Bool
@@ -274,7 +333,8 @@ partial def stmtContainsClosedLowLevelCall : Stmt → Bool
   | _ => false
 
 /-- A statement list whose only reentrancy windows are closed low-level calls
-after which only `stmtAfterTrailingCall` statements execute. -/
+after which only `stmtAfterTrailingCall` statements execute, or a storage-free
+batch self-delegatecall loop (`multicall`). -/
 partial def onlyTrailingLowLevelCallWindows : List Stmt → Bool
   | [] => true
   | statement :: rest =>
@@ -284,6 +344,11 @@ partial def onlyTrailingLowLevelCallWindows : List Stmt → Bool
         | .ecm mod _ => isClosedLowLevelCall mod && rest.all stmtAfterTrailingCall
         | .ite _ yes no =>
             onlyTrailingLowLevelCallWindows yes && onlyTrailingLowLevelCallWindows no &&
+              rest.all stmtAfterTrailingCall
+        | .forEach _ count body =>
+            exprStorageFree count &&
+              body.any stmtContainsClosedSelfDelegateCall &&
+              body.all stmtAfterTrailingSelfDelegate &&
               rest.all stmtAfterTrailingCall
         | _ => false
 
@@ -295,17 +360,44 @@ def onlyTrailingCallReentrancyWindows (body : List Stmt) : Bool :=
   body.any Compiler.CompilationModel.stmtOpensReentrancyWindow &&
     onlyTrailingLowLevelCallWindows body
 
-/-- `eraseClosedTransports`, and additionally replace each closed low-level `CALL`
-by its zero-initialised result binding. What remains after erasure is every
-interaction the importer did not emit as a closed transport. -/
+/-- Erase closed self-delegatecall transports so `stmtListCEIViolation` can verify
+that no persistent storage writes follow them outside a storage-free `multicall` loop. -/
+partial def eraseClosedSelfDelegateCalls : Stmt → Stmt
+  | .ecm mod args =>
+      if isClosedSelfDelegateCall mod then .letVar (mod.resultVars.headD "") (.literal 0) else .ecm mod args
+  | .ite cond yes no =>
+      .ite cond (yes.map eraseClosedSelfDelegateCalls) (no.map eraseClosedSelfDelegateCalls)
+  | .forEach name count body => .forEach name count (body.map eraseClosedSelfDelegateCalls)
+  | .forEachSetBit name count body => .forEachSetBit name count (body.map eraseClosedSelfDelegateCalls)
+  | .forEachWhile name count guard body =>
+      .forEachWhile name count guard (body.map eraseClosedSelfDelegateCalls)
+  | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedSelfDelegateCalls)
+  | .matchAdt adt scrutinee branches =>
+      .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
+        (tag, names, body.map eraseClosedSelfDelegateCalls))
+  | statement => statement
+
+/-- True when a function's only CEI conflict is a storage-free batch self-delegatecall
+loop (`multicall`), with no storage reads, writes or logs following any self-delegatecall. -/
+def onlySelfDelegateLoopCEIClean (body : List Stmt) : Bool :=
+  (Compiler.CompilationModel.stmtListCEIViolation body false).isSome &&
+    onlyTrailingCallReentrancyWindows body &&
+    (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedSelfDelegateCalls) false).isNone
+
+/-- `eraseClosedTransports`, and additionally replace each closed value-free low-level `CALL`
+by its zero-initialised result binding. Value-bearing `YulMemoryValueCall` and
+`YulMemoryDelegateCall` stay unerased so they remain trailing-only. What remains after erasure
+is every interaction not admitted for post-CALL state access. -/
 partial def eraseClosedInteractions : Stmt → Stmt
   | .ecm mod args =>
-      if isClosedLowLevelCall mod then .letVar (mod.resultVars.headD "") (.literal 0)
+      if isClosedValueFreeLowLevelCall mod then .letVar (mod.resultVars.headD "") (.literal 0)
       else eraseClosedTransports (.ecm mod args)
   | .ite cond yes no => .ite cond (yes.map eraseClosedInteractions) (no.map eraseClosedInteractions)
   | .forEach name count body => .forEach name count (body.map eraseClosedInteractions)
   | .forEachSetBit name bitmap body =>
       .forEachSetBit name bitmap (body.map eraseClosedInteractions)
+  | .forEachWhile name count guard body =>
+      .forEachWhile name count guard (body.map eraseClosedInteractions)
   | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedInteractions)
   | .matchAdt adt scrutinee branches =>
       .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
@@ -313,11 +405,12 @@ partial def eraseClosedInteractions : Stmt → Stmt
   | statement => eraseClosedTransports statement
 
 /-- A body that makes a closed low-level `CALL` and whose every CEI barrier and
-reentrancy window is a closed transport. Storage reads, storage writes and logs may
+reentrancy window is a closed value-free transport. Storage reads, storage writes and logs may
 follow the call: Denote runs them against the world the callee's response committed
 (`ByteExternalCall.Response.commit`), which an unconstrained adversary chooses freely,
 including by re-entering this contract, so admission assumes nothing about the callee.
-Any interaction that is not a closed transport keeps the body out. -/
+Any interaction that is not a closed value-free transport (including `YulMemoryValueCall` and
+`YulMemoryDelegateCall`) keeps the body out. -/
 def onlyClosedCallStateWindows (body : List Stmt) : Bool :=
   let erased := body.map eraseClosedInteractions
   body.any stmtContainsClosedLowLevelCall &&

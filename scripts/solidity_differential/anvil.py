@@ -136,7 +136,7 @@ class SequenceAdapter:
     emitted events are observed without normalization.
     """
     def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', observer=None,
-                 code_size_limit=None, deploy_gas=10000000, expected_code=()):
+                 code_size_limit=None, deploy_gas=10000000, expected_code=(), initial_balances=()):
         self.directory = Path(directory)
         self.code_size_limit = code_size_limit
         self.deploy_gas = int(deploy_gas)
@@ -144,6 +144,8 @@ class SequenceAdapter:
         self.initial_storage = tuple(tuple(row) for row in initial_storage)
         # Optional (account, runtime) pairs every replay's deployments must reproduce exactly.
         self.expected_code = tuple(tuple(row) for row in expected_code)
+        # Optional (account, balance_wei) pairs funded after deployment via `anvil_setBalance`.
+        self.initial_balances = tuple((account, int(balance)) for account, balance in initial_balances)
         self.calldata_key = calldata_key
         self.observer = observer
         self.runs = 0
@@ -166,6 +168,8 @@ class SequenceAdapter:
                     raise HarnessError(f'deployed runtime of {account} differs from the probe deployment')
             for account, slot, value in self.initial_storage:
                 node.rpc('anvil_setStorageAt', account, slot, value)
+            for account, balance in self.initial_balances:
+                node.rpc('anvil_setBalance', account, hex(balance))
             for transaction, slots in zip(transactions, plan):
                 # Require exact environments. Silently filling these from the
                 # host clock would make block-dependent imports incomparable.

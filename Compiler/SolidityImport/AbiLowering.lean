@@ -114,6 +114,7 @@ def legacyCleanScalar (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat) (valu
   else match kind with
     | .bool => .logicalNot (.logicalNot value)
     | .bytes32 => value
+    | .enum _ => .bitAnd value (.literal 255)
     | kind =>
         let bound := SolidityAbi.scalarBound kind
         if bound < 2^256 then .bitAnd value (.literal (bound - 1)) else value

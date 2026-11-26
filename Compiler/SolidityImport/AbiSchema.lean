@@ -52,6 +52,27 @@ private def members (node : Json) : Except Failure (List Json) := do
   if items.isEmpty then fail node "ABI schema: empty structs are unsupported"
   else pure items.toList
 
+/-- The diagnostic for a user-defined type name `ty` that does not resolve to a struct
+declaration: it names the field's actual type (an `enum`, a user-defined value type or a
+contract type, from solc's type descriptions) rather than reporting an unresolved struct.
+Such fields need their own ABI semantics (an enum's range check, a value type's underlying
+type) before admission. -/
+def unsupportedUserTypeMessage (ty : Json) (id : Nat) : String :=
+  let descriptions := (ty.getObjVal? "typeDescriptions").toOption
+  let typeString := descriptions.bind fun d => (d.getObjVal? "typeString").toOption.bind
+    (·.getStr?.toOption)
+  let typeIdentifier := descriptions.bind fun d => (d.getObjVal? "typeIdentifier").toOption.bind
+    (·.getStr?.toOption)
+  match typeString, typeIdentifier with
+  | some name, some ident =>
+      if ident.startsWith "t_enum$" then s!"ABI schema: unsupported struct field type {name}"
+      else if ident.startsWith "t_userDefinedValueType$" then
+        s!"ABI schema: unsupported struct field type {name} (user-defined value type)"
+      else if ident.startsWith "t_contract$" then
+        s!"ABI schema: unsupported struct field type {name}"
+      else s!"ABI schema: unresolved struct declaration {id}"
+  | _, _ => s!"ABI schema: unresolved struct declaration {id}"
+
 private def isContractTypeName (node : Json) : Bool :=
   match node.getObjVal? "typeDescriptions" with
   | .ok td =>
@@ -64,10 +85,17 @@ private def isContractTypeName (node : Json) : Bool :=
 Interface and contract types (`UserDefinedTypeName` with `contract ...` type
 string) have the exact Solidity ABI encoding and 160-bit validation of `address`.
 Signed/fixed-byte/enum types need their own semantics before admission. -/
-def scalarKind (node : Json) : Except Failure SolidityAbi.ScalarKind := do
+def scalarKind (node : Json) (resolveEnum : Nat → Option Nat := fun _ => none) :
+    Except Failure SolidityAbi.ScalarKind := do
   let kind ← stringField node "nodeType"
-  if kind == "UserDefinedTypeName" && isContractTypeName node then
-    return .address
+  if kind == "UserDefinedTypeName" then
+    if isContractTypeName node then
+      return .address
+    if let .ok ref := node.getObjVal? "referencedDeclaration" then
+      if let .ok id := ref.getNat? then
+        if let some count := resolveEnum id then
+          if count > 0 && count ≤ 256 then
+            return .enum count
   unless kind == "ElementaryTypeName" do
     fail node "ABI schema: expected an unsigned scalar type"
   let name ← stringField node "name"
@@ -83,13 +111,16 @@ def scalarKind (node : Json) : Except Failure SolidityAbi.ScalarKind := do
     else fail node "ABI schema: unsigned width outside [8,256]"
   else fail node s!"ABI schema: invalid unsigned width {width}"
 
-def scalarField (node : Json) : Except Failure ScalarField := do
-  return { name := ← stringField node "name", kind := ← scalarKind (← field node "typeName") }
+def scalarField (node : Json) (resolveEnum : Nat → Option Nat := fun _ => none) :
+    Except Failure ScalarField := do
+  return { name := ← stringField node "name",
+           kind := ← scalarKind (← field node "typeName") resolveEnum }
 
 /-- The `structArray` member `name` for the dynamic array type node `ty` of a
 flat scalar struct (`S[]`): a struct-array member or a root `S[]` parameter.
 Resolves the declaration id, never the textual struct name. -/
-def structArrayMember (resolve : Nat → Option Json) (name : String) (ty : Json) :
+def structArrayMember (resolve : Nat → Option Json) (name : String) (ty : Json)
+    (resolveEnum : Nat → Option Nat := fun _ => none) :
     Except Failure Member := do
   unless (← stringField ty "nodeType") == "ArrayTypeName" do
     fail ty "ABI schema: expected a dynamic array type"
@@ -101,15 +132,16 @@ def structArrayMember (resolve : Nat → Option Json) (name : String) (ty : Json
     fail base "ABI schema: expected a flat struct array element"
   let ref ← field base "referencedDeclaration"
   let id ← ref.getNat?.mapError fun _ => ⟨base, "ABI schema: invalid struct declaration id"⟩
-  let some decl := resolve id | fail base s!"ABI schema: unresolved struct declaration {id}"
-  let fields ← (← members decl).mapM scalarField
+  let some decl := resolve id | fail base (unsupportedUserTypeMessage base id)
+  let fields ← (← members decl).mapM (scalarField · resolveEnum)
   return .structArray name fields
 
 /-- Schema for Market- and Offer-shaped roots: unsigned scalars, dynamic bytes,
 nested dynamic structs, and dynamic arrays of unsigned scalars or flat scalar
 structs. Resolves declaration ids, never textual struct names. -/
 def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
-    (fuel : Nat := 16) : Except Failure (List Member) :=
+    (fuel : Nat := 16) (resolveEnum : Nat → Option Nat := fun _ => none) :
+    Except Failure (List Member) :=
   match fuel with
   | 0 => fail node "ABI schema: struct nesting depth exceeded"
   | fuel + 1 => do
@@ -130,7 +162,7 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
         let id ← ref.getNat?.mapError fun _ => ⟨ty, "ABI schema: invalid struct declaration id"⟩
         if seen.contains id then
           fail ty "ABI schema: recursive struct declaration"
-        let some decl := resolve id | fail ty s!"ABI schema: unresolved struct declaration {id}"
+        let some decl := resolve id | fail ty (unsupportedUserTypeMessage ty id)
         unless (← stringField decl "nodeType") == "StructDefinition" do
           fail ty "ABI schema: expected an unsigned scalar type"
         let sname ← stringField decl "name"
@@ -139,7 +171,7 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
           let subTyDesc ← field sub "typeDescriptions"
           let subTyStr ← stringField subTyDesc "typeString"
           return (subName, subTyStr)
-        let subSchema ← root resolve decl (id :: seen) fuel
+        let subSchema ← root resolve decl (id :: seen) fuel resolveEnum
         unless subSchema.any isDynamicMember do
           fail ty "ABI schema: static nested structs inside dynamic structs are outside this slice"
         return .nestedStruct mname id sname subMembers subSchema
@@ -152,13 +184,14 @@ def root (resolve : Nat → Option Json) (node : Json) (seen : List Nat := [])
       if (← stringField base "nodeType") == "ElementaryTypeName" ||
           ((← stringField base "nodeType") == "UserDefinedTypeName" && isContractTypeName base) then
         return .scalarArray { name := mname, kind := ← scalarKind base }
-      structArrayMember resolve mname ty
+      structArrayMember resolve mname ty resolveEnum
 
 def scalarType : SolidityAbi.ScalarKind → ParamType
   | .uint width => if width.val == 31 then .uint256 else .uintN (8*(width.val+1))
   | .address => .address
   | .bool => .bool
   | .bytes32 => .bytes32
+  | .enum _ => .uintN 8
 
 mutual
   def memberType : Member → ParamType

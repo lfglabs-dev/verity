@@ -21,6 +21,10 @@ import tempfile
 MESSAGES = {
     'codehash-after-call': 'code hash read after an external call or create2 is unsupported',
     'external-call': 'external contract calls are outside this slice',
+    'post-call': ('storage reads, storage writes and logs after an external CALL are '
+                  'supported only when every external interaction of the function is a '
+                  'closed transport: another interaction follows a CALL that may re-enter '
+                  'this contract'),
 }
 CALL = 'IHook(target).hook();'
 TRY = 'try IHook(target).hook() {{{success}}} catch {{{failure}}}'
@@ -46,7 +50,7 @@ CASES = [
     ('value-call-then-write',
      '(bool ok, bytes memory data) = target.call{value: 1}("");\n'
      '        require(ok, Failed());\n        pending = value + data.length;',
-     ('target.call{value: 1}', 'FunctionCallOptions', 'external-call')),
+     ('function checked', 'FunctionDefinition', 'post-call')),
     ('delegatecall-then-write',
      '(bool ok,) = target.delegatecall("");\n        require(ok, Failed());\n        pending = value;',
      ('target.delegatecall', 'MemberAccess', 'external-call')),

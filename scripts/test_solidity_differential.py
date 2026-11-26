@@ -98,6 +98,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "scalar-array-abi-rejections",
     "scoped",
     "selector-responder",
+    "self-delegate-call",
     "signature-calldata",
     "signature-calldata-rejections",
     "state-count-invariance",
@@ -165,6 +166,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "struct-copy-write-order",
     "yul-memory-call",
     "yul-memory-call-rejections",
+    "yul-memory-value-call",
     "yul-narrow-result",
 )
 

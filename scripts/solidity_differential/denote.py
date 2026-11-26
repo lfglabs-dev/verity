@@ -34,7 +34,7 @@ def _calldata(tx):
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
                  lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=600,
-                 account_code=(), account_balance=(), foreign_nonce=(), immutables=()):
+                 account_code=(), account_balance=(), foreign_nonce=(), immutables=(), self_balance=None):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         if not isinstance(lean_command, (list, tuple)) or not lean_command or any(
@@ -50,6 +50,9 @@ class SequenceAdapter:
         if account_nonce is not None and (type(account_nonce) is not int or not 0 <= account_nonce < 1 << 64):
             raise HarnessError('model account nonce must be a 64-bit integer')
         self.account_nonce = account_nonce
+        if self_balance is not None and (type(self_balance) is not int or not 0 <= self_balance < 1 << 256):
+            raise HarnessError('model self balance must be a uint256 integer')
+        self.self_balance = self_balance
         self.timeout = timeout
         # Foreign runtime code as deployed on the EVM routes (observed by code-length reads).
         self.account_code = []
@@ -136,6 +139,8 @@ class SequenceAdapter:
                    'storage': self.initial_storage, 'transactions': converted}
         if self.account_nonce is not None:
             payload['accountNonce'] = str(self.account_nonce)
+        if self.self_balance is not None:
+            payload['selfBalance'] = str(self.self_balance)
         if self.byte_call_environment is not None:
             payload['externalStorage'] = self.external_storage
             payload['byteCallEnvironment'] = self.byte_call_environment

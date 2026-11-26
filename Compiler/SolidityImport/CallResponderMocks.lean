@@ -75,19 +75,74 @@ def environment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := [
           · exact respond_staticcall_valid accounts request world hstatic
           · cases respond accounts request world <;> simp [Response.valid, hstatic] } }
 
+/-- The value-recording responder's storage after one recorded call to `account`
+(slots 3..8 plus slot 9 for `callvalue()`). -/
+def recordWithValue (world : Verity.ContractState) (account : Nat) (value : Nat)
+    (calldata : Bytes) : Verity.ContractState :=
+  let recorded : List (Nat × Nat) :=
+    [(3, ((world.storageWords (.contractSlot account 3)).val + 1) % 2^256),
+     (4, calldata.length), (5, calldataWord calldata 0), (6, calldataWord calldata 32),
+     (7, calldataWord calldata 64), (8, calldataWord calldata 96), (9, value % 2^256)]
+  world.withStorageWords fun key =>
+    match recorded.find? (fun (slot, _) => key == .contractSlot account slot) with
+    | some (_, v) => Verity.Core.Uint256.ofNat v
+    | none => world.storageWords key
+
+/-- Response of the value-recording configured accounts; empty accounts answer every call
+with empty success and touch nothing (value debit is already applied by Denote). -/
+def respondWithValue (accounts : List Nat) (request : Request) (world : Verity.ContractState) :
+    Response Verity.ContractState Verity.StorageKey :=
+  if accounts.contains request.target then
+    if request.kind != .call then .revert [] [] else
+    let slot := fun index => (world.storageWords (.contractSlot request.target index)).val
+    let touched := (List.range 10).map (Verity.StorageKey.contractSlot request.target)
+    let data := responseBytes (slot 0) (slot 2)
+    if slot 1 % 256 != 0 then .revert data touched
+    else .success (recordWithValue world request.target request.value request.calldata) data touched
+  else .success world [] []
+
+/-- A `staticcall` reverts at a value-recording responder and succeeds without effect elsewhere. -/
+theorem respondWithValue_staticcall_valid (accounts : List Nat) (request : Request)
+    (world : Verity.ContractState) (hstatic : request.kind = .staticcall) :
+    Response.valid request world (respondWithValue accounts request world) := by
+  unfold respondWithValue
+  by_cases haccount : request.target ∈ accounts
+  · simp [haccount, hstatic, Response.valid,
+      show (Kind.staticcall != Kind.call) = true from rfl]
+  · simp [haccount, Response.valid]
+
+def valueEnvironment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := []) :
+    ByteCallEnvironment :=
+  { gas := some gas
+    adversary := some
+      { respond := respondWithValue accounts
+        accepts := fun request world =>
+          (request.kind == .call || (request.kind == .staticcall && request.value == 0)) &&
+          request.target != world.thisAddress.val && !reservedPrecompile request.target &&
+          (emptyAccounts.contains request.target ||
+            (accounts.contains request.target &&
+              (world.storageWords (.contractSlot request.target 3)).val + 1 < 2^256))
+        valid := by
+          intro request world
+          by_cases hstatic : request.kind = .staticcall
+          · exact respondWithValue_staticcall_valid accounts request world hstatic
+          · cases respondWithValue accounts request world <;> simp [Response.valid, hstatic] } }
+
 private def decimal (value : Lean.Json) : Except String Nat := do
   let text ← value.getStr?
   let some n := text.toNat? | throw "call responder mock expects decimal words"
   unless n < 2^256 do throw "call responder mock word exceeds uint256"
   return n
 
-/-- Parse `recording-call-responder-v1`; every other program is configured by
-`StaticOracleMocks.configure`. The account lists are a code deployment model,
-not inferred from requested slots. -/
+/-- Parse `recording-call-responder-v1` or `recording-value-call-responder-v1`; every other
+program is configured by `StaticOracleMocks.configure`. The account lists are a code
+deployment model, not inferred from requested slots. -/
 def configure (input : Lean.Json) : Except String ByteCallEnvironment := do
   let config ← input.getObjVal? "byteCallEnvironment"
   let program ← config.getObjValAs? String "program"
-  unless program == "recording-call-responder-v1" do return ← StaticOracleMocks.configure input
+  unless program == "recording-call-responder-v1" ||
+      program == "recording-value-call-responder-v1" do
+    return ← StaticOracleMocks.configure input
   let caller ← decimal (← input.getObjVal? "account")
   let accounts ← (← (← config.getObjVal? "accounts").getArr?).toList.mapM fun entry => do
     let address ← decimal entry
@@ -103,6 +158,9 @@ def configure (input : Lean.Json) : Except String ByteCallEnvironment := do
     return address
   unless emptyAccounts.eraseDups.length == emptyAccounts.length do
     throw "duplicate empty call responder account"
-  return environment accounts (← decimal (← config.getObjVal? "gas")) emptyAccounts
+  let gas ← decimal (← config.getObjVal? "gas")
+  if program == "recording-value-call-responder-v1" then
+    return valueEnvironment accounts gas emptyAccounts
+  return environment accounts gas emptyAccounts
 
 end Compiler.CompilationModel.SolidityImport.CallResponderMocks

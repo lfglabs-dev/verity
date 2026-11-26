@@ -37,3 +37,40 @@ contract RecordingCallResponder {
         }
     }
 }
+
+// Payable variant of `RecordingCallResponder` for value-transferring low-level calls.
+// Records `callvalue()` in slot 9 alongside the call count, calldata size and first four
+// calldata words. A failed response rolls back both storage writes and the value transfer.
+contract RecordingValueCallResponder {
+    uint256 private value;
+    bool private failed;
+    uint256 private length;
+    uint256 private calls;
+    uint256 private size;
+    bytes32[4] private words;
+    uint256 private lastValue;
+
+    constructor(uint256 v, bool f, uint256 n) {
+        value = v;
+        failed = f;
+        length = n;
+    }
+
+    fallback() external payable {
+        uint256 v = value;
+        bool f = failed;
+        uint256 n = length;
+        calls += 1;
+        assembly ("memory-safe") {
+            sstore(size.slot, calldatasize())
+            sstore(add(words.slot, 0), calldataload(0))
+            sstore(add(words.slot, 1), calldataload(32))
+            sstore(add(words.slot, 2), calldataload(64))
+            sstore(add(words.slot, 3), calldataload(96))
+            sstore(lastValue.slot, callvalue())
+            mstore(0, v)
+            if f { revert(0, n) }
+            return(0, n)
+        }
+    }
+}

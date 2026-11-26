@@ -29,9 +29,12 @@ from .stateful import replay_three_routes, shrink_sequence
 
 FIXTURE = Path('Contracts/SolidityImportSmoke/YulMemoryCallSequence.sol')
 DRIVER = Path('Contracts/SolidityImportSmoke/YulMemoryCallSequenceModel.lean')
+VALUE_FIXTURE = Path('Contracts/SolidityImportSmoke/ValueCallSequence.sol')
+VALUE_DRIVER = Path('Contracts/SolidityImportSmoke/ValueCallSequenceModel.lean')
 RESPONDER = Path('Contracts/SolidityImportSmoke/ExternalCodeAndLowLevelCallResponder.sol')
 SENDER = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266'
 RECEIVER = '0x' + '00' * 19 + '99'
+VALUE_INITIAL_BALANCE = 10_000
 # (response word, failed, response length): true/false/empty/short/long success, reverts.
 RESPONDERS = [
     (1, False, 32),
@@ -51,6 +54,7 @@ EMPTY_RANGE_OFFSETS = [0, 0x80, 2**32, 2**32 + 1, 2**64, 2**256 - 1]
 SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True, 'runs': 466},
             'metadata': {'bytecodeHash': 'none'}}
 ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "YulMemoryCallSequence.sol"'
+VALUE_ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "ValueCallSequence.sol"'
 
 
 def address(nonce):
@@ -121,10 +125,67 @@ def transactions_for(count, seed, caller, responders):
     return calls
 
 
+def value_transactions_for(count, seed, caller, responders):
+    targets = [*responders, EMPTY, SENDER]
+    rng = random.Random(seed)
+    calls = []
+
+    def add(function, types, values):
+        index = len(calls)
+        selector = keccak(text=function)[:4].hex()
+        name = function[:function.index('(')]
+        encoded = encode(types, values)
+        words = [int.from_bytes(encoded[i:i + 32], 'big') for i in range(0, len(encoded), 32)]
+        calls.append({'id': str(index), 'function': name, 'args': words, 'sender': SENDER,
+                      'target': caller, 'data': '0x' + selector + encoded.hex(),
+                      'value': '0x0', 'timestamp': 1000000100 + index,
+                      'blockNumber': len(responders) + 2 + index})
+
+    # Cover every responder shape, empty account and sender EOA across funded transfers,
+    # zero-value calls, reverts with refunds/bubbling, and underfunded failures.
+    for index, target in enumerate(targets):
+        add('execute(address,uint256,bytes)', ['address', 'uint256', 'bytes'],
+            [target, 10 + index, bytes(range(index + 1))])
+        add('sendValue(address,uint256)', ['address', 'uint256'], [target, 5 + index])
+        add('forward(address,uint256,bytes)', ['address', 'uint256', 'bytes'],
+            [target, index, bytes(range(min(index + 4, 36)))])
+        add('probe(address,uint256)', ['address', 'uint256'], [target, 3 + index])
+        add('sendViaHelper(address,uint256)', ['address', 'uint256'], [target, 7])
+    # Underfunded calls: fail before reaching the target with empty returndata and no debit.
+    add('execute(address,uint256,bytes)', ['address', 'uint256', 'bytes'],
+        [responders[0], VALUE_INITIAL_BALANCE + 100, b'\x01\x02'])
+    add('probe(address,uint256)', ['address', 'uint256'], [responders[0], VALUE_INITIAL_BALANCE + 1])
+    add('contractBalance()', [], [])
+    add('read()', [], [])
+    while len(calls) < count:
+        choice = rng.randrange(7)
+        target = rng.choice(targets)
+        amount = rng.choice([0, 1, 7, 25, VALUE_INITIAL_BALANCE + 1])
+        payload = rng.choice([b'', b'\xaa', bytes(range(32)), bytes(range(40))])
+        if choice == 0:
+            add('execute(address,uint256,bytes)', ['address', 'uint256', 'bytes'],
+                [target, amount, payload])
+        elif choice == 1:
+            add('sendValue(address,uint256)', ['address', 'uint256'], [target, amount])
+        elif choice == 2:
+            add('forward(address,uint256,bytes)', ['address', 'uint256', 'bytes'],
+                [target, amount, payload])
+        elif choice == 3:
+            add('probe(address,uint256)', ['address', 'uint256'], [target, amount])
+        elif choice == 4:
+            add('sendViaHelper(address,uint256)', ['address', 'uint256'], [target, amount])
+        elif choice == 5:
+            add('contractBalance()', [], [])
+        else:
+            add('read()', [], [])
+    return calls
+
+
 def campaign(directory, source, template, transactions, seed, shrink_attempts, solc=SOLC, *,
              contract='YulMemoryCallFixture', anchor=ANCHOR, plan=transactions_for,
              responder=RESPONDER, responder_contract='RecordingCallResponder',
-             parameters=RESPONDERS, program='recording-call-responder-v1'):
+             parameters=RESPONDERS, program='recording-call-responder-v1',
+             self_balance=None):
     """Run one imported variant of `contract` against the recording responders, one
     account without code and the sender; `plan(count, seed, caller, responders)` lists
     the transactions. Returns (exit code, report). `responder`, `responder_contract`,
@@ -175,11 +236,13 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
                    'accounts': [str(int(a, 16)) for a in accounts],
                    # The sender is an EOA: a call that reaches it succeeds with no effect.
                    'emptyAccounts': [str(int(EMPTY, 16)), str(int(SENDER, 16))], 'gas': '1000000'}
+    balances = [(caller, self_balance)] if self_balance is not None else ()
     adapters = {
-        'source': EVM(directory / 'A', [caller_a, *responders], initial),
+        'source': EVM(directory / 'A', [caller_a, *responders], initial, initial_balances=balances),
         'model': Denote(directory / 'B', driver, caller, initial, byte_call_environment=environment,
-                        account_code=[(account, runtime) for account in accounts]),
-        'compiled': EVM(directory / 'C', [caller_c, *responders], initial)}
+                        account_code=[(account, runtime) for account in accounts],
+                        self_balance=self_balance),
+        'compiled': EVM(directory / 'C', [caller_c, *responders], initial, initial_balances=balances)}
     result = replay_three_routes(calls, adapters)
     report = {'transactions': calls, 'observations': result['observations'],
               'divergences': result['divergences'], 'seed': seed,
@@ -203,24 +266,50 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--transactions', type=int, default=64)
+    parser.add_argument('--variant', choices=('memory', 'value'), default='memory')
+    parser.add_argument('--transactions', type=int, default=None)
     parser.add_argument('--seed', type=int, default=2531)
     parser.add_argument('--shrink-attempts', type=int, default=200)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
+    if args.variant == 'value':
+        minimum = 5 * (len(RESPONDERS) + 2) + 4
+        transactions = args.transactions if args.transactions is not None else 96
+        if transactions < minimum:
+            parser.error(f'at least {minimum} transactions cover every account and value-call shape')
+        output = (args.output.resolve() if args.output else
+                  Path(tempfile.mkdtemp(prefix='yul-memory-value-call-', dir='.lake')).resolve())
+        output.mkdir(parents=True, exist_ok=args.output is None)
+        code, _ = campaign(output, VALUE_FIXTURE.read_text(), VALUE_DRIVER.read_text(),
+                           transactions, args.seed, args.shrink_attempts,
+                           contract='EthSender', anchor=VALUE_ANCHOR,
+                           plan=value_transactions_for,
+                           responder_contract='RecordingValueCallResponder',
+                           program='recording-value-call-responder-v1',
+                           self_balance=VALUE_INITIAL_BALANCE)
+        if code:
+            raise SystemExit(f'Yul memory value call divergence: {output}')
+        write_json(output / 'summary.json', {'passed': True, 'variant': 'value',
+            'transactions': transactions, 'seed': args.seed,
+            'scope': 'imported low-level call{value: v} over memory: '
+                     'source EVM / Denote / compiled model'})
+        print(f'Yul memory value call A/B/C agree: {output}')
+        return 0
     minimum = (len(RESPONDERS) + 2) + 4 * (len(RESPONDERS) + 1) + 1
-    if args.transactions < minimum:
+    transactions = args.transactions if args.transactions is not None else 64
+    if transactions < minimum:
         parser.error(f'at least {minimum} transactions cover every account and call shape')
     output = (args.output.resolve() if args.output else
               Path(tempfile.mkdtemp(prefix='yul-memory-call-', dir='.lake')).resolve())
     output.mkdir(parents=True, exist_ok=args.output is None)
-    code, _ = campaign(output, FIXTURE.read_text(), DRIVER.read_text(), args.transactions, args.seed,
+    code, _ = campaign(output, FIXTURE.read_text(), DRIVER.read_text(), transactions, args.seed,
                        args.shrink_attempts)
     if code:
         raise SystemExit(f'Yul memory call divergence: {output}')
-    write_json(output / 'summary.json', {'passed': True, 'transactions': args.transactions,
-        'seed': args.seed, 'scope': 'imported inline-assembly call/staticcall over memory: '
-                                    'source EVM / Denote / compiled model'})
+    write_json(output / 'summary.json', {'passed': True, 'variant': 'memory',
+        'transactions': transactions, 'seed': args.seed,
+        'scope': 'imported inline-assembly call/staticcall over memory: '
+                 'source EVM / Denote / compiled model'})
     print(f'Yul memory call A/B/C agree: {output}')
     return 0
 
