@@ -547,12 +547,14 @@ reverts with the last call's returndata bytes, as the compiled code and the mode
 (`Stmt.revertReturndata`, `Denote.returndataRevertBytes`) do. -/
 def revertReturndata : Contract Unit := fun state =>
   ContractResult.revert
-    (.raw (Compiler.CompilationModel.Denote.returndataRevertBytes state.returndata)) state
+    (.raw (state.rawReturndata.getD
+      (Compiler.CompilationModel.Denote.returndataRevertBytes state.returndata))) state
 
 @[simp] theorem revertReturndata_run (state : ContractState) :
     revertReturndata.run state =
       ContractResult.revert
-        (.raw (Compiler.CompilationModel.Denote.returndataRevertBytes state.returndata))
+        (.raw (state.rawReturndata.getD
+          (Compiler.CompilationModel.Denote.returndataRevertBytes state.returndata)))
         state := rfl
 /-- Executable length surface for `arrayLength`: dynamic ABI values that
 carry a length word (`bytes`, `string`, `T[]`). Deliberately not
@@ -672,14 +674,23 @@ def mstore (offset value : Uint256) : Contract Unit := fun state =>
     memory := Compiler.CompilationModel.DenoteFunctionCalls.writeMemoryWords
       state.memory offset.val [value.val] 32 }
 def returndataSizeLive : Contract Uint256 := fun state =>
-  ContractResult.success (Core.Uint256.ofNat (32 * state.returndata.length)) state
+  ContractResult.success (Core.Uint256.ofNat state.returndataSize) state
 def returndataCopyLive (destOffset sourceOffset size : Uint256) : Contract Unit := fun state =>
-  if sourceOffset.val + size.val <= 32 * state.returndata.length then
-    ContractResult.success () { state with
-      memory := Compiler.CompilationModel.Denote.returndatacopyMemoryPaddedUint256
-        state.returndata destOffset.val sourceOffset.val size.val state.memory }
-  else
-    ContractResult.revert "returndatacopy out of bounds" state
+  match state.rawReturndata with
+  | some bytes =>
+      if sourceOffset.val + size.val <= bytes.length then
+        ContractResult.success ()
+          (state.copyPhysicalMemory (Compiler.CompilationModel.Denote.rawPhysicalByte bytes)
+            destOffset.val sourceOffset.val size.val)
+      else
+        ContractResult.revert "returndatacopy out of bounds" state
+  | none =>
+      if sourceOffset.val + size.val <= 32 * state.returndata.length then
+        ContractResult.success () { state with
+          memory := Compiler.CompilationModel.Denote.returndatacopyMemoryPaddedUint256
+            state.returndata destOffset.val sourceOffset.val size.val state.memory }
+      else
+        ContractResult.revert "returndatacopy out of bounds" state
 def tstore (offset value : Uint256) : Contract Unit := fun state =>
   ContractResult.success () (state.writeTransient (offset : Nat) value)
 /-- Canonical journal-word encoding for executable external-call arguments.

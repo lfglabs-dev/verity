@@ -216,7 +216,8 @@ working. Prefer `try`/`selfCall` for modeled hops.
 
 **Model plane.** `Contract.tryWith` runs the attempt with `Contract.run`
 snapshot rollback. On revert the failure continuation starts at that
-snapshot. On success the success continuation runs from the hop's
+snapshot, with the payload's exact bytes in the returndata buffer
+(`ContractState.withCaughtRevert`), so `revertReturndata` re-raises them. On success the success continuation runs from the hop's
 post-state; a revert there is **not** caught. The failure continuation
 receives the hop's `RevertPayload`; `revert err` is `Verity.revertWith err`.
 

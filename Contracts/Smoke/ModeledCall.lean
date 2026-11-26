@@ -140,7 +140,8 @@ theorem modeled_view_discards :
 
 theorem modeled_selfCall_restores_sender (s : ContractState) :
     ∀ s',
-      revertBody { s with sender := s.thisAddress, msgValue := 0, returndata := [] } =
+      revertBody
+        { s with sender := s.thisAddress, msgValue := 0, returndata := [], rawReturndata := none } =
           ContractResult.revert "callee revert" s' →
         Contract.selfCall revertBody s = ContractResult.revert "callee revert" s :=
   fun s' h => selfCall_failure revertBody s "callee revert" s' h

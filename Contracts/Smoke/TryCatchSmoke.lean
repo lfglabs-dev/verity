@@ -94,6 +94,19 @@ verity_contract TryCatchSmoke where
           (do revert inner)
         revert err)
 
+  function panicHop () : Unit := do
+    panic(17)
+
+  -- A caught failure leaves the callee's exact revert bytes in the EIP-211
+  -- buffer: `revertReturndata` re-raises `Panic(0x11)` as its 36 bytes.
+  function reentrancy_trusted allow_post_interaction_writes rethrowViaReturndata ()
+    local_obligations [manual_low_level_refinement := assumed "tryCall/selfCall compiles to an ABI-encoded CALL to this; the CALL-to-EDSL-hop refinement is manual."]
+    : Unit := do
+    tryCall (selfCall panicHop) then
+      (do setStorage last 1)
+    catch
+      (do revertReturndata)
+
 #check_contract TryCatchSmoke
 
 /-- The EDSL re-raises the callee's payload unchanged. -/
@@ -172,5 +185,13 @@ verity_contract TryCatchPayloadWordAttemptRejected where
       (do setStorage last 1)
     catch err =>
       (do revert err)
+
+/-- `revertReturndata` after a caught `Panic(0x11)` re-raises its exact 36 bytes. -/
+example :
+    (match Contract.run (TryCatchSmoke.rethrowViaReturndata Contracts.ExecutableCallContext.stub)
+        Verity.defaultState with
+      | ContractResult.revert p _ => some p.encode | ContractResult.success _ _ => none) =
+      some (Verity.Core.RevertPayload.encode (.panic 0x11)) := by
+  decide
 
 end Contracts.Smoke

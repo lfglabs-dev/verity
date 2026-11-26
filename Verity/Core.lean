@@ -600,7 +600,14 @@ def enterHop (s : ContractState) (caller callee : Address) : ContractState :=
     sender := caller
     thisAddress := callee
     msgValue := 0
-    returndata := [] }
+    returndata := []
+    rawReturndata := none }
+
+/-- The caller's frame after a call it caught: the EIP-211 buffer holds the
+    callee's revert bytes exactly, as `returndatacopy` would see them. -/
+def withCaughtRevert (s : ContractState) (payload : Verity.Core.RevertPayload) :
+    ContractState :=
+  { s with returndata := [], rawReturndata := some payload.encode }
 
 /-- Pop a successful hop: the callee's plain world is parked back under
     `callee` (`.contractSlot` / `.scoped`), the caller's world is restored, and
@@ -2400,7 +2407,8 @@ def Contract.run {α : Type} (c : Contract α) (s : ContractState) : ContractRes
   | ContractResult.revert msg _ => ContractResult.revert msg s
 
 /-- Execute `attempt` with per-call rollback semantics and, on revert, run
-`handler` from the original pre-call snapshot. Successful attempts keep their
+`handler` from the original pre-call snapshot, whose EIP-211 buffer holds the
+revert payload's bytes (`withCaughtRevert`). Successful attempts keep their
 post-state and do not invoke the handler. -/
 def Contract.tryCatch {α : Type} (attempt : Contract α)
     (handler : Verity.Core.RevertPayload → Contract Unit) :
@@ -2408,11 +2416,12 @@ def Contract.tryCatch {α : Type} (attempt : Contract α)
   fun s =>
     match Contract.run attempt s with
     | ContractResult.success _ s' => ContractResult.success () s'
-    | ContractResult.revert msg rollback => handler msg rollback
+    | ContractResult.revert msg rollback => handler msg (rollback.withCaughtRevert msg)
 
 /-- Modeled try/catch over a hop (`selfCall` or a callee body). The attempt
     runs with `Contract.run` snapshot rollback. On revert the handler starts
-    at that snapshot. A revert inside `onSuccess` is **not** caught and
+    at that snapshot, with the payload's bytes in the EIP-211 buffer
+    (`withCaughtRevert`). A revert inside `onSuccess` is **not** caught and
     propagates with that continuation's state. The handler receives the
     attempt's revert payload (`tryCall … catch err => …` binds it). -/
 def Contract.tryWith {α : Type} (attempt : Contract α)
@@ -2421,7 +2430,7 @@ def Contract.tryWith {α : Type} (attempt : Contract α)
   fun s =>
     match Contract.run attempt s with
     | ContractResult.success v s' => onSuccess v s'
-    | ContractResult.revert msg rollback => onFailure msg rollback
+    | ContractResult.revert msg rollback => onFailure msg (rollback.withCaughtRevert msg)
 
 /-- CALL-shaped same-contract hop (`this.f(...)`). Installs a new frame with
     `sender := thisAddress`, `msgValue := 0`, and empty returndata. Success
@@ -2433,7 +2442,7 @@ def Contract.selfCall {α : Type} (body : Contract α) : Contract α := fun s =>
   let snapThis := s.thisAddress
   let snapValue := s.msgValue
   let entry : ContractState :=
-    { s with sender := snapThis, msgValue := 0, returndata := [] }
+    { s with sender := snapThis, msgValue := 0, returndata := [], rawReturndata := none }
   match body entry with
   | ContractResult.success v s' =>
       ContractResult.success v
@@ -2460,16 +2469,26 @@ def Contract.hopCall {α : Type} (callee : Address) (body : Contract α) : Contr
 def Contract.hopCallView {α : Type} (callee : Address) (body : Contract α) : Contract α :=
   fun s =>
     if s.thisAddress = callee then
-      match body { s with sender := s.thisAddress, msgValue := 0, returndata := [] } with
+      let entry : ContractState :=
+        { s with sender := s.thisAddress, msgValue := 0, returndata := [], rawReturndata := none }
+      match body entry with
       | ContractResult.success v s' =>
           ContractResult.success v
-            { s with returndata := s'.returndata, calls := s'.calls, events := s'.events }
+            { s with
+              returndata := s'.returndata
+              rawReturndata := s'.rawReturndata
+              calls := s'.calls
+              events := s'.events }
       | ContractResult.revert msg _ => ContractResult.revert msg s
     else
       match body (s.enterHop s.thisAddress callee) with
       | ContractResult.success v s' =>
           ContractResult.success v
-            { s with returndata := s'.returndata, calls := s'.calls, events := s'.events }
+            { s with
+              returndata := s'.returndata
+              rawReturndata := s'.rawReturndata
+              calls := s'.calls
+              events := s'.events }
       | ContractResult.revert msg _ => ContractResult.revert msg s
 
 /-- Distinct-address hop: run the callee body at `enterHop` and commit via `exitHop`. -/
@@ -2493,7 +2512,11 @@ theorem Contract.hopCallView_of_ne {α : Type} (callee : Address) (body : Contra
       match body (s.enterHop s.thisAddress callee) with
       | ContractResult.success v s' =>
           ContractResult.success v
-            { s with returndata := s'.returndata, calls := s'.calls, events := s'.events }
+            { s with
+              returndata := s'.returndata
+              rawReturndata := s'.rawReturndata
+              calls := s'.calls
+              events := s'.events }
       | ContractResult.revert msg _ => ContractResult.revert msg s := by
   unfold Contract.hopCallView
   split
@@ -2559,16 +2582,18 @@ theorem bind_run_success {α β : Type} (ma : Contract α) (f : α → Contract 
     (attempt : Contract α) (handler : Verity.Core.RevertPayload → Contract Unit) (state : ContractState)
     (msg : Verity.Core.RevertPayload)
     (h : attempt.run state = ContractResult.revert msg state) :
-    (Contract.tryCatch attempt handler).run state = (handler msg).run state := by
+    (Contract.tryCatch attempt handler).run state =
+      Contract.run (fun _ => handler msg (state.withCaughtRevert msg)) state := by
   unfold Contract.tryCatch Contract.run at *
   simp [h]
 
-/-- Caught failure runs the handler from the pre-call snapshot. -/
+/-- Caught failure runs the handler from the pre-call snapshot, with the payload
+in the returndata buffer. -/
 theorem caught_failure_starts_at_snapshot {α : Type}
     (attempt : Contract α) (onSuccess : α → Contract Unit)
     (onFailure : Verity.Core.RevertPayload → Contract Unit) (s : ContractState) (msg : Verity.Core.RevertPayload)
     (h : attempt.run s = ContractResult.revert msg s) :
-    Contract.tryWith attempt onSuccess onFailure s = onFailure msg s := by
+    Contract.tryWith attempt onSuccess onFailure s = onFailure msg (s.withCaughtRevert msg) := by
   unfold Contract.tryWith
   rw [h]
 
@@ -2749,13 +2774,13 @@ theorem Contract.hopCall_scoped_callee {α : Type} (callee : Address) (body : Co
 
 /-- `balanceOf`-shaped view hop: reading `slot[key]` inside
 `hopCallView callee` returns the callee's parked mapping entry and leaves the
-caller's state unchanged except for the cleared returndata. -/
+caller's state unchanged except for the cleared returndata buffers. -/
 theorem Contract.hopCallView_getMapping (callee : Address)
     (slot : StorageSlot (Address → Uint256)) (key : Address)
     (s : ContractState) (h : s.thisAddress ≠ callee) :
     Contract.hopCallView callee (getMapping slot key) s =
       ContractResult.success (s.storageWords (.scoped callee.toNat (.map slot.slot key)))
-        { s with returndata := [] } := by
+        { s with returndata := [], rawReturndata := none } := by
   rw [Contract.hopCallView_of_ne callee _ s h]
   rfl
 
@@ -2787,7 +2812,7 @@ theorem Contract.hopCallView_getMapping2 (callee : Address)
     Contract.hopCallView callee (getMapping2 slot key1 key2) s =
       ContractResult.success
         (s.storageWords (.scoped callee.toNat (.map2 slot.slot key1 key2)))
-        { s with returndata := [] } := by
+        { s with returndata := [], rawReturndata := none } := by
   rw [Contract.hopCallView_of_ne callee _ s h]
   rfl
 

@@ -220,7 +220,8 @@ theorem hopEntry_self (w : MultiWorld) (addr : Address) (site : CallSite)
 
 theorem selfCall_success {α : Type} (body : Contract α) (s : ContractState)
     (v : α) (s' : ContractState)
-    (h : body { s with sender := s.thisAddress, msgValue := 0, returndata := [] } =
+    (h : body
+        { s with sender := s.thisAddress, msgValue := 0, returndata := [], rawReturndata := none } =
       ContractResult.success v s') :
     (Contract.selfCall body s).getValue? = some v ∧
       (Contract.selfCall body s).getState.sender = s.sender ∧
@@ -231,7 +232,8 @@ theorem selfCall_success {α : Type} (body : Contract α) (s : ContractState)
 
 theorem selfCall_failure {α : Type} (body : Contract α) (s : ContractState)
     (msg : Verity.Core.RevertPayload) (s' : ContractState)
-    (h : body { s with sender := s.thisAddress, msgValue := 0, returndata := [] } =
+    (h : body
+        { s with sender := s.thisAddress, msgValue := 0, returndata := [], rawReturndata := none } =
       ContractResult.revert msg s') :
     Contract.selfCall body s = ContractResult.revert msg s := by
   unfold Contract.selfCall

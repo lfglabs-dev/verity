@@ -81,7 +81,7 @@ token's own parked `balances[a]` and leaves the caller's storage unchanged. -/
 theorem held_eq_token_entry (t a : Address) (s : ContractState) (h : s.thisAddress ≠ t) :
     HopStrategy.held t a s =
       ContractResult.success (s.storageWords (.scoped t.toNat (.map 0 a)))
-        { s with returndata := [] } := by
+        { s with returndata := [], rawReturndata := none } := by
   rw [held_is_hopCallView]
   show (Contract.hopCallView t (HopToken.balanceOf a) >>= fun v => pure v) s = _
   have hb : HopToken.balanceOf a = (do

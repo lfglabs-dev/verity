@@ -26,7 +26,8 @@ verity_contract RevertReturndataSmoke where
 write after it never happens. -/
 theorem bubbleIf_reverts (s : ContractState) :
     (RevertReturndataSmoke.bubbleIf true).run s =
-      .revert (.raw (Compiler.CompilationModel.Denote.returndataRevertBytes s.returndata)) s :=
+      .revert (.raw (s.rawReturndata.getD
+        (Compiler.CompilationModel.Denote.returndataRevertBytes s.returndata))) s :=
   rfl
 
 /-- Otherwise execution continues and writes `marker`. -/
