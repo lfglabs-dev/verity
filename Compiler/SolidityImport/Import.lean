@@ -1703,7 +1703,7 @@ private partial def lowerYul (j : Json) : M Val := do
         let target ← lowerCodeReadTarget target j
           "code length of an account that may be the executing contract is unsupported"
         let result ← fresh
-        return { pre := #[.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]],
+        return { pre := target.pre.push (.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]),
                  expr := .localVar result }
       if fname == "returndatasize" then
         unless args.isEmpty do failAt j "Yul returndatasize takes no argument"
