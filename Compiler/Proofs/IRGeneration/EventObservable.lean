@@ -41,10 +41,10 @@ theorem evalIRExpr_memory_insensitive :
     ∀ (e : YulExpr), MemInsensitiveExpr e →
       ∀ (state : IRState) (m : Nat → Nat) (bytes : DenoteMemory.Memory),
         evalIRExpr { state with memory := m, byteMemory := bytes } e = evalIRExpr state e
-  | .lit _, _, _, _, _ => by simp [evalIRExpr]
-  | .hex _, _, _, _, _ => by simp [evalIRExpr]
-  | .str _, _, _, _, _ => by simp [evalIRExpr]
-  | .ident _, _, _, _, _ => by simp [evalIRExpr, IRState.getVar]
+  | .lit _, _, _, _, _ => by simp
+  | .hex _, _, _, _, _ => by simp
+  | .str _, _, _, _, _ => by simp
+  | .ident _, _, _, _, _ => by simp [IRState.getVar]
   | .call f args, h, state, m, bytes => by
       obtain ⟨hml, hkec, hargs⟩ := h
       simp only [evalIRExpr]
@@ -167,7 +167,7 @@ theorem execIRStmts_mstore_ptr_expr_block (ptrName : String) (p : Nat) :
       have hnil : vals = [] := by
         simpa [evalIRExprs] using hvals.symm
       subst hnil
-      simp [execIRStmts, PhysicalPayloadStores.applyStores]
+      simp [PhysicalPayloadStores.applyStores]
   | (o, v) :: rest, vals, fuel, state, hptr, hmi, hvals => by
       have hrest : MemInsensitiveExprs (rest.map (·.2)) := hmi.2
       obtain ⟨w, ws, hev, hevs, rfl⟩ := evalIRExprs_cons_some state v _ vals hvals

@@ -162,6 +162,15 @@ theorem writePhysicalMemoryByte_at (world : Verity.ContractState) (offset : Nat)
   simp [Memory.readByte, Memory.writeByte]
   omega
 
+/-- Memory writes never touch the EIP-211 buffers. -/
+@[simp] theorem rawReturndata_installPhysicalMemory (world : Verity.ContractState)
+    (memory : Memory) : (world.installPhysicalMemory memory).rawReturndata = world.rawReturndata :=
+  rfl
+
+@[simp] theorem rawReturndata_writePhysicalMemoryValue (world : Verity.ContractState)
+    (offset : Nat) (value : Verity.Core.Uint256) :
+    (world.writePhysicalMemoryValue offset value).rawReturndata = world.rawReturndata := rfl
+
 @[simp] theorem physicalByte_writePhysicalMemoryByte (world : Verity.ContractState)
     (offset : Nat) (byte : Byte) :
     Verity.ContractState.physicalByte

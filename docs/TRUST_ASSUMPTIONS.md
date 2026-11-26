@@ -66,12 +66,14 @@ module, nothing for precompiles and hashing, a module's own error such as
 ERC20's `SafeERC20FailedOperation`. Calls are outside the proved fragment, so
 that these bytes are what the compiled call step reverts with is trusted, not
 proved; `test/RevertBubbleSmoke.t.sol` checks it for typed interface calls. The
-EIP-211 buffer is word-granular in every layer, so a failure caught and then
-re-raised with `revertReturndata` is padded to whole words, and the executable
-EDSL re-raises an uncaught failure as the word view of the callee's returndata
-(`Contracts.failedCallPayload`). `tryCall … catch err =>` copies the returndata
-to memory on catch entry and `revert err` re-raises that copy exactly
-(`test/TryCatchSmoke.t.sol`).
+source semantics and Denote keep a caught failure's exact bytes
+(`tryExternalCallBind` sets `rawReturndata`), so `returndatasize`,
+`returndatacopy` and `revertReturndata` after it see them unpadded. The
+executable EDSL's buffer is still word-granular: a caught failure re-raised with
+`revertReturndata` is padded to whole words, and an uncaught failure re-raises
+the word view of the callee's returndata (`Contracts.failedCallPayload`).
+`tryCall … catch err =>` copies the returndata to memory on catch entry and
+`revert err` re-raises that copy exactly (`test/TryCatchSmoke.t.sol`).
 
 Only a syntactic `requireError (literal 0)` receives terminal custom-error
 metadata. `Verity/Core/Model/DenoteErrorGuard.lean` establishes metadata
@@ -2724,13 +2726,14 @@ facts about the historical word-map algorithm.
 
 ### Byte-call scope of the Denote/source agreement
 
-`Denote` executes closed byte transports against an explicit byte adversary and
-keeps their exact return buffer in `DenoteState.rawReturndata`; `SourceSemantics`
-models neither. `DenoteAgreement.denote_evalExpr_eq` therefore holds on frames
-without a raw buffer, and `execStmt_eq` / `execStmtList_eq` additionally require
-`stmtByteFree` / `stmtListByteFree`. `execStmt_rawFree` proves that byte-free
-statements never install a raw buffer, so the hypothesis is an invariant of a
-whole run started from an empty buffer. `denote_eq_sourceSemantics` keeps its
+`Denote` executes closed byte transports against an explicit byte adversary;
+`SourceSemantics` has no byte adversary. The exact return buffer lives in the
+shared world (`ContractState.rawReturndata`), so both semantics carry it: a byte
+transport or a caught failed call installs the callee's bytes, a successful
+legacy call resets it, a transaction frame starts without one, and every
+returndata reader consults it first. `DenoteAgreement.denote_evalExpr_eq` therefore holds on
+every frame, and `execStmt_eq` / `execStmtList_eq` only require
+`stmtByteFree` / `stmtListByteFree`. `denote_eq_sourceSemantics` keeps its
 statement: the supported contract surface rejects every ECM, which implies
 byte-freeness (`stmtListByteFree_of_contractSurfaceClosed`). Theorems quantified
 over arbitrary function bodies (`denoteFunction_eq`, `denote_sound`,

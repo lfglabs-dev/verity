@@ -332,14 +332,13 @@ def execute (adversary : Adversary) (request : Request) (state : State) : Observ
     state :=
       { frame :=
           { state.frame with
-            world := observed.world
-            rawReturndata := some observed.returndata }
+            world := { observed.world with rawReturndata := some observed.returndata } }
         returndata := observed.returndata
         touched := state.touched ++ observed.touched } }
 
 @[simp] theorem execute_rawReturndata (adversary : Adversary) (request : Request)
     (state : State) :
-    (execute adversary request state).state.frame.rawReturndata =
+    (execute adversary request state).state.frame.world.rawReturndata =
       some (execute adversary request state).state.returndata := rfl
 
 theorem execute_returndata (adversary : Adversary) (request : Request)
@@ -477,11 +476,16 @@ def executeBytesCallWord : Denote.StmtOutcome × List Verity.StorageKey :=
       let observed := execute adversary (callBytesRequest state target calldata gas) state
       (decodeCallWord observed, observed.state.touched) := rfl
 
-/-- A byte-request staticcall never changes the Denote world. -/
+/-- A byte-request staticcall changes the Denote world only by installing the
+child's exact returndata. -/
 @[simp] theorem execute_staticBytesRequest_world :
     (execute adversary (staticBytesRequest state target calldata gas) state).state.frame.world =
-      state.frame.world :=
-  ByteExternalCall.execute_static_world adversary _ state.frame.world rfl
+      { state.frame.world with
+        rawReturndata := some (execute adversary
+          (staticBytesRequest state target calldata gas) state).state.returndata } := by
+  have h := ByteExternalCall.execute_static_world adversary
+    (staticBytesRequest state target calldata gas) state.frame.world rfl
+  simp only [execute, h]
 
 end BytesExecutors
 
@@ -499,13 +503,18 @@ theorem execute_bindings (adversary : Adversary) (request : Request) (state : St
 
 theorem execute_static_world (adversary : Adversary) (request : Request) (state : State)
     (hkind : request.kind = .staticcall) :
-    (execute adversary request state).state.frame.world = state.frame.world :=
-  ByteExternalCall.execute_static_world adversary request state.frame.world hkind
+    (execute adversary request state).state.frame.world =
+      { state.frame.world with
+        rawReturndata := some (execute adversary request state).state.returndata } := by
+  simp only [execute,
+    ByteExternalCall.execute_static_world adversary request state.frame.world hkind]
 
 theorem execute_revert_world (adversary : Adversary) (request : Request) (state : State)
     (data : Bytes) (accesses : List Verity.StorageKey)
     (hresponse : adversary.respond request state.frame.world = .revert data accesses) :
-    (execute adversary request state).state.frame.world = state.frame.world := by
+    (execute adversary request state).state.frame.world =
+      { state.frame.world with
+        rawReturndata := some (execute adversary request state).state.returndata } := by
   simp [execute, ByteExternalCall.execute, hresponse, Response.commit]
 
 theorem execute_revert_bytes (adversary : Adversary) (request : Request) (state : State)

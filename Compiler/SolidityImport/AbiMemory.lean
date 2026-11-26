@@ -105,8 +105,7 @@ theorem evalExpr_byteWordOffset (oracle : DenoteOracle) (fields : List Field)
     lt_of_le_of_lt (Nat.div_le_self _ _) bounded
   have product : value / 32 * 32 < Verity.Core.Uint256.modulus :=
     lt_of_le_of_lt (Nat.div_mul_le_self _ _) bounded
-  simp only [SolidityImport.AbiEncoding.byteWordOffset, evalExpr, evaluated,
-    Option.bind_some]
+  simp only [SolidityImport.AbiEncoding.byteWordOffset, evalExpr, evaluated]
   change some ((((value % Verity.Core.Uint256.modulus / 32) %
     Verity.Core.Uint256.modulus) % Verity.Core.Uint256.modulus * 32) % Verity.Core.Uint256.modulus) = _
   rw [Nat.mod_eq_of_lt bounded, Nat.mod_eq_of_lt quotient, Nat.mod_eq_of_lt quotient, Nat.mod_eq_of_lt product]
@@ -762,7 +761,7 @@ theorem abiZeroWords_succ (memory : Nat → Verity.Core.Uint256) (base count : N
   · subst cell
     have inside : base ≤ base + 32 * count ∧
         base + 32 * count < base + 32 * (count + 1) ∧ (base + 32 * count) % 32 = 0 := by omega
-    simp only [if_pos rfl, abiZeroWords, if_pos inside, if_true]
+    simp only [abiZeroWords, if_pos inside, if_true]
   · have same : (base ≤ cell ∧ cell < base + 32 * count ∧ cell % 32 = 0) ↔
         (base ≤ cell ∧ cell < base + 32 * (count + 1) ∧ cell % 32 = 0) := by omega
     simp only [if_neg current, abiZeroWords, same]

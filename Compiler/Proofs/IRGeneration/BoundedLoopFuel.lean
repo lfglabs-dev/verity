@@ -100,7 +100,7 @@ private theorem execIRStmt_for_empty_body_noncontinue_stable (G F : Nat) (state 
     execIRStmt (Nat.succ G) state (.for_ [] cond post body) =
       execIRStmt (Nat.succ F) state (.for_ [] cond post body) := by
   have hnil : ∀ (n : Nat), execIRStmts n state [] = .continue state :=
-    fun n => by simp [execIRStmts]
+    fun n => by simp
   rw [execIRStmt_for_body_noncontinue G state state [] post body cond 1 r (hnil _) hcond
       one_ne_zero (hbodyEq.trans hbody) hterm,
     execIRStmt_for_body_noncontinue F state state [] post body cond 1 r (hnil _) hcond
@@ -119,7 +119,7 @@ private theorem execIRStmt_for_empty_stable_step (G F : Nat) (state : IRState)
     execIRStmt (Nat.succ G) state (.for_ [] cond post body) =
       execIRStmt (Nat.succ F) state (.for_ [] cond post body) := by
   have hnil : ∀ (n : Nat), execIRStmts n state [] = .continue state :=
-    fun n => by simp [execIRStmts]
+    fun n => by simp
   cases hbody : execIRStmts F state body with
   | «continue» s'' =>
       obtain ⟨sPost, hpostG, hpostF, hrec⟩ := hcont s'' hbody
@@ -142,7 +142,7 @@ private theorem execIRStmt_boundedFor_stable_zero (idxN cntN : String) (body : L
   have hcond := evalIRExpr_forEach_cond idxN cntN state k k hidx hcnt hCM hCM
   rw [if_neg (by omega)] at hcond
   have hnil : ∀ (F : Nat), execIRStmts F state [] = .continue state :=
-    fun F => by simp [execIRStmts]
+    fun F => by simp
   rw [show boundedForFuel body k k + f = Nat.succ (boundedForFuel body k k - 1 + f) from by
       unfold boundedForFuel; omega,
     show boundedForFuel body k k = Nat.succ (boundedForFuel body k k - 1) from by

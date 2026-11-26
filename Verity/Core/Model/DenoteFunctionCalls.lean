@@ -739,11 +739,11 @@ theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
         { state with
           world := { (state.externalCallPostWorld state.externalCallIndex).getD state.world with
             returndata :=
-              (state.externalCallReturnValues state.externalCallIndex).map wordNormalize }
+              (state.externalCallReturnValues state.externalCallIndex).map wordNormalize
+            rawReturndata := none }
           bindings := bindValues state.bindings vars
             ((state.externalCallReturnValues state.externalCallIndex).map wordNormalize)
-          externalCallIndex := state.externalCallIndex + 1
-          rawReturndata := none } := by
+          externalCallIndex := state.externalCallIndex + 1 } := by
   simp [execStmt, hargs, hsuccess, harity]
 
 private def dummyOracle : DenoteOracle :=

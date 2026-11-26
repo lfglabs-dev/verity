@@ -79,12 +79,13 @@ theorem bindAgree {α β : Type} {o₁ o₂ : Option α} {f g : α → Option β
 /-! ## Byte-call scope of the agreement
 
 `Denote` executes closed byte transports (`ExternalCallModule.byteTransport`)
-against an explicit byte adversary and keeps their exact return buffer in
-`DenoteState.rawReturndata`; `SourceSemantics` has neither. The agreement below
-is therefore stated for statements without byte transports, executed from
-frames whose raw buffer is empty. Such statements never install a raw buffer
-(`execStmt_rawFree`), so the hypothesis is an invariant of the whole run. The
-IR proof fragments never contain byte transports (`SupportedStmtList` admits
+against an explicit byte adversary; `SourceSemantics` has no byte adversary.
+The exact return buffer lives in the shared world (`ContractState.rawReturndata`):
+both semantics install the callee's revert bytes after a caught failed call and
+reset it after a successful legacy call, and every returndata reader consults it
+first, so the agreement holds from every frame. Only statements with byte
+transports are out of scope.
+The IR proof fragments never contain byte transports (`SupportedStmtList` admits
 only `ecmPureHashing` modules, and the contract surface rejects every ECM). -/
 
 mutual
@@ -106,31 +107,11 @@ def branchesByteFree : List (String × List String × List Stmt) → Bool
   | (_, _, body) :: rest => stmtListByteFree body && branchesByteFree rest
 end
 
-/-- Every continuing or returning frame still has an empty raw buffer. -/
-def outcomeRawFree : StmtOutcome → Prop
-  | .continue st | .stop st | .return _ st => st.rawReturndata = none
-  | .revert | .revertWithData _ => True
-
 /-! ## Expression-level agreement -/
 
 /-- Shorthand for expression-level agreement at one expression. -/
 private abbrev ExprAgree (fields : List Field) (s : DenoteState) (e : Expr) : Prop :=
   Denote.evalExpr sourceOracle fields s e = SourceSemantics.evalExpr fields (toRuntimeState s) e
-
-/-- `returndatasize` agreement: with no raw buffer both read the world's size. -/
-private theorem denote_evalExpr_returndataSize_eq (fields : List Field) (s : DenoteState)
-    (hraw : s.rawReturndata = none) : ExprAgree fields s .returndataSize := by
-  show some ((s.rawReturndata.map List.length).getD s.world.returndataSize) = _
-  rw [hraw]
-  rfl
-
-/-- Optional-bool returndata read agreement, given agreement on the offset. -/
-private theorem denote_evalExpr_returndataOptionalBoolAt_eq (fields : List Field)
-    (s : DenoteState) (hraw : s.rawReturndata = none) (a : Expr)
-    (ih : ExprAgree fields s a) : ExprAgree fields s (.returndataOptionalBoolAt a) :=
-  bindAgree ih fun _ => by
-    simp only [hraw]
-    rfl
 
 /-- Conditional-expression agreement, given agreement on all three operands. -/
 private theorem denote_evalExpr_ite_eq (fields : List Field) (s : DenoteState)
@@ -152,8 +133,7 @@ private theorem denote_evalExpr_externalCall_two_eq (fields : List Field) (s : D
     intro c x y h; cases c <;> simp [h]
   exact guard _ _ _ (bindAgree ihb fun _ => bindAgree ihe fun _ => rfl)
 
-theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState)
-    (hraw : s.rawReturndata = none) :
+theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
     ∀ e : Expr,
       Denote.evalExpr sourceOracle fields s e =
         SourceSemantics.evalExpr fields (toRuntimeState s) e
@@ -166,42 +146,40 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState)
   | .externalCall _ (_ :: _ :: _ :: _) | .internalCall .. | .intrinsic .. | .forkIfAtLeast ..
   | .mulDiv512Down .. | .mulDiv512Up .. | .adtConstruct .. | .adtTag .. | .adtField .. | .abiLiteral ..
   | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
-  | .blockTimestamp | .blockNumber | .blobbasefee | .baseFee | .gasPrice | .calldatasize => rfl
-  | .returndataSize => denote_evalExpr_returndataSize_eq fields s hraw
-  | .returndataOptionalBoolAt a => denote_evalExpr_returndataOptionalBoolAt_eq fields s hraw a
-      (denote_evalExpr_eq fields s hraw a)
+  | .blockTimestamp | .blockNumber | .blobbasefee | .baseFee | .gasPrice | .calldatasize
+  | .returndataSize => rfl
   | .bitNot a | .logicalNot a | .mload a | .tload a | .calldataload a | .extcodesize a
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _ | .mappingUint _ a
   | .mappingChain _ [a] | .structMember _ a _ | .storageArrayElement _ a | .arrayElement _ a
   | .arrayElementDynamicWord _ a _ | .arrayElementDynamicDataOffset _ a
   | .arrayElementDynamicMemberLength _ a _ | .arrayElementDynamicMemberDataOffset _ a _
-  | .memoryArrayElement _ a => bindAgree (denote_evalExpr_eq fields s hraw a) fun _ => rfl
+  | .memoryArrayElement _ a | .returndataOptionalBoolAt a =>
+      bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b | .bitAnd a b
   | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b
   | .eq a b | .ge a b | .gt a b | .sgt a b | .lt a b | .slt a b | .le a b | .logicalAnd a b
   | .logicalOr a b | .ceilDiv a b | .wMulDown a b | .wDivUp a b | .min a b | .max a b
   | .keccak256 a b | .mapping2 _ a b | .mapping2Word _ a b _ | .mappingChain _ [a, b]
   | .structMember2 _ a b _ | .arrayElementDynamicMemberElement _ a _ b =>
-      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
-        bindAgree (denote_evalExpr_eq fields s hraw b) fun _ => rfl
+      bindAgree (denote_evalExpr_eq fields s a) fun _ =>
+        bindAgree (denote_evalExpr_eq fields s b) fun _ => rfl
   | .mulDivDown a b c | .mulDivUp a b c =>
-      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
-        bindAgree (denote_evalExpr_eq fields s hraw b) fun _ =>
-          bindAgree (denote_evalExpr_eq fields s hraw c) fun _ => rfl
-  | .ite c t e => denote_evalExpr_ite_eq fields s c t e (denote_evalExpr_eq fields s hraw c)
-      (denote_evalExpr_eq fields s hraw t) (denote_evalExpr_eq fields s hraw e)
+      bindAgree (denote_evalExpr_eq fields s a) fun _ =>
+        bindAgree (denote_evalExpr_eq fields s b) fun _ =>
+          bindAgree (denote_evalExpr_eq fields s c) fun _ => rfl
+  | .ite c t e => denote_evalExpr_ite_eq fields s c t e (denote_evalExpr_eq fields s c)
+      (denote_evalExpr_eq fields s t) (denote_evalExpr_eq fields s e)
   | .externalCall _ [base, exponent] => denote_evalExpr_externalCall_two_eq fields s _ base
-      exponent (denote_evalExpr_eq fields s hraw base) (denote_evalExpr_eq fields s hraw exponent)
+      exponent (denote_evalExpr_eq fields s base) (denote_evalExpr_eq fields s exponent)
 
-theorem denote_evalExprList_eq (fields : List Field) (s : DenoteState)
-    (hraw : s.rawReturndata = none) :
+theorem denote_evalExprList_eq (fields : List Field) (s : DenoteState) :
     ∀ es : List Expr,
       Denote.evalExprList sourceOracle fields s es =
         SourceSemantics.evalExprList fields (toRuntimeState s) es
   | [] => rfl
   | e :: rest =>
-      bindAgree (denote_evalExpr_eq fields s hraw e) fun _ =>
-        bindAgree (denote_evalExprList_eq fields s hraw rest) fun _ => rfl
+      bindAgree (denote_evalExpr_eq fields s e) fun _ =>
+        bindAgree (denote_evalExprList_eq fields s rest) fun _ => rfl
 
 /-! ## Statement-level agreement: outcome conversion and write bridges -/
 
@@ -532,204 +510,18 @@ theorem writeAddressKeyedMapping2FieldSlots_eq
     Denote.packedBitsValid p = Compiler.CompilationModel.packedBitsValid p := rfl
 
 /-! ## Statement-level agreement -/
-
-/-! ## Raw return buffer invariant
-
-Byte-free statements never install a raw return buffer: every arm either fails,
-rebuilds the frame from its input, or resets the buffer after a legacy call. -/
-
-theorem execForEachLoop_rawFree {varName : String} {runBody : DenoteState → StmtOutcome}
-    (h : ∀ ls : DenoteState, ls.rawReturndata = none → outcomeRawFree (runBody ls)) :
-    ∀ (st : DenoteState) (index remaining : Nat), st.rawReturndata = none →
-      outcomeRawFree (Denote.execForEachLoop varName runBody st index remaining)
-  | st, _, 0, hraw => hraw
-  | st, index, remaining + 1, hraw => by
-      let ls := { st with bindings := bindValue st.bindings varName (wordNormalize index) }
-      have hb := h ls hraw
-      show outcomeRawFree (match runBody ls with
-        | .continue next => Denote.execForEachLoop varName runBody next (index + 1) remaining
-        | .stop next => .stop next
-        | .return value next => .return value next
-        | .revert => .revert
-        | .revertWithData data => .revertWithData data)
-      cases hr : runBody ls <;> rw [hr] at hb <;>
-        first
-          | exact hb
-          | exact execForEachLoop_rawFree h _ _ remaining hb
-
-theorem execForEachSetBitLoop_rawFree {varName : String} {runBody : DenoteState → StmtOutcome}
-    (h : ∀ ls : DenoteState, ls.rawReturndata = none → outcomeRawFree (runBody ls)) :
-    ∀ (fuel : Nat) (st : DenoteState) (bitmap : Nat), st.rawReturndata = none →
-      outcomeRawFree (Denote.execForEachSetBitLoop varName runBody fuel st bitmap)
-  | 0, st, _, hraw => hraw
-  | fuel + 1, st, bitmap, hraw => by
-      simp only [Denote.execForEachSetBitLoop]
-      split
-      · exact hraw
-      · let ls := { st with bindings := bindValue st.bindings varName (wordNormalize (msbIndex bitmap)) }
-        have hb := h ls hraw
-        show outcomeRawFree (match runBody ls with
-          | .continue next => Denote.execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
-          | .stop next => .stop next
-          | .return value next => .return value next
-          | .revert => .revert
-          | .revertWithData data => .revertWithData data)
-        cases hr : runBody ls <;> rw [hr] at hb <;>
-          first
-            | exact hb
-            | exact execForEachSetBitLoop_rawFree h fuel _ _ hb
-
-theorem execForEachWhileLoop_rawFree {varName : String}
-    {evalGuard : DenoteState → Option Nat} {runBody : DenoteState → StmtOutcome}
-    (h : ∀ ls : DenoteState, ls.rawReturndata = none → outcomeRawFree (runBody ls)) :
-    ∀ (st : DenoteState) (index remaining : Nat), st.rawReturndata = none →
-      outcomeRawFree (Denote.execForEachWhileLoop varName evalGuard runBody st index remaining)
-  | st, _, 0, hraw => by
-      simp only [Denote.execForEachWhileLoop]
-      split
-      · exact hraw
-      · trivial
-  | st, index, remaining + 1, hraw => by
-      simp only [Denote.execForEachWhileLoop]
-      split
-      · trivial
-      · split
-        · exact hraw
-        · have hb := h { st with bindings := bindValue st.bindings varName (wordNormalize index) }
-            hraw
-          revert hb
-          cases runBody { st with bindings := bindValue st.bindings varName (wordNormalize index) }
-            <;> first
-              | exact id
-              | exact fun hb => execForEachWhileLoop_rawFree h _ _ remaining hb
-
-theorem execStmt_forEach_rawFree (fields : List Field) (st : DenoteState) (v : String)
-    (cnt : Expr) (body : List Stmt) (hraw : st.rawReturndata = none)
-    (hbody : ∀ ls : DenoteState, ls.rawReturndata = none →
-      outcomeRawFree (Denote.execStmtList sourceOracle fields ls body)) :
-    outcomeRawFree (Denote.execStmt sourceOracle fields st (.forEach v cnt body)) := by
-  simp only [Denote.execStmt]
-  split
-  · exact execForEachLoop_rawFree hbody _ 0 _ hraw
-  · trivial
-
-theorem execStmt_forEachSetBit_rawFree (fields : List Field) (st : DenoteState) (v : String)
-    (bitmap : Expr) (body : List Stmt) (hraw : st.rawReturndata = none)
-    (hbody : ∀ ls : DenoteState, ls.rawReturndata = none →
-      outcomeRawFree (Denote.execStmtList sourceOracle fields ls body)) :
-    outcomeRawFree (Denote.execStmt sourceOracle fields st (.forEachSetBit v bitmap body)) := by
-  simp only [Denote.execStmt]
-  split
-  · exact execForEachSetBitLoop_rawFree hbody 256 st _ hraw
-  · trivial
-
-theorem execStmt_forEachWhile_rawFree (fields : List Field) (st : DenoteState) (v : String)
-    (cnt guard : Expr) (body : List Stmt) (hraw : st.rawReturndata = none)
-    (hbody : ∀ ls : DenoteState, ls.rawReturndata = none →
-      outcomeRawFree (Denote.execStmtList sourceOracle fields ls body)) :
-    outcomeRawFree (Denote.execStmt sourceOracle fields st (.forEachWhile v cnt guard body)) := by
-  simp only [Denote.execStmt]
-  split
-  · exact execForEachWhileLoop_rawFree hbody _ 0 _ hraw
-  · trivial
-
-/-- Discharge a non-recursive `execStmt` arm of the raw-buffer invariant: every
-such arm either fails or rebuilds the frame from the input with `rawReturndata`
-unchanged or reset. -/
-macro "raw_free_arm" : tactic =>
-  `(tactic|
-    (simp only [Denote.execStmt]
-     repeat' split
-     all_goals first
-       | trivial
-       | assumption
-       | simp_all [outcomeRawFree]))
-
-mutual
-
-theorem execStmt_rawFree (fields : List Field) :
-    ∀ (st : DenoteState) (stmt : Stmt), stmtByteFree stmt = true →
-      st.rawReturndata = none →
-      outcomeRawFree (Denote.execStmt sourceOracle fields st stmt)
-  | _, .letVar n v, _, h | _, .assignVar n v, _, h => by raw_free_arm
-  | _, .setStorage f v, _, h | _, .setStorageAddr f v, _, h | _, .setImmutable f v, _, h => by raw_free_arm
-  | _, .setStorageWord f w v, _, h => by raw_free_arm
-  | _, .setMapping f k v, _, h | _, .setMappingUint f k v, _, h => by raw_free_arm
-  | _, .setMappingWord f k w v, _, h => by raw_free_arm
-  | _, .setMappingPackedWord f k w p v, _, h => by raw_free_arm
-  | _, .setStructMember f k m v, _, h => by raw_free_arm
-  | _, .setMapping2 f k1 k2 v, _, h => by raw_free_arm
-  | _, .setMapping2Word f k1 k2 w v, _, h => by raw_free_arm
-  | _, .setStructMember2 f k1 k2 m v, _, h => by raw_free_arm
-  | _, .setMappingChain f ks v, _, h => by raw_free_arm
-  | _, .storageArrayPush f v, _, h | _, .storageArrayPop f, _, h => by raw_free_arm
-  | _, .setStorageArrayElement f i v, _, h => by raw_free_arm
-  | _, .mstore o v, _, h | _, .tstore o v, _, h => by raw_free_arm
-  | _, .calldatacopy _ _ _, _, h | _, .returndataCopy _ _ _, _, h => by raw_free_arm
-  | _, .require _ _, _, h | _, .requireError .., _, h | _, .revertError .., _, h
-  | _, .panicCode _, _, h | _, .panic _, _, h => by raw_free_arm
-  | _, .return v, _, h | _, .stop, _, h | _, .emit n args, _, h => by raw_free_arm
-  | st, .ite c t e, hb, h => by
-      simp only [stmtByteFree, Bool.and_eq_true] at hb
-      simp only [Denote.execStmt]
-      split
-      · split
-        · exact execStmtList_rawFree fields st t hb.1 h
-        · exact execStmtList_rawFree fields st e hb.2 h
-      · trivial
-  | st, .forEach v cnt body, hb, h => execStmt_forEach_rawFree fields st v cnt body h
-      (fun ls hls => execStmtList_rawFree fields ls body hb hls)
-  | st, .forEachSetBit v bitmap body, hb, h => execStmt_forEachSetBit_rawFree fields st v
-      bitmap body h (fun ls hls => execStmtList_rawFree fields ls body hb hls)
-  | st, .forEachWhile v cnt guard body, hb, h => execStmt_forEachWhile_rawFree fields st v
-      cnt guard body h (fun ls hls => execStmtList_rawFree fields ls body hb hls)
-  | _, .externalCallBind _ _ _, _, h | _, .tryExternalCallBind _ _ _ _, _, h => by raw_free_arm
-  | st, .ecm mod args, hb, h => by
-      simp only [stmtByteFree, Option.isNone_iff_eq_none] at hb
-      simp only [Denote.execStmt, hb]
-      repeat' split
-      all_goals trivial
-  | _, .returnValues _, _, h | _, .returnBytes _, _, h => by raw_free_arm
-  | _, .returnArray .., _, _ | _, .returnStorageWords .., _, _
-  | _, .returnCodeData .., _, _ | _, .revertEmpty, _, _ | _, .revertReturndata .., _, _
-  | _, .revertMemory .., _, _
-  | _, .internalCall .., _, _ | _, .internalCallAssign .., _, _ | _, .rawLog .., _, _
-  | _, .unsafeBlock .., _, _ | _, .unsafeYul .., _, _ | _, .matchAdt .., _, _ => by raw_free_arm
-
-theorem execStmtList_rawFree (fields : List Field) :
-    ∀ (st : DenoteState) (stmts : List Stmt), stmtListByteFree stmts = true →
-      st.rawReturndata = none →
-      outcomeRawFree (Denote.execStmtList sourceOracle fields st stmts)
-  | _, [], _, h => h
-  | st, stmt :: rest, hb, h => by
-      simp only [stmtListByteFree, Bool.and_eq_true] at hb
-      have hhead := execStmt_rawFree fields st stmt hb.1 h
-      simp only [Denote.execStmtList]
-      revert hhead
-      cases Denote.execStmt sourceOracle fields st stmt <;>
-        first
-          | exact fun hhead => hhead
-          | exact fun hhead => execStmtList_rawFree fields _ rest hb.2 hhead
-
-end
-
-/-! ## Statement-level agreement -/
-
 theorem execForEachLoop_agree {varName : String}
     {runBody : DenoteState → StmtOutcome}
     {runBody' : SourceSemantics.RuntimeState → SourceSemantics.StmtResult}
-    (h : ∀ ls : DenoteState, ls.rawReturndata = none →
-      toStmtResult (runBody ls) = runBody' (toRuntimeState ls))
-    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none → outcomeRawFree (runBody ls)) :
-    ∀ (st : DenoteState) (index remaining : Nat), st.rawReturndata = none →
+    (h : ∀ ls : DenoteState, toStmtResult (runBody ls) = runBody' (toRuntimeState ls)) :
+    ∀ (st : DenoteState) (index remaining : Nat),
       toStmtResult (Denote.execForEachLoop varName runBody st index remaining) =
         SourceSemantics.execForEachLoop varName runBody' (toRuntimeState st) index remaining
-  | _, _, 0, _ => rfl
-  | st, index, remaining + 1, hraw => by
+  | _, _, 0 => rfl
+  | st, index, remaining + 1 => by
       let ls := { st with bindings :=
         SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index) }
-      have hb := h ls hraw
-      have hf := hfree ls hraw
+      have hb := h ls
       rw [SourceSemantics.execForEachLoop_succ]
       simp only [toRuntimeState] at hb ⊢
       rw [← hb]
@@ -740,11 +532,10 @@ theorem execForEachLoop_agree {varName : String}
             | .return value next => .return value next
             | .revert => .revert
             | .revertWithData data => .revertWithData data) = _
-      revert hf
       cases runBody ls <;>
         first
-          | exact fun _ => rfl
-          | exact fun hf => execForEachLoop_agree h hfree _ (index + 1) remaining hf
+          | rfl
+          | exact execForEachLoop_agree h _ (index + 1) remaining
 
 /-- One iteration of `execForEachWhileLoop_agree`: the body agrees, and the
 continuation agrees by the induction hypothesis `ih`. -/
@@ -753,11 +544,9 @@ theorem execForEachWhileLoop_agree_step {varName : String}
     {evalGuard' : SourceSemantics.RuntimeState → Option Nat}
     {runBody : DenoteState → StmtOutcome}
     {runBody' : SourceSemantics.RuntimeState → SourceSemantics.StmtResult}
-    (h : ∀ ls : DenoteState, ls.rawReturndata = none →
-      toStmtResult (runBody ls) = runBody' (toRuntimeState ls))
-    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none → outcomeRawFree (runBody ls))
-    (st : DenoteState) (index remaining : Nat) (hraw : st.rawReturndata = none)
-    (ih : ∀ next : DenoteState, next.rawReturndata = none →
+    (h : ∀ ls : DenoteState, toStmtResult (runBody ls) = runBody' (toRuntimeState ls))
+    (st : DenoteState) (index remaining : Nat)
+    (ih : ∀ next : DenoteState,
       toStmtResult (Denote.execForEachWhileLoop varName evalGuard runBody next (index + 1)
           remaining) =
         SourceSemantics.execForEachWhileLoop varName evalGuard' runBody'
@@ -782,8 +571,7 @@ theorem execForEachWhileLoop_agree_step {varName : String}
       | .revert payload => .revert payload) := by
   let ls := { st with bindings :=
     SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index) }
-  have hb := h ls hraw
-  have hf := hfree ls hraw
+  have hb := h ls
   simp only [toRuntimeState] at hb ⊢
   rw [← hb]
   show toStmtResult
@@ -794,29 +582,25 @@ theorem execForEachWhileLoop_agree_step {varName : String}
         | .return value next => .return value next
         | .revert => .revert
         | .revertWithData data => .revertWithData data) = _
-  revert hf
-  cases runBody ls <;> first | exact fun _ => rfl | exact fun hf => ih _ hf
+  cases runBody ls <;> first | rfl | exact ih _
 
 theorem execForEachWhileLoop_agree {varName : String}
     {evalGuard : DenoteState → Option Nat}
     {evalGuard' : SourceSemantics.RuntimeState → Option Nat}
     {runBody : DenoteState → StmtOutcome}
     {runBody' : SourceSemantics.RuntimeState → SourceSemantics.StmtResult}
-    (hg : ∀ ls : DenoteState, ls.rawReturndata = none →
-      evalGuard ls = evalGuard' (toRuntimeState ls))
-    (h : ∀ ls : DenoteState, ls.rawReturndata = none →
-      toStmtResult (runBody ls) = runBody' (toRuntimeState ls))
-    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none → outcomeRawFree (runBody ls)) :
-    ∀ (st : DenoteState) (index remaining : Nat), st.rawReturndata = none →
+    (hg : ∀ ls : DenoteState, evalGuard ls = evalGuard' (toRuntimeState ls))
+    (h : ∀ ls : DenoteState, toStmtResult (runBody ls) = runBody' (toRuntimeState ls)) :
+    ∀ (st : DenoteState) (index remaining : Nat),
       toStmtResult (Denote.execForEachWhileLoop varName evalGuard runBody st index remaining) =
         SourceSemantics.execForEachWhileLoop varName evalGuard' runBody'
           (toRuntimeState st) index remaining
-  | st, _, 0, hraw => by
-      rw [SourceSemantics.execForEachWhileLoop_zero, ← hg st hraw]
+  | st, _, 0 => by
+      rw [SourceSemantics.execForEachWhileLoop_zero, ← hg st]
       simp only [Denote.execForEachWhileLoop]
       cases evalGuard st <;> rfl
-  | st, index, remaining + 1, hraw => by
-      rw [SourceSemantics.execForEachWhileLoop_succ, ← hg st hraw]
+  | st, index, remaining + 1 => by
+      rw [SourceSemantics.execForEachWhileLoop_succ, ← hg st]
       simp only [Denote.execForEachWhileLoop]
       cases evalGuard st with
       | none => rfl
@@ -825,29 +609,24 @@ theorem execForEachWhileLoop_agree {varName : String}
           · simp only [if_pos hg0]
             rfl
           · simp only [if_neg hg0]
-            exact execForEachWhileLoop_agree_step (evalGuard' := evalGuard') h hfree st index
-              remaining hraw
-              (fun next hnext => execForEachWhileLoop_agree hg h hfree next (index + 1) remaining
-                hnext)
+            exact execForEachWhileLoop_agree_step (evalGuard' := evalGuard') h st index
+              remaining (fun next => execForEachWhileLoop_agree hg h next (index + 1) remaining)
 
 theorem execForEachSetBitLoop_agree {varName : String}
     {runBody : DenoteState → StmtOutcome}
     {runBody' : SourceSemantics.RuntimeState → SourceSemantics.StmtResult}
-    (h : ∀ ls : DenoteState, ls.rawReturndata = none →
-      toStmtResult (runBody ls) = runBody' (toRuntimeState ls))
-    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none → outcomeRawFree (runBody ls)) :
-    ∀ (fuel : Nat) (st : DenoteState) (bitmap : Nat), st.rawReturndata = none →
+    (h : ∀ ls : DenoteState, toStmtResult (runBody ls) = runBody' (toRuntimeState ls)) :
+    ∀ (fuel : Nat) (st : DenoteState) (bitmap : Nat),
       toStmtResult (Denote.execForEachSetBitLoop varName runBody fuel st bitmap) =
         SourceSemantics.execForEachSetBitLoop varName runBody' fuel (toRuntimeState st) bitmap
-  | 0, _, _, _ => rfl
-  | fuel + 1, st, bitmap, hraw => by
+  | 0, _, _ => rfl
+  | fuel + 1, st, bitmap => by
       rw [SourceSemantics.execForEachSetBitLoop_succ]
       by_cases hbitmap : bitmap = 0
       · simp [Denote.execForEachSetBitLoop, hbitmap, toStmtResult]
       · let val := SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)
         let ls := { st with bindings := SourceSemantics.bindValue st.bindings varName val }
-        have hb := h ls hraw
-        have hf := hfree ls hraw
+        have hb := h ls
         simp only [Denote.execForEachSetBitLoop, hbitmap, if_false, toRuntimeState] at hb ⊢
         rw [← hb]
         show toStmtResult
@@ -859,23 +638,20 @@ theorem execForEachSetBitLoop_agree {varName : String}
             | .return value next => .return value next
             | .revert => .revert
             | .revertWithData data => .revertWithData data) = _
-        revert hf
         cases runBody ls <;>
           first
-            | exact fun _ => rfl
-            | exact fun hf =>
-                execForEachSetBitLoop_agree h hfree fuel _ (SourceSemantics.clearMsb bitmap) hf
+            | rfl
+            | exact execForEachSetBitLoop_agree h fuel _ (SourceSemantics.clearMsb bitmap)
 
 section StatementTactics
 
 /-- Generic discharge tactic for the non-recursive `execStmt` arms: align the
-expression evaluators on the raw-free frame `hraw`, split every residual
-match/ite, then close each leaf definitionally or by the mapping-write/array
-bridges. -/
-macro "denote_stmt_arm" hraw:term : tactic =>
+expression evaluators, split every residual match/ite, then close each leaf
+definitionally or by the mapping-write/array bridges. -/
+macro "denote_stmt_arm" : tactic =>
   `(tactic|
-    (simp only [Denote.execStmt, SourceSemantics.execStmt, $hraw:term,
-       ← denote_evalExpr_eq _ _ $hraw, ← denote_evalExprList_eq _ _ $hraw]
+    (simp only [Denote.execStmt, SourceSemantics.execStmt,
+       ← denote_evalExpr_eq, ← denote_evalExprList_eq]
      repeat' (split at * <;>
          try simp_all [toStmtResult, toRuntimeState,
          Verity.ContractState.readArray, Verity.ContractState.writeArray,
@@ -906,22 +682,19 @@ end StatementTactics
 
 theorem execStmt_forEachSetBit_eq (fields : List Field)
     (st : DenoteState) (v : String) (bitmap : Expr) (body : List Stmt)
-    (hraw : st.rawReturndata = none)
-    (hbody : ∀ ls : DenoteState, ls.rawReturndata = none →
+    (hbody : ∀ ls : DenoteState,
       toStmtResult (Denote.execStmtList sourceOracle fields ls body) =
-        SourceSemantics.execStmtList fields (toRuntimeState ls) body)
-    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none →
-      outcomeRawFree (Denote.execStmtList sourceOracle fields ls body)) :
+        SourceSemantics.execStmtList fields (toRuntimeState ls) body) :
     toStmtResult
         (Denote.execStmt sourceOracle fields st (.forEachSetBit v bitmap body)) =
       SourceSemantics.execStmt fields (toRuntimeState st) (.forEachSetBit v bitmap body) := by
-  simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq _ _ hraw]
+  simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
   cases Denote.evalExpr sourceOracle fields st bitmap with
   | none => rfl
   | some bits =>
       exact execForEachSetBitLoop_agree
         (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
-        hbody hfree 256 st bits hraw
+        hbody 256 st bits
 
 /-- Shorthand for statement-level agreement at one statement. -/
 private abbrev StmtAgree (fields : List Field) (st : DenoteState) (stmt : Stmt) : Prop :=
@@ -936,10 +709,9 @@ private abbrev StmtListAgree (fields : List Field) (st : DenoteState) (stmts : L
 
 /-- `ite` agreement, given agreement on both branches from the same frame. -/
 private theorem execStmt_ite_eq (fields : List Field) (st : DenoteState) (c : Expr)
-    (t e : List Stmt) (h : st.rawReturndata = none) (iht : StmtListAgree fields st t)
+    (t e : List Stmt) (iht : StmtListAgree fields st t)
     (ihe : StmtListAgree fields st e) : StmtAgree fields st (.ite c t e) := by
-  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
-    ← denote_evalExpr_eq _ _ h]
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
   cases Denote.evalExpr sourceOracle fields st c with
   | none => rfl
   | some v =>
@@ -949,51 +721,43 @@ private theorem execStmt_ite_eq (fields : List Field) (st : DenoteState) (c : Ex
       · simp only [if_neg hv]
         exact ihe
 
-/-- `forEach` agreement, given agreement and raw-freedom of the body from every
-raw-free frame. -/
+/-- `forEach` agreement, given agreement of the body from every frame. -/
 private theorem execStmt_forEach_eq (fields : List Field) (st : DenoteState) (v : String)
-    (cnt : Expr) (body : List Stmt) (h : st.rawReturndata = none)
-    (hbody : ∀ ls : DenoteState, ls.rawReturndata = none → StmtListAgree fields ls body)
-    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none →
-      outcomeRawFree (Denote.execStmtList sourceOracle fields ls body)) :
+    (cnt : Expr) (body : List Stmt)
+    (hbody : ∀ ls : DenoteState, StmtListAgree fields ls body) :
     StmtAgree fields st (.forEach v cnt body) := by
-  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
-    ← denote_evalExpr_eq _ _ h]
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
   cases Denote.evalExpr sourceOracle fields st cnt with
   | none => rfl
   | some bound =>
       exact execForEachLoop_agree
-        (runBody' := fun ls => SourceSemantics.execStmtList fields ls body) hbody hfree
+        (runBody' := fun ls => SourceSemantics.execStmtList fields ls body) hbody
         { st with bindings := Denote.bindValue st.bindings v (Denote.wordNormalize 0) }
-        0 bound h
+        0 bound
 
-/-- `forEachWhile` agreement, given agreement and raw-freedom of the body from every
-raw-free frame. The guard is evaluated by the same expression evaluator on both sides. -/
+/-- `forEachWhile` agreement, given agreement of the body from every frame. The
+guard is evaluated by the same expression evaluator on both sides. -/
 private theorem execStmt_forEachWhile_eq (fields : List Field) (st : DenoteState)
-    (v : String) (cnt guard : Expr) (body : List Stmt) (h : st.rawReturndata = none)
-    (hbody : ∀ ls : DenoteState, ls.rawReturndata = none → StmtListAgree fields ls body)
-    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none →
-      outcomeRawFree (Denote.execStmtList sourceOracle fields ls body)) :
+    (v : String) (cnt guard : Expr) (body : List Stmt)
+    (hbody : ∀ ls : DenoteState, StmtListAgree fields ls body) :
     StmtAgree fields st (.forEachWhile v cnt guard body) := by
-  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
-    ← denote_evalExpr_eq _ _ h]
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
   cases Denote.evalExpr sourceOracle fields st cnt with
   | none => rfl
   | some bound =>
       exact execForEachWhileLoop_agree
         (evalGuard' := fun ls => SourceSemantics.evalExpr fields ls guard)
         (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
-        (fun ls hls => denote_evalExpr_eq fields ls hls guard) hbody hfree
+        (fun ls => denote_evalExpr_eq fields ls guard) hbody
         { st with bindings := Denote.bindValue st.bindings v (Denote.wordNormalize 0) }
-        0 bound h
+        0 bound
 
 /-- `externalCallBind` agreement: both lanes read the same oracle answer. -/
 private theorem execStmt_externalCallBind_eq (fields : List Field) (st : DenoteState)
-    (resultVars : List String) (externalName : String) (args : List Expr)
-    (h : st.rawReturndata = none) :
+    (resultVars : List String) (externalName : String) (args : List Expr) :
     StmtAgree fields st (.externalCallBind resultVars externalName args) := by
   simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
-    ← denote_evalExprList_eq _ _ h]
+    ← denote_evalExprList_eq]
   cases Denote.evalExprList sourceOracle fields st args with
   | none => rfl
   | some _ =>
@@ -1011,10 +775,10 @@ private theorem execStmt_externalCallBind_eq (fields : List Field) (st : DenoteS
 /-- `tryExternalCallBind` agreement: both lanes read the same oracle answer. -/
 private theorem execStmt_tryExternalCallBind_eq (fields : List Field) (st : DenoteState)
     (successVar : String) (resultVars : List String) (externalName : String)
-    (args : List Expr) (h : st.rawReturndata = none) :
+    (args : List Expr) :
     StmtAgree fields st (.tryExternalCallBind successVar resultVars externalName args) := by
   simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
-    ← denote_evalExprList_eq _ _ h]
+    ← denote_evalExprList_eq]
   cases Denote.evalExprList sourceOracle fields st args with
   | none => rfl
   | some _ =>
@@ -1033,10 +797,10 @@ private theorem execStmt_tryExternalCallBind_eq (fields : List Field) (st : Deno
 /-- Agreement for an ECM without a closed byte transport: both lanes read the
 same oracle answer. -/
 private theorem execStmt_ecm_eq (fields : List Field) (st : DenoteState)
-    (mod : ECM.ExternalCallModule) (args : List Expr) (hb : mod.byteTransport = none)
-    (h : st.rawReturndata = none) : StmtAgree fields st (.ecm mod args) := by
+    (mod : ECM.ExternalCallModule) (args : List Expr) (hb : mod.byteTransport = none) :
+    StmtAgree fields st (.ecm mod args) := by
   simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt, hb,
-    ← denote_evalExprList_eq _ _ h]
+    ← denote_evalExprList_eq]
   cases Denote.evalExprList sourceOracle fields st args with
   | none => rfl
   | some _ =>
@@ -1061,106 +825,96 @@ private theorem execStmt_returnBytes_eq (fields : List Field) (st : DenoteState)
 
 /-- Custom-error `require` agreement: both lanes build `customErrorBytes`. -/
 private theorem execStmt_requireError_eq (fields : List Field) (st : DenoteState)
-    (cond : Expr) (name : String) (args : List Expr) (h : st.rawReturndata = none) :
+    (cond : Expr) (name : String) (args : List Expr) :
     StmtAgree fields st (.requireError cond name args) := by
   simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
     SourceSemantics.typedErrorRevertResult, sourceOracle_eq_denoteOracle,
-    ← denote_evalExpr_eq _ _ h, ← denote_evalExprList_eq _ _ h]
+    ← denote_evalExpr_eq, ← denote_evalExprList_eq]
   repeat' (split at * <;> try simp_all [toStmtResult, toRuntimeState])
 
 /-- Custom-error `revert` agreement: both lanes build `customErrorBytes`. -/
 private theorem execStmt_revertError_eq (fields : List Field) (st : DenoteState)
-    (name : String) (args : List Expr) (h : st.rawReturndata = none) :
+    (name : String) (args : List Expr) :
     StmtAgree fields st (.revertError name args) := by
   simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
     SourceSemantics.typedErrorRevertResult, sourceOracle_eq_denoteOracle,
-    ← denote_evalExprList_eq _ _ h]
+    ← denote_evalExprList_eq]
   repeat' (split at * <;> try simp_all [toStmtResult, toRuntimeState])
 
 /-- `revert(offset, size)` agreement: both lanes slice `byteMemory`. -/
 private theorem execStmt_revertMemory_eq (fields : List Field) (st : DenoteState)
-    (offset size : Expr) (h : st.rawReturndata = none) :
+    (offset size : Expr) :
     StmtAgree fields st (.revertMemory offset size) := by
   simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
-    ← denote_evalExpr_eq _ _ h]
+    ← denote_evalExpr_eq]
   cases Denote.evalExpr sourceOracle fields st offset <;>
     cases Denote.evalExpr sourceOracle fields st size <;> rfl
 
-/-- Bubbled-returndata agreement on a raw-free frame. -/
-private theorem execStmt_revertReturndata_eq (fields : List Field) (st : DenoteState)
-    (h : st.rawReturndata = none) : StmtAgree fields st .revertReturndata := by
-  simp [StmtAgree, Denote.execStmt, SourceSemantics.execStmt, toStmtResult, h]
+/-- Bubbled-returndata agreement: both lanes prefer the same raw buffer. -/
+private theorem execStmt_revertReturndata_eq (fields : List Field) (st : DenoteState) :
+    StmtAgree fields st .revertReturndata := rfl
 
 mutual
 
-/-- Statement agreement on byte-free statements from a raw-free frame. Closed
-byte transports execute against the byte adversary in `Denote` only, so they are
-excluded rather than routed through the legacy word-return oracle. -/
+/-- Statement agreement on byte-free statements. Closed byte transports execute
+against the byte adversary in `Denote` only, so they are excluded rather than
+routed through the legacy word-return oracle. -/
 theorem execStmt_eq (fields : List Field) :
     ∀ (st : DenoteState) (stmt : Stmt), stmtByteFree stmt = true →
-      st.rawReturndata = none →
       toStmtResult (Denote.execStmt sourceOracle fields st stmt) =
         SourceSemantics.execStmt fields (toRuntimeState st) stmt
-  | _, .letVar .., _, h | _, .assignVar .., _, h | _, .setStorage .., _, h
-  | _, .setStorageAddr .., _, h | _, .setImmutable .., _, h | _, .setStorageWord .., _, h
-  | _, .setMapping .., _, h | _, .setMappingUint .., _, h | _, .setMappingWord .., _, h
-  | _, .setMappingPackedWord .., _, h | _, .setStructMember .., _, h | _, .setMapping2 .., _, h
-  | _, .setMapping2Word .., _, h | _, .setStructMember2 .., _, h | _, .setMappingChain .., _, h
-  | _, .storageArrayPush .., _, h | _, .storageArrayPop .., _, h | _, .mstore .., _, h
-  | _, .setStorageArrayElement .., _, h | _, .tstore .., _, h
-  | _, .return .., _, h | _, .emit .., _, h | _, .calldatacopy .., _, h
-  | _, .returnValues .., _, h => by denote_stmt_arm h
-  | _, .require .., _, h => by denote_stmt_arm h
-  | st, .requireError c n a, _, h => execStmt_requireError_eq fields st c n a h
-  | st, .revertError n a, _, h => execStmt_revertError_eq fields st n a h
-  | _, .panicCode .., _, h => by denote_stmt_arm h
-  | _, .panic .., _, h => by denote_stmt_arm h
-  -- On a raw-free frame both lanes use definitionally equal padded-copy mirrors.
-  | _, .returndataCopy _ _ _, _, h => by denote_stmt_arm h; rfl
-  | st, .ite c t e, hb, h =>
+  | _, .letVar .., _ | _, .assignVar .., _ | _, .setStorage .., _
+  | _, .setStorageAddr .., _ | _, .setImmutable .., _ | _, .setStorageWord .., _
+  | _, .setMapping .., _ | _, .setMappingUint .., _ | _, .setMappingWord .., _
+  | _, .setMappingPackedWord .., _ | _, .setStructMember .., _ | _, .setMapping2 .., _
+  | _, .setMapping2Word .., _ | _, .setStructMember2 .., _ | _, .setMappingChain .., _
+  | _, .storageArrayPush .., _ | _, .storageArrayPop .., _ | _, .mstore .., _
+  | _, .setStorageArrayElement .., _ | _, .tstore .., _
+  | _, .return .., _ | _, .emit .., _ | _, .calldatacopy .., _
+  | _, .returnValues .., _ | _, .require .., _ | _, .panicCode .., _
+  | _, .panic .., _ => by denote_stmt_arm
+  -- The raw lanes coincide; the word lanes use definitionally equal padded-copy mirrors.
+  | _, .returndataCopy _ _ _, _ => by denote_stmt_arm; rfl
+  | st, .requireError c n a, _ => execStmt_requireError_eq fields st c n a
+  | st, .revertError n a, _ => execStmt_revertError_eq fields st n a
+  | st, .ite c t e, hb =>
       have hb : stmtListByteFree t = true ∧ stmtListByteFree e = true := by
         simpa only [stmtByteFree, Bool.and_eq_true] using hb
-      execStmt_ite_eq fields st c t e h (execStmtList_eq fields st t hb.1 h)
-        (execStmtList_eq fields st e hb.2 h)
-  | st, .forEach v cnt body, hb, h =>
-      execStmt_forEach_eq fields st v cnt body h
-        (execStmtList_eq fields · body hb ·) (execStmtList_rawFree fields · body hb ·)
-  | st, .forEachSetBit v bitmap body, hb, h =>
-      execStmt_forEachSetBit_eq fields st v bitmap body h
-        (execStmtList_eq fields · body hb ·) (execStmtList_rawFree fields · body hb ·)
-  | st, .forEachWhile v cnt guard body, hb, h =>
-      execStmt_forEachWhile_eq fields st v cnt guard body h
-        (execStmtList_eq fields · body hb ·) (execStmtList_rawFree fields · body hb ·)
-  | st, .externalCallBind rv n args, _, h => execStmt_externalCallBind_eq fields st rv n args h
-  | st, .tryExternalCallBind sv rv n args, _, h =>
-      execStmt_tryExternalCallBind_eq fields st sv rv n args h
-  | st, .ecm mod args, hb, h =>
+      execStmt_ite_eq fields st c t e (execStmtList_eq fields st t hb.1)
+        (execStmtList_eq fields st e hb.2)
+  | st, .forEach v cnt body, hb =>
+      execStmt_forEach_eq fields st v cnt body (execStmtList_eq fields · body hb)
+  | st, .forEachSetBit v bitmap body, hb =>
+      execStmt_forEachSetBit_eq fields st v bitmap body (execStmtList_eq fields · body hb)
+  | st, .forEachWhile v cnt guard body, hb =>
+      execStmt_forEachWhile_eq fields st v cnt guard body (execStmtList_eq fields · body hb)
+  | st, .externalCallBind rv n args, _ => execStmt_externalCallBind_eq fields st rv n args
+  | st, .tryExternalCallBind sv rv n args, _ =>
+      execStmt_tryExternalCallBind_eq fields st sv rv n args
+  | st, .ecm mod args, hb =>
       execStmt_ecm_eq fields st mod args (by simpa only [stmtByteFree, Option.isNone_iff_eq_none]
-        using hb) h
-  | st, .returnBytes name, _, _ => execStmt_returnBytes_eq fields st name
-  | st, .revertMemory offset size, _, h => execStmt_revertMemory_eq fields st offset size h
-  | st, .revertReturndata, _, h => execStmt_revertReturndata_eq fields st h
-  | _, .stop, _, _ | _, .returnArray .., _, _ | _, .returnStorageWords .., _, _
-  | _, .returnCodeData .., _, _ | _, .revertEmpty, _, _
-  | _, .internalCall .., _, _ | _, .internalCallAssign .., _, _ | _, .rawLog .., _, _
-  | _, .unsafeBlock .., _, _ | _, .unsafeYul .., _, _ | _, .matchAdt .., _, _ => rfl
+        using hb)
+  | st, .returnBytes name, _ => execStmt_returnBytes_eq fields st name
+  | st, .revertMemory offset size, _ => execStmt_revertMemory_eq fields st offset size
+  | st, .revertReturndata, _ => execStmt_revertReturndata_eq fields st
+  | _, .stop, _ | _, .returnArray .., _ | _, .returnStorageWords .., _
+  | _, .returnCodeData .., _ | _, .revertEmpty, _
+  | _, .internalCall .., _ | _, .internalCallAssign .., _ | _, .rawLog .., _
+  | _, .unsafeBlock .., _ | _, .unsafeYul .., _ | _, .matchAdt .., _ => rfl
 
 theorem execStmtList_eq (fields : List Field) :
     ∀ (st : DenoteState) (stmts : List Stmt), stmtListByteFree stmts = true →
-      st.rawReturndata = none →
       toStmtResult (Denote.execStmtList sourceOracle fields st stmts) =
         SourceSemantics.execStmtList fields (toRuntimeState st) stmts
-  | _, [], _, _ => rfl
-  | st, stmt :: rest, hb, h => by
+  | _, [], _ => rfl
+  | st, stmt :: rest, hb => by
       simp only [stmtListByteFree, Bool.and_eq_true] at hb
-      have hfree := execStmt_rawFree fields st stmt hb.1 h
       simp only [Denote.execStmtList, SourceSemantics.execStmtList,
-        ← execStmt_eq fields st stmt hb.1 h]
-      revert hfree
+        ← execStmt_eq fields st stmt hb.1]
       cases Denote.execStmt sourceOracle fields st stmt <;>
         first
-          | exact fun _ => rfl
-          | exact fun hfree => execStmtList_eq fields _ rest hb.2 hfree
+          | rfl
+          | exact execStmtList_eq fields _ rest hb.2
 
 end
 

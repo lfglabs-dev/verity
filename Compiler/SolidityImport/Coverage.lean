@@ -562,7 +562,7 @@ theorem execStmt_revertEmpty_arm (oracle : DenoteOracle) (fields : List Field)
 theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :
     execStmt oracle fields state .revertReturndata = .revertWithData
-      (state.rawReturndata.getD (returndataRevertBytes state.world.returndata)) := rfl
+      (state.world.rawReturndata.getD (returndataRevertBytes state.world.returndata)) := rfl
 
 /-- A memory-range revert reverts with the bytes of `[offset, offset + size)` of the
 frame's physical memory; an unevaluable argument is a payload-free `.revert`. -/
@@ -697,7 +697,7 @@ theorem evalExpr_contractAddress_arm (oracle : DenoteOracle) (fields : List Fiel
 theorem evalExpr_returndataSize_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) :
     evalExpr oracle fields s .returndataSize =
-      some (s.rawReturndata.map List.length |>.getD s.world.returndataSize) := rfl
+      some s.world.returndataSize := rfl
 
 theorem evalExpr_immutable_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (name : String) :
@@ -1058,7 +1058,7 @@ theorem execStmt_returnBytes_arm (oracle : DenoteOracle) (fields : List Field)
       | none => .revert) := rfl
 
 /-- `Stmt.returndataCopy` copies `size` bytes starting at `sourceOffset` from raw
-byte returndata (`state.rawReturndata`) when present, or from word returndata
+byte returndata (`state.world.rawReturndata`) when present, or from word returndata
 (`state.world.returndata`) otherwise, reverting out of bounds. -/
 theorem execStmt_returndataCopy_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (destOffset sourceOffset size : Expr) :
@@ -1067,7 +1067,7 @@ theorem execStmt_returndataCopy_arm (oracle : DenoteOracle) (fields : List Field
           evalExpr oracle fields state sourceOffset,
           evalExpr oracle fields state size with
       | some dst, some src, some sz =>
-          match state.rawReturndata with
+          match state.world.rawReturndata with
           | some bytes =>
               if src + sz ≤ bytes.length then
                 .continue { state with

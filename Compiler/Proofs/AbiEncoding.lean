@@ -672,7 +672,7 @@ def abiTailOffset (args : List AbiArg) (index : Nat) : Nat :=
 
 private theorem abiDynamicTailSize_cons (arg : AbiArg) (args : List AbiArg) :
     abiDynamicTailSize (arg :: args) = arg.tailSize + abiDynamicTailSize args := by
-  simp [abiDynamicTailSize, AbiArg.tailSize, Nat.mul_add, Nat.add_mul]
+  simp [abiDynamicTailSize, AbiArg.tailSize]
 
 /-- A dynamic head is the actual byte offset at which its tail starts.  The
 induction also preserves tail order, because preceding tail sizes are added
@@ -1112,7 +1112,7 @@ example :
     evalIRExpr exampleState (normalizeEventWord ParamType.uint8 (YulExpr.ident "x")) =
       some 44 := by
   have hx : evalIRExpr exampleState (YulExpr.ident "x") = some 300 := by
-    simp [exampleState, evalIRExpr, IRState.initial, IRState.getVar, IRState.setVar]
+    simp [exampleState, IRState.initial, IRState.getVar, IRState.setVar]
   rw [normalizeEventWord_uint8_eval]
   simp [hx, abiScalarNormalize]
   decide
@@ -1121,7 +1121,7 @@ example :
     evalIRExpr exampleState (normalizeEventWord ParamType.bool (YulExpr.ident "x")) =
       some 1 := by
   have hx : evalIRExpr exampleState (YulExpr.ident "x") = some 300 := by
-    simp [exampleState, evalIRExpr, IRState.initial, IRState.getVar, IRState.setVar]
+    simp [exampleState, IRState.initial, IRState.getVar, IRState.setVar]
   rw [normalizeEventWord_bool_eval]
   simp [hx, abiScalarNormalize]
 
@@ -1129,7 +1129,7 @@ example :
     evalIRExpr exampleState (normalizeEventWord ParamType.address (YulExpr.ident "x")) =
       some 300 := by
   have hx : evalIRExpr exampleState (YulExpr.ident "x") = some 300 := by
-    simp [exampleState, evalIRExpr, IRState.initial, IRState.getVar, IRState.setVar]
+    simp [exampleState, IRState.initial, IRState.getVar, IRState.setVar]
   rw [normalizeEventWord_address_eval]
   simp [hx, abiScalarNormalize]
   decide

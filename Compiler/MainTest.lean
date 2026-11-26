@@ -318,7 +318,6 @@ unsafe def runCompileModeTests : IO Unit := do
   let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
   let tempPath (name : String) : String := s!"{tempRoot}/{name}"
   let nonce ← IO.monoMsNow
-  let nonce ← IO.monoMsNow
   let allOutDir := tempPath s!"verity-main-test-{nonce}-all-out"
   IO.FS.createDirAll allOutDir
   Compiler.Main.run (moduleArgs canonicalModules ++ ["--output", allOutDir])
