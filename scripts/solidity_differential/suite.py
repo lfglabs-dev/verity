@@ -494,6 +494,16 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'loops-storage-guards-enum-decode')]))
     checks.append(('state-count-invariance', ['-m', 'solidity_differential.check_state_count_invariance',
         '--output', str(output / 'state-count-invariance')]))
+    checks.append(('yul-array-length-shrink', ['-m', 'solidity_differential.check_yul_array_length_shrink',
+        '--transactions', str(max(64, min(transactions, 96))), '--seed', str(seed),
+        '--output', str(output / 'yul-array-length-shrink')]))
+    checks.append(('yul-array-length-shrink-negative', ['-m',
+        'solidity_differential.check_yul_array_length_shrink', '--negative-control',
+        '--transactions', '40', '--seed', str(seed),
+        '--output', str(output / 'yul-array-length-shrink-negative')]))
+    checks.append(('yul-array-length-shrink-rejections', ['-m',
+        'solidity_differential.check_yul_array_length_shrink_rejections',
+        '--output', str(output / 'yul-array-length-shrink-rejections')]))
     # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min
     # checks start at t=0 on a 6-wide pool instead of straggling past the step cap.
     heavy_first = (

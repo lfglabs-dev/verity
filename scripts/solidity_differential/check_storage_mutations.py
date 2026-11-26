@@ -1099,6 +1099,25 @@ MUTANTS.update({
     'import-synthetic-nested-mapping-member-slot': (
         'computeSPathBaseSlot path info mapInfo.wordOffset j',
         'computeSPathBaseSlot path info (mapInfo.wordOffset + 1) j'),
+    'import-yul-array-length-shrink-ignore': (
+        '        return #[\n'
+        '          .letVar newLenBinding lenExpr,\n'
+        '          .mstore (.localVar arr.memoryPointer) (.localVar newLenBinding),\n'
+        '          .assignVar arr.lengthBinding (.localVar newLenBinding)\n'
+        '        ]',
+        '        return #[\n'
+        '          .letVar newLenBinding lenExpr\n'
+        '        ]'),
+    'import-yul-array-length-shrink-off-by-one': (
+        '        let newLenBinding ← fresh\n'
+        '        return #[\n'
+        '          .letVar newLenBinding lenExpr,',
+        '        let newLenBinding ← fresh\n'
+        '        return #[\n'
+        '          .letVar newLenBinding (.add lenExpr (.literal 1)),'),
+    'import-yul-array-length-shrink-bound-guard': (
+        '            if knownLe st lhs capLen then (st, some .proved)',
+        '            if true then (st, some .proved)'),
 })
 SYNTHETIC_MUTANT_FIXTURES = {
     'import-synthetic-gap-footprint': 'SyntheticGapStorageSequence',
@@ -1116,6 +1135,19 @@ ROOT_PARAM_MUTANT_FIXTURES = {
 
 
 def run(directory, output, name):
+    if name.startswith('import-yul-array-length-shrink-'):
+        argv = [sys.executable, '-m', 'solidity_differential.check_yul_array_length_shrink',
+                '--profile', '0834-osaka-viair', '--transactions', '36', '--seed', '2620',
+                '--shrink-attempts', '60', '--output', str(output)]
+        environment = dict(os.environ)
+        environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
+        result = subprocess.run(argv, cwd=directory, env=environment,
+                                text=True, capture_output=True, timeout=MUTANT_BUILD_TIMEOUT)
+        output.with_suffix('.log').write_text(result.stdout + result.stderr)
+        report_path = output / 'campaign.json'
+        if not report_path.exists():
+            raise HarnessError(f'{name}: no differential report; tool failure is not mutation detection; see {output.with_suffix(".log")}')
+        return result.returncode, json.loads(report_path.read_text())
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-access-manager-target-role-"):
         fixture = "AccessManagerTargetRoleSequence"
@@ -2512,6 +2544,16 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-yul-array-length-shrink-bound-guard':
+        diagnostic = 'Yul memory array length mstore requires a length provably at most the allocated array length'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ function checked(uint256 n) external pure returns (uint256[] memory xs) {
+  xs = new uint256[](3);
+  assembly { mstore(xs, n) }
+ }
+}
+''')
     else:
         argument = name.endswith('argument-guard')
         expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
@@ -2561,6 +2603,7 @@ def mutation_source(directory, name):
                                                                                               'import-yul-block-mulmod-tstore-narrow-local-guard')
                                   else 'Compiler/SolidityImport/Lowering/EvalOrderHazards.lean' if name == 'import-helper-effect-classifier'
                                   else 'Compiler/SolidityImport/YulBufferMcopy.lean' if name.startswith('import-yul-buffer-mcopy-')
+                                  else 'Compiler/SolidityImport/Lowering/ArrayLengthShrink.lean' if name == 'import-yul-array-length-shrink-bound-guard'
                                   else 'Compiler/SolidityImport/Import.lean')
 
 def preflight_mutation_anchors(directory, selected=None):
@@ -2649,7 +2692,8 @@ def mutation_campaign(output, selected=None):
                                   'import-encoding-order-calldata-array-guard',
                                   'import-modifier-placeholder-parameter-write-guard',
                                   'import-modifier-placeholder-assembly-guard',
-                                  'import-assignment-argument-hash-guard'}
+                                  'import-assignment-argument-hash-guard',
+                                  'import-yul-array-length-shrink-bound-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = mutation_source(directory, name)
