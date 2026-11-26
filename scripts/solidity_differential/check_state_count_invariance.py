@@ -779,6 +779,14 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-array-before-panic', '''contract C {
+    uint256[] private arr;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(arr, 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry

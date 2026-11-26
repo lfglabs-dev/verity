@@ -67,6 +67,7 @@ solidity_import posViaIr0838 from "Contracts/SolidityImportSmoke"
   function unguardedCalldataStructBeforePanic(FullPair,uint256)
   function storageSignatureBeforeInert(uint256)
   function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
+  function storageArrayBeforeInert(uint256)
 
 solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
@@ -77,6 +78,7 @@ solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   function unguardedCalldataStructBeforePanic(FullPair,uint256)
   function storageSignatureBeforeInert(uint256)
   function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
+  function storageArrayBeforeInert(uint256)
 
 private def oracle := SolidityImport.Differential.oracle
 
@@ -125,7 +127,7 @@ private def runChange (m : CompilationModel) (x : Nat) :
     runChange seqLegacy0838.model x == base
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:50:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:51:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
 closure: EncodingScalarUnorderedOrderRejects.calldataStructBeforePanic
 p
 -/
@@ -137,7 +139,7 @@ solidity_import rejCalldataStruct from "Contracts/SolidityImportSmoke"
   function calldataStructBeforePanic(NarrowPair,uint256)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:54:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:55:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
 closure: EncodingScalarUnorderedOrderRejects.enumStorageStructBeforePanic
 enumStored
 -/
@@ -149,7 +151,7 @@ solidity_import rejEnumStorageStruct from "Contracts/SolidityImportSmoke"
   function enumStorageStructBeforePanic(uint256)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:58:37: MemberAccess: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:59:37: MemberAccess: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
 closure: EncodingScalarUnorderedOrderRejects.enumStorageMemberInEncode
 enumStored.m
 -/
@@ -161,7 +163,7 @@ solidity_import rejEnumStorageMember from "Contracts/SolidityImportSmoke"
   function enumStorageMemberInEncode(uint256)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:62:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:63:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
 closure: EncodingScalarUnorderedOrderRejects.storageSignatureBeforePanic
 sigStored
 -/
@@ -173,7 +175,7 @@ solidity_import rejStorageSignature from "Contracts/SolidityImportSmoke"
   function storageSignatureBeforePanic(uint256)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:66:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:67:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
 closure: EncodingScalarUnorderedOrderRejects.enumStorageStructBeforeCalldataMember
 enumStored
 -/
@@ -185,7 +187,7 @@ solidity_import rejEnumStorageBeforeCalldataMember from "Contracts/SolidityImpor
   function enumStorageStructBeforeCalldataMember(NarrowPair)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:70:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:71:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
 closure: EncodingScalarUnorderedOrderRejects.storageSignatureBeforeCalldataMember
 sigStored
 -/
@@ -197,7 +199,7 @@ solidity_import rejStorageSigBeforeCalldataMember from "Contracts/SolidityImport
   function storageSignatureBeforeCalldataMember(NarrowPair)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:74:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:75:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
 closure: EncodingScalarUnorderedOrderRejects.storageSignatureBeforeCalldataStruct
 sigStored
 -/
@@ -209,7 +211,7 @@ solidity_import rejStorageSigBeforeCalldataStruct from "Contracts/SolidityImport
   function storageSignatureBeforeCalldataStruct(NarrowPair)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:78:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:79:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
 closure: EncodingScalarUnorderedOrderRejects.storageSignatureBeforeEnumStorageStruct
 sigStored
 -/
@@ -221,7 +223,7 @@ solidity_import rejStorageSigBeforeEnumStorageStruct from "Contracts/SolidityImp
   function storageSignatureBeforeEnumStorageStruct()
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:82:48: Identifier: [solidity-import:unsupported] enum-storage struct ABI encoding argument beside a storage bytes/string argument is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:83:48: Identifier: [solidity-import:unsupported] enum-storage struct ABI encoding argument beside a storage bytes/string argument is unsupported
 closure: EncodingScalarUnorderedOrderRejects.storageStringBesideEnumStorageStruct
 enumStored
 -/
@@ -233,7 +235,7 @@ solidity_import rejStorageStringBesideEnumStorageStruct from "Contracts/Solidity
   function storageStringBesideEnumStorageStruct(uint256)
 
 /--
-error: EncodingScalarUnorderedOrderRejects.sol:86:41: Identifier: [solidity-import:unsupported] enum-storage struct ABI encoding argument after a calldata array or dynamic struct is unsupported
+error: EncodingScalarUnorderedOrderRejects.sol:87:41: Identifier: [solidity-import:unsupported] enum-storage struct ABI encoding argument after a calldata array or dynamic struct is unsupported
 closure: EncodingScalarUnorderedOrderRejects.calldataArrayBeforeEnumStorageStruct
 enumStored
 -/
@@ -243,5 +245,53 @@ solidity_import rejCalldataArrayBeforeEnumStorageStruct from "Contracts/Solidity
   using viaIr0838
   contract EncodingScalarUnorderedOrderRejects
   function calldataArrayBeforeEnumStorageStruct(«uint8[]»)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:99:37: Identifier: [solidity-import:unsupported] storage array ABI encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageArrayBeforePanic
+arrStored
+-/
+#guard_msgs in
+solidity_import rejStorageArrayBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageArrayBeforePanic(uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:103:37: Identifier: [solidity-import:unsupported] storage array ABI encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageArrayBeforeCalldataMember
+arrStored
+-/
+#guard_msgs in
+solidity_import rejStorageArrayBeforeCalldataMember from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageArrayBeforeCalldataMember(NarrowPair)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:107:48: Identifier: [solidity-import:unsupported] storage array ABI encoding argument beside a storage bytes/string argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageStringBesideStorageArray
+arrStored
+-/
+#guard_msgs in
+solidity_import rejStorageStringBesideStorageArray from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageStringBesideStorageArray(uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:111:41: Identifier: [solidity-import:unsupported] storage array ABI encoding argument after a calldata array or dynamic struct is unsupported
+closure: EncodingScalarUnorderedOrderRejects.calldataArrayBeforeStorageArray
+arrStored
+-/
+#guard_msgs in
+solidity_import rejCalldataArrayBeforeStorageArray from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function calldataArrayBeforeStorageArray(«uint8[]»)
 
 end SolidityImportSmoke.EncodingScalarUnorderedChecks

@@ -9099,6 +9099,10 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       let (_, sDecl) ← resolveStructDeclFromType arg
       let sMembers ← mArr (← mField sDecl "members")
       sMembers.anyM fun mNode => return (← mType mNode).startsWith "enum "
+    let isStorageScalarArray (arg : Json) : M Bool := do
+      let argTy ← mType arg
+      return (scalarArrayElement? argTy).isSome &&
+        (argTy.endsWith " storage ref" || argTy.endsWith " storage pointer")
     let dynEnv ← get
     let hasDynMutation := externalArgs && args.any (fun a => statefulCallIn a dynEnv || assignmentIn a)
     let mut pre : Array Stmt := #[]
@@ -9144,6 +9148,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
               failAt args[otherIdx]! "calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported"
             if otherIdx != argIdx && (← isEnumStorageStaticStruct args[otherIdx]!) then
               failAt args[otherIdx]! "enum-storage struct ABI encoding argument beside a storage bytes/string argument is unsupported"
+            if otherIdx != argIdx && (← isStorageScalarArray args[otherIdx]!) then
+              failAt args[otherIdx]! "storage array ABI encoding argument beside a storage bytes/string argument is unsupported"
         if args.size > 1 then
           if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then
             pre := pre ++ refPre
@@ -9171,6 +9177,15 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           if let some later := (args.extract (argIdx + 1) args.size).find? fun a =>
               assignmentIn a || statefulCallIn a env then
             failAt later "state-writing ABI encoding argument after a storage array is unsupported"
+          for later in args.extract (argIdx + 1) args.size do
+            unless ← orderInert later do
+              failAt arg "storage array ABI encoding argument before a sibling that can revert or write is unsupported"
+          for prevIdx in [:argIdx] do
+            let prev := args[prevIdx]!
+            let prevTy ← mType prev
+            if prevTy.contains "calldata" &&
+                ((scalarArrayElement? prevTy).isSome || (← dynamicStructMem? prev).isSome) then
+              failAt arg "storage array ABI encoding argument after a calldata array or dynamic struct is unsupported"
           pre := pre ++ copyPre
           let headIdx := headWords.size
           headWords := headWords.push none

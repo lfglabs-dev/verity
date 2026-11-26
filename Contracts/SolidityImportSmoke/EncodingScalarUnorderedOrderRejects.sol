@@ -26,6 +26,7 @@ contract EncodingScalarUnorderedOrderRejects {
 
     EnumPair internal enumStored;
     string internal sigStored;
+    uint256[] internal arrStored;
 
     // Positive controls: inert sibling, panic before calldata struct, or unguarded 256-bit struct.
     function calldataStructBeforeInert(NarrowPair calldata p, uint256 x) external pure returns (bytes32) {
@@ -88,5 +89,25 @@ contract EncodingScalarUnorderedOrderRejects {
 
     function calldataStructBeforeCalldataMember(NarrowPair calldata p, NarrowPair calldata q) external pure returns (bytes32) {
         return keccak256(abi.encode(p, q.a == 0 ? 1 : q.a));
+    }
+
+    function storageArrayBeforeInert(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(arrStored, x == 0 ? 1 : x));
+    }
+
+    function storageArrayBeforePanic(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(arrStored, 10 / x));
+    }
+
+    function storageArrayBeforeCalldataMember(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encode(arrStored, p.a == 0 ? 1 : 2));
+    }
+
+    function storageStringBesideStorageArray(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(sigStored, arrStored, x == 0 ? 1 : 2));
+    }
+
+    function calldataArrayBeforeStorageArray(uint8[] calldata xs) external view returns (bytes32) {
+        return keccak256(abi.encode(xs, arrStored));
     }
 }
