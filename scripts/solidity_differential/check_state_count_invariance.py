@@ -16,9 +16,13 @@ everything else (functions, events, errors, externals, constructor, remaining fi
 render identically. If the probe would move or overlap an original variable, the case fails
 as unsound instead of being compared.
 
-Every non-control case must declare exactly one state variable in its base (counted from
-solc's AST the way the importer counts them, constants and immutables included), so the probe
-moves the count from 1 to 2. Lean prints each normalized model with its length, and a model
+Every non-control case must declare `base_count` state variables in its base (default 1,
+counted from solc's AST the way the importer counts them, constants and immutables included),
+so the probe moves the count from `base_count` to `base_count + 1` (`1 -> 2` across the
+`stateVars.size > 1` gates of #2830, or `0 -> 1` when `base_count=0` is set explicitly; note
+that the five separate `stateVars.isEmpty` 0-slot slice boundaries in `lowerInterfaceStaticCall`,
+`bindCallArgs`, `admittedRequireInterfaceCall?` and `lowerRoot` are locked by their own
+rejection suites outside #2830). Lean prints each normalized model with its length, and a model
 that does not arrive whole on one line is a harness error, as is a failing side without a
 `[solidity-import]` diagnostic.
 
@@ -695,6 +699,86 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-scalar-zero-to-one', '''interface ITarget {
+    function accept(uint256 a, uint256 b) external;
+}
+
+contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    event Logged(bytes tag, uint256 value);
+
+    function digest(bytes calldata b, bool c, uint256 x) external returns (uint256, bytes memory) {
+        bytes32 h1 = keccak256(abi.encode(x + 1, c ? x : 10 / x));
+        bytes32 h2 = keccak256(abi.encode(b, c ? x + 2 : uint256(3)));
+        bytes32 h3 = keccak256(abi.encodePacked(uint16(x + 3), bytes.concat(c ? bytes4(0x11223344) : bytes4(uint32(x - 1)))));
+        bytes32 h4 = keccak256(abi.encodeWithSelector(c ? bytes4(0x12345678) : bytes4(uint32(x + 4)), x + 5));
+        bytes32 h5 = keccak256(abi.encodeWithSignature("accept(uint256,uint256)", x + 6, c ? uint256(7) : x - 1));
+        bytes32 h6 = keccak256(abi.encodeCall(ITarget.accept, (x + 7, c ? x - 1 : uint256(9))));
+        bytes32 h7 = keccak256(abi.encode(Pair(uint8(x % 200) + uint8(1), c ? x : uint256(10))));
+        emit Logged(b, c ? x + 10 : uint256(13));
+        return (uint256(h1 ^ h2 ^ h3 ^ h4 ^ h5 ^ h6 ^ h7), b);
+    }
+}
+''', ['digest(bytes,bool,uint256)'], base_count=0),
+    inline('encoding-enum-struct-before-calldata-member', '''contract C {
+    enum Mode {
+        A,
+        B
+    }
+
+    struct NarrowPair {
+        uint8 a;
+        uint256 b;
+    }
+
+    struct EnumPair {
+        Mode m;
+        uint256 b;
+    }
+
+    EnumPair private s;
+
+    function run(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encode(s, p.a == 0 ? 1 : 2));
+    }
+}
+''', ['run(NarrowPair)'], expect='same-rejection'),
+    inline('encoding-storage-signature-before-calldata-struct', '''contract C {
+    struct NarrowPair {
+        uint8 a;
+        uint256 b;
+    }
+
+    string private sig;
+
+    function run(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(sig, p));
+    }
+}
+''', ['run(NarrowPair)'], expect='same-rejection'),
+    inline('encoding-storage-string-beside-enum-struct', '''contract C {
+    enum Mode {
+        A,
+        B
+    }
+
+    struct EnumPair {
+        Mode m;
+        uint256 b;
+    }
+
+    string private sig;
+    EnumPair private s;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(sig, s, x == 0 ? 1 : 2));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry
@@ -860,9 +944,10 @@ def run_case(case, output, timeout):
             for name, text in case['files'].items():
                 (side / name).write_text(text)
     base_layout, (source_name, node), base_count = solc_layout(base_dir, case['entry'], case['contract'])
-    if 'expect' not in case and base_count != 1:
-        raise CaseFailure(f'base declares {base_count} state variables; the probe must move the count '
-                          'from 1 to 2 to cross the state-count gates')
+    expected_base_count = case.get('base_count', 1)
+    if 'expect' not in case and base_count != expected_base_count:
+        raise CaseFailure(f'base declares {base_count} state variables; expected {expected_base_count} '
+                          f'so the probe moves the count from {expected_base_count} to {expected_base_count + 1}')
     target = variant_dir / source_name
     text = insert_probe(target.read_text(), node, case.get('probe_at', 'end'))
     if 'variant_edit' in case:

@@ -6952,7 +6952,9 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
       else
         let base ← mField j "expression"
         -- solc checks a storage `enum` ordinal only while ABI-encoding, after all arguments
-        -- have run, whereas `storageEnumRead` checks it (`Panic(0x21)`) at the argument's position.
+        -- have run, whereas `storageEnumRead` checks it (`Panic(0x21)`) at the argument's
+        -- position; `checkEncodingScalar` inspects one argument at a time without sibling
+        -- context, so it rejects conservatively in every argument position.
         if (← mType j).startsWith "enum " && ((← mType base).splitOn " storage").length > 1 then
           failAt j "effectful ABI encoding argument is unsupported"
         checkEncodingScalar base ordered
@@ -8560,21 +8562,26 @@ private partial def lowerEncodedStaticStructWords (arg : Json) (laterArgs : Arra
       failAt arg s!"unsupported ABI encoding argument type {ty}"
     discard (validateEnumTypeIfNeeded mNode mTy)
   checkEncodingStructArg arg
-  -- solc validates `calldata` struct scalar bounds and storage `enum` ordinals while
-  -- ABI-encoding, after every argument expression has run, whereas `lowerFlatStructValue`
-  -- validates them at `arg`'s position.
-  let needsEncodingValidation ←
+  -- solc validates `calldata` struct scalar bounds (`revert(0, 0)`) and storage `enum`
+  -- ordinals (`Panic(0x21)`) while ABI-encoding, after every argument expression has run,
+  -- whereas `lowerFlatStructValue` validates them at `arg`'s position. Another pure empty
+  -- revert (`signature.v` on a `calldata` struct) commutes with `revert(0, 0)` (both revert
+  -- with `0x` and write nothing), whereas `Panic(0x21)` requires strict revert-free siblings.
+  let isCalldataStructValidation ←
     if ty.endsWith " calldata" then
       sMembers.anyM fun mNode => do
         let mTy ← mType mNode
         pure (mTy != "uint256" && mTy != "int256" && mTy != "bytes32")
-    else if (ty.splitOn " storage").length > 1 && !(← isStructValueSource arg) then
+    else
+      pure false
+  let isEnumStorageValidation ←
+    if !ty.endsWith " calldata" && (ty.splitOn " storage").length > 1 && !(← isStructValueSource arg) then
       sMembers.anyM fun mNode => return (← mType mNode).startsWith "enum "
     else
       pure false
-  if needsEncodingValidation then
+  if isCalldataStructValidation || isEnumStorageValidation then
     for later in laterArgs do
-      unless ← orderInert later do
+      unless ← orderInert later (allowEmptyRevert := isCalldataStructValidation) do
         failAt arg "calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported"
   let (_, _, sPre, memberVals) ← lowerFlatStructValue arg (some sid) true
   let mut pre : Array Stmt := sPre
@@ -8893,11 +8900,16 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         sigTy.startsWith "literal_string " do
       failAt sigNode s!"unsupported abi.encodeWithSignature signature type {sigTy}"
     let restArgs := args.extract 1 args.size
-    -- solc evaluates all call arguments before `abi.encodeWithSignature` reads a storage
-    -- signature string (`Panic(0x22)` on a corrupt length), whereas `sigBuf` below reads it first.
+    -- via-IR hashes a storage signature string (`Panic(0x22)` on a corrupt length) after
+    -- evaluating all arguments and before ABI-encoding the payload, whereas legacy solc
+    -- ABI-encodes the payload arguments before reading the storage signature, and `sigBuf`
+    -- below reads `sigNode` first on both pipelines. Admit a storage signature beside payload
+    -- arguments only when every payload argument is a scalar whose evaluation cannot revert or
+    -- write (`orderInert`), so neither evaluation nor ABI encoding of `restArgs` can fail.
     if (sigTy.splitOn " storage").length > 1 then
       for later in restArgs do
-        unless ← orderInert later do
+        let laterTy ← mType later
+        unless (paramType laterTy).isSome && (← orderInert later) do
           failAt sigNode "storage bytes/string encoding argument before a sibling that can revert or write is unsupported"
     let sigBuf ← lowerEncodedBytes sigNode
     let selPtr ← fresh
@@ -9079,6 +9091,14 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
     return (← isDynamicArg argIdx) || (scalarArrayElement? ty).isSome ||
       (← dynamicStructMem? arg).isSome
   if hasDynamic then
+    let isEnumStorageStaticStruct (arg : Json) : M Bool := do
+      let argTy ← mType arg
+      unless argTy.startsWith "struct " && !argTy.contains "[" &&
+          (argTy.splitOn " storage").length > 1 && !(← isStructValueSource arg) do
+        return false
+      let (_, sDecl) ← resolveStructDeclFromType arg
+      let sMembers ← mArr (← mField sDecl "members")
+      sMembers.anyM fun mNode => return (← mType mNode).startsWith "enum "
     let dynEnv ← get
     let hasDynMutation := externalArgs && args.any (fun a => statefulCallIn a dynEnv || assignmentIn a)
     let mut pre : Array Stmt := #[]
@@ -9122,6 +9142,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
             if otherIdx != argIdx && otherTy.contains "calldata" &&
                 ((scalarArrayElement? otherTy).isSome || otherTy.startsWith "struct ") then
               failAt args[otherIdx]! "calldata array or struct ABI encoding argument beside a storage bytes/string argument is unsupported"
+            if otherIdx != argIdx && (← isEnumStorageStaticStruct args[otherIdx]!) then
+              failAt args[otherIdx]! "enum-storage struct ABI encoding argument beside a storage bytes/string argument is unsupported"
         if args.size > 1 then
           if let some (refPre, name, slot) ← deferredStorageBytesArgument? args argIdx then
             pre := pre ++ refPre
@@ -9190,6 +9212,16 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         headWords := headWords.push none
         dynTails := dynTails.push (headIdx, .inl (id, schema, arg))
       else if ty.startsWith "struct " && !ty.contains "[" then
+        -- `lowerEncodedStaticStructWords` validates an `enum`-storage static struct (`Panic(0x21)`)
+        -- here in the head loop, whereas an earlier `calldata` array or dynamic struct validates
+        -- its payload later in `dynTails` (`revert(0, 0)`), reversing solc's left-to-right order.
+        if ← isEnumStorageStaticStruct arg then
+          for prevIdx in [:argIdx] do
+            let prev := args[prevIdx]!
+            let prevTy ← mType prev
+            if prevTy.contains "calldata" &&
+                ((scalarArrayElement? prevTy).isSome || (← dynamicStructMem? prev).isSome) then
+              failAt arg "enum-storage struct ABI encoding argument after a calldata array or dynamic struct is unsupported"
         let (sPre, sWords) ← lowerEncodedStaticStructWords arg (args.extract (argIdx + 1) args.size)
         pre := pre ++ sPre
         for w in sWords do
@@ -17185,39 +17217,61 @@ private partial def isStructValueSource (j : Json) : M Bool := do
       return onTrue && onFalse
   | _ => return false
 
-/-- An expression whose evaluation cannot revert, call or write: identifiers, literals, member
-reads, mapping lookups, comparisons, logical and bitwise operators, conditionals and struct
-constructors of such. Evaluated
-before or after a target key prelude without effects, it gives the same result. -/
-private partial def orderInert (j : Json) : M Bool := do
+/-- An expression whose evaluation cannot revert, call or write: identifiers (other than
+storage enums), literals, non-calldata-struct/non-storage-enum/non-storage-bytes-length member
+reads (`allowEmptyRevert` additionally permits `calldata` struct member reads, whose lazy guards
+only emit `revert(0, 0)`), non-enum mapping lookups, comparisons, logical and bitwise operators,
+conditionals and struct constructors of such. Evaluated before or after a target key prelude or
+deferred encoding read without effects, it gives the same result. -/
+private partial def orderInert (j : Json) (allowEmptyRevert : Bool := false) : M Bool := do
   let j ← stripParens j
   match ← mKind j with
-  | "Identifier" | "Literal" => return true
+  | "Literal" => return true
+  | "Identifier" =>
+      if (← mType j).startsWith "enum " then
+        let id ← refInt j
+        if id ≥ 0 && (← get).stateVars.contains id.toNat then
+          return false
+      return true
   | "MemberAccess" =>
-      if (← mType j).startsWith "function " then return false
-      orderInert (← mField j "expression")
+      let ty ← mType j
+      if ty.startsWith "function " then return false
+      let base ← mField j "expression"
+      let baseTy ← mType base
+      -- Reading a `calldata` struct member validates narrow scalar bounds or dynamic head offsets
+      -- (`revert(0, 0)`) at evaluation time; reading a storage `enum` member checks `Panic(0x21)`;
+      -- reading `.length` on storage `bytes` checks `Panic(0x22)`.
+      if !allowEmptyRevert && baseTy.contains "calldata" && baseTy.startsWith "struct " then
+        return false
+      if ty.startsWith "enum " && (baseTy.splitOn " storage").length > 1 then return false
+      if optStr j "memberName" == some "length" &&
+          baseTy.startsWith "bytes " && (baseTy.splitOn " storage").length > 1 then
+        return false
+      orderInert base allowEmptyRevert
   | "IndexAccess" =>
+      if (← mType j).startsWith "enum " then return false
       let base ← mField j "baseExpression"
       unless (← mType base).startsWith "mapping(" do return false
       let some index := field? j "indexExpression" | return false
-      return (← orderInert base) && (← orderInert index)
+      return (← orderInert base allowEmptyRevert) && (← orderInert index allowEmptyRevert)
   | "Conditional" =>
-      return (← orderInert (← mField j "condition")) &&
-        (← orderInert (← mField j "trueExpression")) && (← orderInert (← mField j "falseExpression"))
+      return (← orderInert (← mField j "condition") allowEmptyRevert) &&
+        (← orderInert (← mField j "trueExpression") allowEmptyRevert) &&
+        (← orderInert (← mField j "falseExpression") allowEmptyRevert)
   | "BinaryOperation" =>
       -- Comparisons, logical and bitwise operators cannot revert (unless user-defined).
       if (field? j "function").isSome then return false
       let op := optStr j "operator" |>.getD ""
       unless ["==", "!=", "<", "<=", ">", ">=", "&&", "||", "&", "|", "^"].contains op do
         return false
-      return (← orderInert (← mField j "leftExpression")) &&
-        (← orderInert (← mField j "rightExpression"))
+      return (← orderInert (← mField j "leftExpression") allowEmptyRevert) &&
+        (← orderInert (← mField j "rightExpression") allowEmptyRevert)
   | "UnaryOperation" =>
       unless optStr j "operator" == some "!" && (field? j "function").isNone do return false
-      orderInert (← mField j "subExpression")
+      orderInert (← mField j "subExpression") allowEmptyRevert
   | "FunctionCall" =>
       unless optStr j "kind" == some "structConstructorCall" do return false
-      (← mArr (← mField j "arguments")).allM orderInert
+      (← mArr (← mField j "arguments")).allM (orderInert · allowEmptyRevert)
   | _ => return false
 
 /-- Whether the lowering's order of `right` and the target's key prelude `pre` can differ

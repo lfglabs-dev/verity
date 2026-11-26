@@ -39,24 +39,29 @@ contract SequenceFixture {
             bytes32 h = keccak256(abi.encode(flag ? 10 / y : 7, flag ? stored + 5 : y - 1));
             r = uint256(h) % 1000000;
         } else if (c == 2) {
-            bytes32 h = keccak256(abi.encode("tag", y + 10, flag ? stored + 1 : 10 / y));
-            emit PayloadObserved("obs", flag ? 10 / y : y + 1, stored);
+            bytes32 h = keccak256(abi.encode(
+                "tag",
+                flag ? y + 10 : 10 / y,
+                flag ? stored + 1 : y - 1
+            ));
+            emit PayloadObserved(
+                "obs",
+                flag ? 10 / y : y + 1,
+                flag ? y - 1 : stored
+            );
             r = uint256(h) % 1000000;
         } else if (c == 3) {
             uint8 u = uint8(y % 251);
             int8 s = int8(uint8(y % 120));
             bytes32 h1 = keccak256(abi.encodePacked(
-                uint16(y + 1),
+                flag ? uint16(y + 1) : uint16(10 / y),
                 s + int8(3),
-                flag ? uint8(10 / y) : u + uint8(4)
+                flag ? u + uint8(4) : uint8(y - 1)
             ));
-            bytes32 h2;
-            unchecked {
-                h2 = keccak256(bytes.concat(
-                    bytes32(y - 1),
-                    flag ? bytes4(0x11223344) : bytes4(uint32(u + uint8(200)))
-                ));
-            }
+            bytes32 h2 = keccak256(bytes.concat(
+                flag ? bytes32(10 / y) : bytes32(y + 1),
+                flag ? bytes4(uint32(y - 1)) : bytes4(uint32(u + uint8(4)))
+            ));
             r = uint256(h1 ^ h2) % 1000000;
         } else if (c == 4) {
             bytes32 h1 = keccak256(abi.encodeWithSelector(
@@ -67,31 +72,31 @@ contract SequenceFixture {
             bytes32 h2 = keccak256(abi.encodeWithSelector(
                 IEncodingScalarTarget.acceptBytes.selector,
                 "dyn",
-                flag ? y + 2 : 10 / y,
-                stored + 1
+                flag ? 10 / y : y + 2,
+                flag ? y - 1 : stored + 1
             ));
             r = uint256(h1 ^ h2) % 1000000;
         } else if (c == 5) {
             bytes32 h1 = keccak256(abi.encodeWithSignature(
                 "accept(uint256,uint256)",
-                y + 1,
-                flag ? stored : 10 / y
+                flag ? y + 1 : 10 / y,
+                flag ? stored : y - 1
             ));
             bytes32 h2 = keccak256(abi.encodeWithSignature(
                 "acceptBytes(bytes,uint256,uint256)",
                 "sig",
                 flag ? 10 / y : y + 1,
-                stored + 2
+                flag ? y - 1 : stored + 2
             ));
             r = uint256(h1 ^ h2) % 1000000;
         } else if (c == 6) {
             bytes32 h1 = keccak256(abi.encodeCall(
                 IEncodingScalarTarget.accept,
-                (y + 1, flag ? stored : y - 1)
+                (flag ? y + 1 : 10 / y, flag ? stored : y - 1)
             ));
             bytes32 h2 = keccak256(abi.encodeCall(
                 IEncodingScalarTarget.acceptBytes,
-                ("call", flag ? 10 / y : y + 1, stored + 3)
+                ("call", flag ? 10 / y : y + 1, flag ? y - 1 : stored + 3)
             ));
             r = uint256(h1 ^ h2) % 1000000;
         } else {

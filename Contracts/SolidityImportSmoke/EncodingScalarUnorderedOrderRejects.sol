@@ -61,4 +61,32 @@ contract EncodingScalarUnorderedOrderRejects {
     function storageSignatureBeforePanic(uint256 x) external view returns (bytes32) {
         return keccak256(abi.encodeWithSignature(sigStored, 10 / x));
     }
+
+    function enumStorageStructBeforeCalldataMember(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encode(enumStored, p.a == 0 ? 1 : 2));
+    }
+
+    function storageSignatureBeforeCalldataMember(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(sigStored, p.a == 0 ? 1 : 2));
+    }
+
+    function storageSignatureBeforeCalldataStruct(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(sigStored, p));
+    }
+
+    function storageSignatureBeforeEnumStorageStruct() external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(sigStored, enumStored));
+    }
+
+    function storageStringBesideEnumStorageStruct(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(sigStored, enumStored, x == 0 ? 1 : 2));
+    }
+
+    function calldataArrayBeforeEnumStorageStruct(uint8[] calldata xs) external view returns (bytes32) {
+        return keccak256(abi.encode(xs, enumStored));
+    }
+
+    function calldataStructBeforeCalldataMember(NarrowPair calldata p, NarrowPair calldata q) external pure returns (bytes32) {
+        return keccak256(abi.encode(p, q.a == 0 ? 1 : q.a));
+    }
 }

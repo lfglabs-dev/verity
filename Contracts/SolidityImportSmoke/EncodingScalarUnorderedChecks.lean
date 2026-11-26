@@ -66,6 +66,7 @@ solidity_import posViaIr0838 from "Contracts/SolidityImportSmoke"
   function panicBeforeCalldataStruct(NarrowPair,uint256)
   function unguardedCalldataStructBeforePanic(FullPair,uint256)
   function storageSignatureBeforeInert(uint256)
+  function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
 
 solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
@@ -75,6 +76,7 @@ solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   function panicBeforeCalldataStruct(NarrowPair,uint256)
   function unguardedCalldataStructBeforePanic(FullPair,uint256)
   function storageSignatureBeforeInert(uint256)
+  function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
 
 private def oracle := SolidityImport.Differential.oracle
 
@@ -101,6 +103,17 @@ private def runChange (m : CompilationModel) (x : Nat) :
 #guard runChange seqLegacy0834.model 9 == some (false, some (panicBytes 0x12), 0)
 #guard runChange seqViaIr0838.model 9 == some (false, some (panicBytes 0x12), 0)
 #guard runChange seqLegacy0838.model 9 == some (false, some (panicBytes 0x12), 0)
+
+-- Branches 2..6, y = 0 (`x = 2..6` with `flag = false`, `x = 10..14` with `flag = true`):
+-- competing sibling panics (`10 / y` before `y - 1`) always hit `Panic(0x12)` first across
+-- dynamic `abi.encode`, dynamic `emit`, `abi.encodePacked`, `bytes.concat`,
+-- `abi.encodeWithSelector` (static & dynamic), `abi.encodeWithSignature` (static & dynamic),
+-- and `abi.encodeCall` (static & dynamic) on all four pinned profiles.
+#guard [2, 3, 4, 5, 6, 10, 11, 12, 13, 14].all fun x =>
+  runChange seqViaIr0834.model x == some (false, some (panicBytes 0x12), 0) &&
+  runChange seqLegacy0834.model x == some (false, some (panicBytes 0x12), 0) &&
+  runChange seqViaIr0838.model x == some (false, some (panicBytes 0x12), 0) &&
+  runChange seqLegacy0838.model x == some (false, some (panicBytes 0x12), 0)
 
 -- Valid inputs (`y = 2`, `x = 32..47`) agree across all four pinned profiles.
 #guard (List.range 16).all fun k =>
@@ -158,5 +171,77 @@ solidity_import rejStorageSignature from "Contracts/SolidityImportSmoke"
   using viaIr0838
   contract EncodingScalarUnorderedOrderRejects
   function storageSignatureBeforePanic(uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:66:37: Identifier: [solidity-import:unsupported] calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.enumStorageStructBeforeCalldataMember
+enumStored
+-/
+#guard_msgs in
+solidity_import rejEnumStorageBeforeCalldataMember from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function enumStorageStructBeforeCalldataMember(NarrowPair)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:70:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageSignatureBeforeCalldataMember
+sigStored
+-/
+#guard_msgs in
+solidity_import rejStorageSigBeforeCalldataMember from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageSignatureBeforeCalldataMember(NarrowPair)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:74:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageSignatureBeforeCalldataStruct
+sigStored
+-/
+#guard_msgs in
+solidity_import rejStorageSigBeforeCalldataStruct from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using legacy0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageSignatureBeforeCalldataStruct(NarrowPair)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:78:50: Identifier: [solidity-import:unsupported] storage bytes/string encoding argument before a sibling that can revert or write is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageSignatureBeforeEnumStorageStruct
+sigStored
+-/
+#guard_msgs in
+solidity_import rejStorageSigBeforeEnumStorageStruct from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using legacy0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageSignatureBeforeEnumStorageStruct()
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:82:48: Identifier: [solidity-import:unsupported] enum-storage struct ABI encoding argument beside a storage bytes/string argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.storageStringBesideEnumStorageStruct
+enumStored
+-/
+#guard_msgs in
+solidity_import rejStorageStringBesideEnumStorageStruct from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function storageStringBesideEnumStorageStruct(uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:86:41: Identifier: [solidity-import:unsupported] enum-storage struct ABI encoding argument after a calldata array or dynamic struct is unsupported
+closure: EncodingScalarUnorderedOrderRejects.calldataArrayBeforeEnumStorageStruct
+enumStored
+-/
+#guard_msgs in
+solidity_import rejCalldataArrayBeforeEnumStorageStruct from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function calldataArrayBeforeEnumStorageStruct(«uint8[]»)
 
 end SolidityImportSmoke.EncodingScalarUnorderedChecks
