@@ -530,6 +530,7 @@ DIFFERENTIAL_MUTANTS = ("import-legacy-root-checked", "import-legacy-helper-chec
                    'import-yul-revert-memory-empty', 'import-yul-revert-memory-offset',
                    'import-yul-mcopy-snapshot', 'import-yul-mcopy-keep', 'import-yul-mcopy-direction',
                    'import-yul-buffer-mcopy-direction',
+                   'import-yul-array-length-shrink-ignore', 'import-yul-array-length-shrink-off-by-one',
                    'import-signed-struct-member-raw-read', 'import-signed-struct-member-layout-read',
                    'import-signed-struct-member-raw-read-width', 'import-signed-struct-member-layout-read-width',
                    'import-signed-compound-operator', 'import-signed-compound-overflow',
@@ -597,7 +598,7 @@ DIFFERENTIAL_MUTANTS = ("import-legacy-root-checked", "import-legacy-helper-chec
                    'import-root-param-lowering-memory-wrapper')
 
 # Removing an order guard must change a located rejection to admission.
-GUARD_MUTANTS = ('import-helper-effect-binary-guard', 'import-string-event-data-before-indexed-guard', 'import-event-scratch-competing-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard', 'import-storage-pointer-mapping-helper-value-guard', 'import-storage-pointer-mapping-helper-yul-slot-guard')
+GUARD_MUTANTS = ('import-helper-effect-binary-guard', 'import-string-event-data-before-indexed-guard', 'import-event-scratch-competing-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard', 'import-storage-pointer-mapping-helper-value-guard', 'import-storage-pointer-mapping-helper-yul-slot-guard', 'import-yul-array-length-shrink-bound-guard')
 
 # Each isolated campaign recompiles `Compiler.SolidityImport.Import` in a private
 # snapshot. With one worker per core that build alone takes ~14 minutes, on top of

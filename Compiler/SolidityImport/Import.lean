@@ -15,6 +15,7 @@ import Compiler.SolidityImport.YulBufferMcopy
 import Compiler.SolidityImport.Legacy
 import Compiler.SolidityImport.ExprHelpers
 import Compiler.SolidityImport.Lowering.EvalOrderHazards
+import Compiler.SolidityImport.Lowering.ArrayLengthShrink
 import Compiler.SolidityImport.StorageLayout
 import Compiler.SolidityImport.InlineAssemblyShims
 import Compiler.SolidityImport.SourceDigest
@@ -2989,6 +2990,25 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) (atRootAbiE
   modify fun e =>
     { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0,
              yulBufCursors := RBMap.empty, yulDeclaredNames := #[], yulCursorOnlyNames := #[] }
+  if let some shrinkRes := Lowering.checkYulArrayLengthShrink? j (← get) then
+    modify fun e =>
+      { e with yulNames := savedYulNames, yulScratch0 := savedScratch0,
+               yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten,
+               yulBufCursors := savedCursors, yulDeclaredNames := savedDeclared,
+               yulCursorOnlyNames := savedCursorOnly }
+    match shrinkRes with
+    | .error (errNode, errMsg) => failAt errNode errMsg
+    | .ok (arr, lenExpr, readBinding?) =>
+        if let some b := readBinding? then
+          let lenNode := ((((field? stmts[0]! "expression").bind (field? · "arguments")).bind
+            (·.getArr?.toOption)).bind (·[1]?)).getD j
+          modify fun e => { e with yulBindingReadSites := e.yulBindingReadSites.push (b, lenNode) }
+        let newLenBinding ← fresh
+        return #[
+          .letVar newLenBinding lenExpr,
+          .mstore (.localVar arr.memoryPointer) (.localVar newLenBinding),
+          .assignVar arr.lengthBinding (.localVar newLenBinding)
+        ]
   if let some prefixStmts ← lowerYulPrefixKeccakBlock? j stmts refs retName then
     modify fun e =>
       { e with yulNames := savedYulNames, yulScratch0 := savedScratch0,
@@ -11910,6 +11930,13 @@ private partial def lowerArrayHelperStmts (expectedElemTy : String) (stmts : Lis
             let sPre ← lowerEffect declStmt
             let (tailPre, desc) ← lowerArrayHelperStmts expectedElemTy (asmStmt :: rest)
             return (sPre ++ tailPre, desc)
+        | "InlineAssembly" =>
+            let savedAsmYul := (← get).yulNames
+            let extPre ← bindYulExternalConstants declStmt
+            let asmStmts ← lowerAssemblyStmts declStmt ""
+            modify fun e => { e with yulNames := savedAsmYul }
+            let (tailPre, desc) ← lowerArrayHelperStmts expectedElemTy (asmStmt :: rest)
+            return (extPre ++ asmStmts ++ tailPre, desc)
         | "Block" =>
             -- Flattened into the continuation; the block end restores the name-keyed scope.
             let inner ← mArr (← mField declStmt "statements")
@@ -21468,7 +21495,9 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
             -- Only a block over the one bound array can be the batch read; a block that does not
             -- reference it takes the ordinary lowering.
             let batchArr? := match env.scalarArrays.toList with
-              | [(arrId, arr)] => if inlineAssemblyRefsDecl s arrId then some (arrId, arr) else none
+              | [(arrId, arr)] =>
+                  if !arr.inMemory && inlineAssemblyRefsDecl s arrId then some (arrId, arr)
+                  else none
               | _ => none
             if let some (arrId, arr) := batchArr? then
               -- The shortcut replaces the block: apply it only to a registered batch read
