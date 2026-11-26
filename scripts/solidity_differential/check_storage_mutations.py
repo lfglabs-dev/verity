@@ -580,6 +580,10 @@ MUTANTS.update({
     'import-yul-mcopy-direction': (
         '      if d < 32 then some (Expr.shr (.literal (8 * d)) (word s)) else none',
         '      if d < 32 then some (Expr.shl (.literal (8 * d)) (word s)) else none'),
+    # Copies forward even when dstStart > srcStart: wrong on forward-overlapping buffer slices.
+    'import-yul-buffer-mcopy-direction': (
+        '    , .ite (.le (.localVar temps.dstStart) (.localVar temps.srcStart))\n',
+        '    , .ite (.literal 1)\n'),
     'import-yul-revert-memory-empty': (
         '            out := out.push (.revertMemory (.literal off) (.literal size))\n',
         '            out := out.push .revertEmpty\n'),
@@ -1275,6 +1279,8 @@ def run(directory, output, name):
         fixture = "YulEmptyRevertSequence"
     if name.startswith("import-yul-mcopy-"):
         fixture = "YulMcopySequence"
+    if name.startswith("import-yul-buffer-mcopy-"):
+        fixture = "YulBufferMcopySequence"
     if name.startswith("import-yul-revert-memory-"):
         fixture = "YulRevertMemorySequence"
     if name.startswith("import-signed-compound-"):
@@ -1661,6 +1667,10 @@ def run(directory, output, name):
         from solidity_differential.check_storage import YUL_MCOPY_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
         argv.extend(['--change-prefix', *map(str, YUL_MCOPY_PREFIX)])
+    if fixture == 'YulBufferMcopySequence':
+        from solidity_differential.check_storage import YUL_BUFFER_MCOPY_PREFIX
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--evm-version', 'cancun', '--change-prefix', *map(str, YUL_BUFFER_MCOPY_PREFIX)])
     if fixture == 'SignedStructMemberReadSequence':
         from solidity_differential.check_storage import SIGNED_STRUCT_MEMBER_READ_PREFIX
         argv[argv.index('--transactions') + 1] = '24'
@@ -2550,6 +2560,7 @@ def mutation_source(directory, name):
                                   else 'Compiler/SolidityImport/ExprHelpers.lean' if name in ('import-encoding-arg-super-revert-guard',
                                                                                               'import-yul-block-mulmod-tstore-narrow-local-guard')
                                   else 'Compiler/SolidityImport/Lowering/EvalOrderHazards.lean' if name == 'import-helper-effect-classifier'
+                                  else 'Compiler/SolidityImport/YulBufferMcopy.lean' if name.startswith('import-yul-buffer-mcopy-')
                                   else 'Compiler/SolidityImport/Import.lean')
 
 def preflight_mutation_anchors(directory, selected=None):

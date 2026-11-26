@@ -11,6 +11,7 @@ import Compiler.SolidityImport.AbiEncoding
 import Compiler.SolidityImport.TypesAndRecords
 import Compiler.SolidityImport.TransportBarriers
 import Compiler.SolidityImport.LibraryCallGuard
+import Compiler.SolidityImport.YulBufferMcopy
 
 open Lean Meta Elab Command
 
@@ -269,6 +270,18 @@ structure Env where
   /-- Bindings of `let p := mload(0x40)` saves admitted by `yulFreePointerSave?` in the
       current root: the only destinations a bubbled revert may copy the return data to. -/
   yulFreePointerBindings : Array String := #[]
+  /-- Active Yul `let` cursors over modelled byte-buffer payloads in the current assembly slice. -/
+  yulBufCursors : RBMap String YulBufferCursor compare := RBMap.empty
+  /-- Yul `let` names declared in the current assembly slice (including buffer cursors). -/
+  yulDeclaredNames : Array String := #[]
+  /-- Yul buffer-cursor `let` names that are not exposed as scalar `yulNames` values. -/
+  yulCursorOnlyNames : Array String := #[]
+  /-- `ShortStrings` 32-byte inline-assembly allocations whose `.size` word is user-written. -/
+  shortStringBuffers : Array Nat := #[]
+  /-- Fresh pointer SSA bindings allocated by `lowerShortStringAllocAssembly?` in the current root. -/
+  shortStringPtrVars : Array String := #[]
+  /-- Lowered buffer-to-buffer `mcopy` sites in the current root awaiting `Stmt` range proof. -/
+  mcopySites : Array McopySite := #[]
   /-- AST ids of the typed-interface staticcalls the current statement may
       lower (`admittedInterfaceCallIds` of its whole initializer, right-hand
       side or expression statement). Each id is consumed when lowered. -/
@@ -281,6 +294,10 @@ structure Env where
   /-- `bytes memory` locals whose initializer begins with a checked CREATE2
       initcode template literal (`DenoteCreate2.templateCost`). -/
   initcodeTemplates : Array Nat := #[]
+  /-- Root pointer SSA bindings for `initcodeTemplates` locals (`declId ↦ ptrVar`). -/
+  initcodeTemplatePtrs : RBMap Nat String compare := RBMap.empty
+  /-- Lowered `create2` sites awaiting whole-root `mcopy` destination taint verification. -/
+  create2Sites : Array Create2TemplateSite := #[]
   /-- Scalar bindings that may hold the executing contract's address: bound or
       assigned a value that mentions `address(this)` (`Expr.contractAddress`) or
       another such binding. Code reads of them are rejected (`mayBeSelfAddress`). -/

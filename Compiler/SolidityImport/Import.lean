@@ -11,6 +11,7 @@ import Compiler.SolidityImport.AbiEncoding
 import Compiler.SolidityImport.TypesAndRecords
 import Compiler.SolidityImport.TransportBarriers
 import Compiler.SolidityImport.LibraryCallGuard
+import Compiler.SolidityImport.YulBufferMcopy
 import Compiler.SolidityImport.Legacy
 import Compiler.SolidityImport.ExprHelpers
 import Compiler.SolidityImport.Lowering.EvalOrderHazards
@@ -1628,6 +1629,8 @@ private partial def lowerYul (j : Json) : M Val := do
   | "YulIdentifier" =>
       let name ← mStr (← mField j "name")
       let env ← get
+      if env.yulCursorOnlyNames.contains name then
+        failAt j s!"Yul byte-buffer cursor {name} may only be used in mcopy"
       -- A narrow named result holds the raw stack word, as solc's does: Yul reads see it and
       -- Solidity consumers clean it (#2912).
       match env.yulNames.find? name with
@@ -1929,6 +1932,12 @@ private def lowerYulCreate2? (node : Json) (lowerYulFn : Json → M Val) : M (Op
     failAt args[2]! "create2 initcode size must be mload of the same bytes memory local"
   unless (← get).initcodeTemplates.contains declId do
     failAt args[1]! "create2 initcode must start with a checked deployment-prefix literal"
+  let some rootPtr := (← get).initcodeTemplatePtrs.find? declId
+    | failAt args[1]! "create2 initcode must start with a checked deployment-prefix literal"
+  let envNow ← get
+  let c2Site : Create2TemplateSite :=
+    { rootPtrVar := rootPtr, node := args[1]!, file := envNow.currentFile, stack := envNow.stack }
+  modify fun e => { e with create2Sites := e.create2Sites.push c2Site }
   -- Yul evaluates builtin arguments right to left; only the salt can be non-atomic.
   let salt ← atom (← lowerYulFn args[3]!)
   let size ← atom { pre := #[], expr := buffer.size }
@@ -2491,6 +2500,114 @@ private def isYulReturndataBubble (copy rev : Json) : M Bool := do
   let some payload ← identName rargs[0]! | return false
   return dest == payload && zeroSource && (← isSize cargs[2]!) && (← isSize rargs[1]!)
 
+/-- Whether any `YulAssignment` inside `j` assigns to `name`. -/
+private partial def yulBlockAssigns (name : String) : Json → Bool
+  | j@(.obj kvs) =>
+      let assignsHere :=
+        if optStr j "nodeType" == some "YulAssignment" then
+          match field? j "variableNames" with
+          | some (.arr vs) => vs.any fun v => optStr v "name" == some name
+          | _ => false
+        else false
+      kvs.foldl (fun acc _ v => acc || yulBlockAssigns name v) assignsHere
+  | .arr items => items.any (yulBlockAssigns name)
+  | _ => false
+
+/-- Flatten nested binary Yul `add(...)` calls in left-to-right operand order. -/
+private partial def flattenYulAdd (node : Json) : M (Array Json) := do
+  if (← mKind node) == "YulFunctionCall" then
+    let fname ← mStr (← mField (← mField node "functionName") "name")
+    let args ← mArr (← mField node "arguments")
+    if fname == "add" && args.size == 2 then
+      return (← flattenYulAdd args[0]!) ++ (← flattenYulAdd args[1]!)
+  return #[node]
+
+/-- Resolve an unshadowed `YulIdentifier` referencing a modelled `bytes` / `string` memory
+buffer via `InlineAssembly.externalReferences`. -/
+private def resolveYulBufferRef? (refs : Array Json) (node : Json) :
+    M (Option (Nat × EncodedBytes)) := do
+  if optStr node "nodeType" != some "YulIdentifier" then return none
+  let identName ← mStr (← mField node "name")
+  let env ← get
+  if env.yulDeclaredNames.contains identName then return none
+  let nodeSrc ← mStr (← mField node "src")
+  let mut declId? : Option Nat := none
+  for ref in refs do
+    if (← mStr (← mField ref "src")) == nodeSrc then
+      unless !(← mBool (← mField ref "isOffset")) && !(← mBool (← mField ref "isSlot")) &&
+          (field? ref "suffix").isNone && (← mNat (← mField ref "valueSize")) == 1 do
+        return none
+      declId? := some (← mNat (← mField ref "declaration"))
+  let some declId := declId? | return none
+  if env.shortStringBuffers.contains declId then return none
+  let some buf := env.byteBuffers.find? declId <|> env.stringBuffers.find? declId
+    | return none
+  if buf.shortStringAlloc then return none
+  unless buf.pre.isEmpty do return none
+  return some (declId, buf)
+
+/-- Parse a Yul byte-buffer payload address (`add(buf, 0x20 + ...)` or an un-reassigned Yul
+cursor `let` derived from one), returning `(declId, buf, litPayloadOff, cursorOffVars,
+extraOffsetVals)`. Restores `Env` whenever returning `none`. -/
+private def parseYulBufferAddr? (refs : Array Json) (node : Json) :
+    M (Option (Nat × EncodedBytes × Nat × List String × Array Val)) := do
+  let savedEnv ← get
+  let terms ← flattenYulAdd node
+  let mut base? : Option (Nat × EncodedBytes × Bool × Nat × List String) := none
+  let mut litSum : Nat := 0
+  let mut otherNodes : Array Json := #[]
+  for t in terms do
+    if let some n ← yulNumber? t then
+      unless n < 2 ^ 64 && litSum + n < 2 ^ 64 do
+        set savedEnv
+        return none
+      litSum := litSum + n
+    else if optStr t "nodeType" == some "YulIdentifier" then
+      let tName ← mStr (← mField t "name")
+      if let some cur := (← get).yulBufCursors.find? tName then
+        if base?.isSome then
+          set savedEnv
+          return none
+        base? := some (cur.declId, cur.buffer, true, cur.litOffset, cur.offsetVars)
+      else if let some (declId, buf) ← resolveYulBufferRef? refs t then
+        if base?.isSome then
+          set savedEnv
+          return none
+        base? := some (declId, buf, false, 0, [])
+      else
+        otherNodes := otherNodes.push t
+    else
+      otherNodes := otherNodes.push t
+  let some (declId, buf, fromCursor, baseLitOff, baseOffVars) := base?
+    | do set savedEnv; return none
+  let litOff ←
+    if fromCursor then
+      if baseLitOff + litSum < 2 ^ 64 then pure (baseLitOff + litSum)
+      else do set savedEnv; return none
+    else
+      if litSum ≥ 32 && litSum - 32 < 2 ^ 64 then pure (litSum - 32)
+      else do set savedEnv; return none
+  let mut extraVals : Array Val := #[]
+  for other in otherNodes do
+    extraVals := extraVals.push (← lowerYul other)
+  return some (declId, buf, litOff, baseOffVars, extraVals)
+
+/-- Whether `node` mentions a Yul buffer cursor or an unshadowed byte/string buffer identifier. -/
+private partial def mentionsYulBufferIdent (refs : Array Json) : Json → M Bool
+  | j@(.obj kvs) => do
+      if optStr j "nodeType" == some "YulIdentifier" then
+        let name ← mStr (← mField j "name")
+        if (← get).yulBufCursors.contains name || (← get).yulCursorOnlyNames.contains name then
+          return true
+        if (← resolveYulBufferRef? refs j).isSome then
+          return true
+      kvs.foldlM (fun acc _ v => if acc then pure true else mentionsYulBufferIdent refs v) false
+  | .arr items => do
+      for v in items do
+        if ← mentionsYulBufferIdent refs v then return true
+      return false
+  | _ => return false
+
 private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retName : String) (atRootAbiExit := false) : M (Array Stmt) := do
   let mut yulLocals : RBMap String String compare := RBMap.empty
   let mut out : Array Stmt := #[]
@@ -2532,11 +2649,41 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         let vname ← mStr (← mField varNode "name")
         unless vname.all (fun c => c.isAlphanum || c == '_') && vname != "" do
           failAt varNode s!"unsupported Yul variable name {vname}"
-        if yulLocals.contains vname then
+        if yulLocals.contains vname || (← get).yulDeclaredNames.contains vname then
           failAt varNode s!"duplicate Yul variable declaration {vname}"
         let savesFreePointer ← yulFreePointerSave? j stmt vname
+        let valOpt := (field? stmt "value").filter (!·.isNull)
+        let ast := (field? j "AST").getD .null
+        let cursor? ←
+          if !savesFreePointer && !yulBlockAssigns vname ast then
+            match valOpt with
+            | some valNode => parseYulBufferAddr? refs valNode
+            | none => pure none
+          else
+            pure none
+        if let some (declId, buf, litOff, baseOffVars, extraVals) := cursor? then
+          checkYulOperandOrder stmt extraVals
+          let mut pre : Array Stmt := #[]
+          for ev in extraVals do
+            pre := pre ++ ev.pre
+          let mut extraVars : List String := []
+          for ev in extraVals do
+            let b ← fresh
+            pre := pre.push (.letVar b ev.expr)
+            extraVars := extraVars ++ [b]
+          let cur : YulBufferCursor :=
+            { declId, buffer := buf, litOffset := litOff, offsetVars := baseOffVars ++ extraVars }
+          modify fun e =>
+            { e with yulNames := e.yulNames.erase vname,
+                     yulMemoryArrays := e.yulMemoryArrays.erase vname,
+                     yulMemoryStructs := e.yulMemoryStructs.erase vname,
+                     yulBufCursors := e.yulBufCursors.insert vname cur,
+                     yulDeclaredNames := e.yulDeclaredNames.push vname,
+                     yulCursorOnlyNames := e.yulCursorOnlyNames.push vname }
+          out := out ++ pre
+          continue
         let v ← if savesFreePointer then pure { pre := #[], expr := .mload (.literal 0x40) }
-          else match (field? stmt "value").filter (!·.isNull) with
+          else match valOpt with
           | some valNode => lowerYulValue valNode
           | none => pure { pre := #[], expr := .literal 0 }
         let binding ← freshFor vname
@@ -2544,7 +2691,11 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           freePointerSaves := freePointerSaves.push binding
           modify fun e => { e with yulFreePointerBindings := e.yulFreePointerBindings.push binding }
         let expr := Expr.localVar binding
-        modify fun e => { e with yulNames := e.yulNames.insert vname expr }
+        modify fun e =>
+          { e with yulNames := e.yulNames.insert vname expr,
+                   yulBufCursors := e.yulBufCursors.erase vname,
+                   yulDeclaredNames := e.yulDeclaredNames.push vname,
+                   yulCursorOnlyNames := e.yulCursorOnlyNames.filter (· != vname) }
         yulLocals := yulLocals.insert vname binding
         out := out ++ v.pre |>.push (.letVar binding v.expr)
     | "YulAssignment" =>
@@ -2552,6 +2703,8 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         unless vars.size == 1 do failAt stmt "Yul assignment must have one target"
         let varNode := vars[0]!
         let vname ← mStr (← mField varNode "name")
+        if (← get).yulCursorOnlyNames.contains vname then
+          failAt stmt s!"Yul byte-buffer cursor {vname} cannot be reassigned"
         if let some yulBinding := yulLocals.find? vname then
           let v ← lowerYulValue (← mField stmt "value")
           out := out ++ v.pre |>.push (.assignVar yulBinding v.expr)
@@ -2672,15 +2825,18 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           if (← yulNumber? args[2]!) == some 0 then
             -- EIP-5656: a zero size copies nothing and expands no memory, whatever the offsets;
             -- only the operands' own effects remain.
-            let dstVal ← lowerYul args[0]!
-            let srcVal ← lowerYul args[1]!
-            checkYulOperandOrder expr #[dstVal, srcVal]
-            out := out ++ dstVal.pre ++ srcVal.pre
+            let dstVals ← match ← parseYulBufferAddr? refs args[0]! with
+              | some (_, _, _, _, extraVals) => pure extraVals
+              | none => pure #[← lowerYul args[0]!]
+            let srcVals ← match ← parseYulBufferAddr? refs args[1]! with
+              | some (_, _, _, _, extraVals) => pure extraVals
+              | none => pure #[← lowerYul args[1]!]
+            checkYulOperandOrder expr (dstVals ++ srcVals)
+            for v in dstVals ++ srcVals do
+              out := out ++ v.pre
           else
-            -- The model's memory agrees with the EVM's only on scratch bytes this block wrote on
-            -- every path (`yulWrittenBytes`); from 0x40 on sit solc's free-memory pointer and zero
-            -- slot, which the model's differ from. So both ranges stay below 0x40 and every source
-            -- byte must be written. Other copies (e.g. between heap buffers) are #2620.
+            -- Scratch-word literal range below 0x40, or a bounded copy between modelled
+            -- `bytes memory` / `string memory` buffer payloads (`YulBufferMcopy`).
             let written := (← get).yulWrittenBytes
             let range? := match (← yulNumber? args[0]!), (← yulNumber? args[1]!),
                 (← yulNumber? args[2]!) with
@@ -2690,28 +2846,106 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
                     some (dst, src, size)
                   else none
               | _, _, _ => none
-            let some (dst, src, size) := range?
-              | failAt expr ("Yul mcopy is supported only for a zero size, or a literal range " ++
+            if let some (dst, src, size) := range? then
+              -- Snapshot both scratch words, then rewrite the destination words from the snapshot.
+              let mut snapshots : List (Nat × String) := []
+              for w in yulScratchWords do
+                let binding ← fresh
+                snapshots := snapshots ++ [(w, binding)]
+                out := out.push (.letVar binding (.mload (.literal w)))
+              let word (w : Nat) : Expr := match snapshots.lookup w with
+                | some binding => .localVar binding
+                | none => .literal 0
+              for w in yulScratchWords do
+                if let some value := yulScratchWordAfterMcopy word dst src size w then
+                  out := out.push (.mstore (.literal w) value)
+              modify fun e =>
+                let bytes := Nat.lor e.yulWrittenBytes (Nat.shiftLeft (2 ^ size - 1) dst)
+                { e with yulWrittenBytes := bytes,
+                         yulScratch0 := e.yulScratch0 || (List.range 32).all bytes.testBit,
+                         yulScratch32 := e.yulScratch32 ||
+                           (List.range 32).all fun k => bytes.testBit (32 + k) }
+            else
+              let dstParsed? ← parseYulBufferAddr? refs args[0]!
+              let srcParsed? ← parseYulBufferAddr? refs args[1]!
+              if let (some (dstDeclId, dstBuf, dstLitOff, dstBaseVars, dstExtraVals),
+                      some (_, srcBuf, srcLitOff, srcBaseVars, srcExtraVals)) :=
+                  (dstParsed?, srcParsed?) then
+                let lenVal ← lowerYul args[2]!
+                checkYulOperandOrder expr (dstExtraVals ++ srcExtraVals ++ #[lenVal])
+                -- Run all hoisted call/effect preludes before binding any operand `.expr` so
+                -- right-hand call effects (`returndatasize()`, storage, balance) precede pure
+                -- left-hand offset expressions, matching Yul's right-to-left operand evaluation.
+                for dv in dstExtraVals do
+                  out := out ++ dv.pre
+                for sv in srcExtraVals do
+                  out := out ++ sv.pre
+                out := out ++ lenVal.pre
+                let mut extraDstVars : List String := []
+                for dv in dstExtraVals do
+                  let b ← fresh
+                  out := out.push (.letVar b dv.expr)
+                  extraDstVars := extraDstVars ++ [b]
+                let mut extraSrcVars : List String := []
+                for sv in srcExtraVals do
+                  let b ← fresh
+                  out := out.push (.letVar b sv.expr)
+                  extraSrcVars := extraSrcVars ++ [b]
+                let dstPtrVar ← fresh
+                let srcPtrVar ← fresh
+                let lenVar ← fresh
+                let dstSizeVar ← fresh
+                let srcSizeVar ← fresh
+                out := out ++ #[
+                  .letVar dstPtrVar dstBuf.pointer,
+                  .letVar srcPtrVar srcBuf.pointer,
+                  .letVar lenVar lenVal.expr,
+                  .letVar dstSizeVar dstBuf.size,
+                  .letVar srcSizeVar srcBuf.size
+                ]
+                let dstOffVars := dstBaseVars ++ extraDstVars
+                let srcOffVars := srcBaseVars ++ extraSrcVars
+                let temps : BufferMcopyTemps :=
+                  { dstStart := ← fresh
+                    srcStart := ← fresh
+                    fwdIdx := ← fresh
+                    fwdByte := ← fresh
+                    fwdWord := ← fresh
+                    bwdStep := ← fresh
+                    bwdIdx := ← fresh
+                    bwdByte := ← fresh
+                    bwdWord := ← fresh }
+                out := out.push (emitBufferMcopyLoop
+                  (.localVar dstPtrVar) (buildMcopyOffsetExpr dstLitOff dstOffVars)
+                  (.localVar srcPtrVar) (buildMcopyOffsetExpr srcLitOff srcOffVars)
+                  lenVar temps)
+                let envNow ← get
+                let site : McopySite :=
+                  { lenVar
+                    dstPtrVar
+                    dstOffVars
+                    dstLitOff
+                    dstSizeVar
+                    srcPtrVar
+                    srcOffVars
+                    srcLitOff
+                    srcSizeVar
+                    node := expr
+                    file := envNow.currentFile
+                    stack := envNow.stack }
+                modify fun e =>
+                  { e with encodingMemory := true,
+                           initcodeTemplates := e.initcodeTemplates.filter (· != dstDeclId),
+                           mcopySites := e.mcopySites.push site }
+              else if (← mentionsYulBufferIdent refs args[0]!) ||
+                  (← mentionsYulBufferIdent refs args[1]!) then
+                failAt expr ("Yul mcopy with a byte buffer requires both destination and " ++
+                  "source to be byte-buffer payload addresses (at least 0x20 past the buffer " ++
+                  "pointer)")
+              else
+                failAt expr ("Yul mcopy is supported only for a zero size, or a literal range " ++
                   "inside the scratch words below 0x40 whose source bytes this Yul block " ++
                   "wrote on every path")
-            -- Snapshot both scratch words, then rewrite the destination words from the snapshot.
-            let mut snapshots : List (Nat × String) := []
-            for w in yulScratchWords do
-              let binding ← fresh
-              snapshots := snapshots ++ [(w, binding)]
-              out := out.push (.letVar binding (.mload (.literal w)))
-            let word (w : Nat) : Expr := match snapshots.lookup w with
-              | some binding => .localVar binding
-              | none => .literal 0
-            for w in yulScratchWords do
-              if let some value := yulScratchWordAfterMcopy word dst src size w then
-                out := out.push (.mstore (.literal w) value)
-            modify fun e =>
-              let bytes := Nat.lor e.yulWrittenBytes (Nat.shiftLeft (2 ^ size - 1) dst)
-              { e with yulWrittenBytes := bytes,
-                       yulScratch0 := e.yulScratch0 || (List.range 32).all bytes.testBit,
-                       yulScratch32 := e.yulScratch32 ||
-                         (List.range 32).all fun k => bytes.testBit (32 + k) }
         else
           failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
     | "YulIf" =>
@@ -2722,8 +2956,13 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         let bodyStmts ← mArr (← mField bodyNode "statements")
         let before ← get
         let bodyOut ← lowerYulStmtSlice j bodyStmts refs retName atRootAbiExit
-        modify fun e => { e with yulScratch0 := before.yulScratch0, yulScratch32 := before.yulScratch32,
-                                 yulWrittenBytes := before.yulWrittenBytes }
+        modify fun e =>
+          { e with yulScratch0 := before.yulScratch0,
+                   yulScratch32 := before.yulScratch32,
+                   yulWrittenBytes := before.yulWrittenBytes,
+                   yulBufCursors := before.yulBufCursors,
+                   yulDeclaredNames := before.yulDeclaredNames,
+                   yulCursorOnlyNames := before.yulCursorOnlyNames }
         out := out ++ condVal.pre |>.push (.ite (.logicalNot (.eq condVal.expr (.literal 0))) bodyOut.toList [])
     | kind => failAt stmt s!"unsupported Yul statement {kind}"
   if zeroSlotDirty then
@@ -2744,12 +2983,25 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) (atRootAbiE
   let savedScratch0 := (← get).yulScratch0
   let savedScratch32 := (← get).yulScratch32
   let savedWritten := (← get).yulWrittenBytes
-  modify fun e => { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0 }
+  let savedCursors := (← get).yulBufCursors
+  let savedDeclared := (← get).yulDeclaredNames
+  let savedCursorOnly := (← get).yulCursorOnlyNames
+  modify fun e =>
+    { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0,
+             yulBufCursors := RBMap.empty, yulDeclaredNames := #[], yulCursorOnlyNames := #[] }
   if let some prefixStmts ← lowerYulPrefixKeccakBlock? j stmts refs retName then
-    modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
+    modify fun e =>
+      { e with yulNames := savedYulNames, yulScratch0 := savedScratch0,
+               yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten,
+               yulBufCursors := savedCursors, yulDeclaredNames := savedDeclared,
+               yulCursorOnlyNames := savedCursorOnly }
     return prefixStmts
   let out ← lowerYulStmtSlice j stmts refs retName atRootAbiExit
-  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
+  modify fun e =>
+    { e with yulNames := savedYulNames, yulScratch0 := savedScratch0,
+             yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten,
+             yulBufCursors := savedCursors, yulDeclaredNames := savedDeclared,
+             yulCursorOnlyNames := savedCursorOnly }
   pure out
 
 private partial def lowerTailScratchReturnAssembly? (j : Json) : M (Option (Array Stmt)) := do
@@ -2774,10 +3026,19 @@ private partial def lowerTailScratchReturnAssembly? (j : Json) : M (Option (Arra
   let savedScratch0 := (← get).yulScratch0
   let savedScratch32 := (← get).yulScratch32
   let savedWritten := (← get).yulWrittenBytes
-  modify fun e => { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0 }
+  let savedCursors := (← get).yulBufCursors
+  let savedDeclared := (← get).yulDeclaredNames
+  let savedCursorOnly := (← get).yulCursorOnlyNames
+  modify fun e =>
+    { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0,
+             yulBufCursors := RBMap.empty, yulDeclaredNames := #[], yulCursorOnlyNames := #[] }
   let prefixStmts ← lowerYulStmtSlice j stmts.pop refs ""
   let wroteScratch0 := (← get).yulScratch0
-  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
+  modify fun e =>
+    { e with yulNames := savedYulNames, yulScratch0 := savedScratch0,
+             yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten,
+             yulBufCursors := savedCursors, yulDeclaredNames := savedDeclared,
+             yulCursorOnlyNames := savedCursorOnly }
   unless wroteScratch0 do
     failAt last "Yul return(0, 32) requires a preceding scratch write at offset 0"
   return some (prefixStmts.push (.returnValues [.mload (.literal 0)]))
@@ -8163,7 +8424,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       .letVar size (.literal 0),
       .ite condVal.expr yesStmts.toList noStmts.toList
     ]
-    return { pre := stmts, pointer := .localVar ptr, size := .localVar size }
+    return { pre := stmts, pointer := .localVar ptr, size := .localVar size,
+             shortStringAlloc := yesBuf.shortStringAlloc || noBuf.shortStringAlloc }
   if (← mKind j) == "Literal" then
     unless optStr j "kind" == some "hexString" || optStr j "kind" == some "string" ||
         optStr j "kind" == some "unicodeString" do
@@ -8219,9 +8481,13 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     let id ← refInt j
     if id ≥ 0 then
       if let some buffer := (← get).byteBuffers.find? id.toNat then
-        return buffer
+        return { buffer with
+          shortStringAlloc := buffer.shortStringAlloc ||
+            (← get).shortStringBuffers.contains id.toNat }
       if let some buffer := (← get).stringBuffers.find? id.toNat then
-        return buffer
+        return { buffer with
+          shortStringAlloc := buffer.shortStringAlloc ||
+            (← get).shortStringBuffers.contains id.toNat }
       if let some cb := (← get).calldataBytes.find? id.toNat then
         return ← calldataBytesBuffer cb
       if let some (name, slotExpr, _) := (← get).storageBytesVars.find? id.toNat then
@@ -10628,7 +10894,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         let sizeBinding ← fresh
         pre := pre ++ buffer.pre ++ #[.letVar ptrBinding buffer.pointer, .letVar sizeBinding buffer.size]
         let retained : EncodedBytes :=
-          { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
+          { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding,
+            shortStringAlloc := buffer.shortStringAlloc }
         modify fun e =>
           { e with byteBuffers := e.byteBuffers.insert pid retained,
                    yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
@@ -10642,7 +10909,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           let sizeBinding ← fresh
           pre := pre ++ buffer.pre ++ #[.letVar ptrBinding buffer.pointer, .letVar sizeBinding buffer.size]
           let retained : EncodedBytes :=
-            { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
+            { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding,
+              shortStringAlloc := buffer.shortStringAlloc }
           modify fun e =>
             { e with byteBuffers := e.byteBuffers.insert pid retained,
                      yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
@@ -10654,7 +10922,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           let sizeBinding ← fresh
           pre := pre ++ buffer.pre ++ #[.letVar ptrBinding buffer.pointer, .letVar sizeBinding buffer.size]
           let retained : EncodedBytes :=
-            { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
+            { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding,
+              shortStringAlloc := buffer.shortStringAlloc }
           modify fun e =>
             { e with stringBuffers := e.stringBuffers.insert pid retained,
                      yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
@@ -11110,15 +11379,22 @@ private partial def lowerShortStringAllocAssembly? (declStmt asmStmt : Json) : M
     .mstore (.localVar ptr) (.localVar wordBinding)
   ]
   let retained : EncodedBytes :=
-    { pre := #[], pointer := .localVar ptr, size := .localVar lenBinding }
+    { pre := #[], pointer := .localVar ptr, size := .localVar lenBinding,
+      shortStringAlloc := true }
   if dTy == "string" then
     modify fun e =>
       { e with stringBuffers := e.stringBuffers.insert strId retained,
+               shortStringBuffers := if e.shortStringBuffers.contains strId then
+                 e.shortStringBuffers else e.shortStringBuffers.push strId,
+               shortStringPtrVars := e.shortStringPtrVars.push ptr,
                nonLiteralByteLocals := if e.nonLiteralByteLocals.contains strId then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push strId,
                yulNames := e.yulNames.erase strName }
   else
     modify fun e =>
       { e with byteBuffers := e.byteBuffers.insert strId retained,
+               shortStringBuffers := if e.shortStringBuffers.contains strId then
+                 e.shortStringBuffers else e.shortStringBuffers.push strId,
+               shortStringPtrVars := e.shortStringPtrVars.push ptr,
                nonLiteralByteLocals := if e.nonLiteralByteLocals.contains strId then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push strId,
                yulNames := e.yulNames.erase strName }
   return some pre
@@ -11207,7 +11483,8 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
             .letVar size (.literal 0),
             .ite condVal.expr yesStmts.toList noStmts.toList
           ]
-          return { pre, pointer := .localVar ptr, size := .localVar size }
+          return { pre, pointer := .localVar ptr, size := .localVar size,
+                   shortStringAlloc := yesBuf.shortStringAlloc || noBuf.shortStringAlloc }
       | _ => failAt declStmt "unsupported statement before return in string helper"
   | [s] =>
       match ← mKind s with
@@ -11273,7 +11550,8 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
             .letVar size (.literal 0),
             .ite condVal.expr yesStmts.toList noStmts.toList
           ]
-          return { pre, pointer := .localVar ptr, size := .localVar size }
+          return { pre, pointer := .localVar ptr, size := .localVar size,
+                   shortStringAlloc := yesBuf.shortStringAlloc || noBuf.shortStringAlloc }
       | _ => failAt s "string helper must end with a return statement"
 
 /-- A helper with a named `bytes memory` result: the name is bound to an
@@ -11302,11 +11580,13 @@ private partial def inlineNamedBytesFn (fn : Json) (params : Array Json) (args :
   let stmts ← mArr (← mField body "statements")
   let (bodyPre, result) ← lowerHelperFrom stmts.toList rname
   let some resultPtr := result | failAt fn "named bytes helper did not produce a result"
+  let isShortString := (← get).shortStringBuffers.contains rid
   modify fun e =>
     { e with stack := saved.stack, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := saved.currentFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperBytesSize := saved.helperBytesSize, helperStructSid := saved.helperStructSid, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   let initPre : Array Stmt := #[.letVar ptrBinding (.literal 96), .letVar sizeBinding (.literal 0)]
-  return { pre := boundPre ++ initPre ++ bodyPre, pointer := resultPtr, size := .localVar sizeBinding }
+  return { pre := boundPre ++ initPre ++ bodyPre, pointer := resultPtr, size := .localVar sizeBinding,
+           shortStringAlloc := isShortString }
 
 private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M EncodedBytes := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
@@ -11348,9 +11628,10 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
     failAt fn "empty string helper is outside this slice"
   let resBuf ← lowerStringHelperStmts stmts.toList
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, yulBufCursors := saved.yulBufCursors, yulDeclaredNames := saved.yulDeclaredNames, yulCursorOnlyNames := saved.yulCursorOnlyNames, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
-  return { pre := boundPre ++ resBuf.pre, pointer := resBuf.pointer, size := resBuf.size }
+  return { pre := boundPre ++ resBuf.pre, pointer := resBuf.pointer, size := resBuf.size,
+           shortStringAlloc := resBuf.shortStringAlloc }
 
 private partial def lowerArrayReinterpretAssembly? (declStmt asmStmt : Json) (rest : List Json) :
     M (Option (Array Stmt)) := do
@@ -11728,7 +12009,7 @@ private partial def inlineArrayFn (fnId : Nat) (args : Array CallArg) (expectedE
     failAt fn "empty array helper is outside this slice"
   let (resPre, resDesc) ← lowerArrayHelperStmts retElemTy stmts.toList
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, yulBufCursors := saved.yulBufCursors, yulDeclaredNames := saved.yulDeclaredNames, yulCursorOnlyNames := saved.yulCursorOnlyNames, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (boundPre ++ resPre, resDesc)
 
@@ -12022,12 +12303,22 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
           let savedScratch0 := (← get).yulScratch0
           let savedScratch32 := (← get).yulScratch32
           let savedWritten := (← get).yulWrittenBytes
-          modify fun e => { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0 }
+          let savedCursors := (← get).yulBufCursors
+          let savedDeclared := (← get).yulDeclaredNames
+          let savedCursorOnly := (← get).yulCursorOnlyNames
+          modify fun e =>
+            { e with yulScratch0 := false, yulScratch32 := false, yulWrittenBytes := 0,
+                     yulBufCursors := RBMap.empty, yulDeclaredNames := #[],
+                     yulCursorOnlyNames := #[] }
           let extPre ← bindYulExternalConstants s false
           let refs ← mArr (← mField s "externalReferences")
           let prefixPre ← lowerYulStmtSlice s prefixYstmts refs ""
           let slotVal ← lowerYul rhs
-          modify fun e => { e with yulNames := savedAsmYul, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten }
+          modify fun e =>
+            { e with yulNames := savedAsmYul, yulScratch0 := savedScratch0,
+                     yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten,
+                     yulBufCursors := savedCursors, yulDeclaredNames := savedDeclared,
+                     yulCursorOnlyNames := savedCursorOnly }
           let sMembers ← mArr (← mField retStructDecl "members")
           let rawBytesString? ← if prefixYstmts.isEmpty && sMembers.size == 1 then do
             let m0Ty ← mType sMembers[0]!
@@ -12065,7 +12356,7 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
   let some finalPath := retPath?
     | failAt fn "storage pointer helper did not assign or return a storage slot"
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, yulBufCursors := saved.yulBufCursors, yulDeclaredNames := saved.yulDeclaredNames, yulCursorOnlyNames := saved.yulCursorOnlyNames, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (pre, finalPath)
 
@@ -12458,7 +12749,7 @@ private partial def inlineMsgDataFn (fnId : Nat) (args : Array CallArg) (at_ : J
   if retExpr.isNull then failAt stmts[0]! "msg.data helper return requires an expression"
   let bodyPre ← lowerMsgDataExpr retExpr
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, yulBufCursors := saved.yulBufCursors, yulDeclaredNames := saved.yulDeclaredNames, yulCursorOnlyNames := saved.yulCursorOnlyNames, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (modStmts ++ bodyPre ++ modPost)
 
@@ -17249,6 +17540,10 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
                   (isStringTarget && (rTy == "string memory" || rTy == "string calldata" ||
                     rTy == "string storage ref" || rTy.startsWith "literal_string ")) then
                 let rhsBuf ← lowerEncodedBytes right
+                if rhsBuf.shortStringAlloc then
+                  modify fun e =>
+                    { e with shortStringBuffers := if e.shortStringBuffers.contains id.toNat then
+                        e.shortStringBuffers else e.shortStringBuffers.push id.toNat }
                 let rebind : Array Stmt := #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
                 return rhsBuf.pre ++ rebind
   if (← mKind target) == "MemberAccess" then
@@ -19548,7 +19843,8 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     if isString then
       let effects := buffer.pre ++ #[.letVar pointer buffer.pointer, .letVar size buffer.size]
       let retained : EncodedBytes :=
-        { pre := #[], pointer := .localVar pointer, size := .localVar size }
+        { pre := #[], pointer := .localVar pointer, size := .localVar size,
+          shortStringAlloc := buffer.shortStringAlloc }
       modify fun e =>
         { e with stringBuffers := e.stringBuffers.insert id retained,
                  nonLiteralByteLocals := if isNonLiteralInit && !e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals.push id else e.nonLiteralByteLocals,
@@ -19560,11 +19856,15 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
       { pre := #[], pointer := .localVar pointer, size := .localVar size }
     modify fun e =>
       { e with byteBuffers := e.byteBuffers.insert id retained,
+               shortStringBuffers := if buffer.shortStringAlloc && !e.shortStringBuffers.contains id then
+                 e.shortStringBuffers.push id else e.shortStringBuffers,
                nonLiteralByteLocals := if isNonLiteralInit && !e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals.push id else e.nonLiteralByteLocals,
                yulNames := e.yulNames.erase name,
                yulMemoryStructs := e.yulMemoryStructs.insert name id }
     if (← startsWithInitcodeTemplate init) && !(← get).bodyAssigned.contains id then
-      modify fun e => { e with initcodeTemplates := e.initcodeTemplates.push id }
+      modify fun e =>
+        { e with initcodeTemplates := e.initcodeTemplates.push id,
+                 initcodeTemplatePtrs := e.initcodeTemplatePtrs.insert id pointer }
     return effects
   if loc == "memory" && (← mType d).contains "[]" then
     let some (elemStr, elemPty, abiKind, elemStruct?) ← memArrayElementOf? d
@@ -22702,6 +23002,11 @@ private def importSlice
                         snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, fixedMemArrays := RBMap.empty, nestedMemArrays := RBMap.empty, fixedArrayHelperResult := none, dynArrayHelperResult := none, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, nonLiteralByteLocals := #[], storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                         projections := #[], rawBindings := RBMap.empty, explicitAbi := legacyScalarPrelude, encodingMemory := false, forwardingBytesTuple := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootDynamicStructReturn := none, rootDynamicTupleReturn := none, rootPost := #[], publicVarGetterReturns := #[], selfAddressBindings := #[], codeReadSites := #[], codeHashSites := #[], yulCleanedNarrowBindings := #[], yulBindingReadSites := #[], yulFreePointerBindings := #[],
                         unpaddedByteDataBindings := #[], yulByteWordLoadSites := #[],
+                        yulBufCursors := RBMap.empty, yulDeclaredNames := #[],
+                        yulCursorOnlyNames := #[], shortStringBuffers := #[],
+                        shortStringPtrVars := #[], mcopySites := #[],
+                        initcodeTemplates := #[], initcodeTemplatePtrs := RBMap.empty,
+                        create2Sites := #[],
                         rootTransientFields := #[], rootAssembly := none, rootShortcuts := #[],
                         rootLinkedLibraryCalls := #[], rootReturndataRead := none }
       let ((body, srcParams), env2) ← (lowerRootChecked fn).run env
@@ -22892,6 +23197,21 @@ private def importSlice
       if optStr fn "stateMutability" == some "payable" &&
           body.toList.any stmtContainsClosedSelfDelegateCall then
         (failAt fn "payable self-delegatecall is outside this slice").run' env
+      for (bad, kind) in
+          unprovedMcopySites body.toList env.mcopySites env.shortStringPtrVars do
+        let msg := match kind with
+          | .shortStringBuffer =>
+              "Yul mcopy with a byte buffer requires both destination and source to be " ++
+                "byte-buffer payload addresses (at least 0x20 past the buffer pointer)"
+          | .unprovedBounds =>
+              "Yul mcopy between byte buffers requires the copied range to be bounded by " ++
+                "both buffers' lengths"
+        (recoverAt bad.node () (failAt bad.node msg)).run'
+          { env with currentFile := bad.file, stack := bad.stack }
+      for badC2 in clobberedCreate2Sites body.toList env.create2Sites env.mcopySites do
+        (recoverAt badC2.node ()
+          (failAt badC2.node "create2 initcode must start with a checked deployment-prefix literal")).run'
+          { env with currentFile := badC2.file, stack := badC2.stack }
       -- A closed low-level CALL hands control to an arbitrary account, which may re-enter.
       -- A trailing call (`onlyTrailingCallReentrancyWindows`: only local computation, memory
       -- writes, returns and reverts follow it) keeps its CEI-clean admission. Storage reads,

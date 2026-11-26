@@ -111,6 +111,7 @@ from .programs import (
     stateful_yul_empty_revert_source,
     stateful_yul_revert_memory_source,
     stateful_yul_mcopy_source,
+    stateful_yul_buffer_mcopy_source,
     stateful_yul_numeric_source,
 )
 
@@ -370,6 +371,140 @@ YUL_MCOPY_PREFIX = [8, 9, 10, 11, 12, 13, 14, 15, 2 ** 255 + 8, 2 ** 255 + 1, 2 
                     0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 2,
                     0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 * 8 + 5]
 
+# Every `x % 8` arm of YulBufferMcopySequence (0-7), with distinct-byte and high-bit words.
+_DISTINCT_WORD = 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+YUL_BUFFER_MCOPY_PREFIX = [
+    8, 9, 10, 11, 12, 13, 14, 15,
+    (_DISTINCT_WORD & ~7) | 0,
+    (_DISTINCT_WORD & ~7) | 1,
+    (_DISTINCT_WORD & ~7) | 2,
+    (_DISTINCT_WORD & ~7) | 3,
+    (_DISTINCT_WORD & ~7) | 4,
+    (_DISTINCT_WORD & ~7) | 5,
+    (_DISTINCT_WORD & ~7) | 6,
+    (_DISTINCT_WORD & ~7) | 7,
+    2 ** 256 - 1,
+]
+
+
+def _encode_pack_and_slice_args(
+    len_a: int, words_a: tuple[int, ...], len_b: int, words_b: tuple[int, ...], mode: int
+) -> list[int]:
+    off_a = 96
+    off_b = off_a + 32 * (1 + len(words_a))
+    return [off_a, off_b, mode, len_a, *words_a, len_b, *words_b]
+
+
+def _check_yul_buffer_mcopy_routes(root: Path, output: Path) -> None:
+    """Verify buffer-to-buffer Yul `mcopy` (#2804) on Cancun across Denote (`viaIR`
+    and `legacy`), pinned `solc` (`cancun`, `viaIR` and `legacy`), and Verity Yul."""
+    sub = output / 'cancun-routes'
+    sub.mkdir(parents=True, exist_ok=True)
+    fixture_path = root / 'Contracts/SolidityImportSmoke/YulBufferMcopySequence.sol'
+    template = (root / 'Contracts/SolidityImportSmoke/YulBufferMcopySequenceModel.lean').read_text()
+    source_text = fixture_path.read_text()
+    sub_sol = sub / 'Sequence.sol'
+    sub_sol.write_text(source_text)
+    anchor = 'from "Contracts/SolidityImportSmoke" entry "YulBufferMcopySequence.sol"'
+    driver_via_ir = sub / 'DriverViaIR.lean'
+    driver_legacy = sub / 'DriverLegacy.lean'
+    driver_via_ir.write_text(template.replace(anchor, f'from "{sub}" entry "Sequence.sol"'))
+    driver_legacy.write_text(
+        template.replace(anchor, f'from "{sub}" entry "Sequence.sol"')
+        .replace('viaIR := true', 'viaIR := false')
+    )
+    names = [
+        'change(uint256)',
+        'fail()',
+        'read()',
+        'packAndSlice(bytes,bytes,uint256)',
+    ]
+    via_ir = solc_compile({
+        'language': 'Solidity',
+        'sources': {'Sequence.sol': {'content': source_text}},
+        'settings': {
+            'evmVersion': 'cancun',
+            'viaIR': True,
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}},
+        },
+    }, sub, sub / 'solc-via-ir', solc=SOLC)['contracts']['Sequence.sol']['SequenceFixture']['evm']
+    legacy = solc_compile({
+        'language': 'Solidity',
+        'sources': {'Sequence.sol': {'content': source_text}},
+        'settings': {
+            'evmVersion': 'cancun',
+            'viaIR': False,
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}},
+        },
+    }, sub, sub / 'solc-legacy', solc=SOLC)['contracts']['Sequence.sol']['SequenceFixture']['evm']
+    selectors = [int(via_ir['methodIdentifiers'][name], 16) for name in names]
+    write_json(sub / 'selectors.json', selectors)
+    command(['lake', 'env', 'lean', '--run', driver_via_ir, 'compile',
+             sub / 'selectors.json', sub / 'model.yul'],
+            timeout=900, log=sub / 'compile-model.log')
+    compiled = solc_compile({
+        'language': 'Yul',
+        'sources': {'Model.yul': {'content': (sub / 'model.yul').read_text()}},
+        'settings': {
+            'evmVersion': 'cancun',
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object']}},
+        },
+    }, sub, sub / 'compiled', solc=SOLC)
+    verity_code = '0x' + next(iter(compiled['contracts']['Model.yul'].values()))['evm']['bytecode']['object']
+    via_ir_code = '0x' + via_ir['bytecode']['object']
+    legacy_code = '0x' + legacy['bytecode']['object']
+
+    with Anvil(sub / 'addr-probe') as probe:
+        senders = probe.rpc('eth_accounts')[:2]
+        deployed = probe.transact({'from': senders[0], 'data': via_ir_code, 'gas': hex(10_000_000)})
+        contract_addr = deployed['receipt']['contractAddress']
+
+    w_31 = (_DISTINCT_WORD & ~0xff,)
+    w_32 = (_DISTINCT_WORD,)
+    w_33 = (_DISTINCT_WORD, 0xa5 << 248)
+    sel = via_ir['methodIdentifiers']
+    calls: list[tuple[str, list[int]]] = [
+        *(('change(uint256)', [v]) for v in YUL_BUFFER_MCOPY_PREFIX),
+        ('packAndSlice(bytes,bytes,uint256)', _encode_pack_and_slice_args(0, (), 0, (), 0x123400)),
+        ('packAndSlice(bytes,bytes,uint256)', _encode_pack_and_slice_args(31, w_31, 33, w_33, 0xabcd00)),
+        ('packAndSlice(bytes,bytes,uint256)', _encode_pack_and_slice_args(32, w_32, 31, w_31, 1)),
+        ('packAndSlice(bytes,bytes,uint256)', _encode_pack_and_slice_args(33, w_33, 32, w_32, 2)),
+        ('packAndSlice(bytes,bytes,uint256)', _encode_pack_and_slice_args(31, w_31, 33, w_33, 3)),
+        ('fail()', []),
+        ('read()', []),
+    ]
+    txs = []
+    for idx, (sig, args) in enumerate(calls):
+        txs.append({
+            'id': f'buffer-mcopy-{idx}',
+            'function': sig.partition('(')[0],
+            'sender': senders[idx % len(senders)],
+            'target': contract_addr,
+            'value': '0x0',
+            'timestamp': 1_000_000_001 + idx,
+            'blockNumber': 2 + idx,
+            'args': args,
+            'data': _call_calldata(sel[sig], args),
+        })
+
+    for label, solc_code, drv in (
+        ('cancun-via-ir', via_ir_code, driver_via_ir),
+        ('cancun-legacy', legacy_code, driver_legacy),
+    ):
+        run_dir = sub / f'abc-{label}'
+        adapters = {
+            'source': EVMAdapter(run_dir / 'source', [solc_code]),
+            'model': DenoteAdapter(run_dir / 'model', drv, contract_addr),
+            'compiled': EVMAdapter(run_dir / 'compiled', [verity_code]),
+        }
+        report = replay_three_routes(txs, adapters)
+        write_json(run_dir / 'report.json', report)
+        if report['divergences']:
+            raise RuntimeError(f'yul-buffer-mcopy {label} A/B/C diverged: {report["divergences"][0]}')
+
 # One call per Yul revert shape (x % 8 in 0..5) with small arguments, the argument shapes with
 # high-bit payload words (selector + argument, two words with `add(x, 1)` near 2^256,
 # `mul(x, 3)` wrapping), and calls that store (x % 8 in 6, 7).
@@ -536,6 +671,7 @@ FIXTURE_CONTRACTS = {
     'yul-block-mulmod-tstore': 'YulBlockMulmodTstoreSequence',
     'yul-builtins-and-encode-selector': 'YulBuiltinsAndEncodeSelectorSequence',
     'yul-empty-revert': 'YulEmptyRevertSequence',
+    'yul-buffer-mcopy': 'YulBufferMcopySequence',
     'yul-mcopy': 'YulMcopySequence',
     'yul-revert-memory': 'YulRevertMemorySequence',
     'yul-numeric': 'YulNumericSequence',
@@ -740,6 +876,8 @@ def main():
         variants = ('baseline', 'renamed', 'reordered')
     if args.fixture == 'yul-mcopy':
         variants = ('baseline', 'renamed', 'reordered')
+    if args.fixture == 'yul-buffer-mcopy':
+        variants = ('baseline', 'renamed', 'commuted-add')
     if args.fixture == 'signed-struct-member-read':
         variants = ('baseline', 'renamed', 'local-reads')
     if args.fixture == 'storage-string-members':
@@ -853,6 +991,7 @@ def main():
                           else stateful_yul_empty_revert_source(fixture, variant) if args.fixture == "yul-empty-revert"
                           else stateful_yul_revert_memory_source(fixture, variant) if args.fixture == "yul-revert-memory"
                           else stateful_yul_mcopy_source(fixture, variant) if args.fixture == "yul-mcopy"
+                          else stateful_yul_buffer_mcopy_source(fixture, variant) if args.fixture == "yul-buffer-mcopy"
                           else stateful_signed_struct_member_read_source(fixture, variant) if args.fixture == "signed-struct-member-read"
                           else stateful_storage_string_member_source(fixture, variant) if args.fixture == "storage-string-members"
                           else stateful_packed_signed_int_source(fixture, variant) if args.fixture == "packed-signed-int"
@@ -896,6 +1035,8 @@ def main():
         if args.fixture == 'yul-mcopy':
             # Every copy shape (x % 8 in 0..5) and calls that only store (x % 8 in 6, 7).
             extra = ['--change-prefix', *map(str, YUL_MCOPY_PREFIX)]
+        if args.fixture == 'yul-buffer-mcopy':
+            extra = ['--evm-version', 'cancun', '--change-prefix', *map(str, YUL_BUFFER_MCOPY_PREFIX)]
         if args.fixture == 'signed-struct-member-read':
             # Negative, positive-extreme, top-byte and read-only calls on every cell and both struct paths.
             extra = ['--change-prefix', *map(str, SIGNED_STRUCT_MEMBER_READ_PREFIX)]
@@ -1049,6 +1190,8 @@ def main():
         write_json(output / 'completed.json', completed)
     if args.fixture == 'helper-loop-return':
         _check_helper_loop_early_exit_routes(Path.cwd(), output)
+    if args.fixture == 'yul-buffer-mcopy':
+        _check_yul_buffer_mcopy_routes(Path.cwd(), output)
     print(f'Imported storage variants agree: {output}')
 
 

@@ -1221,6 +1221,38 @@ def stateful_yul_mcopy_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown yul-mcopy variant: {variant}')
 
 
+def stateful_yul_buffer_mcopy_source(fixture: str, variant: str) -> str:
+    """Yul `mcopy` between modelled byte buffers: renamed identifiers, and commuted `add(...)`
+    operand order on cursor and payload offsets, agree."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        out = fixture
+        for old, new in (('total', 'totalRenamed'), ('segA', 'partARenamed'),
+                         ('segB', 'partBRenamed'), ('cursorA', 'curARenamed'),
+                         ('cursorB', 'curBRenamed')):
+            if len(re.findall(rf'\b{old}\b', out)) < 2:
+                raise ValueError(f'missing yul-buffer-mcopy anchor {old}')
+            out = re.sub(rf'\b{old}\b', new, out)
+        return out
+    if variant == 'commuted-add':
+        out = fixture
+        replacements = (
+            ('add(add(buf, 0x20), bodyOffA)', 'add(bodyOffA, add(0x20, buf))'),
+            ('add(cursorA, 2)', 'add(2, cursorA)'),
+            ('add(add(buf, 0x20), bodyOffB)', 'add(bodyOffB, add(0x20, buf))'),
+            ('add(cursorB, 2)', 'add(2, cursorB)'),
+            ('add(segA, 0x20)', 'add(0x20, segA)'),
+            ('add(segB, 0x20)', 'add(0x20, segB)'),
+        )
+        for old, new in replacements:
+            if out.count(old) != 1:
+                raise ValueError(f'missing yul-buffer-mcopy anchor {old}')
+            out = out.replace(old, new)
+        return out
+    raise ValueError(f'unknown yul-buffer-mcopy variant: {variant}')
+
+
 def stateful_signed_struct_member_read_source(fixture: str, variant: str) -> str:
     """Reads of negative narrow signed packed struct members (storage array, mapping, state
     variable, storage reference, memory copy) agree with renamed identifiers and with the same

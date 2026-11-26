@@ -529,6 +529,7 @@ DIFFERENTIAL_MUTANTS = ("import-legacy-root-checked", "import-legacy-helper-chec
                    'import-yul-empty-revert-drop',
                    'import-yul-revert-memory-empty', 'import-yul-revert-memory-offset',
                    'import-yul-mcopy-snapshot', 'import-yul-mcopy-keep', 'import-yul-mcopy-direction',
+                   'import-yul-buffer-mcopy-direction',
                    'import-signed-struct-member-raw-read', 'import-signed-struct-member-layout-read',
                    'import-signed-struct-member-raw-read-width', 'import-signed-struct-member-layout-read-width',
                    'import-signed-compound-operator', 'import-signed-compound-overflow',
