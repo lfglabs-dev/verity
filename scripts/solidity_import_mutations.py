@@ -170,7 +170,7 @@ def uninitialized_local(dest: Path) -> None:
 def call_unused_from_loss(dest: Path) -> None:
     lib = (dest / "Lib.sol").read_text()
     assert "i < 3; i++" in lib
-    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += s"))
     text = (dest / "Slice.sol").read_text()
     old = "return marketState[market].lossFactor;"
     assert old in text
@@ -189,7 +189,7 @@ def call_supported_unused(dest: Path) -> None:
 def call_unused(dest: Path) -> None:
     lib = (dest / "Lib.sol").read_text()
     assert "i < 3; i++" in lib
-    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += s"))
     call_supported_unused(dest)
 
 
@@ -503,6 +503,8 @@ DIFFERENTIAL_MUTANTS = ("import-legacy-root-checked", "import-legacy-helper-chec
                    "import-predeclared-for-exit-store", "import-storage-array-length-bound-skip",
                    "import-helper-loop-break-as-continue", "import-helper-loop-return-ignored",
                    "import-helper-loop-return-keep-iterating",
+                   "import-for-stride-panic", "import-for-stride-trip-count",
+                   "import-for-stride-early-exit-panic", "import-for-stride-counter-scale",
                    "import-block-number", "import-block-chainid",
                    "import-require-condition", "denote-require-selector",
                    "import-custom-require-condition", "denote-custom-require-selector",

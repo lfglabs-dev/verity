@@ -4597,6 +4597,216 @@ private def finishMemoryByteIndexRead (buf : EncodedBytes) (key : Val) (siteNode
   let word := Expr.mload (.add (.localVar ptrVar) wordOff)
   return { pre, expr := .shl (.literal 248) (.byte lane word) }
 
+private partial def stmtContainsInlineAssembly (s : Json) : M Bool := do
+  match ← mKind s with
+  | "InlineAssembly" => pure true
+  | "Block" | "UncheckedBlock" =>
+      (← mArr (← mField s "statements")).anyM stmtContainsInlineAssembly
+  | "ForStatement" | "WhileStatement" =>
+      stmtContainsInlineAssembly (← mField s "body")
+  | "IfStatement" =>
+      let yes ← stmtContainsInlineAssembly (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else stmtContainsInlineAssembly j
+        | none => pure false
+      pure (yes || no)
+  | _ => pure false
+
+private def restoreForBodyScope (saved : Env) (writes : List Nat) : M Unit :=
+  modify fun e =>
+    { e with values := saved.values, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays,
+             byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers,
+             storageBytesVars := saved.storageBytesVars,
+             storageDynamicArrayVars := saved.storageDynamicArrayVars,
+             flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+             writableLocals := saved.writableLocals,
+             zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·),
+             fnPtrs := saved.fnPtrs, yulNames := saved.yulNames,
+             yulMemoryArrays := saved.yulMemoryArrays,
+             yulMemoryStructs := saved.yulMemoryStructs }
+
+/-- Parse an exact non-negative compile-time integer constant `< 2^256` usable as a `for`
+    loop stride: a numeric `Literal` (honoring `subdenomination` and scientific notation),
+    a parenthesized or `uint256(...)`-converted constant, or a `uint256` numeric constant
+    declaration with such an initializer. Narrow integer conversions are excluded so
+    truncating casts never misparse. -/
+private partial def parseForStrideConst? (j : Json) : M (Option Nat) := do
+  let j := stripParensOut j
+  match ← mKind j with
+  | "Literal" =>
+      unless optStr j "kind" == some "number" do return none
+      let ty ← mType j
+      unless ty.startsWith "int_const " && !ty.startsWith "int_const -" do return none
+      let raw := optStr j "value" |>.getD ""
+      let multiplier ← match optStr j "subdenomination" with
+        | none => pure 1
+        | some denomination =>
+            let some scale := literalUnitScale denomination | return none
+            pure scale
+      let some (numPart, denPart) := numericLiteralRatio raw | return none
+      let prodVal := numPart * multiplier
+      unless prodVal % denPart == 0 do return none
+      let strideVal := prodVal / denPart
+      if strideVal < 2 ^ 256 then return some strideVal else return none
+  | "FunctionCall" =>
+      if optStr j "kind" == some "typeConversion" && (← mType j) == "uint256" then
+        let args ← mArr (← mField j "arguments")
+        if args.size == 1 then return ← parseForStrideConst? args[0]!
+      return none
+  | "Identifier" =>
+      let id ← refInt j
+      if id ≥ 0 then
+        if let some decl := (← get).numericConstants.find? id.toNat then
+          if (← mType decl) == "uint256" then
+            if let some init := field? decl "value" then
+              return ← parseForStrideConst? init
+      return none
+  | _ => return none
+
+/-- Recognize an increasing `for` loop step expression (`i++`, `++i`, `i += k`, `i = i + k`,
+    or `i = k + i`) for `counter`, returning `some k` (including `some 0` so zero stride can
+    receive a dedicated diagnostic) or `none`. -/
+private partial def matchForStepExpr? (step : Json) (counter : Nat) : M (Option Nat) := do
+  let isCounter (j : Json) : M Bool := do
+    let j := stripParensOut j
+    if (← mKind j) != "Identifier" then return false
+    pure ((← refInt j) == counter)
+  let step := stripParensOut step
+  match ← mKind step with
+  | "UnaryOperation" =>
+      if optStr step "operator" == some "++" && (← isCounter (← mField step "subExpression")) then
+        return some 1
+      return none
+  | "Assignment" =>
+      unless ← isCounter (← mField step "leftHandSide") do return none
+      let op := optStr step "operator"
+      let rhs := stripParensOut (← mField step "rightHandSide")
+      if op == some "+=" then
+        return ← parseForStrideConst? rhs
+      if op == some "=" then
+        let r ← do
+          if (← mKind rhs) == "FunctionCall" && optStr rhs "kind" == some "typeConversion" &&
+              (← mType rhs) == "uint256" then
+            let args ← mArr (← mField rhs "arguments")
+            if args.size == 1 then pure (stripParensOut args[0]!) else pure rhs
+          else pure rhs
+        if (← mKind r) == "BinaryOperation" && optStr r "operator" == some "+" then
+          let l ← mField r "leftExpression"
+          let rr ← mField r "rightExpression"
+          if ← isCounter l then return ← parseForStrideConst? rr
+          if ← isCounter rr then return ← parseForStrideConst? l
+      return none
+  | _ => return none
+
+/-- Unwrap single-statement `Block` / `UncheckedBlock` wrappers around a trailing body-step
+    statement, returning `(stepExpr, inUnchecked)`. -/
+private partial def unwrapForBodyStepExpr? (st : Json) (inUnchecked : Bool := false) :
+    M (Option (Json × Bool)) := do
+  match ← mKind st with
+  | "UncheckedBlock" =>
+      let stmts ← mArr (← mField st "statements")
+      if stmts.size == 1 then unwrapForBodyStepExpr? stmts[0]! true else return none
+  | "Block" =>
+      let stmts ← mArr (← mField st "statements")
+      if stmts.size == 1 then unwrapForBodyStepExpr? stmts[0]! inUnchecked else return none
+  | "ExpressionStatement" =>
+      return some (← mField st "expression", inUnchecked)
+  | _ => return none
+
+/-- Lower a constant positive stride `for` loop (`kStep > 1`) outside the main `mutual`
+    elaboration block to preserve LCNF heartbeat headroom. -/
+private def finishPositiveStrideFor
+    (d init stepExprNode body : Json)
+    (counter counterBits kStep : Nat)
+    (counterName counterTy : String)
+    (writes : List Nat)
+    (bodyUncheckedStep abiLength abiCalldataLength : Bool)
+    (bound : Val)
+    (existingCounter : Option String)
+    (earlyExitGuard : Option Expr)
+    (lowerStart : Json → M Val)
+    (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
+  unless counterBits == 256 do
+    failAt d s!"a for loop with stride > 1 requires a uint256 counter (got {counterTy})"
+  let isUncheckedStep := (← get).unchecked || bodyUncheckedStep
+  let mayOverflow := match bound.expr with
+    | .literal b => b + kStep > 2 ^ 256
+    | _ => true
+  if isUncheckedStep && mayOverflow then
+    failAt stepExprNode "an unchecked for loop with stride > 1 can wrap around uint256"
+  let startOpt := (field? init "initialValue").filter (!·.isNull)
+  let (startPre, startExpr) ← match startOpt with
+    | none => pure (#[], Expr.literal 0)
+    | some startNode =>
+        if (← mType startNode) == "int_const 0" then
+          pure (#[], Expr.literal 0)
+        else do
+          let initVal ← lowerStart startNode
+          let initial ← fresh
+          pure (initVal.pre.push (.letVar initial initVal.expr), Expr.localVar initial)
+  let countBinding ← fresh
+  let iterIdx ← fresh
+  let counterBinding ← freshFor counterName
+  let saved ← get
+  modify fun e =>
+    { e with values := e.values.insert counter (.localVar counterBinding),
+             yulNames := e.yulNames.insert counterName (.localVar counterBinding) }
+  let lowered ← lowerBody body
+  let bodyPrefix := match existingCounter with
+    | some dest => #[Stmt.assignVar dest (.localVar counterBinding)]
+    | none => #[]
+  let bodyCheckList := (bodyPrefix ++ lowered).toList
+  if abiLength && !abiHeaderPreservingList bodyCheckList then
+    if !abiCalldataLength && (← stmtContainsInlineAssembly body) then
+      failAt body "ABI-length loop body may write memory or call external code (unsupported statement InlineAssembly)"
+    unless executableStmtListCovered bodyCheckList do
+      failAt body "ABI-length loop body may write memory or call external code"
+  restoreForBodyScope saved writes
+  let counterExpr : Expr := match startExpr with
+    | .literal 0 => .mul (.localVar iterIdx) (.literal kStep)
+    | _ => .add startExpr (.mul (.localVar iterIdx) (.literal kStep))
+  let bindCounter : List Stmt := [.letVar counterBinding counterExpr]
+  let maxBeforeStep : Nat := (2 ^ 256 - 1) - kStep
+  let overflowCheck : List Stmt :=
+    if isUncheckedStep then []
+    else [.ite (.gt (.localVar counterBinding) (.literal maxBeforeStep))
+            [.panicCode (.literal 0x11)] []]
+  let postAssign : List Stmt := match existingCounter with
+    | some dest => [.assignVar dest (.add (.localVar counterBinding) (.literal kStep))]
+    | none => []
+  let postStepCore : List Stmt := overflowCheck ++ postAssign
+  let postStepStmts : List Stmt := match earlyExitGuard with
+    | some guard => if postStepCore.isEmpty then [] else [.ite guard postStepCore []]
+    | none => postStepCore
+  let loopBodyStmts : List Stmt := bindCounter ++ bodyCheckList ++ postStepStmts
+  let mut pre : Array Stmt := startPre
+  if let some dest := existingCounter then
+    pre := pre.push (.assignVar dest startExpr)
+  let limit ← match bound.expr with
+    | .literal _ =>
+        pre := pre ++ bound.pre
+        pure bound.expr
+    | _ =>
+        let captured ← fresh
+        pre := pre ++ bound.pre |>.push (.letVar captured bound.expr)
+        pure (.localVar captured)
+  let diffExpr : Expr := match startExpr with
+    | .literal 0 => limit
+    | _ => .sub limit startExpr
+  let tripExpr : Expr :=
+    .add (.div (.sub diffExpr (.literal 1)) (.literal kStep)) (.literal 1)
+  let strideLoopStmt := match earlyExitGuard with
+    | some guard => Stmt.forEachWhile iterIdx (.localVar countBinding) guard loopBodyStmts
+    | none => Stmt.forEach iterIdx (.localVar countBinding) loopBodyStmts
+  return pre ++ #[
+    .letVar countBinding (.literal 0),
+    .ite (.lt startExpr limit)
+      [.assignVar countBinding tripExpr] [],
+    strideLoopStmt
+  ]
+
 set_option maxHeartbeats 1600000 in
 mutual
 
@@ -13999,21 +14209,6 @@ private partial def classifyBinarySearchBranch (branchNode : Json) (lowId highId
         return some false
   return none
 
-private partial def stmtContainsInlineAssembly (s : Json) : M Bool := do
-  match ← mKind s with
-  | "InlineAssembly" => pure true
-  | "Block" | "UncheckedBlock" =>
-      (← mArr (← mField s "statements")).anyM stmtContainsInlineAssembly
-  | "ForStatement" | "WhileStatement" =>
-      stmtContainsInlineAssembly (← mField s "body")
-  | "IfStatement" =>
-      let yes ← stmtContainsInlineAssembly (← mField s "trueBody")
-      let no ← match field? s "falseBody" with
-        | some j => if j.isNull then pure false else stmtContainsInlineAssembly j
-        | none => pure false
-      pure (yes || no)
-  | _ => pure false
-
 /-- The declaration a member/index access chain is rooted at (`box.values` is
 rooted at `box`), or `none` when the chain does not end in an identifier. -/
 private partial def accessRootDecl? (j : Json) : M (Option Int) := do
@@ -14092,10 +14287,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
       { e with values := e.values.insert counter (.localVar decBinding),
                yulNames := e.yulNames.insert counterName (.localVar decBinding) }
     let bodyOut ← lowerBody body
-    modify fun e =>
-      { e with values := saved.values, paths := saved.paths,
-               snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-               writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+    restoreForBodyScope saved writes
     let bindCounter : List Stmt :=
       if rawDecrement then
         [.letVar decBinding (.sub startVal.expr (.localVar iterIdx))]
@@ -14149,6 +14341,8 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
   let mut writes := writes
   let loopExprField := (field? s "loopExpression").filter (!·.isNull)
   let mut bodyUncheckedStep := false
+  let mut kStep : Nat := 1
+  let mut stepExprNode : Json := s
   if loopExprField.isNone then
     -- Support `for (uint256 i = start; i < bound; ) { ... unchecked { ++i; } }` when
     -- the final statement is the sole increment of `counter` and there is no `continue`.
@@ -14156,12 +14350,15 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
       failAt s "a for loop without loopExpression must not continue"
     let rawBodyStmts ← unwrapLoopBodyStmts body
     if rawBodyStmts.isEmpty then
-      failAt s "a for loop must increment its counter by one"
+      failAt s "a for loop must increment its counter by a positive integer constant"
     let lastSt := rawBodyStmts.back!
-    let some (kStep, inUnchk) ← matchLinearStep lastSt counter counterBits true
-      | failAt s "a for loop must increment its counter by one"
-    unless kStep == 1 do
-      failAt lastSt "a for loop must increment its counter by one"
+    stepExprNode := lastSt
+    let some (lastExpr, inUnchk) ← unwrapForBodyStepExpr? lastSt
+      | failAt lastSt "a for loop must increment its counter by a positive integer constant"
+    match ← matchForStepExpr? lastExpr counter with
+    | some 0 => failAt lastSt "a for loop stride must be positive"
+    | some k => kStep := k
+    | none => failAt lastSt "a for loop must increment its counter by a positive integer constant"
     let prefixStmts := rawBodyStmts.extract 0 (rawBodyStmts.size - 1)
     if prefixStmts.any (fun st => (bodyAssignedIds st).contains counter) then
       failAt d "a for loop counter must not be assigned in the loop body"
@@ -14176,14 +14373,11 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
     if writes.contains counter then
       failAt d "a for loop counter must not be assigned in the loop body"
     let step ← mField (← mField s "loopExpression") "expression"
-    let stepOk ← match ← mKind step with
-      | "UnaryOperation" =>
-          pure (optStr step "operator" == some "++" && (← isCounter (← mField step "subExpression")))
-      | "Assignment" =>
-          pure (optStr step "operator" == some "+=" && (← isCounter (← mField step "leftHandSide")) &&
-            (← mType (← mField step "rightHandSide")) == "int_const 1")
-      | _ => pure false
-    unless stepOk do failAt step "a for loop must increment its counter by one"
+    stepExprNode := step
+    match ← matchForStepExpr? step counter with
+    | some 0 => failAt step "a for loop stride must be positive"
+    | some k => kStep := k
+    | none => failAt step "a for loop must increment its counter by a positive integer constant"
   unless (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
     failAt cond "a for loop condition must be counter < bound"
   unless ← isCounter (← mField cond "leftExpression") do
@@ -14220,7 +14414,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
   let exprInvariant ← do
     let curEnv ← get
     if statefulCallIn boundNode curEnv || assignmentIn boundNode then pure false
-    else exprIsLoopInvariant boundNode writes
+    else exprIsLoopInvariant boundNode (if existingCounter.isSome then counter :: writes else writes)
   -- `i < arr.length` over a dynamic storage array named by an identifier/member chain
   -- (no index the body could move): `forEach` reads the length once, which equals
   -- solc's per-test re-read only when the body cannot change it. The read's prelude
@@ -14246,6 +14440,10 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
   unless abiLength || storageLength || (bound.pre.isEmpty && invariant) || exprInvariant do
     failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
   let bound := { bound with expr := cleanHelperResultExpr (← mType boundNode) bound }
+  if kStep > 1 then
+    return ← finishPositiveStrideFor d init stepExprNode body counter counterBits kStep
+      counterName counterTy writes bodyUncheckedStep abiLength abiCalldataLength bound
+      existingCounter earlyExitGuard (lowerConverted counterTy) lowerBody
   if isTailWindowStart then
     let some startNode := (field? init "initialValue").filter (!·.isNull)
       | failAt init "missing for loop counter initializer"
@@ -14262,10 +14460,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
       { e with values := e.values.insert counter (.localVar counterBinding),
                yulNames := e.yulNames.insert counterName (.localVar counterBinding) }
     let bodyOut ← lowerBody body
-    modify fun e =>
-      { e with values := saved.values, paths := saved.paths,
-               snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-               writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+    restoreForBodyScope saved writes
     let bindCounter : List Stmt :=
       if rawIncrement then
         [.letVar counterBinding (.add startVal.expr (.localVar iterIdx))]
@@ -14309,10 +14504,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
         failAt body "ABI-length loop body may write memory or call external code (unsupported statement InlineAssembly)"
       unless executableStmtListCovered bodyOut.toList do
         failAt body "ABI-length loop body may write memory or call external code"
-    modify fun e =>
-      { e with values := saved.values, paths := saved.paths,
-               snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-               writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+    restoreForBodyScope saved writes
     let bindCounter : List Stmt :=
       if rawIncrement then
         [.letVar counterBinding (.add startVal.expr (.localVar iterIdx))]
@@ -14373,10 +14565,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt))
       failAt body "ABI-length loop body may write memory or call external code (unsupported statement InlineAssembly)"
     unless executableStmtListCovered bodyOut.toList do
       failAt body "ABI-length loop body may write memory or call external code"
-  modify fun e =>
-    { e with values := saved.values, paths := saved.paths,
-             snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+  restoreForBodyScope saved writes
   let mut out : Array Stmt := match existingCounter with
     | some dest => #[.assignVar dest (.literal 0)]
     | none => #[]

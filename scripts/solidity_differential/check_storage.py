@@ -73,6 +73,7 @@ from .programs import (
     stateful_storage_array_length_bound_source,
     stateful_helper_loop_break_source,
     stateful_helper_loop_return_source,
+    stateful_for_loop_stride_source,
     stateful_numeric_literal_source,
     stateful_overload_const_error_cond_tuple_tload_source,
     stateful_packed_member_write_source,
@@ -122,6 +123,162 @@ from .stateful import replay_three_routes, validate_observation
 
 def _call_calldata(selector_hex: str, args: list[int]) -> str:
     return '0x' + selector_hex + ''.join(format(arg, '064x') for arg in args)
+
+
+def _check_for_loop_stride_routes(root: Path, output: Path) -> None:
+    """Verify constant-stride `for` loops (#2975) across Denote, Verity Yul, and solc
+    0.8.34 + 0.8.38 (both legacy and via-IR): k = 32 and k = 3, divisible/non-divisible
+    bounds (0, 1, k - 1, k, k + 1, 2k, 2k + 1), non-zero start, helper continue/break/return,
+    root early return, exact Panic(0x11) post-step overflow rolling back storage writes, and
+    a wrong-stride negative control that must diverge."""
+    sub = output / 'stride-routes'
+    sub.mkdir(parents=True, exist_ok=True)
+    fixture_path = root / 'Contracts/SolidityImportSmoke/ForLoopStrideSequence.sol'
+    driver_path = root / 'Contracts/SolidityImportSmoke/ForLoopStrideSequenceModel.lean'
+    source_text = fixture_path.read_text()
+    names = ['change(uint256)', 'fail()', 'read()']
+    solc_0834 = root / '.lake/solidity-import/solc-0.8.34'
+    solc_0838 = root / '.lake/solidity-import/solc-0.8.38'
+    solc_targets = [
+        ('0.8.34-via-ir', solc_0834, 'osaka', True),
+        ('0.8.34-legacy', solc_0834, 'osaka', False),
+        ('0.8.38-via-ir', solc_0838, 'cancun', True),
+        ('0.8.38-legacy', solc_0838, 'cancun', False),
+    ]
+    solc_codes: dict[str, str] = {}
+    method_ids = None
+    for label, solc_bin, evm_ver, via_ir in solc_targets:
+        evm = solc_compile({
+            'language': 'Solidity',
+            'sources': {'Sequence.sol': {'content': source_text}},
+            'settings': {
+                'evmVersion': evm_ver,
+                'viaIR': via_ir,
+                'optimizer': {'enabled': True, 'runs': 466},
+                'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}},
+            },
+        }, fixture_path.parent, sub / f'solc-{label}', solc=solc_bin)['contracts']['Sequence.sol']['SequenceFixture']['evm']
+        solc_codes[label] = '0x' + evm['bytecode']['object']
+        if method_ids is None:
+            method_ids = evm['methodIdentifiers']
+
+    assert method_ids is not None
+    selectors = [int(method_ids[name], 16) for name in names]
+    write_json(sub / 'selectors.json', selectors)
+    command(['lake', 'env', 'lean', '--run', driver_path, 'compile',
+             sub / 'selectors.json', sub / 'model.yul'],
+            timeout=900, log=sub / 'compile-model.log')
+    compiled = solc_compile({
+        'language': 'Yul',
+        'sources': {'Model.yul': {'content': (sub / 'model.yul').read_text()}},
+        'settings': {
+            'evmVersion': 'osaka',
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object']}},
+        },
+    }, fixture_path.parent, sub / 'compiled', solc=solc_0834)
+    verity_code = '0x' + next(iter(compiled['contracts']['Model.yul'].values()))['evm']['bytecode']['object']
+
+    with Anvil(sub / 'addr-probe') as probe:
+        senders = probe.rpc('eth_accounts')[:2]
+        deployed = probe.transact({'from': senders[0], 'data': solc_codes['0.8.34-via-ir'], 'gas': hex(10_000_000)})
+        contract_addr = deployed['receipt']['contractAddress']
+
+    max_u256 = (1 << 256) - 1
+    calls = [
+        # k = 32 and k = 3 boundaries: n = 0, 1, 31, 32, 33, 63, 64, 65, 96; n3 = 0, 1, 3, 4, 6, 7
+        ('change(uint256)', [0]),
+        ('change(uint256)', [1]),
+        ('change(uint256)', [31 | (1 << 7)]),
+        ('change(uint256)', [32 | (3 << 7)]),
+        ('change(uint256)', [33 | (4 << 7) | (1 << 11)]),
+        ('change(uint256)', [63 | (6 << 7) | (4 << 11)]),
+        ('change(uint256)', [64 | (7 << 7) | (7 << 11)]),
+        ('change(uint256)', [65 | (9 << 7) | (9 << 11) | (1 << 15) | (3 << 17) | (2 << 20)]),
+        ('change(uint256)', [96 | (10 << 7) | (2 << 11) | (2 << 15) | (4 << 17) | (1 << 20)]),
+        ('read()', []),
+        # Exact 2^256 boundaries:
+        # max - 6: last non-overflowing bound (start = max - 63, bound = max - 31) -> succeeds
+        ('change(uint256)', [max_u256 - 6]),
+        ('read()', []),
+        # max - 7: first overflowing bound (start = max - 63, bound = max - 30) -> Panic(0x11), rolls back
+        ('change(uint256)', [max_u256 - 7]),
+        ('read()', []),
+        # max: bound = type(uint256).max normal completion -> Panic(0x11), rolls back storage writes
+        ('change(uint256)', [max_u256]),
+        ('read()', []),
+        # max - 2: continue on final iteration -> still runs post-step -> Panic(0x11), rolls back
+        ('change(uint256)', [max_u256 - 2]),
+        ('read()', []),
+        # max - 1: helper early return on final iteration -> skips post-step -> succeeds!
+        ('change(uint256)', [max_u256 - 1]),
+        ('read()', []),
+        # max - 3: helper early break on final iteration -> skips post-step -> succeeds!
+        ('change(uint256)', [max_u256 - 3]),
+        ('read()', []),
+        # max - 4: helper break not taken -> Panic(0x11), rolls back
+        ('change(uint256)', [max_u256 - 4]),
+        ('read()', []),
+        # max - 5: root early return on final iteration -> skips post-step -> succeeds!
+        ('change(uint256)', [max_u256 - 5]),
+        ('fail()', []),
+        ('read()', []),
+    ]
+    txs = []
+    for idx, (sig, args) in enumerate(calls):
+        txs.append({
+            'id': f'for-stride-{idx}',
+            'function': sig.partition('(')[0],
+            'sender': senders[idx % len(senders)],
+            'target': contract_addr,
+            'value': '0x0',
+            'timestamp': 1_000_000_001 + idx,
+            'blockNumber': 2 + idx,
+            'args': args,
+            'data': _call_calldata(method_ids[sig], args),
+        })
+
+    panic_11_hex = '0x4e487b710000000000000000000000000000000000000000000000000000000000000011'
+    panic_indices = {12, 14, 16, 22, 25}
+    for label, solc_code in solc_codes.items():
+        run_dir = sub / f'abc-{label}'
+        adapters = {
+            'source': EVMAdapter(run_dir / 'source', [solc_code]),
+            'model': DenoteAdapter(run_dir / 'model', driver_path, contract_addr),
+            'compiled': EVMAdapter(run_dir / 'compiled', [verity_code]),
+        }
+        report = replay_three_routes(txs, adapters)
+        write_json(run_dir / 'report.json', report)
+        if report['divergences']:
+            raise RuntimeError(f'for-loop-stride {label} A/B/C diverged: {report["divergences"][0]}')
+        for pidx in panic_indices:
+            obs = report['observations']['source'][pidx]
+            if obs['status'] != 'revert' or obs['data'] != panic_11_hex:
+                raise RuntimeError(f'for-loop-stride {label} tx {pidx} expected Panic(0x11), got {obs}')
+
+    # Negative control: wrong stride (16 instead of 32) must diverge against the imported model.
+    wrong_src = source_text.replace('for (uint256 i; i < n; i += 32)', 'for (uint256 i; i < n; i += 16)', 1)
+    assert wrong_src != source_text
+    wrong_evm = solc_compile({
+        'language': 'Solidity',
+        'sources': {'Sequence.sol': {'content': wrong_src}},
+        'settings': {
+            'evmVersion': 'osaka',
+            'viaIR': True,
+            'optimizer': {'enabled': True, 'runs': 466},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object']}},
+        },
+    }, fixture_path.parent, sub / 'solc-wrong-stride', solc=solc_0834)['contracts']['Sequence.sol']['SequenceFixture']['evm']
+    wrong_code = '0x' + wrong_evm['bytecode']['object']
+    neg_dir = sub / 'negative-wrong-stride'
+    neg_report = replay_three_routes(txs[:6], {
+        'source': EVMAdapter(neg_dir / 'source', [wrong_code]),
+        'model': DenoteAdapter(neg_dir / 'model', driver_path, contract_addr),
+        'compiled': EVMAdapter(neg_dir / 'compiled', [verity_code]),
+    })
+    write_json(neg_dir / 'report.json', neg_report)
+    if not neg_report['divergences']:
+        raise RuntimeError('for-loop-stride negative control with wrong stride failed to diverge')
 
 
 def _check_helper_loop_early_exit_routes(root: Path, output: Path) -> None:
@@ -631,6 +788,7 @@ FIXTURE_CONTRACTS = {
     'storage-array-length-bound': 'StorageArrayLengthBoundSequence',
     'helper-loop-break': 'HelperLoopBreakSequence',
     'helper-loop-return': 'HelperLoopReturnSequence',
+    'for-loop-stride': 'ForLoopStrideSequence',
     'struct-param-slot': 'StorageStructParamSlotSequence',
     'numeric-literals': 'NumericLiteralSequence',
     'overload-const-error-cond-tuple-tload': 'OverloadConstErrorCondTupleTloadSequence',
@@ -847,6 +1005,9 @@ def main():
         variants = ('baseline', 'renamed', 'structured')
     if args.fixture == 'helper-loop-return':
         variants = ('baseline', 'renamed', 'structured')
+    if args.fixture == 'for-loop-stride':
+        variants = ('baseline', 'renamed', 'unit-stride')
+        args.transactions = max(args.transactions, 24)
     if args.fixture == 'inline-array-literals':
         variants = ('baseline', 'renamed', 'element-writes')
     if args.fixture == 'helper-name-independence':
@@ -925,6 +1086,7 @@ def main():
                           else stateful_storage_array_length_bound_source(fixture, variant) if args.fixture == "storage-array-length-bound"
                           else stateful_helper_loop_break_source(fixture, variant) if args.fixture == "helper-loop-break"
                           else stateful_helper_loop_return_source(fixture, variant) if args.fixture == "helper-loop-return"
+                          else stateful_for_loop_stride_source(fixture, variant) if args.fixture == "for-loop-stride"
                           else stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture, variant) if args.fixture == "ecdsa-merkle-checkpoints-storage-slot"
                           else stateful_strings_hex_arrays_bitmaps_source(fixture, variant) if args.fixture == "strings-hex-arrays-bitmaps"
                           else stateful_string_bytes_mappings_uri_storage_strings_source(fixture, variant) if args.fixture == "string-bytes-mappings-uri-storage-strings"
@@ -1143,6 +1305,17 @@ def main():
                 1356938545749799165119972480570561420155507632800475359837920554324574865158,
                 (1 << 256) - 1,
             ])]
+        if args.fixture == 'for-loop-stride':
+            max_u256 = (1 << 256) - 1
+            extra = ['--change-prefix', *map(str, [
+                0, 1, 31, 32, 33, 63, 64, 65, 96,
+                32 | (3 << 7),
+                33 | (4 << 7) | (1 << 11),
+                64 | (7 << 7) | (7 << 11),
+                65 | (9 << 7) | (2 << 11) | (1 << 15) | (3 << 17) | (2 << 20),
+                max_u256 - 7, max_u256 - 6, max_u256 - 5, max_u256 - 4,
+                max_u256 - 3, max_u256 - 2, max_u256 - 1, max_u256,
+            ])]
         if args.fixture == 'governor-slice-proposer-delay':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'access-manager-target-role':
@@ -1190,6 +1363,8 @@ def main():
         write_json(output / 'completed.json', completed)
     if args.fixture == 'helper-loop-return':
         _check_helper_loop_early_exit_routes(Path.cwd(), output)
+    if args.fixture == 'for-loop-stride':
+        _check_for_loop_stride_routes(Path.cwd(), output)
     if args.fixture == 'yul-buffer-mcopy':
         _check_yul_buffer_mcopy_routes(Path.cwd(), output)
     print(f'Imported storage variants agree: {output}')
