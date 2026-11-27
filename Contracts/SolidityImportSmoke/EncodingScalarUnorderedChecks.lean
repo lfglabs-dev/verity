@@ -58,6 +58,20 @@ solidity_import seqLegacy0838 from "Contracts/SolidityImportSmoke"
   function change(uint256)
   function read()
 
+solidity_import posViaIr0834 from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0834
+  contract EncodingScalarUnorderedOrderRejects
+  function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
+  function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
+
+solidity_import posLegacy0834 from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using legacy0834
+  contract EncodingScalarUnorderedOrderRejects
+  function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
+  function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
+
 solidity_import posViaIr0838 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
   using viaIr0838
@@ -68,6 +82,8 @@ solidity_import posViaIr0838 from "Contracts/SolidityImportSmoke"
   function storageSignatureBeforeInert(uint256)
   function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
   function storageArrayBeforeInert(uint256)
+  function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
+  function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
 
 solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
@@ -79,8 +95,47 @@ solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   function storageSignatureBeforeInert(uint256)
   function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
   function storageArrayBeforeInert(uint256)
+  function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
+  function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
 
 private def oracle := SolidityImport.Differential.oracle
+
+private def observePos (m : CompilationModel) (name : String) (args : List Nat) :
+    Option (Bool × Option (List UInt8) × List Nat) := do
+  let fn ← m.functions.find? (·.name == name)
+  let r := denoteFunction oracle m fn { sender := 0x1234, functionSelector := 0, args } Verity.defaultState
+  return (r.success, r.revertData, if r.returnWords.isEmpty then r.returnValue.toList else r.returnWords)
+
+-- Positive-control runtime denotation checks on 0.8.34 and 0.8.38 (via-IR and legacy):
+-- 1. `panicBeforeCalldataStruct` and `unguardedCalldataStructBeforePanic` hit `Panic(0x12)` at `x = 0`.
+#guard observePos posViaIr0838.model "panicBeforeCalldataStruct" [5, 7, 0] ==
+  some (false, some (panicBytes 0x12), [])
+#guard observePos posLegacy0838.model "panicBeforeCalldataStruct" [5, 7, 0] ==
+  some (false, some (panicBytes 0x12), [])
+#guard observePos posViaIr0838.model "unguardedCalldataStructBeforePanic" [5, 7, 0] ==
+  some (false, some (panicBytes 0x12), [])
+#guard observePos posLegacy0838.model "unguardedCalldataStructBeforePanic" [5, 7, 0] ==
+  some (false, some (panicBytes 0x12), [])
+
+-- 2. `calldataStructBeforeInert`, `storageSignatureBeforeInert`, `calldataStructBeforeCalldataMember`,
+-- and `storageArrayBeforeInert` succeed and agree across 0.8.38 via-IR and legacy.
+#guard let b := observePos posViaIr0838.model "calldataStructBeforeInert" [5, 7, 0]
+  b.any (·.1) && observePos posLegacy0838.model "calldataStructBeforeInert" [5, 7, 0] == b
+#guard let b := observePos posViaIr0838.model "storageSignatureBeforeInert" [0]
+  b.any (·.1) && observePos posLegacy0838.model "storageSignatureBeforeInert" [0] == b
+#guard let b := observePos posViaIr0838.model "calldataStructBeforeCalldataMember" [5, 7, 0, 8]
+  b.any (·.1) && observePos posLegacy0838.model "calldataStructBeforeCalldataMember" [5, 7, 0, 8] == b
+#guard let b := observePos posViaIr0838.model "storageArrayBeforeInert" [0]
+  b.any (·.1) && observePos posLegacy0838.model "storageArrayBeforeInert" [0] == b
+
+-- 3. `scalarReadBeforeMemoryWriteStatic` and `scalarReadBeforeMemoryWriteDynamic` on `xs = [Elem(1)]`
+-- (`[32, 1, 1]`) evaluate `e.a == 1` (`true`) before `_writeElem(e, 9)` (`e.a = 9`) across all four
+-- pinned profiles (`0.8.34` and `0.8.38`, via-IR and legacy), matching Anvil solc ground truth.
+#guard [posViaIr0834.model, posLegacy0834.model, posViaIr0838.model, posLegacy0838.model].all fun m =>
+  observePos m "scalarReadBeforeMemoryWriteStatic" [32, 1, 1] ==
+    some (true, none, [0x4155c2f711f2cdd34f8262ab8fb9b7020a700fe7b6948222152f7670d1fdf34d]) &&
+  observePos m "scalarReadBeforeMemoryWriteDynamic" [32, 1, 1] ==
+    some (true, none, [0xfdf50d0c5ec00001cecd52e44009e09154678e69abaf7ce5d70eef8a05006e9a])
 
 private def runChange (m : CompilationModel) (x : Nat) :
     Option (Bool × Option (List UInt8) × Nat) := do
@@ -365,5 +420,65 @@ solidity_import rejStorageCondBeforeMemCondFromStorage from "Contracts/SolidityI
   using viaIr0838
   contract EncodingScalarUnorderedOrderRejects
   function storageConditionalBeforeMemoryCondFromStorage(bool,bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:176:37: Identifier: [solidity-import:unsupported] memory struct ABI encoding argument before a memory-writing sibling is unsupported
+closure: EncodingScalarUnorderedOrderRejects.memoryStructBeforeMemoryWrite
+e
+-/
+#guard_msgs in
+solidity_import rejMemoryStructBeforeMemWrite from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function memoryStructBeforeMemoryWrite(«Elem[]»,bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:180:37: MemberAccess: [solidity-import:unsupported] memory bytes/string ABI encoding argument before a memory-writing sibling is unsupported
+closure: EncodingScalarUnorderedOrderRejects.memoryBytesBeforeMemoryWrite
+d.b
+-/
+#guard_msgs in
+solidity_import rejMemoryBytesBeforeMemWrite from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function memoryBytesBeforeMemoryWrite(DynElem,bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:184:43: MemberAccess: [solidity-import:unsupported] memory bytes/string ABI encoding argument before a memory-writing sibling is unsupported
+closure: EncodingScalarUnorderedOrderRejects.memoryBytesPackedBeforeMemoryWrite
+d.b
+-/
+#guard_msgs in
+solidity_import rejMemoryBytesPackedBeforeMemWrite from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function memoryBytesPackedBeforeMemoryWrite(DynElem,bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:189:37: Identifier: [solidity-import:unsupported] memory array ABI encoding argument before a memory-writing sibling is unsupported
+closure: EncodingScalarUnorderedOrderRejects.memoryArrayBeforeMemoryWrite
+ys
+-/
+#guard_msgs in
+solidity_import rejMemoryArrayBeforeMemWrite from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function memoryArrayBeforeMemoryWrite(bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:194:36: Conditional: [solidity-import:unsupported] memory-writing event data argument before an indexed argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.emitDataMemoryWriteBeforeTopic
+c ? _writeElem(e, 9) : 0
+-/
+#guard_msgs in
+solidity_import rejEmitDataMemWriteBeforeTopic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function emitDataMemoryWriteBeforeTopic(bytes,«Elem[]»,bool)
 
 end SolidityImportSmoke.EncodingScalarUnorderedChecks

@@ -134,4 +134,63 @@ contract EncodingScalarUnorderedOrderRejects {
     function storageConditionalBeforeMemoryCondFromStorage(bool c1, bool c2) external view returns (bytes32) {
         return keccak256(abi.encodePacked(c1 ? sigMap[0] : sigMap[1], c2 ? sigMap[2] : "lit"));
     }
+
+    struct Elem {
+        uint256 a;
+    }
+
+    struct DynElem {
+        uint256 a;
+        bytes b;
+    }
+
+    event IndexedAfterData(bytes tag, uint256 dataArg, uint256 indexed topicArg);
+
+    function _writeElem(Elem memory e, uint256 v) internal pure returns (uint256) {
+        e.a = v;
+        return v + 10;
+    }
+
+    function _writeDynElem(DynElem memory d, uint256 v) internal pure returns (uint256) {
+        d.a = v;
+        return v + 10;
+    }
+
+    function _writeScalarArray(uint256[] memory xs, uint256 v) internal pure returns (uint256) {
+        xs[0] = v;
+        return v + 10;
+    }
+
+    function scalarReadBeforeMemoryWriteStatic(Elem[] memory xs) external pure returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e.a == 1, _writeElem(e, 9)));
+    }
+
+    function scalarReadBeforeMemoryWriteDynamic(Elem[] memory xs) external pure returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode("tag", e.a == 1, _writeElem(e, 9)));
+    }
+
+    function memoryStructBeforeMemoryWrite(Elem[] memory xs, bool c) external pure returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e, c ? _writeElem(e, 9) : 0));
+    }
+
+    function memoryBytesBeforeMemoryWrite(DynElem memory d, bool c) external pure returns (bytes32) {
+        return keccak256(abi.encode(d.b, c ? _writeDynElem(d, 9) : 0));
+    }
+
+    function memoryBytesPackedBeforeMemoryWrite(DynElem memory d, bool c) external pure returns (bytes32) {
+        return keccak256(abi.encodePacked(d.b, uint8(c ? _writeDynElem(d, 9) : 0)));
+    }
+
+    function memoryArrayBeforeMemoryWrite(bool c) external pure returns (bytes32) {
+        uint256[] memory ys = new uint256[](1);
+        return keccak256(abi.encode(ys, c ? _writeScalarArray(ys, 9) : 0));
+    }
+
+    function emitDataMemoryWriteBeforeTopic(bytes calldata tag, Elem[] memory xs, bool c) external {
+        Elem memory e = xs[0];
+        emit IndexedAfterData(tag, c ? _writeElem(e, 9) : 0, e.a);
+    }
 }

@@ -7370,6 +7370,10 @@ private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false
         pre := pre ++ refPre
         deferred := deferred.push (idx, name, slot, arg)
         continue
+      let argTy ← mType arg
+      if (argTy == "bytes" || argTy == "bytes memory" || argTy == "string" || argTy == "string memory") &&
+          (args.extract (idx + 1) args.size).any (memoryWriteIn · (← get)) then
+        failAt arg "memory bytes/string ABI encoding argument before a memory-writing sibling is unsupported"
     let buffer ← lowerPackedArgument arg
     pre := pre ++ buffer.pre
     buffers := buffers.set! idx buffer
@@ -8588,6 +8592,13 @@ private partial def lowerEncodedStaticStructWords (arg : Json) (laterArgs : Arra
     for later in laterArgs do
       unless ← orderInert later (allowEmptyRevert := isCalldataStructValidation) do
         failAt arg "calldata or enum-storage struct ABI encoding argument before a sibling that can revert or write is unsupported"
+  -- solc evaluates a non-value `memory` struct argument to its pointer and reads its member words
+  -- only while ABI-encoding, after all sibling expressions have run, whereas `lowerFlatStructValue`
+  -- snapshots them at `arg`'s position.
+  if ty.endsWith " memory" && !(← isStructValueSource arg) then
+    let env ← get
+    if laterArgs.any (memoryWriteIn · env) then
+      failAt arg "memory struct ABI encoding argument before a memory-writing sibling is unsupported"
   let (_, _, sPre, memberVals) ← lowerFlatStructValue arg (some sid) true
   let mut pre : Array Stmt := sPre
   let mut words : List Expr := []
@@ -9163,6 +9174,9 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
             deferred := deferred.push (dynTails.size, headIdx, name, slot, arg)
             dynTails := dynTails.push (headIdx, .inr (.inl (.literal 0, .literal 0)))
             continue
+          if (ty == "bytes" || ty == "bytes memory" || ty == "string" || ty == "string memory") &&
+              (args.extract (argIdx + 1) args.size).any (memoryWriteIn · (← get)) then
+            failAt arg "memory bytes/string ABI encoding argument before a memory-writing sibling is unsupported"
         let buf ← lowerEncodedBytes arg
         let ptrVal ← if isAtom buf.pointer then pure { pre := #[], expr := buf.pointer } else atom { pre := #[], expr := buf.pointer }
         let sizeVal ← if isAtom buf.size then pure { pre := #[], expr := buf.size } else atom { pre := #[], expr := buf.size }
@@ -9196,6 +9210,9 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           headWords := headWords.push none
           dynTails := dynTails.push (headIdx, .inr (.inr arrId))
           continue
+        if ty.endsWith " memory" &&
+            (args.extract (argIdx + 1) args.size).any (memoryWriteIn · (← get)) then
+          failAt arg "memory array ABI encoding argument before a memory-writing sibling is unsupported"
         if (← mKind (← stripParens arg)) != "Identifier" then
           -- `new T[](n)`, an array helper result or a nested-array row: the
           -- memory array value, encoded like a binding of it.
@@ -9227,6 +9244,9 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         dynTails := dynTails.push (headIdx, .inr (.inr arrId))
       else if let some (id, effects, schema) ← dynamicStructMem? arg then
         checkEncodingStructRef arg
+        if ty.endsWith " memory" &&
+            (args.extract (argIdx + 1) args.size).any (memoryWriteIn · (← get)) then
+          failAt arg "memory struct ABI encoding argument before a memory-writing sibling is unsupported"
         pre := pre ++ effects
         let headIdx := headWords.size
         headWords := headWords.push none
@@ -9268,7 +9288,9 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
                   failAt args[otherIdx]! "calldata array or struct ABI encoding argument beside a reverting helper is unsupported"
         checkEncodingScalar arg externalArgs
         let raw ← convert targetTy ty (← lowerExprAs targetTy arg) arg
-        let value ← if raw.pre.isEmpty then pure raw else atom raw
+        -- Bind non-atom expressions (such as `.mload` comparisons or legacy `unchecked`
+        -- arithmetic) at the argument's own position before any later `memoryWriteIn` sibling.
+        let value ← atom raw
         pre := pre ++ value.pre
         let word := cleanHelperResultExpr targetTy value
         if hasDynMutation && !(word matches .literal _) then
@@ -9385,7 +9407,9 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       -- effectful, so a checked `a + b` is evaluated at its own position.
       checkEncodingScalar arg (ordered || externalArgs)
       let raw ← convert targetTy ty (← lowerExpr arg) arg
-      let value ← if raw.pre.isEmpty then pure raw else atom raw
+      -- Bind non-atom expressions (such as `.mload` comparisons or legacy `unchecked`
+      -- arithmetic) at the argument's own position before any later `memoryWriteIn` sibling.
+      let value ← atom raw
       pre := pre ++ value.pre
       let word := cleanHelperResultExpr targetTy value
       if ordered && !(word matches .literal _) then
@@ -19594,6 +19618,11 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
       let kind ← mKind argument
       unless kind == "Identifier" || kind == "Literal" do
         failAt argument "event data arguments before an indexed argument must be variables or literals"
+    -- `lowerStructEmit` lowers indexed topics before unindexed data, whereas via-IR evaluates
+    -- event arguments left to right; reject a memory-writing data argument before an indexed topic.
+    if !(← mBool (← mField parameter "indexed")) && lastIndexed.any (index < ·) &&
+        memoryWriteIn argument (← get) then
+      failAt argument "memory-writing event data argument before an indexed argument is unsupported"
     if ← mBool (← mField parameter "indexed") then
       if ty.startsWith "struct " then
         failAt parameter "indexed struct event parameters are unsupported"

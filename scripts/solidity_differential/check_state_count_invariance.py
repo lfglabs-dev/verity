@@ -808,6 +808,42 @@ contract C {
     }
 }
 ''', ['run(NarrowPair,bool)'], expect='same-rejection'),
+    inline('encoding-scalar-memory-read-before-memory-write', '''contract C {
+    struct Elem {
+        uint256 a;
+    }
+
+    uint256 private slot0;
+
+    function _writeElem(Elem memory e, uint256 v) internal pure returns (uint256) {
+        e.a = v;
+        return v + 10;
+    }
+
+    function run(Elem[] memory xs, bool c) external view returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e.a == 1, c ? _writeElem(e, slot0 + 9) : 0));
+    }
+}
+''', ['run(«Elem[]»,bool)']),
+    inline('encoding-memory-struct-before-memory-write', '''contract C {
+    struct Elem {
+        uint256 a;
+    }
+
+    uint256 private slot0;
+
+    function _writeElem(Elem memory e, uint256 v) internal pure returns (uint256) {
+        e.a = v;
+        return v + 10;
+    }
+
+    function run(Elem[] memory xs, bool c) external view returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e, c ? _writeElem(e, slot0 + 9) : 0));
+    }
+}
+''', ['run(«Elem[]»,bool)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry
