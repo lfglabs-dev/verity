@@ -256,4 +256,45 @@ contract EncodingScalarUnorderedOrderRejects {
         uint256 y;
         return keccak256(abi.encode(_wrapEnumFnPtr(), y = 10 / x));
     }
+
+    modifier modArgEnum(Mode m) {
+        Mode m2 = m;
+        m2;
+        _;
+    }
+
+    function _withEnumModArg() internal view modArgEnum(enumStored.m) returns (uint256) {
+        return 1;
+    }
+
+    function _bytesReadingEnum() internal view returns (bytes memory) {
+        Mode m = enumStored.m;
+        Mode m2 = m;
+        m2;
+        return "ab";
+    }
+
+    function _stringReadingEnum() internal view returns (string memory) {
+        Mode m = enumStored.m;
+        Mode m2 = m;
+        m2;
+        return "f(uint256)";
+    }
+
+    function enumStorageModifiedHelperBeforePanic(bool c, uint256 x) external view returns (bytes32) {
+        uint256 y;
+        return keccak256(abi.encode(c ? _withEnumModArg() : 0, y = 10 / x));
+    }
+
+    function packedKeccakEnumBytesHelperBeforePanic(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodePacked(keccak256(_bytesReadingEnum()), uint16(10 / x)));
+    }
+
+    function encodeEnumBytesHelperBeforePanic(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(_bytesReadingEnum(), 10 / x));
+    }
+
+    function signatureEnumStringHelperBeforePanic(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(_stringReadingEnum(), 10 / x));
+    }
 }

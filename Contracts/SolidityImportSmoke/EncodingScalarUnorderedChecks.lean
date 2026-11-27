@@ -570,4 +570,52 @@ solidity_import rejEnumStorageFnPtrHelperBeforePanic from "Contracts/SolidityImp
   contract EncodingScalarUnorderedOrderRejects
   function enumStorageFnPtrHelperBeforePanic(uint256)
 
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:286:41: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.enumStorageModifiedHelperBeforePanic
+_withEnumModArg()
+-/
+#guard_msgs in
+solidity_import rejEnumStorageModifiedHelperBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function enumStorageModifiedHelperBeforePanic(bool,uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:290:43: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.packedKeccakEnumBytesHelperBeforePanic
+keccak256(_bytesReadingEnum())
+-/
+#guard_msgs in
+solidity_import rejPackedKeccakEnumBytesHelperBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function packedKeccakEnumBytesHelperBeforePanic(uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:294:37: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.encodeEnumBytesHelperBeforePanic
+_bytesReadingEnum()
+-/
+#guard_msgs in
+solidity_import rejEncodeEnumBytesHelperBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function encodeEnumBytesHelperBeforePanic(uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:298:50: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.signatureEnumStringHelperBeforePanic
+_stringReadingEnum()
+-/
+#guard_msgs in
+solidity_import rejSignatureEnumStringHelperBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function signatureEnumStringHelperBeforePanic(uint256)
+
 end SolidityImportSmoke.EncodingScalarUnorderedChecks

@@ -954,6 +954,110 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-enum-modified-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    modifier modArg(Mode m) {
+        Mode m2 = m;
+        m2;
+        _;
+    }
+
+    function _withMod() internal view modArg(box.m) returns (uint256) {
+        return 1;
+    }
+
+    function run(bool c, uint256 x) external view returns (bytes32) {
+        uint256 y;
+        return keccak256(abi.encode(c ? _withMod() : 0, y = 10 / x));
+    }
+}
+''', ['run(bool,uint256)'], expect='same-rejection'),
+    inline('encoding-packed-keccak-enum-bytes-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _bytesEnum() internal view returns (bytes memory) {
+        Mode m = box.m;
+        Mode m2 = m;
+        m2;
+        return "ab";
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodePacked(keccak256(_bytesEnum()), uint16(10 / x)));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-encode-enum-bytes-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _bytesEnum() internal view returns (bytes memory) {
+        Mode m = box.m;
+        Mode m2 = m;
+        m2;
+        return "ab";
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(_bytesEnum(), 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-signature-enum-string-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _sigEnum() internal view returns (string memory) {
+        Mode m = box.m;
+        Mode m2 = m;
+        m2;
+        return "f(uint256)";
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(_sigEnum(), 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry

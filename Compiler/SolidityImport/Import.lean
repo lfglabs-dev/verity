@@ -4637,6 +4637,88 @@ private def finishMemoryByteIndexRead (buf : EncodedBytes) (key : Val) (siteNode
   let word := Expr.mload (.add (.localVar ptrVar) wordOff)
   return { pre, expr := .shl (.literal 248) (.byte lane word) }
 
+/-- Whether `node` or an internal function/operator it calls reads a storage `enum`
+(`storageEnumRead` panics with `0x21` at read time, whereas solc only masks `0xff`
+until an explicit cast, comparison or ABI encoding validates `< memberCount`).
+Fuel-bounded so the definition is kernel-total without adding to the `partial def`
+trust surface; exhausting fuel fails closed (`true`). -/
+private def storageEnumReadGo : Nat → Env → List Nat → Json → Bool
+  | 0, _, _, _ => true
+  | fuel + 1, env, seen, node =>
+      let nodeTy (n : Json) : String :=
+        ((field? n "typeDescriptions").bind (optStr · "typeString")).getD ""
+      let bodyHas (fid : Nat) : Bool :=
+        if seen.contains fid then true
+        else match env.funs.find? fid with
+          | none => true
+          | some fn =>
+              let hasMods := ((field? fn "modifiers").bind (·.getArr?.toOption)).any (!·.isEmpty)
+              match (field? fn "body").filter (!·.isNull) with
+              | some body => hasMods || storageEnumReadGo fuel env (fid :: seen) body
+              | none => true
+      match node with
+      | .arr xs => xs.any (storageEnumReadGo fuel env seen)
+      | .obj o =>
+          let kind := optStr node "nodeType"
+          let ty := nodeTy node
+          let own :=
+            if kind == some "Identifier" && ty.startsWith "enum " then
+              ((field? node "referencedDeclaration").bind (·.getInt?.toOption)).any fun id =>
+                id >= 0 && env.stateVars.contains id.toNat
+            else if kind == some "MemberAccess" && ty.startsWith "enum " then
+              let baseTy := nodeTy ((field? node "expression").getD Json.null)
+              (baseTy.splitOn " storage").length > 1
+            else if kind == some "IndexAccess" && ty.startsWith "enum " then
+              let baseTy := nodeTy ((field? node "baseExpression").getD Json.null)
+              baseTy.startsWith "mapping(" || (baseTy.splitOn " storage").length > 1
+            else if kind == some "FunctionCall" && optStr node "kind" == some "functionCall" then
+              let callee := (field? node "expression").getD Json.null
+              let internalCallee :=
+                ((field? callee "typeDescriptions").bind (optStr · "typeIdentifier")).any
+                  (·.startsWith "t_function_internal_") || isLibraryDelegateCall callee
+              match (field? callee "referencedDeclaration").bind (·.getInt?.toOption) with
+              | some id =>
+                  if id >= 0 then
+                    if let some ptr := env.fnPtrs.find? id.toNat then
+                      match ptr with
+                      | .direct fid => bodyHas fid
+                      | .branch _ tFid fFid => bodyHas tFid || bodyHas fFid
+                    else
+                      match effectCallTarget? env seen callee id.toNat with
+                      | some targetId =>
+                          if env.funs.contains targetId then bodyHas targetId
+                          else internalCallee
+                      | none => true
+                  else false
+              | none => internalCallee
+            else if kind == some "UnaryOperation" || kind == some "BinaryOperation" then
+              match (field? node "function").bind (·.getNat?.toOption) with
+              | some natId =>
+                  bodyHas (resolveInContracts env env.linearizedBases.toList natId |>.getD natId)
+              | none => false
+            else false
+          own || o.foldl (fun found _ child => found || storageEnumReadGo fuel env seen child) false
+      | _ => false
+
+private def storageEnumReadIn (env : Env) (node : Json) : Bool :=
+  storageEnumReadGo 4096 env [] node
+
+private def fnHasStorageEnumRead (env : Env) (fnId : Nat) : Bool :=
+  match env.funs.find? fnId with
+  | none => true
+  | some fn =>
+      let hasMods := ((field? fn "modifiers").bind (·.getArr?.toOption)).any (!·.isEmpty)
+      match (field? fn "body").filter (!·.isNull) with
+      | some body => hasMods || storageEnumReadGo 4096 env [fnId] body
+      | none => true
+
+private def snapshotWordBeforeMemoryWrite (word : Expr) (laterArgs : Array Json) :
+    M (Array Stmt × Expr) := do
+  if !(word matches .literal _) && laterArgs.any (memoryWriteIn · (← get)) then
+    let snapshot ← fresh
+    return (#[.letVar snapshot word], .localVar snapshot)
+  return (#[], word)
+
 set_option maxHeartbeats 2400000 in
 mutual
 
@@ -6922,66 +7004,6 @@ private partial def revertingConcatIn (env : Env) (seen : List Nat) (j : Json) :
 /-- Restrict the entire argument tree, not merely its outer cast. This keeps
 custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
 private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M Unit := do
-  -- Whether `node` or an internal function/operator it calls reads a storage `enum`
-  -- (`storageEnumRead` panics with `0x21` at read time, whereas solc only masks `0xff`
-  -- until an explicit cast, comparison or ABI encoding validates `< memberCount`).
-  let rec storageEnumReadIn (env : Env) (seen : List Nat) (node : Json) : Bool :=
-    let nodeTy (n : Json) : String :=
-      ((field? n "typeDescriptions").bind (optStr · "typeString")).getD ""
-    let bodyHas (fid : Nat) : Bool :=
-      if seen.contains fid then true
-      else match env.funs.find? fid with
-        | none => true
-        | some fn =>
-            let hasMods := ((field? fn "modifiers").bind (·.getArr?.toOption)).any (!·.isEmpty)
-            match (field? fn "body").filter (!·.isNull) with
-            | some body => hasMods || storageEnumReadIn env (fid :: seen) body
-            | none => true
-    match node with
-    | .arr xs => xs.any (storageEnumReadIn env seen)
-    | .obj o =>
-        let kind := optStr node "nodeType"
-        let ty := nodeTy node
-        let own :=
-          if kind == some "Identifier" && ty.startsWith "enum " then
-            ((field? node "referencedDeclaration").bind (·.getInt?.toOption)).any fun id =>
-              id >= 0 && env.stateVars.contains id.toNat
-          else if kind == some "MemberAccess" && ty.startsWith "enum " then
-            let baseTy := nodeTy ((field? node "expression").getD Json.null)
-            (baseTy.splitOn " storage").length > 1
-          else if kind == some "IndexAccess" && ty.startsWith "enum " then
-            let baseTy := nodeTy ((field? node "baseExpression").getD Json.null)
-            baseTy.startsWith "mapping(" || (baseTy.splitOn " storage").length > 1
-          else if kind == some "FunctionCall" && optStr node "kind" == some "functionCall" then
-            let callee := (field? node "expression").getD Json.null
-            let internalCallee :=
-              ((field? callee "typeDescriptions").bind (optStr · "typeIdentifier")).any
-                (·.startsWith "t_function_internal_")
-            match (field? callee "referencedDeclaration").bind (·.getInt?.toOption) with
-            | some id =>
-                if id >= 0 then
-                  if let some ptr := env.fnPtrs.find? id.toNat then
-                    match ptr with
-                    | .direct fid => bodyHas fid
-                    | .branch _ tFid fFid => bodyHas tFid || bodyHas fFid
-                  else
-                    match effectCallTarget? env seen callee id.toNat with
-                    | some targetId =>
-                        if env.funs.contains targetId then bodyHas targetId
-                        else internalCallee
-                    | none => true
-                else false
-            | none => internalCallee
-          else if kind == some "UnaryOperation" || kind == some "BinaryOperation" then
-            match (field? node "function").bind (·.getNat?.toOption) with
-            | some natId =>
-                bodyHas (resolveInContracts env env.linearizedBases.toList natId |>.getD natId)
-            | none => false
-          else false
-        own || o.foldl (fun found _ child => found || storageEnumReadIn env seen child) false
-    | _ => false
-  let fnHasStorageEnumRead (env : Env) (fnId : Nat) : Bool :=
-    ((env.funs.find? fnId).bind (field? · "body")).any (storageEnumReadIn env [fnId])
   match ← mKind j with
   | "Identifier" | "Literal" => pure ()
   | "TupleExpression" =>
@@ -7103,7 +7125,7 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
             if !ordered && ((!statefulAbiEncodeIn j (← get) && statefulCallIn j (← get)) ||
                 (!assignmentAbiEncodeIn j && assignmentIn j)) then
               failAt j "effectful ABI encoding argument is unsupported"
-            if storageEnumReadIn (← get) [] j then
+            if storageEnumReadIn (← get) j then
               failAt j "effectful ABI encoding argument is unsupported"
           else if let some id := refId then
             unless id >= 0 do
@@ -7362,7 +7384,7 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
       let callee ← mField j "expression"
       if (← mKind callee) == "Identifier" then
         hashCall := (← refInt callee) == -8
-    if hashCall && statefulCallIn j (← get) then
+    if hashCall && (statefulCallIn j (← get) || storageEnumReadIn (← get) j) then
       failAt j "effectful ABI encoding argument is unsupported"
     unless hashCall do checkEncodingScalar j
     let value ← atom (← lowerExpr j)
@@ -7427,6 +7449,8 @@ private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false
       if statefulAbiEncodeIn arg env || (!sourceOrder && assignmentAbiEncodeIn arg) then
         failAt arg "effectful ABI encoding argument is unsupported"
       if !sourceOrder && !assignmentAbiEncodeIn arg && assignmentIn arg then
+        failAt arg "effectful ABI encoding argument is unsupported"
+      if storageEnumReadIn env arg then
         failAt arg "effectful ABI encoding argument is unsupported"
   let mut buffers : Array EncodedBytes :=
     Array.replicate args.size { pre := #[], pointer := .literal 0, size := .literal 0 }
@@ -8975,15 +8999,10 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           failAt arg s!"unsupported ABI encoding argument type {ty}"
         checkEncodingScalar arg
         let value ← atom (← lowerExpr arg)
-        pre := pre ++ value.pre
-        let word := cleanHelperResultExpr ty value
-        if (restArgs.extract (idx + 1) restArgs.size).any (memoryWriteIn · (← get)) &&
-            !(word matches .literal _) then
-          let snapshot ← fresh
-          pre := pre.push (.letVar snapshot word)
-          words := words ++ [.localVar snapshot]
-        else
-          words := words ++ [word]
+        let (snapPre, snapped) ←
+          snapshotWordBeforeMemoryWrite (cleanHelperResultExpr ty value) (restArgs.extract (idx + 1) restArgs.size)
+        pre := pre ++ value.pre ++ snapPre
+        words := words ++ [snapped]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeWithSignature" then
     unless args.size ≥ 1 do
@@ -9009,6 +9028,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     if (sigTy == "string" || sigTy == "string memory") &&
         restArgs.any (memoryWriteIn · (← get)) then
       failAt sigNode "memory bytes/string ABI encoding argument before a memory-writing sibling is unsupported"
+    if !restArgs.isEmpty && storageEnumReadIn (← get) sigNode then
+      failAt sigNode "effectful ABI encoding argument is unsupported"
     let sigBuf ← lowerEncodedBytes sigNode
     let selPtr ← fresh
     let selFinish ← fresh
@@ -9044,15 +9065,10 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           failAt arg s!"unsupported ABI encoding argument type {ty}"
         checkEncodingScalar arg
         let value ← atom (← lowerExpr arg)
-        pre := pre ++ value.pre
-        let word := cleanHelperResultExpr ty value
-        if (restArgs.extract (idx + 1) restArgs.size).any (memoryWriteIn · (← get)) &&
-            !(word matches .literal _) then
-          let snapshot ← fresh
-          pre := pre.push (.letVar snapshot word)
-          words := words ++ [.localVar snapshot]
-        else
-          words := words ++ [word]
+        let (snapPre, snapped) ←
+          snapshotWordBeforeMemoryWrite (cleanHelperResultExpr ty value) (restArgs.extract (idx + 1) restArgs.size)
+        pre := pre ++ value.pre ++ snapPre
+        words := words ++ [snapped]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeCall" then
     unless args.size == 2 do
@@ -9119,15 +9135,10 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
               unless n < 2 ^ b do
                 failAt arg s!"literal {n} exceeds width of {pty}"
         let value ← atom converted
-        pre := pre ++ value.pre
-        let word := cleanHelperResultExpr pty value
-        if (callArgs.extract (idx + 1) params.size).any (memoryWriteIn · (← get)) &&
-            !(word matches .literal _) then
-          let snapshot ← fresh
-          pre := pre.push (.letVar snapshot word)
-          words := words ++ [.localVar snapshot]
-        else
-          words := words ++ [word]
+        let (snapPre, snapped) ←
+          snapshotWordBeforeMemoryWrite (cleanHelperResultExpr pty value) (callArgs.extract (idx + 1) params.size)
+        pre := pre ++ value.pre ++ snapPre
+        words := words ++ [snapped]
     return ← encodeSelectorAndWords selBuffer pre words
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
@@ -9232,6 +9243,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       if ← isDynamicArg argIdx then
         if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get)) then
           failAt arg "effectful ABI encoding argument is unsupported"
+        if args.size > 1 && storageEnumReadIn (← get) arg then
+          failAt arg "effectful ABI encoding argument is unsupported"
         -- A pure or view helper that may revert (`string` / `bytes` result) runs here, at its
         -- own position: both solc pipelines evaluate the arguments left to right, and a revert
         -- of a scalar or memory sibling sits in its `pre`, also at its position. Calldata and
@@ -9289,6 +9302,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           -- earlier heads that are read as deferred expressions.
           if args.size > 1 && (assignmentIn arg || statefulCallIn arg env || jsonHasCustomRevert env [] arg) then
             failAt arg "effectful ABI encoding argument is unsupported"
+          if args.size > 1 && storageEnumReadIn env arg then
+            failAt arg "effectful ABI encoding argument is unsupported"
           if let some later := (args.extract (argIdx + 1) args.size).find? fun a =>
               assignmentIn a || statefulCallIn a env then
             failAt later "state-writing ABI encoding argument after a storage array is unsupported"
@@ -9313,6 +9328,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           -- `new T[](n)`, an array helper result or a nested-array row: the
           -- memory array value, encoded like a binding of it.
           if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get) || jsonHasCustomRevert (← get) [] arg) then
+            failAt arg "effectful ABI encoding argument is unsupported"
+          if args.size > 1 && storageEnumReadIn (← get) arg then
             failAt arg "effectful ABI encoding argument is unsupported"
           let some (elemStr, _, _) := scalarArrayElement? ty
             | failAt arg s!"unsupported ABI encoding argument type {ty}"
