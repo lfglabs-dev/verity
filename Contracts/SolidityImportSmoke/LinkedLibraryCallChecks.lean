@@ -29,6 +29,9 @@ solidity_import withLinked from "Contracts/SolidityImportSmoke" entry "LinkedLib
   function cleanReturnFromWide(uint256,uint256,bytes32)
   function entryCleanVoid(bytes32,uint256,uint256,uint256)
   function internalRawVoid(bytes32,uint256,uint256,uint256)
+  function roundTripBytesIsolation(bytes,bytes1,bytes1,uint8)
+  function duplicateDisjoint(uint8,uint8,bytes1)
+  function nestedBytesAndStorage(bytes32,bytes,uint256,uint256,bytes1)
   function word(bytes32)
   function total(bytes32)
 
@@ -51,6 +54,8 @@ solidity_import legacyLinked from "Contracts/SolidityImportSmoke" entry "LinkedL
           linkedLibrariesMatchSource := true }
   contract LinkedLibraryCallFixture
   function cleanReturnFromWide(uint256,uint256,bytes32)
+  function roundTripBytesIsolation(bytes,bytes1,bytes1,uint8)
+  function duplicateDisjoint(uint8,uint8,bytes1)
 
 private def has (text needle : String) : Bool := (text.splitOn needle).length > 1
 
@@ -69,11 +74,19 @@ private def has (text needle : String) : Bool := (text.splitOn needle).length > 
      ("LinkedPackLib", "narrowMultiFromWide", "LinkedLibraryCallSequence.sol")]),
    ("entryCleanVoid", [("LinkedCounterLib", "sinkNarrow", "LinkedLibraryCallSequence.sol")]),
    ("internalRawVoid", []),
+   ("roundTripBytesIsolation", [("LinkedPackLib", "mutateAndTag", "LinkedLibraryCallSequence.sol")]),
+   ("duplicateDisjoint", [("LinkedPackLib", "duplicateShared", "LinkedLibraryCallSequence.sol")]),
+   ("nestedBytesAndStorage",
+    [("LinkedCounterLib", "recordDigest", "LinkedLibraryCallSequence.sol"),
+     ("LinkedPackLib", "mutateAndTag", "LinkedLibraryCallSequence.sol"),
+     ("LinkedPackLib", "mutateAndTag", "LinkedLibraryCallSequence.sol")]),
    ("word", []),
    ("total", [])]
 
 #guard has withLinked.report.toText "\n  linked library LinkedCounterLib.bumpPacked decl "
 #guard has withLinked.report.toText "\n  linked library LinkedPackLib.pack decl "
+#guard has withLinked.report.toText "\n  linked library LinkedCounterLib.recordDigest decl "
+#guard has withLinked.report.toText "\n  linked library LinkedPackLib.mutateAndTag decl "
 #guard !has withLinked.report.toText "\n  linked library LinkedCounterLib.bump "
 
 -- (b) `.assumed` `solidity_linked_library_matches_source` obligation surfaced iff a root
@@ -88,6 +101,9 @@ private def has (text needle : String) : Bool := (text.splitOn needle).length > 
    ("cleanReturnFromWide", [("solidity_linked_library_matches_source", .assumed)]),
    ("entryCleanVoid", [("solidity_linked_library_matches_source", .assumed)]),
    ("internalRawVoid", []),
+   ("roundTripBytesIsolation", [("solidity_linked_library_matches_source", .assumed)]),
+   ("duplicateDisjoint", [("solidity_linked_library_matches_source", .assumed)]),
+   ("nestedBytesAndStorage", [("solidity_linked_library_matches_source", .assumed)]),
    ("word", []),
    ("total", [])]
 
@@ -142,5 +158,24 @@ private def observesWords (model : CompilationModel) (name : String) (args words
 #guard observesWords legacyLinked.model "cleanReturnFromWide"
   [0x105, 2 ^ 160 + 0x42, 0x11223344 * 2 ^ 224 + 0x99]
   [5, 0x42, 0x11223344 * 2 ^ 224]
+
+-- (e) Copy-in isolation and copy-out disjointness on `bytes memory` across via-IR and legacy:
+-- `duplicateDisjoint(0x22, 0, 0x99)` mutates `first[0] := 0x99`; `second[0]` stays `0x22`.
+private def observesPrefix (model : CompilationModel) (name : String) (args prefixWords : List Nat) : Bool :=
+  match model.functions.find? (·.name == name) with
+  | none => false
+  | some f =>
+    let r := Denote.denoteFunction SolidityImport.Differential.oracle model f
+      { sender := 1, functionSelector := 0, args } Verity.defaultState
+    r.success && r.returnWords.take prefixWords.length == prefixWords
+
+#guard observesPrefix withLinked.model "duplicateDisjoint" [0x22, 0, 0x99 * 2 ^ 248] [0x99, 0x22]
+#guard observesPrefix legacyLinked.model "duplicateDisjoint" [0x22, 0, 0x99 * 2 ^ 248] [0x99, 0x22]
+#guard observesPrefix withLinked.model "roundTripBytesIsolation"
+  [128, 0xff * 2 ^ 248, 0xaa * 2 ^ 248, 0x77, 2, 0x1122 * 2 ^ 240]
+  [0x11, 0x22, 0x11, 0xaa, 0x77]
+#guard observesPrefix legacyLinked.model "roundTripBytesIsolation"
+  [128, 0xff * 2 ^ 248, 0xaa * 2 ^ 248, 0x77, 2, 0x1122 * 2 ^ 240]
+  [0x11, 0x22, 0x11, 0xaa, 0x77]
 
 end SolidityImportSmoke.LinkedLibraryCallChecks

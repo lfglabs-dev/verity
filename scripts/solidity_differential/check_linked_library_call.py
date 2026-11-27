@@ -25,8 +25,9 @@ from eth_utils import keccak
 
 from .anvil import SequenceAdapter as EVM
 from .check_ecrecover import address
+from .check_linked_library_call_rejections import MUTANTS
 from .denote import SequenceAdapter as Denote
-from .engine import SOLC, HarnessError, command, solc_compile, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, ROOT, SOLC, HarnessError, command, solc_compile, write_json
 from .stateful import replay_three_routes, shrink_sequence
 
 FIXTURE = Path('Contracts/SolidityImportSmoke/LinkedLibraryCallSequence.sol')
@@ -37,9 +38,14 @@ LIBRARIES = ('LinkedPackLib', 'LinkedCounterLib')
 SENDERS = ('0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
            '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
            '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc')
+SOLC_RELEASES = {
+    '0.8.34': ('0.8.34+commit.80d5c536', ROOT / '.lake/solidity-import/solc-0.8.34'),
+    '0.8.38': ('0.8.38+commit.1835d247', ROOT / '.lake/solidity-import/solc-0.8.38'),
+}
 SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True, 'runs': 466},
             'metadata': {'bytecodeHash': 'none'}}
 ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "LinkedLibraryCallSequence.sol"'
+PROFILE_ANCHOR = 'using { evmVersion := "osaka", viaIR := true,'
 HALF = 2 ** 255
 
 
@@ -48,9 +54,11 @@ def selector_of(text):
 
 
 ERR_TOO_LARGE = '0x' + selector_of('ValueTooLarge(uint256)').hex()
+ERR_BAD_PAYLOAD = '0x' + selector_of('BadPayload(uint256,bytes1)').hex()
 ERR_STRING = '0x' + selector_of('Error(string)').hex()
 PANIC_OVERFLOW = '0x' + (selector_of('Panic(uint256)') + (0x11).to_bytes(32, 'big')).hex()
 PANIC_DIVISION = '0x' + (selector_of('Panic(uint256)') + (0x12).to_bytes(32, 'big')).hex()
+PANIC_BOUNDS = '0x' + (selector_of('Panic(uint256)') + (0x32).to_bytes(32, 'big')).hex()
 
 SIGNATURES = {
     'setConfig': ('setConfig(bytes32,address,uint8)', ['bytes32', 'address', 'uint256']),
@@ -68,6 +76,18 @@ SIGNATURES = {
     'entryCleanVoid': ('entryCleanVoid(bytes32,uint256,uint256,uint256)',
                        ['bytes32', 'uint256', 'uint256', 'uint256']),
     'share': ('share(bytes32,uint256)', ['bytes32', 'uint256']),
+    'roundTripBytesIsolation': ('roundTripBytesIsolation(bytes,bytes1,bytes1,uint8)',
+                                ['bytes', 'bytes1', 'bytes1', 'uint8']),
+    'echoAndCallerMutate': ('echoAndCallerMutate(bytes,uint8,bytes1)',
+                            ['bytes', 'uint8', 'bytes1']),
+    'duplicateDisjoint': ('duplicateDisjoint(uint8,uint8,bytes1)',
+                          ['uint8', 'uint8', 'bytes1']),
+    'nestedBytesAndStorage': ('nestedBytesAndStorage(bytes32,bytes,uint256,uint256,bytes1)',
+                              ['bytes32', 'bytes', 'uint256', 'uint256', 'bytes1']),
+    'argOrderBytes': ('argOrderBytes(bytes,uint256,bytes1)',
+                      ['bytes', 'uint256', 'bytes1']),
+    'revertFromBytesLib': ('revertFromBytesLib(bytes32,bytes,uint8)',
+                           ['bytes32', 'bytes', 'uint8']),
     'total': ('total(bytes32)', ['bytes32']),
     'last': ('last(bytes32)', ['bytes32']),
     'calls': ('calls(bytes32)', ['bytes32']),
@@ -138,13 +158,35 @@ def transactions_for(count, seed, contract):
         expect=('ok', None))
     add('entryCleanVoid', [keys[0], 0x105, (1 << 160) | 0x42, (0x11223344 << 224) | 0x99],
         expect=('ok', None))
+    # Bytes memory copy-in isolation, copy-out disjointness, unaligned lengths, slices, storage
+    # bytes, multi-arg evaluation order, and reverts with data from bytes-accepting library calls.
+    for blob in (b'', b'\x11', b'\x11\x22', bytes(range(1, 32)), bytes(range(1, 33)),
+                 bytes(range(1, 34)), bytes(range(1, 66))):
+        add('roundTripBytesIsolation', [blob, b'\xfe', b'\xaa', 0x77], expect=('ok', None))
+    for mode in (0, 1, 2):
+        add('echoAndCallerMutate', [b'\x33\x44\x55', mode, b'\xee'], expect=('ok', None))
+        add('echoAndCallerMutate', [b'', mode, b'\x99'], expect=('ok', None))
+    add('duplicateDisjoint', [0x22, 0, b'\x99'], expect=('ok', None))
+    add('duplicateDisjoint', [0xab, 33, b'\x12'], expect=('ok', None))
+    add('nestedBytesAndStorage', [keys[0], b'\x10\x20\x30\x40\x50', 1, 4, b'\xdd'],
+        SENDERS[1], expect=('ok', None))
+    add('nestedBytesAndStorage', [keys[1], bytes(range(40)), 0, 0, b'\xcc'],
+        SENDERS[2], expect=('ok', None))
+    add('argOrderBytes', [b'\x11\x22\x33', 3, b'\xee'], expect=('ok', None))
+    add('argOrderBytes', [b'', 5, b'\xee'], expect=('ok', None))
+    add('argOrderBytes', [b'\x11\x22', 0, b'\xee'], expect=('revert', PANIC_DIVISION))
+    add('revertFromBytesLib', [keys[0], b'\x42\x43', 0], expect=('revert', ERR_BAD_PAYLOAD))
+    add('revertFromBytesLib', [keys[0], b'\x42\x43', 1], expect=('revert', ERR_STRING))
+    add('revertFromBytesLib', [keys[0], b'\x42\x43', 2], expect=('revert', PANIC_BOUNDS))
     observe(keys[0])
     observe(keys[2])
     while len(calls) < count:
         key = rng.choice(keys)
         sender = rng.choice(SENDERS)
-        choice = rng.randrange(12)
+        choice = rng.randrange(18)
         amount = rng.choice([0, 1, 7, 2 ** 64, HALF - 1, HALF, HALF + 1, rng.getrandbits(256)])
+        rand_len = rng.choice([0, 1, 2, 15, 31, 32, 33, 64, 65])
+        rand_bytes = bytes(rng.randrange(256) for _ in range(rand_len))
         if choice == 0:
             add('setConfig', [key, rng.choice(pointers), rng.choice([0, 1, 2, 3, 3, 4])], sender)
         elif choice == 1:
@@ -172,17 +214,56 @@ def transactions_for(count, seed, contract):
         elif choice == 10:
             add('entryCleanVoid', [key, rng.getrandbits(256), rng.getrandbits(256),
                                    rng.getrandbits(256)], sender)
+        elif choice == 11:
+            add('roundTripBytesIsolation',
+                [rand_bytes, bytes([rng.randrange(256)]), bytes([rng.randrange(256)]),
+                 rng.randrange(256)], sender)
+        elif choice == 12:
+            add('echoAndCallerMutate',
+                [rand_bytes, rng.randrange(4), bytes([rng.randrange(256)])], sender)
+        elif choice == 13:
+            add('duplicateDisjoint',
+                [rng.randrange(256), rng.choice([0, 1, 30, 31, 32, 33]),
+                 bytes([rng.randrange(256)])], sender)
+        elif choice == 14:
+            start = rng.randint(0, len(rand_bytes))
+            end = rng.randint(start, len(rand_bytes))
+            add('nestedBytesAndStorage',
+                [key, rand_bytes, start, end, bytes([rng.randrange(256)])], sender)
+        elif choice == 15:
+            add('argOrderBytes',
+                [rand_bytes, rng.choice([0, 1, 2, 3, 9]), bytes([rng.randrange(256)])], sender)
+        elif choice == 16:
+            add('revertFromBytesLib', [key, rand_bytes, rng.randrange(3)], sender)
         else:
             observe(key)
     return calls, expected
 
 
+def configure_profile(source, template, solc_version, via_ir):
+    release, solc_bin = SOLC_RELEASES[solc_version]
+    if solc_version != '0.8.34':
+        source = source.replace('pragma solidity 0.8.34;', f'pragma solidity {solc_version};', 1)
+    if template.count(PROFILE_ANCHOR) != 1:
+        raise HarnessError('nonunique profile anchor in driver template')
+    via_ir_lit = 'true' if via_ir else 'false'
+    template = template.replace(
+        PROFILE_ANCHOR,
+        f'using {{ solc := "{release}", evmVersion := "osaka", viaIR := {via_ir_lit},')
+    settings = {**SETTINGS, 'viaIR': via_ir}
+    return source, template, settings, solc_bin
+
+
 def campaign(directory, source, template, transactions, seed, shrink_attempts, solc=SOLC,
-             linked_source=None):
+             linked_source=None, solc_version='0.8.34', via_ir=True, lean_cwd=None):
     """Replay the three routes. `linked_source`, when given, is compiled for the libraries the
     source route deploys instead of `source` (a deployment that breaks the linking assumption)."""
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
+    source, template, settings, solc = configure_profile(source, template, solc_version, via_ir)
+    if linked_source is not None and solc_version != '0.8.34':
+        linked_source = linked_source.replace('pragma solidity 0.8.34;',
+                                              f'pragma solidity {solc_version};', 1)
     (directory / 'Sequence.sol').write_text(source)
     if template.count(ANCHOR) != 1:
         raise HarnessError('nonunique imported source anchor')
@@ -193,7 +274,7 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     contract = address(len(LIBRARIES))
     compiled = solc_compile({
         'language': 'Solidity', 'sources': {'Sequence.sol': {'content': source}},
-        'settings': {**SETTINGS, 'libraries': {'Sequence.sol': linked},
+        'settings': {**settings, 'libraries': {'Sequence.sol': linked},
                      'outputSelection': {'*': {'*': [
                          'evm.bytecode.object', 'evm.bytecode.linkReferences',
                          'evm.methodIdentifiers']}}},
@@ -213,7 +294,7 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     write_json(directory / 'selectors.json',
                [int(identifiers[s.replace('Mode', 'uint8')], 16) for s in signatures])
     command(['lake', 'env', 'lean', '--run', driver, 'compile', directory / 'selectors.json',
-             directory / 'model.yul'], timeout=900, log=directory / 'compile.log')
+             directory / 'model.yul'], timeout=900, log=directory / 'compile.log', cwd=lean_cwd)
     generated = solc_compile({
         'language': 'Yul', 'sources': {'Model.yul': {'content': (directory / 'model.yul').read_text()}},
         'settings': {'evmVersion': 'osaka', 'optimizer': {'enabled': True, 'runs': 466},
@@ -226,7 +307,7 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     if linked_source is not None:
         other = solc_compile({
             'language': 'Solidity', 'sources': {'Sequence.sol': {'content': linked_source}},
-            'settings': {**SETTINGS, 'libraries': {'Sequence.sol': linked},
+            'settings': {**settings, 'libraries': {'Sequence.sol': linked},
                          'outputSelection': {'*': {'*': ['evm.bytecode.object']}}},
         }, directory, directory / 'solc-linked', solc=solc)['contracts']['Sequence.sol']
         source_libraries = ['0x' + other[name]['evm']['bytecode']['object'] for name in LIBRARIES]
@@ -237,14 +318,16 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     write_json(directory / 'transactions.json', calls)
     # The compiled model does not call the libraries; deploying them keeps the nonces (and so
     # the contract address) equal across routes.
+    denote_cmd = (('sh', '-c', f'cd {lean_cwd} && exec lake env lean --run "$@"', '--')
+                  if lean_cwd is not None else ('lake', 'env', 'lean', '--run'))
     adapters = {
         'source': EVM(directory / 'A', source_libraries + ['0x' + compiled[CONTRACT]['evm']['bytecode']['object']], []),
-        'model': Denote(directory / 'B', driver, contract, []),
+        'model': Denote(directory / 'B', driver, contract, [], lean_command=denote_cmd),
         'compiled': EVM(directory / 'C', libraries + [model_code], [])}
     result = replay_three_routes(calls, adapters)
     report = {'transactions': calls, 'observations': result['observations'],
               'divergences': result['divergences'], 'seed': seed, 'libraries': linked,
-              'contract': contract,
+              'contract': contract, 'solc': solc_version, 'viaIR': via_ir,
               'sourceSha256': hashlib.sha256(source.encode()).hexdigest(),
               'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest()}
     if result['divergences']:
@@ -270,19 +353,55 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
     return 0, report
 
 
+def run_abc_mutant(output, name, transactions, seed, solc_version, via_ir):
+    from .mutations import release, snapshot
+    anchor, replacement, _ = MUTANTS[name]
+    snap = output / 'snapshot'
+    snapshot(snap)
+    imp = snap / 'Compiler/SolidityImport/Import.lean'
+    original = imp.read_text()
+    if original.count(anchor) != 1:
+        raise HarnessError(f'mutation anchor for {name} is not unique')
+    imp.write_text(original.replace(anchor, replacement))
+    command(['lake', 'build', 'Compiler.SolidityImport.Import',
+             'Compiler.SolidityImport.Differential',
+             'Compiler.SolidityImport.SequenceRunner',
+             'Compiler.Codegen'],
+            cwd=snap, timeout=MUTANT_BUILD_TIMEOUT, log=output / 'build.log')
+    code, report = campaign(
+        output / 'run', (snap / FIXTURE).read_text(), (snap / DRIVER).read_text(),
+        transactions, seed, 20, solc_version=solc_version, via_ir=via_ir, lean_cwd=snap)
+    if not code or not report['divergences']:
+        raise SystemExit(f'linked library mutant {name} survived A/B/C: {output}')
+    release(snap)
+    write_json(output / 'complete.json', {
+        'exit': 0, 'mutant': name, 'detected': True,
+        'divergenceCount': len(report['divergences'])
+    })
+    print(f'linked library A/B/C mutant {name} detected ({len(report["divergences"])} divergences): {output}')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--transactions', type=int, default=200)
     parser.add_argument('--seed', type=int, default=2728)
     parser.add_argument('--shrink-attempts', type=int, default=200)
+    parser.add_argument('--solc', choices=tuple(SOLC_RELEASES), default='0.8.34')
+    parser.add_argument('--legacy', action='store_true', help='compile source and import model with viaIR := false')
+    parser.add_argument('--mutant', choices=('alias-copy-in', 'drop-copy-out'),
+                        help='build a mutated importer snapshot and require A/B/C divergence')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--negative-control', action='store_true',
                         help='link a library whose code differs from the imported source and '
                              'require a divergence')
     args = parser.parse_args()
+    via_ir = not args.legacy
     output = (args.output.resolve() if args.output else
               Path(tempfile.mkdtemp(prefix='linked-library-call-', dir='.lake')).resolve())
     output.mkdir(parents=True, exist_ok=args.output is None)
+    if args.mutant:
+        return run_abc_mutant(output, args.mutant, args.transactions, args.seed, args.solc, via_ir)
     if args.negative_control:
         source = FIXTURE.read_text()
         mutated = source.replace('(uint256(mode) << 160) | uint160(pointer);\n    }\n\n    function packLogged',
@@ -290,19 +409,21 @@ def main():
         if mutated == source:
             raise HarnessError('negative control anchor missing')
         code, _ = campaign(output, source, DRIVER.read_text(), args.transactions, args.seed, 20,
-                           linked_source=mutated)
+                           linked_source=mutated, solc_version=args.solc, via_ir=via_ir)
         if not code:
             raise SystemExit(f'a library linked with other code went undetected: {output}')
         print(f'linked library negative control diverges as expected: {output}')
         return 0
     code, _ = campaign(output, FIXTURE.read_text(), DRIVER.read_text(), args.transactions, args.seed,
-                       args.shrink_attempts)
+                       args.shrink_attempts, solc_version=args.solc, via_ir=via_ir)
     if code:
         raise SystemExit(f'linked library call divergence: {output}')
-    write_json(output / 'summary.json', {'passed': True, 'transactions': args.transactions,
-        'seed': args.seed, 'scope': 'linked library DELEGATECALLs: source EVM (libraries '
-                                    'deployed and linked) / Denote / compiled model'})
-    print(f'linked library call A/B/C agree: {output}')
+    write_json(output / 'summary.json', {
+        'passed': True, 'transactions': args.transactions,
+        'seed': args.seed, 'solc': args.solc, 'viaIR': via_ir,
+        'scope': 'linked library DELEGATECALLs: source EVM (libraries '
+                 'deployed and linked) / Denote / compiled model'})
+    print(f'linked library call A/B/C agree (solc {args.solc}, viaIR={via_ir}): {output}')
     return 0
 
 

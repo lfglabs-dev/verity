@@ -33,6 +33,14 @@ structure EncodedBytes where
   /-- True when allocated by `lowerShortStringAllocAssembly?` (32-byte word reservation with an
   unvalidated user-written length word). -/
   shortStringAlloc : Bool := false
+  /-- True when the lowered expression itself allocates a fresh, unaliased `bytes memory` buffer
+  (such as a linked library call return). Cleared when read through an identifier. -/
+  ownedFresh : Bool := false
+  /-- True on a `byteBuffers` entry whose declaration is never reassigned and owns a fresh
+  `bytes memory` buffer (a root `bytes memory` parameter, a linked library `bytes memory`
+  parameter copy, or a local initialized from an `ownedFresh` buffer), admitting `b[i] = x`
+  and `delete b[i]`. -/
+  ownedMutable : Bool := false
 
 inductive SPath where
   | zero (field : String)

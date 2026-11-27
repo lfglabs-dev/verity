@@ -321,6 +321,13 @@ structure Env where
   /-- `(pointer, mloadNode, file, stack)` of every inline-assembly word load from a
       `bytes memory` buffer's payload (`yulByteBufferLoad?`), rechecked over the whole body. -/
   yulByteWordLoadSites : Array (Expr × Json × String × List Nat) := #[]
+  /-- `(srcPtr, siteNode, file, stack, isLinkedCopy)` of every memory-to-memory
+      `copyLinkedBytesBuffer` (`true`) or memory-backed byte-index read `b[i]` (`false`)
+      in the current root, rechecked against `shortStringPtrVars`. -/
+  linkedBytesCopySites : Array (Expr × Json × String × List Nat × Bool) := #[]
+  /-- Data-pointer bindings of `bytes memory` buffers decoded from linked library returns
+      (empty returns point at `0x60` in `solc`, so raw Yul payload word loads fail closed). -/
+  linkedReturnByteDataBindings : Array String := #[]
   currentFile : String
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
@@ -1148,6 +1155,57 @@ def checkYulByteWordLoads (body : Array Stmt) : M Unit := do
       modify fun e => { e with currentFile := file, stack := stack }
       try
         failAt node "Yul word load from low-level staticcall return data is outside this slice"
+      finally
+        modify fun e => { e with currentFile := savedFile, stack := savedStack }
+
+/-- Reject linked library `bytes memory` copy-in/copy-out sites and memory-backed
+byte-index reads (`b[i]`) whose source/base pointer may alias a 32-byte `ShortStrings`
+assembly allocation (`shortStringPtrVars`). -/
+def checkLinkedBytesShortStringCopies (body : Array Stmt) : M Unit := do
+  if (← get).shortStringPtrVars.isEmpty || (← get).linkedBytesCopySites.isEmpty then
+    return
+  let bindings := body.toList.flatMap stmtBindings
+  let mut tainted := (← get).shortStringPtrVars
+  for _ in [0:bindings.length + 1] do
+    let before := tainted.size
+    for (binding, value) in bindings do
+      if !tainted.contains binding && exprMentionsBinding tainted value then
+        tainted := tainted.push binding
+    if tainted.size == before then break
+  for (pointer, node, file, stack, isLinkedCopy) in (← get).linkedBytesCopySites do
+    if exprMentionsBinding tainted pointer then
+      let savedFile := (← get).currentFile
+      let savedStack := (← get).stack
+      modify fun e => { e with currentFile := file, stack := stack }
+      try
+        let msg := if isLinkedCopy then
+          "ShortStrings assembly-allocated buffer passed to or returned from a linked library call is outside this slice"
+        else
+          "byte index access on a ShortStrings assembly-allocated buffer is outside this slice"
+        failAt node msg
+      finally
+        modify fun e => { e with currentFile := savedFile, stack := savedStack }
+
+/-- Reject inline-assembly word loads (`mload(add(buf, 0x20))`, etc.) whose buffer pointer
+may alias a linked library `bytes memory` return (empty returns point at `0x60` in `solc`). -/
+def checkLinkedReturnByteWordLoads (body : Array Stmt) : M Unit := do
+  if (← get).linkedReturnByteDataBindings.isEmpty || (← get).yulByteWordLoadSites.isEmpty then
+    return
+  let bindings := body.toList.flatMap stmtBindings
+  let mut tainted := (← get).linkedReturnByteDataBindings
+  for _ in [0:bindings.length + 1] do
+    let before := tainted.size
+    for (binding, value) in bindings do
+      if !tainted.contains binding && exprMentionsBinding tainted value then
+        tainted := tainted.push binding
+    if tainted.size == before then break
+  for (pointer, node, file, stack) in (← get).yulByteWordLoadSites do
+    if exprMentionsBinding tainted pointer then
+      let savedFile := (← get).currentFile
+      let savedStack := (← get).stack
+      modify fun e => { e with currentFile := file, stack := stack }
+      try
+        failAt node "Yul word load from linked library bytes return is outside this slice"
       finally
         modify fun e => { e with currentFile := savedFile, stack := savedStack }
 
