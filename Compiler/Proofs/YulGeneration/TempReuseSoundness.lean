@@ -8,9 +8,11 @@ open Compiler.Yul.TempReuse
 /-- Fast-path identity theorem: any lexical block with `≤ maxStackLocals` `let` bindings
     is returned definitionally unchanged by `reuseBlockTemps`.
 
-    Scope: `reuseBlockTemps` is a single-block entry point that no compile path calls. The
-    compiler runs `reuseAndSpillTempsStaticObject`, which rewrites nested blocks through
-    `reuseBlockTempsNested` and is gated per code section; this theorem says nothing about it.
+    Scope: `reuseBlockTemps` is a single-block entry point that no compile path calls. The CLI
+    (`writeContract`) runs `reuseAndSpillTempsStaticObject` (gated per code section) and the
+    Solidity import model drivers (`Compiler.emitYulSpilled`) run
+    `reuseAndSpillTempsDispatchedObject` (gated per code section or per dispatch case), both
+    rewriting nested blocks through `reuseBlockTempsNested`; this theorem says nothing about them.
     No theorem in this file states semantic preservation of the spill pass, which is a trusted,
     tested-only component (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass"). -/
 theorem reuseBlockTemps_eq_self_of_le

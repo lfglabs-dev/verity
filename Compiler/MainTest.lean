@@ -312,6 +312,327 @@ unsafe def runFlagAndUnitTests : IO Unit := do
   let withHighLiteral := staticDeep ++ [.exprStmt (.call "mstore" [.lit 4096, .lit 1])]
   expectTrue "a section that touches memory at or above the spill base is not spilled"
     (Compiler.Yul.TempReuse.reuseAndSpillTempsStaticSection 12 withHighLiteral == withHighLiteral)
+  -- Per-dispatch-case spilling (`reuseAndSpillTempsDispatchedSection` /
+  -- `reuseAndSpillTempsDispatchedObject`, used by `Compiler.emitYulSpilled`).
+  let revert00 : List Compiler.Yul.YulStmt :=
+    [.exprStmt (.call "revert" [.lit 0, .lit 0])]
+  let mkRuntimeDispatch (funcs : List Compiler.Yul.YulStmt)
+      (noSelDefault : List Compiler.Yul.YulStmt)
+      (cases : List (Nat × List Compiler.Yul.YulStmt))
+      (swDefault : List Compiler.Yul.YulStmt) : List Compiler.Yul.YulStmt :=
+    funcs ++ [
+      .exprStmt (.call "mstore" [.lit 64, .lit 128]),
+      .block [
+        .let_ "__has_selector"
+          (.call "iszero" [.call "lt" [.call "calldatasize" [], .lit 4]]),
+        .if_ (.call "iszero" [.ident "__has_selector"]) noSelDefault,
+        .if_ (.ident "__has_selector")
+          [ .switch
+              (.call "shr" [.lit 224, .call "calldataload" [.lit 0]])
+              cases
+              (some swDefault) ]
+      ]
+    ]
+  let extractCase? (tag : Nat) (code : List Compiler.Yul.YulStmt) :
+      Option (List Compiler.Yul.YulStmt) :=
+    code.findSome? fun
+      | .block [ _, _, .if_ _ [ .switch _ cases _ ] ] =>
+          (cases.find? (·.1 == tag)).map Prod.snd
+      | _ => none
+  let checkedAlloc (base next : String) (sz : Compiler.Yul.YulExpr) :
+      List Compiler.Yul.YulStmt :=
+    [ .let_ base (.call "mload" [.lit 64]),
+      .let_ next (.call "add" [.ident base, sz]),
+      .if_ (.call "gt" [.ident next, .lit (2 ^ 64 - 1)]) revert00,
+      .if_ (.call "lt" [.ident next, .ident base]) revert00,
+      .exprStmt (.call "mstore" [.lit 64, .ident next]) ]
+  -- Positive: heap-allocating case spills (with `mstore(64, highWater)` at case entry) next to an
+  -- untouched dynamic-scratch case in the same runtime section.
+  let posAllocCase : List Compiler.Yul.YulStmt :=
+    longLived "a" 14 ++
+      checkedAlloc "p" "pEnd" (.lit 64) ++
+      [ .exprStmt (.call "mstore" [.ident "p", .lit 11]),
+        .exprStmt (.call "mstore" [.call "add" [.ident "p", .lit 32], .lit 22]),
+        .exprStmt (.call "mstore" [.lit 0, .call "keccak256" [.ident "p", .lit 64]]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let dynScratchCase : List Compiler.Yul.YulStmt :=
+    longLived "d" 14 ++
+      [ .let_ "len" (.call "calldataload" [.lit 4]),
+        .exprStmt (.call "calldatacopy" [.lit 64, .lit 36, .ident "len"]),
+        .exprStmt (.call "return" [.lit 0, .call "add" [.lit 64, .ident "len"]]) ]
+  let mixedSection :=
+    mkRuntimeDispatch [] revert00 [(1, posAllocCase), (2, dynScratchCase)] revert00
+  let mixedOut := Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12 mixedSection
+  let posAllocOut := (extractCase? 1 mixedOut).getD []
+  let dynScratchOut := (extractCase? 2 mixedOut).getD []
+  let posHw := Compiler.Yul.TempReuse.spillHighWaterStmts posAllocOut
+  expectTrue "dispatched gate spills checked-allocation case and prepends mstore(64, highWater)"
+    (posHw ≥ Compiler.Yul.TempReuse.defaultSpillBase + 32 &&
+      posAllocOut.head? == some (.exprStmt (.call "mstore" [.lit 64, .lit posHw])))
+  expectTrue "dispatched gate leaves sibling dynamic-scratch case unchanged"
+    (dynScratchOut == dynScratchCase)
+  -- Positive: `loadimmutable` and `clz` are memory-free builtins, so their case spills.
+  let immClzCase : List Compiler.Yul.YulStmt :=
+    longLived "im" 14 ++
+      [ .let_ "iv" (.call "loadimmutable" [.str "immSlot"]),
+        .let_ "lz" (.call "clz" [.ident "iv"]),
+        .let_ "ep" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "ep", .ident "lz"]),
+        .exprStmt (.call "mstore" [.lit 0, .call "keccak256" [.ident "ep", .lit 32]]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let immClzOut :=
+    (extractCase? 1
+      (Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+        (mkRuntimeDispatch [] revert00 [(1, immClzCase)] revert00))).getD []
+  expectTrue "dispatched gate spills loadimmutable and clz case"
+    (Compiler.Yul.TempReuse.spillHighWaterStmts immClzOut > 0)
+  -- Negative / Reproducer 1: in-case `mstore(64, 128)` is never rewritten to `highWater`, and a
+  -- literal store overlapping `[64, 96)` marks `fpClean := false` so a subsequent `mload(64)`
+  -- rejects spilling.
+  let repro1TupleStore : List Compiler.Yul.YulStmt :=
+    longLived "r1" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "mstore" [.lit 0, .lit 136]),
+        .exprStmt (.call "mstore" [.lit 32, .lit 99]),
+        .exprStmt (.call "mstore" [.lit 64, .lit 128]),
+        .exprStmt (.call "return" [.lit 0, .lit 96]) ]
+  let repro1TupleOut :=
+    (extractCase? 1
+      (Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+        (mkRuntimeDispatch [] revert00 [(1, repro1TupleStore)] revert00))).getD []
+  expectTrue "reproducer 1: user mstore(64, 128) in a case body is never rewritten to highWater"
+    (repro1TupleOut.contains (.exprStmt (.call "mstore" [.lit 64, .lit 128])))
+  let repro1ResetThenAlloc : List Compiler.Yul.YulStmt :=
+    longLived "r1b" 14 ++
+      [ .exprStmt (.call "mstore" [.lit 64, .lit 128]),
+        .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro1ResetOut :=
+    (extractCase? 1
+      (Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+        (mkRuntimeDispatch [] revert00 [(1, repro1ResetThenAlloc)] revert00))).getD []
+  expectTrue "reproducer 1b: mstore(64, 128) followed by mload(64) is not spilled"
+    (repro1ResetOut == repro1ResetThenAlloc)
+  -- Negative / Reproducer 2: 256-bit wraparound addends (`2^256 - 32`, `calldataload`) and
+  -- unguarded or loop `mstore(64, next)` are rejected.
+  let repro2WrapConst : List Compiler.Yul.YulStmt :=
+    longLived "r2" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.call "add" [.ident "p", .lit (2 ^ 256 - 32)], .lit 999999]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro2DynAdd : List Compiler.Yul.YulStmt :=
+    longLived "r2d" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.call "add" [.ident "p", .call "calldataload" [.lit 4]], .lit 1]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro2UnguardedBump : List Compiler.Yul.YulStmt :=
+    longLived "r2u" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "mstore" [.lit 64, .call "add" [.ident "p", .lit 32]]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro2LoopAlloc : List Compiler.Yul.YulStmt :=
+    longLived "r2l" 14 ++
+      [ .for_ [.let_ "i" (.lit 0)] (.call "lt" [.ident "i", .lit 4])
+          [.assign "i" (.call "add" [.ident "i", .lit 1])]
+          (checkedAlloc "lp" "lpEnd" (.lit 32) ++
+            [.exprStmt (.call "mstore" [.ident "lp", .lit 1])]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro2Out :=
+    Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+      (mkRuntimeDispatch [] revert00
+        [(1, repro2WrapConst), (2, repro2DynAdd), (3, repro2UnguardedBump), (4, repro2LoopAlloc)]
+        revert00)
+  expectTrue "reproducer 2: wrapping constant addend is not spilled"
+    ((extractCase? 1 repro2Out).getD [] == repro2WrapConst)
+  expectTrue "reproducer 2b: unbounded calldata addend is not spilled"
+    ((extractCase? 2 repro2Out).getD [] == repro2DynAdd)
+  expectTrue "reproducer 2c: unguarded mstore(64, add(p, 32)) is not spilled"
+    ((extractCase? 3 repro2Out).getD [] == repro2UnguardedBump)
+  expectTrue "reproducer 2d: allocation inside a for loop is not spilled"
+    ((extractCase? 4 repro2Out).getD [] == repro2LoopAlloc)
+  -- Negative / Reproducer 3: observable `mem[64]` via overlapping static reads, hex literal `0x40`,
+  -- `mcopy`, or pointer values in non-address positions (`sstore`, `eq`).
+  let repro3Return96 : List Compiler.Yul.YulStmt :=
+    longLived "r3" 14 ++
+      [ .if_ (.call "calldataload" [.lit 4])
+          [ .let_ "p" (.call "mload" [.lit 64]),
+            .exprStmt (.call "mstore" [.ident "p", .lit 1]) ],
+        .exprStmt (.call "return" [.lit 0, .lit 96]) ]
+  let repro3Hex40 : List Compiler.Yul.YulStmt :=
+    longLived "r3h" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "mstore" [.lit 0, .call "mload" [.hex 0x40]]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro3McopyFp : List Compiler.Yul.YulStmt :=
+    longLived "r3m" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "mcopy" [.lit 0, .lit 64, .lit 32]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro3PtrLeak : List Compiler.Yul.YulStmt :=
+    longLived "r3p" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "sstore" [.lit 0, .ident "p"]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro3Partial48 : List Compiler.Yul.YulStmt :=
+    longLived "r3w" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "mstore" [.lit 48, .lit 0]),
+        .exprStmt (.call "return" [.lit 0, .lit 96]) ]
+  let repro3Out :=
+    Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+      (mkRuntimeDispatch [] revert00
+        [ (1, repro3Return96), (2, repro3Hex40), (3, repro3McopyFp),
+          (4, repro3PtrLeak), (5, repro3Partial48) ]
+        revert00)
+  expectTrue "reproducer 3: return(0, 96) reading unoverwritten mem[64] is not spilled"
+    ((extractCase? 1 repro3Out).getD [] == repro3Return96)
+  expectTrue "reproducer 3b: mload(0x40) in value position is not spilled"
+    ((extractCase? 2 repro3Out).getD [] == repro3Hex40)
+  expectTrue "reproducer 3c: mcopy from [64, 96) is not spilled"
+    ((extractCase? 3 repro3Out).getD [] == repro3McopyFp)
+  expectTrue "reproducer 3d: sstore of free-pointer local is not spilled"
+    ((extractCase? 4 repro3Out).getD [] == repro3PtrLeak)
+  expectTrue "reproducer 3e: partial write mstore(48, 0) before return(0, 96) is not spilled"
+    ((extractCase? 5 repro3Out).getD [] == repro3Partial48)
+  -- Negative / Reproducer 4: inner `switch` inside fallback/default body, non-terminating cases,
+  -- `[leave, revert]`, and non-`buildSwitch` section shapes are left unchanged.
+  let repro4Fallback : List Compiler.Yul.YulStmt :=
+    [ .let_ "buf" (.call "mload" [.lit 64]),
+      .let_ "off" (.call "calldataload" [.lit 4]),
+      .exprStmt (.call "mstore" [.call "add" [.ident "buf", .ident "off"], .lit 777]),
+      .switch (.call "callvalue" []) [(0, longLived "fb" 14)] none,
+      .exprStmt (.call "mstore" [.lit 0, .call "mload" [.call "add" [.ident "buf", .ident "off"]]]),
+      .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro4Section := mkRuntimeDispatch [] repro4Fallback [(1, posAllocCase)] repro4Fallback
+  let repro4Out := Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12 repro4Section
+  expectTrue "reproducer 4: fallback with inner non-terminating switch is left unchanged"
+    (repro4Out == mkRuntimeDispatch [] repro4Fallback [(1, posAllocOut)] repro4Fallback)
+  let nonTerminatingCase : List Compiler.Yul.YulStmt :=
+    longLived "nt" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]) ]
+  let leaveBeforeRevertCase : List Compiler.Yul.YulStmt :=
+    longLived "lv" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .leave,
+        .exprStmt (.call "revert" [.lit 0, .lit 0]) ]
+  let msizeCase : List Compiler.Yul.YulStmt :=
+    longLived "ms" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .call "msize" []]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let forInitFpLeakCase : List Compiler.Yul.YulStmt :=
+    longLived "fi" 14 ++
+      [ .for_ [.let_ "p" (.call "mload" [.lit 64])] (.lit 1) []
+          [ .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+            .exprStmt (.call "mstore" [.lit 0, .ident "p"]),
+            .exprStmt (.call "return" [.lit 0, .lit 32]) ],
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let termAndMsizeOut :=
+    Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+      (mkRuntimeDispatch [] revert00
+        [ (1, nonTerminatingCase), (2, leaveBeforeRevertCase),
+          (3, msizeCase), (4, forInitFpLeakCase) ]
+        revert00)
+  expectTrue "reproducer 4b: non-terminating dispatch case is not spilled"
+    ((extractCase? 1 termAndMsizeOut).getD [] == nonTerminatingCase)
+  expectTrue "reproducer 4c: [leave, revert] does not count as terminating"
+    ((extractCase? 2 termAndMsizeOut).getD [] == leaveBeforeRevertCase)
+  expectTrue "msize in a dispatch case is not spilled"
+    ((extractCase? 3 termAndMsizeOut).getD [] == msizeCase)
+  expectTrue "for-init mload(64) pointer leak is not spilled"
+    ((extractCase? 4 termAndMsizeOut).getD [] == forInitFpLeakCase)
+  let trailingStmtSection :=
+    mixedSection ++ [.exprStmt (.call "stop" [])]
+  expectTrue "runtime section with trailing statement after buildSwitch is left unchanged"
+    (Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12 trailingStmtSection ==
+      trailingStmtSection)
+  -- Negative / Round-2 Reproducers 5 & 6: static access in `[128, 4096)` mixed with `mload(64)`
+  -- (static-vs-heap aliasing at `128`), and checked allocations with unbounded or near-`2^64`
+  -- reservation sizes (`maxFp + ub > 2^64 - 1`).
+  let repro5Static128Alias : List Compiler.Yul.YulStmt :=
+    longLived "r5" 14 ++
+      [ .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.ident "p", .lit 111]),
+        .exprStmt (.call "mstore" [.lit 0, .call "mload" [.lit 128]]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro6DynSizeAlloc : List Compiler.Yul.YulStmt :=
+    longLived "r6d" 14 ++
+      checkedAlloc "p" "pEnd" (.call "calldataload" [.lit 4]) ++
+      [ .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro6NearU64Alloc : List Compiler.Yul.YulStmt :=
+    longLived "r6c" 14 ++
+      checkedAlloc "p" "pEnd" (.lit (2 ^ 64 - 200)) ++
+      [ .exprStmt (.call "mstore" [.ident "p", .lit 1]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro6CumulativeAlloc : List Compiler.Yul.YulStmt :=
+    longLived "r6s" 14 ++
+      checkedAlloc "p1" "p1End" (.lit (2 ^ 63)) ++
+      checkedAlloc "p2" "p2End" (.lit (2 ^ 63)) ++
+      [ .exprStmt (.call "mstore" [.ident "p1", .lit 1]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let r2RoundOut :=
+    Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+      (mkRuntimeDispatch [] revert00
+        [ (1, repro5Static128Alias), (2, repro6DynSizeAlloc),
+          (3, repro6NearU64Alloc), (4, repro6CumulativeAlloc) ]
+        revert00)
+  expectTrue "reproducer 5: static mload(128) mixed with mload(64) heap is not spilled"
+    ((extractCase? 1 r2RoundOut).getD [] == repro5Static128Alias)
+  expectTrue "reproducer 6a: checked allocation with unbounded calldata size is not spilled"
+    ((extractCase? 2 r2RoundOut).getD [] == repro6DynSizeAlloc)
+  expectTrue "reproducer 6b: checked allocation with near-2^64 constant size is not spilled"
+    ((extractCase? 3 r2RoundOut).getD [] == repro6NearU64Alloc)
+  expectTrue "reproducer 6c: cumulative checked allocations exceeding 2^64 - 1 are not spilled"
+    ((extractCase? 4 r2RoundOut).getD [] == repro6CumulativeAlloc)
+  -- Negative / Round-3 Reproducer 7: Yul `break` / `continue` / `.exprStmt (.ident "leave")`
+  -- inside loops or blocks must fail closed and never count as `stmtsAlwaysTerminate`.
+  let repro7BreakCase : List Compiler.Yul.YulStmt :=
+    longLived "r7b" 14 ++
+      [ .for_ [.let_ "i" (.lit 0)] (.call "lt" [.ident "i", .lit 1])
+          [.assign "i" (.call "add" [.ident "i", .lit 1])]
+          [ .exprStmt (.call "mstore" [.lit 64, .lit 0]),
+            .if_ (.call "calldataload" [.lit 4]) [.exprStmt (.ident "break")],
+            .exprStmt (.call "revert" [.lit 0, .lit 0]) ],
+        .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.call "add" [.ident "p", .lit 4096], .lit 999999]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro7ContinueCase : List Compiler.Yul.YulStmt :=
+    longLived "r7c" 14 ++
+      [ .for_ [.let_ "i" (.lit 0)] (.call "lt" [.ident "i", .lit 2])
+          [.assign "i" (.call "add" [.ident "i", .lit 1])]
+          [ .if_ (.call "eq" [.ident "i", .lit 0])
+              [ .exprStmt (.call "mstore" [.lit 64, .lit 0]),
+                .if_ (.call "calldataload" [.lit 4]) [.exprStmt (.ident "continue")],
+                .exprStmt (.call "revert" [.lit 0, .lit 0]) ] ],
+        .let_ "p" (.call "mload" [.lit 64]),
+        .exprStmt (.call "mstore" [.call "add" [.ident "p", .lit 4096], .lit 999999]),
+        .exprStmt (.call "return" [.lit 0, .lit 32]) ]
+  let repro7IdentLeaveCase : List Compiler.Yul.YulStmt :=
+    longLived "r7l" 14 ++
+      [ .exprStmt (.call "mstore" [.lit 0, .lit 1]),
+        .exprStmt (.ident "leave"),
+        .exprStmt (.call "revert" [.lit 0, .lit 0]) ]
+  let r3RoundOut :=
+    Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedSection 12
+      (mkRuntimeDispatch [] revert00
+        [(1, repro7BreakCase), (2, repro7ContinueCase), (3, repro7IdentLeaveCase)]
+        revert00)
+  expectTrue "reproducer 7a: loop break before revert does not mask mstore(64, 0) or spill"
+    ((extractCase? 1 r3RoundOut).getD [] == repro7BreakCase)
+  expectTrue "reproducer 7b: loop continue before revert does not mask mstore(64, 0) or spill"
+    ((extractCase? 2 r3RoundOut).getD [] == repro7ContinueCase)
+  expectTrue "reproducer 7c: .exprStmt (.ident \"leave\") before revert does not count as terminating"
+    ((extractCase? 3 r3RoundOut).getD [] == repro7IdentLeaveCase)
 
 set_option maxRecDepth 100000 in
 unsafe def runCompileModeTests : IO Unit := do

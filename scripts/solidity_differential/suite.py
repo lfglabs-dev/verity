@@ -89,6 +89,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/SelectorIdentityChecks.lean'],
             log=output / 'selector-identity-checks.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/DispatchedSpillChecks.lean'],
+            log=output / 'dispatched-spill-checks.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
@@ -504,6 +507,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('yul-array-length-shrink-rejections', ['-m',
         'solidity_differential.check_yul_array_length_shrink_rejections',
         '--output', str(output / 'yul-array-length-shrink-rejections')]))
+    checks.append(('dispatched-spill', ['-m',
+        'solidity_differential.check_dispatched_spill',
+        '--output', str(output / 'dispatched-spill')]))
     # Schedule the longest multi-variant campaigns first (LPT order) so ~30-45 min
     # checks start at t=0 on a 6-wide pool instead of straggling past the step cap.
     heavy_first = (

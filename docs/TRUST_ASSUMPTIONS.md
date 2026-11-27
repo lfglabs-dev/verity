@@ -640,41 +640,82 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Reference**: See [docs/INTRINSICS.md](INTRINSICS.md).
 
 ### 12. Yul Stack Spill Pass (`TempReuse`)
-- **Role**: After Yul emission and before `solc`,
-  `Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject` (`Compiler/Yul/TempReuse.lean`) rewrites blocks with more than `--max-stack-locals` (default
-  12) `let` bindings: it turns some `let`s into assignments to dead stack variables of the same
-  block, and moves others to fixed 32-byte memory words from `0x1000`
-  (`mstore(slot, rhs)`, uses become `mload(slot)`). It runs on every contract the CLI compiles
-  (`writeContract` in `Compiler/CompileDriverCommon.lean`) and on the Solidity import model
-  drivers (`Compiler.emitYulSpilled`). Its output is what `solc` compiles, so it sits between
-  the Layer 3 Yul and the bytecode.
+- **Role**: After Yul emission and before `solc`, `Compiler/Yul/TempReuse.lean` rewrites blocks
+  with more than `--max-stack-locals` (default 12) `let` bindings: it turns some `let`s into
+  assignments to dead stack variables of the same block, and moves others to fixed 32-byte memory
+  words from `0x1000` (`mstore(slot, rhs)`, uses become `mload(slot)`). Two entry points split
+  by compile path:
+  - `writeContract` (`Compiler/CompileDriverCommon.lean`, every contract the CLI compiles) calls
+    `reuseAndSpillTempsStaticObject` (whole-section static memory gate on deploy and runtime
+    code);
+  - `Compiler.emitYulSpilled` (`Compiler/Codegen.lean`, Solidity import model drivers) calls
+    `reuseAndSpillTempsDispatchedObject` (whole-section static gate on deploy code, and
+    whole-section or per-dispatch-case gate on runtime code).
+  Its output is what `solc` compiles, so it sits between the Layer 3 Yul and the bytecode.
 - **Trust**: Trusted and tested only. No theorem states that the rewritten Yul means the same as
   the emitted Yul. Not proven: the choice of slots and dead variables (`findFreeSpillSlot`,
   `findDeadStackVar`, liveness by syntactic use), the nested-block slot rule, the handling of
-  functions, loops and `for` initialisers, the static memory gate, and the absence of overlap
-  between spill words and the program's own memory, including the free-memory pointer region.
-  `reuseBlockTemps_eq_self_of_le` and `applyTempReuseToObject_eq_self_of_le` are about functions
-  no compile path calls; `reuseDeadLetStep_eval_eq` and `spillLetStep_eval_eq` are single-step
-  lemmas over a word-keyed toy state; the `computedSpillBase` theorems in
-  `Compiler/Codegen/Profile.lean` are about a spill base no compile path uses.
-- **Bound (fail-closed static gate)**: a code section is rewritten only when every memory access
-  in it, its functions included, has a literal address and literal length ending at or below
-  `0x1000`, `msize` is unused, and every call is a memory-free builtin or a function defined in
-  the section (`sectionMemoryStaticBelow`). Otherwise the section reaches `solc` unchanged and a
-  section that is too deep fails with `StackTooDeep`. So spill words can only collide with
-  memory the gate saw as literal and below `0x1000`; runtime-sized writes (ABI encodings from
-  address 0, free-pointer allocations, copies of dynamic arguments, linked library calls) keep
-  the section from spilling. The free-memory pointer is never changed. Function bodies and
-  `for` initialisers never spill, and a `for` initialiser never reuses its own variables.
-  A section that fails the gate is not rewritten at all (no dead-variable reuse either).
-- **Not preserved**: gas. A spilling section expands memory to just above its highest spill word
-  (about 4.1 KB) and executes extra `mstore`/`mload`s, so `gas()` and out-of-gas behaviour can
-  differ from the emitted Yul (see "EVM/Yul Semantics and Gas": gas is not modeled).
-- **Mitigation**: `Compiler/MainTest.lean` spill cases (gate rejections, nested slots,
-  functions, `for` initialisers), the Foundry regression `test/SpillReturnArraySmoke.t.sol`
-  (return data written from address 0 past the spill words), `test/SpillStaticMemorySmoke.t.sol`
-  (a gated section that spills on the CLI path, checked on the EVM), the Solidity import differential
-  campaigns, and `solc` itself, which rejects a section that is still too deep.
+  functions, loops and `for` initialisers, the whole-section and per-dispatch-case static memory
+  gates (`sectionMemoryStaticBelow`, `caseMemoryFreePtrSafe`), the checked-allocation pattern
+  and 256-bit wraparound bounds, and the absence of overlap between spill words and the program's
+  own memory (including `[64, 96)` and heap allocations). `reuseBlockTemps_eq_self_of_le` and
+  `applyTempReuseToObject_eq_self_of_le` are about functions no compile path calls;
+  `reuseDeadLetStep_eval_eq` and `spillLetStep_eval_eq` are single-step lemmas over a word-keyed
+  toy state; the `computedSpillBase` theorems in `Compiler/Codegen/Profile.lean` are about a
+  spill base no compile path uses.
+- **Bound (fail-closed static gates)**:
+  - *Whole-section static gate (`reuseAndSpillTempsStaticSection`, used by `writeContract` and
+    first tried by `emitYulSpilled`)*: a code section is rewritten as a whole only when every
+    memory access in it, its functions included, has a literal address and literal length ending
+    at or below `0x1000`, `msize` is unused, and every call is a memory-free builtin (including
+    `loadimmutable` and `clz`) or a function defined in the section (`sectionMemoryStaticBelow`).
+    The free-memory pointer is never changed.
+  - *Per-dispatch-case gate (`reuseAndSpillTempsDispatchedSection`, fallback for `runtimeCode` in
+    `emitYulSpilled`)*: runs only when the runtime section matches the exact
+    `[funcDefs..., mstore(64, 128), buildSwitch]` shape emitted by `CodegenCommon.runtimeCode`,
+    every helper `funcDef` stays statically within `[0, 64)`, and `noSelectorDefault` does not
+    assign `__has_selector`. Each selector arm and each whole default (`fallback`/`receive`) arm
+    is checked independently and rewritten only if it unconditionally halts the call frame
+    (`stmtsAlwaysTerminate`) and satisfies either `stmtsMemoryStaticBelow 0x1000` (free pointer
+    untouched) or `caseMemoryFreePtrSafe`:
+    1. When at least one word spills (`highWater > 0`), `mstore(64, highWater)` is prepended at
+       case entry only; no `mstore(64, ...)` inside the case body is ever rewritten, and any
+       literal write overlapping `[64, 96)` marks `fpClean := false` (never restored on that
+       path).
+    2. Static memory accesses must end at or below `0x80` (`128`, the unspilled initial free
+       pointer, so shifting the heap from `128` to `highWater` cannot change aliasing between
+       static slots and heap allocations), and static reads must be disjoint from `[64, 96)`
+       (checked semantically via `litConstExpr`, including hex literals and constant `add`s) unless
+       all 32 bytes `[64, 96)` were overwritten on every path reaching the read.
+    3. Free-pointer locals (`let p := mload(64)` while `fpClean`) may appear only in the checked
+       allocation idiom and as heap address bases `p + offset` with `offset` and access length
+       proven `< 2^64` (preventing 256-bit wraparound onto `[0, highWater)` and forbidding
+       pointer leaks via `sstore`, `mstore` values, `return`, `log` topics, or comparisons).
+    4. Updates `mstore(64, next)` are accepted only in the compiler's checked-allocation idiom
+       (`next ≤ 2^64 - 1` and `next ≥ base`, reverting otherwise) outside `for` loops, with an
+       allocation size upper bound `ub < 2^64` such that the cumulative path ceiling
+       `maxFp + ub ≤ 2^64 - 1` starting from `maxSpillHighWater = 2^32` (guaranteeing the
+       `2^64 - 1` overflow guard never fires in spilled code when unspilled code would succeed);
+       non-call `.exprStmt`s (including Yul `break`, `continue`, and `leave`) and `.leave` are
+       rejected and excluded from `stmtsAlwaysTerminate`.
+  - Any section or dispatch case that fails its gate reaches `solc` unchanged (no dead-variable
+    reuse either), so a case that remains too deep fails closed with `StackTooDeep`. Function
+    bodies and `for` initialisers never spill, and a `for` initialiser never reuses its own
+    variables.
+- **Not preserved**: gas. A spilling section or case expands memory to at least its highest spill
+  word (about 4.1 KB, or higher when heap allocations start from `highWater`) and executes extra
+  `mstore`/`mload`s, so `gas()` and out-of-gas behaviour can differ from the emitted Yul (see
+  "EVM/Yul Semantics and Gas": gas is not modeled).
+- **Mitigation**: `Compiler/MainTest.lean` spill cases (static and dispatched gates, positive
+  per-case heap spill next to an unspilled dynamic return, `loadimmutable`/`clz`, negative
+  reproducers for in-case `mstore(64, 128)`, 256-bit wraparound, observable `mem[64]`, inner
+  switches / non-terminating cases, static-`128` vs heap aliasing, near-`2^64` checked-allocation
+  reserve bounds, `break`/`continue`/`leave` non-local exits, and `msize`), the Foundry regressions
+  `test/SpillReturnArraySmoke.t.sol`, `test/SpillStaticMemorySmoke.t.sol`, and
+  `test/SpillFreeMemorySmoke.t.sol`, `Contracts/SolidityImportSmoke/DispatchedSpillChecks.lean`
+  and `scripts/solidity_differential/check_dispatched_spill.py` (`emitYul` vs `emitYulSpilled` on
+  `anvil`), the Solidity import differential campaigns, and `solc` itself, which rejects any
+  unchanged case that is still too deep.
 - **Reference**: [LOW_LEVEL_YUL.md](LOW_LEVEL_YUL.md#yul-temporary-slot-reuse-and-scratch-memory-spilling---max-stack-locals).
 
 ## Semantic Caveats

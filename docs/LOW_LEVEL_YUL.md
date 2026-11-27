@@ -42,23 +42,40 @@ The spill pass is a **trusted, tested-only** component (see
 [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md#12-yul-stack-spill-pass-tempreuse)): no theorem
 states that its output means the same as its input. It exists to keep blocks with many
 `let` bindings within the EVM's 16-slot `DUP`/`SWAP` reach under `solc --strict-assembly`.
-Both compile paths, the CLI (`verity-compiler`, every Verity contract) and the Solidity import
-model drivers (`Compiler.emitYulSpilled`), apply the same entry point,
-`Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject` (`Compiler/Yul/TempReuse.lean`), to the
-deploy and runtime code sections separately:
+The CLI (`verity-compiler`, `writeContract`) and the Solidity import model drivers
+(`Compiler.emitYulSpilled`) use separate entry points in `Compiler/Yul/TempReuse.lean`:
 
-- **Static memory gate (per code section)**: a section is rewritten only if every memory access
-  in it, functions included, has a literal address and a literal length ending at or below
-  `0x1000` (`4096`); it does not use `msize`; and every call is a memory-free builtin or a
-  function defined in the same section (`sectionMemoryStaticBelow`). An unknown builtin, a
-  computed address or length (free-pointer allocations, ABI encodings written from address 0
-  with a runtime size, `calldatacopy` of a dynamic argument), and a call to a linked library
-  function all fail the gate. A section that fails the gate is emitted **unchanged** (no dead
-  variable reuse either); if it is too deep for the stack, `solc` rejects it with `StackTooDeep` instead of the compiler
-  emitting spill words that runtime-sized memory traffic could overwrite. The free-memory
-  pointer is never moved. Gas is not preserved: a spilling section expands memory to just
-  above its highest spill word (about 4.1 KB) and adds `mstore`/`mload`s, so `gas()` values and
-  out-of-gas margins differ from the unspilled code.
+- **Static memory gate per code section (`reuseAndSpillTempsStaticObject`, used by the CLI and on
+  `deployCode` in `emitYulSpilled`)**: a section is rewritten only if every memory access in it,
+  functions included, has a literal address and a literal length ending at or below `0x1000`
+  (`4096`); it does not use `msize`; and every call is a memory-free builtin (including
+  `loadimmutable` and `clz`) or a function defined in the same section
+  (`sectionMemoryStaticBelow`). An unknown builtin, a computed address or length (free-pointer
+  allocations, ABI encodings written from address 0 with a runtime size, `calldatacopy` of a
+  dynamic argument), and a call to a linked library function all fail the gate. A section that
+  fails the gate is emitted **unchanged** (no dead-variable reuse either), and the free-memory
+  pointer is never moved.
+- **Per-dispatch-case gate (`reuseAndSpillTempsDispatchedObject`, used on `runtimeCode` by
+  `Compiler.emitYulSpilled`)**: when `runtimeCode` does not pass `sectionMemoryStaticBelow` as a
+  whole, it is rewritten per case only if it matches the exact
+  `[funcDefs..., mstore(64, 128), buildSwitch]` shape emitted by `CodegenCommon.runtimeCode`,
+  every helper `funcDef` stays statically within `[0, 64)`, and `noSelectorDefault` does not
+  assign `__has_selector`. Each selector case and each whole default (`fallback`/`receive`) case
+  must unconditionally terminate (`stmtsAlwaysTerminate`) and pass either
+  `stmtsMemoryStaticBelow 0x1000` (leaving `mem[64]` untouched) or `caseMemoryFreePtrSafe 128`
+  (prepending `mstore(64, highWater)` at case entry only, never rewriting any `mstore(64, ...)`
+  in the case body, bounding static accesses to `[0, 128)` so moving the heap from `128` to
+  `highWater` cannot change static-vs-heap aliasing, requiring static reads to be disjoint from
+  `[64, 96)` unless all 32 bytes `[64, 96)` were overwritten on every path, restricting
+  free-pointer locals to checked allocations `next ≤ 2^64 - 1 ∧ next ≥ base` outside loops whose
+  cumulative ceiling from `2^32` stays `≤ 2^64 - 1` and heap addresses `p + offset` with `< 2^64`
+  addend and length, rejecting `break`/`continue`/`leave` non-call statements, and forbidding
+  pointer values in expressions). Any other case or
+  section shape is left **unchanged**; if it remains too deep, `solc` rejects it with
+  `StackTooDeep` instead of aliasing runtime memory. Gas is not preserved: a spilling section or
+  case expands memory to at least its highest spill word (about 4.1 KB, or higher when heap
+  allocations start at `highWater`) and adds `mstore`/`mload`s, so `gas()` values and out-of-gas
+  margins differ from the unspilled code.
 - **Fast path**: inside a gated section, a block with at most `maxStackLocals` `let` bindings
   (default `12`) is returned unchanged. (`reuseBlockTemps_eq_self_of_le` in
   `Compiler/Proofs/YulGeneration/TempReuseSoundness.lean` states this for the single-block
