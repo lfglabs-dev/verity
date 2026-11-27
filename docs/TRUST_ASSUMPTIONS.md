@@ -2211,14 +2211,19 @@ assumption:
   is void.
 - **Model**: a direct runtime `L.f(...)` call in an imported function (`immutable` inline
   initializers stay outside this slice) is replaced by `f`'s body in the caller's frame,
-  with value-type arguments and results ABI-cleaned across the call.
-  Admitted only for value-type and `storage` arguments, value-type results and bodies
+  with value-type arguments and results ABI-cleaned across the call and `bytes memory`
+  arguments and results copied into fresh 32-byte-aligned memory on entry and return
+  (preserving copy-in and copy-out isolation, `Panic(0x41)` allocation bounds, and
+  trailing-byte zeroing).
+  Admitted only for value-type, `storage` and `bytes memory` arguments, value-type and
+  `bytes memory` results, and bodies
   that reach no `msg.data`, `msg.sig`, `gasleft()` or inline assembly (including through
   helpers, user-defined operators, nested linked calls and modifiers), in a root that
   reads no Yul `returndatasize()` (the DELEGATECALL sets the return-data buffer, the
   inlined body does not); everything else rejects with its location. The frame equivalence relied on (same storage, transient
   storage, `msg.sender`, `msg.value`, `address(this)`, logs, block context; the library's
-  revert data forwarded; cleaned value-type ABI round trips are identities) is EVM and solc
+  revert data forwarded; cleaned value-type and fresh-copied `bytes memory` ABI round
+  trips) is EVM and solc
   behaviour, checked differentially, not proved.
 - **Not preserved**: gas and the call depth limit (as for every call transport); the
   free pointer and unallocated memory after the call, since the library's allocations
@@ -2228,10 +2233,11 @@ assumption:
   `solidity_linked_library_matches_source` with status `assumed`, and the flag is part of
   the import digest.
 - **Evidence**: `LinkedLibraryCallSequence` (A/B/C with both libraries deployed and linked:
-  storage effects, events, forwarded custom-error, `Error(string)` and panic data,
-  nested library-to-library calls; via-IR only, the legacy pipeline is admitted but not
-  run differentially) and `check_linked_library_call_rejections` (located rejections, a
-  frame-check mutant and a return-data-check mutant).
+  storage effects, events, `bytes memory` copy-in/copy-out isolation and multi-return
+  disjointness, forwarded custom-error, `Error(string)` and panic data,
+  nested library-to-library calls; via-IR and legacy on solc 0.8.34 and 0.8.38) and
+  `check_linked_library_call_rejections` (located rejections, frame-check,
+  return-data-check, alias-copy-in and drop-copy-out mutants).
 
 ### Imported Solidity low-level `staticcall`
 

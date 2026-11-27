@@ -202,7 +202,7 @@ IMPORTER_BINDINGS = {
     "$", "_$", "__solidity_value", "_array", "_bytes", "_calldata", "_data",
     "_element", "_element_next", "_head", "_header", "_index", "_len", "_length", "_memory",
     "_memory_ptr_$dyn_memory_ptr", "_next", "_offset", "_source", "_struct", "_val", "arr_len",
-    "arr_ptr", "array", "bytes_ptr", "key1", "key2", "param", "raw_slot", "ret_struct", "str_ptr",
+    "arr_ptr", "array", "bytes_copy", "bytes_ptr", "key1", "key2", "param", "raw_slot", "ret_struct", "str_ptr",
     "struct_param", "node", "denote_prefix", "denote_step", "solidity_closed_transport_cei",
     "solidity_create2_initcode_reentrancy", "solidity_explicit_abi", "solidity_scalar_abi_entry",
     "solidity_static_call_cei", "solidity_trailing_low_level_call_reentrancy",

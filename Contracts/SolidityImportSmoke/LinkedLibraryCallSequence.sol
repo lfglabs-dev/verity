@@ -22,6 +22,8 @@ library WideShadowLib {
 }
 
 library LinkedPackLib {
+    error BadPayload(uint256 length, bytes1 firstByte);
+
     event Packed(address indexed caller, uint256 word);
 
     function pack(address pointer, Mode mode) external pure returns (uint256) {
@@ -58,6 +60,67 @@ library LinkedPackLib {
         returns (address, bytes4)
     {
         return (address(uint160(rawAddr)), bytes4(rawSel));
+    }
+
+    function mutateAndTag(bytes memory payload, bytes1 replacement, uint8 suffix)
+        external
+        pure
+        returns (bytes memory out)
+    {
+        bytes memory buf = new bytes(payload.length + 1);
+        for (uint256 i = 0; i < payload.length; ++i) {
+            buf[i] = payload[i];
+        }
+        if (payload.length > 0) {
+            payload[0] = replacement;
+        }
+        if (payload.length > 1) {
+            delete payload[1];
+        }
+        buf[payload.length] = bytes1(suffix);
+        out = buf;
+    }
+
+    function echoOrEmpty(bytes memory payload, uint8 mode)
+        public
+        pure
+        returns (bytes memory out)
+    {
+        if (mode == 0) {
+            return out;
+        }
+        if (mode == 1) {
+            return payload;
+        }
+        out = abi.encodePacked(payload, bytes1(mode));
+    }
+
+    function duplicateShared(uint8 seed, uint8 extraLen)
+        external
+        pure
+        returns (bytes memory first, bytes memory second)
+    {
+        bytes memory shared = new bytes(uint256(extraLen) + 2);
+        shared[0] = bytes1(seed);
+        shared[1] = bytes1(seed ^ 0x5a);
+        return (shared, shared);
+    }
+
+    function failOnBytes(bytes memory payload, uint8 kind)
+        external
+        pure
+        returns (bytes memory)
+    {
+        if (kind == 0) {
+            bytes1 head = payload.length > 0 ? payload[0] : bytes1(0);
+            revert BadPayload(payload.length, head);
+        }
+        if (kind == 1) {
+            require(payload.length > 1000, "short-payload");
+            return payload;
+        }
+        bytes1 oob = payload[payload.length];
+        return abi.encodePacked(oob);
     }
 }
 
@@ -113,6 +176,20 @@ library LinkedCounterLib {
         uint256 total = bump(c, amount);
         return total + LinkedPackLib.pack(pointer, Mode.B);
     }
+
+    function recordDigest(Counter storage c, bytes memory payload, bytes1 scrub)
+        external
+        returns (bytes memory, uint256)
+    {
+        bytes memory tagged = LinkedPackLib.mutateAndTag(payload, scrub, uint8(c.calls + 1));
+        if (payload.length > 0) {
+            payload[0] = bytes1(0xff);
+        }
+        c.total += uint256(keccak256(tagged)) & 0xffff;
+        c.last = msg.sender;
+        c.calls += 1;
+        return (tagged, c.total);
+    }
 }
 
 contract LinkedLibraryCallFixture {
@@ -120,6 +197,7 @@ contract LinkedLibraryCallFixture {
     mapping(bytes32 => LinkedCounterLib.Counter) internal counters;
     LinkedCounterLib.Counter internal main;
     uint256 internal lastWord;
+    bytes internal storedPayload;
 
     function setConfig(bytes32 key, address pointer, Mode mode) external {
         packedWords[key] = LinkedPackLib.pack(pointer, mode);
@@ -167,38 +245,39 @@ contract LinkedLibraryCallFixture {
         uint256 rawWrapped,
         uint256 rawAddr,
         uint256 rawSel
-    ) external pure returns (uint256, uint256, uint256, uint256, uint256, uint256) {
-        uint8 u = 0;
-        int8 s = 0;
-        bool flag = false;
-        Narrow8 wrapped = Narrow8.wrap(0);
-        address addr = rawAddress(rawAddr);
-        bytes4 sel = bytes4(0);
-        assembly {
-            u := rawU
-            s := rawS
-            flag := rawFlag
-            wrapped := rawWrapped
-            sel := rawSel
+    ) external pure returns (uint256 outU, uint256 outS, uint256 outFlag, uint256 outWrapped, uint256 outAddr, uint256 outSel) {
+        {
+            uint8 u = 0;
+            assembly {
+                u := rawU
+            }
+            uint8 singleU = LinkedPackLib.passUint8(u);
+            assembly {
+                outU := singleU
+            }
         }
-        uint8 singleU = LinkedPackLib.passUint8(u);
-        (, int8 rS, bool rFlag, Narrow8 rWrapped, address rAddr, bytes4 rSel) =
-            LinkedPackLib.roundTripNarrow(u, s, flag, wrapped, addr, sel);
-        uint256 outU;
-        uint256 outS;
-        uint256 outFlag;
-        uint256 outWrapped;
-        uint256 outAddr;
-        uint256 outSel;
-        assembly {
-            outU := singleU
-            outS := rS
-            outFlag := rFlag
-            outWrapped := rWrapped
-            outAddr := rAddr
-            outSel := rSel
+        {
+            int8 s = 0;
+            bool flag = false;
+            Narrow8 wrapped = Narrow8.wrap(0);
+            address addr = rawAddress(rawAddr);
+            bytes4 sel = bytes4(0);
+            assembly {
+                s := rawS
+                flag := rawFlag
+                wrapped := rawWrapped
+                sel := rawSel
+            }
+            (, int8 rS, bool rFlag, Narrow8 rWrapped, address rAddr, bytes4 rSel) =
+                LinkedPackLib.roundTripNarrow(0, s, flag, wrapped, addr, sel);
+            assembly {
+                outS := rS
+                outFlag := rFlag
+                outWrapped := rWrapped
+                outAddr := rAddr
+                outSel := rSel
+            }
         }
-        return (outU, outS, outFlag, outWrapped, outAddr, outSel);
     }
 
     function cleanReturnFromWide(uint256 rawU, uint256 rawAddr, bytes32 rawSel)
@@ -255,6 +334,112 @@ contract LinkedLibraryCallFixture {
 
     function calls(bytes32 key) external view returns (uint64) {
         return counters[key].calls;
+    }
+
+    function _checkedDivSuffix(uint256 num, uint256 denom)
+        internal
+        pure
+        returns (uint8)
+    {
+        return uint8(num / denom);
+    }
+
+    function roundTripBytesIsolation(
+        bytes memory orig,
+        bytes1 repl,
+        bytes1 callerPost,
+        uint8 suffix
+    )
+        external
+        returns (
+            uint8 orig0,
+            uint8 orig1,
+            uint8 ret0Before,
+            uint8 ret0After,
+            uint8 retLast,
+            bytes32 retHash
+        )
+    {
+        bytes memory ret = LinkedPackLib.mutateAndTag(orig, repl, suffix);
+        orig0 = orig.length > 0 ? uint8(orig[0]) : 0;
+        orig1 = orig.length > 1 ? uint8(orig[1]) : 0;
+        ret0Before = uint8(ret[0]);
+        ret[0] = callerPost;
+        ret0After = uint8(ret[0]);
+        retLast = uint8(ret[ret.length - 1]);
+        retHash = keccak256(ret);
+        lastWord = uint256(retHash);
+    }
+
+    function echoAndCallerMutate(bytes calldata raw, uint8 mode, bytes1 callerMut)
+        external
+        pure
+        returns (bytes32 origHashAfter, bytes32 retHashAfter, uint256 retLen)
+    {
+        bytes memory local = new bytes(raw.length + 1);
+        for (uint256 i = 0; i < raw.length; ++i) {
+            local[i] = raw[i];
+        }
+        local[raw.length] = bytes1(uint8(0x44));
+        bytes memory echoed = LinkedPackLib.echoOrEmpty(local, mode);
+        local[0] = callerMut;
+        if (echoed.length > 0) {
+            echoed[echoed.length - 1] = bytes1(uint8(mode ^ 0x33));
+        }
+        return (keccak256(local), keccak256(echoed), echoed.length);
+    }
+
+    function duplicateDisjoint(uint8 seed, uint8 extraLen, bytes1 mutFirst)
+        external
+        pure
+        returns (uint8 first0, uint8 second0, bytes32 firstHash, bytes32 secondHash)
+    {
+        (bytes memory first, bytes memory second) = LinkedPackLib.duplicateShared(seed, extraLen);
+        first[0] = mutFirst;
+        return (uint8(first[0]), uint8(second[0]), keccak256(first), keccak256(second));
+    }
+
+    function nestedBytesAndStorage(
+        bytes32 key,
+        bytes calldata sliceSrc,
+        uint256 start,
+        uint256 end,
+        bytes1 scrub
+    ) external returns (bytes32, uint256) {
+        storedPayload = sliceSrc;
+        (bytes memory nestedOut, uint256 running) =
+            LinkedCounterLib.recordDigest(counters[key], sliceSrc[start:end], scrub);
+        bytes memory fromStorage = LinkedPackLib.mutateAndTag(storedPayload, scrub, uint8(running));
+        if (nestedOut.length > 0) {
+            nestedOut[0] = bytes1(uint8(0xaa));
+        }
+        bytes32 combined = keccak256(nestedOut) ^ keccak256(fromStorage) ^ keccak256(storedPayload);
+        lastWord = uint256(combined);
+        return (combined, running);
+    }
+
+    function argOrderBytes(bytes memory orig, uint256 denom, bytes1 calleeRepl)
+        external
+        pure
+        returns (uint8 origAfter, uint8 seenByCallee, uint8 suffixSeen)
+    {
+        bytes memory ret = LinkedPackLib.mutateAndTag(
+            orig,
+            calleeRepl,
+            _checkedDivSuffix(90, denom)
+        );
+        origAfter = orig.length > 0 ? uint8(orig[0]) : 0;
+        seenByCallee = uint8(ret[0]);
+        suffixSeen = uint8(ret[ret.length - 1]);
+    }
+
+    function revertFromBytesLib(bytes32 key, bytes calldata payload, uint8 kind)
+        external
+        returns (uint256)
+    {
+        counters[key].calls += 1;
+        bytes memory out = LinkedPackLib.failOnBytes(payload, kind);
+        return out.length;
     }
 
     function mainState() external view returns (uint256, uint256) {

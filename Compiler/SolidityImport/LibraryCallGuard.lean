@@ -129,11 +129,13 @@ and when the arguments and results cross the ABI boundary unchanged:
 * storage, transient storage, `msg.sender`, `msg.value`, `address(this)` and the block and
   transaction context are the caller's; the library's revert data is forwarded as is;
 * value-type arguments and results are ABI-encoded clean and decode to the same values;
-  a `storage` reference is passed as its slot;
+  a `storage` reference is passed as its slot; `bytes memory` arguments and results are
+  explicitly copied into fresh 32-byte-aligned memory on entry and on return, matching
+  the `DELEGATECALL` ABI boundary without aliasing;
 * `msg.data`, `msg.sig`, `gasleft()` and every inline-assembly block (calldata, returndata,
   code, memory and gas builtins) may observe the library frame, so they are rejected;
-  memory, calldata and function-typed arguments and results are copied or re-encoded
-  across the boundary, so they are rejected too. -/
+  non-`bytes` memory, calldata and function-typed arguments and results are copied or
+  re-encoded across the boundary, so they are rejected too. -/
 
 /-- A solc `typeIdentifier` of an elementary value type, an enum or a user-defined value type:
 its ABI encoding decodes to the same value in the library and back in the caller. -/
@@ -149,7 +151,9 @@ inductive LinkedLibraryOperandKind where
   | value
   /-- A `storage` reference, passed as its slot. -/
   | storageRef
-  /-- Memory, calldata or function-typed: copied or re-encoded, outside this slice. -/
+  /-- `bytes memory`, copied into fresh callee memory on entry and fresh caller memory on return. -/
+  | bytesMemory
+  /-- Non-`bytes` memory, calldata or function-typed: copied or re-encoded, outside this slice. -/
   | other
   deriving DecidableEq, Repr, Inhabited
 
@@ -157,6 +161,7 @@ inductive LinkedLibraryOperandKind where
 def linkedLibraryOperandKind (storageLocation tid : String) : LinkedLibraryOperandKind :=
   if storageLocation == "storage" then .storageRef
   else if storageLocation == "default" && isLinkedLibraryValueTypeIdentifier tid then .value
+  else if storageLocation == "memory" && tid == "t_bytes_memory_ptr" then .bytesMemory
   else .other
 
 /-- Classify a solc `VariableDeclaration` (parameter or return parameter). -/
@@ -239,10 +244,13 @@ theorem witness_linked_library_value_types :
     linkedLibraryOperandKind "default" "t_enum$_E_$12" = .value ∧
     linkedLibraryOperandKind "default" "t_userDefinedValueType$_U_$3" = .value := by decide
 
-/-- Witness: storage references pass; memory, calldata and function types do not. -/
+/-- Witness: storage references and `bytes memory` are classified distinctly; other memory,
+calldata and function types remain `.other`. -/
 theorem witness_linked_library_reference_types :
     linkedLibraryOperandKind "storage" "t_struct$_S_$4_storage_ptr" = .storageRef ∧
-    linkedLibraryOperandKind "memory" "t_bytes_memory_ptr" = .other ∧
+    linkedLibraryOperandKind "memory" "t_bytes_memory_ptr" = .bytesMemory ∧
+    linkedLibraryOperandKind "memory" "t_string_memory_ptr" = .other ∧
+    linkedLibraryOperandKind "memory" "t_array$_t_uint256_$dyn_memory_ptr" = .other ∧
     linkedLibraryOperandKind "calldata" "t_bytes_calldata_ptr" = .other ∧
     linkedLibraryOperandKind "default" "t_bytes_memory_ptr" = .other ∧
     linkedLibraryOperandKind "default" "t_function_external_view$__$returns$__$" = .other ∧

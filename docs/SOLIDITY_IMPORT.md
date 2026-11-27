@@ -438,10 +438,12 @@ and a failed library call's return data becomes the caller's revert data
 unchanged. The call is admitted only when:
 
 - every parameter is a value type (elementary, enum or user-defined value
-  type) or a `storage` reference (passed as its slot), and every result is a
-  value type (value-type arguments and results are ABI-cleaned across the call;
-  memory, calldata and function-typed values are ABI-encoded and decoded across
-  the call, and copies are not modelled);
+  type), a `storage` reference (passed as its slot), or `bytes memory`, and
+  every result is a value type or `bytes memory` (value-type arguments and
+  results are ABI-cleaned across the call; `bytes memory` arguments and results
+  are explicitly copied into fresh 32-byte-aligned memory on entry and on
+  return so mutations never alias across the boundary; non-`bytes` memory,
+  calldata and function-typed values remain rejected);
 - the callee is named as `L.f` (attached `using L for T` calls reject);
 - nothing the body reaches, through internal helpers, user-defined operators,
   nested linked calls and modifiers, uses `msg.data`, `msg.sig`, `gasleft()` or
@@ -461,7 +463,7 @@ made in the caller's memory, so the free pointer after the call and unallocated
 memory differ from solc's, which only code reading memory it did not allocate
 or write can observe. `LinkedLibraryCallSequence` compares the source (libraries
 deployed and linked), Denote and the compiled model (`check_linked_library_call`, via-IR
-only).
+and legacy).
 The model is built as ordinary values and quoted (`Quote.lean`); after
 elaboration the definitions are evaluated back and must equal those values.
 The digest (`sourceDigest`) is SHA-256 over framed JSON of the importer

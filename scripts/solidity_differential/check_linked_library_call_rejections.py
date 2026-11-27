@@ -2,13 +2,15 @@
 `linkedLibrariesMatchSource := true` (#2728).
 
 With the trust assumption on, a direct `L.f(...)` DELEGATECALL inlines `f`'s body only when
-the arguments are value types or storage references, the results are value types and nothing
-the body reaches (internal helpers and modifiers, transitively) depends on the DELEGATECALL
+the arguments are value types, storage references or `bytes memory` (explicitly copied in),
+the results are value types or `bytes memory` (explicitly copied out), and nothing the body
+reaches (internal helpers, operators and modifiers, transitively) depends on the DELEGATECALL
 frame. Each case below must reject at the stated token with the stated diagnostic, or import.
 Without the flag the same calls keep the `check_library_call_rejections` diagnostic.
 
-`--mutant frame-check` (or `returndata-check`) builds a snapshot with that guard disabled,
-requires the cases it guards to import there, then this suite to fail on that snapshot.
+`--mutant frame-check`, `returndata-check`, `alias-copy-in` or `drop-copy-out` builds a
+snapshot with that guard or copy disabled, requires the targeted cases to elaborate there,
+then this suite to fail on that snapshot.
 """
 import argparse
 import json
@@ -113,12 +115,149 @@ CASES = [
      'attached linked library calls (using L for T) are outside this slice'),
     ('memory-argument',
      '    function h(bytes memory data) external pure returns (uint256) { return data.length; }\n',
-     'root = S.h(abi.encode(a, b));', '', 'bytes memory data',
-     'linked library call parameters must be value types or storage references'),
+     'root = S.h(abi.encode(a, b));', '', None, None),
     ('memory-result',
      '    function h(uint256 a) external pure returns (bytes memory) { return abi.encode(a); }\n',
-     'root = S.h(a).length;', '', 'bytes memory)',
+     'root = S.h(a).length;', '', None, None),
+    ('bytes-copy-in-isolation',
+     '    function h(bytes memory data) external pure returns (bytes memory out) {\n'
+     '        bytes memory cp = new bytes(data.length + 1);\n'
+     '        for (uint256 i = 0; i < data.length; ++i) { cp[i] = data[i]; }\n'
+     '        if (data.length > 0) { data[0] = hex"ff"; }\n'
+     '        cp[data.length] = hex"77";\n'
+     '        out = cp;\n'
+     '    }\n',
+     'bytes memory orig = new bytes(1 + 1);\n'
+     '        orig[0] = bytes1(uint8(a));\n'
+     '        orig[1] = bytes1(uint8(b));\n'
+     '        bytes memory ret = S.h(orig);\n'
+     '        ret[0] = hex"aa";\n'
+     '        root = (uint256(uint8(orig[0])) << 16) | (uint256(uint8(ret[0])) << 8) | uint256(uint8(ret[2]));',
+     '', None, None),
+    ('bytes-copy-out-disjoint',
+     '    function h(uint8 v) external pure returns (bytes memory x, bytes memory y) {\n'
+     '        bytes memory shared = new bytes(1 + 1);\n'
+     '        shared[0] = bytes1(v);\n'
+     '        shared[1] = hex"55";\n'
+     '        return (shared, shared);\n'
+     '    }\n',
+     '(bytes memory x, bytes memory y) = S.h(uint8(a));\n'
+     '        x[0] = bytes1(uint8(b));\n'
+     '        root = (uint256(uint8(x[0])) << 8) | uint256(uint8(y[0]));',
+     '', None, None),
+    ('flag-off-bytes-argument',
+     '    function h(bytes memory data) external pure returns (uint256) { return data.length; }\n',
+     'root = S.h(abi.encode(a, b));', '', 'S.h',
+     'external library calls are outside this slice'),
+    ('flag-off-bytes-result',
+     '    function h(uint256 a) external pure returns (bytes memory) { return abi.encode(a); }\n',
+     'root = S.h(a).length;', '', 'S.h',
+     'external library calls are outside this slice'),
+    ('bytes-calldata-argument',
+     '    function h(bytes calldata data) external pure returns (uint256) { return data.length; }\n',
+     'root = S.h(msg.data);', '', 'bytes calldata data',
+     'linked library call parameters must be value types or storage references'),
+    ('string-memory-argument',
+     '    function h(string memory s) external pure returns (uint256) { return bytes(s).length; }\n',
+     'root = S.h("hi");', '', 'string memory s',
+     'linked library call parameters must be value types or storage references'),
+    ('string-memory-result',
+     '    function h(uint256) external pure returns (string memory) { return "hi"; }\n',
+     'root = bytes(S.h(a)).length;', '', 'string memory)',
      'linked library call results must be value types'),
+    ('uint-array-memory-argument',
+     '    function h(uint256[] memory xs) external pure returns (uint256) { return xs.length; }\n',
+     'uint256[] memory xs = new uint256[](1); xs[0] = a; root = S.h(xs);', '', 'uint256[] memory xs',
+     'linked library call parameters must be value types or storage references'),
+    ('uint-array-memory-result',
+     '    function h(uint256 a) external pure returns (uint256[] memory) {\n'
+     '        uint256[] memory xs = new uint256[](1); xs[0] = a; return xs;\n'
+     '    }\n',
+     'uint256[] memory xs = S.h(a); root = xs.length + b;', '', 'uint256[] memory)',
+     'linked library call results must be value types'),
+    ('struct-memory-argument',
+     '    function h(Cell memory c) external pure returns (uint256) { return c.v; }\n',
+     'root = S.h(S.Cell(a));', '', 'Cell memory c',
+     'linked library call parameters must be value types or storage references'),
+    ('struct-memory-result',
+     '    function h(uint256 a) external pure returns (Cell memory) { return Cell(a); }\n',
+     'S.Cell memory c = S.h(a); root = c.v + b;', '', 'Cell memory)',
+     'linked library call results must be value types'),
+    ('storage-ref-result',
+     '    function h(Cell storage c) external pure returns (Cell storage) { return c; }\n',
+     'S.Cell storage c = S.h(cell); root = c.v + a + b;', '', 'Cell storage)',
+     'linked library call results must be value types'),
+    ('short-string-bytes-argument',
+     '    function h(bytes memory data) external pure returns (uint256) { return data.length; }\n',
+     'root = S.h(bytes(_short(bytes32(a)))) + b;',
+     '    function _short(bytes32 s) internal pure returns (string memory) {\n'
+     '        string memory str = new string(32);\n'
+     '        assembly ("memory-safe") {\n'
+     '            mstore(str, 4)\n'
+     '            mstore(add(str, 0x20), s)\n'
+     '        }\n'
+     '        return str;\n'
+     '    }\n',
+     'bytes(_short(bytes32(a)))',
+     'ShortStrings assembly-allocated buffer passed to or returned from a linked library call is outside this slice'),
+    ('yul-mload-linked-bytes-return',
+     '    function h(uint256 a) external pure returns (bytes memory) {\n'
+     '        return a == 0 ? bytes("") : abi.encode(a);\n'
+     '    }\n',
+     'bytes memory ret = S.h(a);\n'
+     '        uint256 w;\n'
+     '        assembly { w := mload(add(ret, 0x20)) }\n'
+     '        root = w + b;', '', 'mload(add(ret, 0x20))',
+     'Yul word load from linked library bytes return is outside this slice'),
+    ('short-string-byte-index-loop',
+     '    function h(uint256 a) external pure returns (bytes memory) { return abi.encode(a, a); }\n',
+     'bytes memory buf = S.h(a);\n'
+     '        uint256 acc = 0;\n'
+     '        for (uint256 i = 0; i < 2; ++i) {\n'
+     '            acc += uint8(buf[33]);\n'
+     '            buf = _shortBytes(bytes32(a));\n'
+     '        }\n'
+     '        root = acc + b;',
+     '    function _shortBytes(bytes32 s) internal pure returns (bytes memory) {\n'
+     '        bytes memory str = new bytes(32);\n'
+     '        assembly ("memory-safe") {\n'
+     '            mstore(str, 64)\n'
+     '            mstore(add(str, 0x20), s)\n'
+     '        }\n'
+     '        return str;\n'
+     '    }\n',
+     'buf[33]',
+     'byte index access on a ShortStrings assembly-allocated buffer is outside this slice'),
+    ('short-string-byte-index-tuple',
+     '    function h(uint256 a) external pure returns (uint256) { return a; }\n',
+     '(bytes memory buf, uint256 tag) = _pair(_shortBytes(bytes32(a)));\n'
+     '        root = uint8(buf[33]) + tag + S.h(b);',
+     '    function _shortBytes(bytes32 s) internal pure returns (bytes memory) {\n'
+     '        bytes memory str = new bytes(32);\n'
+     '        assembly ("memory-safe") {\n'
+     '            mstore(str, 64)\n'
+     '            mstore(add(str, 0x20), s)\n'
+     '        }\n'
+     '        return str;\n'
+     '    }\n'
+     '    function _pair(bytes memory x) internal pure returns (bytes memory, uint256) {\n'
+     '        return (x, 1);\n'
+     '    }\n',
+     'buf[33]',
+     'byte index access on a ShortStrings assembly-allocated buffer is outside this slice'),
+    ('short-string-byte-index-wrapped',
+     '    function h(uint256 a) external pure returns (uint256) { return a; }\n',
+     'root = uint8(bytes(_short(bytes32(a)))[33]) + S.h(b);',
+     '    function _short(bytes32 s) internal pure returns (string memory) {\n'
+     '        string memory str = new string(32);\n'
+     '        assembly ("memory-safe") {\n'
+     '            mstore(str, 64)\n'
+     '            mstore(add(str, 0x20), s)\n'
+     '        }\n'
+     '        return str;\n'
+     '    }\n',
+     'bytes(_short(bytes32(a)))[33]',
+     'byte index access on a ShortStrings assembly-allocated buffer is outside this slice'),
     ('function-typed-argument',
      '    function h(function (uint256) external returns (uint256) g) external pure returns (uint256) { return g.selector == bytes4(0) ? 1 : 0; }\n',
      'root = S.h(this.f2);', '    function f2(uint256 x) external returns (uint256) { return x; }\n',
@@ -163,10 +302,30 @@ MUTANTS = {
         '  unless env.rootLinkedLibraryCalls.isEmpty do\n    failAt j ("Yul returndatasize in a function',
         '  unless true do\n    failAt j ("Yul returndatasize in a function',
         ('returndatasize-after-call', 'bubbled-revert-after-call')),
+    'alias-copy-in': (
+        'private def copyLinkedBytesBuffer (srcPtr srcLen : Expr) (fromCalldata forReturn : Bool)\n'
+        '    (siteNode : Json) (hint : String := "bytes_copy") : M EncodedBytes := do\n',
+        'private def copyLinkedBytesBuffer (srcPtr srcLen : Expr) (fromCalldata forReturn : Bool)\n'
+        '    (siteNode : Json) (hint : String := "bytes_copy") : M EncodedBytes := do\n'
+        '  if !fromCalldata && !forReturn then\n'
+        '    return { pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n',
+        ('bytes-copy-in-isolation',)),
+    'drop-copy-out': (
+        '  let alloc := AbiEncoding.reserve headerPtr finish totalBytes\n',
+        '  if forReturn then\n'
+        '    return { pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n'
+        '  let alloc := AbiEncoding.reserve headerPtr finish totalBytes\n',
+        ('bytes-copy-out-disjoint',)),
+}
+
+GUARD_CASES = {
+    'homonymous-file-udvt-clean': ([0x105, 10], 15),
+    'bytes-copy-in-isolation': ([0x11, 0x22], 0x11aa77),
+    'bytes-copy-out-disjoint': ([0x22, 0x99], 0x9922),
 }
 
 
-def run_case(output, name, library, body, members, token, diagnostic, cwd=None):
+def run_case(output, name, library, body, members, token, diagnostic, cwd=None, with_guard=True):
     preamble = (UDVT_OPERATOR if 'TaggedWord' in library else
                 SHADOW_UDVT_PREAMBLE if 'HomonymVal' in library else '')
     source = (PRAGMA + preamble + 'library S {\n' + STRUCT + library + '}\n' +
@@ -179,7 +338,9 @@ def run_case(output, name, library, body, members, token, diagnostic, cwd=None):
     (project / 'Case.sol').write_text(source)
     extra = '' if name.startswith('flag-off') else ', linkedLibrariesMatchSource := true'
     guard = ''
-    if name == 'homonymous-file-udvt-clean':
+    if with_guard and name in GUARD_CASES:
+        call_args, expected_root = GUARD_CASES[name]
+        args_lit = '[' + ', '.join(str(x) for x in call_args) + ']'
         guard = (
             'import Compiler.SolidityImport.Differential\n'
             '#guard match tested.model.functions.find? (·.name == "f") with\n'
@@ -187,8 +348,8 @@ def run_case(output, name, library, body, members, token, diagnostic, cwd=None):
             '  | some fn =>\n'
             '    let r := Compiler.CompilationModel.Denote.denoteFunction\n'
             '      Compiler.CompilationModel.SolidityImport.Differential.oracle tested.model fn\n'
-            '      { sender := 1, functionSelector := 0, args := [0x105, 10] } Verity.defaultState\n'
-            '    r.success && r.finalStorage 0 == 15\n')
+            f'      {{ sender := 1, functionSelector := 0, args := {args_lit} }} Verity.defaultState\n'
+            f'    r.success && r.finalStorage 0 == {expected_root}\n')
     driver = project / 'Check.lean'
     driver.write_text('import Compiler.SolidityImport.Import\n'
         + ('import Compiler.SolidityImport.Differential\n' if guard else '') +
@@ -223,7 +384,7 @@ def suite(output, cwd=None):
 
 
 def mutant(output, name):
-    from .mutations import snapshot
+    from .mutations import release, snapshot
     anchor, replacement, must_admit = MUTANTS[name]
     directory = output / 'snapshot'
     snapshot(directory)
@@ -239,7 +400,7 @@ def mutant(output, name):
     for case, library, body, members, _token, _diagnostic in CASES:
         if case in must_admit:
             ok, _ = run_case(output / 'admitted', case, library, body, members, None, None,
-                             cwd=directory)
+                             cwd=directory, with_guard=False)
             admitted.append({'case': case, 'admitted': ok})
     write_json(output / 'admitted.json', admitted)
     if len(admitted) != len(must_admit) or not all(row['admitted'] for row in admitted):
@@ -252,6 +413,7 @@ def mutant(output, name):
     (output / 'mutated.log').write_text(check.stdout + check.stderr)
     if check.returncode == 0:
         raise HarnessError(f'{name} mutant survived the rejection suite')
+    release(directory)
     write_json(output / 'complete.json', {'exit': 0, 'mutant': name, 'detected': True})
 
 
