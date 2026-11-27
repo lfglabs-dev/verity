@@ -844,6 +844,46 @@ contract C {
     }
 }
 ''', ['run(«Elem[]»,bool)'], expect='same-rejection'),
+    inline('encoding-storage-enum-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _readMode() internal view returns (Mode) {
+        return box.m;
+    }
+
+    function run(bool c, uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(c ? _readMode() : Mode.Alpha, 10 / x));
+    }
+}
+''', ['run(bool,uint256)'], expect='same-rejection'),
+    inline('encoding-memory-signature-before-memory-write', '''contract C {
+    uint256 private slot0;
+
+    function _overwriteBytes(bytes memory b) internal view returns (uint256) {
+        uint256 ok;
+        assembly {
+            mstore(0x00, "g(uint256)")
+            ok := staticcall(gas(), 4, 0x00, 10, add(b, 0x20), mload(b))
+        }
+        return ok + slot0;
+    }
+
+    function run(bool c) external view returns (bytes4) {
+        bytes memory b = abi.encodePacked("f(uint256)");
+        return bytes4(abi.encodeWithSignature(string(b), c ? _overwriteBytes(b) : 0));
+    }
+}
+''', ['run(bool)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry

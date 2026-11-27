@@ -193,4 +193,38 @@ contract EncodingScalarUnorderedOrderRejects {
         Elem memory e = xs[0];
         emit IndexedAfterData(tag, c ? _writeElem(e, 9) : 0, e.a);
     }
+
+    // Storage dynamic array of enums for ordered IndexAccess rejection below.
+    // solc validates `modeArr[0]` (`Panic(0x21)`) while ABI-encoding after `y = 10 / x` (`Panic(0x12)`).
+    //
+    //
+    Mode[] internal modeArr;
+
+    function _readEnumStored() internal view returns (Mode) {
+        return enumStored.m;
+    }
+
+    function _overwriteBytesViaIdentity(bytes memory b) internal view returns (uint256) {
+        uint256 ok;
+        assembly {
+            mstore(0x00, "g(uint256)")
+            ok := staticcall(gas(), 4, 0x00, 10, add(b, 0x20), mload(b))
+        }
+        return ok;
+    }
+
+    function enumStorageHelperBeforePanic(bool c, uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(c ? _readEnumStored() : Mode.Alpha, 10 / x));
+    }
+
+    function enumStorageOrderedIndexBeforePanic(uint256 x) external view returns (bytes32) {
+        // Ordered abi.encode via scalar assignment sibling `y = 10 / x`.
+        uint256 y;
+        return keccak256(abi.encode(modeArr[0], y = 10 / x));
+    }
+
+    function memorySignatureBeforeMemoryWrite(bool c) external view returns (bytes4) {
+        bytes memory b = abi.encodePacked("f(uint256)");
+        return bytes4(abi.encodeWithSignature(string(b), c ? _overwriteBytesViaIdentity(b) : 0));
+    }
 }

@@ -6922,6 +6922,55 @@ private partial def revertingConcatIn (env : Env) (seen : List Nat) (j : Json) :
 /-- Restrict the entire argument tree, not merely its outer cast. This keeps
 custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
 private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M Unit := do
+  -- Whether `node` or an internal function/operator it calls reads a storage `enum`
+  -- (`storageEnumRead` panics with `0x21` at read time, whereas solc only masks `0xff`
+  -- until an explicit cast, comparison or ABI encoding validates `< memberCount`).
+  let rec storageEnumReadIn (env : Env) (seen : List Nat) (node : Json) : Bool :=
+    let nodeTy (n : Json) : String :=
+      ((field? n "typeDescriptions").bind (optStr · "typeString")).getD ""
+    let bodyHas (fid : Nat) : Bool :=
+      !seen.contains fid &&
+        ((env.funs.find? fid).bind (field? · "body")).any (storageEnumReadIn env (fid :: seen))
+    match node with
+    | .arr xs => xs.any (storageEnumReadIn env seen)
+    | .obj o =>
+        let kind := optStr node "nodeType"
+        let ty := nodeTy node
+        let own :=
+          if kind == some "Identifier" && ty.startsWith "enum " then
+            ((field? node "referencedDeclaration").bind (·.getInt?.toOption)).any fun id =>
+              id >= 0 && env.stateVars.contains id.toNat
+          else if kind == some "MemberAccess" && ty.startsWith "enum " then
+            let baseTy := nodeTy ((field? node "expression").getD Json.null)
+            (baseTy.splitOn " storage").length > 1
+          else if kind == some "IndexAccess" && ty.startsWith "enum " then
+            let baseTy := nodeTy ((field? node "baseExpression").getD Json.null)
+            baseTy.startsWith "mapping(" || (baseTy.splitOn " storage").length > 1
+          else if kind == some "FunctionCall" && optStr node "kind" == some "functionCall" then
+            let callee := (field? node "expression").getD Json.null
+            match (field? callee "referencedDeclaration").bind (·.getInt?.toOption) with
+            | some id =>
+                if id >= 0 then
+                  if let some ptr := env.fnPtrs.find? id.toNat then
+                    match ptr with
+                    | .direct fid => bodyHas fid
+                    | .branch _ tFid fFid => bodyHas tFid || bodyHas fFid
+                  else
+                    match effectCallTarget? env seen callee id.toNat with
+                    | some targetId => bodyHas targetId
+                    | none => true
+                else false
+            | none => false
+          else if kind == some "UnaryOperation" || kind == some "BinaryOperation" then
+            match (field? node "function").bind (·.getNat?.toOption) with
+            | some natId =>
+                bodyHas (resolveInContracts env env.linearizedBases.toList natId |>.getD natId)
+            | none => false
+          else false
+        own || o.foldl (fun found _ child => found || storageEnumReadIn env seen child) false
+    | _ => false
+  let fnHasStorageEnumRead (env : Env) (fnId : Nat) : Bool :=
+    ((env.funs.find? fnId).bind (field? · "body")).any (storageEnumReadIn env [fnId])
   match ← mKind j with
   | "Identifier" | "Literal" => pure ()
   | "TupleExpression" =>
@@ -6934,8 +6983,10 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
       checkEncodingScalar components[0]! ordered
   | "IndexAccess" =>
       -- A value read through mapping keys / array indexes. Outside an ordered `abi.encode`
-      -- it would be read while encoding rather than at its position.
-      unless ordered do failAt j "effectful ABI encoding argument is unsupported"
+      -- it would be read while encoding rather than at its position; a storage `enum` element
+      -- is validated by solc only while ABI-encoding even in an ordered argument list.
+      unless ordered && !(← mType j).startsWith "enum " do
+        failAt j "effectful ABI encoding argument is unsupported"
       checkEncodingIndexedTarget j
   | "Assignment" =>
       -- `x = v` (scalar local or storage identifier) in an ordered `abi.encode`: both solc
@@ -6970,7 +7021,7 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
           failAt j "effectful ABI encoding argument is unsupported"
         let env ← get
         let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
-        if fnHasCustomRevert env targetId then
+        if fnHasCustomRevert env targetId || fnHasStorageEnumRead env targetId then
           failAt j "effectful ABI encoding argument is unsupported"
         checkEncodingScalar (← mField j "subExpression") ordered
       else
@@ -6981,7 +7032,7 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
       if let some natId := (field? j "function").bind (fun v => v.getNat?.toOption) then
         let env ← get
         let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
-        if fnHasCustomRevert env targetId then
+        if fnHasCustomRevert env targetId || fnHasStorageEnumRead env targetId then
           failAt j "effectful ABI encoding argument is unsupported"
         checkEncodingScalar (← mField j "leftExpression") ordered
         checkEncodingScalar (← mField j "rightExpression") ordered
@@ -7052,6 +7103,8 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
                 (·.startsWith "t_function_internal_") &&
               ((env.funs.find? targetId).bind (field? · "body")).any (!·.isNull)
             if fnHasCustomRevert env targetId && !internalHelper then
+              failAt j "effectful ABI encoding argument is unsupported"
+            if fnHasStorageEnumRead env targetId then
               failAt j "effectful ABI encoding argument is unsupported"
             if (← mKind callee) == "MemberAccess" then
               let base ← mField callee "expression"
@@ -8927,6 +8980,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         let laterTy ← mType later
         unless (paramType laterTy).isSome && (← orderInert later) do
           failAt sigNode "storage bytes/string encoding argument before a sibling that can revert or write is unsupported"
+    if (sigTy == "string" || sigTy == "string memory") &&
+        restArgs.any (memoryWriteIn · (← get)) then
+      failAt sigNode "memory bytes/string ABI encoding argument before a memory-writing sibling is unsupported"
     let sigBuf ← lowerEncodedBytes sigNode
     let selPtr ← fresh
     let selFinish ← fresh

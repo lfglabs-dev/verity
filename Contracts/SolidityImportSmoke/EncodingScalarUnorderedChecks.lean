@@ -62,6 +62,12 @@ solidity_import posViaIr0834 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
   using viaIr0834
   contract EncodingScalarUnorderedOrderRejects
+  function calldataStructBeforeInert(NarrowPair,uint256)
+  function panicBeforeCalldataStruct(NarrowPair,uint256)
+  function unguardedCalldataStructBeforePanic(FullPair,uint256)
+  function storageSignatureBeforeInert(uint256)
+  function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
+  function storageArrayBeforeInert(uint256)
   function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
   function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
 
@@ -69,6 +75,12 @@ solidity_import posLegacy0834 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
   using legacy0834
   contract EncodingScalarUnorderedOrderRejects
+  function calldataStructBeforeInert(NarrowPair,uint256)
+  function panicBeforeCalldataStruct(NarrowPair,uint256)
+  function unguardedCalldataStructBeforePanic(FullPair,uint256)
+  function storageSignatureBeforeInert(uint256)
+  function calldataStructBeforeCalldataMember(NarrowPair,NarrowPair)
+  function storageArrayBeforeInert(uint256)
   function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
   function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
 
@@ -106,27 +118,26 @@ private def observePos (m : CompilationModel) (name : String) (args : List Nat) 
   let r := denoteFunction oracle m fn { sender := 0x1234, functionSelector := 0, args } Verity.defaultState
   return (r.success, r.revertData, if r.returnWords.isEmpty then r.returnValue.toList else r.returnWords)
 
--- Positive-control runtime denotation checks on 0.8.34 and 0.8.38 (via-IR and legacy):
+-- Positive-control runtime denotation checks across all four pinned profiles (0.8.34 & 0.8.38, via-IR & legacy):
 -- 1. `panicBeforeCalldataStruct` and `unguardedCalldataStructBeforePanic` hit `Panic(0x12)` at `x = 0`.
-#guard observePos posViaIr0838.model "panicBeforeCalldataStruct" [5, 7, 0] ==
-  some (false, some (panicBytes 0x12), [])
-#guard observePos posLegacy0838.model "panicBeforeCalldataStruct" [5, 7, 0] ==
-  some (false, some (panicBytes 0x12), [])
-#guard observePos posViaIr0838.model "unguardedCalldataStructBeforePanic" [5, 7, 0] ==
-  some (false, some (panicBytes 0x12), [])
-#guard observePos posLegacy0838.model "unguardedCalldataStructBeforePanic" [5, 7, 0] ==
-  some (false, some (panicBytes 0x12), [])
+#guard [posViaIr0834.model, posLegacy0834.model, posViaIr0838.model, posLegacy0838.model].all fun m =>
+  observePos m "panicBeforeCalldataStruct" [5, 7, 0] == some (false, some (panicBytes 0x12), []) &&
+  observePos m "unguardedCalldataStructBeforePanic" [5, 7, 0] == some (false, some (panicBytes 0x12), [])
 
 -- 2. `calldataStructBeforeInert`, `storageSignatureBeforeInert`, `calldataStructBeforeCalldataMember`,
--- and `storageArrayBeforeInert` succeed and agree across 0.8.38 via-IR and legacy.
-#guard let b := observePos posViaIr0838.model "calldataStructBeforeInert" [5, 7, 0]
-  b.any (·.1) && observePos posLegacy0838.model "calldataStructBeforeInert" [5, 7, 0] == b
-#guard let b := observePos posViaIr0838.model "storageSignatureBeforeInert" [0]
-  b.any (·.1) && observePos posLegacy0838.model "storageSignatureBeforeInert" [0] == b
-#guard let b := observePos posViaIr0838.model "calldataStructBeforeCalldataMember" [5, 7, 0, 8]
-  b.any (·.1) && observePos posLegacy0838.model "calldataStructBeforeCalldataMember" [5, 7, 0, 8] == b
-#guard let b := observePos posViaIr0838.model "storageArrayBeforeInert" [0]
-  b.any (·.1) && observePos posLegacy0838.model "storageArrayBeforeInert" [0] == b
+-- and `storageArrayBeforeInert` succeed and agree across all four pinned profiles.
+#guard let b := observePos posViaIr0834.model "calldataStructBeforeInert" [5, 7, 0]
+  b.any (·.1) && [posLegacy0834.model, posViaIr0838.model, posLegacy0838.model].all fun m =>
+    observePos m "calldataStructBeforeInert" [5, 7, 0] == b
+#guard let b := observePos posViaIr0834.model "storageSignatureBeforeInert" [0]
+  b.any (·.1) && [posLegacy0834.model, posViaIr0838.model, posLegacy0838.model].all fun m =>
+    observePos m "storageSignatureBeforeInert" [0] == b
+#guard let b := observePos posViaIr0834.model "calldataStructBeforeCalldataMember" [5, 7, 0, 8]
+  b.any (·.1) && [posLegacy0834.model, posViaIr0838.model, posLegacy0838.model].all fun m =>
+    observePos m "calldataStructBeforeCalldataMember" [5, 7, 0, 8] == b
+#guard let b := observePos posViaIr0834.model "storageArrayBeforeInert" [0]
+  b.any (·.1) && [posLegacy0834.model, posViaIr0838.model, posLegacy0838.model].all fun m =>
+    observePos m "storageArrayBeforeInert" [0] == b
 
 -- 3. `scalarReadBeforeMemoryWriteStatic` and `scalarReadBeforeMemoryWriteDynamic` on `xs = [Elem(1)]`
 -- (`[32, 1, 1]`) evaluate `e.a == 1` (`true`) before `_writeElem(e, 9)` (`e.a = 9`) across all four
@@ -480,5 +491,41 @@ solidity_import rejEmitDataMemWriteBeforeTopic from "Contracts/SolidityImportSmo
   using viaIr0838
   contract EncodingScalarUnorderedOrderRejects
   function emitDataMemoryWriteBeforeTopic(bytes,«Elem[]»,bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:217:41: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.enumStorageHelperBeforePanic
+_readEnumStored()
+-/
+#guard_msgs in
+solidity_import rejEnumStorageHelperBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function enumStorageHelperBeforePanic(bool,uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:223:37: IndexAccess: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.enumStorageOrderedIndexBeforePanic
+modeArr[0]
+-/
+#guard_msgs in
+solidity_import rejEnumStorageOrderedIndexBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function enumStorageOrderedIndexBeforePanic(uint256)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:228:47: FunctionCall: [solidity-import:unsupported] memory bytes/string ABI encoding argument before a memory-writing sibling is unsupported
+closure: EncodingScalarUnorderedOrderRejects.memorySignatureBeforeMemoryWrite
+string(b)
+-/
+#guard_msgs in
+solidity_import rejMemorySignatureBeforeMemWrite from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function memorySignatureBeforeMemoryWrite(bool)
 
 end SolidityImportSmoke.EncodingScalarUnorderedChecks
