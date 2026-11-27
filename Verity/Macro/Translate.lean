@@ -5318,7 +5318,8 @@ private def mkSpecCommand
     (translationImmutableDecls : Array ImmutableDecl := immutableDecls)
     (translationExternalDecls : Array ExternalDecl := externalDecls)
     (translationFunctions : Array FunctionDecl := functions)
-    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM Cmd := do
+    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls)
+    (strictCalls : Bool := false) : CommandElabM Cmd := do
   let immutableTerms ← immutableDecls.mapM fun imm => do
     let tyTerm ← modelParamTypeTerm imm.ty
     let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
@@ -5493,6 +5494,7 @@ private def mkSpecCommand
   let namespaceTerm ← match storageNamespace with
     | some ns => `(some $(natTerm ns))
     | none => `(none)
+  let strictCallsTerm ← if strictCalls then `(true) else `(false)
   `(command| def $specIdent : Compiler.CompilationModel.CompilationModel := {
     name := $(strTerm contractName)
     fields := [ $[$fieldTerms],* ]
@@ -5505,6 +5507,7 @@ private def mkSpecCommand
     «externals» := [ $[$externalTerms],* ]
     adtTypes := [ $[$adtTypeTerms],* ]
     storageNamespace := $namespaceTerm
+    strictCalls := $strictCallsTerm
   })
 
 private def mkFindIdxFieldSimpCommands
@@ -5682,6 +5685,9 @@ structure ParsedContractSyntax where
   modifiers : Array ModifierDecl
   functions : Array FunctionDecl
   storageNamespace : Option Nat
+  /-- `strict_calls`: no callee failure may be swallowed. Inherited: a contract is
+      strict when it or any `is` ancestor declares it. -/
+  strictCalls : Bool := false
   isMixin : Bool := false
   includes : Array Ident := #[]
   resolvedIncludes : Array Name := #[]
@@ -6118,6 +6124,7 @@ private def flattenSingleInheritance
       if !parent.fields.isEmpty then parent.storageNamespace
       else if !child.fields.isEmpty then child.storageNamespace
       else child.storageNamespace.orElse (fun _ => parent.storageNamespace)
+    strictCalls := parent.strictCalls || child.strictCalls
   }
 
 private def inlineModifierPrefixes
@@ -6522,6 +6529,7 @@ private def mergeSiblingParents
       storageNamespace :=
         if !acc.fields.isEmpty then acc.storageNamespace
         else parsed.storageNamespace
+      strictCalls := acc.strictCalls || parsed.strictCalls
     }
   pure {
     acc with
@@ -6727,7 +6735,7 @@ partial def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident $[is $[$parentNames:ident],*]? $[include $[$includeNames:ident],*]? where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_contracts $[$linkedDecls:verityLinkedContract]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident $[is $[$parentNames:ident],*]? $[include $[$includeNames:ident],*]? where $[strict_calls%$strictTk]? $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_contracts $[$linkedDecls:verityLinkedContract]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       let includeIdents : Array Ident :=
         match includeNames with
         | some ids => ids
@@ -7047,6 +7055,7 @@ partial def parseContractSyntax
         modifiers := parsedModifiers
         functions := parsedFunctions
         storageNamespace := firstNamespaceOpt
+        strictCalls := strictTk.isSome
       }
       if resolvedParents.size == 0 then
         if includeIdents.isEmpty then
@@ -8188,8 +8197,9 @@ def mkSpecCommandPublic
     (translationImmutableDecls : Array ImmutableDecl := immutableDecls)
     (translationExternalDecls : Array ExternalDecl := externalDecls)
     (translationFunctions : Array FunctionDecl := functions)
-    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM Cmd :=
-  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specIdent translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls
+    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls)
+    (strictCalls : Bool := false) : CommandElabM Cmd :=
+  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specIdent translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls strictCalls
 
 def mkFindIdxFieldSimpCommandsPublic
     (contractIdent : Ident)

@@ -158,6 +158,15 @@ inductive ByteTransport where
   | yulMemoryDelegateCall (resultVar : String)
   deriving DecidableEq, Repr
 
+/-- What a module's compiled Yul does when the callee fails. -/
+inductive FailureMode where
+  /-- The call reverts (with `failurePayload`). -/
+  | revert
+  /-- The call binds a zero success flag or result and continues; the failure is the
+      caller's to check. -/
+  | bindZero
+  deriving DecidableEq, Repr, Inhabited
+
 /-- An External Call Module packages a reusable external call pattern.
     Module authors provide the compilation logic; the compiler provides
     the generic framework for validation, compilation, and verification. -/
@@ -237,6 +246,12 @@ structure ExternalCallModule where
       `targetArg = none`; `none` keeps target 0. -/
   fixedTarget : Option Nat := none
 
+  /-- What the compiled Yul does when the callee fails: revert (`.revert`, the
+      default) or bind 0 and continue (`.bindZero`, the flag-returning yulMemory and
+      canonical try/low-level modules). A `strict_calls` contract rejects `.bindZero`
+      modules. -/
+  onFailure : FailureMode := .revert
+
 instance : BEq ExternalCallModule where
   beq a b :=
     (a.numArgs == b.numArgs) &&
@@ -253,7 +268,8 @@ instance : BEq ExternalCallModule where
     ((a.targetArg == b.targetArg) &&
     ((a.valueArg == b.valueArg) &&
     ((a.failurePayload == b.failurePayload) &&
-    (a.fixedTarget == b.fixedTarget))))))))))))))
+    ((a.fixedTarget == b.fixedTarget) &&
+    (a.onFailure == b.onFailure)))))))))))))))
 
 instance : Repr ExternalCallModule where
   reprPrec m _ := s!"ECM[{m.name}]"
@@ -913,6 +929,7 @@ def compile (isStatic : Bool) (resultVar : String) (args : List YulExpr) :
 
 def module (isStatic : Bool) (resultVar : String) : ExternalCallModule where
   name := if isStatic then "yulMemoryStaticCall" else "yulMemoryCall"
+  onFailure := .bindZero -- binds the success flag; nothing reverts by itself
   numArgs := 5
   resultVars := [resultVar]
   writesState := !isStatic
@@ -943,6 +960,7 @@ def compile (resultVar : String) (args : List YulExpr) : Except String (List Yul
 
 def module (resultVar : String) : ExternalCallModule where
   name := "yulMemoryValueCall"
+  onFailure := .bindZero -- binds the success flag; nothing reverts by itself
   numArgs := 6
   resultVars := [resultVar]
   writesState := true
@@ -975,6 +993,7 @@ def compile (resultVar : String) (args : List YulExpr) :
 
 def module (resultVar : String) : ExternalCallModule where
   name := "yulMemoryDelegateCall"
+  onFailure := .bindZero -- binds the success flag; nothing reverts by itself
   numArgs := 5
   resultVars := [resultVar]
   writesState := true
