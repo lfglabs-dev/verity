@@ -47,7 +47,9 @@ SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True,
 ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "TransientStructuredAssemblySequence.sol"'
 ROOTS = ['lockedProbe(address,bytes)', 'renamedProbe(address,bytes)', 'guardedCall(address,bytes)',
          'guardedCallReturn(address,uint256,bytes)', 'queueSum(uint256,uint256)',
-         'queueAt(uint256)', 'queueRevert(uint256)', 'state()']
+         'queueAt(uint256)', 'queueRevert(uint256)', 'state()',
+         'unmaskedWriteAndRead(uint256,uint256)']
+QUEUE_BASE = int.from_bytes(keccak(text='verity.fixture.transient.queue'), 'big')
 
 
 def address(nonce):
@@ -84,6 +86,8 @@ def transactions_for(count, seed, caller, responders):
     for index in [0, 1, 255, 256, 2 ** 256 - 1]:
         add('queueAt(uint256)', ['uint256'], [index])
     add('queueRevert(uint256)', ['uint256'], [9])
+    add('unmaskedWriteAndRead(uint256,uint256)', ['uint256', 'uint256'], [5, 77])
+    add('unmaskedWriteAndRead(uint256,uint256)', ['uint256', 'uint256'], [2 ** 256 - QUEUE_BASE, 2])
     add('state()', [], [])
     while len(calls) < count:
         choice = rng.randrange(8)

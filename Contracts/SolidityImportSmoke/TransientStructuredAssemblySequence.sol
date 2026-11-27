@@ -207,11 +207,12 @@ contract TransientStructuredAssemblySequence {
 
     // ---- Negative controls: each fails closed at its block. ----
 
-    /// `add(B, i)` wraps modulo 2^256: i = 2^256 - B writes the flag at slot 0.
-    function badUnmaskedIndex(uint256 index, uint256 key) external {
-        _locked = true;
+    /// Unmasked full-word index `add(B, index)` (agrees across legacy, via-IR and Denote even on wrap).
+    function unmaskedWriteAndRead(uint256 index, uint256 key) external returns (uint256 word, bool locked) {
         bytes32 base = QUEUE_BASE;
         assembly ("memory-safe") { tstore(add(base, index), key) }
+        assembly ("memory-safe") { word := tload(add(base, index)) }
+        locked = _locked;
     }
 
     /// A narrow index local may carry high bits the legacy pipeline does not clean.

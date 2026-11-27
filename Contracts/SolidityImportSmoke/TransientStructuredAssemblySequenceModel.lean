@@ -19,6 +19,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "TransientSt
   function queueAt(uint256)
   function queueRevert(uint256)
   function state()
+  function unmaskedWriteAndRead(uint256,uint256)
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
 end SolidityImportSmoke.TransientStructuredAssemblySequenceModel

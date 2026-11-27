@@ -27,6 +27,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "ValueCallSe
   function forward(address,uint256,bytes)
   function probe(address,uint256)
   function sendViaHelper(address,uint256)
+  function sendValueAndLog(address,uint256)
   function read()
 
 private def self : Nat := 0xc0de
@@ -122,6 +123,11 @@ private def failedCall : List UInt8 := [0xd6, 0xbd, 0xa2, 0x75]
 #guard observe "sendViaHelper" [echo, 7] == some (true, [], 993, 3, 7, 0)
 #guard observe "sendViaHelper" [failing, 7] == some (false, failedCall, 1000, 0, 0, 0)
 
+-- Post-value-call storage update and log succeed on funded calls and roll back on failure.
+#guard observe "sendValueAndLog" [echo, 7] == some (true, [], 993, 7, 7, 0)
+#guard observe "sendValueAndLog" [failing, 7] == some (false, failedCall, 1000, 0, 0, 0)
+#guard observe "sendValueAndLog" [echo, 2000] == some (false, failedCall, 1000, 0, 0, 0)
+
 -- Every call is the closed value-transferring memory call.
 private partial def valueCalls : List Stmt → Nat
   | [] => 0
@@ -130,7 +136,7 @@ private partial def valueCalls : List Stmt → Nat
   | .ite _ yes no :: rest => valueCalls yes + valueCalls no + valueCalls rest
   | _ :: rest => valueCalls rest
 
-#guard ["execute", "sendValue", "forward", "probe", "sendViaHelper"].all fun name =>
+#guard ["execute", "sendValue", "forward", "probe", "sendViaHelper", "sendValueAndLog"].all fun name =>
   (imported.model.functions.find? (·.name == name)).any (valueCalls ·.body == 1)
 
 end SolidityImportSmoke.ValueCallChecks

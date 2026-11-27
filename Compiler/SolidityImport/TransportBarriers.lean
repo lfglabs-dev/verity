@@ -47,11 +47,18 @@ def isClosedValueFreeLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool
   | some (.yulMemoryCall false resultVar) => mod == Compiler.ECM.YulMemoryCall.module false resultVar
   | _ => false
 
-/-- The closed optional-bool low-level call transport emitted by the importer. -/
-def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+/-- Closed `CALL` transports (value-free or value-bearing) emitted by the importer
+(excludes `YulMemoryDelegateCall`, which stays trailing-only). -/
+def isClosedCallTransport (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   isClosedValueFreeLowLevelCall mod ||
     match mod.byteTransport with
     | some (.yulMemoryValueCall resultVar) => mod == Compiler.ECM.YulMemoryValueCall.module resultVar
+    | _ => false
+
+/-- The closed optional-bool low-level call transport emitted by the importer. -/
+def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  isClosedCallTransport mod ||
+    match mod.byteTransport with
     | some (.yulMemoryDelegateCall resultVar) => mod == Compiler.ECM.YulMemoryDelegateCall.module resultVar
     | _ => false
 
@@ -384,13 +391,13 @@ def onlySelfDelegateLoopCEIClean (body : List Stmt) : Bool :=
     onlyTrailingCallReentrancyWindows body &&
     (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedSelfDelegateCalls) false).isNone
 
-/-- `eraseClosedTransports`, and additionally replace each closed value-free low-level `CALL`
-by its zero-initialised result binding. Value-bearing `YulMemoryValueCall` and
-`YulMemoryDelegateCall` stay unerased so they remain trailing-only. What remains after erasure
-is every interaction not admitted for post-CALL state access. -/
+/-- `eraseClosedTransports`, and additionally replace each closed `CALL` transport
+(value-free or value-bearing `YulMemoryValueCall`) by its zero-initialised result binding.
+`YulMemoryDelegateCall` stays unerased so self-delegatecall remains trailing-only. What remains
+after erasure is every interaction not admitted for post-CALL state access. -/
 partial def eraseClosedInteractions : Stmt → Stmt
   | .ecm mod args =>
-      if isClosedValueFreeLowLevelCall mod then .letVar (mod.resultVars.headD "") (.literal 0)
+      if isClosedCallTransport mod then .letVar (mod.resultVars.headD "") (.literal 0)
       else eraseClosedTransports (.ecm mod args)
   | .ite cond yes no => .ite cond (yes.map eraseClosedInteractions) (no.map eraseClosedInteractions)
   | .forEach name count body => .forEach name count (body.map eraseClosedInteractions)
@@ -405,12 +412,12 @@ partial def eraseClosedInteractions : Stmt → Stmt
   | statement => eraseClosedTransports statement
 
 /-- A body that makes a closed low-level `CALL` and whose every CEI barrier and
-reentrancy window is a closed value-free transport. Storage reads, storage writes and logs may
-follow the call: Denote runs them against the world the callee's response committed
-(`ByteExternalCall.Response.commit`), which an unconstrained adversary chooses freely,
-including by re-entering this contract, so admission assumes nothing about the callee.
-Any interaction that is not a closed value-free transport (including `YulMemoryValueCall` and
-`YulMemoryDelegateCall`) keeps the body out. -/
+reentrancy window is a closed `CALL` or read-only/log transport. Storage reads, storage writes
+and logs may follow the call: Denote runs them against the world the callee's response committed
+(`ByteExternalCall.Response.commit`, with value debit/refund for `YulMemoryValueCall`), which
+an unconstrained adversary chooses freely, including by re-entering this contract, so admission
+assumes nothing about the callee. Any interaction that is not a closed `CALL` transport
+(including `YulMemoryDelegateCall`) keeps the body out. -/
 def onlyClosedCallStateWindows (body : List Stmt) : Bool :=
   let erased := body.map eraseClosedInteractions
   body.any stmtContainsClosedLowLevelCall &&

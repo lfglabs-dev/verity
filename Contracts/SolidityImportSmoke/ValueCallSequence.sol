@@ -7,6 +7,7 @@ pragma solidity 0.8.34;
 /// nothing reverts by itself. State is written before each call, so every call is trailing.
 contract EthSender {
     error FailedCall();
+    event ValueSent(address indexed recipient, uint256 amount);
 
     uint256 private sent;
 
@@ -56,6 +57,14 @@ contract EthSender {
     function _send(address payable to, uint256 amount) private {
         (bool ok, ) = to.call{value: amount}("");
         if (!ok) revert FailedCall();
+    }
+
+    /// Value transfer followed by a storage update and log (`onlyClosedCallStateWindows`).
+    function sendValueAndLog(address recipient, uint256 amount) external {
+        (bool ok, ) = payable(recipient).call{value: amount}(new bytes(0));
+        if (!ok) revert FailedCall();
+        sent += amount;
+        emit ValueSent(recipient, amount);
     }
 
     function read() external view returns (uint256) {

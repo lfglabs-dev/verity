@@ -16,6 +16,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "ValueCallSe
   function forward(address,uint256,bytes)
   function probe(address,uint256)
   function sendViaHelper(address,uint256)
+  function sendValueAndLog(address,uint256)
   function read()
   function contractBalance()
 def model : CompilationModel := imported.model
