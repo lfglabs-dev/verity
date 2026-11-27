@@ -16,9 +16,13 @@ everything else (functions, events, errors, externals, constructor, remaining fi
 render identically. If the probe would move or overlap an original variable, the case fails
 as unsound instead of being compared.
 
-Every non-control case must declare exactly one state variable in its base (counted from
-solc's AST the way the importer counts them, constants and immutables included), so the probe
-moves the count from 1 to 2. Lean prints each normalized model with its length, and a model
+Every non-control case must declare `base_count` state variables in its base (default 1,
+counted from solc's AST the way the importer counts them, constants and immutables included),
+so the probe moves the count from `base_count` to `base_count + 1` (`1 -> 2` across the
+`stateVars.size > 1` gates of #2830, or `0 -> 1` when `base_count=0` is set explicitly; note
+that the five separate `stateVars.isEmpty` 0-slot slice boundaries in `lowerInterfaceStaticCall`,
+`bindCallArgs`, `admittedRequireInterfaceCall?` and `lowerRoot` are locked by their own
+rejection suites outside #2830). Lean prints each normalized model with its length, and a model
 that does not arrive whole on one line is a harness error, as is a failing side without a
 `[solidity-import]` diagnostic.
 
@@ -348,8 +352,8 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
-    # Known discrepancies on main; see EXPECTED_DISCREPANCIES.
-    inline('known-encode-conditional', '''contract C {
+    # Conditional ABI encoding argument (#2830).
+    inline('encoding-conditional', '''contract C {
     uint256 private total;
 
     function hashChoice(uint256 x, bool c) external returns (bytes32) {
@@ -580,14 +584,485 @@ contract C {
     }
 }
 ''', ['run(uint256)'], expect='same-rejection'),
+    # Checked binary operations and conditionals in unordered `checkEncodingScalar` positions
+    # (#2830): the A/B/C fixture, dedicated binary and conditional sweeps across every unordered
+    # caller, and encoding-time validation sibling rejections.
+    fixture('fixture-encoding-scalar-unordered',
+            'Contracts/SolidityImportSmoke/EncodingScalarUnorderedSequence.sol',
+            'SequenceFixture', ['change(uint256)', 'fail()', 'read()']),
+    inline('encoding-scalar-binary-unordered', '''interface ITarget {
+    function accept(uint256 a, uint256 b) external;
+    function pair(uint256 a, uint256 b) external view returns (uint256, uint256);
+}
+
+contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    mapping(uint256 => mapping(uint256 => uint256)) private grid;
+
+    event Logged(bytes tag, uint256 value);
+
+    function _touch(uint256 k) internal returns (uint256) {
+        grid[k][0] += 1;
+        return grid[k][0];
+    }
+
+    function digest(address target, bytes calldata b, uint256 x) external returns (uint256, bytes memory) {
+        bytes32 h1 = keccak256(abi.encode(x + 1, 10 / x));
+        bytes32 h2 = keccak256(abi.encode(b, x + 2));
+        bytes32 h3 = keccak256(abi.encodePacked(uint16(x + 3), bytes.concat(bytes32(x - 1))));
+        bytes32 h4 = keccak256(abi.encodeWithSelector(bytes4(uint32(x + 4)), x + 5));
+        bytes32 h5 = keccak256(abi.encodeWithSignature("accept(uint256,uint256)", x + 6, x - 1));
+        bytes32 h6 = keccak256(abi.encodeCall(ITarget.accept, (x + 7, x - 1)));
+        bytes32 h7 = keccak256(abi.encode(Pair(uint8(x % 200) + uint8(1), x + 8)));
+        bytes32 h8 = keccak256(abi.encode(grid[x + 1][x - 1], _touch(x)));
+        (uint256 p, uint256 q) = ITarget(target).pair(x + 9, x - 1);
+        emit Logged(b, x + 10);
+        return (uint256(h1 ^ h2 ^ h3 ^ h4 ^ h5 ^ h6 ^ h7 ^ h8) ^ p ^ q, b);
+    }
+}
+''', ['digest(address,bytes,uint256)']),
+    inline('encoding-scalar-conditional-unordered', '''interface ITarget {
+    function accept(uint256 a, uint256 b) external;
+    function pair(uint256 a, uint256 b) external view returns (uint256, uint256);
+}
+
+contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    mapping(uint256 => mapping(uint256 => uint256)) private grid;
+
+    event Logged(bytes tag, uint256 value);
+
+    function _touch(uint256 k) internal returns (uint256) {
+        grid[k][0] += 1;
+        return grid[k][0];
+    }
+
+    function digest(address target, bytes calldata b, bool c, uint256 x) external returns (uint256, bytes memory) {
+        bytes32 h1 = keccak256(abi.encode(c ? x : uint256(1), c ? uint256(2) : x));
+        bytes32 h2 = keccak256(abi.encode(b, c ? x : uint256(3)));
+        bytes32 h3 = keccak256(abi.encodePacked(c ? uint16(x) : uint16(4), bytes.concat(c ? bytes4(0x11223344) : bytes4(0x55667788))));
+        bytes32 h4 = keccak256(abi.encodeWithSelector(c ? bytes4(0x12345678) : bytes4(0x87654321), c ? x : uint256(5)));
+        bytes32 h5 = keccak256(abi.encodeWithSignature("accept(uint256,uint256)", c ? x : uint256(6), uint256(7)));
+        bytes32 h6 = keccak256(abi.encodeCall(ITarget.accept, (c ? x : uint256(8), uint256(9))));
+        bytes32 h7 = keccak256(abi.encode(Pair(c ? uint8(1) : uint8(2), c ? x : uint256(10))));
+        bytes32 h8 = keccak256(abi.encode(grid[c ? x : 1][c ? 2 : x], _touch(x)));
+        (uint256 p, uint256 q) = ITarget(target).pair(c ? x : uint256(11), uint256(12));
+        emit Logged(b, c ? x : uint256(13));
+        return (uint256(h1 ^ h2 ^ h3 ^ h4 ^ h5 ^ h6 ^ h7 ^ h8) ^ p ^ q, b);
+    }
+}
+''', ['digest(address,bytes,bool,uint256)']),
+    inline('encoding-calldata-static-struct-before-panic', '''contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    uint256 private total;
+
+    function run(Pair calldata p, uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(p, 10 / x + total));
+    }
+}
+''', ['run(Pair,uint256)'], expect='same-rejection'),
+    inline('encoding-storage-enum-before-panic', '''contract C {
+    enum Mode {
+        A,
+        B
+    }
+
+    struct EnumPair {
+        Mode m;
+        uint256 b;
+    }
+
+    EnumPair private s;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(s.m, 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-signature-before-panic', '''contract C {
+    string private sig;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(sig, 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-scalar-zero-to-one', '''interface ITarget {
+    function accept(uint256 a, uint256 b) external;
+}
+
+contract C {
+    struct Pair {
+        uint8 a;
+        uint256 b;
+    }
+
+    event Logged(bytes tag, uint256 value);
+
+    function digest(bytes calldata b, bool c, uint256 x) external returns (uint256, bytes memory) {
+        bytes32 h1 = keccak256(abi.encode(x + 1, c ? x : 10 / x));
+        bytes32 h2 = keccak256(abi.encode(b, c ? x + 2 : uint256(3)));
+        bytes32 h3 = keccak256(abi.encodePacked(uint16(x + 3), bytes.concat(c ? bytes4(0x11223344) : bytes4(uint32(x - 1)))));
+        bytes32 h4 = keccak256(abi.encodeWithSelector(c ? bytes4(0x12345678) : bytes4(uint32(x + 4)), x + 5));
+        bytes32 h5 = keccak256(abi.encodeWithSignature("accept(uint256,uint256)", x + 6, c ? uint256(7) : x - 1));
+        bytes32 h6 = keccak256(abi.encodeCall(ITarget.accept, (x + 7, c ? x - 1 : uint256(9))));
+        bytes32 h7 = keccak256(abi.encode(Pair(uint8(x % 200) + uint8(1), c ? x : uint256(10))));
+        emit Logged(b, c ? x + 10 : uint256(13));
+        return (uint256(h1 ^ h2 ^ h3 ^ h4 ^ h5 ^ h6 ^ h7), b);
+    }
+}
+''', ['digest(bytes,bool,uint256)'], base_count=0),
+    inline('encoding-enum-struct-before-calldata-member', '''contract C {
+    enum Mode {
+        A,
+        B
+    }
+
+    struct NarrowPair {
+        uint8 a;
+        uint256 b;
+    }
+
+    struct EnumPair {
+        Mode m;
+        uint256 b;
+    }
+
+    EnumPair private s;
+
+    function run(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encode(s, p.a == 0 ? 1 : 2));
+    }
+}
+''', ['run(NarrowPair)'], expect='same-rejection'),
+    inline('encoding-storage-signature-before-calldata-struct', '''contract C {
+    struct NarrowPair {
+        uint8 a;
+        uint256 b;
+    }
+
+    string private sig;
+
+    function run(NarrowPair calldata p) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(sig, p));
+    }
+}
+''', ['run(NarrowPair)'], expect='same-rejection'),
+    inline('encoding-storage-string-beside-enum-struct', '''contract C {
+    enum Mode {
+        A,
+        B
+    }
+
+    struct EnumPair {
+        Mode m;
+        uint256 b;
+    }
+
+    string private sig;
+    EnumPair private s;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(sig, s, x == 0 ? 1 : 2));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-array-before-panic', '''contract C {
+    uint256[] private arr;
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(arr, 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-string-before-storage-conditional', '''contract C {
+    mapping(uint256 => string) private sigs;
+
+    function run(bool c, uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(sigs[0], c ? sigs[1] : sigs[2], x == 0 ? 1 : 2));
+    }
+}
+''', ['run(bool,uint256)'], expect='same-rejection'),
+    inline('encoding-calldata-struct-before-memory-cond-storage', '''contract C {
+    struct NarrowPair {
+        uint8 a;
+        uint256 b;
+    }
+
+    string private sig;
+
+    function run(NarrowPair calldata p, bool c) external view returns (bytes32) {
+        return keccak256(abi.encode(p, c ? sig : "lit"));
+    }
+}
+''', ['run(NarrowPair,bool)'], expect='same-rejection'),
+    inline('encoding-scalar-memory-read-before-memory-write', '''contract C {
+    struct Elem {
+        uint256 a;
+    }
+
+    uint256 private slot0;
+
+    function _writeElem(Elem memory e, uint256 v) internal pure returns (uint256) {
+        e.a = v;
+        return v + 10;
+    }
+
+    function run(Elem[] memory xs, bool c) external view returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e.a == 1, c ? _writeElem(e, slot0 + 9) : 0));
+    }
+}
+''', ['run(«Elem[]»,bool)']),
+    inline('encoding-memory-struct-before-memory-write', '''contract C {
+    struct Elem {
+        uint256 a;
+    }
+
+    uint256 private slot0;
+
+    function _writeElem(Elem memory e, uint256 v) internal pure returns (uint256) {
+        e.a = v;
+        return v + 10;
+    }
+
+    function run(Elem[] memory xs, bool c) external view returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e, c ? _writeElem(e, slot0 + 9) : 0));
+    }
+}
+''', ['run(«Elem[]»,bool)'], expect='same-rejection'),
+    inline('encoding-storage-enum-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _readMode() internal view returns (Mode) {
+        return box.m;
+    }
+
+    function run(bool c, uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(c ? _readMode() : Mode.Alpha, 10 / x));
+    }
+}
+''', ['run(bool,uint256)'], expect='same-rejection'),
+    inline('encoding-memory-signature-before-memory-write', '''contract C {
+    uint256 private slot0;
+
+    function _overwriteBytes(bytes memory b) internal view returns (uint256) {
+        uint256 ok;
+        assembly {
+            mstore(0x00, "g(uint256)")
+            ok := staticcall(gas(), 4, 0x00, 10, add(b, 0x20), mload(b))
+        }
+        return ok + slot0;
+    }
+
+    function run(bool c) external view returns (bytes4) {
+        bytes memory b = abi.encodePacked("f(uint256)");
+        return bytes4(abi.encodeWithSignature(string(b), c ? _overwriteBytes(b) : 0));
+    }
+}
+''', ['run(bool)'], expect='same-rejection'),
+    inline('encoding-scalar-member-before-memory-write', '''contract C {
+    struct Elem {
+        uint256 a;
+    }
+
+    uint256 private slot0;
+
+    function _writeElem(Elem memory e, uint256 v) internal pure returns (uint256) {
+        e.a = v;
+        return v + 10;
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        Elem[] memory xs = new Elem[](1);
+        xs[0].a = slot0 + 1;
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e.a, x == 0 ? _writeElem(e, 9) : 0));
+    }
+}
+''', ['run(uint256)']),
+    inline('encoding-keccak-conditional-assign', '''contract C {
+    uint256 private slot0;
+
+    function run(bool c) external view returns (bytes32) {
+        uint256 y = 1;
+        return keccak256(abi.encodeWithSelector(bytes4(0x12345678), y, c ? keccak256((y = 2) > 0 ? bytes("a") : bytes("b")) : bytes32(slot0)));
+    }
+}
+''', ['run(bool)'], expect='same-rejection'),
+    inline('encoding-keccak-stateful-bytes-helper', '''contract C {
+    uint256 private slot0;
+
+    function _writeBytes() internal returns (bytes memory) {
+        slot0 = 9;
+        return "a";
+    }
+
+    function run(bool c) external returns (bytes32) {
+        return keccak256(abi.encode("tag", slot0, c ? keccak256(_writeBytes()) : bytes32(0)));
+    }
+}
+''', ['run(bool)'], expect='same-rejection'),
+    inline('encoding-storage-enum-fnptr-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _readMode() internal view returns (Mode) {
+        return box.m;
+    }
+
+    function _wrapMode() internal view returns (Mode) {
+        function () internal view returns (Mode) fp = _readMode;
+        return fp();
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        uint256 y;
+        return keccak256(abi.encode(_wrapMode(), y = 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-storage-enum-modified-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    modifier modArg(Mode m) {
+        Mode m2 = m;
+        m2;
+        _;
+    }
+
+    function _withMod() internal view modArg(box.m) returns (uint256) {
+        return 1;
+    }
+
+    function run(bool c, uint256 x) external view returns (bytes32) {
+        uint256 y;
+        return keccak256(abi.encode(c ? _withMod() : 0, y = 10 / x));
+    }
+}
+''', ['run(bool,uint256)'], expect='same-rejection'),
+    inline('encoding-packed-keccak-enum-bytes-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _bytesEnum() internal view returns (bytes memory) {
+        Mode m = box.m;
+        Mode m2 = m;
+        m2;
+        return "ab";
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodePacked(keccak256(_bytesEnum()), uint16(10 / x)));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-encode-enum-bytes-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _bytesEnum() internal view returns (bytes memory) {
+        Mode m = box.m;
+        Mode m2 = m;
+        m2;
+        return "ab";
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encode(_bytesEnum(), 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
+    inline('encoding-signature-enum-string-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _sigEnum() internal view returns (string memory) {
+        Mode m = box.m;
+        Mode m2 = m;
+        m2;
+        return "f(uint256)";
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        return keccak256(abi.encodeWithSignature(_sigEnum(), 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry
 # names the discrepancy kind the harness must observe on every listed profile.
-EXPECTED_DISCREPANCIES = {
-    # checkEncodingScalar: a conditional ABI encoding argument.
-    'known-encode-conditional': 'admission',
-}
+EXPECTED_DISCREPANCIES = {}
 
 # Self-tests of the harness itself; see the module docstring.
 CONTROLS = [
@@ -748,9 +1223,10 @@ def run_case(case, output, timeout):
             for name, text in case['files'].items():
                 (side / name).write_text(text)
     base_layout, (source_name, node), base_count = solc_layout(base_dir, case['entry'], case['contract'])
-    if 'expect' not in case and base_count != 1:
-        raise CaseFailure(f'base declares {base_count} state variables; the probe must move the count '
-                          'from 1 to 2 to cross the state-count gates')
+    expected_base_count = case.get('base_count', 1)
+    if 'expect' not in case and base_count != expected_base_count:
+        raise CaseFailure(f'base declares {base_count} state variables; expected {expected_base_count} '
+                          f'so the probe moves the count from {expected_base_count} to {expected_base_count + 1}')
     target = variant_dir / source_name
     text = insert_probe(target.read_text(), node, case.get('probe_at', 'end'))
     if 'variant_edit' in case:
