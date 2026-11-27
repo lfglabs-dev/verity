@@ -29,6 +29,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "LinkedLibra
   function nestedBytesAndStorage(bytes32,bytes,uint256,uint256,bytes1)
   function argOrderBytes(bytes,uint256,bytes1)
   function revertFromBytesLib(bytes32,bytes,uint8)
+  function inspectCode(bytes32,uint256,uint256)
   function total(bytes32)
   function last(bytes32)
   function calls(bytes32)

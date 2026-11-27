@@ -122,6 +122,41 @@ library LinkedPackLib {
         bytes1 oob = payload[payload.length];
         return abi.encodePacked(oob);
     }
+
+    function _codeTagInternal(address target, uint256 salt)
+        internal
+        view
+        returns (address echoed, uint256 tag)
+    {
+        echoed = target;
+        uint256 size;
+        assembly {
+            let raw := extcodesize(echoed)
+            let empty := iszero(raw)
+            size := raw
+            tag := or(shl(16, add(raw, salt)), empty)
+        }
+        if (size == 0) {
+            tag = tag | 0x100;
+        }
+    }
+
+    function probeCodeSize(address target) external view returns (uint256 size) {
+        assembly {
+            size := extcodesize(target)
+        }
+    }
+
+    function classifyAccountCode(address target, uint256 salt)
+        external
+        view
+        returns (uint256 size, uint256 tag)
+    {
+        (, tag) = _codeTagInternal(target, salt);
+        assembly {
+            size := add(size, extcodesize(target))
+        }
+    }
 }
 
 library LinkedCounterLib {
@@ -440,6 +475,17 @@ contract LinkedLibraryCallFixture {
         counters[key].calls += 1;
         bytes memory out = LinkedPackLib.failOnBytes(payload, kind);
         return out.length;
+    }
+
+    function inspectCode(bytes32 key, uint256 rawTarget, uint256 salt)
+        external
+        returns (uint256 directSize, uint256 helperSize, uint256 tag)
+    {
+        uint256 size = 9999;
+        address dirtyTarget = rawAddress(rawTarget);
+        directSize = LinkedPackLib.probeCodeSize(dirtyTarget);
+        (helperSize, tag) = LinkedPackLib.classifyAccountCode(dirtyTarget, salt);
+        packedWords[key] = (tag << 32) | (directSize << 16) | (helperSize + size - 9999);
     }
 
     function mainState() external view returns (uint256, uint256) {

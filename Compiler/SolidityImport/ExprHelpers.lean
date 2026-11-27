@@ -101,6 +101,14 @@ structure UnsupportedSink where
   /-- Declarations (id, name) bound by statements skipped in the current root. -/
   skippedDecls : IO.Ref (Array (Nat × String))
 
+/-- Lowered code-read target site awaiting whole-root self-address verification. -/
+structure CodeReadSite where
+  operand : Expr
+  node : Json
+  message : String
+  file : String
+  stack : List Nat
+
 structure Env where
   /-- Selected solc pipeline: eager operand order and raw narrow stack words can differ. -/
   viaIR : Bool := true
@@ -303,8 +311,8 @@ structure Env where
       another such binding. Code reads of them are rejected (`mayBeSelfAddress`). -/
   selfAddressBindings : Array String := #[]
   /-- Account operands of the code reads lowered so far in the current root, with the
-      node and message of their rejection (`checkCodeReadTargets`). -/
-  codeReadSites : Array (Expr × Json × String) := #[]
+      node, message, file and call stack of their rejection (`checkCodeReadTargets`). -/
+  codeReadSites : Array CodeReadSite := #[]
   /-- Result bindings of the code-hash reads lowered so far in the current root, with their
       nodes (`checkCodeReadTargets` rejects those that run after an account change). -/
   codeHashSites : Array (String × Json) := #[]
@@ -1050,8 +1058,21 @@ differs between the source and compiled routes and is not modeled. A literal
 `address(this)` operand is rejected before lowering with its own message. -/
 def lowerCodeReadTarget (lowered : Val) (node : Json) (message : String) : M Val := do
   let target ← atom lowered
-  modify fun e => { e with codeReadSites := e.codeReadSites.push (target.expr, node, message) }
+  let env ← get
+  let site : CodeReadSite :=
+    { operand := target.expr, node, message, file := env.currentFile, stack := env.stack }
+  modify fun e => { e with codeReadSites := e.codeReadSites.push site }
   return target
+
+/-- Run `act` with `currentFile` and `stack` temporarily set to `(file, stack)`. -/
+def withSavedSite {α : Type} (file : String) (stack : List Nat) (act : M α) : M α := do
+  let savedFile := (← get).currentFile
+  let savedStack := (← get).stack
+  modify fun e => { e with currentFile := file, stack := stack }
+  try
+    act
+  finally
+    modify fun e => { e with currentFile := savedFile, stack := savedStack }
 
 /-- Recheck every code-read operand of a lowered root `body`. A local may hold the
 executing contract's address when any binding statement of the body (a declaration,
@@ -1063,7 +1084,11 @@ Values read back from storage, calldata or memory are not tracked; that case is 
 documented trust assumption. -/
 def checkCodeReadTargets (body : Array Stmt) : M Unit := do
   noteSelfAddressStmts body
-  for (operand, node, message) in (← get).codeReadSites do
+  for site in (← get).codeReadSites do
+    let operand := site.operand
+    let node := site.node
+    let message := site.message
+    withSavedSite site.file site.stack do
     if ← mayBeSelfAddress operand then failAt node message
   -- A code hash read after a call or `create2` may observe an account the call created or
   -- funded, which the model's account world does not track.

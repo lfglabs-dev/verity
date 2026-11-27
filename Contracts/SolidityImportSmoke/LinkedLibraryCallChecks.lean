@@ -32,6 +32,7 @@ solidity_import withLinked from "Contracts/SolidityImportSmoke" entry "LinkedLib
   function roundTripBytesIsolation(bytes,bytes1,bytes1,uint8)
   function duplicateDisjoint(uint8,uint8,bytes1)
   function nestedBytesAndStorage(bytes32,bytes,uint256,uint256,bytes1)
+  function inspectCode(bytes32,uint256,uint256)
   function word(bytes32)
   function total(bytes32)
 
@@ -80,6 +81,9 @@ private def has (text needle : String) : Bool := (text.splitOn needle).length > 
     [("LinkedCounterLib", "recordDigest", "LinkedLibraryCallSequence.sol"),
      ("LinkedPackLib", "mutateAndTag", "LinkedLibraryCallSequence.sol"),
      ("LinkedPackLib", "mutateAndTag", "LinkedLibraryCallSequence.sol")]),
+   ("inspectCode",
+    [("LinkedPackLib", "probeCodeSize", "LinkedLibraryCallSequence.sol"),
+     ("LinkedPackLib", "classifyAccountCode", "LinkedLibraryCallSequence.sol")]),
    ("word", []),
    ("total", [])]
 
@@ -104,6 +108,7 @@ private def has (text needle : String) : Bool := (text.splitOn needle).length > 
    ("roundTripBytesIsolation", [("solidity_linked_library_matches_source", .assumed)]),
    ("duplicateDisjoint", [("solidity_linked_library_matches_source", .assumed)]),
    ("nestedBytesAndStorage", [("solidity_linked_library_matches_source", .assumed)]),
+   ("inspectCode", [("solidity_linked_library_matches_source", .assumed)]),
    ("word", []),
    ("total", [])]
 
@@ -177,5 +182,50 @@ private def observesPrefix (model : CompilationModel) (name : String) (args pref
 #guard observesPrefix legacyLinked.model "roundTripBytesIsolation"
   [128, 0xff * 2 ^ 248, 0xaa * 2 ^ 248, 0x77, 2, 0x1122 * 2 ^ 240]
   [0x11, 0x22, 0x11, 0xaa, 0x77]
+
+-- (f) Frame-neutral `extcodesize` inline assembly inside direct and nested internal
+-- linked-library calls (deployed contract vs empty account, dirty upper address bits,
+-- and caller-shadowed named return variable `size`).
+private def observesWithForeignCode (model : CompilationModel) (name : String)
+    (foreignAddr : Nat) (foreignBytes : List (Fin 256)) (args words : List Nat) : Bool :=
+  match model.functions.find? (·.name == name) with
+  | none => false
+  | some f =>
+    let addr := Verity.Core.Address.ofNat foreignAddr
+    let s0 := Verity.defaultState
+    let s1 := s0.writeAccount addr { s0.accountWorld addr with code := foreignBytes }
+    let r := Denote.denoteFunction SolidityImport.Differential.oracle model f
+      { sender := 1, functionSelector := 0, args } s1
+    r.success && r.returnWords == words
+
+#guard observesWithForeignCode withLinked.model "inspectCode"
+  0x42 [0, 17, 34] [9, 2 ^ 160 + 0x42, 5] [3, 3, 8 * 2 ^ 16]
+#guard observesWithForeignCode withLinked.model "inspectCode"
+  0x42 [] [9, 0x99, 5] [0, 0, 5 * 2 ^ 16 + 0x101]
+
+theorem witness_linked_library_frame_neutral_excludes_address :
+    let szDecl := Lean.Json.mkObj [("nodeType", .str "VariableDeclaration"), ("id", .num 2),
+      ("name", .str "size"), ("stateVariable", .bool false), ("constant", .bool false),
+      ("mutability", .str "mutable"), ("storageLocation", .str "default"),
+      ("typeDescriptions", Lean.Json.mkObj [("typeIdentifier", .str "t_uint256")])]
+    let fn := Lean.Json.mkObj [("nodeType", .str "FunctionDefinition"),
+      ("parameters", Lean.Json.mkObj [("parameters", .arr #[])]),
+      ("body", Lean.Json.mkObj [("statements", .arr #[szDecl])])]
+    let ref2 := Lean.Json.mkObj [("declaration", .num 2), ("isOffset", .bool false),
+      ("isSlot", .bool false), ("valueSize", .num 1), ("src", .str "a")]
+    let lhs := Lean.Json.mkObj [("nodeType", .str "YulIdentifier"), ("name", .str "size"),
+      ("src", .str "a")]
+    let rhsAddr := Lean.Json.mkObj [("nodeType", .str "YulFunctionCall"),
+      ("functionName", Lean.Json.mkObj [("nodeType", .str "YulIdentifier"),
+        ("name", .str "address")]),
+      ("arguments", .arr #[])]
+    let asmAddr := Lean.Json.mkObj [("nodeType", .str "InlineAssembly"),
+      ("externalReferences", .arr #[ref2]),
+      ("AST", Lean.Json.mkObj [("nodeType", .str "YulBlock"),
+        ("statements", .arr #[Lean.Json.mkObj [("nodeType", .str "YulAssignment"),
+          ("variableNames", .arr #[lhs]), ("value", rhsAddr)]])])]
+    SolidityImport.linkedLibraryFrameNeutralBuiltinArity? "address" = none ∧
+    SolidityImport.isLinkedLibraryFrameNeutralInlineAssembly fn asmAddr 8 = false := by
+  decide
 
 end SolidityImportSmoke.LinkedLibraryCallChecks

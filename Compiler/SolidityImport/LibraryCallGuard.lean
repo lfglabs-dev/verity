@@ -132,8 +132,12 @@ and when the arguments and results cross the ABI boundary unchanged:
   a `storage` reference is passed as its slot; `bytes memory` arguments and results are
   explicitly copied into fresh 32-byte-aligned memory on entry and on return, matching
   the `DELEGATECALL` ABI boundary without aliasing;
-* `msg.data`, `msg.sig`, `gasleft()` and every inline-assembly block (calldata, returndata,
-  code, memory and gas builtins) may observe the library frame, so they are rejected;
+* `msg.data`, `msg.sig`, `gasleft()` and any frame-dependent inline-assembly block
+  (calldata, returndata, code, memory, storage, call, address/caller/value and gas builtins,
+  or non-value-local external references) may observe the library frame, so they are rejected;
+  only flat Yul `let` / single-target assignment blocks over `extcodesize` and pure word
+  arithmetic/bitwise/comparison builtins referencing mutable value-type locals or parameters
+  of the enclosing callable are admitted;
   non-`bytes` memory, calldata and function-typed arguments and results are copied or
   re-encoded across the boundary, so they are rejected too. -/
 
@@ -182,13 +186,176 @@ def stripTupleParens : Nat → Json → Option Json
         | _ => some j
       else some j
 
-/-- The reason node `j` depends on the `DELEGATECALL` frame, if it does: inline assembly,
-`msg.data`, `msg.sig` (including parenthesized `(msg).sig` / `(msg).data`) or `gasleft`. -/
-def linkedLibraryFrameHazard (j : Json) : Option String :=
+/-- Extract an optional boolean field from a `Lean.Json` object. -/
+def jsonBoolField? (j : Json) (key : String) : Option Bool :=
+  (jsonField? j key).bind (·.getBool?.toOption)
+
+/-- Expected arity of a Yul builtin admitted inside an inlined linked-library
+`InlineAssembly` block (`extcodesize` plus pure word arithmetic, bitwise and comparison
+operations). Frame-dependent, memory, storage, calldata, returndata and call/code builtins
+(`address`, `caller`, `callvalue`, `calldata*`, `selfbalance`, `codesize`, `codecopy`,
+`returndata*`, `gas`, `msize`, `mload`, `mstore*`, `mcopy`, `keccak256`, `sload`, `sstore`,
+`tload`, `tstore`, `call*`, `create*`, `return`, `revert`, etc.) return `none`. -/
+def linkedLibraryFrameNeutralBuiltinArity? : String → Option Nat
+  | "extcodesize" | "iszero" | "not" => some 1
+  | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "exp" | "signextend"
+  | "lt" | "gt" | "slt" | "sgt" | "eq"
+  | "and" | "or" | "xor" | "byte" | "shl" | "shr" | "sar" => some 2
+  | "addmod" | "mulmod" => some 3
+  | _ => none
+
+/-- Collect `(declId, name)` for every mutable value-type local or parameter
+`VariableDeclaration` inside `j` (bounded by `fuel`; fails closed if `fuel` runs out on
+a composite JSON node). State variables, constants and immutables are excluded. -/
+def collectValueLocalDecls : Nat → List (Nat × String) → Json → Option (List (Nat × String))
+  | 0, _, .obj _ | 0, _, .arr _ => none
+  | 0, acc, _ => some acc
+  | fuel + 1, acc, j@(.obj kvs) =>
+      let acc1 :=
+        if astNodeType? j == some "VariableDeclaration" &&
+            jsonBoolField? j "stateVariable" == some false &&
+            jsonBoolField? j "constant" == some false &&
+            jsonStrField? j "mutability" == some "mutable" &&
+            linkedLibraryParamKind j == .value then
+          match astNodeId? j, astNodeName? j with
+          | some id, some name =>
+              if name != "" && !(acc.any (·.1 == id)) then (id, name) :: acc else acc
+          | _, _ => acc
+        else acc
+      kvs.foldl (fun m _ v => m.bind (collectValueLocalDecls fuel · v)) (some acc1)
+  | fuel + 1, acc, .arr xs =>
+      xs.toList.foldl (fun m v => m.bind (collectValueLocalDecls fuel · v)) (some acc)
+  | _ + 1, acc, _ => some acc
+
+/-- Validate every entry of `InlineAssembly.externalReferences` against `valueLocals`,
+returning `(src, declName)` pairs when every external reference is a plain value-word
+reference (`!isOffset`, `!isSlot`, no `suffix`, `valueSize == 1`) to a mutable value-type
+local or parameter of the enclosing callable. -/
+def resolveFrameNeutralExtRefs? (valueLocals : List (Nat × String)) (asm : Json) :
+    Option (List (String × String)) := do
+  let refsJson ← jsonField? asm "externalReferences"
+  let refs ← refsJson.getArr?.toOption
+  refs.toList.foldlM (init := []) fun acc ref => do
+    guard (jsonBoolField? ref "isOffset" == some false)
+    guard (jsonBoolField? ref "isSlot" == some false)
+    guard ((jsonField? ref "suffix").isNone)
+    guard (jsonNatField? ref "valueSize" == some 1)
+    let src ← jsonStrField? ref "src"
+    let declId ← jsonNatField? ref "declaration"
+    let (_, declName) ← valueLocals.find? (·.1 == declId)
+    pure ((src, declName) :: acc)
+
+/-- True iff `node` is a `YulIdentifier` resolving either to an in-scope Yul local in
+`yulLocals` (not an external reference) or to an unshadowed verified Solidity value
+local/parameter in `extRefs`. -/
+def isFrameNeutralYulIdent (extRefs : List (String × String)) (yulLocals : List String)
+    (node : Json) : Bool :=
+  astNodeType? node == some "YulIdentifier" &&
+    match astNodeName? node, jsonStrField? node "src" with
+    | some name, some src =>
+        if yulLocals.contains name then !(extRefs.any (·.1 == src))
+        else extRefs.contains (src, name)
+    | _, _ => false
+
+/-- True iff `expr` is a frame-neutral Yul expression over `extRefs` and `yulLocals`
+within recursion depth `fuel`. -/
+def isFrameNeutralYulExpr (extRefs : List (String × String)) (yulLocals : List String) :
+    Nat → Json → Bool
+  | 0, _ => false
+  | fuel + 1, expr =>
+      match astNodeType? expr with
+      | some "YulLiteral" =>
+          let k := (jsonStrField? expr "kind").getD ""
+          let ty := (jsonStrField? expr "type").getD ""
+          (k == "number" || k == "bool") && ty == ""
+      | some "YulIdentifier" =>
+          isFrameNeutralYulIdent extRefs yulLocals expr
+      | some "YulFunctionCall" =>
+          match jsonField? expr "functionName",
+                (jsonField? expr "arguments").bind (·.getArr?.toOption) with
+          | some fnNode, some args =>
+              astNodeType? fnNode == some "YulIdentifier" &&
+                match astNodeName? fnNode with
+                | some fname =>
+                    !yulLocals.contains fname && !(extRefs.any (·.2 == fname)) &&
+                      match linkedLibraryFrameNeutralBuiltinArity? fname with
+                      | some arity =>
+                          args.size == arity &&
+                            args.toList.all (isFrameNeutralYulExpr extRefs yulLocals fuel)
+                      | none => false
+                | none => false
+          | _, _ => false
+      | _ => false
+
+/-- True iff every statement in `stmts` is a single-variable untyped `let` declaration
+or single-target assignment over frame-neutral expressions, with no shadowing of
+external Solidity references. -/
+def isFrameNeutralYulStmts (extRefs : List (String × String)) (exprFuel : Nat := 128) :
+    List String → List Json → Bool
+  | _, [] => true
+  | yulLocals, stmt :: rest =>
+      match astNodeType? stmt with
+      | some "YulVariableDeclaration" =>
+          match (jsonField? stmt "variables").bind (·.getArr?.toOption) with
+          | some #[varNode] =>
+              let ty := (jsonStrField? varNode "type").getD ""
+              match astNodeName? varNode with
+              | some vname =>
+                  let freshName := vname != "" && !yulLocals.contains vname &&
+                    !(extRefs.any (·.2 == vname))
+                  let rhsOk := match jsonField? stmt "value" with
+                    | none => true
+                    | some valNode =>
+                        valNode.isNull ||
+                          isFrameNeutralYulExpr extRefs yulLocals exprFuel valNode
+                  freshName && ty == "" && rhsOk &&
+                    isFrameNeutralYulStmts extRefs exprFuel (vname :: yulLocals) rest
+              | none => false
+          | _ => false
+      | some "YulAssignment" =>
+          match (jsonField? stmt "variableNames").bind (·.getArr?.toOption),
+                jsonField? stmt "value" with
+          | some #[varNode], some valNode =>
+              !valNode.isNull &&
+                isFrameNeutralYulIdent extRefs yulLocals varNode &&
+                isFrameNeutralYulExpr extRefs yulLocals exprFuel valNode &&
+                isFrameNeutralYulStmts extRefs exprFuel yulLocals rest
+          | _, _ => false
+      | _ => false
+
+/-- True iff `asm` is an `InlineAssembly` block inside callable `owner` (`FunctionDefinition`
+or `ModifierDefinition`) whose external references are all mutable value-type Solidity
+locals or parameters of `owner` and whose Yul body consists solely of `let` declarations
+and single-target assignments over `linkedLibraryFrameNeutralBuiltinArity?`. -/
+def isLinkedLibraryFrameNeutralInlineAssembly (owner asm : Json) (fuel : Nat := 128) : Bool :=
+  (astNodeType? owner == some "FunctionDefinition" ||
+    astNodeType? owner == some "ModifierDefinition") &&
+    astNodeType? asm == some "InlineAssembly" &&
+    match (collectValueLocalDecls fuel [] ((jsonField? owner "parameters").getD Json.null)).bind
+        (fun a => collectValueLocalDecls fuel a
+          ((jsonField? owner "returnParameters").getD Json.null)) |>.bind
+        (fun a => collectValueLocalDecls fuel a ((jsonField? owner "body").getD Json.null)) with
+    | none => false
+    | some valueLocals =>
+        match resolveFrameNeutralExtRefs? valueLocals asm, jsonField? asm "AST" with
+        | some extRefs, some ast =>
+            astNodeType? ast == some "YulBlock" &&
+              match (jsonField? ast "statements").bind (·.getArr?.toOption) with
+              | some stmts => isFrameNeutralYulStmts extRefs fuel [] stmts.toList
+              | none => false
+        | _, _ => false
+
+/-- The reason node `j` inside enclosing callable `owner` depends on the `DELEGATECALL` frame,
+if it does: non-frame-neutral inline assembly, `msg.data`, `msg.sig` (including parenthesized
+`(msg).sig` / `(msg).data`) or `gasleft`. -/
+def linkedLibraryFrameHazardIn (owner j : Json) : Option String :=
   let builtin (n : Json) : Bool := ((jsonIntField? n "referencedDeclaration").getD 0) < 0
   match astNodeType? j with
   | some "InlineAssembly" =>
-      some "inline assembly in a linked library call can observe the library's call frame"
+      if isLinkedLibraryFrameNeutralInlineAssembly owner j then
+        none
+      else
+        some "inline assembly in a linked library call can observe the library's call frame"
   | some "MemberAccess" =>
       if ["data", "sig"].contains ((jsonStrField? j "memberName").getD "") then
         match (jsonField? j "expression").bind (stripTupleParens 256) with
@@ -206,15 +373,20 @@ def linkedLibraryFrameHazard (j : Json) : Option String :=
       else none
   | _ => none
 
-/-- Walk `j` and every function, operator or modifier declaration it references (`decl`,
-transitively, each once, via `referencedDeclaration` or overloaded-operator `function`).
-Returns the first frame-dependent node and its reason, or the visited ids. -/
-partial def linkedLibraryFrameHazardWalk (decl : Nat → Option Json) :
+/-- Context-free frame-hazard check on `j` (with no enclosing callable context). -/
+def linkedLibraryFrameHazard (j : Json) : Option String :=
+  linkedLibraryFrameHazardIn Json.null j
+
+/-- Walk `j` inside enclosing callable `owner` and every function, operator or modifier
+declaration it references (`decl`, transitively, each once, via `referencedDeclaration`
+or overloaded-operator `function`). Returns the first frame-dependent node and its reason,
+or the visited ids. -/
+partial def linkedLibraryFrameHazardWalk (decl : Nat → Option Json) (owner : Json) :
     List Nat → Json → Except (Json × String) (List Nat)
-  | seen, .arr xs => xs.foldl (fun acc x => acc.bind (linkedLibraryFrameHazardWalk decl · x))
+  | seen, .arr xs => xs.foldl (fun acc x => acc.bind (linkedLibraryFrameHazardWalk decl owner · x))
       (.ok seen)
   | seen, j@(.obj o) =>
-      match linkedLibraryFrameHazard j with
+      match linkedLibraryFrameHazardIn owner j with
       | some reason => .error (j, reason)
       | none =>
         let step (s : List Nat) (edge : String) : Except (Json × String) (List Nat) :=
@@ -222,17 +394,22 @@ partial def linkedLibraryFrameHazardWalk (decl : Nat → Option Json) :
           | some id =>
               if s.contains id then .ok s
               else match decl id with
-                | some d => linkedLibraryFrameHazardWalk decl (id :: s) d
+                | some d =>
+                    let nextOwner :=
+                      if astNodeType? d == some "FunctionDefinition" ||
+                          astNodeType? d == some "ModifierDefinition" then d
+                      else owner
+                    linkedLibraryFrameHazardWalk decl nextOwner (id :: s) d
                 | none => .ok s
           | none => .ok s
         let start := (step seen "referencedDeclaration").bind (step · "function")
-        o.foldl (fun acc _ v => acc.bind (linkedLibraryFrameHazardWalk decl · v)) start
+        o.foldl (fun acc _ v => acc.bind (linkedLibraryFrameHazardWalk decl owner · v)) start
   | seen, _ => .ok seen
 
 /-- The first frame-dependent node reached from the library function declaration `fn`. -/
 def linkedLibraryFrameHazard? (decl : Nat → Option Json) (fn : Json) : Option (Json × String) :=
   let start := (astNodeId? fn).toList
-  match linkedLibraryFrameHazardWalk decl start fn with
+  match linkedLibraryFrameHazardWalk decl fn start fn with
   | .error found => some found
   | .ok _ => none
 
@@ -268,6 +445,64 @@ theorem witness_linked_library_paren_msg_hazard :
       ("memberName", .str "sender"), ("expression", parenMsg)]
     (linkedLibraryFrameHazard parenSig).isSome = true ∧
     linkedLibraryFrameHazard parenSender = none := by decide
+
+/-- Witness: `extcodesize` and pure arithmetic/comparison builtins are allowlisted, while
+frame-dependent, memory and storage builtins are excluded. -/
+theorem witness_linked_library_frame_neutral_builtins :
+    linkedLibraryFrameNeutralBuiltinArity? "extcodesize" = some 1 ∧
+    linkedLibraryFrameNeutralBuiltinArity? "iszero" = some 1 ∧
+    linkedLibraryFrameNeutralBuiltinArity? "add" = some 2 ∧
+    linkedLibraryFrameNeutralBuiltinArity? "addmod" = some 3 ∧
+    linkedLibraryFrameNeutralBuiltinArity? "caller" = none ∧
+    linkedLibraryFrameNeutralBuiltinArity? "codecopy" = none ∧
+    linkedLibraryFrameNeutralBuiltinArity? "mstore" = none ∧
+    linkedLibraryFrameNeutralBuiltinArity? "sload" = none := by decide
+
+/-- Witness: `assembly { size := extcodesize(p) }` over a value-type parameter and local passes,
+while `caller()` and `bytes memory` external references fail (`address()` is pinned in
+`LinkedLibraryCallChecks` so the `allowlist-address` mutant can rebuild `Import`). -/
+theorem witness_linked_library_frame_neutral_asm :
+    let pDecl := Json.mkObj [("nodeType", .str "VariableDeclaration"), ("id", .num 1),
+      ("name", .str "p"), ("stateVariable", .bool false), ("constant", .bool false),
+      ("mutability", .str "mutable"), ("storageLocation", .str "default"),
+      ("typeDescriptions", Json.mkObj [("typeIdentifier", .str "t_address")])]
+    let szDecl := Json.mkObj [("nodeType", .str "VariableDeclaration"), ("id", .num 2),
+      ("name", .str "size"), ("stateVariable", .bool false), ("constant", .bool false),
+      ("mutability", .str "mutable"), ("storageLocation", .str "default"),
+      ("typeDescriptions", Json.mkObj [("typeIdentifier", .str "t_uint256")])]
+    let bDecl := Json.mkObj [("nodeType", .str "VariableDeclaration"), ("id", .num 3),
+      ("name", .str "b"), ("stateVariable", .bool false), ("constant", .bool false),
+      ("mutability", .str "mutable"), ("storageLocation", .str "memory"),
+      ("typeDescriptions", Json.mkObj [("typeIdentifier", .str "t_bytes_memory_ptr")])]
+    let fn := Json.mkObj [("nodeType", .str "FunctionDefinition"),
+      ("parameters", Json.mkObj [("parameters", .arr #[pDecl, bDecl])]),
+      ("body", Json.mkObj [("statements", .arr #[szDecl])])]
+    let ref2 := Json.mkObj [("declaration", .num 2), ("isOffset", .bool false),
+      ("isSlot", .bool false), ("valueSize", .num 1), ("src", .str "a")]
+    let ref1 := Json.mkObj [("declaration", .num 1), ("isOffset", .bool false),
+      ("isSlot", .bool false), ("valueSize", .num 1), ("src", .str "b")]
+    let ref3 := Json.mkObj [("declaration", .num 3), ("isOffset", .bool false),
+      ("isSlot", .bool false), ("valueSize", .num 1), ("src", .str "b")]
+    let lhs := Json.mkObj [("nodeType", .str "YulIdentifier"), ("name", .str "size"),
+      ("src", .str "a")]
+    let rhsOk := Json.mkObj [("nodeType", .str "YulFunctionCall"),
+      ("functionName", Json.mkObj [("nodeType", .str "YulIdentifier"),
+        ("name", .str "extcodesize")]),
+      ("arguments", .arr #[Json.mkObj [("nodeType", .str "YulIdentifier"),
+        ("name", .str "p"), ("src", .str "b")]])]
+    let rhsCaller := Json.mkObj [("nodeType", .str "YulFunctionCall"),
+      ("functionName", Json.mkObj [("nodeType", .str "YulIdentifier"), ("name", .str "caller")]),
+      ("arguments", .arr #[])]
+    let rhsBytes := Json.mkObj [("nodeType", .str "YulIdentifier"), ("name", .str "b"),
+      ("src", .str "b")]
+    let mkAsm (rs : Array Json) (r : Json) := Json.mkObj [("nodeType", .str "InlineAssembly"),
+      ("externalReferences", .arr rs), ("AST", Json.mkObj [("nodeType", .str "YulBlock"),
+        ("statements", .arr #[Json.mkObj [("nodeType", .str "YulAssignment"),
+          ("variableNames", .arr #[lhs]), ("value", r)]])])]
+    isLinkedLibraryFrameNeutralInlineAssembly fn (mkAsm #[ref2, ref1] rhsOk) 8 = true ∧
+    isLinkedLibraryFrameNeutralInlineAssembly fn (mkAsm #[ref2] rhsCaller) 8 = false ∧
+    isLinkedLibraryFrameNeutralInlineAssembly fn (mkAsm #[ref2, ref3] rhsBytes) 8 = false := by
+  decide
 
 /-! ## Initialization Transcription Helper Descriptors (`#2465`) -/
 

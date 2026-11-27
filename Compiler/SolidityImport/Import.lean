@@ -4597,6 +4597,23 @@ private def finishMemoryByteIndexRead (buf : EncodedBytes) (key : Val) (siteNode
   let word := Expr.mload (.add (.localVar ptrVar) wordOff)
   return { pre, expr := .shl (.literal 248) (.byte lane word) }
 
+private def isTerminalReturnYulAssign (stmts : Array Json) (retName : String) : Bool :=
+  if stmts.size != 1 then false else
+  let s0 := stmts[0]!
+  if optStr s0 "nodeType" != some "InlineAssembly" then false else
+  let ast := (field? s0 "AST").getD Json.null
+  if optStr ast "nodeType" != some "YulBlock" then false else
+  match (field? ast "statements").bind (·.getArr?.toOption) with
+  | some #[ys] =>
+      if optStr ys "nodeType" != some "YulAssignment" then false else
+      if retName == "" then true else
+      match (field? ys "variableNames").bind (·.getArr?.toOption) with
+      | some #[v] =>
+          let rhs := (field? ys "value").getD Json.null
+          optStr v "name" == some retName && yulIdentifierUses retName rhs == 0
+      | _ => true
+  | _ => false
+
 set_option maxHeartbeats 1600000 in
 mutual
 
@@ -12837,17 +12854,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   -- declaration-bound slot, initialized before any source-body effect.
   let resultType ← mType rets[0]!
   discard (validateEnumTypeIfNeeded rets[0]! resultType)
-  let isSingleYulAssign ← if stmts.size == 1 then do
-    if (← mKind stmts[0]!) == "InlineAssembly" then
-      let ast ← mField stmts[0]! "AST"
-      if (← mKind ast) == "YulBlock" then
-        let ystmts ← mArr (← mField ast "statements")
-        if ystmts.size == 1 then
-          pure ((← mKind ystmts[0]!) == "YulAssignment")
-        else pure false
-      else pure false
-    else pure false
-  else pure false
+  let isSingleYulAssign := isTerminalReturnYulAssign stmts retName
   let terminalAssembly := isSingleYulAssign && mods.isEmpty &&
       (resultType == "uint256" || resultType == "uint" || resultType == "bytes32")
   modify fun e => { e with helperResult := none, helperReturnId := some retId, multiHelperResults := none, flatStructHelperResult := none, fixedArrayHelperResult := none }
