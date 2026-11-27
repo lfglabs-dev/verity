@@ -306,11 +306,10 @@ verity_contract VoidCallLetBindVoidRejected where
     let b ← pool.supply asset amount onBehalfOf 0
     pure ()
 
-/--
-error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
--/
+-- A `Bytes` parameter forwarded to a typed interface call is ABI-encoded with its tail
+-- (`Compiler.Modules.Calls.abiCallModule`, test/InterfaceBytesCallSmoke.t.sol).
 #guard_msgs in
-verity_contract VoidCallDynamicParamRejected where
+verity_contract VoidCallBytesParamAccepted where
   storage
 
   interfaces
@@ -318,14 +317,11 @@ verity_contract VoidCallDynamicParamRejected where
       function submit(Bytes)
     end
 
-  function bad (pool : IPool, payload : Bytes) : Unit := do
+  function reentrancy_trusted good (pool : IPool, payload : Bytes) : Unit := do
     pool.submit payload
 
-/--
-error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
--/
 #guard_msgs in
-verity_contract ReturnCallBytesParamRejected where
+verity_contract ReturnCallBytesParamAccepted where
   storage
 
   interfaces
@@ -333,9 +329,83 @@ verity_contract ReturnCallBytesParamRejected where
       function submit(Bytes) returns (Uint256)
     end
 
-  function bad (pool : IPool, payload : Bytes) : Uint256 := do
+  function reentrancy_trusted good (pool : IPool, payload : Bytes) : Uint256 := do
     let result ← pool.submit payload
     return result
+
+/--
+error: typed interface call 'IPool.submit' takes Bytes or returns (Bool, Bytes), so its parameters must be single-word values or Bytes; argument 2 has Verity.Macro.ValueType.tuple [Verity.Macro.ValueType.uint256, Verity.Macro.ValueType.uint256]. Other dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract BytesWithCompositeParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Bytes, Tuple [Uint256, Uint256])
+    end
+
+  function bad (pool : IPool, payload : Bytes, pair : Tuple [Uint256, Uint256]) : Unit := do
+    pool.submit payload pair
+
+/--
+error: typed interface call 'IPool.submit' takes a Bytes argument, which must be a Bytes parameter of this function or `abiEncodeCall <selector> [items]`
+-/
+#guard_msgs in
+verity_contract BytesArgNotParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Bytes)
+      function fetch() returns (Tuple [Bool, Bytes])
+    end
+
+  function bad (pool : IPool) : Unit := do
+    let (_, data) ← pool.fetch
+    pool.submit data
+
+/--
+error: abiEncodeCall items must be single-word values or Bytes parameters, got Verity.Macro.ValueType.array (Verity.Macro.ValueType.uint256)
+-/
+#guard_msgs in
+verity_contract AbiEncodeCallArrayItemRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Bytes)
+    end
+
+  function bad (pool : IPool, xs : Array Uint256) : Unit := do
+    pool.submit (abiEncodeCall 0x12345678 [xs])
+
+/--
+error: abiEncodeCall builds a Bytes argument of a typed interface call and is supported only there
+-/
+#guard_msgs in
+verity_contract AbiEncodeCallOutsideCallRejected where
+  storage
+
+  function bad (x : Uint256) : Uint256 := do
+    let payload := abiEncodeCall 0x12345678 [x]
+    return x
+
+/--
+error: bytesWord index must be a numeric literal
+-/
+#guard_msgs in
+verity_contract BytesWordVariableIndexRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function fetch() returns (Bool, Bytes)
+    end
+
+  function bad (pool : IPool, k : Uint256) : Uint256 := do
+    let (_, data) ← pool.fetch
+    return bytesWord data k
 
 /--
 error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.string. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).

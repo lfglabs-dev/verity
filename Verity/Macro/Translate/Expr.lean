@@ -699,6 +699,9 @@ inductive LocalSource where
   /-- A static composite (tuple/struct/fixed array) bound by a typed interface call; it
   exists in Yul only as its leaves (`staticLeafBindings`). -/
   | compositeLeaves
+  /-- The `Bytes` of a `(Bool, Bytes)` typed-interface return: a memory copy, held in Yul as
+  the word array `{name}_words` (its length word, then the zero-padded data). -/
+  | memoryBytes
 
 structure TypedLocal where
   name : String
@@ -1331,6 +1334,7 @@ def localArrayElementAlias?
   | .memoryArray => none
   | .externalStaticStruct _ => none
   | .compositeLeaves => none
+  | .memoryBytes => none
 
 def localExternalStaticStructProjection?
     (locals : Array TypedLocal)
@@ -1366,6 +1370,24 @@ def localExternalStaticStructProjection?
         if field == fieldName then some ty else none
     | _ => none
   some (localName, fieldTy)
+
+/-- The name of a `memoryBytes` local (`LocalSource.memoryBytes`), if `stx` is one. -/
+def memoryBytesLocal? (locals : Array TypedLocal) (stx : Term) : Option String := do
+  let name ←
+    match stripParens stx with
+    | `(term| $id:ident) => some (toString id.getId)
+    | _ => none
+  let localDecl ← locals.find? (fun localDecl => localDecl.name == name)
+  match localDecl.source with
+  | .memoryBytes => some name
+  | _ => none
+
+/-- The length of the Bytes held by a `memoryBytes` local: word `0` of its word array
+(`Compiler.Modules.Calls.AbiCallReturnShape.boolBytes`). -/
+def memoryBytesLengthExpr (localName : String) : CommandElabM Term :=
+  `(Compiler.CompilationModel.Expr.memoryArrayElement
+      $(strTerm (Compiler.Modules.Calls.abiReturnBytesArrayName localName))
+      (Compiler.CompilationModel.Expr.literal 0))
 
 def localMemoryArray?
     (locals : Array TypedLocal)
@@ -1490,6 +1512,68 @@ def requireTypedInterfaceStaticReturns
     if staticAbiWordCount? ty |>.isNone then
       throwErrorAt stx
         s!"typed interface call '{externalName}' currently supports only static (single-word or composite) returns; return {i + 1} has {renderValueType ty}. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
+
+/-- The return leaves of a typed-interface method: a single `Tuple [..]` return and a
+multi-return clause name the same leaves. -/
+def typedInterfaceReturnLeaves (returnTys : Array ValueType) : Array ValueType :=
+  normalizeInterfaceReturnTypes returnTys
+
+/-- A Solidity `(bool, bytes)` return, as `ISafe.execTransactionFromModuleReturnData`. -/
+def isBoolBytesReturn (returnTys : Array ValueType) : Bool :=
+  typedInterfaceReturnLeaves returnTys == #[.bool, .bytes]
+
+/-- #1982 progress: an ABI-frame typed-interface method takes a `Bytes` argument or returns
+`(Bool, Bytes)`; it lowers through `Compiler.Modules.Calls.abiCallModule`, which encodes the
+arguments with Solidity's head/tail layout. -/
+def isAbiFrameTypedInterface (params returnTys : Array ValueType) : Bool :=
+  params.contains .bytes || isBoolBytesReturn returnTys
+
+/-- Parameters of a typed-interface method: static ones, or, for an ABI-frame method,
+single-word values and `Bytes`. -/
+def requireTypedInterfaceSupportedParams
+    (stx : Syntax) (externalName : String) (params returnTys : Array ValueType) :
+    CommandElabM Unit := do
+  if isAbiFrameTypedInterface params returnTys then
+    for h : i in [:params.size] do
+      let ty := params[i]
+      unless ty == .bytes || isSingleWordStaticValueType ty do
+        throwErrorAt stx
+          s!"typed interface call '{externalName}' takes Bytes or returns (Bool, Bytes), so its parameters must be single-word values or Bytes; argument {i + 1} has {renderValueType ty}. Other dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
+  else
+    requireTypedInterfaceStaticParams stx externalName params
+
+/-- Returns of a typed-interface method: static ones, or `(Bool, Bytes)`. -/
+def requireTypedInterfaceSupportedReturns
+    (stx : Syntax) (externalName : String) (returnTys : Array ValueType) : CommandElabM Unit := do
+  unless isBoolBytesReturn returnTys do
+    requireTypedInterfaceStaticReturns stx externalName returnTys
+
+/-- `abiEncodeCall <selector> [items]`: a `Bytes` argument of a typed-interface call built in
+place, Solidity's `abi.encodeWithSelector(selector, items...)`. -/
+def abiEncodeCallSyntax? (stx : Term) : Option (Term × Array Term) :=
+  match stripParens stx with
+  | `(term| abiEncodeCall $sel:term [ $[$items],* ]) => some (sel, items)
+  | _ => none
+
+/-- The selector of `abiEncodeCall`: a numeric literal below `2^32`. -/
+def abiEncodeCallSelector (sel : Term) : CommandElabM Nat := do
+  match stripParens sel with
+  | `(term| $n:num) =>
+      let value := n.getNat
+      unless value < 2 ^ 32 do
+        throwErrorAt sel "abiEncodeCall selector exceeds 4 bytes"
+      pure value
+  | _ => throwErrorAt sel "abiEncodeCall selector must be a numeric literal (a 4-byte function selector)"
+
+/-- The index of `bytesWord data k`: a numeric literal (the word at byte offset `32 * k`). -/
+def bytesWordIndex (index : Term) : CommandElabM Nat := do
+  match stripParens index with
+  | `(term| $n:num) =>
+      let value := n.getNat
+      unless 32 * value < 2 ^ 256 do
+        throwErrorAt index "bytesWord index is out of range"
+      pure value
+  | _ => throwErrorAt index "bytesWord index must be a numeric literal"
 
 /-- verity#1849, G3: allow `Array <wordLike>` and `bytes` / `string` as
     external-call / event / custom-error argument types when the argument
@@ -2257,7 +2341,18 @@ partial def inferPureExprType
       match directParamNameWithType? params name, paramDynamicMemberProjection? params name with
       | some (_, .bytes), _ => pure .uint256
       | _, some (_, .bytes, _) => pure .uint256
-      | _, _ => throwErrorAt name "bytesLength expects a Bytes parameter or a Bytes member of a struct parameter"
+      | _, _ =>
+          if (memoryBytesLocal? locals name).isSome then pure .uint256
+          else throwErrorAt name
+            "bytesLength expects a Bytes parameter, a Bytes member of a struct parameter, or the Bytes of a (Bool, Bytes) typed-interface return"
+  | `(term| bytesWord $name:term $index:term) =>
+      unless (memoryBytesLocal? locals name).isSome do
+        throwErrorAt name "bytesWord expects the Bytes of a (Bool, Bytes) typed-interface return"
+      let _ ← bytesWordIndex index
+      pure .uint256
+  | `(term| abiEncodeCall $_sel:term $_items:term) =>
+      throwErrorAt stx
+        "abiEncodeCall builds a Bytes argument of a typed interface call and is supported only there"
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: accept `arrayLength (arrayElement <param> <i>).<dynField>`
       -- projections where `dynField` is a dynamic member of the struct-array
@@ -2801,6 +2896,35 @@ partial def flattenTypedInterfaceAppSyntaxEarly (stx : Term) : Term × Array Ter
       (head, priorArgs ++ argTerms)
   | _ => (stx, #[])
 
+/-- A `Bytes` argument of an ABI-frame typed-interface call: a `Bytes` parameter of the
+calling function, or `abiEncodeCall <selector> [items]` whose items are single-word values
+or `Bytes` parameters. -/
+partial def validateTypedInterfaceBytesArg
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (externalName : String)
+    (arg : Term) : CommandElabM Unit := do
+  if let some (_, .bytes) := directParamNameWithType? params arg then
+    return
+  match abiEncodeCallSyntax? arg with
+  | some (sel, items) =>
+      let _ ← abiEncodeCallSelector sel
+      for item in items do
+        match directParamNameWithType? params item with
+        | some (_, .bytes) => pure ()
+        | _ =>
+            let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals item
+            unless isSingleWordStaticValueType ty do
+              throwErrorAt item
+                s!"abiEncodeCall items must be single-word values or Bytes parameters, got {renderValueType ty}"
+  | none =>
+      throwErrorAt arg
+        s!"typed interface call '{externalName}' takes a Bytes argument, which must be a Bytes parameter of this function or `abiEncodeCall <selector> [items]`"
+
 partial def resolveTypedInterfaceCallEarly?
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
@@ -2830,11 +2954,15 @@ partial def resolveTypedInterfaceCallEarly?
   if argTerms.size != ext.params.size then
     throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' expects {ext.params.size} argument(s), got {argTerms.size}"
   for (argTerm, expectedTy) in argTerms.zip ext.params do
+    if expectedTy == .bytes then
+      validateTypedInterfaceBytesArg fields constDecls immutableDecls externalDecls params locals
+        externalName argTerm
+    else
     let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals argTerm
     unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
       throwErrorAt argTerm
         s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
-  requireTypedInterfaceStaticParams stx externalName ext.params
+  requireTypedInterfaceSupportedParams stx externalName ext.params ext.returnTys
   let selector := Compiler.keccak256_first_4_bytes (interfaceFunctionSignature methodName ext.params)
   match ext.returnTys.toList with
   | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
@@ -3500,6 +3628,8 @@ partial def translatePureExprWithTypes
       let name := toString id.getId
       if (compositeLocalLeaves? locals name).isSome then
         throwErrorAt id s!"local '{name}' holds a tuple/struct/fixed-array value, which has no single-word form on the compilation-model path; return it, or destructure it"
+      if (memoryBytesLocal? locals id).isSome then
+        throwErrorAt id s!"local '{name}' holds Bytes returned by a typed interface call; use it through `bytesLength`, `bytesWord` or `revertBytes`"
       if params.any (fun p => p.name == name) || isTupleComponentRef params name || localNames.contains name then
         lookupVarExpr params localNames name
       else if let some actualName := findContextAccessorShadowName? params localNames name then
@@ -3832,7 +3962,25 @@ partial def translatePureExprWithTypes
           `(Compiler.CompilationModel.Expr.param $(strTerm s!"{paramName}_length"))
       | _, some (paramName, .bytes, wordOffset) =>
           `(Compiler.CompilationModel.Expr.paramDynamicMemberLength $(strTerm paramName) $(natTerm wordOffset))
-      | _, _ => throwErrorAt name "bytesLength expects a Bytes parameter or a Bytes member of a struct parameter"
+      | _, _ =>
+          match memoryBytesLocal? locals name with
+          | some localName => memoryBytesLengthExpr localName
+          | none => throwErrorAt name
+              "bytesLength expects a Bytes parameter, a Bytes member of a struct parameter, or the Bytes of a (Bool, Bytes) typed-interface return"
+  | `(term| bytesWord $name:term $index:term) =>
+      -- Word `k + 1` of the word array bound by `abiCallModule` (length word, then the
+      -- zero-padded data); `0` from byte offset `bytesLength` on, like `Contracts.bytesWord`.
+      -- Index `0` is always in range, so an out-of-range `k` reads it and multiplies by `0`.
+      let some localName := memoryBytesLocal? locals name
+        | throwErrorAt name "bytesWord expects the Bytes of a (Bool, Bytes) typed-interface return"
+      let k ← bytesWordIndex index
+      let inRange ← `(Compiler.CompilationModel.Expr.lt
+        (Compiler.CompilationModel.Expr.literal $(natTerm (32 * k))) $(← memoryBytesLengthExpr localName))
+      `(Compiler.CompilationModel.Expr.mul $inRange
+          (Compiler.CompilationModel.Expr.memoryArrayElement
+            $(strTerm (Compiler.Modules.Calls.abiReturnBytesArrayName localName))
+            (Compiler.CompilationModel.Expr.mul (Compiler.CompilationModel.Expr.literal $(natTerm (k + 1)))
+              $inRange)))
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: `arrayLength (arrayElement <param> <i>).<dynField>`
       -- lowers through `Expr.arrayElementDynamicMemberLength`, reading the
@@ -4960,6 +5108,122 @@ def tupleInternalCallAssignStmt?
       | none =>
           pure none
 
+/-- Argument shapes (`Compiler.Modules.Calls.AbiCallArgShape` terms) and word expressions
+(in order) of an ABI-frame typed-interface call, for `Compiler.Modules.Calls.abiCallModule`. -/
+def translateAbiFrameCallArgs
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (paramTys : Array ValueType)
+    (argTerms : Array Term) : CommandElabM (Array Term × Array Term) := do
+  let translateExpr := translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals
+  let mut shapes : Array Term := #[]
+  let mut words : Array Term := #[]
+  for (arg, ty) in argTerms.zip paramTys do
+    if ty == .bytes then
+      match directParamNameWithType? params arg with
+      | some (name, .bytes) =>
+          shapes := shapes.push (← `(Compiler.Modules.Calls.AbiCallArgShape.bytesParam $(strTerm name)))
+      | _ =>
+          let some (sel, items) := abiEncodeCallSyntax? arg
+            | throwErrorAt arg "a Bytes argument of a typed interface call must be a Bytes parameter or `abiEncodeCall <selector> [items]`"
+          let selector ← abiEncodeCallSelector sel
+          let mut itemShapes : Array Term := #[]
+          for item in items do
+            match directParamNameWithType? params item with
+            | some (name, .bytes) =>
+                itemShapes := itemShapes.push
+                  (← `(Compiler.Modules.Calls.AbiCallItemShape.bytesParam $(strTerm name)))
+            | _ =>
+                let itemTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals item
+                words := words.push (← normalizeTranslatedExprForType itemTy item (← translateExpr item))
+                itemShapes := itemShapes.push (← `(Compiler.Modules.Calls.AbiCallItemShape.word))
+          shapes := shapes.push (← `(Compiler.Modules.Calls.AbiCallArgShape.encodedCall
+            $(natTerm selector) [ $[$itemShapes],* ]))
+    else
+      words := words ++ (← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals
+        #[arg] (some #[ty]) (some translateExpr))
+      shapes := shapes.push (← `(Compiler.Modules.Calls.AbiCallArgShape.word))
+  pure (shapes, words)
+
+/-- Typed locals bound by a tuple destructuring of a typed-interface call. -/
+def typedInterfaceTupleLocals (ext : ExternalDecl) (names : Array (Option String)) :
+    Array TypedLocal :=
+  let tys :=
+    if isAbiFrameTypedInterface ext.params ext.returnTys then
+      typedInterfaceReturnLeaves ext.returnTys
+    else ext.returnTys
+  (names.zip tys).filterMap fun (name?, ty) => name?.map fun name =>
+    if ty == .bytes then { name, ty, source := .memoryBytes } else mkTypedLocal name ty
+
+/-- `Stmt.ecm (abiCallModule ..) (target :: words)` for an ABI-frame typed-interface call. -/
+def abiFrameCallStmt (ext : ExternalDecl) (selector : Nat) (targetExpr : Term)
+    (shapes words : Array Term) (ret : Term) : CommandElabM Term := do
+  let isStaticTerm ← if ext.isView then `(true) else `(false)
+  `(Compiler.CompilationModel.Stmt.ecm
+      (Compiler.Modules.Calls.abiCallModule $(natTerm selector) [ $[$shapes],* ] $ret $isStaticTerm)
+      [ $targetExpr, $[$words],* ])
+
+/-- Tuple bind of an ABI-frame typed-interface call (`isAbiFrameTypedInterface`): a
+`(Bool, Bytes)` return binds the flag and a `memoryBytes` local; static single-word returns
+bind one word each. `none` when `rhs` is not such a call. -/
+def tupleAbiFrameCallBindStmts?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (rhs : Term)
+    (names : Array (Option String)) : CommandElabM (Option (Array Term × Array TypedLocal)) := do
+  let some (ext, target, args, some _, selector) ←
+      resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs
+    | pure none
+  unless isAbiFrameTypedInterface ext.params ext.returnTys do
+    return none
+  let leaves := typedInterfaceReturnLeaves ext.returnTys
+  unless names.size == leaves.size do
+    throwErrorAt rhs s!"tuple destructuring binds {names.size} names, but typed interface call '{ext.name}' returns {leaves.size} values"
+  let initialUsedNames := (params.toList.map (fun p => p.name)) ++
+    (typedLocalNames locals).toList ++ (names.filterMap id).toList
+  let (_, resultNamesRev) := names.toList.zipIdx.foldl
+    (fun (acc : List String × List String) (name?, idx) =>
+      let (used, resultNames) := acc
+      let resultName := name?.getD (freshDiscardName used idx)
+      (resultName :: used, resultName :: resultNames))
+    (initialUsedNames, [])
+  let resultNames := resultNamesRev.reverse.toArray
+  let targetExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals target
+  let (shapes, words) ← translateAbiFrameCallArgs fields constDecls immutableDecls externalDecls
+    params locals ext.params args
+  if isBoolBytesReturn ext.returnTys then
+    let okName := resultNames[0]!
+    let bytesName := resultNames[1]!
+    let ret ← `(Compiler.Modules.Calls.AbiCallReturnShape.boolBytes $(strTerm okName)
+      $(strTerm bytesName))
+    let stmt ← abiFrameCallStmt ext selector targetExpr shapes words ret
+    let okLocal := (names[0]!).toArray.map (fun name => mkTypedLocal name .bool)
+    let bytesLocal := (names[1]!).toArray.map (fun name =>
+      ({ name, ty := .bytes, source := .memoryBytes } : TypedLocal))
+    pure (some (#[stmt], okLocal ++ bytesLocal))
+  else
+    for ty in leaves do
+      unless isSingleWordStaticValueType ty do
+        throwErrorAt rhs s!"typed interface call '{ext.name}' tuple binding requires static single-word returns or (Bool, Bytes)"
+    let resultNameTerms := resultNames.map strTerm
+    let ret ← `(Compiler.Modules.Calls.AbiCallReturnShape.words [ $[$resultNameTerms],* ])
+    let mut stmts := #[← abiFrameCallStmt ext selector targetExpr shapes words ret]
+    for (name?, ty) in names.zip leaves do
+      if let some name := name? then
+        if let some normalization ← normalizeBoundValueStmt? ty rhs name then
+          stmts := stmts.push normalization
+    let typedLocals := (names.zip leaves).filterMap fun (name?, ty) =>
+      name?.map (fun localName => mkTypedLocal localName ty)
+    pure (some (stmts, typedLocals))
+
 /-- Translate a tuple bind from `callExternal`. Each source binder names one
     declared static return value, so the compilation model can retain the ABI
     result slots while the executable lowering decodes the same return frame. -/
@@ -6065,11 +6329,15 @@ partial def resolveTypedInterfaceCall?
   if argTerms.size != ext.params.size then
     throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' expects {ext.params.size} argument(s), got {argTerms.size}"
   for (argTerm, expectedTy) in argTerms.zip ext.params do
+    if expectedTy == .bytes then
+      validateTypedInterfaceBytesArg fields constDecls immutableDecls externalDecls params locals
+        externalName argTerm
+    else
     let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals argTerm
     unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
       throwErrorAt argTerm
         s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
-  requireTypedInterfaceStaticParams stx externalName ext.params
+  requireTypedInterfaceSupportedParams stx externalName ext.params ext.returnTys
   -- the selector is computed from the params only, so a void method's canonical
   -- signature is identical to its non-void counterpart (e.g. aave
   -- `supply(address,uint256,address,uint16)`).

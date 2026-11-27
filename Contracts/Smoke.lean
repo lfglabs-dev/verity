@@ -51,3 +51,4 @@ import Contracts.Smoke.FallbackNonReentrantSmoke
 import Contracts.Smoke.ScalarAbiValidationSmoke
 import Contracts.Smoke.ConstructorEventSmoke
 import Contracts.Smoke.ConstructorStringArgSmoke
+import Contracts.Smoke.InterfaceBytesCallSmoke

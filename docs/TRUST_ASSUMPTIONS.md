@@ -545,6 +545,20 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   `returndatasize >= 32 * n`, binds word `i` to result `i`; trust surface
   `abiBoundary`, assumption `external_call_abi_interface`). View tuple calls
   keep the static oracle-summary ECM.
+- **ABI-frame typed-interface calls (#1982 progress)**: a method taking
+  `Bytes` or returning `(Bool, Bytes)` lowers to
+  `Compiler.Modules.Calls.abiCallModule` (Solidity head/tail calldata, exact
+  revert bubbling, solc's `(bool, bytes)` returndata checks; trust surface
+  `abiBoundary`, assumption `external_call_abi_interface`), `view` methods
+  included (`staticcall`, no oracle summary). The executable plane journals
+  `Contracts.abiCallBytes selector args` (`Contracts.abiCallSite_journal`,
+  `Contracts.externalCallAbiTo_journal`,
+  `Contracts.externalCallAbiBoolBytesTo_journal`), answered by the threaded
+  context; that the compiled Yul sends exactly these bytes is assumed, and
+  tested against Solidity (`test/InterfaceBytesCallSmoke.t.sol`). Executable
+  returndata stays word-granular, and `revertBytes` reverts with exactly the
+  returned bytes there (`.raw`); the smoke pins them against the compiled
+  code's revert data (`testInnerCallFailureRevertsWithItsData`).
 - **Runtime-target dispatch and G25 (one interface, several runtime
   contracts)**: a bound hop always runs at the call's runtime target
   address. A receiver named after a binding selects it; otherwise the

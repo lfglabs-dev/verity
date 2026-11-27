@@ -14,7 +14,7 @@ structure that the compiler can plug in without modification.
 | `Oracle.lean` | `oracleReadUint256` | canonical oracle read wrappers |
 | `Precompiles.lean` | `ecrecover`, `sha256Memory` / `sha256`, `bn256Add`, `bn256ScalarMul`, `bn256Pairing` | `Stmt.ecrecover`, handwritten SHA-256 / BN254 (alt_bn128) precompile calls |
 | `Callbacks.lean` | `callback` | `Stmt.callback` |
-| `Calls.lean` | `withReturn`, `callWithValue`, `callWithValueBytes`, `bubblingValueCall`, `bubblingValueCallNoOutput` | `Stmt.externalCallWithReturn`; generic `call{value:v}` adapter calls; handwritten low-level `call{value: ...}` wrappers |
+| `Calls.lean` | `withReturn`, `abiCallModule`, `revertMemoryBytesModule`, `callWithValue`, `callWithValueBytes`, `bubblingValueCall`, `bubblingValueCallNoOutput` | `Stmt.externalCallWithReturn`; generic `call{value:v}` adapter calls; handwritten low-level `call{value: ...}` wrappers |
 | `Create2SSTORE2.lean` | `create2Deploy`, `sstore2ReadCode` | handwritten CREATE2 deployment and SSTORE2-style `extcodecopy` code-as-data reads |
 | `CodeData.lean` | `writeTyped`, `readTyped`, `roundtripShape` | typed CREATE2/SSTORE2 code-as-data facade using `Compiler.ABI.Frame` layouts and an explicit trust surface |
 
