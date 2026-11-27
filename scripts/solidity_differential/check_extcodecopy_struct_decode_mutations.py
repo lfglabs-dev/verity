@@ -93,7 +93,7 @@ MUTANTS = {
         'if schema.all AbiMemoryDecode.supportedMember && schema.any AbiSchema.isDynamicMember then\n'
         '          let members',
         'if schema.any AbiSchema.isDynamicMember then\n          let members',
-        'admission', 'bytes-member'),
+        'admission', 'string-member'),
     'import-struct-return-named-guard': (IMPORT,
         'unless (← mStr (← mField r "name")) == "" do\n    failAt r "named dynamic struct return',
         'unless true do\n    failAt r "named dynamic struct return', 'admission', 'named-return'),

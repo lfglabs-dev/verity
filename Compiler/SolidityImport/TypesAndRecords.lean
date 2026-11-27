@@ -27,6 +27,7 @@ structure Val where
   expr : Expr
 
 structure EncodedBytes where
+  hasHeader : Bool := false
   pre : Array Stmt
   pointer : Expr
   size : Expr
@@ -222,6 +223,9 @@ structure MemParam where
   headBinding : String := ""
   schema : Option (List AbiSchema.Member) := none
   abiStem : String := ""
+  /-- Whether `<abiStem>_memory` is a local pointer binding owned by this
+  variable, so `s = rhs` and `delete s` rebind only `<abiStem>_memory`. -/
+  reassignable : Bool := false
   /-- A root `S[]` parameter viewed as member `w` of the root argument tuple
   (tuple pointer 4, ABI offsets relative to it): `some w`, its head word. The
   schema is `w` unread placeholder words followed by the `structArray`

@@ -101,7 +101,37 @@ structure UnsupportedSink where
   /-- Declarations (id, name) bound by statements skipped in the current root. -/
   skippedDecls : IO.Ref (Array (Nat × String))
 
-structure Env where
+structure BytesStructEnv where
+  /-- Struct id of a memory-struct helper result with `bytes` members, consulted
+      only while `helperResult` carries `bytesStructResultMarker`. -/
+  helperStructSid : Nat := 0
+  allocatingBytesMember : Bool := false
+  headeredConcatAssign : Bool := false
+  bytesStructStoredSites : Array (Expr × Json × String × List Nat) := #[]
+  bytesStructLoadedPtrs : Array String := #[]
+  unheaderedByteDataBindings : Array String := #[]
+  unheaderedCopyEdges : Array (String × Expr) := #[]
+  zeroSlotByteDataBindings : Array String := #[]
+  usedBytesMemberStruct : Bool := false
+  firstInlineAssembly : Option (Json × String × List Nat) := none
+  newBytesLocals : Array Nat := #[]
+  suppressHeaderedBytes : Bool := false
+  /-- Data-pointer bindings of `bytes memory` buffers whose memory past their runtime
+      length (or at `data` when empty) does not match solc's word-padded layout, such as
+      `extract_returndata` of a low-level `staticcall` (`checkYulByteWordLoads`). -/
+  unpaddedByteDataBindings : Array String := #[]
+  /-- `(pointer, mloadNode, file, stack)` of every inline-assembly word load from a
+      `bytes memory` buffer's payload (`yulByteBufferLoad?`), rechecked over the whole body. -/
+  yulByteWordLoadSites : Array (Expr × Json × String × List Nat) := #[]
+  /-- `(srcPtr, siteNode, file, stack, isLinkedCopy)` of every memory-to-memory
+      `copyLinkedBytesBuffer` (`true`) or memory-backed byte-index read `b[i]` (`false`)
+      in the current root, rechecked against `shortStringPtrVars`. -/
+  linkedBytesCopySites : Array (Expr × Json × String × List Nat × Bool) := #[]
+  /-- Data-pointer bindings of `bytes memory` buffers decoded from linked library returns
+      (empty returns point at `0x60` in `solc`, so raw Yul payload word loads fail closed). -/
+  linkedReturnByteDataBindings : Array String := #[]
+
+structure Env extends BytesStructEnv where
   /-- Selected solc pipeline: eager operand order and raw narrow stack words can differ. -/
   viaIR : Bool := true
   /-- Some collected source unit is decoded with ABI coder v1 (`pragma abicoder v1`, or solc
@@ -174,9 +204,6 @@ structure Env where
       only while `helperResult` carries the `bytes memory` marker type, whose
       binding is the buffer's data pointer. -/
   helperBytesSize : String := ""
-  /-- Struct id of a memory-struct helper result with `bytes` members, consulted
-      only while `helperResult` carries `bytesStructResultMarker`. -/
-  helperStructSid : Nat := 0
   multiHelperResults : Option (Array (String × String × Bool)) := none
   flatStructHelperResult : Option (Nat × String × Array (String × String × String) × Bool) := none
   /-- Result variable of the `T[N] memory` helper being inlined. -/
@@ -194,7 +221,7 @@ structure Env where
   rootMsgDataReturn : Bool := false
   rootDynamicBytesReturn : Option ParamType := none
   /-- `returns (S memory)` of a struct with dynamic members: its id and schema. -/
-  rootDynamicStructReturn : Option (Nat × List AbiSchema.Member) := none
+  rootDynamicStructReturn : Option (Nat × List AbiSchema.Member × Option Nat) := none
   /-- Return parameter declarations of a root whose ABI return tuple has a
   dynamic `T[] memory`, `bytes` or `string` component
   (`functionDynamicTupleReturn?`): `return` ABI-encodes the tuple in memory. -/
@@ -314,20 +341,6 @@ structure Env where
   /-- Bindings read by a Yul identifier in the current root, with the reading node
       (`checkYulCleanedNarrowReads`). -/
   yulBindingReadSites : Array (String × Json) := #[]
-  /-- Data-pointer bindings of `bytes memory` buffers whose memory past their runtime
-      length (or at `data` when empty) does not match solc's word-padded layout, such as
-      `extract_returndata` of a low-level `staticcall` (`checkYulByteWordLoads`). -/
-  unpaddedByteDataBindings : Array String := #[]
-  /-- `(pointer, mloadNode, file, stack)` of every inline-assembly word load from a
-      `bytes memory` buffer's payload (`yulByteBufferLoad?`), rechecked over the whole body. -/
-  yulByteWordLoadSites : Array (Expr × Json × String × List Nat) := #[]
-  /-- `(srcPtr, siteNode, file, stack, isLinkedCopy)` of every memory-to-memory
-      `copyLinkedBytesBuffer` (`true`) or memory-backed byte-index read `b[i]` (`false`)
-      in the current root, rechecked against `shortStringPtrVars`. -/
-  linkedBytesCopySites : Array (Expr × Json × String × List Nat × Bool) := #[]
-  /-- Data-pointer bindings of `bytes memory` buffers decoded from linked library returns
-      (empty returns point at `0x60` in `solc`, so raw Yul payload word loads fail closed). -/
-  linkedReturnByteDataBindings : Array String := #[]
   currentFile : String
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
@@ -718,12 +731,20 @@ def freshAbiElementStem (fields : List AbiSchema.ScalarField) : M String := do
       return stem
   throwError "unable to allocate hygienic ABI element bindings"
 
+partial def schemaHasBytesMember (schema : List AbiSchema.Member) : Bool :=
+  schema.any fun
+    | .bytesField _ false => true
+    | .nestedStruct _ _ _ _ subSchema => schemaHasBytesMember subSchema
+    | _ => false
+
 def convertStructCalldataToMemory (descriptor : MemParam) (at_ : Json) :
     M (Array Stmt × MemParam) := do
   if let some schema := descriptor.schema then
     let copyStem ← freshAbiStem schema true
     let mat := AbiRootLowering.materializeFromCalldata (descriptor.abiStem ++ "_calldata") copyStem schema
-    modify fun e => { e with encodingMemory := true }
+    modify fun e =>
+      { e with encodingMemory := true,
+               usedBytesMemberStruct := e.usedBytesMemberStruct || schemaHasBytesMember schema }
     return (mat.body.toArray, { descriptor with calldataLocation := false, abiStem := copyStem })
   if let some types := descriptor.staticTypes then
     let mut checks : Array Stmt := #[]
@@ -1124,6 +1145,70 @@ def exprMentionsBinding (bindings : Array String) : Expr → Bool
       exprMentionsBinding bindings left || exprMentionsBinding bindings right
   | _ => false
 
+def exprReadsMemory (e : Expr) : Bool :=
+  e.anyDeep fun
+    | .mload _ | .keccak256 _ _ | .memoryArrayLength _ | .memoryArrayElement _ _ => true
+    | _ => false
+
+def exprBindingVars : Expr → List String
+  | .localVar name => [name]
+  | .add left right | .sub left right => exprBindingVars left ++ exprBindingVars right
+  | _ => []
+
+/-- Record symmetric pointer aliasing across `(binding, value)` for unheadered byte-buffer data. -/
+def noteUnheaderedByteData (binding : String) (value : Expr) : M Unit := do
+  if exprMentionsBinding (← get).unheaderedByteDataBindings value then
+    modify fun e =>
+      if e.unheaderedByteDataBindings.contains binding then e
+      else { e with unheaderedByteDataBindings := e.unheaderedByteDataBindings.push binding }
+  if (← get).unheaderedByteDataBindings.contains binding then
+    for v in exprBindingVars value do
+      modify fun e =>
+        if e.unheaderedByteDataBindings.contains v then e
+        else { e with unheaderedByteDataBindings := e.unheaderedByteDataBindings.push v }
+
+/-- Propagate unheadered byte-buffer local pointers across all `letVar`/`assignVar` bindings
+in `pre` to a fixpoint over the whole lowered root body. -/
+def noteUnheaderedByteDataStmts (pre : Array Stmt) : M Unit := do
+  let bindings := pre.toList.flatMap stmtBindings ++ (← get).unheaderedCopyEdges.toList
+  for _ in [0:bindings.length + 1] do
+    let before := (← get).unheaderedByteDataBindings.size
+    for (binding, value) in bindings do
+      noteUnheaderedByteData binding value
+    if (← get).unheaderedByteDataBindings.size == before then return
+
+/-- Reject `bytes` struct member stores whose buffer originates from an unheadered
+`bytes memory` local (such as self-`delegatecall` returndata or an initcode template),
+even when passed through local aliases, reassignments, conditionals, or helpers. -/
+def checkBytesStructUnheaderedAliases (body : Array Stmt) : M Unit := do
+  if (← get).unheaderedByteDataBindings.isEmpty || (← get).bytesStructStoredSites.isEmpty then
+    return
+  noteUnheaderedByteDataStmts body
+  let env1 ← get
+  if !env1.bytesStructLoadedPtrs.isEmpty then
+    let storedTainted := env1.bytesStructStoredSites.any fun (storedExpr, _, _, _) =>
+      exprMentionsBinding env1.unheaderedByteDataBindings storedExpr
+    let loadedTainted := env1.bytesStructLoadedPtrs.any fun p =>
+      env1.unheaderedByteDataBindings.contains p
+    if storedTainted || loadedTainted then
+      let mut tainted := env1.unheaderedByteDataBindings
+      for p in env1.bytesStructLoadedPtrs do
+        unless tainted.contains p do tainted := tainted.push p
+      for (storedExpr, _, _, _) in env1.bytesStructStoredSites do
+        for v in exprBindingVars storedExpr do
+          unless tainted.contains v do tainted := tainted.push v
+      modify fun e => { e with unheaderedByteDataBindings := tainted }
+      noteUnheaderedByteDataStmts body
+  for (storedExpr, node, file, stack) in (← get).bytesStructStoredSites do
+    if exprMentionsBinding (← get).unheaderedByteDataBindings storedExpr then
+      let savedFile := (← get).currentFile
+      let savedStack := (← get).stack
+      modify fun e => { e with currentFile := file, stack := stack }
+      try
+        failAt node "unheadered byte buffer local cannot alias a bytes struct member"
+      finally
+        modify fun e => { e with currentFile := savedFile, stack := savedStack }
+
 /-- Record that `binding` may alias an unpadded byte-buffer data pointer when `value` may. -/
 def noteUnpaddedByteData (binding : String) (value : Expr) : M Unit := do
   if exprMentionsBinding (← get).unpaddedByteDataBindings value then
@@ -1141,22 +1226,78 @@ def noteUnpaddedByteDataStmts (pre : Array Stmt) : M Unit := do
       noteUnpaddedByteData binding value
     if (← get).unpaddedByteDataBindings.size == before then return
 
+/-- Record that `binding` may alias a `0x60` zero-slot empty byte buffer or struct bytes member. -/
+def noteZeroSlotByteData (binding : String) (value : Expr) : M Unit := do
+  if exprMentionsBinding (← get).zeroSlotByteDataBindings value then
+    modify fun e =>
+      if e.zeroSlotByteDataBindings.contains binding then e
+      else { e with zeroSlotByteDataBindings := e.zeroSlotByteDataBindings.push binding }
+
+/-- Propagate `0x60`-default and struct-loaded byte-buffer pointers across all bindings in `pre`. -/
+def noteZeroSlotByteDataStmts (pre : Array Stmt) : M Unit := do
+  let bindings := pre.toList.flatMap stmtBindings
+  for _ in [0:bindings.length + 1] do
+    let before := (← get).zeroSlotByteDataBindings.size
+    for (binding, value) in bindings do
+      noteZeroSlotByteData binding value
+    if (← get).zeroSlotByteDataBindings.size == before then return
+
+/-- Reject inline assembly in a closure that allocates or decodes a `bytes`-member memory struct. -/
+def checkBytesStructInlineAssembly : M Unit := do
+  if !(← get).usedBytesMemberStruct then return
+  if let some (asmNode, file, stack) := (← get).firstInlineAssembly then
+    let savedFile := (← get).currentFile
+    let savedStack := (← get).stack
+    modify fun e => { e with currentFile := file, stack := stack }
+    try
+      failAt asmNode "inline assembly in a closure that uses a bytes-member memory struct is outside this slice"
+    finally
+      modify fun e => { e with currentFile := savedFile, stack := savedStack }
+
 /-- Reject inline-assembly word loads (`mload(add(buf, 0x20))`, etc.) whose buffer pointer
-may alias low-level `staticcall` return data: empty return data leaves `data` unallocated
-(solc points at `0x60`), and partial-word return data leaves trailing bytes untouched. -/
+may alias low-level `staticcall` return data or a `0x60` zero-slot default / struct bytes member:
+empty return data or `0x60` defaults point `add(buf, 0x20)` at `0x80` (unrelated heap or
+`--via-ir` `memoryguard` spill space), and partial-word return data leaves trailing bytes untouched. -/
 def checkYulByteWordLoads (body : Array Stmt) : M Unit := do
-  if (← get).unpaddedByteDataBindings.isEmpty || (← get).yulByteWordLoadSites.isEmpty then
+  if (← get).yulByteWordLoadSites.isEmpty then
     return
-  noteUnpaddedByteDataStmts body
-  for (pointer, node, file, stack) in (← get).yulByteWordLoadSites do
-    if exprMentionsBinding (← get).unpaddedByteDataBindings pointer then
-      let savedFile := (← get).currentFile
-      let savedStack := (← get).stack
-      modify fun e => { e with currentFile := file, stack := stack }
-      try
-        failAt node "Yul word load from low-level staticcall return data is outside this slice"
-      finally
-        modify fun e => { e with currentFile := savedFile, stack := savedStack }
+  if !(← get).unpaddedByteDataBindings.isEmpty then
+    noteUnpaddedByteDataStmts body
+    let env1 ← get
+    if !env1.bytesStructLoadedPtrs.isEmpty &&
+        env1.bytesStructStoredSites.any (fun (storedExpr, _, _, _) =>
+          exprMentionsBinding env1.unpaddedByteDataBindings storedExpr) then
+      modify fun e =>
+        { e with unpaddedByteDataBindings :=
+                   e.bytesStructLoadedPtrs.foldl
+                     (fun acc b => if acc.contains b then acc else acc.push b)
+                     e.unpaddedByteDataBindings }
+      noteUnpaddedByteDataStmts body
+    for (pointer, node, file, stack) in (← get).yulByteWordLoadSites do
+      if exprMentionsBinding (← get).unpaddedByteDataBindings pointer then
+        let savedFile := (← get).currentFile
+        let savedStack := (← get).stack
+        modify fun e => { e with currentFile := file, stack := stack }
+        try
+          failAt node "Yul word load from low-level staticcall return data is outside this slice"
+        finally
+          modify fun e => { e with currentFile := savedFile, stack := savedStack }
+  if !(← get).zeroSlotByteDataBindings.isEmpty || !(← get).bytesStructLoadedPtrs.isEmpty then
+    modify fun e =>
+      { e with zeroSlotByteDataBindings :=
+                 e.bytesStructLoadedPtrs.foldl
+                   (fun acc b => if acc.contains b then acc else acc.push b)
+                   e.zeroSlotByteDataBindings }
+    noteZeroSlotByteDataStmts body
+    for (pointer, node, file, stack) in (← get).yulByteWordLoadSites do
+      if exprMentionsBinding (← get).zeroSlotByteDataBindings pointer then
+        let savedFile := (← get).currentFile
+        let savedStack := (← get).stack
+        modify fun e => { e with currentFile := file, stack := stack }
+        try
+          failAt node "Yul word load from a default-empty or struct bytes buffer is outside this slice"
+        finally
+          modify fun e => { e with currentFile := savedFile, stack := savedStack }
 
 /-- Reject linked library `bytes memory` copy-in/copy-out sites and memory-backed
 byte-index reads (`b[i]`) whose source/base pointer may alias a 32-byte `ShortStrings`
@@ -1164,7 +1305,7 @@ assembly allocation (`shortStringPtrVars`). -/
 def checkLinkedBytesShortStringCopies (body : Array Stmt) : M Unit := do
   if (← get).shortStringPtrVars.isEmpty || (← get).linkedBytesCopySites.isEmpty then
     return
-  let bindings := body.toList.flatMap stmtBindings
+  let bindings := body.toList.flatMap stmtBindings ++ (← get).unheaderedCopyEdges.toList
   let mut tainted := (← get).shortStringPtrVars
   for _ in [0:bindings.length + 1] do
     let before := tainted.size

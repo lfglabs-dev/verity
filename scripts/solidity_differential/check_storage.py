@@ -564,6 +564,46 @@ ENUM_FLAT_STRUCT_PREFIX = (
        _enum_flat_struct_word(5, 3), _enum_flat_struct_word(5, 256), _enum_flat_struct_word(5, 1 << 255),
        (1 << 256) - 1])
 
+
+def _bytes_member_struct_word(shape, y):
+    """`change(x)` of BytesMemberStructSequence: `x % 8` picks the shape, `y = x // 8` the payload."""
+    return (y * 8 + shape) % (1 << 256)
+
+
+# Memory structs with `bytes` and `enum` members: all five payload lengths (0, 31, 32, 33, 70) in
+# shape 0 (populated and zero-default named helper return) plus out-of-range Kind(4) / Mode(3)
+# Panic(0x21) casts; struct aliasing + helper `S memory` param mutation/rebind/wipe + `delete s.m`
+# vs `delete s` in shape 1; bidirectional `bytes memory` <-> `s.payload` sharing vs storage copy in
+# shape 2; multi-return `(Clause memory, uint256)` + tuple reassignment in shape 3; uninitialized
+# `Clause memory` local + out-of-bounds `Panic(0x32)` in shape 4; `abi.decode(bytes memory, (Clause))`
+# valid lengths + malformed ordinals/scalars/truncated payload (`0x`) + 2^64 length (`Panic(0x41)`) in
+# shape 5; named helper bare `return;` + `bytes.concat` reassignment in shape 6; and
+# `abi.encodeWithSignature` in shape 7.
+BYTES_MEMBER_STRUCT_PREFIX = (
+    [_bytes_member_struct_word(0, 1 | (2 << 3) | (ls << 5) | (9 << 17) | (1 << 25)) for ls in range(5)]
+    + [_bytes_member_struct_word(0, 2 | (1 << 3) | (3 << 5) | (1 << 8) | (7 << 17)),
+       _bytes_member_struct_word(0, 4),
+       _bytes_member_struct_word(0, 3 << 3),
+       _bytes_member_struct_word(1, 3 | (5 << 0) | (2 << 6)),
+       _bytes_member_struct_word(1, 4 | (9 << 0) | (3 << 6) | (1 << 11)),
+       _bytes_member_struct_word(1, 2 | (7 << 0) | (1 << 6) | (1 << 12)),
+       _bytes_member_struct_word(1, 3 | (5 << 0) | (1 << 13)),
+       _bytes_member_struct_word(1, 3 | (5 << 0) | (1 << 14)),
+       _bytes_member_struct_word(1, 3 | (5 << 0) | (1 << 14) | (1 << 15)),
+       *[_bytes_member_struct_word(2, ls | (11 << 8) | (1 << 16)) for ls in range(5)],
+       *[_bytes_member_struct_word(3, ls | (2 << 8) | (1 << 10) | (1 << 21) | ((ls & 1) << 22)) for ls in range(5)],
+       _bytes_member_struct_word(4, 0),
+       _bytes_member_struct_word(4, 2),
+       _bytes_member_struct_word(4, 1 | (3 << 0)),
+       _bytes_member_struct_word(4, 3 | (5 << 4)),
+       _bytes_member_struct_word(4, 3 | (60 << 4)),
+       *[_bytes_member_struct_word(5, 0 + (ls << 3) * 7) for ls in range(5)],
+       *[_bytes_member_struct_word(5, v) for v in range(1, 7)],
+       _bytes_member_struct_word(6, 0 | (15 << 1) | (1 << 9) | (3 << 10)),
+       _bytes_member_struct_word(6, 1 | (15 << 1)),
+       *[_bytes_member_struct_word(7, ls | (3 << 3) | (2 << 5)) for ls in range(5)],
+       (1 << 256) - 1])
+
 # Fixture name -> Contracts/SolidityImportSmoke/<contract>.sol. One entry per line,
 # sorted, so PRs adding different fixtures do not touch the same line.
 FIXTURE_CONTRACTS = {
@@ -575,6 +615,7 @@ FIXTURE_CONTRACTS = {
     'bytes': 'StorageBytesSequence',
     'bytes-and-string-storage': 'BytesAndStringStorageSequence',
     'bytes-array-param': 'BytesArrayParamSequence',
+    'bytes-member-struct': 'BytesMemberStructSequence',
     'bytes-memory-and-abi-encode-call': 'BytesMemoryAndAbiEncodeCallSequence',
     'bytes-named-return-slice-struct': 'BytesNamedReturnSliceStructSequence',
     'bytes-named-return-stateless': 'BytesNamedReturnStatelessSequence',

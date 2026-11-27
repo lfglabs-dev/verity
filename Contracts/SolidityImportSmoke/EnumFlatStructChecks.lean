@@ -60,6 +60,7 @@ solidity_import orderViaIr0838 from "Contracts/SolidityImportSmoke" entry "EnumF
   function namedOrder(uint256,uint256)
   function dirtyNarrowCast()
   function staticCallStructArg(address,Kind)
+  function multiReturnBytesMember()
 
 solidity_import orderLegacy0838 from "Contracts/SolidityImportSmoke" entry "EnumFlatStructOrderAndRejects.sol"
   using legacy0838
@@ -67,6 +68,7 @@ solidity_import orderLegacy0838 from "Contracts/SolidityImportSmoke" entry "Enum
   function namedOrder(uint256,uint256)
   function dirtyNarrowCast()
   function staticCallStructArg(address,Kind)
+  function multiReturnBytesMember()
 
 private def oracle := SolidityImport.Differential.oracle
 
@@ -172,16 +174,20 @@ solidity_import rejDynArrayMember from "Contracts/SolidityImportSmoke" entry "En
   contract EnumFlatStructOrderAndRejects
   function dynamicArrayMemberStruct(uint256)
 
+-- Multi-return helper returning `(WithBytes memory, uint256)` succeeds on both pipelines (7 + 1 + 2 + 9 = 19):
+#guard runFn orderViaIr0838.model "multiReturnBytesMember" [] == some (true, none, [19])
+#guard runFn orderLegacy0838.model "multiReturnBytesMember" [] == some (true, none, [19])
+
 /--
-error: EnumFlatStructOrderAndRejects.sol:28:9: VariableDeclaration: [solidity-import:unsupported] unsupported flat struct return member payload of type bytes
-closure: EnumFlatStructOrderAndRejects.multiReturnBytesMember -> EnumFlatStructOrderAndRejects._loadWithBytes
-bytes payload
+error: EnumFlatStructOrderAndRejects.sol:140:35: VariableDeclaration: [solidity-import:unsupported] unsupported flat struct return member items of type bytes32[]
+closure: EnumMultiReturnArrayRejects.multiReturnArrayMember -> EnumMultiReturnArrayRejects._loadWithArray
+bytes32[] items
 -/
 #guard_msgs in
-solidity_import rejMultiRetBytes from "Contracts/SolidityImportSmoke" entry "EnumFlatStructOrderAndRejects.sol"
+solidity_import rejMultiRetArray from "Contracts/SolidityImportSmoke" entry "EnumFlatStructOrderAndRejects.sol"
   using viaIr0838
-  contract EnumFlatStructOrderAndRejects
-  function multiReturnBytesMember()
+  contract EnumMultiReturnArrayRejects
+  function multiReturnArrayMember()
 
 /--
 error: EnumFlatStructOrderAndRejects.sol:95:9: VariableDeclaration: [solidity-import:unsupported] unsupported flat struct member type enum EnumFlatStructOrderAndRejects.Kind[]
