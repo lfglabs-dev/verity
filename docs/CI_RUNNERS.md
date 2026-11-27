@@ -23,8 +23,8 @@ GitHub Actions for lfglabs-dev/verity
   |              lean-16vcpu-ubuntu-2604
   |
   |-- build-medium self-hosted runners (3 hosts)
-  |     role: routed jobs (audits, import mutations, Foundry) while their
-  |           queue is short
+  |     role: routed jobs (audits, importer differential, import mutations,
+  |           Foundry) while their queue is short
   |     labels: self-hosted, linux, x64, verity, build, build-medium
   |
   |-- dgx-spark-gpu-1
@@ -48,8 +48,9 @@ runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
 runs-on: [self-hosted, linux, x64, paloma-ocr]
 ```
 
-Seven Verify jobs (`build-audits`, `import-mutations`, `compiler-audits`,
-`foundry-gas-calibration`, `foundry`, `foundry-patched`, `foundry-multi-seed`)
+Eight Verify jobs (`build-audits`, `importer-differential`, `import-mutations`,
+`compiler-audits`, `foundry-gas-calibration`, `foundry`, `foundry-patched`,
+`foundry-multi-seed`)
 are routed at run time instead of naming a pool, each through its own router
 output, for example:
 
@@ -60,8 +61,9 @@ runs-on: ${{ fromJSON(needs.route-compiler.outputs.foundry_runs_on) }}
 Two router jobs (`ubuntu-latest`, `actions: read`) run
 `scripts/ci_route_pools.py` right before their groups fan out, so the choice
 sees the runner load when the jobs are about to be created, not at the start
-of the run: `route-build` needs `build` and routes `build-audits` then
-`import-mutations`; `route-compiler` needs `build-compiler-binaries` and
+of the run: `route-build` needs `build` and routes `build-audits`,
+`importer-differential`, then `import-mutations`; `route-compiler` needs
+`build-compiler-binaries` and
 routes `compiler-audits`, `foundry-gas-calibration`, `foundry`,
 `foundry-patched`, `foundry-multi-seed`, in that order. (Run 45485073018
 routed once at 20:51Z, before `build`; its 16 routed jobs were created 40-55
@@ -111,7 +113,8 @@ outputs `<group>_runs_on` and `<group>_on_lean` (true when the chosen labels
 do not include `build-medium`), with `-` in the job name written `_`. The
 per-group choice and reason, and each pool's running, queued and routed
 counts, are in the router job summary. On build-medium the routed jobs keep
-main's per-host limits (`LEAN_NUM_THREADS=4` for `build-audits`,
+main's per-host limits (`LEAN_NUM_THREADS=4` for `build-audits` and
+`importer-differential`,
 `max-parallel` 2 for `foundry` and 1 for `foundry-multi-seed`); on lean.ci
 they use the whole VM and run every matrix entry at once. `ci-gate` needs
 both routers, so a failed route (which skips the routed jobs) still fails
@@ -127,13 +130,14 @@ them only for temporary debugging or deliberate host pinning via
   `timeout-watchdog`, `failure-hints`, `ci-gate`) on GitHub-hosted ephemeral
   `ubuntu-latest` runners so they run with unlimited concurrency and never
   serialize behind a single self-hosted host.
-- Route Lean proof, compiler-binary, profiling, and `turbo-lean` jobs onto
-  ephemeral `lean.ci` runners (`lean-8vcpu-ubuntu-2604` for the build jobs,
-  `lean-16vcpu-ubuntu-2604` for `importer-differential`,
+- Route Lean proof, compiler-binary, profiling, corpus coverage, and
+  `turbo-lean` jobs onto ephemeral `lean.ci` runners (`lean-8vcpu-ubuntu-2604`
+  for the build jobs, `lean-16vcpu-ubuntu-2604` for `solidity-import-coverage`,
   `lean-4vcpu-ubuntu-2604` for the turbo-lean cache check) so concurrent PRs
-  do not serialize behind fixed self-hosted build pools. The audit, mutation
-  and Foundry jobs go through `route-build` / `route-compiler`: build-medium
-  while it has free runners, `lean-8vcpu-ubuntu-2604` once it is busy (`LEAN_NUM_THREADS=2` per worker
+  do not serialize behind fixed self-hosted build pools. The audit,
+  `importer-differential`, mutation and Foundry jobs go through `route-build` /
+  `route-compiler`: build-medium while it has free runners,
+  `lean-8vcpu-ubuntu-2604` once it is busy (`LEAN_NUM_THREADS=2` per worker
   on sharded `import-mutations` on either pool). On lean.ci, the
   Lake-building jobs (`build`, `build-audits`, `build-compiler-binaries`,
   `compiler-audits`, `compiler-regressions`, `importer-differential`,
