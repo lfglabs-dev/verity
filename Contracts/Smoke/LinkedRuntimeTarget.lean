@@ -349,10 +349,10 @@ theorem deferred_withLinks :
   decide
 
 /-- A reverting linked body makes the typed call revert (ABI failed call),
-re-raising the answer's empty returndata, and rolls the target back. -/
+re-raising the linked body's payload bytes exactly, and rolls the target back. -/
 theorem deferred_withLinks_revert :
     revertMessage? (DefVault.burnFrom linkedCtx bbAddr 6 trancheState) =
-      some (.raw []) ∧
+      some (.raw (Verity.Core.RevertPayload.errorString "burn exceeds supply").encode) ∧
     (DefVault.burnFrom linkedCtx bbAddr 6 trancheState).getState.readContractSlot
       bbAddr.toNat 0 = 5 := by
   decide
@@ -370,7 +370,8 @@ theorem mint_site_faithful (s : ContractState) (recipient : Address) (amount : U
             [journalEntry (linkedCallSite "ITrancheD.mint" (ExternalArg.toWords recipient ++ [amount]) 0 .call
               aaAddr.toNat 0 [] 0) (.success (words.map Core.Uint256.val))]
           returndata := (words.map Core.Uint256.val).map
-            Compiler.CompilationModel.Denote.wordNormalize } :=
+            Compiler.CompilationModel.Denote.wordNormalize
+          rawReturndata := none } :=
   externalCallEffectWordsTo_withLinks _ trancheLinks "ITrancheD.mint" aaAddr _ 0 s lateMint
     words s' (by simp [trancheLinks]) hhop
 

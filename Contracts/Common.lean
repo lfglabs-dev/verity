@@ -896,12 +896,14 @@ def ExecutableCallContext.ofCallEnv
   { adversary := env.adversary
     resolve := fun name _ => env.resolve name }
 /-- What a caller re-raises when a typed call it does not catch fails: the
-callee's returndata, as `revertReturndata` would copy it from the word buffer
-(`Denote.returndataRevertBytes`). The compiled call step forwards the same
-buffer. Exact bytes for payloads that are not whole words (a custom error is
-4 + 32n bytes) need a byte-granular buffer, which the EDSL does not have. -/
-def failedCallPayload (returndata : List Nat) : Verity.Core.RevertPayload :=
-  .raw (Compiler.CompilationModel.Denote.returndataRevertBytes returndata)
+callee's returndata as the post-call buffer holds it, exactly what
+`revertReturndata` would copy (the compiled call step forwards the same
+buffer): the adversary's exact revert bytes (`post.rawReturndata`) when it gives
+them, else the big-endian bytes of its returndata words. -/
+def failedCallPayload (post : ContractState) (returndata : List Nat) :
+    Verity.Core.RevertPayload :=
+  .raw (post.rawReturndata.getD
+    (Compiler.CompilationModel.Denote.returndataRevertBytes returndata))
 
 def externalCallResultWord (result : ExternalCallResult) : Uint256 :=
   Core.Uint256.ofNat (result.returndata.head?.getD 0)
@@ -932,7 +934,10 @@ private def resolvedLinkedCall (ctx : ExecutableCallContext) (name : String)
               | .success _ => .success result post
               | .failure _ | .revert _ =>
                   .success result
-                    { state with calls := post.calls, returndata := post.returndata }
+                    { state with
+                      calls := post.calls
+                      returndata := post.returndata
+                      rawReturndata := post.rawReturndata }
           | .revert message _ => .revert message state
 
 private def evmCalldata (state : ContractState) (inOffset inSize : Uint256) : List Nat :=
@@ -1004,7 +1009,8 @@ def evmDelegateCallWords (adv : AdversaryModel)
         { (Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled adv site
             { world := state, gasRemaining := site.gas }).state.world with
           returndata := (adv.result site state).returndata.map
-            Compiler.CompilationModel.Denote.wordNormalize } := rfl
+            Compiler.CompilationModel.Denote.wordNormalize
+          rawReturndata := adv.rawReturndataAfter site state } := rfl
 
 /-- Expression-position projection used only by non-window `.stub` bodies.
 Generated window-opening calls hoist to `externalCallContractWords` so the
@@ -1028,8 +1034,8 @@ def externalCallContractWords {α : Type} [ExternalResult α]
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else
         .revert "external call returned malformed data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def externalCallContractWordsResolved {α : Type} [ExternalResult α]
@@ -1041,8 +1047,8 @@ def externalCallContractWordsResolved {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def externalStaticCallContractWords {α : Type} [ExternalResult α]
@@ -1056,8 +1062,8 @@ def externalStaticCallContractWords {α : Type} [ExternalResult α]
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else
         .revert "external call returned malformed data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def externalStaticCallContractWordsResolved {α : Type} [ExternalResult α]
@@ -1069,8 +1075,8 @@ def externalStaticCallContractWordsResolved {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 /-- Typed-interface variant whose callee is supplied by the interface value. -/
@@ -1085,8 +1091,8 @@ def externalCallContractWordsTo {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def externalStaticCallContractWordsTo {α : Type} [ExternalResult α]
@@ -1100,8 +1106,8 @@ def externalStaticCallContractWordsTo {α : Type} [ExternalResult α]
         .success (ExternalResult.fromWords
           ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def externalCallEffectWords
@@ -1111,7 +1117,7 @@ def externalCallEffectWords
     match result with
     | .success _ => pure ()
     | .failure data | .revert data => fun state =>
-        ContractResult.revert (failedCallPayload data) state
+        ContractResult.revert (failedCallPayload state data) state
 
 def externalCallEffectWordsResolved (name : String) (args : List Uint256)
     (ctx : ExecutableCallContext) (siteId : Nat := 0) : Contract Unit :=
@@ -1119,7 +1125,7 @@ def externalCallEffectWordsResolved (name : String) (args : List Uint256)
     match result with
     | .success _ => pure ()
     | .failure data | .revert data => fun state =>
-        ContractResult.revert (failedCallPayload data) state
+        ContractResult.revert (failedCallPayload state data) state
 
 def externalStaticCallEffectWords
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)
@@ -1129,7 +1135,7 @@ def externalStaticCallEffectWords
     match result with
     | .success _ => pure ()
     | .failure data | .revert data => fun state =>
-        ContractResult.revert (failedCallPayload data) state
+        ContractResult.revert (failedCallPayload state data) state
 
 def externalStaticCallEffectWordsResolved (name : String) (args : List Uint256)
     (ctx : ExecutableCallContext) (siteId : Nat := 0) : Contract Unit :=
@@ -1137,7 +1143,7 @@ def externalStaticCallEffectWordsResolved (name : String) (args : List Uint256)
     match result with
     | .success _ => pure ()
     | .failure data | .revert data => fun state =>
-        ContractResult.revert (failedCallPayload data) state
+        ContractResult.revert (failedCallPayload state data) state
 
 def externalCallEffectWordsTo (name : String) (target : Address)
     (args : List Uint256) (adv : AdversaryModel := .stub) (siteId : Nat := 0) :
@@ -1147,7 +1153,7 @@ def externalCallEffectWordsTo (name : String) (target : Address)
     match result with
     | .success _ => pure ()
     | .failure data | .revert data => fun state =>
-        ContractResult.revert (failedCallPayload data) state
+        ContractResult.revert (failedCallPayload state data) state
 
 def externalStaticCallEffectWordsTo (name : String) (target : Address)
     (args : List Uint256) (adv : AdversaryModel := .stub) (siteId : Nat := 0) :
@@ -1157,7 +1163,7 @@ def externalStaticCallEffectWordsTo (name : String) (target : Address)
     match result with
     | .success _ => pure ()
     | .failure data | .revert data => fun state =>
-        ContractResult.revert (failedCallPayload data) state
+        ContractResult.revert (failedCallPayload state data) state
 
 /-! ### Faithful responders for `deferred` linked contracts (G15)
 
@@ -1173,7 +1179,8 @@ exactly the words the linked body returns and keeps its own storage. -/
 interface name `"IFace.method"`, `target` the call-site target address, so one
 interface called on different addresses can be answered by different bodies); `body` receives the site calldata words
 (the ABI-flattened arguments) and returns the ABI result words. A reverting
-body answers `.revert []`. Every other site (mutable calls, unlinked names) is
+body answers `.revert []` and its payload's exact bytes (`revertBytes`), which the
+caller re-raises. Every other site (mutable calls, unlinked names) is
 answered by `base`. State transition and gas stay `base`'s (a static call never
 commits a transition). -/
 def _root_.Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks
@@ -1187,7 +1194,15 @@ def _root_.Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withView
               (body (site.calldata.map Core.Uint256.ofNat)) state with
           | .success words _ => .success (words.map Core.Uint256.val)
           | .revert _ _ => .revert []
-      | _, _ => base.result site state }
+      | _, _ => base.result site state
+    revertBytes := fun site state =>
+      match site.kind, links site.name (Verity.Core.Address.ofNat site.target) with
+      | .staticcall, some body =>
+          match Contract.hopCallView (Verity.Core.Address.ofNat site.target)
+              (body (site.calldata.map Core.Uint256.ofNat)) state with
+          | .success _ _ => none
+          | .revert payload _ => some payload.encode
+      | _, _ => base.revertBytes site state }
 
 /-- Context-level `withViewLinks`: link resolution is unchanged. -/
 def ExecutableCallContext.withViewLinks (ctx : ExecutableCallContext)
@@ -1264,16 +1279,20 @@ theorem externalStaticCallContractWordsTo_withViewLinks {α : Type} [ExternalRes
       (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId)
       { world := s, gasRemaining := 0 }).state.world with
       returndata := (words.map Core.Uint256.val).map
-        Compiler.CompilationModel.Denote.wordNormalize }, ?_, ?_⟩
+        Compiler.CompilationModel.Denote.wordNormalize
+      rawReturndata := none }, ?_, ?_⟩
   · have hlen : arity ≤ (words.map Core.Uint256.val).length := by simpa using harity
     simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
-      if_pos hlen, ← List.map_take, map_ofNat_val]
+      if_pos hlen, ← List.map_take, map_ofNat_val,
+      Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded]
     rfl
   · rw [Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled_world,
       Compiler.CompilationModel.DenoteExternalCalls.denoteCall_staticcall_world _ _ _ rfl]
 
 /-- A reverting linked view body makes the typed static call revert with the
-caller state restored (the ABI path treats a callee revert as a failed call). -/
+caller state restored (the ABI path treats a callee revert as a failed call),
+re-raising the linked body's payload bytes exactly. -/
 theorem externalStaticCallContractWordsTo_withViewLinks_revert {α : Type} [ExternalResult α]
     (base : AdversaryModel)
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
@@ -1284,7 +1303,7 @@ theorem externalStaticCallContractWordsTo_withViewLinks_revert {α : Type} [Exte
     (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
     (externalStaticCallContractWordsTo (α := α) name target args
         (base.withViewLinks links) arity siteId).run s =
-      ContractResult.revert (failedCallPayload []) s := by
+      ContractResult.revert (.raw msg.encode) s := by
   have hres :
       (base.withViewLinks links).result
           (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s =
@@ -1292,7 +1311,18 @@ theorem externalStaticCallContractWordsTo_withViewLinks_revert {α : Type} [Exte
     simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks,
       linkedCallSite_calldata_ofNat, (linkedCallSite_proj ..).1, (linkedCallSite_proj ..).2.1,
       (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat, hhop]
-  simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres]
+  have hraw :
+      (base.withViewLinks links).revertBytes
+          (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s =
+        some msg.encode := by
+    simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks,
+      linkedCallSite_calldata_ofNat, (linkedCallSite_proj ..).1, (linkedCallSite_proj ..).2.1,
+      (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat, hhop]
+  simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+    failedCallPayload,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded, hraw]
+  rfl
 
 /-! ### Mutable linked responders for `deferred` bindings
 
@@ -1303,9 +1333,10 @@ target (CALL-shaped frame: `sender := caller`, `thisAddress := target`,
 `.success words` and the committed transition is the post-hop state (callee
 writes parked under the target's namespace, caller context restored); the
 journaled call boundary then appends exactly one entry for the site. A
-reverting body answers `.revert []`, so the caller rolls back to the pre-call
-state and the typed call re-raises the answer's (empty) returndata (the ABI path
-treats a callee revert as a failed call). Selected `.staticcall` sites behave
+reverting body answers `.revert []` with its payload's bytes as `revertBytes`,
+so the caller rolls back to the pre-call state and the typed call re-raises the
+linked body's payload bytes exactly (the ABI path treats a callee revert as a
+failed call). Selected `.staticcall` sites behave
 exactly as under `withViewLinks`. -/
 
 /-- Answer selected typed call sites (`links site.name target = some body`) by
@@ -1336,7 +1367,20 @@ def _root_.Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withLink
               (body (site.calldata.map Core.Uint256.ofNat)) state with
           | .success words _ => .success (words.map Core.Uint256.val)
           | .revert _ _ => .revert []
-      | _, _ => base.result site state }
+      | _, _ => base.result site state
+    revertBytes := fun site state =>
+      match site.kind, links site.name (Verity.Core.Address.ofNat site.target) with
+      | .staticcall, some body =>
+          match Contract.hopCallView (Verity.Core.Address.ofNat site.target)
+              (body (site.calldata.map Core.Uint256.ofNat)) state with
+          | .success _ _ => none
+          | .revert payload _ => some payload.encode
+      | .call, some body =>
+          match Contract.hopCall (Verity.Core.Address.ofNat site.target)
+              (body (site.calldata.map Core.Uint256.ofNat)) state with
+          | .success _ _ => none
+          | .revert payload _ => some payload.encode
+      | _, _ => base.revertBytes site state }
 
 /-- Context-level `withLinks`: link resolution is unchanged. -/
 def ExecutableCallContext.withLinks (ctx : ExecutableCallContext)
@@ -1377,6 +1421,21 @@ private theorem withLinks_call_result
       linkedCallSite_calldata_ofNat, (linkedCallSite_proj ..).1, (linkedCallSite_proj ..).2.1,
       (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat]
 
+private theorem withLinks_call_revertBytes
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (hlink : links name target = some body) :
+    (base.withLinks links).revertBytes
+        (linkedCallSite name args arity .call target.toNat 0 [] siteId) s =
+      (match Contract.hopCall target (body args) s with
+        | .success _ _ => none
+        | .revert payload _ => some payload.encode) := by
+  simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withLinks,
+    linkedCallSite_calldata_ofNat, (linkedCallSite_proj ..).1, (linkedCallSite_proj ..).2.1,
+    (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat]
+
 /-- Fidelity of `withLinks` for a state-changing typed call with results. If
 the call is linked to `body` and the hop of `body args` into `target`
 succeeds with `words` and post-hop state `s'`, the typed call returns the
@@ -1401,18 +1460,22 @@ theorem externalCallContractWordsTo_withLinks {α : Type} [ExternalResult α]
               (linkedCallSite name args arity .call target.toNat 0 [] siteId)
               (.success (words.map Core.Uint256.val))]
           returndata := (words.map Core.Uint256.val).map
-            Compiler.CompilationModel.Denote.wordNormalize } := by
+            Compiler.CompilationModel.Denote.wordNormalize
+          rawReturndata := none } := by
   obtain ⟨hres, htr⟩ := withLinks_call_result base links name target args arity siteId s body hlink
   simp only [hhop] at hres htr
   have hlen : arity ≤ (words.map Core.Uint256.val).length := by simpa using harity
   simp only [externalCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
     if_pos hlen, ← List.map_take, map_ofNat_val,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1, htr]
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1, htr,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded]
   rfl
 
 /-- A reverting linked mutable body makes the typed call revert with the
-caller state restored (callee writes rolled back). -/
+caller state restored (callee writes rolled back), re-raising the linked body's
+payload bytes exactly. -/
 theorem externalCallContractWordsTo_withLinks_revert {α : Type} [ExternalResult α]
     (base : AdversaryModel)
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
@@ -1423,10 +1486,15 @@ theorem externalCallContractWordsTo_withLinks_revert {α : Type} [ExternalResult
     (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
     (externalCallContractWordsTo (α := α) name target args
         (base.withLinks links) arity siteId).run s =
-      ContractResult.revert (failedCallPayload []) s := by
+      ContractResult.revert (.raw msg.encode) s := by
   obtain ⟨hres, _⟩ := withLinks_call_result base links name target args arity siteId s body hlink
-  simp only [hhop] at hres
-  simp only [externalCallContractWordsTo, Contract.run, commonExternalCall_apply, hres]
+  have hraw := withLinks_call_revertBytes base links name target args arity siteId s body hlink
+  simp only [hhop] at hres hraw
+  simp only [externalCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+    failedCallPayload,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded, hraw]
+  rfl
 
 /-- Fidelity of `withLinks` for a state-changing typed call without results
 (`t.mint to amount`): a successful linked hop commits its post state `s'`
@@ -1447,16 +1515,19 @@ theorem externalCallEffectWordsTo_withLinks
               (linkedCallSite name args 0 .call target.toNat 0 [] siteId)
               (.success (words.map Core.Uint256.val))]
           returndata := (words.map Core.Uint256.val).map
-            Compiler.CompilationModel.Denote.wordNormalize } := by
+            Compiler.CompilationModel.Denote.wordNormalize
+          rawReturndata := none } := by
   obtain ⟨hres, htr⟩ := withLinks_call_result base links name target args 0 siteId s body hlink
   simp only [hhop] at hres htr
   simp only [externalCallEffectWordsTo, Contract.run, Verity.bind, commonExternalCall_apply, hres,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1, htr]
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1, htr,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded]
   rfl
 
 /-- A reverting linked mutable effect body makes the typed call revert with
-the caller state restored. -/
+the caller state restored, re-raising the linked body's payload bytes exactly. -/
 theorem externalCallEffectWordsTo_withLinks_revert
     (base : AdversaryModel)
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
@@ -1466,10 +1537,15 @@ theorem externalCallEffectWordsTo_withLinks_revert
     (hlink : links name target = some body)
     (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
     (externalCallEffectWordsTo name target args (base.withLinks links) siteId).run s =
-      ContractResult.revert (failedCallPayload []) s := by
+      ContractResult.revert (.raw msg.encode) s := by
   obtain ⟨hres, _⟩ := withLinks_call_result base links name target args 0 siteId s body hlink
-  simp only [hhop] at hres
-  simp only [externalCallEffectWordsTo, Contract.run, Verity.bind, commonExternalCall_apply, hres]
+  have hraw := withLinks_call_revertBytes base links name target args 0 siteId s body hlink
+  simp only [hhop] at hres hraw
+  simp only [externalCallEffectWordsTo, Contract.run, Verity.bind, commonExternalCall_apply, hres,
+    failedCallPayload,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded, hraw]
+  rfl
 
 /-- On static sites `withLinks` answers exactly as `withViewLinks`. -/
 theorem withLinks_result_staticcall
@@ -1478,6 +1554,18 @@ theorem withLinks_result_staticcall
     (site : Compiler.CompilationModel.DenoteExternalCalls.CallSite) (s : ContractState)
     (hkind : site.kind = .staticcall) :
     (base.withLinks links).result site s = (base.withViewLinks links).result site s := by
+  simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withLinks,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks, hkind]
+  cases links site.name (Verity.Core.Address.ofNat site.target) <;> rfl
+
+/-- On static sites `withLinks` supplies the same revert bytes as `withViewLinks`. -/
+theorem withLinks_revertBytes_staticcall
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (site : Compiler.CompilationModel.DenoteExternalCalls.CallSite) (s : ContractState)
+    (hkind : site.kind = .staticcall) :
+    (base.withLinks links).revertBytes site s =
+      (base.withViewLinks links).revertBytes site s := by
   simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withLinks,
     Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks, hkind]
   cases links site.name (Verity.Core.Address.ofNat site.target) <;> rfl
@@ -1500,16 +1588,19 @@ theorem externalStaticCallContractWordsTo_withLinks {α : Type} [ExternalResult 
       post.storageWords = s.storageWords := by
   have hres := withLinks_result_staticcall base links
     (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
+  have hraw := withLinks_revertBytes_staticcall base links
+    (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
   obtain ⟨post, hrun, hpost⟩ := externalStaticCallContractWordsTo_withViewLinks (α := α) base links
     name target args arity siteId s body words s' hlink hhop harity
   refine ⟨post, ?_, hpost⟩
   rw [← hrun]
   simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter, hraw,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1]
 
 /-- A reverting linked view body makes the typed static call revert with the
-caller state restored. -/
+caller state restored, re-raising the linked body's payload bytes exactly. -/
 theorem externalStaticCallContractWordsTo_withLinks_revert {α : Type} [ExternalResult α]
     (base : AdversaryModel)
     (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
@@ -1520,12 +1611,15 @@ theorem externalStaticCallContractWordsTo_withLinks_revert {α : Type} [External
     (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
     (externalStaticCallContractWordsTo (α := α) name target args
         (base.withLinks links) arity siteId).run s =
-      ContractResult.revert (failedCallPayload []) s := by
+      ContractResult.revert (.raw msg.encode) s := by
   have hres := withLinks_result_staticcall base links
+    (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
+  have hraw := withLinks_revertBytes_staticcall base links
     (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
   rw [← externalStaticCallContractWordsTo_withViewLinks_revert (α := α) base links name target
     args arity siteId s body msg s' hlink hhop]
   simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter, hraw,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1]
 
@@ -1652,8 +1746,8 @@ def externalCallBind {α : Type} [ExternalArg α]
   | .success (.success returndata) post =>
       if names.length = returndata.length then .success () post
       else .revert "external call returned insufficient data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def externalCallBindResolved {α : Type} [ExternalArg α]
@@ -1664,8 +1758,8 @@ def externalCallBindResolved {α : Type} [ExternalArg α]
   | .success (.success returndata) post =>
       if names.length = returndata.length then .success () post
       else .revert "external call returned insufficient data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 /-- Linked bind with explicit target and ETH value. Debits `selfBalance`
@@ -1685,8 +1779,8 @@ def externalCallBindTo {α : Type} [ExternalArg α]
       | .success (.success returndata) post =>
           if names.length = returndata.length then ContractResult.success () post
           else ContractResult.revert "external call returned insufficient data" state
-      | .success (.failure data) _ | .success (.revert data) _ =>
-          ContractResult.revert (failedCallPayload data) state
+      | .success (.failure data) post | .success (.revert data) post =>
+          ContractResult.revert (failedCallPayload post data) state
       | .revert message _ => ContractResult.revert message state
     else
       ContractResult.revert "insufficient balance" state
@@ -1712,8 +1806,8 @@ definitional (`rfl`). -/
       | .success (.success returndata) post =>
           if names.length = returndata.length then ContractResult.success () post
           else ContractResult.revert "external call returned insufficient data" s
-      | .success (.failure data) _ | .success (.revert data) _ =>
-          ContractResult.revert (failedCallPayload data) s
+      | .success (.failure data) post | .success (.revert data) post =>
+          ContractResult.revert (failedCallPayload post data) s
       | .revert message _ => ContractResult.revert message s := rfl
 
 theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
@@ -1729,8 +1823,8 @@ theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
         | .success (.success returndata) post =>
             if names.length = returndata.length then ContractResult.success () post
             else ContractResult.revert "external call returned insufficient data" s
-        | .success (.failure data) _ | .success (.revert data) _ =>
-            ContractResult.revert (failedCallPayload data) s
+        | .success (.failure data) post | .success (.revert data) post =>
+            ContractResult.revert (failedCallPayload post data) s
         | .revert message _ => ContractResult.revert message s
       else ContractResult.revert "insufficient balance" s := rfl
 
@@ -1774,8 +1868,8 @@ theorem externalCallContractWords_adv_run {α : Type} [ExternalResult α]
                 ((returndata.take arity).map Core.Uint256.ofNat)) post
           else
             ContractResult.revert "external call returned malformed data" s
-      | .success (.failure data) _ | .success (.revert data) _ =>
-          ContractResult.revert (failedCallPayload data) s
+      | .success (.failure data) post | .success (.revert data) post =>
+          ContractResult.revert (failedCallPayload post data) s
       | .revert message _ => ContractResult.revert message s := rfl
 
 /-! The PR1 `.stub` laws retain their original names and observable results;
@@ -1792,8 +1886,9 @@ the post-state now also exposes the canonical EIP-211 returndata buffer. -/
                 (names.map fun _ =>
                   (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))]
             returndata := (names.map fun _ =>
-              (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat)) }
-      else ContractResult.revert (failedCallPayload []) s := by
+              (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))
+            rawReturndata := none }
+      else ContractResult.revert (.raw []) s := by
   by_cases h : name = "fail" <;>
     simp [Contract.run, externalCallBind, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
@@ -1806,7 +1901,10 @@ the post-state now also exposes the canonical EIP-211 returndata buffer. -/
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
       Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-      externalCallStubSuccess, linkedCallSite, linkedCallEntry, externalCallStubWord, h]
+      Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
+      externalCallStubSuccess, linkedCallSite, linkedCallEntry, externalCallStubWord,
+      failedCallPayload, Compiler.CompilationModel.Denote.returndataRevertBytes, h]
 
 theorem externalCallBindTo_run {α : Type} [ExternalArg α]
     (target : Address) (value : Uint256)
@@ -1823,12 +1921,13 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
                   (names.map fun _ =>
                     (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))]
               returndata := (names.map fun _ =>
-                (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat)) }
-        else ContractResult.revert (failedCallPayload []) s
+                (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))
+              rawReturndata := none }
+        else ContractResult.revert (.raw []) s
       else ContractResult.revert "insufficient balance" s := by
   by_cases hbal : value ≤ s.selfBalance
-  · by_cases h : name = "fail"
-    · simp [Contract.run, externalCallBindTo, commonExternalCall,
+  · by_cases h : name = "fail" <;>
+      simp [Contract.run, externalCallBindTo, commonExternalCall,
         Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -1839,21 +1938,11 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
         Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
         Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
         Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-        externalCallStubSuccess, linkedCallSite,
-         hbal, h]
-    · simp [Contract.run, externalCallBindTo, commonExternalCall,
-        Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-        Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-        Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-        Compiler.CompilationModel.DenoteExternalCalls.chargedGas,
-        Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-        Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-        Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-        Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
-        Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-        Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
+        Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+        Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
         externalCallStubSuccess, linkedCallSite, linkedCallEntryTo, linkedCallEntry,
-        externalCallStubWord, hbal, h]
+        externalCallStubWord, failedCallPayload,
+        Compiler.CompilationModel.Denote.returndataRevertBytes, hbal, h]
   · simp [Contract.run, externalCallBindTo, hbal]
 
 @[simp] theorem callResultWords_run {α : Type} [ExternalResult α] [Inhabited α]
@@ -1873,7 +1962,8 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
                 [(externalCallStubWord name args : Nat)]
               else [])]
           returndata := (if externalCallStubSuccess name then
-            [(externalCallStubWord name args : Nat)] else []) } := by
+            [(externalCallStubWord name args : Nat)] else [])
+          rawReturndata := none } := by
   by_cases h : name = "fail" <;>
     simp [callResultWords, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
@@ -1887,6 +1977,8 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
 
       Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
+      Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
       Contract.run,    Bind.bind, Pure.pure,
       linkedCallSite, linkedCallEntry,
       externalCallStubSuccess, externalCallStubWord,
@@ -1908,7 +2000,8 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
                 [(externalCallStubWord name args : Nat)]
               else [])]
           returndata := (if externalCallStubSuccess name then
-            [(externalCallStubWord name args : Nat)] else []) } := by
+            [(externalCallStubWord name args : Nat)] else [])
+          rawReturndata := none } := by
   by_cases h : name = "fail" <;>
     simp [tryExternalCallWords, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
@@ -1922,6 +2015,8 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
 
       Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
+      Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
       Contract.run,    Bind.bind, Pure.pure,
       linkedCallSite, linkedCallEntry,
       externalCallStubSuccess, externalCallStubWord,
@@ -1983,8 +2078,8 @@ def erc20Read (adv : AdversaryModel) (name : String) (token : Address)
       .success (Core.Uint256.ofNat word) post
   | .success (.success _) _ =>
       .revert "external call returned invalid data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
@@ -2001,8 +2096,8 @@ def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
           if Core.Uint256.ofNat word = (1 : Uint256) then .success () post
           else .revert "external call returned false or invalid data" state
       | _ => .revert "external call returned false or invalid data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 /-- Legacy string-error ERC-20 writes require code at the target, but accept
@@ -2020,8 +2115,8 @@ def erc20WriteLegacy (adv : AdversaryModel) (name : String) (token : Address)
         | word :: _ =>
             if Core.Uint256.ofNat word = (1 : Uint256) then .success () post
             else .revert "external call returned false or invalid data" state
-    | .success (.failure data) _ | .success (.revert data) _ =>
-        .revert (failedCallPayload data) state
+    | .success (.failure data) post | .success (.revert data) post =>
+        .revert (failedCallPayload post data) state
     | .revert message _ => .revert message state
 
 def safeTransfer (token toAddr : Address) (amount : Uint256) (adv : AdversaryModel := .stub) : Contract Unit :=
@@ -2063,8 +2158,11 @@ theorem erc20Write_stub_run (name : String) (token : Address)
       ContractResult.success ()
         { s with
           calls := s.calls ++ [erc20WriteEntry name token args]
-          returndata := [] } := by
+          returndata := []
+          rawReturndata := none } := by
   simp [erc20Write, commonExternalCall,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
     Compiler.CompilationModel.DenoteExternalCalls.externalCall,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -2085,7 +2183,8 @@ theorem erc20Write_stub_run (name : String) (token : Address)
           calls := s.calls ++
             [erc20WriteEntry "safeTransfer" token
               [Verity.addressToWord toAddr, amount]]
-          returndata := [] } := by
+          returndata := []
+          rawReturndata := none } := by
   simpa [safeTransfer] using
     erc20Write_stub_run "safeTransfer" token [Verity.addressToWord toAddr, amount] s (by decide) hcode
 
@@ -2097,7 +2196,8 @@ theorem erc20Write_stub_run (name : String) (token : Address)
           calls := s.calls ++
             [erc20WriteEntry "safeTransferFrom" token
               [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]]
-          returndata := [] } := by
+          returndata := []
+          rawReturndata := none } := by
   simpa [safeTransferFrom] using erc20Write_stub_run "safeTransferFrom" token
     [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount] s (by decide) hcode
 
@@ -2109,7 +2209,8 @@ theorem erc20Write_stub_run (name : String) (token : Address)
           calls := s.calls ++
             [erc20WriteEntry "safeApprove" token
               [Verity.addressToWord spender, amount]]
-          returndata := [] } := by
+          returndata := []
+          rawReturndata := none } := by
   simpa [safeApprove] using
     erc20Write_stub_run "safeApprove" token [Verity.addressToWord spender, amount] s (by decide) hcode
 
@@ -2141,8 +2242,11 @@ theorem erc20Read_stub_run (name : String) (token : Address)
       ContractResult.success result
         { s with
           calls := s.calls ++ [erc20ReadEntry name token args result]
-          returndata := [(result : Nat)] } := by
+          returndata := [(result : Nat)]
+          rawReturndata := none } := by
   simp [erc20Read, commonExternalCall,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.rawReturndataAfter,
+    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
     Compiler.CompilationModel.DenoteExternalCalls.externalCall,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -2165,7 +2269,8 @@ theorem erc20Read_stub_run (name : String) (token : Address)
         { s with
           calls := s.calls ++
             [erc20ReadEntry "balanceOf" token [Verity.addressToWord owner] result]
-          returndata := [(result : Nat)] } := by
+          returndata := [(result : Nat)]
+          rawReturndata := none } := by
   simpa [balanceOf] using erc20Read_stub_run "balanceOf" token
     [Verity.addressToWord owner] s (by decide)
 
@@ -2179,7 +2284,8 @@ theorem erc20Read_stub_run (name : String) (token : Address)
           calls := s.calls ++
             [erc20ReadEntry "allowance" token
               [Verity.addressToWord owner, Verity.addressToWord spender] result]
-          returndata := [(result : Nat)] } := by
+          returndata := [(result : Nat)]
+          rawReturndata := none } := by
   simpa [allowance] using erc20Read_stub_run "allowance" token
     [Verity.addressToWord owner, Verity.addressToWord spender] s (by decide)
 
@@ -2189,7 +2295,8 @@ theorem erc20Read_stub_run (name : String) (token : Address)
       ContractResult.success result
         { s with
           calls := s.calls ++ [erc20ReadEntry "totalSupply" token [] result]
-          returndata := [(result : Nat)] } := by
+          returndata := [(result : Nat)]
+          rawReturndata := none } := by
   simpa [totalSupply] using erc20Read_stub_run "totalSupply" token [] s (by decide)
 /-- Run `body` `count` times, like the compiled `Stmt.forEach` loop (the index is not passed;
 contract code gets it through the macro's `forEach`). -/
@@ -2759,7 +2866,8 @@ theorem ecmDoWords_callWithValueModule_stub_run
                 (linkedCallSite "callWithValue" [target, value, inOffset, inSize] 0 .call
                   target.val value.val [] 0)
                 (.success [])]
-            returndata := [] }
+            returndata := []
+            rawReturndata := none }
       else
         ContractResult.revert "insufficient balance" s := by
   by_cases hbal : value ≤ s.selfBalance
@@ -2863,14 +2971,15 @@ private theorem debitEcmSelfBalance_some_inv (spec : Verity.Core.Reentrancy.Reen
   · exact ⟨_, Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_of_ne s target value hbal hself, hDebited hbal⟩
 
 /-- Under a `CallbackBounded` adversary for `spec`, `ecmDoWords` preserves
-`spec.Inv` whenever `spec.Inv` is insensitive to `calls`/`returndata` updates,
-holds on `s`, and holds on the pre-call debited world. -/
+`spec.Inv` whenever `spec.Inv` is insensitive to `calls`/`returndata`/`rawReturndata`
+updates, holds on `s`, and holds on the pre-call debited world. -/
 theorem ecmDoWords_callbackBounded_preserves (spec : Verity.Core.Reentrancy.ReentrancySpec)
     (mod : Compiler.ECM.ExternalCallModule) (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat) (s : ContractState)
     (hbound : Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded
       (Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry.ofList spec.entrypoints) adv)
-    (hframe : ∀ w c r, spec.Inv w → spec.Inv { w with calls := c, returndata := r })
+    (hframe : ∀ w c r b, spec.Inv w →
+      spec.Inv { w with calls := c, returndata := r, rawReturndata := b })
     (hInv : spec.Inv s)
     (hDebited : ecmValueWord mod args ≤ s.selfBalance.val →
       spec.Inv { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) }) :
@@ -2892,7 +3001,7 @@ theorem ecmDoWords_callbackBounded_preserves (spec : Verity.Core.Reentrancy.Reen
         · simp only [if_pos hlen, ContractResult.snd]
           exact hframe
             (Compiler.CompilationModel.DenoteExternalCalls.denoteCall adv site
-              { world := paid, gasRemaining := site.gas }).state.world _ _
+              { world := paid, gasRemaining := site.gas }).state.world _ _ _
             (hbound.denoteCall_preserves spec site { world := paid, gasRemaining := site.gas } hpaid_inv)
         · simp only [if_neg hlen]; exact hInv
   · rw [Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_none_of_lt s
@@ -2913,8 +3022,9 @@ private theorem debitEcmSelfBalance_some_inv_pred (Inv : ContractState → Prop)
 
 /-- Generated-registry counterpart of `ecmDoWords_callbackBounded_preserves` (#2564):
 under `CallbackBounded entrypoints adv` and `RegistryPreserves Inv entrypoints adv`,
-`ecmDoWords` preserves `Inv` whenever `Inv` is insensitive to `calls`/`returndata`
-updates, holds on `s`, and holds on the pre-call debited world. -/
+`ecmDoWords` preserves `Inv` whenever `Inv` is insensitive to
+`calls`/`returndata`/`rawReturndata` updates, holds on `s`, and holds on the pre-call
+debited world. -/
 theorem ecmDoWords_callbackBounded_preserves_registry
     (Inv : ContractState → Prop)
     (entrypoints : Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry)
@@ -2922,7 +3032,8 @@ theorem ecmDoWords_callbackBounded_preserves_registry
     (siteId : Nat) (s : ContractState)
     (hbound : Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded entrypoints adv)
     (hregistry : Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves Inv entrypoints adv)
-    (hframe : ∀ w c r, Inv w → Inv { w with calls := c, returndata := r })
+    (hframe : ∀ w c r b, Inv w →
+      Inv { w with calls := c, returndata := r, rawReturndata := b })
     (hInv : Inv s)
     (hDebited : ecmValueWord mod args ≤ s.selfBalance.val →
       Inv { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) }) :
@@ -2944,7 +3055,7 @@ theorem ecmDoWords_callbackBounded_preserves_registry
         · simp only [if_pos hlen, ContractResult.snd]
           exact hframe
             (Compiler.CompilationModel.DenoteExternalCalls.denoteCall adv site
-              { world := paid, gasRemaining := site.gas }).state.world _ _
+              { world := paid, gasRemaining := site.gas }).state.world _ _ _
             (hbound.denoteCall_preserves_registry Inv entrypoints hregistry site
               { world := paid, gasRemaining := site.gas } hpaid_inv)
         · simp only [if_neg hlen]; exact hInv
@@ -2961,7 +3072,8 @@ theorem ecmDoWords_callbackBounded_preserves_registry_of_success
     (siteId : Nat) (s s' : ContractState)
     (hbound : Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded entrypoints adv)
     (hregistry : Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves Inv entrypoints adv)
-    (hframe : ∀ w c r, Inv w → Inv { w with calls := c, returndata := r })
+    (hframe : ∀ w c r b, Inv w →
+      Inv { w with calls := c, returndata := r, rawReturndata := b })
     (hInv : Inv s)
     (hDebited : ecmValueWord mod args ≤ s.selfBalance.val →
       Inv { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) })
@@ -3049,8 +3161,9 @@ theorem vaultWithdraw_callbackBounded_preserves_solvency
       intro hbal; rw [hspec]
       simp only [ecmValueWord_callWithValueModule] at hbal ⊢
       exact vaultSolvencyInv_writeSlot_sub_debit s amount hInv hamt hbal
-    have hframe : ∀ w c r, spec.Inv w → spec.Inv { w with calls := c, returndata := r } := by
-      intro w c r hw; rw [hspec] at hw ⊢; exact hw
+    have hframe : ∀ w c r b, spec.Inv w →
+        spec.Inv { w with calls := c, returndata := r, rawReturndata := b } := by
+      intro w c r b hw; rw [hspec] at hw ⊢; exact hw
     have hpres := ecmDoWords_callbackBounded_preserves spec
       Compiler.Modules.Calls.callWithValueModule adv
       [Verity.addressToWord recipient, amount, 0, 0] 0 s₁ hbound hframe hs₁_inv hs₁_deb

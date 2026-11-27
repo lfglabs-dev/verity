@@ -72,9 +72,11 @@ source semantics and Denote keep a caught failure's exact bytes
 executable EDSL keeps a caught payload exactly too (`Contract.tryCatch` /
 `tryWith` hand the handler `withCaughtRevert`, whose `rawReturndata` holds the
 payload's bytes; `revertReturndata`, `returndataSizeLive` and
-`returndataCopyLive` read it first). An uncaught failed typed call still
-re-raises the word view of the callee's returndata (`Contracts.failedCallPayload`):
-adversary answers are word lists.
+`returndataCopyLive` read it first). An uncaught failed typed call re-raises
+the callee's returndata as the post-call buffer holds it
+(`Contracts.failedCallPayload`): the exact bytes when the adversary supplies them
+(`AdversaryModel.revertBytes`, stored in `rawReturndata`), else the word view of
+its word-list answer.
 `tryCall … catch err =>` copies the returndata to memory on catch entry and
 `revert err` re-raises that copy exactly (`test/TryCatchSmoke.t.sol`).
 
@@ -512,8 +514,9 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   extends this to state-changing sites: a linked `.call` site runs the body
   in `Contract.hopCall` at the target (success commits the post-hop state,
   with one caller-controlled journal entry; a reverting body answers
-  `.revert []`, so the typed call reverts with the caller state restored,
-  re-raising empty bytes: the hop's payload is not forwarded).
+  `.revert []` and supplies the hop's payload bytes as `revertBytes`, so the
+  typed call reverts with the caller state restored, re-raising the linked
+  body's payload bytes exactly).
   Fidelity: `Contracts.externalCallContractWordsTo_withLinks`,
   `Contracts.externalCallEffectWordsTo_withLinks`,
   `Contracts.externalStaticCallContractWordsTo_withLinks` (each with

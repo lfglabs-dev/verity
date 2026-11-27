@@ -80,13 +80,14 @@ theorem keepsStorage_of_debitEcmSelfBalance {s paid : ContractState} {target val
 theorem keepsStorage_after_call (adv : Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
     (mod : Compiler.ECM.ExternalCallModule) (args : List Uint256) (siteId : Nat)
     (paid : ContractState) (ws : List Nat)
-    (hres : adv.result (ecmSite mod args siteId) paid = .success ws) (rd : List Nat) :
+    (hres : adv.result (ecmSite mod args siteId) paid = .success ws) (rd : List Nat)
+    (rb : Option (List UInt8)) :
     KeepsStorage
       (if ecmKind mod = .staticcall then paid
         else adv.stateTransition (ecmSite mod args siteId) paid)
       { (Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled adv
           (ecmSite mod args siteId) { world := paid, gasRemaining := 0 }).state.world with
-        returndata := rd } := by
+        returndata := rd, rawReturndata := rb } := by
   have hkind : (ecmSite mod args siteId).kind = ecmKind mod := rfl
   simp only [Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCall, hres, hkind]
@@ -126,7 +127,7 @@ theorem ecmCallTypedWords_success {α : Type} [ExternalResult α]
         injection hcall with hres hpost
         refine ⟨paid, ws, keepsStorage_of_debitEcmSelfBalance hpaid, hres, hlen, hx.symm, ?_⟩
         subst hs' hpost
-        exact keepsStorage_after_call adv mod args siteId paid ws hres _
+        exact keepsStorage_after_call adv mod args siteId paid ws hres _ _
       · simp at h
     · simp at h
     · simp at h
