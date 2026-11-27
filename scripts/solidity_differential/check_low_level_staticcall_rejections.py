@@ -89,7 +89,7 @@ CASES = [
      'uint256 y = 1; bytes32 d = keccak256(abi.encodeWithSelector('
      'bytes4(0x11223344), y, ((y = 2) > 0 ? Box(bytes4(h)) : Box(bytes4(0))).selector)); '
      'ok = d != bytes32(0);',
-     ('(y = 2)', 'effectful-abi', 'Conditional', {})),
+     ('y = 2)', 'effectful-abi', 'Assignment', {})),
     ('selector-value-effect',
      'bytes4 y = 0x00000001; bytes32 d = keccak256(abi.encodeWithSelector('
      'bytes4(0xaaaaaaaa), y, keccak256(abi.encodeWithSelector(y = 0x11223344)))); '
