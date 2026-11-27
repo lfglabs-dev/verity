@@ -1428,8 +1428,9 @@ words as calldata when executing imported entry guards.
 The ABI observer also executes the same bound frame and reads its actual
 return/revert bytes, checking public `denoteFunction` status and successful
 return words against that frame. `revertReturndata` now preserves the actual
-word buffer as `revertWithData` bytes; the observer never synthesizes empty bytes for an
-unclassified Denote failure. The existing returndata representation is word-based; arbitrary partial-byte
+buffer as `revertWithData` bytes: the exact bytes in `rawReturndata` when a failed call
+left them, else the word view; the observer never synthesizes empty bytes for an
+unclassified Denote failure. Entry guards run before any external call, so partial-byte
 external returndata is outside this entry-guard instrument. A noncanonical
 scalar head word fails public Denote binding, which the probe reports as a
 revert with empty data; every row is compared with solc, so a missing semantics
@@ -1922,8 +1923,8 @@ and slots when connected to execution.
 `DenoteState`, `ContractState` and account-qualified `StorageKey` types. Its
 executable call step preserves caller bindings, retains failed-call accesses,
 and rolls back all storage keys and events on an outer frame failure. Raw
-returndata remains in a separate byte buffer; it does not update the legacy
-word-valued `ContractState.returndata`.
+returndata goes to the exact byte buffer `ContractState.rawReturndata`; it does not
+update the legacy word-valued `ContractState.returndata`.
 
 `Compiler.SolidityImport.ByteCallTransactions.bubble` connects failed raw
 responses to the existing `Transactions.finishFrame` using
@@ -1978,7 +1979,8 @@ and argument stores in emitted-Yul order, updates the allocation word, evaluates
 the target afterwards and constructs calldata from the resulting physical bytes.
 It copies the first response word into the same scratch region and retains the
 entire raw response separately. Raw returndata size, optional-bool checks,
-returndata copying and revert forwarding use that buffer; legacy calls clear it.
+returndata copying and revert forwarding use that buffer; a legacy call clears it on
+success and stores the oracle's revert bytes on failure.
 Transaction initialization clears both byte memory and its word observation.
 The trace instrument observes argument expressions in their actual intermediate
 states and retains explicit foreign accesses even on failure or short success.
