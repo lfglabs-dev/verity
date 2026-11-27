@@ -14,6 +14,7 @@
 import Verity.Core.Model.Constants
 import Verity.Core.Model.ProofStatus
 import Verity.Core.Model.Yul.Ast
+import Verity.Core.RevertPayload
 
 namespace Compiler.ECM
 
@@ -224,6 +225,13 @@ structure ExternalCallModule where
       insufficient balance and rolling back the debit if the call fails). -/
   valueArg : Option Nat := none
 
+  /-- What the compiled Yul reverts with when the call fails: the callee fails, or the
+      contract cannot fund `valueArg` (the EVM call then fails with empty returndata).
+      `none`: the callee's returndata, bubbled exactly (`returndatacopy` then `revert`), so
+      an unfunded call reverts with no bytes. `some p`: the module's own payload, whatever
+      the callee returned, such as `.empty` for `revert(0, 0)`. -/
+  failurePayload : Option Verity.Core.RevertPayload := none
+
 instance : BEq ExternalCallModule where
   beq a b :=
     (a.numArgs == b.numArgs) &&
@@ -238,7 +246,8 @@ instance : BEq ExternalCallModule where
     ((a.summaryName == b.summaryName) &&
     ((a.summaryMutability == b.summaryMutability) &&
     ((a.targetArg == b.targetArg) &&
-    (a.valueArg == b.valueArg))))))))))))
+    ((a.valueArg == b.valueArg) &&
+    (a.failurePayload == b.failurePayload)))))))))))))
 
 instance : Repr ExternalCallModule where
   reprPrec m _ := s!"ECM[{m.name}]"
@@ -1313,6 +1322,7 @@ def eip712EcrecoverModule (resultVar : String) : ExternalCallModule :=
     axioms := []
     summaryName := "eip712_ecrecover_verified_shim"
     summaryMutability := .staticcall
+    failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   }
 
 /-- Compile a typed `SSTORE2` runtime data-contract `extcodesize` / `extcodecopy`

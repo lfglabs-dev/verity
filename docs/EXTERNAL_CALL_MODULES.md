@@ -29,10 +29,21 @@ ExternalCallModule (Compiler/ECM.lean)
   ├── axioms : List String
   ├── proofStatus : proved | assumed | unchecked
   ├── targetArg : Option Nat := none
-  └── valueArg : Option Nat := none
+  ├── valueArg : Option Nat := none
+  └── failurePayload : Option RevertPayload := none
 
 Stmt.ecm (mod : ExternalCallModule) (args : List Expr)
 ```
+
+`failurePayload` says what the compiled Yul reverts with when the call fails.
+`none` (the default) means the module bubbles the callee's returndata
+(`returndatacopy` then `revert`); `some p` means it reverts with its own payload
+`p`. The precompile modules set `some .empty` (`revert(0, 0)`), and the legacy
+string ERC-20 modules set their `Error(string)`. The executable EDSL reverts a
+failed call with `Contracts.ecmFailedPayload` and an unfunded one with
+`Contracts.ecmUnfundedPayload`. An unfunded value call fails on the EVM with
+empty returndata, so a bubbling module reverts with no bytes
+(`test/EcmFailurePayloadSmoke.t.sol`).
 
 Every name in `resultVars` must be bound by a top-level `let` in the Yul that
 `compile` returns: the caller emits nothing for it, and a `let` inside a
@@ -221,8 +232,8 @@ All four value-carrying call modules (`callWithValueModule`,
 (`Verity.Core.Model.DenoteFunctionCalls.execStmtWithCalls`), `Stmt.ecm` extracts
 the target address and ETH value from those argument indices and runs
 `Verity.Core.Model.debitSelfBalance` before dispatching the external call:
-calls with `selfBalance < value` revert before entering the adversary/callback
-window, failed calls roll back the debit along with the pre-call state, and
+calls with `selfBalance < value` revert (with `ecmUnfundedPayload`: no bytes for
+these bubbling modules) before entering the adversary/callback window, failed calls roll back the debit along with the pre-call state, and
 non-self calls (`target != thisAddress`) enter the callback window with
 `selfBalance` already debited by `value` (`Contracts.ecmDoWords_selfBalance_le`,
 `Contracts.ecmDoWords_callbackBounded_preserves`, and

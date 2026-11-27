@@ -35,6 +35,7 @@ def ecrecoverModule (resultVar : String) : ExternalCallModule where
   writesState := false
   readsState := true
   axioms := ["evm_ecrecover_precompile"]
+  failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   compile := fun _ctx args => do
     let (hashExpr, vExpr, rExpr, sExpr) ← match args with
       | [h, v, r, s] => pure (h, v, r, s)
@@ -88,6 +89,7 @@ def sha256MemoryModule (resultVar : String) : ExternalCallModule where
   writesState := false
   readsState := true
   axioms := ["evm_sha256_precompile"]
+  failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   compile := fun _ctx args => do
     let (inputOffset, inputSize, outputOffset) ← match args with
       | [inputOffset, inputSize, outputOffset] => pure (inputOffset, inputSize, outputOffset)
@@ -146,6 +148,7 @@ def bn256AddModule (resultXVar resultYVar : String) : ExternalCallModule where
   writesState := false
   readsState := true
   axioms := ["evm_bn256_add_precompile"]
+  failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   compile := fun _ctx args => do
     let (x1, y1, x2, y2) ← match args with
       | [x1, y1, x2, y2] => pure (x1, y1, x2, y2)
@@ -200,6 +203,7 @@ def bn256ScalarMulModule (resultXVar resultYVar : String) : ExternalCallModule w
   writesState := false
   readsState := true
   axioms := ["evm_bn256_scalar_mul_precompile"]
+  failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   compile := fun _ctx args => do
     let (x, y, scalar) ← match args with
       | [x, y, s] => pure (x, y, s)
@@ -257,6 +261,7 @@ def bn256PairingModule (resultVar : String) : ExternalCallModule where
   writesState := false
   readsState := true
   axioms := ["evm_bn256_pairing_precompile"]
+  failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   compile := fun _ctx args => do
     let (inputOffset, inputSize, outputOffset) ← match args with
       | [a, b, c] => pure (a, b, c)

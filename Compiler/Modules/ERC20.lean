@@ -422,6 +422,7 @@ def legacyStringSafeTransferModule : ExternalCallModule where
   writesState := true
   readsState := false
   axioms := ["erc20_legacy_string_safe_transfer_interface"]
+  failurePayload := some (.errorString "transfer reverted")
   compile := fun _ctx args => do
     let (tokenExpr, toExpr, amountExpr) ← match args with
       | [t, to, a] => pure (t, to, a)
@@ -458,6 +459,7 @@ def legacyStringSafeTransferFromModule : ExternalCallModule where
   writesState := true
   readsState := false
   axioms := ["erc20_legacy_string_safe_transferFrom_interface"]
+  failurePayload := some (.errorString "transferFrom reverted")
   compile := fun _ctx args => do
     let (tokenExpr, fromExpr, toExpr, amountExpr) ← match args with
       | [t, f, to, a] => pure (t, f, to, a)
