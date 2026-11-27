@@ -289,6 +289,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       includedMixinImmutablesForHostPublic ctor mixinParsed ++ immutableDecls
     let hasInternalHelpers := translationFunctions.any (·.isInternal)
     let rawSpecCmd ← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls modelCtor modifiers functions adtDecls storageNamespace specName translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls
+      (strictCalls := parsed.strictCalls)
     elabCommand (← wrapSpecCommandWithHelperCEI hasInternalHelpers rawSpecCmd)
     if !resolvedIncludes.isEmpty then
       let rawMergedSpecCmd ← mkMergedSpecCommandPublic (toString contractName.getId) resolvedIncludes

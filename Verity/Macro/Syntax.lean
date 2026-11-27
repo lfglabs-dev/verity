@@ -262,6 +262,7 @@ syntax (name := verityIntrinsicCmd)
 
 syntax (name := verityContractCmd)
   "verity_contract " ident (" is " sepBy1(ident, ","))? (" include " sepBy1(ident, ","))? " where "
+  (&"strict_calls")?
   ("types " verityNewtype+)?
   ("enums " verityEnumDecl+)?
   ("inductive " verityAdtDecl+)?

@@ -1844,6 +1844,12 @@ structure CompilationModel where
       is `keccak256("{ContractName}.storage.v0")` as a 256-bit Nat.
       (#1730, Axis 4 Step 4d) -/
   storageNamespace : Option Nat := none
+  /-- `strict_calls`: compilation rejects every construct that swallows a callee
+      failure, namely an `.ecm` module with `onFailure = .bindZero` and the low-level
+      `call` / `staticcall` / `delegatecall` expressions, which return an unchecked
+      success flag. `tryCall … catch` and `tryExternalCallBind` stay allowed: their
+      source handles the failure explicitly. -/
+  strictCalls : Bool := false
   deriving Repr
 
 /-- Concatenate mixin constructor bodies in include order, then the host body.

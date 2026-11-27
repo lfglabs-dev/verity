@@ -31,7 +31,8 @@ ExternalCallModule (Compiler/ECM.lean)
   ├── targetArg : Option Nat := none
   ├── valueArg : Option Nat := none
   ├── failurePayload : Option RevertPayload := none
-  └── fixedTarget : Option Nat := none
+  ├── fixedTarget : Option Nat := none
+  └── onFailure : revert | bindZero := revert
 
 Stmt.ecm (mod : ExternalCallModule) (args : List Expr)
 ```
@@ -45,6 +46,21 @@ failed call with `Contracts.ecmFailedPayload` and an unfunded one with
 `Contracts.ecmUnfundedPayload`. An unfunded value call fails on the EVM with
 empty returndata, so a bubbling module reverts with no bytes
 (`test/EcmFailurePayloadSmoke.t.sol`).
+
+`onFailure` says what the compiled Yul does when the callee fails: `.revert`
+(the default), or `.bindZero` for the modules that bind a success flag and
+continue (`YulMemoryCall` with and without `static`, `YulMemoryValueCall`,
+`YulMemoryDelegateCall`, and the canonical try and low-level modules).
+
+A contract that declares `strict_calls` (on the line after `where`) swallows no
+callee failure: compilation (`validateStrictCalls`) rejects any `.ecm` module
+with `onFailure = .bindZero`, and any low-level `call`, `staticcall` or
+`delegatecall` whose success flag goes unchecked, naming the function and the
+construct. A low-level call is checked when it is the whole value of a `let`
+whose next statement branches on that local, which is how `tryCall … catch`
+lowers. `tryExternalCallBind` stays allowed too: its source handles the failure
+explicitly. A contract is strict when it or any `is`
+ancestor declares it (`Contracts/Smoke/StrictCallsSmoke.lean`).
 
 `fixedTarget` is the callee when the compiled Yul calls a constant address
 rather than an argument: the precompile modules set their precompile address

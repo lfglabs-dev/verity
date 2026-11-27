@@ -568,6 +568,63 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   firstInvalidStructField spec.fields
 
+/-- The `strict_calls` check of one expression node: a low-level call returns a
+    success flag, so a strict contract cannot use one whose flag goes unchecked. -/
+private def strictCallsExprCheck (site : String) : Expr → Except String Unit
+  | .call .. => throw s!"{site} uses a low-level `call` whose success flag goes unchecked"
+  | .staticcall .. =>
+      throw s!"{site} uses a low-level `staticcall` whose success flag goes unchecked"
+  | .delegatecall .. =>
+      throw s!"{site} uses a low-level `delegatecall` whose success flag goes unchecked"
+  | _ => pure ()
+
+/-- The arguments of `stmt` when it binds a low-level call's success flag to a local
+    that `next` immediately branches on, as `tryCall … catch` lowers to; else `none`. -/
+private def checkedLowLevelCallArgs (stmt : Stmt) (next : Option Stmt) : Option (List Expr) :=
+  let readsFlag (flag : String) (cond : Expr) : Bool :=
+    cond.anyDeep fun e => match e with
+      | .localVar name => name == flag
+      | _ => false
+  match stmt, next with
+  | .letVar flag call@(.call ..), some (.ite cond _ _)
+  | .letVar flag call@(.staticcall ..), some (.ite cond _ _)
+  | .letVar flag call@(.delegatecall ..), some (.ite cond _ _) =>
+      if readsFlag flag cond then some call.children else none
+  | _, _ => none
+
+/-- The `strict_calls` check of one statement's own expressions, given its successor. -/
+private def strictCallsStmtCheck (site : String) (stmt : Stmt) (next : Option Stmt) :
+    Except String Unit := do
+  if let .ecm mod _ := stmt then
+    if mod.onFailure == .bindZero then
+      throw s!"{site} uses external call module '{mod.name}', which binds 0 when the callee fails"
+  let exprs := (checkedLowLevelCallArgs stmt next).getD stmt.directMetadata.subexpressions
+  exprs.forM (Expr.forDeepM (strictCallsExprCheck site))
+
+/-- The `strict_calls` check of each statement of one list (not their nested lists). -/
+private def strictCallsListCheck (site : String) : List Stmt → Except String Unit
+  | [] => pure ()
+  | [stmt] => strictCallsStmtCheck site stmt none
+  | stmt :: next :: rest => do
+      strictCallsStmtCheck site stmt (some next)
+      strictCallsListCheck site (next :: rest)
+
+/-- A `strict_calls` contract swallows no callee failure: no function or constructor
+    uses an `.ecm` module with `onFailure = .bindZero`, nor a low-level
+    `call`/`staticcall`/`delegatecall` unless it binds the success flag to a local
+    that the next statement branches on (`tryCall … catch` lowers to that shape).
+    `tryExternalCallBind` stays allowed: its source handles the failure explicitly. -/
+def validateStrictCalls (spec : CompilationModel) : Except String Unit := do
+  if !spec.strictCalls then return
+  let check (owner : String) (body : List Stmt) : Except String Unit := do
+    let site := s!"Compilation error: strict_calls contract {spec.name}: {owner}"
+    strictCallsListCheck site body
+    Stmt.forDeepListM (fun stmt => stmt.childLists.forM (strictCallsListCheck site)) body
+  if let some ctor := spec.constructor then
+    check "the constructor" ctor.body
+  for fn in spec.functions do
+    check s!"function '{fn.name}'" fn.body
+
 /-- Validate a `CompilationModel` end-to-end, including the
     `nonreentrant(<lock>)` ↔ `targetFork` pre-check (#1968).
 
@@ -651,6 +708,7 @@ def validateCompileInputs (spec : CompilationModel) (selectors : List Nat)
       let nameStr := if names.isEmpty then "<unknown>" else String.intercalate ", " names
       throw s!"Selector collision in {spec.name}: {dup} assigned to {nameStr}"
   | none => pure ()
+  validateStrictCalls spec
 
 /-- Compile one selector-dispatched external and inject the transient-storage
     reentrancy guard prologue for `nonreentrant(lockField)` externals (#1893).

@@ -69,6 +69,7 @@ def canonicalTryExternalCallModule
     (resultVars : List String)
     (isPayable : Bool := false) : ECM.ExternalCallModule where
   name := s!"canonical_try_external_call_{calleeName}"
+  onFailure := .bindZero -- binds the success flag; nothing reverts by itself
   numArgs := argCount
   resultVars := successVar :: resultVars
   writesState := true
@@ -129,6 +130,7 @@ def canonicalLowLevelCallModule
     (kind : CanonicalLowLevelCallKind)
     (resultVar : String) : ECM.ExternalCallModule where
   name := s!"canonical_low_level_{kind.yulOpcode}"
+  onFailure := .bindZero -- binds the success flag; nothing reverts by itself
   numArgs := kind.numArgs
   resultVars := [resultVar]
   writesState := kind.writesState

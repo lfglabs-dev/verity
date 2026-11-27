@@ -14,6 +14,7 @@ import Contracts.Counter.Counter
 import Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke
 import Contracts.ProxyUpgradeabilityMacroSmoke
 import Contracts.Smoke
+import Contracts.Smoke.StrictCallsSmoke
 import Contracts.StringArrayErrorSmoke
 import Contracts.StringArrayEventSmoke
 import Verity.Core.Model.Denote
@@ -5757,6 +5758,52 @@ private def stringCtorSpec : CompilationModel := {
 
 end ConstructorArgsAboveFreePointer
 
+/-! `strict_calls` (`validateStrictCalls`): specs for the checks in the main block. -/
+namespace StrictCalls
+
+
+/-- A strict contract whose function binds a flag-returning module's result. -/
+private def strictFlagModuleSpec : CompilationModel := {
+  name := "StrictFlagModule"
+  fields := []
+  «constructor» := none
+  strictCalls := true
+  functions := [{
+    name := "poke"
+    params := [{ name := "target", ty := ParamType.address }]
+    returnType := none
+    reentrancyTrusted := true
+    body := [
+      Stmt.ecm (Compiler.ECM.YulMemoryCall.module false "ok")
+        [Expr.param "target", Expr.literal 0, Expr.literal 0, Expr.literal 0, Expr.literal 0],
+      Stmt.stop
+    ]
+  }]
+}
+
+/-- A strict contract with `ok := call(…)` followed by `next`. -/
+private def strictLowLevelSpec (next : Stmt) : CompilationModel :=
+  { strictFlagModuleSpec with
+    functions := [{
+      name := "poke"
+      params := [{ name := "target", ty := ParamType.address }]
+      returnType := none
+      reentrancyTrusted := true
+      body := [
+        Stmt.letVar "ok" (Expr.call (Expr.literal 50000) (Expr.param "target") (Expr.literal 0)
+          (Expr.literal 0) (Expr.literal 0) (Expr.literal 0) (Expr.literal 0)),
+        next,
+        Stmt.stop
+      ]
+    }] }
+
+private def strictCallsOk (spec : CompilationModel) : Bool :=
+  match validateStrictCalls spec with
+  | .ok () => true
+  | .error _ => false
+
+end StrictCalls
+
 set_option maxRecDepth 4096 in
 #eval! do
   let compiled :=
@@ -7207,6 +7254,31 @@ set_option maxRecDepth 4096 in
       contains stringYul "if gt(name_offset, sub(calldatasize(), 36))")
   expectTrue "second head word is read at 160"
     (contains stringYul "let supply := mload(160)")
+  -- A flag the next statement branches on is checked; one it ignores is not.
+  expectTrue "strict_calls admits a call whose flag the next statement tests"
+    (StrictCalls.strictCallsOk (StrictCalls.strictLowLevelSpec
+      (Stmt.ite (Expr.eq (Expr.localVar "ok") (Expr.literal 0)) [Stmt.revertEmpty] [])))
+  expectTrue "strict_calls rejects a call whose flag the next statement ignores"
+    (!StrictCalls.strictCallsOk (StrictCalls.strictLowLevelSpec
+      (Stmt.ite (Expr.eq (Expr.param "target") (Expr.literal 0)) [Stmt.revertEmpty] [])))
+  expectTrue "strict_calls rejects a call whose flag is never tested"
+    (!StrictCalls.strictCallsOk
+      (StrictCalls.strictLowLevelSpec (Stmt.setStorage "slot0" (Expr.literal 1))))
+  -- `tryCall … catch` handles the failure in source: a strict contract compiles.
+  let _ ← expectCompile "strict_calls admits tryCall … catch" Contracts.Smoke.StrictCallsSmoke.spec
+  -- The same low-level calls compile without `strict_calls`…
+  let _ ← expectCompile "low-level call compiles without strict_calls"
+    Contracts.Smoke.ExternalCallInBodySmoke.spec
+  -- …and are rejected with it, naming the function and the construct.
+  expectCompileErrorContains "strict_calls rejects a low-level call"
+    { Contracts.Smoke.ExternalCallInBodySmoke.spec with strictCalls := true }
+    "function 'lowLevel' uses a low-level `call` whose success flag goes unchecked"
+  expectCompileErrorContains "strict_calls rejects a flag-returning module"
+    StrictCalls.strictFlagModuleSpec "uses external call module 'yulMemoryCall', which binds 0"
+  expectTrue "the flag-module check is off without strict_calls"
+    (match validateStrictCalls { StrictCalls.strictFlagModuleSpec with strictCalls := false } with
+      | .ok () => true
+      | .error _ => false)
 
 /- Regression for lfglabs-dev/verity#1961. Identifier-shape validation must treat the two external
 forms differently: an ABI-boundary external derived from a typed `interface` carries a dotted
