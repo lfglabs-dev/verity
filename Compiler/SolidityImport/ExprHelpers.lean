@@ -1,5 +1,6 @@
 import Lean
 import Compiler.Sha256.Engine
+import Compiler.Keccak.Sponge
 import Compiler.Hex
 import Compiler.SolidityImport.Access
 import Compiler.SolidityImport.Profile
@@ -1560,30 +1561,131 @@ private def transientNeutralAssembly (decls stateVars : RBMap Nat Json compare)
     | none => true
     | some _ => false
 
-def noteFn (fn : Json) : M Unit := do
-  rejectForwardedAssembly fn
-  if (← get).rootAssembly.isNone then
-    let decls := variableDeclarations RBMap.empty fn
-    let stateVars := (← get).stateVars
-    let blocks := inlineAssemblyBlocks ((field? fn "body").getD .null)
-    if let some asmNode := blocks.find? (!transientNeutralAssembly decls stateVars ·) then
-      modify fun e => { e with rootAssembly := some asmNode }
-  let id ← mNat (← mField fn "id")
-  let env ← get
-  unless env.included.any (·.declId == id) do
-    let name ← mStr (← mField fn "name")
-    let mut tys : Array String := #[]
-    if (← mKind fn) == "VariableDeclaration" then
-      let (paramSpecs, _) ← publicVarGetterParamTypes (← mField fn "typeName")
-      tys := paramSpecs.map Prod.fst
-    else
-      let params ← mArr (← mField (← mField fn "parameters") "parameters")
-      for p in params do
-        tys := tys.push (← liftM (typeString p))
-    let contract := env.funContract.find? id |>.getD "<free>"
-    modify fun e =>
-      let added := e.included.push ⟨contract, name, id, tys⟩
-      { e with included := added }
+/-! ### Structured blocks admitted in transient closures
+
+Two further block families compose with the transient-state lowering although they call a
+transient-sensitive builtin. Both are matched by Yul AST structure and the declared types of
+the referenced locals, never by library, function or variable names.
+
+* Structured low-level calls: `ok := staticcall(gas(), target, add(data, 0x20), mload(data), 0, 0)`,
+  `ok := call(gas(), target, value, add(data, 0x20), mload(data), 0, 0)` (with `value` either
+  literal `0` or a `uint256` local), `n := returndatasize()`, the `LowLevelCall.returnData()`
+  free-memory allocation copy (`matchYulReturndataCopyBlock?`) into a `bytes memory` local, and
+  the return-data bubble (either the 0-arg free-pointer form
+  `let p := mload(0x40) returndatacopy(p, 0, returndatasize()) revert(p, returndatasize())` or
+  the 1-arg `revert(add(d, 0x20), mload(d))` over a `bytes memory` local).
+  The result is a `bool` the builtin bounds to 0/1, a full-word `uint256`, or a freshly allocated
+  `bytes memory` buffer; the target is an address-typed local, which the EVM truncates to 160
+  bits whatever its high bits, and `value` is a full-word `uint256`, so legacy and via-IR agree.
+  The callee runs in the transaction's transient frame, which the model keeps across callbacks
+  (`beginReentrantFrame`), so a callback reads and writes the same transient values as on the EVM.
+* Hashed-base transient words: a single `tstore(S, v)` or `v := tload(S)` whose slot `S` is a
+  compile-time `bytes32` base `B ≥ 2^128` (a constant, or a local initialized from one and never
+  reassigned), `add(B, k)` with a literal `k` and `B + k < 2^256`, or `add(B, and(i, M))` with a
+  full-word index local `i`, a literal mask `M < 2^128` and `B + M < 2^256`. Every such slot lies
+  in `[2^128, 2^256)`, disjoint from the linear transient slots of the contract's own state
+  variables, and the mask fixes the index bits in both pipelines. An unmasked run-time index
+  stays out: `add(B, i)` wraps modulo `2^256` to every slot, including the contract's own
+  transient variables, and a narrow index local can carry high bits legacy does not clean. -/
+
+private def yulLitNat? (e : Json) : Option Nat :=
+  if optStr e "nodeType" == some "YulLiteral" && optStr e "kind" == some "number" then
+    (optStr e "value").bind fun raw => Compiler.Hex.parseHexNat? raw <|> raw.toNat?
+  else none
+
+private def yulCallArgs? (e : Json) (fname : String) : Option (Array Json) :=
+  if optStr e "nodeType" == some "YulFunctionCall" &&
+      (field? e "functionName").bind (optStr · "name") == some fname then
+    match field? e "arguments" with
+    | some (.arr args) => some args
+    | _ => none
+  else none
+
+private def yulExprCallArgs? (st : Json) (fname : String) : Option (Array Json) :=
+  if optStr st "nodeType" == some "YulExpressionStatement" then
+    (field? st "expression").bind (yulCallArgs? · fname)
+  else none
+
+private def yulIdentName? (e : Json) : Option String :=
+  if optStr e "nodeType" == some "YulIdentifier" then optStr e "name" else none
+
+private def isYulZeroArgCall (e : Json) (fname : String) : Bool :=
+  yulCallArgs? e fname == some #[]
+
+/-- Single-target `x := rhs`: the target name and the right-hand side. -/
+private def yulSingleAssign? (st : Json) : Option (String × Json) := do
+  guard (optStr st "nodeType" == some "YulAssignment")
+  let #[v] ← (field? st "variableNames").bind (·.getArr?.toOption) | none
+  return (← yulIdentName? v, ← field? st "value")
+
+/-- `(add(buf, 0x20), mload(buf))` (either `add` order) for one identifier `buf`. -/
+private def yulBytesPayload? (offArg lenArg : Json) : Option String := do
+  let #[a, b] ← yulCallArgs? offArg "add" | none
+  let buf ← if yulLitNat? b == some 0x20 then yulIdentName? a
+    else if yulLitNat? a == some 0x20 then yulIdentName? b else none
+  let #[lenBuf] ← yulCallArgs? lenArg "mload" | none
+  guard (yulIdentName? lenBuf == some buf)
+  return buf
+
+private def declTypeStr (decl : Json) : String :=
+  ((field? decl "typeDescriptions").bind (optStr · "typeString")).getD ""
+
+private def isFullWordDecl (decl : Json) : Bool :=
+  ["uint256", "int256", "bytes32"].contains (declTypeStr decl)
+
+private def isAddressDecl (decl : Json) : Bool :=
+  let ty := declTypeStr decl
+  ty == "address" || ty == "address payable" || ty.startsWith "contract "
+
+private def isBytesMemoryDecl (decl : Json) : Bool :=
+  optStr decl "storageLocation" == some "memory" &&
+    (declTypeStr decl == "bytes" || declTypeStr decl == "bytes memory")
+
+/-- The external references of a block by Yul name, each to a plain (suffix-free,
+single-word) declaration: a local of the closure body (`false`) or a constant (`true`).
+State variables that are not constants, transient variables, `.slot` and `.offset`
+references make it `none`. -/
+private def plainExternalRefs? (decls constants : RBMap Nat Json compare) (asm : Json) :
+    Option (RBMap String (Json × Bool) compare) := do
+  let refs ← match field? asm "externalReferences" with
+    | some (.arr refs) => some refs
+    | none => some #[]
+    | some _ => none
+  refs.foldlM (init := RBMap.empty) fun acc ref => do
+    guard ((field? ref "isSlot").bind (·.getBool?.toOption) != some true)
+    guard ((field? ref "isOffset").bind (·.getBool?.toOption) != some true)
+    guard (field? ref "suffix").isNone
+    guard ((field? ref "valueSize").bind (·.getNat?.toOption) == some 1)
+    let id ← (field? ref "declaration").bind (·.getNat?.toOption)
+    let (decl, isConst) ← match decls.find? id, constants.find? id with
+      | some d, _ =>
+          if (field? d "stateVariable").bind (·.getBool?.toOption) == some true then none
+          else some (d, false)
+      | none, some c => some (c, true)
+      | none, none => none
+    guard (optStr decl "mutability" != some "transient")
+    let name ← optStr decl "name"
+    match acc.find? name with
+    | some (prev, _) =>
+        guard ((field? prev "id").bind (·.getNat?.toOption) == some id)
+        return acc
+    | none => return acc.insert name (decl, isConst)
+
+private def refKeysWithin (refs : RBMap String (Json × Bool) compare)
+    (allowed : List String) : Bool :=
+  refs.fold (fun ok k _ => ok && allowed.contains k) true
+
+private def localRef? (refs : RBMap String (Json × Bool) compare) (name : String) :
+    Option Json := do
+  let (decl, isConst) ← refs.find? name
+  guard !isConst
+  return decl
+
+/-- The statements of a block's Yul AST. -/
+private def yulStatements? (asm : Json) : Option (Array Json) := do
+  let ast ← field? asm "AST"
+  guard (optStr ast "nodeType" == some "YulBlock")
+  (field? ast "statements").bind (·.getArr?.toOption)
 
 /-- Matches the standard OpenZeppelin v5 `LowLevelCall.returnData()` inline-assembly block
 that allocates a `bytes memory` buffer at the free-memory pointer and copies the complete
@@ -1696,6 +1798,323 @@ def matchYulReturndataCopyBlock? (stmts : Array Json) : Option String := do
         | _ => false
   guard fmpOk
   return resName
+
+/-- `ok := staticcall(gas(), t, add(d, 0x20), mload(d), 0, 0)` or
+`ok := call(gas(), t, v, add(d, 0x20), mload(d), 0, 0)` with `v` either literal `0` or a
+`uint256` local, and `ok : bool`, `t` address-typed and `d : bytes memory` locals. -/
+private def structuredCallNoReturn (refs : RBMap String (Json × Bool) compare)
+    (stmts : Array Json) : Bool := Id.run do
+  let #[st] := stmts | return false
+  let some (ok, rhs) := yulSingleAssign? st | return false
+  let some (args, extraAllowed) :=
+      (yulCallArgs? rhs "staticcall").map (·, ([] : List String)) <|>
+      (yulCallArgs? rhs "call").bind fun a =>
+        if a.size != 7 then none
+        else if yulLitNat? a[2]! == some 0 then some (a.eraseIdx! 2, [])
+        else match yulIdentName? a[2]! with
+          | some v =>
+              if (localRef? refs v).any (declTypeStr · == "uint256") then
+                some (a.eraseIdx! 2, [v])
+              else none
+          | none => none
+    | return false
+  let #[g, target, off, len, outOff, outLen] := args | return false
+  let some t := yulIdentName? target | return false
+  let some d := yulBytesPayload? off len | return false
+  let typed := (localRef? refs ok).any (declTypeStr · == "bool") &&
+    (localRef? refs t).any isAddressDecl && (localRef? refs d).any isBytesMemoryDecl
+  return isYulZeroArgCall g "gas" && yulLitNat? outOff == some 0 &&
+    yulLitNat? outLen == some 0 && typed && refKeysWithin refs ([ok, t, d] ++ extraAllowed)
+
+/-- `n := returndatasize()` into a `uint256` local. -/
+private def structuredReturnDataSize (refs : RBMap String (Json × Bool) compare)
+    (stmts : Array Json) : Bool := Id.run do
+  let #[st] := stmts | return false
+  let some (n, rhs) := yulSingleAssign? st | return false
+  return isYulZeroArgCall rhs "returndatasize" &&
+    (localRef? refs n).any (declTypeStr · == "uint256") && refKeysWithin refs [n]
+
+/-- `LowLevelCall.returnData()` block (`matchYulReturndataCopyBlock?`) allocating into a
+`bytes memory` local with no other external references. -/
+private def structuredReturnDataCopy (refs : RBMap String (Json × Bool) compare)
+    (stmts : Array Json) : Bool :=
+  match matchYulReturndataCopyBlock? stmts with
+  | some resName =>
+      (localRef? refs resName).any isBytesMemoryDecl && refKeysWithin refs [resName]
+  | none => false
+
+/-- The return-data bubble: either the 0-arg free-pointer form
+`let p := mload(0x40) returndatacopy(p, 0, returndatasize()) revert(p, returndatasize())`
+with no external reference, or the 1-arg form `revert(add(d, 0x20), mload(d))` over a
+`bytes memory` local `d`. -/
+private def structuredBubbleRevert (refs : RBMap String (Json × Bool) compare)
+    (stmts : Array Json) : Bool := Id.run do
+  if let #[st] := stmts then
+    let some #[offArg, lenArg] := yulExprCallArgs? st "revert" | return false
+    let some d := yulBytesPayload? offArg lenArg | return false
+    return (localRef? refs d).any isBytesMemoryDecl && refKeysWithin refs [d]
+  let #[decl, copy, rev] := stmts | return false
+  if optStr decl "nodeType" != some "YulVariableDeclaration" then return false
+  let some #[v] := (field? decl "variables").bind (·.getArr?.toOption) | return false
+  let some p := optStr v "name" | return false
+  let some init := field? decl "value" | return false
+  let some #[c, s, l] := yulExprCallArgs? copy "returndatacopy" | return false
+  let some #[rp, rl] := yulExprCallArgs? rev "revert" | return false
+  return (yulCallArgs? init "mload").any (·.map yulLitNat? == #[some 0x40]) &&
+    yulIdentName? c == some p && yulLitNat? s == some 0 && isYulZeroArgCall l "returndatasize" &&
+    yulIdentName? rp == some p && isYulZeroArgCall rl "returndatasize" && refs.isEmpty
+
+private def hexBytes? (hex : String) : Option ByteArray :=
+  if hex.length % 2 != 0 then none else
+    (List.range (hex.length / 2)).foldlM (init := ByteArray.empty) fun out i => do
+      let byte ← Compiler.Hex.parseHexNat? ("0x" ++ ((hex.drop (2 * i)).take 2).toString)
+      return out.push (UInt8.ofNat byte)
+
+private def word32 (n : Nat) : ByteArray :=
+  ⟨(List.range 32).toArray.map fun i => UInt8.ofNat (n / 2 ^ (8 * (31 - i)) % 256)⟩
+
+private def exprType (e : Json) : String :=
+  ((field? e "typeDescriptions").bind (optStr · "typeString")).getD ""
+
+/-- Whether a value of type `ty` converts to `bytes32` / `uint256` without changing its word. -/
+private def wordPreservingType (ty : String) : Bool :=
+  ty == "bytes32" || ty == "uint256" || ty.startsWith "int_const " ||
+  ((ty.startsWith "uint") && ((ty.drop 4).toString.toNat?).any (· ≤ 256))
+
+private def isConstantDecl (decl : Json) : Bool :=
+  (field? decl "constant").bind (·.getBool?.toOption) == some true ||
+  optStr decl "mutability" == some "constant"
+
+mutual
+/-- Compile-time bytes of a string/hex literal, `bytes(...)` of one, or `abi.encode` of
+compile-time words. -/
+private def constBytes? (constants : RBMap Nat Json compare) : Nat → Json → Option ByteArray
+  | 0, _ => none
+  | fuel + 1, e =>
+      match optStr e "nodeType" with
+      | some "Literal" =>
+          if ["string", "unicodeString", "hexString"].contains ((optStr e "kind").getD "") then
+            (optStr e "hexValue").bind hexBytes?
+          else none
+      | some "FunctionCall" =>
+          let args := ((field? e "arguments").bind (·.getArr?.toOption)).getD #[]
+          if optStr e "kind" == some "typeConversion" && exprType e == "bytes memory" then
+            match args with
+            | #[arg] => constBytes? constants fuel arg
+            | _ => none
+          else if optStr e "kind" == some "functionCall" &&
+              (field? e "expression").any (fun callee =>
+                optStr callee "nodeType" == some "MemberAccess" &&
+                optStr callee "memberName" == some "encode" &&
+                (field? callee "expression").any fun base =>
+                  (field? base "referencedDeclaration").bind (·.getInt?.toOption) == some (-1)) then
+            args.foldlM (init := ByteArray.empty) fun acc arg =>
+              (constWord? constants fuel arg).map (acc ++ word32 ·)
+          else none
+      | _ => none
+
+/-- Compile-time 256-bit value of a number literal, a constant, `keccak256` of compile-time
+bytes, a word-preserving `bytes32` / `uint256` conversion, or `+`, `-`, `&`, `|`, `^`, `~`
+over such values. -/
+private def constWord? (constants : RBMap Nat Json compare) : Nat → Json → Option Nat
+  | 0, _ => none
+  | fuel + 1, e =>
+      match optStr e "nodeType" with
+      | some "TupleExpression" =>
+          match (field? e "components").bind (·.getArr?.toOption) with
+          | some #[inner] => constWord? constants fuel inner
+          | _ => none
+      | some "Literal" =>
+          if optStr e "kind" != some "number" || (field? e "subdenomination").any (!·.isNull) then
+            none
+          else (optStr e "value").bind fun raw =>
+            let clean := String.join (raw.splitOn "_")
+            (Compiler.Hex.parseHexNat? clean <|> clean.toNat?).filter (· < 2 ^ 256)
+      | some "Identifier" =>
+          (field? e "referencedDeclaration").bind (·.getNat?.toOption) |>.bind fun id =>
+            (constants.find? id).bind fun decl =>
+              if isConstantDecl decl && wordPreservingType (declTypeStr decl) then
+                (field? decl "value").bind (constWord? constants fuel)
+              else none
+      | some "FunctionCall" =>
+          let args := ((field? e "arguments").bind (·.getArr?.toOption)).getD #[]
+          if optStr e "kind" == some "typeConversion" then
+            match args with
+            | #[arg] =>
+                if (exprType e == "bytes32" || exprType e == "uint256") &&
+                    wordPreservingType (exprType arg) then constWord? constants fuel arg
+                else none
+            | _ => none
+          else if optStr e "kind" == some "functionCall" &&
+              (field? e "expression").any (fun callee =>
+                (field? callee "referencedDeclaration").bind (·.getInt?.toOption) == some (-8)) then
+            match args with
+            | #[arg] => (constBytes? constants fuel arg).map fun bytes =>
+                KeccakEngine.byteArrayToNatBE (KeccakEngine.keccak256 bytes)
+            | _ => none
+          else none
+      | some "UnaryOperation" =>
+          if optStr e "operator" == some "~" then
+            (field? e "subExpression").bind (constWord? constants fuel) |>.map (2 ^ 256 - 1 - ·)
+          else none
+      | some "BinaryOperation" =>
+          match (field? e "leftExpression").bind (constWord? constants fuel),
+              (field? e "rightExpression").bind (constWord? constants fuel),
+              optStr e "operator" with
+          | some l, some r, some "+" => if l + r < 2 ^ 256 then some (l + r) else none
+          | some l, some r, some "-" => if r ≤ l then some (l - r) else none
+          | some l, some r, some "&" => some (l &&& r)
+          | some l, some r, some "|" => some (l ||| r)
+          | some l, some r, some "^" => some (l ^^^ r)
+          | _, _, _ => none
+      | _ => none
+end
+
+/-- Initial value of the local declared by `id` in a single-declaration statement. -/
+private partial def localInitializer? (id : Nat) : Json → Option Json
+  | j@(.obj fields) =>
+      let here := do
+        guard (optStr j "nodeType" == some "VariableDeclarationStatement")
+        let #[decl] ← (field? j "declarations").bind (·.getArr?.toOption) | none
+        guard ((field? decl "id").bind (·.getNat?.toOption) == some id)
+        let init ← field? j "initialValue"
+        guard !init.isNull
+        return init
+      here <|> fields.foldl (fun found _ v => found <|> localInitializer? id v) none
+  | .arr xs => xs.findSome? (localInitializer? id)
+  | _ => none
+
+private partial def mentionsDecl (id : Nat) : Json → Bool
+  | j@(.obj fields) =>
+      (field? j "referencedDeclaration").bind (·.getNat?.toOption) == some id ||
+        fields.foldl (fun found _ v => found || mentionsDecl id v) false
+  | .arr xs => xs.any (mentionsDecl id)
+  | _ => false
+
+private partial def yulAssignsName (name : String) : Json → Bool
+  | j@(.obj fields) =>
+      (optStr j "nodeType" == some "YulAssignment" &&
+        ((field? j "variableNames").bind (·.getArr?.toOption)).any
+          (·.any (yulIdentName? · == some name))) ||
+        fields.foldl (fun found _ v => found || yulAssignsName name v) false
+  | .arr xs => xs.any (yulAssignsName name)
+  | _ => false
+
+/-- Whether the local `id` (Yul name `name`) is written anywhere below `j` after its
+declaration: a Solidity assignment, `++` / `--` / `delete`, or a Yul assignment in a block that
+references it. -/
+private partial def localWritten (id : Nat) (name : String) : Json → Bool
+  | j@(.obj fields) =>
+      let here := match optStr j "nodeType" with
+        | some "Assignment" => mentionsDecl id ((field? j "leftHandSide").getD .null)
+        | some "UnaryOperation" =>
+            ["++", "--", "delete"].contains ((optStr j "operator").getD "") &&
+              mentionsDecl id ((field? j "subExpression").getD .null)
+        | some "InlineAssembly" =>
+            ((field? j "externalReferences").bind (·.getArr?.toOption)).any (·.any fun ref =>
+              (field? ref "declaration").bind (·.getNat?.toOption) == some id) &&
+              yulAssignsName name ((field? j "AST").getD .null)
+        | _ => false
+      here || fields.foldl (fun found _ v => found || localWritten id name v) false
+  | .arr xs => xs.any (localWritten id name)
+  | _ => false
+
+/-- Least base admitted for a hashed transient slot: above every linear transient slot. -/
+private def hashedTransientBase : Nat := 2 ^ 128
+
+/-- The compile-time value `B ≥ 2^128` of the `bytes32` base named by `node`: a constant, or a
+local of `fn` initialized from a compile-time value and never written again. -/
+private def hashedBase? (constants : RBMap Nat Json compare) (fn : Json)
+    (refs : RBMap String (Json × Bool) compare) (node : Json) : Option Nat := do
+  let name ← yulIdentName? node
+  let (decl, isConst) ← refs.find? name
+  guard (declTypeStr decl == "bytes32")
+  let init ← if isConst then field? decl "value" else do
+    let id ← (field? decl "id").bind (·.getNat?.toOption)
+    let body ← field? fn "body"
+    guard !(localWritten id name body)
+    localInitializer? id body
+  let base ← constWord? constants 32 init
+  guard (hashedTransientBase ≤ base && base < 2 ^ 256)
+  return base
+
+/-- The names a hashed transient slot operand uses, when it is `B`, `add(B, k)` or
+`add(B, and(i, M))` (either argument order) as described above. -/
+private def hashedSlotNames? (constants : RBMap Nat Json compare) (fn : Json)
+    (refs : RBMap String (Json × Bool) compare) (slot : Json) : Option (List String) :=
+  let baseName := fun node => do
+    let _ ← hashedBase? constants fn refs node
+    yulIdentName? node
+  (baseName slot).map ([·]) <|> do
+    let #[a, b] ← yulCallArgs? slot "add" | none
+    let offset := fun (baseNode off : Json) => do
+      let base ← hashedBase? constants fn refs baseNode
+      let bName ← yulIdentName? baseNode
+      if let some k := yulLitNat? off then
+        guard (base + k < 2 ^ 256)
+        return [bName]
+      let #[x, y] ← yulCallArgs? off "and" | none
+      let (i, m) ← match yulIdentName? x, yulLitNat? y, yulIdentName? y, yulLitNat? x with
+        | some i, some m, _, _ => some (i, m)
+        | _, _, some i, some m => some (i, m)
+        | _, _, _, _ => none
+      guard (m < hashedTransientBase && base + m < 2 ^ 256)
+      guard ((localRef? refs i).any fun d =>
+        declTypeStr d == "uint256" || declTypeStr d == "bytes32")
+      return [bName, i]
+    offset a b <|> offset b a
+
+/-- A single `tstore(S, v)` with `v` a full-word local or a literal, or `v := tload(S)` into a
+full-word local, at a hashed transient slot `S`. -/
+private def hashedTransientWord (constants : RBMap Nat Json compare) (fn : Json)
+    (refs : RBMap String (Json × Bool) compare) (stmts : Array Json) : Bool := Id.run do
+  let #[st] := stmts | return false
+  if let some #[slot, value] := yulExprCallArgs? st "tstore" then
+    let some used := hashedSlotNames? constants fn refs slot | return false
+    if (yulLitNat? value).any (· < 2 ^ 256) then return refKeysWithin refs used
+    let some v := yulIdentName? value | return false
+    return (localRef? refs v).any isFullWordDecl && refKeysWithin refs (v :: used)
+  let some (out, rhs) := yulSingleAssign? st | return false
+  let some #[slot] := yulCallArgs? rhs "tload" | return false
+  let some used := hashedSlotNames? constants fn refs slot | return false
+  return (localRef? refs out).any isFullWordDecl && refKeysWithin refs (out :: used)
+
+/-- A structured low-level call or hashed-base transient word block (see above). -/
+private def structuredTransientAssembly (decls constants : RBMap Nat Json compare)
+    (fn asm : Json) : Bool := Id.run do
+  let some stmts := yulStatements? asm | return false
+  let some refs := plainExternalRefs? decls constants asm | return false
+  return structuredCallNoReturn refs stmts || structuredReturnDataSize refs stmts ||
+    structuredReturnDataCopy refs stmts || structuredBubbleRevert refs stmts ||
+    hashedTransientWord constants fn refs stmts
+
+def noteFn (fn : Json) : M Unit := do
+  rejectForwardedAssembly fn
+  if (← get).rootAssembly.isNone then
+    let decls := variableDeclarations RBMap.empty fn
+    let stateVars := (← get).stateVars
+    let constants := (← get).numericConstants
+    let blocks := inlineAssemblyBlocks ((field? fn "body").getD .null)
+    let admitted := fun asm => transientNeutralAssembly decls stateVars asm ||
+      structuredTransientAssembly decls constants fn asm
+    if let some asmNode := blocks.find? (!admitted ·) then
+      modify fun e => { e with rootAssembly := some asmNode }
+  let id ← mNat (← mField fn "id")
+  let env ← get
+  unless env.included.any (·.declId == id) do
+    let name ← mStr (← mField fn "name")
+    let mut tys : Array String := #[]
+    if (← mKind fn) == "VariableDeclaration" then
+      let (paramSpecs, _) ← publicVarGetterParamTypes (← mField fn "typeName")
+      tys := paramSpecs.map Prod.fst
+    else
+      let params ← mArr (← mField (← mField fn "parameters") "parameters")
+      for p in params do
+        tys := tys.push (← liftM (typeString p))
+    let contract := env.funContract.find? id |>.getD "<free>"
+    modify fun e =>
+      let added := e.included.push ⟨contract, name, id, tys⟩
+      { e with included := added }
 
 /-- `if cond then [yes] else [no]` with single-statement branches. -/
 def iteStmt (cond : Expr) (yes no : Stmt) : Stmt :=

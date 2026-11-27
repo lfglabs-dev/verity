@@ -172,6 +172,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "struct-abi",
     "struct-abi-rejections",
     "struct-copy-write-order",
+    "transient-structured-assembly",
     "yul-array-length-shrink",
     "yul-array-length-shrink-negative",
     "yul-array-length-shrink-rejections",

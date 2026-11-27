@@ -1204,12 +1204,31 @@ rejects in inline assembly), and each external reference names a full-word (`uin
 `int256`, `bytes32`) non-transient variable or constant, or the `.slot` of a local storage
 pointer. This covers the namespaced storage getter `assembly { $.slot := LOCATION }` and
 full-word Yul locals in roots, private helpers and modifiers
-(`TransientNeutralAssemblyChecks`). Any other block fails closed at that block: narrow
+(`TransientNeutralAssemblyChecks`). Two structured families are admitted as well
+(`TransientStructuredAssemblyChecks`, A/B/C on Anvil in
+`check_transient_structured_assembly`). Low-level call helpers: one
+`ok := staticcall(gas(), t, add(d, 0x20), mload(d), 0, 0)` or
+`ok := call(gas(), t, v, add(d, 0x20), mload(d), 0, 0)` with `v` either a literal `0` or a
+`uint256` local, over an `address` local `t` and a `bytes memory` local `d` (either `add`
+operand order); `n := returndatasize()`; the `LowLevelCall.returnData()` free-memory
+allocation copy (`matchYulReturndataCopyBlock?`) into a `bytes memory` local; and the bubble
+(either `let p := mload(0x40) returndatacopy(p, 0, returndatasize()) revert(p, returndatasize())`
+or the 1-arg `revert(add(d, 0x20), mload(d))` over a `bytes memory` local).
+The callee runs in the same transaction, so it sees and keeps this contract's transient
+storage, as for typed external calls (`beginReentrantFrame`). Hashed transient words: one
+`tstore(S, v)` or `v := tload(S)` per block, where `S` is a base `B`, `add(B, k)` with a
+literal `k`, or `add(B, and(i, M))` in either operand order, with `B >= 2^128` a constant or
+an unreassigned `bytes32` local initialized from one, `i` a full-word local and
+`M` a literal below `2^128`, so `B + k` and `B + M` stay below `2^256` and never reach the
+linear slots of transient variables. Any other block fails closed at that block: narrow
 words, which legacy and via-IR clean differently, a transient variable's `x.slot`, a
-storage pointer's `.offset`, Yul transient storage access at a literal or computed slot,
-and calls or creations out of assembly (`call` and `staticcall` at the block; `callcode`,
-`delegatecall`, `create`, `.offset` and an unchecked `create2` already at their own node
-in the Yul lowering). A transient variable that shares its name
+storage pointer's `.offset`, Yul transient storage access at a linear slot (`tload(0)`), a
+base below `2^128`, a reassigned base, an unmasked index (`add(B, i)` wraps modulo `2^256`
+to slot 0 for `i = 2^256 - B`; a narrow index may carry dirty high bits on the legacy
+pipeline), a mask of `2^128` or more, two transient accesses in one block, and calls or
+creations out of assembly outside the helper shapes (a `call` or `staticcall` over scratch
+memory at the block; `callcode`, `delegatecall`, `create`, `.offset` and an unchecked
+`create2` already at their own node in the Yul lowering). A transient variable that shares its name
 with a persistent one in the inheritance chain is not given a layout: roots that use it
 fail with the shadowed-declaration diagnostic, and roots that reach only the persistent
 variable import unchanged.
