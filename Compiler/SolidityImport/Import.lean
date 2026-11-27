@@ -1674,10 +1674,17 @@ private partial def lowerYul (j : Json) : M Val := do
             (← mArr (← mField gasArg "arguments")).isEmpty)
         unless forwardsGas do
           failAt gasArg s!"Yul {fname} must forward gas(); the call boundary supplies the allowance"
-        if !isStatic then
-          let value ← lowerYul args[2]!
-          unless value.pre.isEmpty && (match value.expr with | .literal 0 => true | _ => false) do
-            failAt args[2]! "Yul call with a nonzero value is outside this slice"
+        let valueArg? : Option Val ←
+          if !isStatic then
+            let value ← lowerYul args[2]!
+            if value.pre.isEmpty && (match value.expr with | .literal 0 => true | _ => false) then
+              pure none
+            else if value.pre.isEmpty && (← yulBytePayloadRange? args[3]! args[4]!) then
+              pure (some value)
+            else
+              failAt args[2]! "Yul call with a nonzero value is outside this slice"
+          else
+            pure none
         -- Yul evaluates arguments right to left; effect-free operands make the order moot.
         let operands := if isStatic then args.extract 1 6 else #[args[1]!] ++ args.extract 3 7
         let mut xs : Array Expr := #[]
@@ -1697,6 +1704,13 @@ private partial def lowerYul (j : Json) : M Val := do
         checkYulCallRange operands[3]! operands[4]! (x 3) (x 4) 0x40
           s!"Yul {fname} output must be a bytes memory payload or scratch bytes this block wrote below 0x40"
         let result ← fresh
+        if let some value := valueArg? then
+          -- Nonzero or dynamic value call with a `bytes memory` payload (e.g. OpenZeppelin
+          -- `LowLevelCall.callNoReturn`). Uses `YulMemoryValueCall` so value debit, underfunding,
+          -- and failure refund match EVM semantics.
+          return { pre := #[.ecm (Compiler.ECM.YulMemoryValueCall.module result)
+                             [x 0, value.expr, x 1, x 2, x 3, x 4]],
+                   expr := .bitAnd (.localVar result) (.literal 1) }
         -- CALL and STATICCALL produce a success bit, not the first returndata word.
         -- Expose that bound to the ordinary narrow-assignment checker.
         return { pre := #[.ecm (Compiler.ECM.YulMemoryCall.module isStatic result) xs.toList],
@@ -2972,6 +2986,25 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
     failAt j "inline assembly must restore the free-memory pointer at 0x40 before it ends"
   pure out
 
+private def lowerYulReturndataCopyBlock? (stmts : Array Json) : M (Option (Array Stmt)) := do
+  let some resName := matchYulReturndataCopyBlock? stmts | return none
+  let env ← get
+  if env.yulNames.contains resName then return none
+  let some declId := env.yulMemoryStructs.find? resName | return none
+  let some buf := env.byteBuffers.find? declId | return none
+  let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) | return none
+  let retLen ← fresh
+  let retPtr ← freshFor resName
+  let retFinish ← fresh
+  let clearIdx ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let alloc := AbiEncoding.packedBuffer retPtr retFinish clearIdx (.localVar retLen)
+  return some (#[.letVar retLen .returndataSize] ++ alloc.toArray ++ #[
+    .returndataCopy (.localVar retPtr) (.literal 0) (.localVar retLen),
+    .assignVar ptrBinding (.localVar retPtr),
+    .assignVar sizeBinding (.localVar retLen)
+  ])
+
 private partial def lowerAssemblyStmts (j : Json) (retName : String) (atRootAbiExit := false) : M (Array Stmt) := do
   let assignedInAsm := bodyAssignedIds j
   if !assignedInAsm.isEmpty then
@@ -3016,6 +3049,13 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) (atRootAbiE
                yulBufCursors := savedCursors, yulDeclaredNames := savedDeclared,
                yulCursorOnlyNames := savedCursorOnly }
     return prefixStmts
+  if let some rdStmts ← lowerYulReturndataCopyBlock? stmts then
+    modify fun e =>
+      { e with yulNames := savedYulNames, yulScratch0 := savedScratch0,
+               yulScratch32 := savedScratch32, yulWrittenBytes := savedWritten,
+               yulBufCursors := savedCursors, yulDeclaredNames := savedDeclared,
+               yulCursorOnlyNames := savedCursorOnly }
+    return rdStmts
   let out ← lowerYulStmtSlice j stmts refs retName atRootAbiExit
   modify fun e =>
     { e with yulNames := savedYulNames, yulScratch0 := savedScratch0,
@@ -4597,7 +4637,7 @@ private def finishMemoryByteIndexRead (buf : EncodedBytes) (key : Val) (siteNode
   let word := Expr.mload (.add (.localVar ptrVar) wordOff)
   return { pre, expr := .shl (.literal 248) (.byte lane word) }
 
-set_option maxHeartbeats 1600000 in
+set_option maxHeartbeats 2400000 in
 mutual
 
 private partial def lowerExpr (j : Json) : M Val := do
@@ -8310,6 +8350,22 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
               .letVar dataPtr (.add (.localVar bytesPtr) (.literal 32))
             ]
             return (refPre ++ loadStmts, false, .localVar dataPtr, .localVar length)
+  if (← mKind inner) == "FunctionCall" && optStr inner "kind" == some "functionCall" then
+    let innerTy ← mType inner
+    if innerTy == "bytes memory" || innerTy == "bytes" then
+      let innerCallee ← mField inner "expression"
+      let isHelperCall :=
+        ((← mKind innerCallee) == "Identifier" || (← mKind innerCallee) == "MemberAccess") &&
+        ((field? innerCallee "referencedDeclaration").bind (fun v => v.getInt?.toOption)).any (· ≥ 0)
+      if isHelperCall then
+        let (fnId, vals) ← resolveCallTargetAndArgs inner
+        let buf ← inlineStringFn fnId vals inner
+        let ptrVar ← fresh
+        let lenVar ← fresh
+        return (buf.pre ++ #[
+          .letVar ptrVar buf.pointer,
+          .letVar lenVar buf.size
+        ], false, .localVar ptrVar, .localVar lenVar)
   failAt callee "abi.decode is outside this slice"
 
 private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiDecodedValue) := do
@@ -15939,7 +15995,14 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
     | "InlineAssembly" =>
         if let some (_, ty) := (← get).helperResult then
           if isPointerResultMarker ty then
-            failAt s "inline assembly in a helper with a bytes memory or bytes-member struct result is unsupported"
+            let isReturndataCopy ← do
+              let ast ← mField s "AST"
+              if (← mKind ast) == "YulBlock" then
+                let ystmts ← mArr (← mField ast "statements")
+                pure (ty == namedBytesResultMarker && (matchYulReturndataCopyBlock? ystmts).isSome)
+              else pure false
+            unless isReturndataCopy do
+              failAt s "inline assembly in a helper with a bytes memory or bytes-member struct result is unsupported"
         let isSingleRetAssign ← do
           let ast ← mField s "AST"
           if (← mKind ast) == "YulBlock" then
