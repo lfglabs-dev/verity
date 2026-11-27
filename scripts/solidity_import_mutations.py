@@ -503,6 +503,8 @@ DIFFERENTIAL_MUTANTS = ("import-legacy-root-checked", "import-legacy-helper-chec
                    "import-predeclared-for-exit-store", "import-storage-array-length-bound-skip",
                    "import-helper-loop-break-as-continue", "import-helper-loop-return-ignored",
                    "import-helper-loop-return-keep-iterating",
+                   "import-for-stride-panic", "import-for-stride-trip-count",
+                   "import-for-stride-early-exit-panic", "import-for-stride-counter-scale",
                    "import-block-number", "import-block-chainid",
                    "import-require-condition", "denote-require-selector",
                    "import-custom-require-condition", "denote-custom-require-selector",

@@ -1061,6 +1061,23 @@ MUTANTS.update({
         'pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 0)])'),
     'import-helper-loop-return-keep-iterating': ('    out := out.push (.forEachWhile binding limit guard bodyOut.toList)',
         '    out := out.push (.forEach binding limit bodyOut.toList)'),
+    'import-for-stride-panic': (
+        '    else [.ite (.gt (.localVar counterBinding) (.literal maxBeforeStep))\n'
+        '            [.panicCode (.literal 0x11)] []]',
+        '    else []'),
+    'import-for-stride-trip-count': (
+        '  let tripExpr : Expr :=\n'
+        '    .add (.div (.sub diffExpr (.literal 1)) (.literal kStep)) (.literal 1)',
+        '  let tripExpr : Expr :=\n'
+        '    .add (.div diffExpr (.literal kStep)) (.literal 1)'),
+    'import-for-stride-early-exit-panic': (
+        '  let postStepStmts : List Stmt := match earlyExitGuard with\n'
+        '    | some guard => if postStepCore.isEmpty then [] else [.ite guard postStepCore []]\n'
+        '    | none => postStepCore',
+        '  let postStepStmts : List Stmt := postStepCore'),
+    'import-for-stride-counter-scale': (
+        '    | .literal 0 => .mul (.localVar iterIdx) (.literal kStep)',
+        '    | .literal 0 => .localVar iterIdx'),
 })
 
 
@@ -1289,6 +1306,8 @@ def run(directory, output, name):
         fixture = "HelperLoopBreakSequence"
     if name.startswith("import-helper-loop-return-"):
         fixture = "HelperLoopReturnSequence"
+    if name.startswith("import-for-stride-"):
+        fixture = "ForLoopStrideSequence"
     if name.startswith("import-invariant-for-"):
         fixture = "InvariantForSequence"
     if name.startswith("import-local-write-"):
@@ -1597,6 +1616,17 @@ def run(directory, output, name):
             3618502788666131106986593281521497120414687020801267626344091381866793796871,
             1356938545749799165119972480570561420155507632800475359837920554324574865158,
             (1 << 256) - 1,
+        ])])
+    if fixture == 'ForLoopStrideSequence':
+        max_u256 = (1 << 256) - 1
+        argv[argv.index('--transactions') + 1] = '24'
+        argv.extend(['--change-prefix', *map(str, [
+            0, 1, 31, 32, 33, 63, 64, 65, 96,
+            32 | (3 << 7),
+            33 | (4 << 7) | (1 << 11),
+            64 | (7 << 7) | (7 << 11),
+            max_u256 - 7, max_u256 - 6, max_u256 - 5, max_u256 - 4,
+            max_u256 - 3, max_u256 - 2, max_u256 - 1, max_u256,
         ])])
     if fixture == 'FixedBytesWidthSequence':
         # The same boundaries as `check_storage --fixture fixed-bytes-widths`, then every

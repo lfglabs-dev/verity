@@ -54,6 +54,7 @@ STORAGE_FIXTURES = (
     'yul-narrow-bool-address',
     'struct-static-array-gaps',
     'struct-nested-mappings',
+    'for-loop-stride',
 )
 
 def stateful_campaign(output, transactions, seed, jobs=1):

@@ -1872,6 +1872,154 @@ def stateful_helper_loop_return_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown helper-loop-return variant: {variant}')
 
 
+def stateful_for_loop_stride_source(fixture: str, variant: str) -> str:
+    """Compare constant-stride `for` loops (#2975) with unit-stride loops that scale the index
+    and perform the checked post-step explicitly."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return _rename_identifiers(
+            fixture,
+            {'acc', 'b', 'bound', 'count', 'i', 'j', 'mode', 'n', 'n3', 'n32', 'p',
+             'retVal', 's3', 'shouldBreak', 'skipVal', 'start', 'steps', 'stopVal',
+             'total', 'u', 'v', 'x'},
+        )
+    if variant == 'unit-stride':
+        return _replace_anchors(fixture, [
+            ('        for (uint256 i; i < n; i += 32) {\n'
+             '            acc += i + 1;\n'
+             '        }\n',
+             '        uint256 count = n == 0 ? 0 : ((n - 1) / 32) + 1;\n'
+             '        for (uint256 c = 0; c < count; ++c) {\n'
+             '            uint256 i = c * 32;\n'
+             '            acc += i + 1;\n'
+             '        }\n'),
+            ('        for (uint256 i = start; i < bound; i = i + 3) {\n'
+             '            acc += i * 2 + 1;\n'
+             '        }\n'
+             '        for (uint256 j = start; j < bound; j = 3 + j) {\n'
+             '            acc += j + 5;\n'
+             '        }\n',
+             '        uint256 count = start < bound ? ((bound - start - 1) / 3) + 1 : 0;\n'
+             '        for (uint256 c = 0; c < count; ++c) {\n'
+             '            uint256 i = start + c * 3;\n'
+             '            acc += i * 2 + 1;\n'
+             '        }\n'
+             '        for (uint256 d = 0; d < count; ++d) {\n'
+             '            uint256 j = start + d * 3;\n'
+             '            acc += j + 5;\n'
+             '        }\n'),
+            ('        for (uint256 i = 0; i < n; i += 3) {\n'
+             '            steps += 1;\n'
+             '            if (i == skipVal) {\n'
+             '                continue;\n'
+             '            }\n'
+             '            if (i == stopVal) {\n'
+             '                break;\n'
+             '            }\n'
+             '            if (i == retVal) {\n'
+             '                return acc + i + 1000;\n'
+             '            }\n'
+             '            acc += i + 2;\n'
+             '        }\n',
+             '        uint256 count = n == 0 ? 0 : ((n - 1) / 3) + 1;\n'
+             '        for (uint256 c = 0; c < count; ++c) {\n'
+             '            uint256 i = c * 3;\n'
+             '            steps += 1;\n'
+             '            if (i == skipVal) {\n'
+             '                continue;\n'
+             '            }\n'
+             '            if (i == stopVal) {\n'
+             '                break;\n'
+             '            }\n'
+             '            if (i == retVal) {\n'
+             '                return acc + i + 1000;\n'
+             '            }\n'
+             '            acc += i + 2;\n'
+             '        }\n'),
+            ('        uint256 start = type(uint256).max - 63;\n'
+             '        for (uint256 i = start; i < type(uint256).max; i += 32) {\n'
+             '            steps += 1;\n'
+             '            if (i > type(uint256).max - 32) {\n'
+             '                if (mode == 1) {\n'
+             '                    return 77;\n'
+             '                }\n'
+             '                if (mode == 2) {\n'
+             '                    continue;\n'
+             '                }\n'
+             '            }\n'
+             '        }\n',
+             '        uint256 start = type(uint256).max - 63;\n'
+             '        for (uint256 c = 0; c < 2; ++c) {\n'
+             '            uint256 i = start + c * 32;\n'
+             '            steps += 1;\n'
+             '            if (i > type(uint256).max - 32) {\n'
+             '                if (mode == 1) {\n'
+             '                    return 77;\n'
+             '                }\n'
+             '                if (mode == 2) {\n'
+             '                    uint256 ovf = i + 32;\n'
+             '                    steps += ovf;\n'
+             '                    continue;\n'
+             '                }\n'
+             '            }\n'
+             '            uint256 next = i + 32;\n'
+             '            if (next == 0) {\n'
+             '                revert();\n'
+             '            }\n'
+             '        }\n'),
+            ('        uint256 start = type(uint256).max - 63;\n'
+             '        for (uint256 i = start; i < type(uint256).max; i += 32) {\n'
+             '            steps += 1;\n'
+             '            count += 1;\n'
+             '            if (shouldBreak == 1 && i > type(uint256).max - 32) {\n'
+             '                break;\n'
+             '            }\n'
+             '        }\n',
+             '        uint256 start = type(uint256).max - 63;\n'
+             '        for (uint256 c = 0; c < 2; ++c) {\n'
+             '            uint256 i = start + c * 32;\n'
+             '            steps += 1;\n'
+             '            count += 1;\n'
+             '            if (shouldBreak == 1 && i > type(uint256).max - 32) {\n'
+             '                break;\n'
+             '            }\n'
+             '            uint256 next = i + 32;\n'
+             '            if (next == 0) {\n'
+             '                revert();\n'
+             '            }\n'
+             '        }\n'),
+            ('        uint256 p = 9;\n'
+             '        for (p = 1; p < n3; p += 3) {\n'
+             '            acc += p;\n'
+             '        }\n'
+             '        acc += p * 10;\n',
+             '        uint256 pCount = 1 < n3 ? ((n3 - 2) / 3) + 1 : 0;\n'
+             '        for (uint256 pc = 0; pc < pCount; ++pc) {\n'
+             '            acc += 1 + pc * 3;\n'
+             '        }\n'
+             '        uint256 p = 1 + pCount * 3;\n'
+             '        acc += p * 10;\n'),
+            ('        for (uint256 b = 0; b < n3; ) {\n'
+             '            acc += b + 1;\n'
+             '            b += 3;\n'
+             '        }\n',
+             '        uint256 bCount = n3 == 0 ? 0 : ((n3 - 1) / 3) + 1;\n'
+             '        for (uint256 bc = 0; bc < bCount; ++bc) {\n'
+             '            acc += bc * 3 + 1;\n'
+             '        }\n'),
+            ('        unchecked {\n'
+             '            for (uint256 u = 0; u < 10; u += 3) {\n'
+             '                acc += u;\n'
+             '            }\n'
+             '        }\n',
+             '        for (uint256 uc = 0; uc < 4; ++uc) {\n'
+             '            acc += uc * 3;\n'
+             '        }\n'),
+        ], 'for-loop-stride')
+    raise ValueError(f'unknown for-loop-stride variant: {variant}')
+
+
 def stateful_byte_constant_conversions_source(fixture: str, variant: str) -> str:
     """Compare bytes(...) / string(...) byte-constant initializers with their literal forms."""
     if variant == 'baseline':
