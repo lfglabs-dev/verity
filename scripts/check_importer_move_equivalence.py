@@ -387,6 +387,7 @@ MUTANT_TABLES = {
     "check_extcodecopy_struct_decode_mutations": "path",
     "check_extcodehash_mutations": "path",
     "check_external_code_and_low_level_call_mutations": "path",
+    "check_forwarded_bytes_tuple_call_mutations": "path",
     "check_hashing_mutations": "path",
     "check_interface_static_call_mutations": "path",
     "check_interface_word_static_call_mutations": "path",

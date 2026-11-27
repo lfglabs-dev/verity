@@ -4597,7 +4597,140 @@ private def finishMemoryByteIndexRead (buf : EncodedBytes) (key : Val) (siteNode
   let word := Expr.mload (.add (.localVar ptrVar) wordOff)
   return { pre, expr := .shl (.literal 248) (.byte lane word) }
 
-set_option maxHeartbeats 1600000 in
+private def isSupportedBytesTupleScalarReturnType (ty : String) : Bool :=
+  ["uint256", "int256", "bytes32", "bytes4", "bytes1", "bool", "address"].contains ty ||
+  ty.startsWith "enum " ||
+  (ty.startsWith "uint" && (bitsOf ty).any (· < 256))
+
+/-- Validate metadata of a typed external `(Scalar, bytes memory)` interface call
+inside a forwarded tuple call tree. Returns `(isStatic, rawScalarTy, scalarTy,
+enumBound?, params, args, selector, base)`. -/
+private def parseInterfaceBytesTupleCallMeta (j : Json) :
+    M (Bool × String × String × Option Nat × Array Json × Array Json × Nat × Json) := do
+  if (← get).abiCoderV1 then
+    failAt j "typed external (scalar, bytes memory) call under ABI coder v1 is outside this slice"
+  let callee ← mField j "expression"
+  let id ← refInt callee
+  let env ← get
+  let some decl := env.funs.find? id.toNat
+    | failAt callee "unresolved interface function declaration"
+  let rs ← mArr (← mField (← mField decl "returnParameters") "parameters")
+  let rawReturnTypes ← rs.mapM mType
+  unless rs.size == 2 && rawReturnTypes[1]! == "bytes" &&
+      optStr rs[1]! "storageLocation" == some "memory" do
+    failAt j "typed external call results are unsupported in a forwarded tuple call tree"
+  let mutability := optStr decl "stateMutability"
+  unless mutability == some "nonpayable" || mutability == some "view" || mutability == some "pure" do
+    failAt callee "typed external (scalar, bytes memory) call must be nonpayable, view or pure"
+  let isStatic := mutability == some "view" || mutability == some "pure"
+  let rawScalarTy := rawReturnTypes[0]!
+  let scalarTy := if rawScalarTy.startsWith "contract " then "address" else rawScalarTy
+  let enumBound? ← validateEnumTypeIfNeeded rs[0]! rawScalarTy
+  unless isSupportedBytesTupleScalarReturnType scalarTy do
+    failAt callee ("typed external (scalar, bytes memory) call scalar return must be " ++
+      "uint256, uint8..uint248, int256, bytes32, bytes4, bytes1, bool, address or enum")
+  let params ← mArr (← mField (← mField decl "parameters") "parameters")
+  let args ← mArr (← mField j "arguments")
+  unless args.size == params.size do
+    failAt j "typed external call argument count differs from its declaration"
+  let names ← mArr (← mField j "names")
+  unless names.isEmpty do
+    failAt j "named arguments in typed external (scalar, bytes memory) call are outside this slice"
+  let some hex := optStr decl "functionSelector"
+    | failAt callee "interface function has no functionSelector"
+  unless hex.length == 8 do
+    failAt callee s!"invalid functionSelector hex length {hex.length}"
+  let mut selector := 0
+  for c in hex.toList do
+    let some digit := Compiler.Hex.hexCharToNat? c
+      | failAt callee "invalid functionSelector hex digit"
+    selector := selector * 16 + digit
+  let base ← mField callee "expression"
+  return (isStatic, rawScalarTy, scalarTy, enumBound?, params, args, selector, base)
+
+/-- Emit calldata framing, closed `YulMemoryCall` (`CALL` or `STATICCALL`), revert
+passthrough, and exact Solidity 0.8.x ABI decoding of `(Scalar, bytes memory)` from
+`returndata` (including `< 64` short-returndata revert, `abiDecodeScalarGuard?`,
+`2^64 - 1` offset/length bounds with `Panic(0x41)` on allocation overflow,
+`offset + 32 + len <= returndatasize`, and trailing-padding cleanup). -/
+private def emitInterfaceBytesTupleCallAndDecode (isStatic hasArgs : Bool)
+    (selector : Nat) (targetExpr payloadPtr payloadSize : Expr)
+    (rawScalarTy scalarTy : String) (enumBound? : Option Nat) :
+    M (Array Stmt × Array (Expr × String)) := do
+  let callBase ← fresh
+  let callEnd ← fresh
+  let dataPtr ← fresh
+  let dataSize ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let mut pre : Array Stmt := #[]
+  if !hasArgs then
+    pre := pre ++ (AbiEncoding.reserve callBase callEnd (.literal 32)).toArray ++ #[
+      .mstore (.localVar callBase) (.literal selector),
+      .letVar dataPtr (.add (.localVar callBase) (.literal 28)),
+      .letVar dataSize (.literal 4)
+    ]
+  else
+    let index ← fresh
+    let words := Expr.div (.add payloadSize (.literal 31)) (.literal 32)
+    pre := pre ++ (AbiEncoding.reserve callBase callEnd
+      (.add (.literal 32) (.mul words (.literal 32)))).toArray ++ #[
+      .mstore (.localVar callBase) (.literal selector),
+      .forEach index words [
+        .mstore (.add (.add (.localVar callBase) (.literal 32)) (.mul (.localVar index) (.literal 32)))
+          (.mload (.add payloadPtr (.mul (.localVar index) (.literal 32))))],
+      .letVar dataPtr (.add (.localVar callBase) (.literal 28)),
+      .letVar dataSize (.add payloadSize (.literal 4))
+    ]
+  let success ← fresh
+  let rdSize ← fresh
+  let headPtr ← fresh
+  let headEnd ← fresh
+  let scalarWord ← fresh
+  let relOff ← fresh
+  let byteLen ← fresh
+  let bytesPointer ← fresh
+  let nextFree ← fresh
+  let allocGuard (cond : Expr) : Stmt := .ite cond [] [.panicCode (.literal 0x41)]
+  let alignedSize := Expr.bitAnd
+    (.add (.add (.localVar byteLen) (.literal 32)) (.literal 31))
+    (.bitNot (.literal 31))
+  pre := pre ++ #[
+    .ecm (Compiler.ECM.YulMemoryCall.module isStatic success)
+      [targetExpr, .localVar dataPtr, .localVar dataSize, .literal 0, .literal 0],
+    .ite (.eq (.localVar success) (.literal 0)) [.revertReturndata] [],
+    .letVar rdSize .returndataSize,
+    AbiLowering.guard (.logicalNot (.lt (.localVar rdSize) (.literal 64)))
+  ] ++ (AbiEncoding.reserve headPtr headEnd (.literal 64)).toArray ++ #[
+    .returndataCopy (.localVar headPtr) (.literal 0) (.literal 64),
+    .letVar scalarWord (.mload (.localVar headPtr))
+  ]
+  if let some g := abiDecodeScalarGuard? scalarTy enumBound? (.localVar scalarWord) then
+    pre := pre.push g
+  pre := pre ++ #[
+    .letVar relOff (.mload (.add (.localVar headPtr) (.literal 32))),
+    AbiLowering.guard (.le (.localVar relOff) (.literal (2 ^ 64 - 1))),
+    AbiLowering.guard (.le (.add (.localVar relOff) (.literal 32)) (.localVar rdSize)),
+    .returndataCopy (.localVar headPtr) (.localVar relOff) (.literal 32),
+    .letVar byteLen (.mload (.localVar headPtr)),
+    allocGuard (.le (.localVar byteLen) (.literal (2 ^ 64 - 1))),
+    .letVar bytesPointer (.mload (.literal 64)),
+    .letVar nextFree (.add (.localVar bytesPointer) alignedSize),
+    allocGuard (.le (.localVar nextFree) (.literal (2 ^ 64 - 1))),
+    allocGuard (.ge (.localVar nextFree) (.localVar bytesPointer)),
+    AbiLowering.guard (.le (.add (.add (.localVar relOff) (.literal 32)) (.localVar byteLen)) (.localVar rdSize)),
+    .mstore (.localVar bytesPointer) (.localVar byteLen),
+    .mstore (.literal 64) (.localVar nextFree),
+    .returndataCopy (.add (.localVar bytesPointer) (.literal 32))
+      (.add (.localVar relOff) (.literal 32)) (.localVar byteLen),
+    .mstore (.add (.add (.localVar bytesPointer) (.literal 32)) (.localVar byteLen)) (.literal 0)
+  ]
+  return (pre, #[
+    (.localVar scalarWord, rawScalarTy),
+    (.add (.localVar bytesPointer) (.literal 32), "bytes"),
+    (.localVar byteLen, "uint256")
+  ])
+
+set_option maxHeartbeats 2000000 in
 mutual
 
 private partial def lowerExpr (j : Json) : M Val := do
@@ -9997,7 +10130,29 @@ with `abiDecodeScalarGuard?`. -/
 private partial def lowerInterfaceMultiStaticCall (j : Json) :
     M (Array Stmt × Array (Expr × String)) := do
   if (← get).forwardingBytesTuple then
-    failAt j "typed external call results are unsupported in a forwarded tuple call tree"
+    let (isStatic, rawScalarTy, scalarTy, enumBound?, params, args, selector, base) ←
+      parseInterfaceBytesTupleCallMeta j
+    let receiver ← extractInterfaceReceiver base
+    for arg in args do
+      if statefulCallIn arg (← get) || assignmentIn arg then
+        failAt arg "effectful arguments in typed external (scalar, bytes memory) call are outside this slice"
+    let callId ← mNat (← mField j "id")
+    modify fun e => { e with admittedInterfaceCalls := e.admittedInterfaceCalls.erase callId }
+    let rawTarget ← lowerExpr receiver
+    let target ← atom { rawTarget with expr := cleanHelperResultExpr "address" rawTarget }
+    let mut pre := target.pre
+    let mut payloadPtr := Expr.literal 0
+    let mut payloadSize := Expr.literal 0
+    unless args.isEmpty do
+      let payload ← lowerAbiEncodeArgs args (some params) (externalArgs := true)
+      let ptr ← atom { pre := payload.pre, expr := payload.pointer }
+      let payloadBytes ← atom { pre := #[], expr := payload.size }
+      pre := pre ++ ptr.pre ++ payloadBytes.pre
+      payloadPtr := ptr.expr
+      payloadSize := payloadBytes.expr
+    let (callStmts, retExprs) ← emitInterfaceBytesTupleCallAndDecode isStatic (!args.isEmpty)
+      selector target.expr payloadPtr payloadSize rawScalarTy scalarTy enumBound?
+    return (pre ++ callStmts, retExprs)
   let callee ← mField j "expression"
   let id ← refInt callee
   let env ← get
@@ -21344,6 +21499,18 @@ private def lowerDynamicTupleReturn (components retDecls : Array Json) (at_ : Js
   return pointer.pre ++ size.pre ++ (← get).rootPost ++
     #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, size.expr], .revertEmpty]
 
+private def isForwardedInterfaceTupleWrite (bytesId : Nat) (write dst rhs : Json) : M Bool := do
+  unless optStr write "operator" == some "=" &&
+      optStr dst "nodeType" == some "TupleExpression" &&
+      (field? dst "isInlineArray").bind (·.getBool?.toOption) == some false do
+    return false
+  let some (.arr #[dst0, dst1]) := field? dst "components" | return false
+  if mentionsDeclaration bytesId dst0 then return false
+  unless optStr dst1 "nodeType" == some "Identifier" &&
+      (field? dst1 "referencedDeclaration").bind (·.getInt?.toOption) == some (Int.ofNat bytesId) do
+    return false
+  isInterfaceExternalCall rhs
+
 /-- Validate a direct internal `(scalar, bytes memory)` helper call for tuple
 forwarding and inline it once, returning its statements, result declarations,
 scalar binding and bytes buffer. -/
@@ -21364,17 +21531,22 @@ private def inlineForwardedBytesTupleCall (call : Json) (rets : Array Json) :
     failAt call "expected a matching named (scalar, bytes memory) internal helper"
   let bytesId ← mNat (← mField results[1]! "id")
   -- Do not admit the external-call-to-bytes assignment transport here: its
-  -- result is a word, not the callee's ABI-decoded dynamic buffer.
+  -- result is a word, not the callee's ABI-decoded dynamic buffer. A 2-tuple
+  -- `(scalar, bytesId) = I(target).f(...)` interface call is admitted and
+  -- lowered with full Solidity ABI return decoding in `lowerInterfaceBytesTupleCall`.
   for write in stateVarWrites bytesId (← mField fn "body") do
     let dst := (field? write "leftHandSide").getD .null
     let rhs := (field? write "rightHandSide").getD .null
     let member := (field? rhs "expression").getD .null
     let base := (field? member "expression").getD .null
-    unless optStr dst "nodeType" == some "Identifier" && optStr write "operator" == some "=" &&
+    let isAbiEncodeWrite :=
+      optStr dst "nodeType" == some "Identifier" && optStr write "operator" == some "=" &&
         optStr rhs "kind" == some "functionCall" && optStr member "nodeType" == some "MemberAccess" &&
         [some "encode", some "encodePacked"].contains (optStr member "memberName") &&
         optStr base "nodeType" == some "Identifier" && optStr base "name" == some "abi" &&
-        ((field? base "referencedDeclaration").bind (·.getInt?.toOption)) == some (-1) do
+        ((field? base "referencedDeclaration").bind (·.getInt?.toOption)) == some (-1)
+    let isInterfaceTupleWrite ← isForwardedInterfaceTupleWrite bytesId write dst rhs
+    unless isAbiEncodeWrite || isInterfaceTupleWrite do
       failAt write "forwarded bytes result requires assignment from abi.encode or abi.encodePacked"
   let (pre, words) ← inlineMultiFn id args call true
   let scalarId ← mNat (← mField results[0]! "id")

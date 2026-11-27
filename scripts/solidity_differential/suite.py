@@ -488,6 +488,14 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'raw-slot-2d-struct-mapping')]))
     checks.append(('interface-multi-return-and-receiver', ['-m', 'solidity_differential.check_interface_multi_return_and_receiver',
         '--output', str(output / 'interface-multi-return-and-receiver')]))
+    checks.append(('forwarded-bytes-tuple-call', ['-m', 'solidity_differential.check_forwarded_bytes_tuple_call',
+        '--output', str(output / 'forwarded-bytes-tuple-call')]))
+    checks.append(('forwarded-bytes-tuple-call-legacy', ['-m', 'solidity_differential.check_forwarded_bytes_tuple_call',
+        '--legacy', '--output', str(output / 'forwarded-bytes-tuple-call-legacy')]))
+    checks.append(('forwarded-bytes-tuple-call-negative', ['-m', 'solidity_differential.check_forwarded_bytes_tuple_call',
+        '--negative-control', '--output', str(output / 'forwarded-bytes-tuple-call-negative')]))
+    checks.append(('forwarded-bytes-tuple-call-rejections', ['-m', 'solidity_differential.check_forwarded_bytes_tuple_call_rejections',
+        '--output', str(output / 'forwarded-bytes-tuple-call-rejections')]))
     checks.append(('checked-arguments', ['-m', 'solidity_differential.check_checked_arguments',
         '--output', str(output / 'checked-arguments')]))
     checks.append(('loops-storage-guards-enum-decode', ['-m', 'solidity_differential.check_loops_storage_guards_and_enum_decode',
