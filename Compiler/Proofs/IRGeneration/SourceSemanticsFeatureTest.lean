@@ -661,6 +661,26 @@ private theorem ecm_failed_receipt_reverts :
       (.ecm probeEcmStatic [.literal 7])) = true := by
   native_decide
 
+private def oracleFailBytes : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨false, [], none, [1, 2, 3]⟩
+
+private def revertBytesOf (r : SourceSemantics.StmtResult) : Option (List UInt8) :=
+  match r with | .revert p => some p.encode | _ => none
+
+/-- `.ecm`: a failing receipt of a bubbling module (`failurePayload = none`) reverts with
+the receipt's bytes. -/
+private theorem ecm_failed_receipt_bubbles :
+    revertBytesOf (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleFailBytes)
+      (.ecm probeEcmStatic [.literal 7])) = some [1, 2, 3] := by
+  rfl
+
+/-- `.ecm`: a module with its own `failurePayload` (a precompile's `revert(0, 0)`) reverts
+with it, whatever bytes the receipt carries. -/
+private theorem ecm_failed_receipt_module_payload :
+    revertBytesOf (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleFailBytes)
+      (.ecm { probeEcmStatic with failurePayload := some .empty } [.literal 7])) = some [] := by
+  rfl
+
 /-- `.ecm`: a receipt whose arity disagrees with `resultVars` reverts. -/
 private theorem ecm_arity_mismatch_reverts :
     isRevert (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleSuccessEmpty)

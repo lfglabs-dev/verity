@@ -2441,7 +2441,8 @@ mutual
                           bindings := bindValues state.bindings mod.resultVars
                             (retVals.map wordNormalize)
                           externalCallIndex := state.externalCallIndex + 1 }
-                else .revertWithData (state.externalCallRevertData state.externalCallIndex)
+                else .revertWithData
+                  (mod.failedRevertBytes (state.externalCallRevertData state.externalCallIndex))
             | none => .revert
     | _, .revertEmpty => .revertWithData []
     | state, .revertReturndata => .revertWithData

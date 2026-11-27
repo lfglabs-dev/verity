@@ -266,6 +266,20 @@ def externalSummary (mod : ExternalCallModule) : StatefulExternal.Summary :=
     mutability := mod.summaryMutability
     assumptionNames := mod.axioms }
 
+/-- What a failed call of `mod` reverts with, given the callee's revert bytes: the
+    module's own `failurePayload`, else those bytes, bubbled. -/
+def failedRevert (mod : ExternalCallModule) (calleeBytes : List UInt8) :
+    Verity.Core.RevertPayload :=
+  mod.failurePayload.getD (.raw calleeBytes)
+
+/-- The bytes of `failedRevert`. -/
+def failedRevertBytes (mod : ExternalCallModule) (calleeBytes : List UInt8) : List UInt8 :=
+  (mod.failedRevert calleeBytes).encode
+
+@[simp] theorem failedRevert_of_none {mod : ExternalCallModule} (h : mod.failurePayload = none)
+    (calleeBytes : List UInt8) : mod.failedRevert calleeBytes = .raw calleeBytes := by
+  simp [failedRevert, h]
+
 end ExternalCallModule
 
 namespace SolidityStaticCall

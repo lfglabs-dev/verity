@@ -59,11 +59,12 @@ failed evaluations) and the contract result relation (`sourceResultMatchesIRResu
 with the IR-to-native comparison, `sourceResultMatchesNativeOn` compares them end to end.
 Custom errors are outside the proved fragment.
 
-A failed external call or ECM reverts the source semantics with `.raw` of the
-call oracle's bytes (`ExternalCallOutcome.revertData`, mirrored by
-`DenoteState.externalCallRevertData`): the callee's returndata for a forwarding
-module, nothing for precompiles and hashing, a module's own error such as
-ERC20's `SafeERC20FailedOperation`. Calls are outside the proved fragment, so
+A failed external call reverts the source semantics with `.raw` of the call
+oracle's bytes (`ExternalCallOutcome.revertData`, mirrored by
+`DenoteState.externalCallRevertData`). A failed ECM call does the same for a
+module that bubbles the callee's returndata, and reverts with the module's own
+`failurePayload` otherwise (no data for the precompiles), whatever the oracle
+says (`ExternalCallModule.failedRevertBytes`). Calls are outside the proved fragment, so
 that these bytes are what the compiled call step reverts with is trusted, not
 proved; `test/RevertBubbleSmoke.t.sol` checks it for typed interface calls. The
 source semantics and Denote keep a caught failure's exact bytes
