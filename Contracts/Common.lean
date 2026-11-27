@@ -1696,6 +1696,18 @@ def ecmValueWord (mod : Compiler.ECM.ExternalCallModule) (args : List Uint256) :
     | some i => (args.getD i 0).val
     | none => 0
 
+/-- What a failed ECM call reverts with: the module's own payload when it has one
+(`failurePayload`, such as `.empty` for a precompile's `revert(0, 0)`), else the callee's
+returndata as `failedCallPayload` re-raises it. -/
+def ecmFailedPayload (mod : Compiler.ECM.ExternalCallModule) (post : ContractState)
+    (returndata : List Nat) : Verity.Core.RevertPayload :=
+  mod.failurePayload.getD (failedCallPayload post returndata)
+
+/-- What an ECM call the contract cannot fund reverts with: on the EVM the call fails with
+empty returndata, so a bubbling module reverts with no bytes. -/
+def ecmUnfundedPayload (mod : Compiler.ECM.ExternalCallModule) : Verity.Core.RevertPayload :=
+  mod.failurePayload.getD (.raw [])
+
 /-- Mutable ECM executable crossing: consults the caller adversary instead of
 the no-op `ecmCall` syntax fallback. When the module specifies `targetArg` or
 `valueArg`, the call site carries those runtime arguments and `selfBalance` is
@@ -1711,7 +1723,7 @@ def ecmCallTypedWords {α : Type} [ExternalResult α]
   let target := ecmTargetWord mod args
   let value := ecmValueWord mod args
   match Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance state target value with
-  | none => .revert "insufficient balance" state
+  | none => .revert (ecmUnfundedPayload mod) state
   | some paid =>
       match (commonExternalCall adv
           (linkedCallSite mod.summaryName args mod.resultVars.length kind target value [] siteId)).run paid with
@@ -1719,8 +1731,8 @@ def ecmCallTypedWords {α : Type} [ExternalResult α]
           if returndata.length = mod.resultVars.length then
             .success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
           else .revert "ECM returned malformed data" state
-      | .success (.failure _) _ | .success (.revert _) _ =>
-          .revert "ECM call failed" state
+      | .success (.failure data) post | .success (.revert data) post =>
+          .revert (ecmFailedPayload mod post data) state
       | .revert message _ => .revert message state
 
 def ecmCallWords (mod : Compiler.ECM.ExternalCallModule)
@@ -2777,7 +2789,7 @@ theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
       let target := ecmTargetWord mod args
       let value := ecmValueWord mod args
       match Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s target value with
-      | none => ContractResult.revert "insufficient balance" s
+      | none => ContractResult.revert (ecmUnfundedPayload mod) s
       | some paid =>
           match (commonExternalCall adv
               (linkedCallSite mod.summaryName args mod.resultVars.length kind target value [] siteId)).run paid with
@@ -2785,8 +2797,8 @@ theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
               if returndata.length = mod.resultVars.length then
                 ContractResult.success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
               else ContractResult.revert "ECM returned malformed data" s
-          | .success (.failure _) _ | .success (.revert _) _ =>
-              ContractResult.revert "ECM call failed" s
+          | .success (.failure data) post | .success (.revert data) post =>
+              ContractResult.revert (ecmFailedPayload mod post data) s
           | .revert message _ => ContractResult.revert message s := by
   change (match ecmCallTypedWords (α := α) mod adv args siteId s with
     | .success a s' => ContractResult.success a s'
@@ -2819,7 +2831,7 @@ theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
     (ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
         [target, value, inOffset, inSize] siteId).run s =
       match Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s target.val value.val with
-      | none => ContractResult.revert "insufficient balance" s
+      | none => ContractResult.revert (.raw []) s
       | some paid =>
           match (commonExternalCall adv
               (linkedCallSite "callWithValue" [target, value, inOffset, inSize] 0 .call
@@ -2827,28 +2839,30 @@ theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
           | .success (.success returndata) post =>
               if returndata.length = 0 then ContractResult.success () post
               else ContractResult.revert "ECM returned malformed data" s
-          | .success (.failure _) _ | .success (.revert _) _ =>
-              ContractResult.revert "ECM call failed" s
+          | .success (.failure data) post | .success (.revert data) post =>
+              ContractResult.revert (failedCallPayload post data) s
           | .revert message _ => ContractResult.revert message s := by
   rw [ecmDoWords, ecmCallTypedWords_apply]
   rfl
 
 /-- When the caller cannot fund `ecmValueWord mod args`, `ecmCallTypedWords`
-reverts with `"insufficient balance"` and leaves the pre-call state unchanged. -/
+reverts with `ecmUnfundedPayload mod` (no bytes for a bubbling module, as the failed EVM
+call returns none) and leaves the pre-call state unchanged. -/
 theorem ecmCallTypedWords_revert_of_lt_selfBalance {α : Type} [ExternalResult α]
     (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat) (s : ContractState)
     (hlt : s.selfBalance.val < ecmValueWord mod args) :
     (ecmCallTypedWords (α := α) mod adv args siteId).run s =
-      ContractResult.revert "insufficient balance" s := by
+      ContractResult.revert (ecmUnfundedPayload mod) s := by
   rw [ecmCallTypedWords_apply]
   simp only [Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_none_of_lt s
     (ecmTargetWord mod args) (ecmValueWord mod args) hlt]
 
 /-- Under `.stub`, `ecmDoWords callWithValueModule` debits `selfBalance` by
 `value` on distinct targets (`target ≠ s.thisAddress`), preserves `selfBalance`
-on self-calls (`target = s.thisAddress`), and reverts on insufficient balance. -/
+on self-calls (`target = s.thisAddress`), and reverts with no bytes on insufficient
+balance, as the failed EVM call bubbles empty returndata. -/
 theorem ecmDoWords_callWithValueModule_stub_run
     (target value inOffset inSize : Uint256) (s : ContractState) :
     (ecmDoWords Compiler.Modules.Calls.callWithValueModule .stub
@@ -2869,7 +2883,7 @@ theorem ecmDoWords_callWithValueModule_stub_run
             returndata := []
             rawReturndata := none }
       else
-        ContractResult.revert "insufficient balance" s := by
+        ContractResult.revert (.raw []) s := by
   by_cases hbal : value ≤ s.selfBalance
   · have hbal' : value.val ≤ s.selfBalance.val := hbal
     by_cases hself : Verity.Core.Address.ofNat target.val = s.thisAddress

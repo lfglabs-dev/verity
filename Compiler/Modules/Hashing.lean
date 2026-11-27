@@ -413,6 +413,7 @@ def sha256PackedWordsModule (resultVar : String) (wordCount : Nat) : ExternalCal
   writesState := false
   readsState := true
   axioms := ["evm_sha256_precompile", "abi_packed_static_word_layout"]
+  failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   compile := fun _ctx args => do
     if args.length != wordCount then
       throw s!"sha256PackedWords expects {wordCount} static word argument(s)"
@@ -466,6 +467,7 @@ def sha256PackedStaticSegmentsModule (resultVar : String) (widths : List Nat) : 
   writesState := false
   readsState := true
   axioms := ["evm_sha256_precompile", "abi_packed_static_segment_layout"]
+  failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
   compile := fun _ctx args => do
     if args.length != widths.length then
       throw s!"sha256PackedStaticSegments expects {widths.length} static segment argument(s)"

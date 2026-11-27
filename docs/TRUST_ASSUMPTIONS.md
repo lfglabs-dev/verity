@@ -76,7 +76,11 @@ payload's bytes; `revertReturndata`, `returndataSizeLive` and
 the callee's returndata as the post-call buffer holds it
 (`Contracts.failedCallPayload`): the exact bytes when the adversary supplies them
 (`AdversaryModel.revertBytes`, stored in `rawReturndata`), else the word view of
-its word-list answer.
+its word-list answer. A failed ECM call does the same for a module that bubbles,
+and reverts with the module's own `failurePayload` otherwise (no data for the
+precompiles); an unfunded ECM value call reverts with no bytes, as the failed EVM
+call does (`Contracts.ecmFailedPayload`, `Contracts.ecmUnfundedPayload`;
+`test/EcmFailurePayloadSmoke.t.sol` checks `callWithValue`).
 `tryCall … catch err =>` copies the returndata to memory on catch entry and
 `revert err` re-raises that copy exactly (`test/TryCatchSmoke.t.sol`).
 
