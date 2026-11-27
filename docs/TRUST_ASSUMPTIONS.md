@@ -2352,6 +2352,29 @@ Trust boundary changes:
   failures and empty accounts), and the value-call mutation anchor in
   `check_memory_call_mutations.py`.
 
+### Imported inline-assembly value calls and `LowLevelCall.returnData()`
+
+`solidity_import` also admits the OpenZeppelin v5 `LowLevelCall` / `Address` inline-assembly
+shapes: `call(gas(), t, v, add(buf, 0x20), mload(buf), 0, 0)` with an effect-free, possibly
+nonzero value `v` over a `bytes memory` payload (lowering to the same closed
+`YulMemoryValueCall.module` transport above; literal `0` keeps `YulMemoryCall`), and the
+`returnData()` block `r := mload(0x40)`, `mstore(r, returndatasize())`,
+`returndatacopy(add(r, 0x20), 0, returndatasize())`, `mstore(0x40, <end of r>)` over a
+`bytes memory` return variable.
+
+Trust boundary changes:
+- The `returnData()` block lowers to a fresh zeroed buffer (`AbiEncoding.packedBuffer`) of
+  `returndatasize()` bytes filled by `Stmt.returndataCopy`; only its bytes and length are
+  observable, not the address of the model's allocation. Other block shapes keep their
+  existing located rejections.
+- Inline-assembly value calls inherit the exact `YulMemoryValueCall` balance/refund and
+  trailing-call reentrancy boundary above (`isClosedLowLevelCall`, `stmtAfterTrailingCall`);
+  `delegatecall` remains rejected.
+- Compilation keeps `proofStatus := .assumed`. The evidence is `LowLevelReturnDataChecks`
+  and the A/B/C campaign `check_low_level_returndata.py` (solc bytecode, Lean Denote,
+  Verity Yul) against recording, reverting, underfunded and empty-code targets; it is
+  differential evidence, not a proof.
+
 ### Imported self-dispatch delegatecall
 
 `solidity_import` admits `(bool success, bytes memory result) = address(this).delegatecall(data);`
