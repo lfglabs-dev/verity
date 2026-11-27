@@ -36,6 +36,7 @@ EXPECTED_CAMPAIGN_CHECKS = (
     "create2-parent-opcode",
     "create2-struct-emit",
     "create2-struct-emit-rejections",
+    "dispatched-spill",
     "early-return",
     "ecrecover",
     "ecrecover-rejections",

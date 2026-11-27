@@ -49,11 +49,12 @@ This module resolves Phase C1 of the unified architectural roadmap:
 
 **Scope of these theorems.** `computedSpillBase`, `applyDynamicTempReuseToObject`,
 `applyTempReuseToObject` and `emitYulWithProfile` are not called by any compile path: the CLI
-(`writeContract`) and the Solidity import model drivers (`Compiler.emitYulSpilled`) both use
-`Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject`, whose spill words start at the fixed
-`defaultSpillBase`. The C1.1–C1.3 theorems below are arithmetic facts about `computedSpillBase`
-and C1.6 is about `applyTempReuseToObject`; none of them says anything about the Yul that
-`solc` compiles. The spill pass is a trusted, tested-only component
+(`writeContract`) uses `Compiler.Yul.TempReuse.reuseAndSpillTempsStaticObject` and the Solidity
+import model drivers (`Compiler.emitYulSpilled`) use
+`Compiler.Yul.TempReuse.reuseAndSpillTempsDispatchedObject`, both placing spill words starting at
+the fixed `defaultSpillBase`. The C1.1–C1.3 theorems below are arithmetic facts about
+`computedSpillBase` and C1.6 is about `applyTempReuseToObject`; none of them says anything about
+the Yul that `solc` compiles. The spill pass is a trusted, tested-only component
 (`docs/TRUST_ASSUMPTIONS.md`, "Yul Stack Spill Pass").
 -/
 
