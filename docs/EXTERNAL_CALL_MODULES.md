@@ -125,13 +125,38 @@ destructuring binds (`let (a, b) ← s.m x`) over static single-word returns use
 `Compiler.Modules.Calls.withReturnsModule` (ABI `call`, several return words)
 for state-changing methods. Interface parameter lists are type-only.
 
-Typed-interface parameters are deliberately limited to static single-word ABI
-values (`Uint256`, `Int256`, `Uint8`, `Uint16`, `Address`, `Bytes32`, `Bool`,
-and newtypes over those values). Dynamic or composite parameter shapes such as
-`Bytes`, `String`, arrays, tuples, and structs are rejected at elaboration time.
-Those shapes need ABI-frame typed-interface lowering so calldata heads, dynamic
-tails, and total sizes are encoded honestly; until that path exists, both
-return-bearing and no-return typed-interface calls fail closed.
+Typed-interface parameters are static ABI values (single words such as
+`Uint256`, `Int256`, `Uint8`, `Uint16`, `Address`, `Bytes32`, `Bool`, newtypes
+over those values, and static tuples / fixed arrays of them), or `Bytes`.
+
+A method taking `Bytes`, or returning `(Bool, Bytes)` (as Safe's
+`execTransactionFromModuleReturnData`), is an ABI-frame call: it lowers to
+`Compiler.Modules.Calls.abiCallModule`, which encodes the arguments with
+Solidity's head/tail layout (a `Bytes` head is its tail offset; a tail is the
+length word, the data, and zero padding to 32 bytes). Its other parameters must
+be single words. A `Bytes` argument is a `Bytes` parameter of the calling
+function, forwarded unchanged, or a payload built in place,
+`abiEncodeCall <selector literal> [items]` (Solidity's
+`abi.encodeWithSelector(selector, items...)`), whose items are single-word
+values or `Bytes` parameters. `let (ok, ret) ← safe.exec…` binds the flag and a
+memory copy of the returned bytes, validated with solc's checks (at least two
+head words, a flag in `{0, 1}`, an offset and a length below `2^64` that fit in
+the returndata; otherwise `revert(0, 0)`); `ret` is read with `bytesLength ret`,
+`bytesWord ret k` (the big-endian word at byte `32 * k`, zero past the end, `k` a
+literal) and `revertBytes ret` (revert with exactly those bytes,
+`Compiler.Modules.Calls.revertMemoryBytesModule`). A failed call bubbles its
+revert data exactly. `view` ABI-frame methods use `staticcall` through the same
+module, not the oracle summary. In the executable plane the call journals
+`Contracts.abiCallBytes selector args`, the same bytes, and the adversary
+answers it (`Contracts.externalCallAbiTo`, `Contracts.externalCallAbiBoolBytesTo`;
+returndata stays word-granular there, and `revertBytes` reverts with exactly
+the returned bytes, `.raw`, as the compiled `revert(offset, length)` does).
+`test/InterfaceBytesCallSmoke.t.sol` checks the compiled calldata against
+Solidity's `abi.encodeCall` / `abi.encodeWithSelector`.
+
+Other dynamic or composite parameter shapes (`String`, arrays, structs, a static
+composite next to `Bytes`), and other dynamic returns, are rejected at
+elaboration time (#1982).
 
 When the compiler encounters `Stmt.ecm mod args`, it:
 
@@ -190,6 +215,8 @@ Standard modules ship in `Compiler/Modules/`:
 | `Precompiles.bn256Pairing` | Precompile 0x08 (EIP-197) | BN254 optimal-Ate pairing check over a caller-supplied input region; binds the single 32-byte boolean word | `evm_bn256_pairing_precompile` |
 | `Callbacks.callback` | Parameterized | ABI-encode selector + static args + bytes, call target | `callback_target_interface` |
 | `Calls.withReturn` | Parameterized | Generic call/staticcall with single uint256 return | `external_call_abi_interface` |
+| `Calls.abiCallModule` | Typed-interface ABI-frame call | Head/tail ABI encoding with `bytes` arguments (forwarded parameters or `abi.encodeWithSelector` payloads), call/staticcall, exact revert bubbling, static word returns or a validated `(bool, bytes)` return | `external_call_abi_interface` |
+| `Calls.revertMemoryBytesModule` | `revertBytes` | `revert(offset, length)` of the bytes of an ABI-frame `(bool, bytes)` return | none |
 | `Oracle.typedReadWordSummary` | Typed-interface `view` read | ABI-encode selector + static args, `staticcall` target, bind one static ABI-word return, and surface the source-shaped summary name and selector | `oracle_summary:<Interface.method>` (`oracle_summary:{summaryName}` in the module template) |
 | `Oracle.oracleReadUint256` | Legacy generic oracle read | ABI-encode selector + static args, `staticcall` target, bind one uint256 return | `oracle_read_uint256_interface` |
 | `Calls.callWithValue` | Parameterized | Generic `call{value:v}` over an already prepared calldata slice, with revert bubbling | `generic_call_with_value_interface` |

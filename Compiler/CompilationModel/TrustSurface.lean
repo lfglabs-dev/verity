@@ -881,7 +881,8 @@ private def boundaryClassFromAxioms (axioms : List String) : String :=
 
 private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   match mod.name with
-  | "ecrecover" | "sha256Memory" | "sha256" | "bn256Add" | "bn256ScalarMul" | "bn256Pairing" =>
+  | "ecrecover" | "sha256Memory" | "sha256" | "bn256Add" | "bn256ScalarMul" | "bn256Pairing"
+  | "revertMemoryBytes" =>
       "compilerIntrinsic"
   | "oracleReadUint256" | "oracleSummary" =>
       "oracleSummary"
@@ -895,7 +896,8 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   | "convertToAssets" | "convertToShares" | "totalAssets" | "asset"
   | "maxDeposit" | "maxMint" | "maxWithdraw" | "maxRedeem" | "deposit" =>
       "tokenModel"
-  | "externalCallWithReturn" | "externalCallWithReturns" | "externalCallNoReturn" | "callWithValue" | "callWithValueBytes"
+  | "externalCallWithReturn" | "externalCallWithReturns" | "externalCallNoReturn" | "externalCallAbi"
+  | "callWithValue" | "callWithValueBytes"
   | "bubblingValueCall" | "bubblingValueCallNoOutput" | "selfDelegateMulticallBytes" =>
       "abiBoundary"
   | "create2Deploy" | "sstore2ReadCode" =>

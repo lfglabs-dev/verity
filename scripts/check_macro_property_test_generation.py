@@ -43,6 +43,10 @@ EXCLUDED_CONTRACTS = {
     # test/InterfaceCompositeReturnSmoke.t.sol against a mock pool; generated stubs
     # cannot map FixedArray and would call a random (non-pool) address.
     "InterfaceCompositeReturnSmoke",
+    # ABI-frame typed-interface calls (Bytes arguments, (Bool, Bytes) returns) are
+    # covered on chain by test/InterfaceBytesCallSmoke.t.sol against recording mocks;
+    # generated stubs would call random (non-mock) addresses.
+    "InterfaceBytesCallSmoke",
     # Whole fixed-array/struct values are covered on chain by
     # test/WholeCompositeValueSmoke.t.sol (byte parity with Solidity); the generator
     # cannot map FixedArray.

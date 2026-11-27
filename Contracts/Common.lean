@@ -1,4 +1,5 @@
 import Compiler.CompilationModel
+import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.MappingSlot
 import Compiler.Keccak.MemorySlice
 import Compiler.Selectors
@@ -1164,6 +1165,212 @@ def externalStaticCallEffectWordsTo (name : String) (target : Address)
     | .success _ => pure ()
     | .failure data | .revert data => fun state =>
         ContractResult.revert (failedCallPayload state data) state
+
+/-! ### ABI-frame typed-interface calls (`Bytes` arguments, `(Bool, Bytes)` returns)
+
+A typed-interface call whose method takes a `Bytes` argument, or returns
+`(Bool, Bytes)`, journals its exact Solidity calldata: the 4-byte selector
+followed by the standard ABI head/tail encoding of its arguments
+(`Compiler.Proofs.AbiEncoding.abiEncodeArgs`), as a list of byte values
+(`abiCallBytes`). The compiled call (`Compiler.Modules.Calls.abiCallModule`)
+sends the same bytes; that link is the `external_call_abi_interface`
+assumption, like every typed-interface call module.
+
+The executable plane's returndata stays word-granular (the adversary answers a
+list of words, as for every other call); a `(Bool, Bytes)` return is decoded
+from those words' bytes with Solidity's checks (`decodeBoolBytes?`). -/
+
+/-- One argument of an ABI-encoded call: a static word or a dynamic `bytes`. -/
+inductive AbiCallArg where
+  | word (value : Uint256)
+  | bytes (value : ByteArray)
+
+/-- Big-endian 32-byte encoding of a word, reduced modulo `2^256`. -/
+def abiWordBytes (value : Nat) : List Nat :=
+  (List.range 32).map fun i => value / 256 ^ (31 - i) % 256
+
+/-- The big-endian word of the 32 bytes of `bytes` starting at `offset`; bytes
+past the end read as zero. -/
+def abiReadWord (bytes : List Nat) (offset : Nat) : Nat :=
+  (List.range 32).foldl (fun acc j => acc * 256 + bytes.getD (offset + j) 0) 0
+
+/-- The ABI data words of a byte string: 32-byte chunks, the last one
+right-zero-padded (`AbiEncoding.AbiBytes.dataWords`). -/
+def abiBytesDataWords (bytes : List Nat) : List Nat :=
+  (List.range ((bytes.length + 31) / 32)).map fun i => abiReadWord bytes (32 * i)
+
+/-- The byte values of a `ByteArray`. -/
+def byteArrayValues (data : ByteArray) : List Nat :=
+  data.data.toList.map UInt8.toNat
+
+/-- A `ByteArray` from byte values (each reduced modulo 256). -/
+def byteArrayOfValues (bytes : List Nat) : ByteArray :=
+  ⟨(bytes.map UInt8.ofNat).toArray⟩
+
+/-- The argument as an `AbiEncoding.AbiArg`: a word is a `uint256` head, a
+`bytes` value its length and packed data words. -/
+def AbiCallArg.toAbiArg : AbiCallArg → Compiler.Proofs.AbiEncoding.AbiArg
+  | .word value => .scalar .uint256 value.val
+  | .bytes value =>
+      .bytes { byteLength := value.size
+               dataWords := abiBytesDataWords (byteArrayValues value) }
+
+/-- Solidity's `abi.encodeWithSelector(selector, args...)`, as byte values: the
+low four bytes of `selector`, then the head/tail ABI encoding of `args`. -/
+def abiCallBytes (selector : Nat) (args : List AbiCallArg) : List Nat :=
+  (abiWordBytes selector).drop 28 ++
+    (Compiler.Proofs.AbiEncoding.abiEncodeArgs (args.map AbiCallArg.toAbiArg)).flatMap
+      abiWordBytes
+
+/-- `abiEncodeCall selector [items]` in contract code: the `Bytes` value
+`abi.encodeWithSelector(selector, items...)`. -/
+def abiEncodeCall (selector : Nat) (args : List AbiCallArg) : ByteArray :=
+  byteArrayOfValues (abiCallBytes selector args)
+
+/-- Decode a Solidity `(bool, bytes)` return from returndata bytes with solc's
+checks: at least two head words, a boolean word in `{0, 1}`, an offset below
+`2^64` whose length word fits, a length below `2^64` whose data fits. Any
+failure is `none` (the compiled call reverts with empty data). -/
+def decodeBoolBytesFromBytes? (data : List Nat) : Option (Bool × ByteArray) :=
+  let size := data.length
+  let flag := abiReadWord data 0
+  let offset := abiReadWord data 32
+  let length := abiReadWord data offset
+  if size < 64 then none
+  else if 1 < flag then none
+  else if 2 ^ 64 - 1 < offset then none
+  else if size < offset + 32 then none
+  else if 2 ^ 64 - 1 < length then none
+  else if size < offset + 32 + length then none
+  else some (flag == 1, byteArrayOfValues ((data.drop (offset + 32)).take length))
+
+/-- `decodeBoolBytesFromBytes?` over the adversary's word-granular returndata. -/
+def decodeBoolBytes? (returndata : List Nat) : Option (Bool × ByteArray) :=
+  decodeBoolBytesFromBytes? (returndata.flatMap abiWordBytes)
+
+/-- `bytesWord data k` in contract code: the big-endian word of `data` at byte
+offset `32 * k`, zero-padded past the end. -/
+def bytesWord (data : ByteArray) (index : Uint256) : Uint256 :=
+  Core.Uint256.ofNat (abiReadWord (byteArrayValues data) (32 * index.val))
+
+/-- `revertBytes data` in contract code reverts with exactly `data` as revert
+data, as the compiled `revert(ptr, len)` does (`test/InterfaceBytesCallSmoke.t.sol`). -/
+def revertBytes (data : ByteArray) : Contract Unit := fun state =>
+  ContractResult.revert (.raw data.data.toList) state
+
+/-- The call site of an ABI-frame typed call: `calldata` is `abiCallBytes`. -/
+def abiCallSite (name : String) (target : Address) (selector : Nat)
+    (args : List AbiCallArg) (isStatic : Bool) (returnArity siteId : Nat) :
+    Compiler.CompilationModel.DenoteExternalCalls.CallSite :=
+  { siteId, kind := if isStatic then .staticcall else .call, target := target.toNat
+    value := 0, calldata := abiCallBytes selector args, name, returnArity
+    stubPrefix := [], gas := 0 }
+
+/-- ABI-frame typed call with static word returns (`arity` words, decoded as
+`α`); `arity = 0` is a call without return. A failed call reverts. -/
+def externalCallAbiTo {α : Type} [ExternalResult α]
+    (name : String) (target : Address) (selector : Nat) (args : List AbiCallArg)
+    (ctx : ExecutableCallContext) (isStatic : Bool := false) (arity : Nat := 1)
+    (siteId : Nat := 0) : Contract α := fun state =>
+  match (commonExternalCall ctx.adversary
+      (abiCallSite name target selector args isStatic arity siteId)).run state with
+  | .success (.success returndata) post =>
+      if arity ≤ returndata.length then
+        .success (ExternalResult.fromWords
+          ((returndata.take arity).map Core.Uint256.ofNat)) post
+      else .revert "external call returned malformed data" state
+  | .success (.failure _) _ | .success (.revert _) _ =>
+      .revert "external call failed" state
+  | .revert message _ => .revert message state
+
+/-- ABI-frame typed call returning Solidity `(bool, bytes)`: the adversary's
+returndata is decoded by `decodeBoolBytes?`; malformed returndata or a failed
+call reverts. -/
+def externalCallAbiBoolBytesTo
+    (name : String) (target : Address) (selector : Nat) (args : List AbiCallArg)
+    (ctx : ExecutableCallContext) (isStatic : Bool := false) (siteId : Nat := 0) :
+    Contract (Bool × ByteArray) := fun state =>
+  match (commonExternalCall ctx.adversary
+      (abiCallSite name target selector args isStatic 0 siteId)).run state with
+  | .success (.success returndata) post =>
+      match decodeBoolBytes? returndata with
+      | some decoded => .success decoded post
+      | none => .revert "external call returned malformed data" state
+  | .success (.failure _) _ | .success (.revert _) _ =>
+      .revert "external call failed" state
+  | .revert message _ => .revert message state
+
+/-- One ABI-frame call appends exactly one journal entry, whose calldata is the
+call's ABI bytes, `abiCallBytes selector args`. -/
+theorem abiCallSite_journal (adv : Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
+    (name : String) (target : Address) (selector : Nat) (args : List AbiCallArg)
+    (isStatic : Bool) (returnArity siteId : Nat) (s : ContractState) :
+    let site := abiCallSite name target selector args isStatic returnArity siteId
+    ((commonExternalCall adv site).run s).snd.calls =
+        s.calls ++ [Compiler.CompilationModel.DenoteExternalCalls.journalEntry site
+          (adv.result site s)] ∧
+      (Compiler.CompilationModel.DenoteExternalCalls.journalEntry site
+          (adv.result site s)).calldata = abiCallBytes selector args :=
+  ⟨Compiler.CompilationModel.DenoteExternalCalls.externalCall_calls _ _ _, rfl⟩
+
+/-- A successful `externalCallAbiBoolBytesTo` leaves exactly one new journal
+entry, carrying the ABI bytes of the call and its target. -/
+theorem externalCallAbiBoolBytesTo_journal
+    (name : String) (target : Address) (selector : Nat) (args : List AbiCallArg)
+    (ctx : ExecutableCallContext) (isStatic : Bool) (siteId : Nat)
+    (s s' : ContractState) (v : Bool × ByteArray)
+    (h : externalCallAbiBoolBytesTo name target selector args ctx isStatic siteId s =
+      .success v s') :
+    ∃ entry, s'.calls = s.calls ++ [entry] ∧
+      entry.calldata = abiCallBytes selector args ∧ entry.target = target.toNat := by
+  unfold externalCallAbiBoolBytesTo at h
+  have hj := abiCallSite_journal ctx.adversary name target selector args isStatic 0 siteId s
+  dsimp only at hj
+  revert h
+  generalize hrun : (commonExternalCall ctx.adversary
+    (abiCallSite name target selector args isStatic 0 siteId)).run s = r
+  rw [hrun] at hj
+  intro h
+  rcases r with ⟨res, post⟩ | ⟨_, _⟩
+  · rcases res with data | _ | _
+    · cases hdec : decodeBoolBytes? data with
+      | none => simp [hdec] at h
+      | some decoded =>
+          simp only [hdec, ContractResult.success.injEq] at h
+          obtain ⟨_, rfl⟩ := h
+          exact ⟨_, hj.1, hj.2, rfl⟩
+    · cases h
+    · cases h
+  · cases h
+
+/-- A successful `externalCallAbiTo` leaves exactly one new journal entry,
+carrying the ABI bytes of the call and its target. -/
+theorem externalCallAbiTo_journal {α : Type} [ExternalResult α]
+    (name : String) (target : Address) (selector : Nat) (args : List AbiCallArg)
+    (ctx : ExecutableCallContext) (isStatic : Bool) (arity siteId : Nat)
+    (s s' : ContractState) (v : α)
+    (h : externalCallAbiTo name target selector args ctx isStatic arity siteId s =
+      .success v s') :
+    ∃ entry, s'.calls = s.calls ++ [entry] ∧
+      entry.calldata = abiCallBytes selector args ∧ entry.target = target.toNat := by
+  unfold externalCallAbiTo at h
+  have hj := abiCallSite_journal ctx.adversary name target selector args isStatic arity siteId s
+  dsimp only at hj
+  revert h
+  generalize hrun : (commonExternalCall ctx.adversary
+    (abiCallSite name target selector args isStatic arity siteId)).run s = r
+  rw [hrun] at hj
+  intro h
+  rcases r with ⟨res, post⟩ | ⟨_, _⟩
+  · rcases res with data | _ | _
+    · by_cases harity : arity ≤ data.length
+      · simp only [harity, if_true, ContractResult.success.injEq] at h
+        obtain ⟨_, rfl⟩ := h
+        exact ⟨_, hj.1, hj.2, rfl⟩
+      · simp [harity] at h
+    · cases h
+    · cases h
+  · cases h
 
 /-! ### Faithful responders for `deferred` linked contracts (G15)
 

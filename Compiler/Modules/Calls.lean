@@ -364,6 +364,242 @@ def noReturnModule (selector : Nat) (numArgs : Nat) (isStatic : Bool := false)
 def noReturn (target : Expr) (selector : Nat) (args : List Expr) (isStatic : Bool := false) : Stmt :=
   .ecm (noReturnModule selector args.length isStatic) ([target] ++ args)
 
+/-! ### ABI-frame typed-interface calls
+
+`abiCallModule` encodes a call with Solidity's head/tail ABI layout, so that a
+typed-interface method may take `bytes` arguments and return `(bool, bytes)`.
+A `bytes` argument is either a `bytes` parameter of the calling function
+(`{name}_data_offset` / `{name}_length`, from calldata or memory) or a payload
+built in place, `abi.encodeWithSelector(selector, items...)`, whose items are
+words or `bytes` parameters. The generated Yul keeps few locals alive (one
+frame pointer and one running tail offset per nesting level), so that calls
+with many arguments stay within the EVM stack. -/
+
+/-- An item of a payload built in place: a word, or a `bytes` parameter. -/
+inductive AbiCallItemShape where
+  | word
+  | bytesParam (name : String)
+  deriving Repr, BEq, DecidableEq
+
+/-- An argument of an ABI-frame call: a word (the next `Expr` argument), a
+`bytes` parameter, or a payload `abi.encodeWithSelector(selector, items...)`. -/
+inductive AbiCallArgShape where
+  | word
+  | bytesParam (name : String)
+  | encodedCall (selector : Nat) (items : List AbiCallItemShape)
+  deriving Repr, BEq, DecidableEq
+
+/-- What an ABI-frame call decodes: `words vars` binds the first
+`vars.length` return words (no check when empty, as `noReturnModule`);
+`boolBytes ok b` decodes a Solidity `(bool, bytes)` return into `ok` and a
+memory copy of the bytes, bound as the word array `{b}_words`:
+`{b}_words_data_offset` points at the length word, followed by the data, and
+`{b}_words_length = length / 32 + 2` words, the ones past the data zero. -/
+inductive AbiCallReturnShape where
+  | words (vars : List String)
+  | boolBytes (okVar bytesName : String)
+  deriving Repr, BEq, DecidableEq
+
+def AbiCallItemShape.wordCount : AbiCallItemShape → Nat
+  | .word => 1
+  | .bytesParam _ => 0
+
+def AbiCallArgShape.wordCount : AbiCallArgShape → Nat
+  | .word => 1
+  | .bytesParam _ => 0
+  | .encodedCall _ items => (items.map AbiCallItemShape.wordCount).sum
+
+/-- The word array holding the bytes of a `boolBytes` return named `bytesName`. -/
+def abiReturnBytesArrayName (bytesName : String) : String :=
+  s!"{bytesName}_words"
+
+def AbiCallReturnShape.vars : AbiCallReturnShape → List String
+  | .words vars => vars
+  | .boolBytes okVar bytesName =>
+      [okVar, s!"{abiReturnBytesArrayName bytesName}_data_offset",
+        s!"{abiReturnBytesArrayName bytesName}_length"]
+
+private def abiLit (n : Nat) : YulExpr := YulExpr.lit n
+private def abiId (name : String) : YulExpr := YulExpr.ident name
+private def abiCall (fn : String) (args : List YulExpr) : YulExpr := YulExpr.call fn args
+private def abiStore (offset value : YulExpr) : YulStmt :=
+  YulStmt.exprStmt (abiCall "mstore" [offset, value])
+private def abiRevertEmptyIf (cond : YulExpr) : YulStmt :=
+  YulStmt.if_ cond [YulStmt.exprStmt (abiCall "revert" [abiLit 0, abiLit 0])]
+/-- `(x + 31) & ~31`. -/
+private def abiPad32 (x : YulExpr) : YulExpr :=
+  abiCall "and" [abiCall "add" [x, abiLit 31], abiCall "not" [abiLit 31]]
+
+/-- Write the tail of a `bytes` value at the running tail offset `tailVar` of
+the argument block starting at `base`: its length word, its data, zero
+padding (a whole zero word after the data; a later tail overwrites it); then
+advance `tailVar` past it. -/
+private def abiBytesTail (ctx : CompilationContext) (base : YulExpr) (tailVar : String)
+    (dataOffset length : YulExpr) : List YulStmt :=
+  let dst := abiCall "add" [base, abiId tailVar]
+  let data := abiCall "add" [dst, abiLit 32]
+  [abiStore dst length] ++
+    dynamicCopyData ctx data dataOffset length ++ [
+    abiStore (abiCall "add" [data, length]) (abiLit 0),
+    YulStmt.assign tailVar (abiCall "add" [abiId tailVar,
+      abiCall "add" [abiLit 32, abiPad32 length]])]
+
+/-- Encode the heads and tails of `items` in the argument block at `base`, with
+running tail offset `tailVar` (declared here); `words` are the item words. -/
+private def abiEncodeItemsAt (ctx : CompilationContext) (base : YulExpr) (tailVar : String)
+    (items : List AbiCallItemShape) (words : List YulExpr) : Except String (List YulStmt) := do
+  let mut stmts : List YulStmt := [YulStmt.let_ tailVar (abiLit (32 * items.length))]
+  let mut rest := words
+  for (item, j) in items.zipIdx do
+    let head := abiCall "add" [base, abiLit (32 * j)]
+    match item with
+    | .word =>
+        match rest with
+        | w :: tail =>
+            stmts := stmts ++ [abiStore head w]
+            rest := tail
+        | [] => throw "externalCallAbi: missing item word"
+    | .bytesParam name =>
+        stmts := stmts ++ [abiStore head (abiId tailVar)] ++
+          abiBytesTail ctx base tailVar (abiId s!"{name}_data_offset") (abiId s!"{name}_length")
+  pure stmts
+
+/-- Yul of `abiCallModule` over its compiled arguments `[target] ++ words`. -/
+def abiCallBody (ctx : CompilationContext) (selector : Nat) (shapes : List AbiCallArgShape)
+    (ret : AbiCallReturnShape) (isStatic : Bool) (args : List YulExpr) :
+    Except String (List YulStmt) := do
+  if selector ≥ 2 ^ 32 then
+    throw "externalCallAbi: selector exceeds 4 bytes"
+  let (targetExpr, wordExprs) ← match args with
+    | t :: ws => pure (t, ws)
+    | [] => throw "externalCallAbi expects at least 1 argument (target)"
+  unless wordExprs.length == (shapes.map AbiCallArgShape.wordCount).sum do
+    throw "externalCallAbi: argument words differ from the argument shapes"
+  let ptr := abiId "__abi_ptr"
+  let base := abiCall "add" [ptr, abiLit 4]
+  let tailVar := "__abi_tail"
+  let mut encode : List YulStmt := [
+    YulStmt.let_ "__abi_ptr" (abiCall "mload" [abiLit freeMemoryPointer]),
+    abiStore ptr (abiCall "shl" [abiLit 224, YulExpr.hex selector]),
+    YulStmt.let_ tailVar (abiLit (32 * shapes.length))]
+  let mut rest := wordExprs
+  for (shape, i) in shapes.zipIdx do
+    let head := abiCall "add" [base, abiLit (32 * i)]
+    match shape with
+    | .word =>
+        match rest with
+        | w :: tail =>
+            encode := encode ++ [abiStore head w]
+            rest := tail
+        | [] => throw "externalCallAbi: missing argument word"
+    | .bytesParam name =>
+        encode := encode ++ [abiStore head (abiId tailVar)] ++
+          abiBytesTail ctx base tailVar (abiId s!"{name}_data_offset") (abiId s!"{name}_length")
+    | .encodedCall sel items =>
+        if sel ≥ 2 ^ 32 then
+          throw "externalCallAbi: encoded-call selector exceeds 4 bytes"
+        -- The payload is a `bytes` tail: a length word, then `selector ++ items`.
+        let count := (AbiCallArgShape.encodedCall sel items).wordCount
+        let itemWords := rest.take count
+        rest := rest.drop count
+        let dst := abiCall "add" [base, abiId tailVar]
+        let inner := abiCall "add" [dst, abiLit 32]
+        let innerTail := "__abi_itail"
+        let itemStmts ← abiEncodeItemsAt ctx (abiCall "add" [inner, abiLit 4]) innerTail
+          items itemWords
+        let payloadLength := abiCall "add" [abiLit 4, abiId innerTail]
+        encode := encode ++ [abiStore head (abiId tailVar),
+          YulStmt.block ([abiStore inner (abiCall "shl" [abiLit 224, YulExpr.hex sel])] ++
+            itemStmts ++ [
+            abiStore dst payloadLength,
+            abiStore (abiCall "add" [inner, payloadLength]) (abiLit 0),
+            YulStmt.assign tailVar (abiCall "add" [abiId tailVar,
+              abiCall "add" [abiLit 32, abiPad32 payloadLength]])])]
+  let size := abiCall "add" [abiLit 4, abiId tailVar]
+  -- One spare word: the zero padding store of the last tail may reach it.
+  encode := encode ++ [abiStore (abiLit freeMemoryPointer)
+    (abiCall "add" [ptr, abiPad32 (abiCall "add" [size, abiLit 32])])]
+  let callExpr :=
+    if isStatic then
+      abiCall "staticcall" [abiCall "gas" [], targetExpr, ptr, size, abiLit 0, abiLit 0]
+    else
+      abiCall "call" [abiCall "gas" [], targetExpr, abiLit 0, ptr, size, abiLit 0, abiLit 0]
+  let bubble := YulStmt.if_ (abiCall "iszero" [callExpr]) [
+    YulStmt.exprStmt (abiCall "returndatacopy" [abiLit 0, abiLit 0, abiCall "returndatasize" []]),
+    YulStmt.exprStmt (abiCall "revert" [abiLit 0, abiCall "returndatasize" []])]
+  let out := abiId "__abi_out"
+  let rds := abiCall "returndatasize" []
+  let decode : List YulStmt := match ret with
+    | .words [] => []
+    | .words vars => [
+        abiRevertEmptyIf (abiCall "lt" [rds, abiLit (32 * vars.length)]),
+        YulStmt.let_ "__abi_out" (abiCall "mload" [abiLit freeMemoryPointer]),
+        YulStmt.exprStmt (abiCall "returndatacopy" [out, abiLit 0, abiLit (32 * vars.length)])] ++
+        vars.zipIdx.map fun (v, idx) =>
+          YulStmt.assign v (abiCall "mload" [abiCall "add" [out, abiLit (32 * idx)]])
+    | .boolBytes okVar bytesName =>
+        let arrayName := abiReturnBytesArrayName bytesName
+        let lengthWordVar := s!"{arrayName}_data_offset"
+        let lengthWord := abiId lengthWordVar
+        let length := abiCall "mload" [lengthWord]
+        let maxU64 := abiLit (2 ^ 64 - 1)
+        let offset := abiId "__abi_offset"
+        -- solc's `(bool, bytes)` decoder checks; any failure reverts with empty data.
+        [ abiRevertEmptyIf (abiCall "lt" [rds, abiLit 64]),
+          YulStmt.let_ "__abi_out" (abiCall "mload" [abiLit freeMemoryPointer]),
+          YulStmt.exprStmt (abiCall "returndatacopy" [out, abiLit 0, rds]),
+          -- The copy, plus one spare word for the zero padding store below.
+          abiStore (abiLit freeMemoryPointer)
+            (abiCall "add" [out, abiPad32 (abiCall "add" [rds, abiLit 32])]),
+          YulStmt.assign okVar (abiCall "mload" [out]),
+          abiRevertEmptyIf (abiCall "gt" [abiId okVar, abiLit 1]),
+          YulStmt.let_ "__abi_offset" (abiCall "mload" [abiCall "add" [out, abiLit 32]]),
+          abiRevertEmptyIf (abiCall "gt" [offset, maxU64]),
+          abiRevertEmptyIf (abiCall "gt" [abiCall "add" [offset, abiLit 32], rds]),
+          YulStmt.assign lengthWordVar (abiCall "add" [out, offset]),
+          abiRevertEmptyIf (abiCall "gt" [length, maxU64]),
+          abiRevertEmptyIf (abiCall "gt"
+            [abiCall "add" [abiCall "add" [offset, abiLit 32], length], rds]),
+          -- Bytes past the end read as zero (`bytesWord`).
+          abiStore (abiCall "add" [abiCall "add" [lengthWord, abiLit 32], length]) (abiLit 0),
+          YulStmt.assign s!"{arrayName}_length"
+            (abiCall "add" [abiCall "shr" [abiLit 5, length], abiLit 2])]
+  -- Results are declared after the call, so they take no stack slot while encoding.
+  let bindResults := ret.vars.map fun v => YulStmt.let_ v (abiLit 0)
+  pure ([YulStmt.block (encode ++ [bubble])] ++ bindResults ++
+    (if decode.isEmpty then [] else [YulStmt.block decode]))
+
+/-- ABI-frame typed-interface call: `selector(args...)` with Solidity's
+head/tail layout (`bytes` arguments allowed, see `AbiCallArgShape`), `call`
+or `staticcall` of the target, exact revert-data bubbling on failure, then
+the return decoding of `ret` (see `AbiCallReturnShape`; malformed returndata
+reverts with empty data). Arguments: `[target] ++ words`, the words of the
+shapes in order. -/
+def abiCallModule (selector : Nat) (shapes : List AbiCallArgShape)
+    (ret : AbiCallReturnShape) (isStatic : Bool) : ExternalCallModule where
+  name := "externalCallAbi"
+  numArgs := 1 + (shapes.map AbiCallArgShape.wordCount).sum
+  resultVars := ret.vars
+  writesState := !isStatic
+  readsState := true
+  axioms := ["external_call_abi_interface"]
+  summarySelector := some selector
+  compile := fun ctx args => abiCallBody ctx selector shapes ret isStatic args
+
+/-- `revert(data, length)` of a memory byte range: `revertBytes ret` for the
+`bytes` return of an ABI-frame call. -/
+def revertMemoryBytesModule : ExternalCallModule where
+  name := "revertMemoryBytes"
+  numArgs := 2
+  resultVars := []
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx args =>
+    match args with
+    | [data, length] => pure [YulStmt.exprStmt (YulExpr.call "revert" [data, length])]
+    | _ => throw "revertMemoryBytes expects 2 arguments (data, length)"
+
 /-- Generic Solidity-style low-level value call with revert-data bubbling.
 
     This models the common wrapper:
