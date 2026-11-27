@@ -170,7 +170,7 @@ def uninitialized_local(dest: Path) -> None:
 def call_unused_from_loss(dest: Path) -> None:
     lib = (dest / "Lib.sol").read_text()
     assert "i < 3; i++" in lib
-    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += s"))
     text = (dest / "Slice.sol").read_text()
     old = "return marketState[market].lossFactor;"
     assert old in text
@@ -189,7 +189,7 @@ def call_supported_unused(dest: Path) -> None:
 def call_unused(dest: Path) -> None:
     lib = (dest / "Lib.sol").read_text()
     assert "i < 3; i++" in lib
-    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += s"))
     call_supported_unused(dest)
 
 

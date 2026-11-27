@@ -36,7 +36,8 @@ def main():
             ('uint128[]', location, 'BODY:for (uint256 i = 0; i < box.values.length; i += flag) {} return 0;', 'a for loop must increment its counter by a positive integer constant'),
             ('uint128[]', location, 'BODY:for (uint256 i = 0; i < box.values.length; i += 0) {} return 0;', 'a for loop stride must be positive'),
             ('uint128[]', location, 'BODY:for (uint256 i = 0; i < box.values.length; i++) { break; } return 0;', 'unsupported statement Break'),
-            ('uint128[]', location, 'BODY:for (uint256 i = 0; i < box.values.length; i++) { assembly { mstore(0, 0) } } return 0;', 'unsupported statement InlineAssembly'),
+            ('uint128[]', location, 'BODY:for (uint256 i = 0; i < box.values.length; i++) { assembly { mstore(0, 0) } } return 0;',
+             None if location == 'calldata' else 'unsupported statement InlineAssembly'),
         ]
     cases.append(('uint128[]', 'memory', 'BODY:for (uint256 i = 0; i < box.values.length; i++) { box.values[0] = 0; } return 0;', 'mapping assignment target is not a storage path'))
 
