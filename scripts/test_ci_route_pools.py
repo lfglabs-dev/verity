@@ -38,7 +38,11 @@ def jobs(medium_running: int = 0, medium_queued: int = 0, lean_queued: int = 0) 
     )
 
 
-AFTER_BUILD = [rp.parse_group("build-audits=1"), rp.parse_group("import-mutations=24")]
+AFTER_BUILD = [
+    rp.parse_group("build-audits=1"),
+    rp.parse_group("importer-differential=1"),
+    rp.parse_group("import-mutations=24"),
+]
 AFTER_COMPILER = [
     rp.parse_group(g)
     for g in (
@@ -93,10 +97,41 @@ class RoutePoolsTest(unittest.TestCase):
         self.assertEqual(routed, {"compiler-audits": "build-medium"})
 
     def test_fan_out_larger_than_free_capacity(self) -> None:
-        # A 24-shard matrix never fits 3 runners; build-audits still does.
+        # A 24-shard matrix never fits 3 runners; build-audits and importer-differential still do.
         self.assertEqual(
             self.names(self.pools, AFTER_BUILD, jobs()),
-            {"build-audits": "build-medium", "import-mutations": "lean-8"},
+            {
+                "build-audits": "build-medium",
+                "importer-differential": "build-medium",
+                "import-mutations": "lean-8",
+            },
+        )
+        # One runner busy (2 free slots): both 1-slot after-build jobs still fit on build-medium.
+        self.assertEqual(
+            self.names(self.pools, AFTER_BUILD, jobs(medium_running=1)),
+            {
+                "build-audits": "build-medium",
+                "importer-differential": "build-medium",
+                "import-mutations": "lean-8",
+            },
+        )
+        # Two runners busy (1 free slot): build-audits takes the last slot, importer-differential spills to lean-8.
+        self.assertEqual(
+            self.names(self.pools, AFTER_BUILD, jobs(medium_running=2)),
+            {
+                "build-audits": "build-medium",
+                "importer-differential": "lean-8",
+                "import-mutations": "lean-8",
+            },
+        )
+        # All 3 build-medium slots busy/queued: every after-build group spills to lean-8.
+        self.assertEqual(
+            self.names(self.pools, AFTER_BUILD, jobs(medium_running=2, medium_queued=1)),
+            {
+                "build-audits": "lean-8",
+                "importer-differential": "lean-8",
+                "import-mutations": "lean-8",
+            },
         )
         # Idle pool, whole compiler wave: first fit in group order, using the
         # build-medium max-parallel for the throttled matrices (foundry 2).
@@ -134,22 +169,42 @@ class RoutePoolsTest(unittest.TestCase):
         self.assertIsNone(loads)
         self.assertEqual({d.pool for d in decisions}, {0})
         self.assertIn("GitHub API error", decisions[0].reason)
-        # A group that can never fit the first pool's slots takes the last pool.
+        # Groups that fit the first pool's slots fall back to build-medium; a group
+        # that can never fit takes the last pool.
         decisions, _ = rp.choose(self.pools, AFTER_BUILD, None, None)
-        self.assertEqual([self.pools[d.pool]["name"] for d in decisions], ["build-medium", "lean-8"])
-        self.assertIn("exceed the first pool's 3 slots", decisions[1].reason)
+        self.assertEqual(
+            [self.pools[d.pool]["name"] for d in decisions],
+            ["build-medium", "build-medium", "lean-8"],
+        )
+        self.assertIn("GitHub API error; falling back to the first pool", decisions[1].reason)
+        self.assertIn("exceed the first pool's 3 slots", decisions[2].reason)
 
     def test_forced_runner_route(self) -> None:
         for mode, expected in (("lean", "lean-8"), ("lean-8", "lean-8"), ("build-medium", "build-medium")):
             forced, warnings = rp.resolve_forced(self.pools, mode)
             self.assertEqual(warnings, [])
-            routed = self.names(self.pools, AFTER_COMPILER, jobs(medium_queued=50), forced)
-            self.assertEqual(set(routed.values()), {expected}, mode)
+            for groups in (AFTER_BUILD, AFTER_COMPILER):
+                routed = self.names(self.pools, groups, jobs(medium_queued=50), forced)
+                self.assertEqual(set(routed.values()), {expected}, mode)
         for mode in ("auto", ""):
             self.assertEqual(rp.resolve_forced(self.pools, mode), (None, []))
         forced, warnings = rp.resolve_forced(self.pools, "nope")
         self.assertIsNone(forced)
         self.assertIn("unknown pool 'nope'", warnings[0])
+
+    def test_workflow_router_groups_match_test_fixtures(self) -> None:
+        text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
+        for title, expected in (
+            ("after build", AFTER_BUILD),
+            ("after build-compiler-binaries", AFTER_COMPILER),
+        ):
+            match = re.search(
+                rf'python3 scripts/ci_route_pools\.py --title "{re.escape(title)}" \\\n((?:\s+--group \S+(?: \\\n)?)+)',
+                text,
+            )
+            self.assertIsNotNone(match, title)
+            specs = re.findall(r"--group (\S+)", match.group(1))
+            self.assertEqual([rp.parse_group(s) for s in specs], expected, title)
 
     def test_max_queue_pools_keep_their_semantics(self) -> None:
         three = json.dumps(
@@ -208,7 +263,14 @@ class RoutePoolsTest(unittest.TestCase):
 class RoutePoolsCliTest(unittest.TestCase):
     """End to end: the CLI against a fake `gh`, as the router jobs run it."""
 
-    def run_cli(self, mode: str, job_list: list[dict] | None, pools: str = "") -> tuple[dict, str, str]:
+    def run_cli(
+        self,
+        mode: str,
+        job_list: list[dict] | None,
+        pools: str = "",
+        title: str = "after build-compiler-binaries",
+        groups: tuple[str, ...] = ("compiler-audits=1", "foundry=4/2"),
+    ) -> tuple[dict, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             fake = tmp_path / "gh"
@@ -234,8 +296,8 @@ class RoutePoolsCliTest(unittest.TestCase):
                     sys.executable,
                     str(SCRIPTS / "ci_route_pools.py"),
                     "--title",
-                    "after build-compiler-binaries",
-                    *[arg for g in ("compiler-audits=1", "foundry=4/2") for arg in ("--group", g)],
+                    title,
+                    *[arg for g in groups for arg in ("--group", g)],
                 ],
                 check=True,
                 capture_output=True,
@@ -286,6 +348,39 @@ class RoutePoolsCliTest(unittest.TestCase):
         outputs, text, _ = self.run_cli("auto", jobs(medium_running=3), pools='[{"name":"x"}]')
         self.assertEqual(outputs["compiler_audits_on_lean"], "true")
         self.assertIn("ROUTE_POOLS is not a valid pool list", text)
+
+
+    def test_after_build_cli_outputs_for_importer_differential(self) -> None:
+        after_build_groups = ("build-audits=1", "importer-differential=1", "import-mutations=24")
+        outputs, text, _ = self.run_cli(
+            "auto",
+            jobs(medium_running=1),
+            title="after build",
+            groups=after_build_groups,
+        )
+        self.assertEqual(
+            outputs,
+            {
+                "build_audits_runs_on": json.dumps(MEDIUM, separators=(",", ":")),
+                "build_audits_on_lean": "false",
+                "importer_differential_runs_on": json.dumps(MEDIUM, separators=(",", ":")),
+                "importer_differential_on_lean": "false",
+                "import_mutations_runs_on": json.dumps(LEAN8, separators=(",", ":")),
+                "import_mutations_on_lean": "true",
+            },
+        )
+        self.assertIn("`importer-differential` (1 job(s)) -> `build-medium`", text)
+
+        outputs, text, _ = self.run_cli(
+            "auto",
+            jobs(medium_running=2),
+            title="after build",
+            groups=after_build_groups,
+        )
+        self.assertEqual(outputs["build_audits_on_lean"], "false")
+        self.assertEqual(outputs["importer_differential_runs_on"], json.dumps(LEAN8, separators=(",", ":")))
+        self.assertEqual(outputs["importer_differential_on_lean"], "true")
+        self.assertIn("`importer-differential` (1 job(s)) -> `lean-8`", text)
 
 
 if __name__ == "__main__":

@@ -99,7 +99,6 @@
   ],
   "heavy_runner_jobs": [
     "build",
-    "importer-differential",
     "build-compiler-binaries",
     "compiler-regressions",
     "lean-profile"
@@ -107,6 +106,7 @@
   "medium_runner_jobs": [
     "build-audits",
     "import-mutations",
+    "importer-differential",
     "compiler-audits",
     "foundry-gas-calibration",
     "foundry",
@@ -219,6 +219,7 @@
     ],
     "importer-differential": [
       "changes",
+      "route-build",
       "checks",
       "build"
     ]
@@ -263,7 +264,7 @@
     "failure-hints": "ubuntu-latest",
     "import-mutations": "${{ fromJSON(needs.route-build.outputs.import_mutations_runs_on) }}",
     "ci-gate": "ubuntu-latest",
-    "importer-differential": "lean-16vcpu-ubuntu-2604"
+    "importer-differential": "${{ fromJSON(needs.route-build.outputs.importer_differential_runs_on) }}"
   },
   "expected_job_timeouts": {
     "closed-pr-cleanup": 5,
@@ -306,6 +307,8 @@
     "route-build": {
       "build_audits_runs_on": "${{ steps.route.outputs.build_audits_runs_on }}",
       "build_audits_on_lean": "${{ steps.route.outputs.build_audits_on_lean }}",
+      "importer_differential_runs_on": "${{ steps.route.outputs.importer_differential_runs_on }}",
+      "importer_differential_on_lean": "${{ steps.route.outputs.importer_differential_on_lean }}",
       "import_mutations_runs_on": "${{ steps.route.outputs.import_mutations_runs_on }}",
       "import_mutations_on_lean": "${{ steps.route.outputs.import_mutations_on_lean }}"
     },
@@ -938,7 +941,7 @@
           "RUNNER_ROUTE": "${{ inputs.runner_route || 'auto' }}",
           "ROUTE_POOLS": "${{ vars.ROUTE_POOLS }}"
         },
-        "run": "python3 scripts/ci_route_pools.py --title \"after build\" \\\n  --group build-audits=1 \\\n  --group import-mutations=24"
+        "run": "python3 scripts/ci_route_pools.py --title \"after build\" \\\n  --group build-audits=1 \\\n  --group importer-differential=1 \\\n  --group import-mutations=24"
       }
     ],
     "route-compiler": [
@@ -963,7 +966,13 @@
     ],
     "importer-differential": [
       {
+        "name": "Cap Lean threads on build-medium",
+        "if": "needs.route-build.outputs.importer_differential_on_lean != 'true'",
+        "run": "echo \"LEAN_NUM_THREADS=4\" >> \"$GITHUB_ENV\""
+      },
+      {
         "name": "Bound Lean threads by VM memory",
+        "if": "needs.route-build.outputs.importer_differential_on_lean == 'true'",
         "run": "scripts/ci_lean_threads.sh"
       }
     ]
@@ -1234,6 +1243,7 @@
   "pull_request_unfiltered": true,
   "routed_runs_on": {
     "build-audits": "${{ fromJSON(needs.route-build.outputs.build_audits_runs_on) }}",
+    "importer-differential": "${{ fromJSON(needs.route-build.outputs.importer_differential_runs_on) }}",
     "import-mutations": "${{ fromJSON(needs.route-build.outputs.import_mutations_runs_on) }}",
     "compiler-audits": "${{ fromJSON(needs.route-compiler.outputs.compiler_audits_runs_on) }}",
     "foundry-gas-calibration": "${{ fromJSON(needs.route-compiler.outputs.foundry_gas_calibration_runs_on) }}",
@@ -1243,6 +1253,7 @@
   },
   "routed_runner_jobs": [
     "build-audits",
+    "importer-differential",
     "import-mutations",
     "compiler-audits",
     "foundry-gas-calibration",

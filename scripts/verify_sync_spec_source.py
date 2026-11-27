@@ -998,7 +998,7 @@ SPEC['expected_job_permissions']['ci-gate'] = {'contents': 'read'}
 # Importer-only PRs skip the compiler/Foundry lane (no compiler executable imports
 # Compiler.SolidityImport) and run the importer slice comparisons here instead.
 SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index('import-mutations') + 1, 'importer-differential')
-SPEC['heavy_runner_jobs'].insert(SPEC['heavy_runner_jobs'].index('build') + 1, 'importer-differential')
+SPEC['medium_runner_jobs'].insert(SPEC['medium_runner_jobs'].index('import-mutations') + 1, 'importer-differential')
 SPEC['expected_job_needs']['importer-differential'] = ['changes', 'checks', 'build']
 SPEC['expected_job_needs']['failure-hints'].insert(
     SPEC['expected_job_needs']['failure-hints'].index('import-mutations') + 1, 'importer-differential')
@@ -1048,7 +1048,8 @@ SPEC['expected_downloaded_artifact_paths'] = _insert_after(
 # routed job may use, and the job must need the router it names.
 ROUTERS = {
     'route-build': ('build', 'after build',
-                    [('build-audits', '1'), ('import-mutations', '24')]),
+                    [('build-audits', '1'), ('importer-differential', '1'),
+                     ('import-mutations', '24')]),
     'route-compiler': ('build-compiler-binaries', 'after build-compiler-binaries',
                        [('compiler-audits', '1'), ('foundry-gas-calibration', '1'),
                         ('foundry', '4/2'), ('foundry-patched', '1'),
@@ -1103,21 +1104,21 @@ SPEC['expected_job_strategy_max_parallel']['foundry'] = (
     "${{ " + _route_output('foundry', 'on_lean') + " == 'true' && 4 || 2 }}")
 SPEC['expected_job_strategy_max_parallel']['foundry-multi-seed'] = (
     "${{ " + _route_output('foundry-multi-seed', 'on_lean') + " == 'true' && 7 || 1 }}")
-SPEC['expected_step_contracts']['build-audits'].insert(0, {
-    'name': 'Cap Lean threads on build-medium',
-    'if': _route_output('build-audits', 'on_lean') + " != 'true'",
-    'run': 'echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"',
-})
+for _job in ('build-audits', 'importer-differential'):
+    SPEC['expected_step_contracts'].setdefault(_job, []).insert(0, {
+        'name': 'Cap Lean threads on build-medium',
+        'if': _route_output(_job, 'on_lean') + " != 'true'",
+        'run': 'echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"',
+    })
 # Lake parallelism follows the VM's memory on lean.ci (3 GiB per Lean/clang
 # process, clamped to [2, min(vCPUs, 8)]): an 8-vCPU VM with ~11 GiB failed
 # with ENOMEM at 8. build-medium keeps its own per-host caps.
-for _job in ('build', 'build-compiler-binaries', 'compiler-regressions', 'lean-profile',
-             'importer-differential'):
+for _job in ('build', 'build-compiler-binaries', 'compiler-regressions', 'lean-profile'):
     SPEC['expected_step_contracts'].setdefault(_job, []).append({
         'name': 'Bound Lean threads by VM memory',
         'run': 'scripts/ci_lean_threads.sh',
     })
-for _job in ('build-audits', 'compiler-audits'):
+for _job in ('build-audits', 'importer-differential', 'compiler-audits'):
     SPEC['expected_step_contracts'][_job].append({
         'name': 'Bound Lean threads by VM memory',
         'if': _route_output(_job, 'on_lean') + " == 'true'",

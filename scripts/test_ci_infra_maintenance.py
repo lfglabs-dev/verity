@@ -406,7 +406,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             ("compiler-audits", routed_cond("route-compiler", "compiler-audits")),
             ("compiler-regressions", ""),
             ("lean-profile", ""),
-            ("importer-differential", ""),
+            ("importer-differential", routed_cond("route-build", "importer-differential")),
         ):
             body = job_body(job)
             # lean.ci can boot an 8-vCPU VM with ~11 GiB, where one Lean/clang
@@ -419,13 +419,20 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             # A job-level `LEAN_NUM_THREADS:` would hide the $GITHUB_ENV value,
             # and no later step may set it again (step env or $GITHUB_ENV).
             self.assertNotIn("LEAN_NUM_THREADS:", body, job)
-            # build-audits keeps exactly one other write: the build-medium cap.
-            self.assertEqual(body.count("LEAN_NUM_THREADS="), 1 if job == "build-audits" else 0, job)
+            # build-audits and importer-differential keep exactly one other write: the build-medium cap.
+            self.assertEqual(
+                body.count("LEAN_NUM_THREADS="),
+                1 if job in ("build-audits", "importer-differential") else 0,
+                job,
+            )
         for job in ("build", "build-compiler-binaries", "compiler-regressions", "lean-profile"):
             self.assertIn("runs-on: lean-", job_body(job), job)
 
         routers = {
-            "route-build": ("build", ["build-audits=1", "import-mutations=24"]),
+            "route-build": (
+                "build",
+                ["build-audits=1", "importer-differential=1", "import-mutations=24"],
+            ),
             "route-compiler": (
                 "build-compiler-binaries",
                 [
@@ -487,12 +494,15 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         )
 
         # build-medium keeps main's per-host limits; lean.ci keeps the VM defaults.
-        self.assertIn(
-            "      - name: Cap Lean threads on build-medium\n"
-            "        if: needs.route-build.outputs.build_audits_on_lean != 'true'\n"
-            "        run: echo \"LEAN_NUM_THREADS=4\" >> \"$GITHUB_ENV\"\n",
-            job_body("build-audits"),
-        )
+        for job in ("build-audits", "importer-differential"):
+            key = job.replace("-", "_")
+            self.assertIn(
+                "      - name: Cap Lean threads on build-medium\n"
+                f"        if: needs.route-build.outputs.{key}_on_lean != 'true'\n"
+                "        run: echo \"LEAN_NUM_THREADS=4\" >> \"$GITHUB_ENV\"\n",
+                job_body(job),
+                job,
+            )
         self.assertIn(
             "max-parallel: ${{ needs.route-compiler.outputs.foundry_on_lean == 'true' && 4 || 2 }}",
             job_body("foundry"),
@@ -502,7 +512,12 @@ class CiInfraMaintenanceTests(unittest.TestCase):
             " && 7 || 1 }}",
             job_body("foundry-multi-seed"),
         )
-        for job in ("import-mutations", "foundry-gas-calibration", "foundry-patched"):
+        for job in (
+            "import-mutations",
+            "importer-differential",
+            "foundry-gas-calibration",
+            "foundry-patched",
+        ):
             self.assertNotIn("max-parallel:", job_body(job), job)
 
     def test_ephemeral_persistence_falls_back_when_srv_unavailable(self) -> None:

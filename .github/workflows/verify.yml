@@ -562,8 +562,9 @@ jobs:
           key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
 
   route-build:
-    # Routes the job groups that fan out after `build` (build-audits, then
-    # import-mutations) right before GitHub creates them, so the choice sees
+    # Routes the job groups that fan out after `build` (build-audits,
+    # importer-differential, then import-mutations) right before GitHub creates
+    # them, so the choice sees
     # the runner load at that moment, not at the start of the run (run
     # 45485073018 routed at 20:51Z and put 16 jobs created 40-55 min later on
     # the 3 build-medium hosts; 8 queued 40+ min while lean-8 sat idle).
@@ -584,6 +585,8 @@ jobs:
     outputs:
       build_audits_runs_on: ${{ steps.route.outputs.build_audits_runs_on }}
       build_audits_on_lean: ${{ steps.route.outputs.build_audits_on_lean }}
+      importer_differential_runs_on: ${{ steps.route.outputs.importer_differential_runs_on }}
+      importer_differential_on_lean: ${{ steps.route.outputs.importer_differential_on_lean }}
       import_mutations_runs_on: ${{ steps.route.outputs.import_mutations_runs_on }}
       import_mutations_on_lean: ${{ steps.route.outputs.import_mutations_on_lean }}
     steps:
@@ -604,6 +607,7 @@ jobs:
         run: |
           python3 scripts/ci_route_pools.py --title "after build" \
             --group build-audits=1 \
+            --group importer-differential=1 \
             --group import-mutations=24
 
   build-audits:
@@ -802,11 +806,17 @@ jobs:
     # here (~10 min, the PR-tier part of compiler-regressions). The stateful
     # instrument checks stay in compiler-regressions (ci:full) and the mutation
     # campaigns in import-mutations (ci:mutations).
-    runs-on: lean-16vcpu-ubuntu-2604
+    runs-on: ${{ fromJSON(needs.route-build.outputs.importer_differential_runs_on) }}
     timeout-minutes: 45
-    needs: [changes, checks, build]
+    needs: [changes, route-build, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.importer == 'true'
     steps:
+      # Slice differential runs stay below the 50 GiB build-medium cgroup cap;
+      # on lean.ci the VM's memory bounds it (step after checkout).
+      - name: Cap Lean threads on build-medium
+        if: needs.route-build.outputs.importer_differential_on_lean != 'true'
+        run: echo "LEAN_NUM_THREADS=4" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
@@ -815,6 +825,7 @@ jobs:
       # the VM's memory (3 GiB each, at most min(vCPUs, 8)): lean.ci can boot
       # an 8-vCPU VM with ~11 GiB, where 8 processes failed with ENOMEM.
       - name: Bound Lean threads by VM memory
+        if: needs.route-build.outputs.importer_differential_on_lean == 'true'
         run: scripts/ci_lean_threads.sh
 
       - name: Setup Lean
@@ -845,7 +856,7 @@ jobs:
 
       - name: Restore prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        run: tar -I zstd -xf lean-workspace-build.tar.zst
+        run: tar -P --keep-directory-symlink -I zstd -xf lean-workspace-build.tar.zst
 
       - name: Setup pinned solc for Solidity import
         run: python3 scripts/setup_solc_import.py
@@ -854,7 +865,9 @@ jobs:
       - name: Check preinstalled Foundry for Solidity differential controls
         id: preinstalled-foundry-mutations
         run: |
-          if [ -x "$HOME/.foundry/bin/forge" ] && [ -x "$HOME/.foundry/bin/anvil" ]; then
+          if [ -x "$HOME/.foundry/bin/forge" ] && [ -x "$HOME/.foundry/bin/anvil" ] && \
+             "$HOME/.foundry/bin/forge" --version >/dev/null 2>&1 && \
+             "$HOME/.foundry/bin/anvil" --version >/dev/null 2>&1; then
             echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
             echo "installed=true" >> "$GITHUB_OUTPUT"
           else
@@ -870,6 +883,7 @@ jobs:
       - name: Compare Solidity, Denote and compiled models
         timeout-minutes: 30
         run: |
+          rm -rf .lake/import-differential
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json --output .lake/import-differential/smoke --cases 128 --seed 2438
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential-loss.json --output .lake/import-differential/loss --cases 64 --seed 2438
           scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 --output .lake/import-differential/programs
