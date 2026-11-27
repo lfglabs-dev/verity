@@ -49,17 +49,19 @@ FORK_AUDIT = {
     "schema_version": 1,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "efca6fc7c85b4fc37612c477b43ee601a5c4099d",
+    "pinned_commit": "36c20dd054723f9003b1c956bb793828c0d5c912",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 28,
+    "fork_ahead_by": 30,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "The fork has 28 audited commits beyond the recorded upstream base, "
+        "The fork has 30 audited commits beyond the recorded upstream base, "
         "covering Lean 4.22/4.24/4.31 compatibility, total D_J (#4), EVM "
         "proof-facing step/block/memory/interpreter/observation layers (#5, "
         "#6, #7, #8, #9, #10), and EVMYulLean 2.0 Waves E1-E4 (BitVec 256, "
         "total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs, and Yul primCall "
-        "EIP-214/frame fixes), a CI change, and three EVM-conformance fixes: "
+        "EIP-214/frame fixes), two CI changes, a module-initialisation fix "
+        "(no precompile fixture runs Python at start-up), and three "
+        "EVM-conformance fixes: "
         "the Yul RETURNDATACOPY step halts on an out-of-bounds read (EIP-211), "
         "a Yul REVERT carries the bytes it returns (EIP-140), and a reverted "
         "child call exposes them to the caller (EIP-211), with their tests."
@@ -435,6 +437,26 @@ FORK_AUDIT = {
             "rationale": "Test-only: yulSemanticsTests test₈ (REVERT bytes) and test₉ (reverted child call returndata and output area).",
             "diff_summary": "1 file changed, 19 insertions(+).",
             "trust_impact": "None: no semantics source changes.",
+        },
+        {
+            "sha": "ae4a91a1988ce743685fd22889a089e880c4f907",
+            "title": "ci: run yulSemanticsTests and fail on any failed check; fix test₃ (#16)",
+            "file": ".github/workflows/lean_action_ci.yml, EvmYul/Yul/YulSemanticsTests/Main.lean, README.md",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "CI and tests only: the Lean Action workflow runs yulSemanticsTests and fails on any failed check, and test₃'s expectation is corrected.",
+            "diff_summary": "3 files changed, 54 insertions(+), 12 deletions(-).",
+            "trust_impact": "None: no semantics source changes.",
+        },
+        {
+            "sha": "36c20dd054723f9003b1c956bb793828c0d5c912",
+            "title": "fix(evm): no precompile fixture runs Python at module initialisation (#17)",
+            "file": "EvmYul/EVM/PrecompiledContracts.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Four private closed fixtures (bn_addOutput₀/₁, bn_mulOutput, snarkvOutput) ran the BN precompiles' Python scripts through unsafePerformIO during module initialisation, so every executable importing EvmYul panicked at start-up outside the package root. They now take (_ : Unit); nothing outside the file uses them.",
+            "diff_summary": "1 file changed, 5 insertions(+), 5 deletions(-).",
+            "trust_impact": "None: the precompile definitions are unchanged; only when the private fixtures are evaluated changes.",
         },
     ],
     "audit_methodology": [
