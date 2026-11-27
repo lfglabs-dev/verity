@@ -4624,9 +4624,11 @@ private def parseInterfaceBytesTupleCallMeta (j : Json) :
     failAt callee "typed external (scalar, bytes memory) call must be nonpayable, view or pure"
   let isStatic := mutability == some "view" || mutability == some "pure"
   let rawScalarTy := rawReturnTypes[0]!
-  let scalarTy := if rawScalarTy.startsWith "contract " then "address" else rawScalarTy
+  let isScalarLoc := optStr rs[0]! "storageLocation" == some "default" && !rawScalarTy.contains '['
+  let scalarTy := if isScalarLoc && rawScalarTy.startsWith "contract " then "address" else rawScalarTy
   let enumBound? ← validateEnumTypeIfNeeded rs[0]! rawScalarTy
-  unless isSupportedBytesTupleScalarReturnType scalarTy do
+  unless isScalarLoc && isSupportedBytesTupleScalarReturnType scalarTy &&
+      (!scalarTy.startsWith "enum " || enumBound?.isSome) do
     failAt callee ("typed external (scalar, bytes memory) call scalar return must be " ++
       "uint256, uint8..uint248, int256, bytes32, bytes4, bytes1, bool, address or enum")
   let params ← mArr (← mField (← mField decl "parameters") "parameters")

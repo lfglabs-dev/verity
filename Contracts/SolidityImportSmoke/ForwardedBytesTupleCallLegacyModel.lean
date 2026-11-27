@@ -38,6 +38,8 @@ private def trustFlags (m : CompilationModel) (name : String) :
   some (true, false, true, ["solidity_explicit_abi", "solidity_post_call_state_access"])
 #guard trustFlags model "execUnlocked" ==
   some (true, false, true, ["solidity_explicit_abi", "solidity_post_call_state_access"])
+#guard trustFlags model "execEnum" ==
+  some (true, false, true, ["solidity_scalar_abi_entry", "solidity_post_call_state_access"])
 
 end SolidityImportSmoke.ForwardedBytesTupleCallLegacyModel
 

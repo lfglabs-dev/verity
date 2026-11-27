@@ -181,6 +181,72 @@ contract C {
         'run(uint256)',
         'Assignment: [solidity-import:unsupported] forwarded bytes result requires assignment from abi.encode or abi.encodePacked',
     ),
+    # Rejection: fixed-size enum array as first return component (96-byte head, not 64-byte)
+    (
+        'reject-enum-fixed-array-first-component',
+        """pragma solidity 0.8.34;
+enum Operation { Call, DelegateCall }
+interface ITarget {
+    function run(uint256 x) external returns (Operation[2] memory, bytes memory);
+}
+contract C {
+    address public target;
+    function _run(uint256 x) private returns (bool ok, bytes memory out) {
+        (, out) = ITarget(target).run(x);
+        ok = true;
+    }
+    function run(uint256 x) external returns (bool ok, bytes memory out) {
+        return _run(x);
+    }
+}
+""",
+        'run(uint256)',
+        'MemberAccess: [solidity-import:unsupported] typed external (scalar, bytes memory) call scalar return must be uint256, uint8..uint248, int256, bytes32, bytes4, bytes1, bool, address or enum',
+    ),
+    # Rejection: dynamic enum array as first return component
+    (
+        'reject-enum-dyn-array-first-component',
+        """pragma solidity 0.8.34;
+enum Operation { Call, DelegateCall }
+interface ITarget {
+    function run(uint256 x) external returns (Operation[] memory, bytes memory);
+}
+contract C {
+    address public target;
+    function _run(uint256 x) private returns (bool ok, bytes memory out) {
+        (, out) = ITarget(target).run(x);
+        ok = true;
+    }
+    function run(uint256 x) external returns (bool ok, bytes memory out) {
+        return _run(x);
+    }
+}
+""",
+        'run(uint256)',
+        'MemberAccess: [solidity-import:unsupported] typed external (scalar, bytes memory) call scalar return must be uint256, uint8..uint248, int256, bytes32, bytes4, bytes1, bool, address or enum',
+    ),
+    # Rejection: dynamic contract/interface array as first return component
+    (
+        'reject-contract-array-first-component',
+        """pragma solidity 0.8.34;
+interface IFoo {}
+interface ITarget {
+    function run(uint256 x) external returns (IFoo[] memory, bytes memory);
+}
+contract C {
+    address public target;
+    function _run(uint256 x) private returns (bool ok, bytes memory out) {
+        (, out) = ITarget(target).run(x);
+        ok = true;
+    }
+    function run(uint256 x) external returns (bool ok, bytes memory out) {
+        return _run(x);
+    }
+}
+""",
+        'run(uint256)',
+        'MemberAccess: [solidity-import:unsupported] typed external (scalar, bytes memory) call scalar return must be uint256, uint8..uint248, int256, bytes32, bytes4, bytes1, bool, address or enum',
+    ),
     # Rejection: unmodelled post-call extcodehash after closed CALL
     (
         'reject-post-call-codehash',
