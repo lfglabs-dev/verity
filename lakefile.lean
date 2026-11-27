@@ -6,7 +6,7 @@ package «verity» where
 
 -- Pinned at the merge of the Yul revert-data fixes and their tests (lfglabs-dev/EVMYulLean#13-#15).
 require evmyul from git
-  "https://github.com/lfglabs-dev/EVMYulLean.git"@"efca6fc7c85b4fc37612c477b43ee601a5c4099d"
+  "https://github.com/lfglabs-dev/EVMYulLean.git"@"36c20dd054723f9003b1c956bb793828c0d5c912"
 
 @[default_target]
 lean_lib «Verity» where
