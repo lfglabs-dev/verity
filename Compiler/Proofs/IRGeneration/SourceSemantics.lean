@@ -2099,7 +2099,7 @@ mutual
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert (.raw outcome.revertData)
+            else .revert (.raw (mod.failedRevertBytes outcome.revertData))
         | none => .revert .empty
     | state, .returnValues values =>
         match evalExprList fields state values with
@@ -2523,7 +2523,7 @@ mutual
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert (.raw outcome.revertData)
+            else .revert (.raw (mod.failedRevertBytes outcome.revertData))
         | none => .revert .empty
     | state, .returnValues values =>
         match evalExprList fields state values with
@@ -2670,15 +2670,17 @@ theorem execStmt_ecm_binds_resultVars
     · cases hrun
   · cases hrun
 
-/-- A failing call receipt reverts the `.ecm` step with the receipt's revert
-bytes; the module never observes a partially applied external transition. -/
+/-- A failing call receipt reverts the `.ecm` step with what the module's compiled
+code reverts with: its own `failurePayload`, else the receipt's revert bytes; the
+module never observes a partially applied external transition. -/
 theorem execStmt_ecm_reverts_of_receipt_failure
     (fields : List Field) (state : RuntimeState)
     (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) (vals : List Nat)
     (hargs : evalExprList fields state args = some vals)
     (hfail : (state.externalCallOracle state.externalCallIndex).succeeded = false) :
     execStmt fields state (.ecm mod args) =
-      .revert (.raw (state.externalCallOracle state.externalCallIndex).revertData) := by
+      .revert (.raw (mod.failedRevertBytes
+        (state.externalCallOracle state.externalCallIndex).revertData)) := by
   simp [execStmt, hargs, hfail]
 
 mutual
@@ -4262,7 +4264,7 @@ mutual
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
-            else .revert (.raw outcome.revertData)
+            else .revert (.raw (mod.failedRevertBytes outcome.revertData))
         | none => .revert .empty
     | .returnValues values =>
         -- Base expression semantics, matching `execStmt`. Arguments are not
