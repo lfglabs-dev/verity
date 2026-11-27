@@ -101,6 +101,17 @@ structure UnsupportedSink where
   /-- Declarations (id, name) bound by statements skipped in the current root. -/
   skippedDecls : IO.Ref (Array (Nat × String))
 
+/-- Scoped cursor/alias and fixed-size storage-array state bundled into a sub-record so
+`Env` stays below Lean 4.31's 1024-byte small-constructor allocator limit (`mi_malloc_small`). -/
+structure CursorAndFixedArrayEnv where
+  /-- Memory struct parameters bound from a caller's own memory struct: the binding is a copy,
+  so member writes and returning the parameter (which alias the caller's struct) are rejected. -/
+  byRefFlatStructs : List Nat := []
+  /-- Flat memory struct locals currently serving as a bounded `while`-loop cursor whose fields
+  may be mutated in place through internal/library helper parameters. -/
+  mutableByRefFlatStructs : List Nat := []
+  storageFixedArrayVars : RBMap Nat (SPath × Option StructFixedArrayInfo) compare := RBMap.empty
+
 structure Env where
   /-- Selected solc pipeline: eager operand order and raw narrow stack words can differ. -/
   viaIR : Bool := true
@@ -145,9 +156,7 @@ structure Env where
   snapshots : RBMap Nat (Array Expr) compare := RBMap.empty
   mems : RBMap Nat MemParam compare
   flatStructs : RBMap Nat FlatStructLocal compare := RBMap.empty
-  /-- Memory struct parameters bound from a caller's own memory struct: the binding is a copy,
-  so member writes and returning the parameter (which alias the caller's struct) are rejected. -/
-  byRefFlatStructs : List Nat := []
+  cursorState : CursorAndFixedArrayEnv := {}
   abiElements : RBMap Nat AbiElementLocal compare := RBMap.empty
   calldataBytes : RBMap Nat CalldataBytesParam compare := RBMap.empty
   scalarArrays : RBMap Nat ScalarArrayParam compare := RBMap.empty
@@ -332,6 +341,16 @@ structure Env where
   /-- Set only under `Profile.collectUnsupported`; `none` keeps the
   first-failure behavior. -/
   unsupportedSink : Option UnsupportedSink := none
+
+abbrev Env.byRefFlatStructs (e : Env) : List Nat :=
+  e.cursorState.byRefFlatStructs
+
+abbrev Env.mutableByRefFlatStructs (e : Env) : List Nat :=
+  e.cursorState.mutableByRefFlatStructs
+
+abbrev Env.storageFixedArrayVars (e : Env) :
+    RBMap Nat (SPath × Option StructFixedArrayInfo) compare :=
+  e.cursorState.storageFixedArrayVars
 
 def Env.init : Env where
   sourceNames := []

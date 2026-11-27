@@ -499,9 +499,12 @@ private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
   return info
 
 /-- A member write through a memory struct parameter bound from the caller's own struct would
-reach the caller in solc; the parameter is a copy here, so the write is rejected. -/
+reach the caller in solc; the parameter is a copy here, so the write is rejected, unless the
+parameter shares the caller's bindings (`Env.mutableByRefFlatStructs`, a `while` cursor). -/
 private def rejectByRefStructWrite (structLocalId : Nat) (at_ : Json) : M Unit := do
-  if (← get).byRefFlatStructs.contains structLocalId then
+  let env ← get
+  if env.byRefFlatStructs.contains structLocalId &&
+      !env.mutableByRefFlatStructs.contains structLocalId then
     failAt at_ ("member write through a memory struct parameter is outside this slice " ++
       "(it would change the caller's struct)")
 
@@ -4166,6 +4169,16 @@ private partial def flattenWhileBodyStmts (stmts : Array Json) (inUnchecked : Bo
         out := out.push (st, inUnchecked)
   return out
 
+/-! ### Bounded `while` loops over a memory struct cursor
+
+`while (Lib.hasMore(it))` / `while (it.hasMore())` where `hasMore` is a pure library or
+internal boolean helper whose body reduces to a comparison `it.m < it.bound` (or `&&` of such
+comparisons) on a flat memory struct local `it`, and the loop body advances `it.m` by exactly one
+unconditional call `Lib.next(..., it)` whose helper performs a single monotonic linear step on
+`it.m`. The pure AST helpers below derive the iteration bound; the lowering lives in
+`lowerCursorWhile?`. -/
+
+/-- `j` with redundant single-component parentheses removed. -/
 private partial def stripParensOut (j : Json) : Json :=
   if optStr j "nodeType" == some "TupleExpression" &&
       (field? j "isInlineArray") != some (.bool true) then
@@ -4174,12 +4187,14 @@ private partial def stripParensOut (j : Json) : Json :=
     | _ => j
   else j
 
-private partial def unwrapBlockOut (j : Json) : Array Json :=
+/-- The statements of a `Block` / `UncheckedBlock`, or `#[j]` for any other statement. -/
+private def unwrapBlockOut (j : Json) : Array Json :=
   match optStr j "nodeType" with
   | some "Block" | some "UncheckedBlock" =>
       (field? j "statements").bind (·.getArr?.toOption) |>.getD #[]
   | _ => #[j]
 
+/-- The value of an unsigned numeric literal, unsigned conversion of one, or unsigned constant. -/
 private partial def parseNatConstOut (env : Env) (j : Json) : Option Nat :=
   let j := stripParensOut j
   match optStr j "nodeType" with
@@ -4213,6 +4228,7 @@ private partial def parseNatConstOut (env : Env) (j : Json) : Option Nat :=
       | none => none
   | _ => none
 
+/-- `j` with unsigned conversions to at least `minBits` bits removed. -/
 private partial def stripUintCastOut (j : Json) (minBits : Nat) : Json :=
   let j := stripParensOut j
   let ty := ((field? j "typeDescriptions").bind (optStr · "typeString")).getD ""
@@ -4223,6 +4239,7 @@ private partial def stripUintCastOut (j : Json) (minBits : Nat) : Json :=
     | _, _ => j
   else j
 
+/-- Replace every identifier referencing a key of `subst` by its value. -/
 private partial def substAstIdents (subst : Std.HashMap Nat Json) : Json → Json
   | j@(.obj kvs) =>
       if optStr j "nodeType" == some "Identifier" then
@@ -4234,6 +4251,7 @@ private partial def substAstIdents (subst : Std.HashMap Nat Json) : Json → Jso
   | .arr xs => .arr (xs.map (substAstIdents subst))
   | other => other
 
+/-- Whether `st` assigns `structId` itself or its member `member` directly. -/
 private partial def stmtWritesStructMember (st : Json) (structId : Nat) (member : String) : Bool :=
   match st with
   | .arr xs => xs.any (stmtWritesStructMember · structId member)
@@ -4260,11 +4278,11 @@ private partial def stmtWritesStructMember (st : Json) (structId : Nat) (member 
       hit || o.foldl (fun acc _ v => acc || stmtWritesStructMember v structId member) false
   | _ => false
 
-private partial def resolveBoolHelperReturnExpr? (env : Env) (call : Json) : Option Json := do
+/-- The internal or library function a call resolves to, and its actual arguments (a using-for
+receiver first). `none` for external, modified or body-less callees. -/
+private def resolveInternalCallTargetOut? (env : Env) (call : Json) : Option (Nat × Array Json) := do
   let call := stripParensOut call
-  let ty := ((field? call "typeDescriptions").bind (optStr · "typeString")).getD ""
-  guard (optStr call "nodeType" == some "FunctionCall" && optStr call "kind" == some "functionCall" && ty == "bool")
-  guard (!statefulCallIn call env && !assignmentIn call)
+  guard (optStr call "nodeType" == some "FunctionCall" && optStr call "kind" == some "functionCall")
   let callee ← field? call "expression"
   let (fnId, receiver?) ← match optStr callee "nodeType" with
     | some "Identifier" => do
@@ -4286,21 +4304,36 @@ private partial def resolveBoolHelperReturnExpr? (env : Env) (call : Json) : Opt
         else none
     | _ => none
   let fn ← env.funs.find? fnId
+  let vis := optStr fn "visibility" |>.getD ""
+  guard (vis == "internal" || vis == "private" || vis == "public")
   let mods := (field? fn "modifiers").bind (·.getArr?.toOption) |>.getD #[]
   guard mods.isEmpty
   let body ← field? fn "body"
   guard (!body.isNull)
-  let params ← (field? fn "parameters").bind (field? · "parameters") |>.bind (·.getArr?.toOption)
-  let callArgs ← (field? call "arguments").bind (·.getArr?.toOption)
+  let callArgs := (field? call "arguments").bind (·.getArr?.toOption) |>.getD #[]
   let actuals := match receiver? with | some r => #[r] ++ callArgs | none => callArgs
+  let params ← (field? fn "parameters").bind (field? · "parameters") |>.bind (·.getArr?.toOption)
   guard (actuals.size == params.size)
+  pure (fnId, actuals)
+
+/-- The returned expression of a pure boolean helper call, its parameters (and single-assignment
+locals) substituted by the actual arguments. The body may only declare initialized locals,
+`if (...) return false;` early exits, and a final `return`. -/
+private partial def resolveBoolHelperReturnExpr? (env : Env) (call : Json) : Option Json := do
+  let call := stripParensOut call
+  let ty := ((field? call "typeDescriptions").bind (optStr · "typeString")).getD ""
+  guard (ty == "bool")
+  guard (!statefulCallIn call env && !assignmentIn call)
+  let (fnId, actuals) ← resolveInternalCallTargetOut? env call
+  let fn ← env.funs.find? fnId
+  let body ← field? fn "body"
+  let params ← (field? fn "parameters").bind (field? · "parameters") |>.bind (·.getArr?.toOption)
   let mut subst : Std.HashMap Nat Json := {}
   for (p, a) in params.zip actuals do
     let pid ← (field? p "id").bind (·.getNat?.toOption)
     subst := subst.insert pid a
-  let stmts := unwrapBlockOut body
   let mut retExpr? : Option Json := none
-  for st in stmts do
+  for st in unwrapBlockOut body do
     match optStr st "nodeType" with
     | some "VariableDeclarationStatement" =>
         let decls := (field? st "declarations").bind (·.getArr?.toOption) |>.getD #[]
@@ -4315,7 +4348,9 @@ private partial def resolveBoolHelperReturnExpr? (env : Env) (call : Json) : Opt
         let isFalseRet := fBody.isNull && tStmts.size == 1 &&
           optStr tStmts[0]! "nodeType" == some "Return" &&
           ((field? tStmts[0]! "expression").bind (fun e =>
-            if optStr e "nodeType" == some "Literal" && optStr e "value" == some "false" then some true else none)).isSome
+            if optStr e "nodeType" == some "Literal" && optStr e "value" == some "false" then
+              some true
+            else none)).isSome
         guard isFalseRet
     | some "Return" =>
         let e ← (field? st "expression").filter (!·.isNull)
@@ -4323,7 +4358,10 @@ private partial def resolveBoolHelperReturnExpr? (env : Env) (call : Json) : Opt
     | _ => none
   retExpr?
 
-private partial def extractImpliedWhileComparisons (env : Env) (e : Json) (fuel : Nat := 4) : Array Json :=
+/-- Comparisons every iteration's condition implies: the conjuncts of `&&` and the returned
+comparisons of pure boolean helpers, up to `fuel` levels deep. -/
+private partial def extractImpliedWhileComparisons (env : Env) (e : Json) (fuel : Nat := 4) :
+    Array Json :=
   let e := stripParensOut e
   match optStr e "nodeType" with
   | some "BinaryOperation" =>
@@ -4342,15 +4380,20 @@ private partial def extractImpliedWhileComparisons (env : Env) (e : Json) (fuel 
         | none => #[]
   | _ => #[]
 
+/-- `some (k, unchecked)` when `st` is a single step `t++` / `t += k` / `t = t + k` (or the
+decreasing forms) on the target `isTarget` with a constant `k ≥ 1`. -/
 private partial def matchTargetLinearStep (env : Env) (st : Json) (isTarget : Json → Bool)
     (bits : Nat) (increasing : Bool) (inUnchecked : Bool := false) : Option (Nat × Bool) :=
   match optStr st "nodeType" with
   | some "UncheckedBlock" =>
       let stmts := (field? st "statements").bind (·.getArr?.toOption) |>.getD #[]
-      if stmts.size == 1 then matchTargetLinearStep env stmts[0]! isTarget bits increasing true else none
+      if stmts.size == 1 then matchTargetLinearStep env stmts[0]! isTarget bits increasing true
+      else none
   | some "Block" =>
       let stmts := (field? st "statements").bind (·.getArr?.toOption) |>.getD #[]
-      if stmts.size == 1 then matchTargetLinearStep env stmts[0]! isTarget bits increasing inUnchecked else none
+      if stmts.size == 1 then
+        matchTargetLinearStep env stmts[0]! isTarget bits increasing inUnchecked
+      else none
   | some "ExpressionStatement" =>
       let e := stripParensOut ((field? st "expression").getD Json.null)
       match optStr e "nodeType" with
@@ -4374,12 +4417,252 @@ private partial def matchTargetLinearStep (env : Env) (st : Json) (isTarget : Js
                 let l := (field? r "leftExpression").getD Json.null
                 let rr := (field? r "rightExpression").getD Json.null
                 if isTarget l then (parseNatConstOut env rr).filter (· ≥ 1) |>.map (·, inUnchecked)
-                else if increasing && isTarget rr then (parseNatConstOut env l).filter (· ≥ 1) |>.map (·, inUnchecked)
+                else if increasing && isTarget rr then
+                  (parseNatConstOut env l).filter (· ≥ 1) |>.map (·, inUnchecked)
                 else none
               else none
             else none
       | _ => none
   | _ => none
+
+/-- Top-level statements of `stmts` with nested `Block` / `UncheckedBlock` statements inlined,
+each tagged with whether it runs unchecked. -/
+private partial def flattenStmtsOut (stmts : Array Json) (inUnchecked : Bool := false) :
+    Array (Json × Bool) := Id.run do
+  let mut out : Array (Json × Bool) := #[]
+  for st in stmts do
+    match optStr st "nodeType" with
+    | some "UncheckedBlock" =>
+        let inner := (field? st "statements").bind (·.getArr?.toOption) |>.getD #[]
+        out := out ++ flattenStmtsOut inner true
+    | some "Block" =>
+        let inner := (field? st "statements").bind (·.getArr?.toOption) |>.getD #[]
+        out := out ++ flattenStmtsOut inner inUnchecked
+    | _ =>
+        out := out.push (st, inUnchecked)
+  out
+
+private partial def stmtContainsReturnOut : Json → Bool
+  | .arr items => items.any stmtContainsReturnOut
+  | j@(.obj o) =>
+      if optStr j "nodeType" == some "Return" then true
+      else o.foldl (fun acc _ v => acc || stmtContainsReturnOut v) false
+  | _ => false
+
+private def isIdentRefOut (node : Json) (targetId : Nat) : Bool :=
+  let n := stripParensOut node
+  optStr n "nodeType" == some "Identifier" &&
+    (field? n "referencedDeclaration").bind (·.getNat?.toOption) == some targetId
+
+/-- Every call in `node` passing `sId` (as argument or using-for receiver) to a resolved internal
+helper, as `(fnId, paramId, callNode)`; the flag is set when such a call does not resolve. -/
+private partial def collectCallsWithStructArgOut (env : Env) (sId : Nat) (node : Json) :
+    (Array (Nat × Nat × Json) × Bool) :=
+  match node with
+  | .arr items =>
+      items.foldl (fun (acc, unres) v =>
+        let (c, u) := collectCallsWithStructArgOut env sId v
+        (acc ++ c, unres || u)) (#[], false)
+  | j@(.obj o) =>
+      let (childCalls, childUnres) :=
+        o.foldl (fun (acc, unres) _ v =>
+          let (c, u) := collectCallsWithStructArgOut env sId v
+          (acc ++ c, unres || u)) (#[], false)
+      if optStr j "nodeType" == some "FunctionCall" && optStr j "kind" == some "functionCall" then
+        let callArgs := (field? j "arguments").bind (·.getArr?.toOption) |>.getD #[]
+        let callee := (field? j "expression").getD Json.null
+        let receiverHit :=
+          optStr callee "nodeType" == some "MemberAccess" &&
+            isIdentRefOut ((field? callee "expression").getD Json.null) sId
+        let argHit := callArgs.any (isIdentRefOut · sId)
+        if receiverHit || argHit then
+          match resolveInternalCallTargetOut? env j with
+          | some (fnId, actuals) =>
+              match (env.funs.find? fnId).bind (field? · "parameters")
+                    |>.bind (field? · "parameters") |>.bind (·.getArr?.toOption) with
+              | some params =>
+                  let matched := (params.zip actuals).foldl (fun acc (p, a) =>
+                    if isIdentRefOut a sId then
+                      match (field? p "id").bind (·.getNat?.toOption) with
+                      | some pid => acc.push (fnId, pid, j)
+                      | none => acc
+                    else acc) #[]
+                  (childCalls ++ matched, childUnres)
+              | none => (childCalls, true)
+          | none => (childCalls, true)
+        else (childCalls, childUnres)
+      else (childCalls, childUnres)
+  | _ => (#[], false)
+
+/-- Conservatively, whether helper `fnId` may write member `mName` of its struct parameter
+`paramId`, directly or through nested helpers (`true` when unknown or out of fuel). -/
+private partial def helperMayWriteStructMember (env : Env) (fnId paramId : Nat) (mName : String)
+    (fuel : Nat := 3) : Bool :=
+  if fuel == 0 then true
+  else
+    match env.funs.find? fnId with
+    | none => true
+    | some fn =>
+        match field? fn "body" with
+        | none => true
+        | some body =>
+            if body.isNull then true
+            else if stmtWritesStructMember body paramId mName ||
+                (bodyAssignedIds body).contains paramId then true
+            else
+              let (subCalls, hasUnres) := collectCallsWithStructArgOut env paramId body
+              if hasUnres then true
+              else subCalls.any fun (subFnId, subPid, _) =>
+                helperMayWriteStructMember env subFnId subPid mName (fuel - 1)
+
+/-- Whether `st` may write `sId.mName`, directly or through a helper it passes `sId` to. -/
+private def stmtWritesStructMemberViaHelper (env : Env) (st : Json) (sId : Nat) (mName : String) :
+    Bool :=
+  if stmtWritesStructMember st sId mName then true
+  else
+    let (calls, hasUnres) := collectCallsWithStructArgOut env sId st
+    hasUnres || calls.any fun (fnId, pid, _) => helperMayWriteStructMember env fnId pid mName
+
+/-- The call a statement evaluates at its top level (`x = f(..)`, `T x = f(..)`, `f(..);`). -/
+private def topLevelCallInStmtOut? (st : Json) : Option Json :=
+  match optStr st "nodeType" with
+  | some "VariableDeclarationStatement" =>
+      let init := stripParensOut ((field? st "initialValue").getD Json.null)
+      if optStr init "nodeType" == some "FunctionCall" && optStr init "kind" == some "functionCall" then
+        some init
+      else none
+  | some "ExpressionStatement" =>
+      let e := stripParensOut ((field? st "expression").getD Json.null)
+      match optStr e "nodeType" with
+      | some "FunctionCall" =>
+          if optStr e "kind" == some "functionCall" then some e else none
+      | some "Assignment" =>
+          let rhs := stripParensOut ((field? e "rightHandSide").getD Json.null)
+          if optStr rhs "nodeType" == some "FunctionCall" && optStr rhs "kind" == some "functionCall" then
+            some rhs
+          else none
+      | _ => none
+  | _ => none
+
+/-- The calls an expression evaluates on every evaluation: short-circuit right operands and
+conditional branches are excluded. -/
+private partial def unconditionalCallsInExprOut (j : Json) : Array Json :=
+  let j := stripParensOut j
+  match optStr j "nodeType" with
+  | some "FunctionCall" =>
+      let fromCallee := unconditionalCallsInExprOut ((field? j "expression").getD Json.null)
+      let fromArgs := ((field? j "arguments").bind (·.getArr?.toOption) |>.getD #[]).foldl
+        (fun acc a => acc ++ unconditionalCallsInExprOut a) #[]
+      let own := if optStr j "kind" == some "functionCall" then #[j] else #[]
+      fromCallee ++ fromArgs ++ own
+  | some "FunctionCallOptions" =>
+      let fromCallee := unconditionalCallsInExprOut ((field? j "expression").getD Json.null)
+      let fromOpts := ((field? j "options").bind (·.getArr?.toOption) |>.getD #[]).foldl
+        (fun acc o => acc ++ unconditionalCallsInExprOut o) #[]
+      fromCallee ++ fromOpts
+  | some "Assignment" =>
+      unconditionalCallsInExprOut ((field? j "leftHandSide").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "rightHandSide").getD Json.null)
+  | some "BinaryOperation" =>
+      let op := optStr j "operator" |>.getD ""
+      let fromLhs := unconditionalCallsInExprOut ((field? j "leftExpression").getD Json.null)
+      if op == "&&" || op == "||" then fromLhs
+      else fromLhs ++ unconditionalCallsInExprOut ((field? j "rightExpression").getD Json.null)
+  | some "UnaryOperation" =>
+      unconditionalCallsInExprOut ((field? j "subExpression").getD Json.null)
+  | some "Conditional" =>
+      unconditionalCallsInExprOut ((field? j "condition").getD Json.null)
+  | some "TupleExpression" =>
+      ((field? j "components").bind (·.getArr?.toOption) |>.getD #[]).foldl
+        (fun acc c => if c.isNull then acc else acc ++ unconditionalCallsInExprOut c) #[]
+  | some "IndexAccess" =>
+      unconditionalCallsInExprOut ((field? j "baseExpression").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "indexExpression").getD Json.null)
+  | some "IndexRangeAccess" =>
+      unconditionalCallsInExprOut ((field? j "baseExpression").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "startExpression").getD Json.null) ++
+        unconditionalCallsInExprOut ((field? j "endExpression").getD Json.null)
+  | some "MemberAccess" =>
+      unconditionalCallsInExprOut ((field? j "expression").getD Json.null)
+  | _ => #[]
+
+/-- The calls a statement evaluates whenever it runs (an `if` contributes its condition only). -/
+private def unconditionalCallsInStmtOut (st : Json) : Array Json :=
+  match optStr st "nodeType" with
+  | some "VariableDeclarationStatement" =>
+      let init := (field? st "initialValue").getD Json.null
+      if init.isNull then #[] else unconditionalCallsInExprOut init
+  | some "ExpressionStatement" =>
+      let e := (field? st "expression").getD Json.null
+      if e.isNull then #[] else unconditionalCallsInExprOut e
+  | some "IfStatement" =>
+      let cond := (field? st "condition").getD Json.null
+      if cond.isNull then #[] else unconditionalCallsInExprOut cond
+  | _ => #[]
+
+/-- Whether `node` references identifier `targetId` outside the subtree `skipNode`. -/
+private partial def jsonRefsIdentOutside (targetId : Nat) (skipNode : Json) (node : Json) : Bool :=
+  if node == skipNode then false
+  else match node with
+  | .arr items => items.any (jsonRefsIdentOutside targetId skipNode)
+  | j@(.obj o) =>
+      if optStr j "nodeType" == some "Identifier" &&
+          (field? j "referencedDeclaration").bind (·.getNat?.toOption) == some targetId then
+        true
+      else
+        o.foldl (fun acc _ v => acc || jsonRefsIdentOutside targetId skipNode v) false
+  | _ => false
+
+/-- Recognizes a `while`-body statement whose unconditional call to an internal or library
+helper performs a single monotonic linear step on memory struct member `sId.mName`
+(`uint32 item = Lib.next(arr, it);`, or a nested argument such as
+`g({a: x, b: Lib.next(arr, it)})`, where `next` runs `unchecked { ++it.m; }`). The call is the
+only one in `st` that may write `sId`, and a nested step call is the statement's only reference
+to `sId`, so no sibling operand observes a half-stepped cursor. -/
+private def matchHelperStructLinearStep (env : Env) (st : Json) (sId : Nat) (mName : String)
+    (members : List String) (bits : Nat) (increasing : Bool) : Option (Nat × Bool) := do
+  guard (!stmtWritesStructMember st sId mName)
+  let (calls, hasUnres) := collectCallsWithStructArgOut env sId st
+  guard (!hasUnres)
+  let mutatingCalls := calls.filter fun (cFnId, cPid, _) =>
+    members.any (helperMayWriteStructMember env cFnId cPid ·)
+  guard (mutatingCalls.size == 1)
+  let (fnId, paramId, call) := mutatingCalls[0]!
+  guard (helperMayWriteStructMember env fnId paramId mName)
+  guard ((unconditionalCallsInStmtOut st).any (· == call))
+  if topLevelCallInStmtOut? st != some call then
+    guard (!jsonRefsIdentOutside sId call st)
+  let (_, actuals) ← resolveInternalCallTargetOut? env call
+  let fn ← env.funs.find? fnId
+  let params ← (field? fn "parameters").bind (field? · "parameters") |>.bind (·.getArr?.toOption)
+  let mut matchingPids : Array Nat := #[]
+  for (p, a) in params.zip actuals do
+    if isIdentRefOut a sId then
+      if let some pid := (field? p "id").bind (·.getNat?.toOption) then
+        matchingPids := matchingPids.push pid
+  guard (matchingPids.size == 1 && matchingPids[0]! == paramId)
+  let body ← (field? fn "body").filter (!·.isNull)
+  guard (!(bodyAssignedIds body).contains paramId)
+  let bodyUnchecked := optStr body "nodeType" == some "UncheckedBlock"
+  let fnFlat := flattenStmtsOut (unwrapBlockOut body) bodyUnchecked
+  let isMemberTarget (x : Json) : Bool :=
+    let x := stripParensOut x
+    optStr x "nodeType" == some "MemberAccess" && optStr x "memberName" == some mName &&
+      (field? x "expression").any (isIdentRefOut · paramId)
+  let mut stepIdx? : Option (Nat × Nat × Bool) := none
+  let mut stepCount : Nat := 0
+  for idx in [:fnFlat.size] do
+    let (fst, fstUnchk) := fnFlat[idx]!
+    if let some (k, inUnchk) := matchTargetLinearStep env fst isMemberTarget bits increasing fstUnchk then
+      stepCount := stepCount + 1
+      stepIdx? := some (idx, k, inUnchk)
+  guard (stepCount == 1)
+  let (stepIdx, k, stepInUnchk) ← stepIdx?
+  -- No early return before the step, and no other write to `paramId.mName` in the helper.
+  for idx in [:fnFlat.size] do
+    guard (!(idx < stepIdx && stmtContainsReturnOut fnFlat[idx]!.1))
+    guard (!(idx != stepIdx && stmtWritesStructMemberViaHelper env fnFlat[idx]!.1 paramId mName))
+  pure (k, stepInUnchk)
 
 private partial def matchTargetLogStep (env : Env) (st : Json) (isTarget : Json → Bool) (bits : Nat) : Bool :=
   if optStr st "nodeType" != some "ExpressionStatement" then false
@@ -4460,7 +4743,8 @@ private partial def exprIsLoopInvariantOut (env : Env) (j body : Json) (writes :
         isTypeCallExpr base
       else if optStr base "nodeType" == some "Identifier" &&
           ((field? base "referencedDeclaration").bind (·.getNat?.toOption)).any (fun bid =>
-            env.flatStructs.contains bid && !stmtWritesStructMember body bid member) then
+            env.flatStructs.contains bid && !writes.contains bid &&
+              !stmtWritesStructMemberViaHelper env body bid member) then
         true
       else
         ((field? j "referencedDeclaration").bind (·.getNat?.toOption)).any env.numericConstants.contains
@@ -4621,6 +4905,96 @@ private def findGeneralBoolWhilePlan? (env : Env) (cond body : Json)
                 return some (.checkedDec varBinding k)
   return none
 
+/-- The bound of a cursor `while` loop: the cursor member `varNode` steps by `k` towards the
+loop-invariant `boundNode` once per iteration, on the flat struct local `cursorId`. -/
+private structure CursorWhilePlan where
+  varNode : Json
+  boundNode : Json
+  varTy : String
+  boundTy : String
+  bits : Nat
+  k : Nat
+  increasing : Bool
+  inclusive : Bool
+  cursorId : Nat
+
+/-- Finds a `CursorWhilePlan` for `while (cond)`: a comparison the condition implies between a
+member `it.m` of a non-aliased flat memory struct local and a loop-invariant unsigned bound,
+where exactly one top-level body statement steps `it.m` through a helper call
+(`matchHelperStructLinearStep`), no other statement may write `it.m` or pass `it` to a helper
+that may write any member, and an unchecked step cannot wrap before the bound. -/
+private def findCursorWhilePlan? (env : Env) (cond body : Json)
+    (flatStmts : Array (Json × Bool)) (bodyWrites : List Nat) (bodyUnchecked : Bool) :
+    Option CursorWhilePlan := Id.run do
+  for cmp in extractImpliedWhileComparisons env cond do
+    if optStr cmp "nodeType" != some "BinaryOperation" then continue
+    let cmpOp := optStr cmp "operator" |>.getD ""
+    let cmpLhs := stripParensOut ((field? cmp "leftExpression").getD Json.null)
+    let cmpRhs := stripParensOut ((field? cmp "rightExpression").getD Json.null)
+    let candidates : List (Json × Json × Bool × Bool) := match cmpOp with
+      | "<" => [(cmpLhs, cmpRhs, true, false), (cmpRhs, cmpLhs, false, false)]
+      | "<=" => [(cmpLhs, cmpRhs, true, true), (cmpRhs, cmpLhs, false, true)]
+      | ">" => [(cmpLhs, cmpRhs, false, false), (cmpRhs, cmpLhs, true, false)]
+      | ">=" => [(cmpLhs, cmpRhs, false, true), (cmpRhs, cmpLhs, true, true)]
+      | "!=" =>
+          if parseNatConstOut env cmpRhs == some 0 then [(cmpLhs, cmpRhs, false, false)]
+          else if parseNatConstOut env cmpLhs == some 0 then [(cmpRhs, cmpLhs, false, false)]
+          else []
+      | _ => []
+    for (varNode, boundNode, increasing, inclusive) in candidates do
+      let varTy := ((field? varNode "typeDescriptions").bind (optStr · "typeString")).getD ""
+      let some bits := bitsOf varTy | continue
+      if !(varTy.startsWith "uint" && bits > 0 && bits ≤ 256) then continue
+      let boundTy := ((field? boundNode "typeDescriptions").bind (optStr · "typeString")).getD ""
+      let boundUnsigned := (boundTy.startsWith "uint" && (bitsOf boundTy).isSome) ||
+        (boundTy.startsWith "int_const" && !boundTy.startsWith "int_const -")
+      if !boundUnsigned || !exprIsLoopInvariantOut env boundNode body bodyWrites then continue
+      if optStr varNode "nodeType" != some "MemberAccess" then continue
+      let base := stripParensOut ((field? varNode "expression").getD Json.null)
+      let some sId := (field? base "referencedDeclaration").bind (·.getNat?.toOption) | continue
+      let some mName := optStr varNode "memberName" | continue
+      if optStr base "nodeType" != some "Identifier" || bodyWrites.contains sId then continue
+      if env.byRefFlatStructs.contains sId then continue
+      let some flat := env.flatStructs.find? sId | continue
+      let members := flat.members.toList.map (·.1)
+      -- Nested struct members are flattened to dotted names no member write matches.
+      if members.any (·.contains '.') || !members.contains mName then continue
+      let mut stepIdx? : Option (Nat × Nat × Bool) := none
+      let mut stepCount : Nat := 0
+      for idx in [:flatStmts.size] do
+        let (st, stUnchk) := flatStmts[idx]!
+        if let some (k, inUnchk) :=
+            matchHelperStructLinearStep env st sId mName members bits increasing then
+          stepCount := stepCount + 1
+          stepIdx? := some (idx, k, inUnchk || stUnchk)
+      if stepCount != 1 then continue
+      let some (stepIdx, k, stepInUnchecked) := stepIdx? | continue
+      let mut otherWrite := false
+      for idx in [:flatStmts.size] do
+        if idx != stepIdx then
+          let st := flatStmts[idx]!.1
+          let (calls, hasUnres) := collectCallsWithStructArgOut env sId st
+          if hasUnres || stmtWritesStructMember st sId mName ||
+              calls.any (fun (fnId, pid, _) => members.any (helperMayWriteStructMember env fnId pid ·)) then
+            otherWrite := true
+      if otherWrite then continue
+      let stepUnchecked := env.unchecked || bodyUnchecked || stepInUnchecked
+      let boundConst? := parseNatConstOut env boundNode
+      let safeUnchecked := !stepUnchecked ||
+        if increasing && !inclusive then
+          k == 1 && (((bitsOf boundTy).any (· ≤ bits) && boundTy.startsWith "uint") ||
+            boundConst?.any (· < 2 ^ bits))
+        else if increasing && inclusive then
+          boundConst?.any (fun b => b + k < 2 ^ bits)
+        else if !increasing && !inclusive then
+          k == 1
+        else
+          boundConst?.any (fun b => b ≥ k)
+      if safeUnchecked then
+        return some { varNode, boundNode, varTy, boundTy, bits, k, increasing, inclusive,
+                      cursorId := sId }
+  return none
+
 private def finishMemoryByteIndexRead (buf : EncodedBytes) (key : Val) (siteNode : Json) : M Val := do
   let ptrVar ← fresh
   let lenVar ← fresh
@@ -4637,7 +5011,7 @@ private def finishMemoryByteIndexRead (buf : EncodedBytes) (key : Val) (siteNode
   let word := Expr.mload (.add (.localVar ptrVar) wordOff)
   return { pre, expr := .shl (.literal 248) (.byte lane word) }
 
-set_option maxHeartbeats 2400000 in
+set_option maxHeartbeats 2800000 in
 mutual
 
 private partial def lowerExpr (j : Json) : M Val := do
@@ -4977,6 +5351,10 @@ private partial def lowerRef (j : Json) : M Ref := do
           pure (.state fieldName #[])
         else
           pure (.path #[] (.bytesSlot ("", slotExpr) isString))
+      else if let some (path, arrInfo?) := env.storageFixedArrayVars.find? n then
+        match arrInfo? with
+        | some arrInfo => pure (.structFixedArray #[] path arrInfo)
+        | none => pure (.path #[] path)
       else if let some (fieldName, slotExpr, elemTy, elemSid?) := env.storageDynamicArrayVars.find? n then
         if let some elemSid := elemSid? then
           if fieldName != "" then
@@ -5685,9 +6063,10 @@ private partial def lowerRef (j : Json) : M Ref := do
                 { e with next := e.next + 1,
                          flatStructs := e.flatStructs.insert subId
                            { structId := subSid, structName := optStr subDecl "name" |>.getD "", members := sub },
-                         byRefFlatStructs :=
-                           if e.byRefFlatStructs.contains id then subId :: e.byRefFlatStructs.erase subId
-                           else e.byRefFlatStructs.filter (· != subId) }
+                         cursorState := { e.cursorState with
+                           byRefFlatStructs :=
+                             if e.byRefFlatStructs.contains id then subId :: e.byRefFlatStructs.erase subId
+                             else e.byRefFlatStructs.filter (· != subId) } }
               pure (.flatStruct subId)
         | .mem id pre =>
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
@@ -9446,9 +9825,18 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
             vals := vals.push (.memory descriptor pre)
         | .abiElement rootId memberIndex pointer inMemory pre =>
             vals := vals.push (.abiElement { rootId, memberIndex, pointer, inMemory } pre)
-        | .flatStruct _ =>
-            let (sid, sName, initPre, memberVals) ← lowerFlatStructValue arg none true
-            vals := vals.push (.flatStruct sid sName memberVals initPre (argTy.endsWith " memory"))
+        | .flatStruct refId =>
+            if argTy.endsWith " memory" && (← get).mutableByRefFlatStructs.contains refId then
+              -- A bounded `while` cursor: the helper shares the caller's member bindings, so
+              -- its member writes reach the caller as in solc.
+              let some flat := (← get).flatStructs.find? refId
+                | failAt arg "unknown flat struct argument"
+              let memberVals := flat.members.map fun (n, t, b) => (n, t, Expr.localVar b)
+              vals := vals.push
+                (.flatStruct flat.structId flat.structName memberVals #[] false (some flat.members))
+            else
+              let (sid, sName, initPre, memberVals) ← lowerFlatStructValue arg none true
+              vals := vals.push (.flatStruct sid sName memberVals initPre (argTy.endsWith " memory"))
         | .path pre path =>
             let (sid, _) ← resolveStructDeclFromType arg
             let capture (key : Expr) : M (Array Stmt × Expr) := do
@@ -9547,6 +9935,58 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json)
         vals := vals.push (.storageDynamicArray fieldName frozenSlot elemTy (some elemSid) (pre ++ spre))
       else
         failAt arg "only storage struct dynamic array arguments are supported"
+    else if !argTy.startsWith "mapping(" && argTy.contains "[" && !argTy.contains "[]" &&
+            (argTy.endsWith " storage ref" || argTy.endsWith " storage pointer") then
+      -- `T[N] storage` argument: the helper parameter aliases the caller's array, so the
+      -- storage path is passed with its keys frozen at the call.
+      let captureFixedKey (keyExpr : Expr) : M (Array Stmt × Expr) := do
+        let env ← get
+        let writable := match keyExpr with
+          | .localVar name => env.writableLocals.toList.any (fun (_, b) => b == name)
+          | _ => false
+        if !writable then pure (#[], keyExpr)
+        else do
+          let frozenKey ← fresh
+          pure (#[.letVar frozenKey keyExpr], .localVar frozenKey)
+      let requireFixed (rawField : String) (keys : Nat) : M Unit := do
+        let (field, _) := splitSPathField rawField
+        let info ← resolveField field arg
+        unless info.fixedArrayLength.isSome && info.keyCount == keys do
+          failAt arg "storage fixed array argument requires a fixed storage array"
+      match ← lowerRef arg with
+      | .path pre path =>
+          match path with
+          | .zero rawField =>
+              requireFixed rawField 0
+              vals := vals.push (.storageFixedArray (.zero rawField) none pre)
+          | .one rawField key =>
+              requireFixed rawField 1
+              let (kpre, k) ← captureFixedKey key
+              vals := vals.push (.storageFixedArray (.one rawField k) none (pre ++ kpre))
+          | .two rawField key1 key2 =>
+              requireFixed rawField 2
+              let (kpre1, k1) ← captureFixedKey key1
+              let (kpre2, k2) ← captureFixedKey key2
+              vals := vals.push (.storageFixedArray (.two rawField k1 k2) none (pre ++ kpre1 ++ kpre2))
+          | _ => failAt arg "only fixed storage array arguments are supported"
+      | .structFixedArray pre path arrInfo =>
+          let (kpre, frozenPath) ← match path with
+            | .rawSlot rawSid slot => do
+                if arrInfo.elementWidth < 256 then
+                  failAt arg s!"struct fixed array member {arrInfo.member} requires an element index"
+                let (spre, frozenSlot) ← captureFixedKey slot
+                pure (spre, SPath.rawSlot rawSid frozenSlot)
+            | .zero rawField => pure (#[], SPath.zero rawField)
+            | .one rawField key => do
+                let (spre, k) ← captureFixedKey key
+                pure (spre, SPath.one rawField k)
+            | .two rawField key1 key2 => do
+                let (spre1, k1) ← captureFixedKey key1
+                let (spre2, k2) ← captureFixedKey key2
+                pure (spre1 ++ spre2, SPath.two rawField k1 k2)
+            | _ => failAt arg "only fixed storage array arguments are supported"
+          vals := vals.push (.storageFixedArray frozenPath (some arrInfo) (pre ++ kpre))
+      | _ => failAt arg "only fixed storage array arguments are supported"
     else if (fixedMemArrayType? argTy).isSome then
       let (arrPre, arr) ← lowerFixedMemArrayValue arg
       vals := vals.push (.fixedMemArray arr arrPre)
@@ -9705,9 +10145,9 @@ private partial def atomizeCallArgs (vals : Array CallArg) : M (Array Stmt × Ar
     | .storagePath sid path spre =>
         pre := pre ++ spre
         out := out.push (.storagePath sid path #[])
-    | .flatStruct sid sName members fpre byRef =>
+    | .flatStruct sid sName members fpre byRef byRefBindings =>
         pre := pre ++ fpre
-        out := out.push (.flatStruct sid sName members #[] byRef)
+        out := out.push (.flatStruct sid sName members #[] byRef byRefBindings)
     | .storageBytes (fieldName, slotExpr, spre) isString =>
         let slotAtom ← atom { pre := spre, expr := slotExpr }
         pre := pre ++ slotAtom.pre
@@ -9716,6 +10156,9 @@ private partial def atomizeCallArgs (vals : Array CallArg) : M (Array Stmt × Ar
         let slotAtom ← atom { pre := spre, expr := slotExpr }
         pre := pre ++ slotAtom.pre
         out := out.push (.storageDynamicArray fieldName slotAtom.expr elemTy elemSid? #[])
+    | .storageFixedArray path arrInfo? spre =>
+        pre := pre ++ spre
+        out := out.push (.storageFixedArray path arrInfo? #[])
     | .fnPtr ptr fpre =>
         pre := pre ++ fpre
         out := out.push (.fnPtr ptr #[])
@@ -11290,7 +11733,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               members := members.push (mName, mTy, binding)
             modify fun e =>
               { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
-                       byRefFlatStructs := e.byRefFlatStructs.erase pid,
+                       cursorState := { e.cursorState with byRefFlatStructs := e.byRefFlatStructs.erase pid },
                        yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
           else
             let (rawFieldName, count) ← match path with
@@ -11324,7 +11767,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               members := members.push (mName, mTy, binding)
             modify fun e =>
               { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
-                       byRefFlatStructs := e.byRefFlatStructs.erase pid,
+                       cursorState := { e.cursorState with byRefFlatStructs := e.byRefFlatStructs.erase pid },
                        yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         else
           failAt p s!"unsupported storage struct helper parameter location {location}"
@@ -11342,7 +11785,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
                 pre := pre ++ slotPre
                 yul := yul.insert s!"{pname}.slot" slotExpr
             | .outer _ _ | .rawSlot _ _ | .bytesSlot _ _ => pure ()
-    | .flatStruct argSid sName memberVals effects byRef =>
+    | .flatStruct argSid sName memberVals effects byRef byRefBindings =>
         unless pty.startsWith "struct " && !pty.contains "[" do
           failAt p "flat struct argument requires a struct parameter"
         let sid ← refInt (← mField p "typeName")
@@ -11354,6 +11797,19 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         if (bodyAssignedIds body).contains pid then
           failAt p "reassigned flat struct parameters are outside this slice"
         pre := pre ++ effects
+        if let some refMembers := byRefBindings then
+          -- A bounded `while` cursor shares the caller's bindings: member writes alias.
+          modify fun e =>
+            { e with flatStructs := e.flatStructs.insert pid
+                       { structId := argSid, structName := sName, members := refMembers },
+                     cursorState := { e.cursorState with
+                       byRefFlatStructs := e.byRefFlatStructs.erase pid,
+                       mutableByRefFlatStructs := pid :: e.mutableByRefFlatStructs.erase pid },
+                     yulMemoryStructs :=
+                       if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
+          if pname != "" then
+            yul := yul.erase pname
+          continue
         let mut members : Array (String × String × String) := #[]
         for (mName, mTy, mExpr) in memberVals do
           let binding ← freshFor s!"{if pname == "" then "struct_param" else pname}_{mName}"
@@ -11361,8 +11817,10 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           members := members.push (mName, mTy, binding)
         modify fun e =>
           { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
-                   byRefFlatStructs :=
-                     if byRef then pid :: e.byRefFlatStructs.erase pid else e.byRefFlatStructs.erase pid,
+                   cursorState := { e.cursorState with
+                     byRefFlatStructs :=
+                       if byRef then pid :: e.byRefFlatStructs.erase pid else e.byRefFlatStructs.erase pid,
+                     mutableByRefFlatStructs := e.mutableByRefFlatStructs.erase pid },
                    yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         if pname != "" then
           yul := yul.erase pname
@@ -11456,6 +11914,18 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               yul := yul.erase pname
           else
             failAt p s!"unsupported storage dynamic array helper parameter location {location}"
+    | .storageFixedArray path arrInfo? effects =>
+        let location := optStr p "storageLocation" |>.getD "default"
+        unless location == "storage" && !pty.startsWith "mapping(" && pty.contains "[" && !pty.contains "[]" do
+          failAt p "storage fixed array argument requires a fixed storage array parameter"
+        if (bodyAssignedIds body).contains pid then
+          failAt p "reassigned storage fixed array parameters are outside this slice"
+        pre := pre ++ effects
+        modify fun e =>
+          { e with cursorState := { e.cursorState with
+              storageFixedArrayVars := e.storageFixedArrayVars.insert pid (path, arrInfo?) } }
+        if pname != "" then
+          yul := yul.erase pname
     | .fnPtr ptr effects =>
         let some typeNameNode := field? p "typeName"
           | failAt p "function pointer argument requires a function parameter"
@@ -14956,7 +15426,7 @@ private partial def lowerGeneralBitShiftWhile? (s cond : Json) (lowerBody : Json
   modify fun e =>
     { e with values := saved.values, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
-             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, cursorState := saved.cursorState, scalarTy := saved.scalarTy,
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   let loopStmts : Array Stmt := #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
   return some loopStmts
@@ -15078,7 +15548,7 @@ private partial def lowerLinearWhile? (s cond : Json) (lowerBody : Json → M (A
     modify fun e =>
       { e with values := saved.values, paths := saved.paths,
                snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
-               calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+               calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, cursorState := saved.cursorState, scalarTy := saved.scalarTy,
                writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!bodyWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
     let iterStep := Stmt.ite condVal.expr bodyOut.toList []
     let mut out : Array Stmt := #[
@@ -15172,7 +15642,7 @@ private partial def lowerGeneralBoolWhile? (s cond : Json) (lowerBody : Json →
   modify fun e =>
     { e with values := saved.values, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
-             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, cursorState := saved.cursorState, scalarTy := saved.scalarTy,
              writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!bodyWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   let iterStep : Stmt :=
     .ite (.eq (.localVar doneVar) (.literal 0))
@@ -15188,6 +15658,89 @@ private partial def lowerGeneralBoolWhile? (s cond : Json) (lowerBody : Json →
     out := out.push (.ite (.eq (.localVar doneVar) (.literal 0)) condVal.pre.toList [])
   return some out
 
+/-- Exact bounded lowering for `while (cond)` over a memory struct cursor (`CursorWhilePlan`):
+the condition implies `it.m < bound` (or `<=`, `>`, `>=`) for a loop-invariant bound, and the
+body advances `it.m` by a constant `k` exactly once per iteration, directly or through a helper
+taking the cursor. The iteration count is derived from the entry values, and the condition is
+re-checked before every iteration, so an earlier exit is preserved. While the body is lowered,
+the cursor is passed to helpers by reference so their member writes reach it as in solc. -/
+private partial def lowerCursorWhile? (s cond : Json) (lowerBody : Json → M (Array Stmt)) :
+    M (Option (Array Stmt)) := do
+  let condKind ← mKind cond
+  unless condKind == "FunctionCall" || condKind == "BinaryOperation" do return none
+  let env ← get
+  if statefulCallIn cond env || assignmentIn cond then return none
+  let body ← mField s "body"
+  let bodyStmts ← unwrapLoopBodyStmts body
+  let bodyWrites := bodyAssignedIds body
+  let bodyUnchecked ← loopBodyUsesUnchecked body
+  let flatStmts := flattenStmtsOut bodyStmts bodyUnchecked
+  let some plan := findCursorWhilePlan? env cond body flatStmts bodyWrites bodyUnchecked
+    | return none
+  if ← listContainsReturn bodyStmts then
+    failAt s "return inside a while loop is unsupported"
+  for st in bodyStmts do
+    if ← stmtContainsBreakOrContinue st then
+      failAt st "break or continue inside a cursor while loop is unsupported"
+  let varVal ← lowerExpr plan.varNode
+  let boundVal ← lowerExpr plan.boundNode
+  unless varVal.pre.isEmpty && boundVal.pre.isEmpty do return none
+  let v0 := cleanHelperResultExpr plan.varTy varVal
+  let b0 := cleanHelperResultExpr plan.boundTy boundVal
+  let k := plan.k
+  let (guardExpr, diffExpr) :=
+    if plan.increasing && !plan.inclusive then
+      let d := if k == 1 then Expr.sub b0 v0
+        else .add (.div (.sub (.sub b0 v0) (.literal 1)) (.literal k)) (.literal 1)
+      (Expr.lt v0 b0, d)
+    else if plan.increasing && plan.inclusive then
+      let d := if k == 1 then Expr.sub b0 v0 else .div (.sub b0 v0) (.literal k)
+      (Expr.le v0 b0, d)
+    else if !plan.increasing && !plan.inclusive then
+      let d := if k == 1 then Expr.sub v0 b0
+        else .add (.div (.sub (.sub v0 b0) (.literal 1)) (.literal k)) (.literal 1)
+      (Expr.gt v0 b0, d)
+    else
+      let d := if k == 1 then Expr.sub v0 b0 else .div (.sub v0 b0) (.literal k)
+      (Expr.ge v0 b0, d)
+  let countBinding ← fresh
+  let mut out : Array Stmt := #[
+    .letVar countBinding (.literal 0),
+    .ite guardExpr [.assignVar countBinding diffExpr] []
+  ]
+  if plan.bits < 256 then
+    let cap := Expr.literal (2 ^ plan.bits)
+    out := out.push (.ite (.lt cap (.localVar countBinding)) [.assignVar countBinding cap] [])
+  let loopVar ← fresh
+  let saved ← get
+  modify fun e =>
+    { e with cursorState := { e.cursorState with
+        mutableByRefFlatStructs := plan.cursorId :: e.mutableByRefFlatStructs.erase plan.cursorId } }
+  let condVal ← lowerExpr cond
+  let bodyOut ← lowerBody body
+  modify fun e =>
+    { e with values := saved.values, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
+             calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, cursorState := saved.cursorState, scalarTy := saved.scalarTy,
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!bodyWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+  if condVal.pre.isEmpty then
+    out := out.push (.forEachWhile loopVar (.localVar countBinding) condVal.expr bodyOut.toList)
+    if plan.inclusive then
+      -- The iteration where `it.m` reaches the bound, kept out of the count so it cannot wrap.
+      let lastVar ← fresh
+      out := out.push (.forEachWhile lastVar (.literal 1) condVal.expr bodyOut.toList)
+  else
+    -- The condition calls a helper with statements of its own: re-check it in the body.
+    let doneVar ← fresh
+    let iterStep : Stmt :=
+      .ite (.eq (.localVar doneVar) (.literal 0))
+        (condVal.pre.toList ++ [.ite condVal.expr bodyOut.toList [.assignVar doneVar (.literal 1)]])
+        []
+    out := out ++ #[.letVar doneVar (.literal 0), .forEach loopVar (.localVar countBinding) [iterStep]]
+    if plan.inclusive then
+      out := out.push iterStep
+  return some out
+
 /-- Exact bounded while-loop lowering for:
     1. unsigned bit-clearing (`msb` + `clearBit` or `v &= v - 1`) and positive constant right-shift (`v >>= k`)
     2. binary-search `while (low < high)` / `while (high > low)` / `while (low != high)` (with `low == 0` at entry)
@@ -15199,6 +15752,8 @@ private partial def lowerGeneralBoolWhile? (s cond : Json) (lowerBody : Json →
 private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt))
     (allowReturn : Bool := false) : M (Array Stmt) := do
   let cond ← mField s "condition"
+  if let some stmts ← lowerCursorWhile? s cond lowerBody then
+    return stmts
   if (← mKind cond) == "Literal" && optStr cond "kind" == some "bool" && optStr cond "value" == some "true" then
     let body ← mField s "body"
     let bodyStmts ← unwrapLoopBodyStmts body
