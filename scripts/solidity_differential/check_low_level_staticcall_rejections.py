@@ -94,7 +94,7 @@ CASES = [
      'bytes4 y = 0x00000001; bytes32 d = keccak256(abi.encodeWithSelector('
      'bytes4(0xaaaaaaaa), y, keccak256(abi.encodeWithSelector(y = 0x11223344)))); '
      'ok = d != bytes32(0);',
-     ('y = 0x11223344)', 'effectful-abi', 'Assignment', {})),
+     ('keccak256(abi.encodeWithSelector(y = 0x11223344))', 'effectful-abi', 'FunctionCall', {})),
     ('staticcall-calldata-payload', '(bool s, ) = token.staticcall(msg.data); ok = s;',
      ('msg.data)', 'payload', 'MemberAccess', {'found': 'bytes calldata'})),
     ('delegatecall', '(bool s, ) = token.delegatecall(abi.encode(h)); ok = s;',

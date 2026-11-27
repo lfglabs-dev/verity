@@ -884,6 +884,76 @@ contract C {
     }
 }
 ''', ['run(bool)'], expect='same-rejection'),
+    inline('encoding-scalar-member-before-memory-write', '''contract C {
+    struct Elem {
+        uint256 a;
+    }
+
+    uint256 private slot0;
+
+    function _writeElem(Elem memory e, uint256 v) internal pure returns (uint256) {
+        e.a = v;
+        return v + 10;
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        Elem[] memory xs = new Elem[](1);
+        xs[0].a = slot0 + 1;
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e.a, x == 0 ? _writeElem(e, 9) : 0));
+    }
+}
+''', ['run(uint256)']),
+    inline('encoding-keccak-conditional-assign', '''contract C {
+    uint256 private slot0;
+
+    function run(bool c) external view returns (bytes32) {
+        uint256 y = 1;
+        return keccak256(abi.encodeWithSelector(bytes4(0x12345678), y, c ? keccak256((y = 2) > 0 ? bytes("a") : bytes("b")) : bytes32(slot0)));
+    }
+}
+''', ['run(bool)'], expect='same-rejection'),
+    inline('encoding-keccak-stateful-bytes-helper', '''contract C {
+    uint256 private slot0;
+
+    function _writeBytes() internal returns (bytes memory) {
+        slot0 = 9;
+        return "a";
+    }
+
+    function run(bool c) external returns (bytes32) {
+        return keccak256(abi.encode("tag", slot0, c ? keccak256(_writeBytes()) : bytes32(0)));
+    }
+}
+''', ['run(bool)'], expect='same-rejection'),
+    inline('encoding-storage-enum-fnptr-helper-before-panic', '''contract C {
+    enum Mode {
+        Alpha,
+        Beta
+    }
+
+    struct Box {
+        Mode m;
+        uint256 b;
+    }
+
+    Box private box;
+
+    function _readMode() internal view returns (Mode) {
+        return box.m;
+    }
+
+    function _wrapMode() internal view returns (Mode) {
+        function () internal view returns (Mode) fp = _readMode;
+        return fp();
+    }
+
+    function run(uint256 x) external view returns (bytes32) {
+        uint256 y;
+        return keccak256(abi.encode(_wrapMode(), y = 10 / x));
+    }
+}
+''', ['run(uint256)'], expect='same-rejection'),
 ]
 
 # Importer behaviour on main that still depends on the state-variable count. Each entry

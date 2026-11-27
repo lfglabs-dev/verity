@@ -6929,8 +6929,14 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
     let nodeTy (n : Json) : String :=
       ((field? n "typeDescriptions").bind (optStr · "typeString")).getD ""
     let bodyHas (fid : Nat) : Bool :=
-      !seen.contains fid &&
-        ((env.funs.find? fid).bind (field? · "body")).any (storageEnumReadIn env (fid :: seen))
+      if seen.contains fid then true
+      else match env.funs.find? fid with
+        | none => true
+        | some fn =>
+            let hasMods := ((field? fn "modifiers").bind (·.getArr?.toOption)).any (!·.isEmpty)
+            match (field? fn "body").filter (!·.isNull) with
+            | some body => hasMods || storageEnumReadIn env (fid :: seen) body
+            | none => true
     match node with
     | .arr xs => xs.any (storageEnumReadIn env seen)
     | .obj o =>
@@ -6948,6 +6954,9 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
             baseTy.startsWith "mapping(" || (baseTy.splitOn " storage").length > 1
           else if kind == some "FunctionCall" && optStr node "kind" == some "functionCall" then
             let callee := (field? node "expression").getD Json.null
+            let internalCallee :=
+              ((field? callee "typeDescriptions").bind (optStr · "typeIdentifier")).any
+                (·.startsWith "t_function_internal_")
             match (field? callee "referencedDeclaration").bind (·.getInt?.toOption) with
             | some id =>
                 if id >= 0 then
@@ -6957,10 +6966,12 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
                     | .branch _ tFid fFid => bodyHas tFid || bodyHas fFid
                   else
                     match effectCallTarget? env seen callee id.toNat with
-                    | some targetId => bodyHas targetId
+                    | some targetId =>
+                        if env.funs.contains targetId then bodyHas targetId
+                        else internalCallee
                     | none => true
                 else false
-            | none => false
+            | none => internalCallee
           else if kind == some "UnaryOperation" || kind == some "BinaryOperation" then
             match (field? node "function").bind (·.getNat?.toOption) with
             | some natId =>
@@ -7085,8 +7096,14 @@ private partial def checkEncodingScalar (j : Json) (ordered : Bool := false) : M
             checkEncodingScalar args[0]! ordered
           else if refId == some (-8) && (← mKind callee) == "Identifier" && args.size == 1 then
             -- The hashed buffer is lowered by its own encoding rules; outside an ordered
-            -- `abi.encode` a state change inside it would run beside deferred sibling reads.
+            -- `abi.encode` a state change or assignment inside it would run beside sibling
+            -- reads, and a storage `enum` read inside it panics at evaluation time.
             if !ordered && (statefulAbiEncodeIn j (← get) || assignmentAbiEncodeIn j) then
+              failAt j "effectful ABI encoding argument is unsupported"
+            if !ordered && ((!statefulAbiEncodeIn j (← get) && statefulCallIn j (← get)) ||
+                (!assignmentAbiEncodeIn j && assignmentIn j)) then
+              failAt j "effectful ABI encoding argument is unsupported"
+            if storageEnumReadIn (← get) [] j then
               failAt j "effectful ABI encoding argument is unsupported"
           else if let some id := refId then
             unless id >= 0 do
@@ -7345,7 +7362,7 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
       let callee ← mField j "expression"
       if (← mKind callee) == "Identifier" then
         hashCall := (← refInt callee) == -8
-    if hashCall && statefulAbiEncodeIn j (← get) then
+    if hashCall && statefulCallIn j (← get) then
       failAt j "effectful ABI encoding argument is unsupported"
     unless hashCall do checkEncodingScalar j
     let value ← atom (← lowerExpr j)
@@ -7408,6 +7425,8 @@ private partial def lowerPacked (args : Array Json) (sourceOrder : Bool := false
   if args.size > 1 then
     for arg in args do
       if statefulAbiEncodeIn arg env || (!sourceOrder && assignmentAbiEncodeIn arg) then
+        failAt arg "effectful ABI encoding argument is unsupported"
+      if !sourceOrder && !assignmentAbiEncodeIn arg && assignmentIn arg then
         failAt arg "effectful ABI encoding argument is unsupported"
   let mut buffers : Array EncodedBytes :=
     Array.replicate args.size { pre := #[], pointer := .literal 0, size := .literal 0 }
@@ -8957,7 +8976,14 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         checkEncodingScalar arg
         let value ← atom (← lowerExpr arg)
         pre := pre ++ value.pre
-        words := words ++ [cleanHelperResultExpr ty value]
+        let word := cleanHelperResultExpr ty value
+        if (restArgs.extract (idx + 1) restArgs.size).any (memoryWriteIn · (← get)) &&
+            !(word matches .literal _) then
+          let snapshot ← fresh
+          pre := pre.push (.letVar snapshot word)
+          words := words ++ [.localVar snapshot]
+        else
+          words := words ++ [word]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeWithSignature" then
     unless args.size ≥ 1 do
@@ -9019,7 +9045,14 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         checkEncodingScalar arg
         let value ← atom (← lowerExpr arg)
         pre := pre ++ value.pre
-        words := words ++ [cleanHelperResultExpr ty value]
+        let word := cleanHelperResultExpr ty value
+        if (restArgs.extract (idx + 1) restArgs.size).any (memoryWriteIn · (← get)) &&
+            !(word matches .literal _) then
+          let snapshot ← fresh
+          pre := pre.push (.letVar snapshot word)
+          words := words ++ [.localVar snapshot]
+        else
+          words := words ++ [word]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeCall" then
     unless args.size == 2 do
@@ -9087,7 +9120,14 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
                 failAt arg s!"literal {n} exceeds width of {pty}"
         let value ← atom converted
         pre := pre ++ value.pre
-        words := words ++ [cleanHelperResultExpr pty value]
+        let word := cleanHelperResultExpr pty value
+        if (callArgs.extract (idx + 1) params.size).any (memoryWriteIn · (← get)) &&
+            !(word matches .literal _) then
+          let snapshot ← fresh
+          pre := pre.push (.letVar snapshot word)
+          words := words ++ [.localVar snapshot]
+        else
+          words := words ++ [word]
     return ← encodeSelectorAndWords selBuffer pre words
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
@@ -9349,7 +9389,8 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         let value ← atom raw
         pre := pre ++ value.pre
         let word := cleanHelperResultExpr targetTy value
-        if hasDynMutation && !(word matches .literal _) then
+        if (hasDynMutation || (args.extract (argIdx + 1) args.size).any (memoryWriteIn · (← get))) &&
+            !(word matches .literal _) then
           let snapshot ← fresh
           pre := pre.push (.letVar snapshot word)
           headWords := headWords.push (some (.localVar snapshot))
@@ -9470,6 +9511,11 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
       let word := cleanHelperResultExpr targetTy value
       if ordered && !(word matches .literal _) then
         -- Read now: a later argument's helper may write what this word reads.
+        let snapshot ← fresh
+        pre := pre.push (.letVar snapshot word)
+        words := words ++ [.localVar snapshot]
+      else if (args.extract (argIdx + 1) args.size).any (memoryWriteIn · (← get)) &&
+          !(word matches .literal _) then
         let snapshot ← fresh
         pre := pre.push (.letVar snapshot word)
         words := words ++ [.localVar snapshot]
@@ -10511,7 +10557,8 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     let mut words : Array Expr := #[]
     let hoistEnv ← get
     let hasMutation := args.any fun arg => statefulCallIn arg hoistEnv || assignmentIn arg
-    let hoist := hasMutation || args.any fun arg => jsonHasCustomRevert hoistEnv [] arg
+    let hoist := hasMutation || args.any fun arg =>
+      jsonHasCustomRevert hoistEnv [] arg || memoryWriteIn arg hoistEnv
     for idx in [:params.size] do
       let param := params[idx]!
       let arg := args[idx]!

@@ -227,4 +227,33 @@ contract EncodingScalarUnorderedOrderRejects {
         bytes memory b = abi.encodePacked("f(uint256)");
         return bytes4(abi.encodeWithSignature(string(b), c ? _overwriteBytesViaIdentity(b) : 0));
     }
+
+    function scalarMemberBeforeMemoryWrite(Elem[] memory xs, uint256 x) external pure returns (bytes32) {
+        Elem memory e = xs[0];
+        return keccak256(abi.encode(e.a, x == 0 ? _writeElem(e, 9) : 0));
+    }
+
+    function _writeStateBytes() internal returns (bytes memory) {
+        enumStored.b = 99;
+        return "a";
+    }
+
+    function _wrapEnumFnPtr() internal view returns (Mode) {
+        function () internal view returns (Mode) fp = _readEnumStored;
+        return fp();
+    }
+
+    function keccakConditionalAssignInEncodeWithSelector(bool c) external view returns (bytes32) {
+        uint256 y = 1;
+        return keccak256(abi.encodeWithSelector(bytes4(0x12345678), y, c ? keccak256((y = 2) > 0 ? bytes("a") : bytes("b")) : bytes32(enumStored.b)));
+    }
+
+    function keccakStatefulBytesHelperInEncode(bool c) external returns (bytes32) {
+        return keccak256(abi.encode("tag", enumStored.b, c ? keccak256(_writeStateBytes()) : bytes32(0)));
+    }
+
+    function enumStorageFnPtrHelperBeforePanic(uint256 x) external view returns (bytes32) {
+        uint256 y;
+        return keccak256(abi.encode(_wrapEnumFnPtr(), y = 10 / x));
+    }
 }

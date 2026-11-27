@@ -70,6 +70,7 @@ solidity_import posViaIr0834 from "Contracts/SolidityImportSmoke"
   function storageArrayBeforeInert(uint256)
   function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
   function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
+  function scalarMemberBeforeMemoryWrite(«Elem[]»,uint256)
 
 solidity_import posLegacy0834 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
@@ -83,6 +84,7 @@ solidity_import posLegacy0834 from "Contracts/SolidityImportSmoke"
   function storageArrayBeforeInert(uint256)
   function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
   function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
+  function scalarMemberBeforeMemoryWrite(«Elem[]»,uint256)
 
 solidity_import posViaIr0838 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
@@ -96,6 +98,7 @@ solidity_import posViaIr0838 from "Contracts/SolidityImportSmoke"
   function storageArrayBeforeInert(uint256)
   function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
   function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
+  function scalarMemberBeforeMemoryWrite(«Elem[]»,uint256)
 
 solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   entry "EncodingScalarUnorderedOrderRejects.sol"
@@ -109,6 +112,7 @@ solidity_import posLegacy0838 from "Contracts/SolidityImportSmoke"
   function storageArrayBeforeInert(uint256)
   function scalarReadBeforeMemoryWriteStatic(«Elem[]»)
   function scalarReadBeforeMemoryWriteDynamic(«Elem[]»)
+  function scalarMemberBeforeMemoryWrite(«Elem[]»,uint256)
 
 private def oracle := SolidityImport.Differential.oracle
 
@@ -146,7 +150,9 @@ private def observePos (m : CompilationModel) (name : String) (args : List Nat) 
   observePos m "scalarReadBeforeMemoryWriteStatic" [32, 1, 1] ==
     some (true, none, [0x4155c2f711f2cdd34f8262ab8fb9b7020a700fe7b6948222152f7670d1fdf34d]) &&
   observePos m "scalarReadBeforeMemoryWriteDynamic" [32, 1, 1] ==
-    some (true, none, [0xfdf50d0c5ec00001cecd52e44009e09154678e69abaf7ce5d70eef8a05006e9a])
+    some (true, none, [0xfdf50d0c5ec00001cecd52e44009e09154678e69abaf7ce5d70eef8a05006e9a]) &&
+  observePos m "scalarMemberBeforeMemoryWrite" [64, 0, 1, 1] ==
+    some (true, none, [0x4155c2f711f2cdd34f8262ab8fb9b7020a700fe7b6948222152f7670d1fdf34d])
 
 private def runChange (m : CompilationModel) (x : Nat) :
     Option (Bool × Option (List UInt8) × Nat) := do
@@ -527,5 +533,41 @@ solidity_import rejMemorySignatureBeforeMemWrite from "Contracts/SolidityImportS
   using viaIr0838
   contract EncodingScalarUnorderedOrderRejects
   function memorySignatureBeforeMemoryWrite(bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:248:76: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.keccakConditionalAssignInEncodeWithSelector
+keccak256((y = 2) > 0 ? bytes("a") : bytes("b"))
+-/
+#guard_msgs in
+solidity_import rejKeccakConditionalAssignInSelector from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function keccakConditionalAssignInEncodeWithSelector(bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:252:62: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.keccakStatefulBytesHelperInEncode
+keccak256(_writeStateBytes())
+-/
+#guard_msgs in
+solidity_import rejKeccakStatefulBytesHelperInEncode from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function keccakStatefulBytesHelperInEncode(bool)
+
+/--
+error: EncodingScalarUnorderedOrderRejects.sol:257:37: FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported
+closure: EncodingScalarUnorderedOrderRejects.enumStorageFnPtrHelperBeforePanic
+_wrapEnumFnPtr()
+-/
+#guard_msgs in
+solidity_import rejEnumStorageFnPtrHelperBeforePanic from "Contracts/SolidityImportSmoke"
+  entry "EncodingScalarUnorderedOrderRejects.sol"
+  using viaIr0838
+  contract EncodingScalarUnorderedOrderRejects
+  function enumStorageFnPtrHelperBeforePanic(uint256)
 
 end SolidityImportSmoke.EncodingScalarUnorderedChecks
