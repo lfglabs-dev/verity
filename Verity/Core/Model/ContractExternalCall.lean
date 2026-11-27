@@ -42,7 +42,8 @@ def externalCall (adversary : AdversaryModel) (site : CallSite) :
       { world := s, gasRemaining := site.gas }
     ContractResult.success observation.result
       { observation.state.world with
-        returndata := observation.result.returndata.map Denote.wordNormalize }
+        returndata := observation.result.returndata.map Denote.wordNormalize
+        rawReturndata := adversary.rawReturndataAfter site s }
 
 /-- Unfolding law: `externalCall` succeeds monadically with the adversary's
 response and the journaled post-world. -/
@@ -52,7 +53,8 @@ theorem externalCall_run (adversary : AdversaryModel) (site : CallSite)
       ContractResult.success (adversary.result site s)
         { (denoteCallJournaled adversary site
             { world := s, gasRemaining := site.gas }).state.world with
-          returndata := (adversary.result site s).returndata.map Denote.wordNormalize } := rfl
+          returndata := (adversary.result site s).returndata.map Denote.wordNormalize
+          rawReturndata := adversary.rawReturndataAfter site s } := rfl
 
 /-- The returned result is exactly the adversary's response on the pre-call
 world. -/
@@ -76,7 +78,8 @@ theorem externalCall_rollback (adversary : AdversaryModel) (site : CallSite)
     ((externalCall adversary site).run s).snd =
       { s with
         calls := s.calls ++ [journalEntry site (adversary.result site s)]
-        returndata := (adversary.result site s).returndata.map Denote.wordNormalize } := by
+        returndata := (adversary.result site s).returndata.map Denote.wordNormalize
+        rawReturndata := adversary.rawReturndataAfter site s } := by
   rw [externalCall_run]
   rw [denoteCallJournaled_rollback_world adversary site
     { world := s, gasRemaining := site.gas } data hkind hresult]
@@ -88,7 +91,8 @@ theorem externalCall_staticcall (adversary : AdversaryModel) (site : CallSite)
     ((externalCall adversary site).run s).snd =
       { s with
         calls := s.calls ++ [journalEntry site (adversary.result site s)]
-        returndata := (adversary.result site s).returndata.map Denote.wordNormalize } := by
+        returndata := (adversary.result site s).returndata.map Denote.wordNormalize
+        rawReturndata := adversary.rawReturndataAfter site s } := by
   rw [externalCall_run]
   rw [denoteCallJournaled_staticcall_world adversary site
     { world := s, gasRemaining := site.gas } hkind]

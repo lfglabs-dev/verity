@@ -112,8 +112,9 @@ fixed stub word; `ctx.withViewLinks links` answers static sites
 lemma. `ctx.withLinks links` also answers **state-changing** sites: a linked
 `.call` site runs `body` in `Contract.hopCall` at the call-site target (commit
 on success with one journal entry for the site; a reverting body makes the
-typed call revert, re-raising the answer's empty returndata, with the caller
-state restored); static sites behave as under `withViewLinks`. Adapters:
+typed call revert, re-raising the linked body's payload bytes exactly
+(`AdversaryModel.revertBytes`), with the caller state restored); static sites
+behave as under `withViewLinks`. Adapters:
 `linkUnit Callee.m` (no results), `linkWord`, `viewLinkWord`; for arguments
 decode the calldata words, e.g.
 `| [to, amt] => linkUnit (Token.mint (wordToAddress to) amt) []`. Fidelity

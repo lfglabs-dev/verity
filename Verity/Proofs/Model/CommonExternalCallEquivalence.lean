@@ -55,8 +55,8 @@ def stubExternalCallBind {α : Type} [ExternalArg α]
   let words := args.flatMap ExternalArg.toWords
   match (modelExternalCall .stub (linkedCallSite name words names.length)).run state with
   | .success (.success _) post => .success () (legacyPost state post)
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 def stubExternalCallBindTo {α : Type} [ExternalArg α]
@@ -68,8 +68,8 @@ def stubExternalCallBindTo {α : Type} [ExternalArg α]
         (linkedCallSite name words names.length .call target.toNat value.val)).run state with
     | .success (.success _) post =>
         .success () { legacyPost state post with selfBalance := state.selfBalance - value }
-    | .success (.failure data) _ | .success (.revert data) _ =>
-        .revert (failedCallPayload data) state
+    | .success (.failure data) post | .success (.revert data) post =>
+        .revert (failedCallPayload post data) state
     | .revert message _ => .revert message state
   else .revert "insufficient balance" state
 
@@ -94,8 +94,8 @@ def stubErc20Write (name : String) (token : Address)
       if Core.Uint256.ofNat word = (1 : Uint256) then .success () (legacyPost state post)
       else .revert "external call returned false or invalid data" state
   | .success (.success _) _ => .revert "external call returned false or invalid data" state
-  | .success (.failure data) _ | .success (.revert data) _ =>
-      .revert (failedCallPayload data) state
+  | .success (.failure data) post | .success (.revert data) post =>
+      .revert (failedCallPayload post data) state
   | .revert message _ => .revert message state
 
 theorem externalCallWords_eq_stub_result {α : Type} [ExternalResult α]
@@ -161,14 +161,15 @@ theorem externalCallBindTo_eq_stub {α : Type} [ExternalArg α]
         denoteCallJournaled, denoteCall, chargedGas, journalEntry,
         CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
         ExternalCallResult.returndata, Contract.run, linkedCallSite,
-        AdversaryModel.stub,  hbal, h]
+        AdversaryModel.stub, AdversaryModel.rawReturndataAfter, ExternalCallResult.succeeded,
+        failedCallPayload, hbal, h]
     · simp [externalCallBindTo, stubExternalCallBindTo, commonExternalCall,
         modelExternalCall, Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         denoteCallJournaled, denoteCall, chargedGas, journalEntry,
         CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
         ExternalCallResult.returndata, Contract.run, linkedCallSite,
-        AdversaryModel.stub, legacyPost,  hbal, h,
-         ]
+        AdversaryModel.stub, legacyPost, AdversaryModel.rawReturndataAfter,
+        ExternalCallResult.succeeded, hbal, h]
   · simp [externalCallBindTo, stubExternalCallBindTo, Contract.run, hbal]
 
 theorem balanceOf_eq_stub (token owner : Address) (state : ContractState) :

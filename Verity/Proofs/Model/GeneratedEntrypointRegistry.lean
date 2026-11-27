@@ -737,9 +737,9 @@ namespace Vault
   (s.storage 1).val ≤ s.selfBalance.val ∧ s.storageAddr 2 ≠ 0
 
 theorem vaultInv_frame_calls_returndata
-    (w : ContractState) (c : List ExternalCall) (r : List Nat)
+    (w : ContractState) (c : List ExternalCall) (r : List Nat) (b : Option (List UInt8))
     (h : LockedInv VaultInv 0 w) :
-    LockedInv VaultInv 0 { w with calls := c, returndata := r } :=
+    LockedInv VaultInv 0 { w with calls := c, returndata := r, rawReturndata := b } :=
   h
 
 theorem vaultInv_setLock (s : ContractState) (v : Uint256) (h : VaultInv s) :

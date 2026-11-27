@@ -892,6 +892,28 @@ example :
       defaultState =
       ContractResult.revert (.raw (List.replicate 31 0 ++ [5])) defaultState := rfl
 
+/-- `AmountTooLarge(uint256,uint256)` with arguments 101 and 100: 4 + 64 bytes. -/
+private def amountTooLargeBytes : List UInt8 :=
+  [0x7f, 0x16, 0x27, 0x03] ++ Compiler.CompilationModel.Denote.wordBytes 101 ++
+    Compiler.CompilationModel.Denote.wordBytes 100
+
+/-- A callee that reverts with a custom error, given as exact bytes. -/
+private def customErrorAdv :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .revert [0x7f162703, 101, 100]
+  gasUsed := fun _ _ => 0
+  revertBytes := fun _ _ => some amountTooLargeBytes
+
+/-- An uncaught failed call re-raises the adversary's exact 68 bytes, not the
+96-byte word view of its returndata. -/
+example :
+    (match (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" []
+        customErrorAdv 1 4).run defaultState with
+      | .revert p _ => some p | .success _ _ => none) =
+      some (.raw amountTooLargeBytes) := by
+  decide
+
 /-- Bound helpers auto-revert when success returndata is shorter than arity. -/
 example :
     (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" []

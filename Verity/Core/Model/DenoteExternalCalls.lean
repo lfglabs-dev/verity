@@ -131,8 +131,18 @@ structure AdversaryModel where
   stateTransition : CallSite → Verity.ContractState → Verity.ContractState
   result : CallSite → Verity.ContractState → ExternalCallResult
   gasUsed : CallSite → Verity.ContractState → Nat
+  /-- The exact revert bytes of a failed answer, when they are not whole words
+      (a custom error is 4 + 32n bytes). `none` keeps the word view of
+      `result`'s returndata. Ignored for a successful answer. -/
+  revertBytes : CallSite → Verity.ContractState → Option (List UInt8) := fun _ _ => none
 
 namespace AdversaryModel
+
+/-- The exact EIP-211 buffer a call at `site` from `world` leaves: none after a
+success, the adversary's exact revert bytes (if it gives them) after a failure. -/
+def rawReturndataAfter (adversary : AdversaryModel) (site : CallSite)
+    (world : Verity.ContractState) : Option (List UInt8) :=
+  if (adversary.result site world).succeeded then none else adversary.revertBytes site world
 
 /-- The deterministic word used by the legacy executable linked-call plane. -/
 def stubWord (name : String) (args : List Nat) : Nat :=

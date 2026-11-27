@@ -212,10 +212,12 @@ theorem double_send_observable (token toAddr : Address) (amount : Uint256)
     [Verity.addressToWord toAddr, amount]
   let s₁ := { s with
     calls := s.calls ++ [entry]
-    returndata := [] }
+    returndata := []
+    rawReturndata := none }
   let s₂ := { s₁ with
     calls := s₁.calls ++ [entry]
-    returndata := [] }
+    returndata := []
+    rawReturndata := none }
   have h₁ : (Contracts.safeTransfer token toAddr amount).run s =
       ContractResult.success () s₁ := by
     simpa [s₁, entry] using Contracts.safeTransfer_run token toAddr amount s hcode
