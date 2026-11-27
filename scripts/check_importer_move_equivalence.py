@@ -390,7 +390,7 @@ MUTANT_TABLES = {
     "check_hashing_mutations": "path",
     "check_interface_static_call_mutations": "path",
     "check_interface_word_static_call_mutations": "path",
-    "check_linked_library_call_rejections": "import",
+    "check_linked_library_call_rejections": "path",
     "check_memory_call_mutations": "path",
     "check_multiple_dynamic_abi_mutations": "path",
     "check_nested_dynamic_struct_abi_mutations": "path",

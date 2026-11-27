@@ -948,6 +948,8 @@ def tasks(update_golden: bool) -> list:
              ("library-call-rejections", 1, library_call_rejections),
              ("linked-library-call-rejections", 1, linked_library_call_rejections),
              ("linked-library-frame-check", 2, lambda: linked_library_mutant("frame-check")),
+             ("linked-library-allowlist-address", 2,
+              lambda: linked_library_mutant("allowlist-address")),
              ("linked-library-returndata-check", 2,
               lambda: linked_library_mutant("returndata-check")),
              ("linked-library-alias-copy-in", 2,

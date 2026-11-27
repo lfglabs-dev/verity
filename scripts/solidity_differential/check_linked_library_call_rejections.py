@@ -8,9 +8,9 @@ reaches (internal helpers, operators and modifiers, transitively) depends on the
 frame. Each case below must reject at the stated token with the stated diagnostic, or import.
 Without the flag the same calls keep the `check_library_call_rejections` diagnostic.
 
-`--mutant frame-check`, `returndata-check`, `alias-copy-in` or `drop-copy-out` builds a
-snapshot with that guard or copy disabled, requires the targeted cases to elaborate there,
-then this suite to fail on that snapshot.
+`--mutant frame-check`, `allowlist-address`, `returndata-check`, `alias-copy-in` or
+`drop-copy-out` builds a snapshot with that guard or copy disabled, requires the targeted
+cases to elaborate there, then this suite to fail on that snapshot.
 """
 import argparse
 import json
@@ -286,23 +286,124 @@ CASES = [
      'root = S.h(a);', '', 'gasleft', 'gasleft() in a linked library call'),
     ('inline-assembly',
      '    function h(uint256 a) external pure returns (uint256 r) { assembly { r := add(a, 1) } }\n',
-     'root = S.h(a);', '', 'assembly', 'inline assembly in a linked library call'),
+     'root = S.h(a);', '', None, None),
+    ('inline-assembly-extcodesize-param',
+     '    function h(address p) external view returns (uint256 size) {\n'
+     '        assembly { size := extcodesize(p) }\n'
+     '    }\n',
+     'root = S.h(address(uint160(a))) + b;', '', None, None),
+    ('inline-assembly-extcodesize-internal-helper',
+     '    function g(address p, uint256 k) internal view returns (uint256 out) {\n'
+     '        uint256 sz;\n'
+     '        assembly {\n'
+     '            let raw := extcodesize(p)\n'
+     '            sz := add(raw, iszero(raw))\n'
+     '        }\n'
+     '        out = sz + k;\n'
+     '    }\n'
+     '    function h(address p, uint256 k) external view returns (uint256) { return g(p, k); }\n',
+     'root = S.h(address(uint160(a)), b) + 10;', '', None, None),
+    ('inline-assembly-named-return-self-read',
+     '    function h(uint256 a) external pure returns (uint256 r) {\n'
+     '        assembly { r := add(r, a) }\n'
+     '    }\n',
+     'uint256 r = 777;\n        root = S.h(a) + b + (r - 777);', '', None, None),
+    ('flag-off-inline-assembly-extcodesize',
+     '    function h(address p) external view returns (uint256 size) {\n'
+     '        assembly { size := extcodesize(p) }\n'
+     '    }\n',
+     'root = S.h(address(uint160(a)));', '', 'S.h',
+     'external library calls are outside this slice'),
+    ('inline-assembly-address',
+     '    function h(uint256) external view returns (uint256 r) { assembly { r := address() } }\n',
+     'root = S.h(a);', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-caller',
+     '    function h(uint256) external view returns (uint256 r) { assembly { r := caller() } }\n',
+     'root = S.h(a);', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-codesize',
+     '    function h(uint256) external pure returns (uint256 r) { assembly { r := codesize() } }\n',
+     'root = S.h(a);', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-extcodesize-address',
+     '    function h(uint256) external view returns (uint256 r) {\n'
+     '        assembly { r := extcodesize(address()) }\n'
+     '    }\n',
+     'root = S.h(a);', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-extcodesize-this-arg',
+     '    function h(address p) external view returns (uint256 size) {\n'
+     '        assembly { size := extcodesize(p) }\n'
+     '    }\n',
+     'root = S.h(address(this)) + a + b;', '', 'extcodesize(p)',
+     'code length of an account that may be the executing contract is unsupported'),
+    ('inline-assembly-extcodesize-this-local',
+     '    function h(uint256 x) external view returns (uint256 size) {\n'
+     '        address p = address(this);\n'
+     '        assembly { size := extcodesize(p) }\n'
+     '        size += x;\n'
+     '    }\n',
+     'root = S.h(a) + b;', '', 'extcodesize(p)',
+     'code length of an account that may be the executing contract is unsupported'),
+    ('inline-assembly-mstore',
+     '    function h(uint256 a) external pure returns (uint256 r) {\n'
+     '        assembly { mstore(0, a) r := mload(0) }\n'
+     '    }\n',
+     'root = S.h(a);', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-sload',
+     '    function h(uint256 a) external view returns (uint256 r) { assembly { r := sload(a) } }\n',
+     'root = S.h(a);', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-bytes-ptr-leak',
+     '    function h(bytes memory data) external pure returns (uint256 r) {\n'
+     '        assembly { r := data }\n'
+     '    }\n',
+     'root = S.h(abi.encode(a, b));', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-constant-ref',
+     '    uint256 internal constant K = 7;\n'
+     '    function h(uint256 a) external pure returns (uint256 r) {\n'
+     '        assembly { r := add(a, K) }\n'
+     '    }\n',
+     'root = S.h(a);', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
+    ('inline-assembly-storage-slot-ref',
+     '    function h(Cell storage c) external pure returns (uint256 r) {\n'
+     '        assembly { r := c.slot }\n'
+     '    }\n',
+     'root = S.h(cell) + a + b;', '', 'assembly',
+     "inline assembly in a linked library call can observe the library's call frame"),
 ]
-# Frame cases the importer otherwise lowers, so the mutant must admit them. `gasleft` is also
-# rejected elsewhere; the frame check rejects it first, as defense in depth.
+# Frame cases the importer otherwise lowers, so the mutant must admit them. `gasleft`,
+# `codesize` and `extcodesize(address())` are also rejected elsewhere; the frame check rejects
+# them first, as defense in depth.
 FRAME_CASES = ('msg-data', 'paren-msg-sig', 'msg-sig-in-internal-helper',
-               'msg-data-in-modifier', 'msg-sig-in-udvt-operator', 'inline-assembly')
-# name -> (anchor, replacement, cases the mutant must admit)
+               'msg-data-in-modifier', 'msg-sig-in-udvt-operator',
+               'inline-assembly-address', 'inline-assembly-caller',
+               'inline-assembly-mstore', 'inline-assembly-sload')
+IMPORT_LEAN = 'Compiler/SolidityImport/Import.lean'
+GUARD_LEAN = 'Compiler/SolidityImport/LibraryCallGuard.lean'
+# name -> (relative_path, anchor, replacement, cases the mutant must admit)
 MUTANTS = {
     'frame-check': (
+        IMPORT_LEAN,
         '  if let some (node, reason) := linkedLibraryFrameHazard? decl fn then\n',
         '  if let some (node, reason) := (none : Option (Json × String)) then\n',
         FRAME_CASES),
+    'allowlist-address': (
+        GUARD_LEAN,
+        '  | "extcodesize" | "iszero" | "not" => some 1\n',
+        '  | "address" => some 0\n  | "extcodesize" | "iszero" | "not" => some 1\n',
+        ('inline-assembly-address',)),
     'returndata-check': (
+        IMPORT_LEAN,
         '  unless env.rootLinkedLibraryCalls.isEmpty do\n    failAt j ("Yul returndatasize in a function',
         '  unless true do\n    failAt j ("Yul returndatasize in a function',
         ('returndatasize-after-call', 'bubbled-revert-after-call')),
     'alias-copy-in': (
+        IMPORT_LEAN,
         'private def copyLinkedBytesBuffer (srcPtr srcLen : Expr) (fromCalldata forReturn : Bool)\n'
         '    (siteNode : Json) (hint : String := "bytes_copy") : M EncodedBytes := do\n',
         'private def copyLinkedBytesBuffer (srcPtr srcLen : Expr) (fromCalldata forReturn : Bool)\n'
@@ -311,6 +412,7 @@ MUTANTS = {
         '    return { pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n',
         ('bytes-copy-in-isolation',)),
     'drop-copy-out': (
+        IMPORT_LEAN,
         '  let alloc := AbiEncoding.reserve headerPtr finish totalBytes\n',
         '  if forReturn then\n'
         '    return { pre := #[], pointer := srcPtr, size := srcLen, ownedFresh := true }\n'
@@ -322,16 +424,29 @@ GUARD_CASES = {
     'homonymous-file-udvt-clean': ([0x105, 10], 15),
     'bytes-copy-in-isolation': ([0x11, 0x22], 0x11aa77),
     'bytes-copy-out-disjoint': ([0x22, 0x99], 0x9922),
+    'inline-assembly': ([41, 0], 42),
+    'inline-assembly-extcodesize-param': ([0x42, 7], 7),
+    'inline-assembly-extcodesize-internal-helper': ([0x42, 5], 16),
+    'inline-assembly-named-return-self-read': ([19, 4], 23),
 }
 
 
 def run_case(output, name, library, body, members, token, diagnostic, cwd=None, with_guard=True):
     preamble = (UDVT_OPERATOR if 'TaggedWord' in library else
                 SHADOW_UDVT_PREAMBLE if 'HomonymVal' in library else '')
-    source = (PRAGMA + preamble + 'library S {\n' + STRUCT + library + '}\n' +
-              CONTRACT.replace('{body}', body).replace('{members}', members))
+    split_lib = name == 'inline-assembly-extcodesize-this-arg'
     project = output / name
     project.mkdir()
+    if split_lib:
+        lib_source = 'pragma solidity 0.8.34;\nlibrary S {\n' + STRUCT + library + '}\n'
+        (project / 'Lib.sol').write_text(lib_source)
+        source = (PRAGMA + 'import "./Lib.sol";\n' +
+                  CONTRACT.replace('{body}', body).replace('{members}', members))
+        token_file, token_source = 'Lib.sol', lib_source
+    else:
+        source = (PRAGMA + preamble + 'library S {\n' + STRUCT + library + '}\n' +
+                  CONTRACT.replace('{body}', body).replace('{members}', members))
+        token_file, token_source = 'Case.sol', source
     if 'HomonymVal' in library:
         for shadow in ('A_Shadow.sol', 'Z_Shadow.sol'):
             (project / shadow).write_text('pragma solidity 0.8.34;\ntype HomonymVal is uint256;\n')
@@ -364,10 +479,10 @@ def run_case(output, name, library, body, members, token, diagnostic, cwd=None, 
     (project / 'import.log').write_text(log)
     if token is None:
         return result.returncode == 0, log
-    offset = source.index(token)
-    line = source.count('\n', 0, offset) + 1
-    column = offset - source.rfind('\n', 0, offset)
-    location = f'Case.sol:{line}:{column}:'
+    offset = token_source.index(token)
+    line = token_source.count('\n', 0, offset) + 1
+    column = offset - token_source.rfind('\n', 0, offset)
+    location = f'{token_file}:{line}:{column}:'
     return result.returncode != 0 and diagnostic in log and location in log, log
 
 
@@ -385,10 +500,10 @@ def suite(output, cwd=None):
 
 def mutant(output, name):
     from .mutations import release, snapshot
-    anchor, replacement, must_admit = MUTANTS[name]
+    relative_path, anchor, replacement, must_admit = MUTANTS[name]
     directory = output / 'snapshot'
     snapshot(directory)
-    source = directory / 'Compiler/SolidityImport/Import.lean'
+    source = directory / relative_path
     original = source.read_text()
     if original.count(anchor) != 1:
         raise HarnessError('mutation anchor not unique')

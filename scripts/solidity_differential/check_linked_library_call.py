@@ -35,6 +35,9 @@ DRIVER = Path('Contracts/SolidityImportSmoke/LinkedLibraryCallSequenceModel.lean
 CONTRACT = 'LinkedLibraryCallFixture'
 # Deployment order: the leaf library, the library that links it, then the contract.
 LIBRARIES = ('LinkedPackLib', 'LinkedCounterLib')
+DATA_RUNTIMES = (b'\x00', b'\x00' + b'\x11' * 32)
+UNDEPLOYED = ('0x000000000000000000000000000000000000dead',
+              '0x0000000000000000000000000000000000000063')
 SENDERS = ('0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
            '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
            '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc')
@@ -88,6 +91,8 @@ SIGNATURES = {
                       ['bytes', 'uint256', 'bytes1']),
     'revertFromBytesLib': ('revertFromBytesLib(bytes32,bytes,uint8)',
                            ['bytes32', 'bytes', 'uint8']),
+    'inspectCode': ('inspectCode(bytes32,uint256,uint256)',
+                    ['bytes32', 'uint256', 'uint256']),
     'total': ('total(bytes32)', ['bytes32']),
     'last': ('last(bytes32)', ['bytes32']),
     'calls': ('calls(bytes32)', ['bytes32']),
@@ -95,12 +100,19 @@ SIGNATURES = {
 }
 
 
-def transactions_for(count, seed, contract):
+def runtime_initcode(runtime):
+    assert len(runtime) < 256
+    prefix = bytes([0x60, len(runtime), 0x80, 0x60, 0x0b, 0x60, 0x00, 0x39, 0x60, 0x00, 0xf3])
+    return '0x' + (prefix + runtime).hex()
+
+
+def transactions_for(count, seed, contract, coded):
     rng = random.Random(seed)
     calls = []
     expected = {}
     keys = [keccak(text=f'linked-library-{i}') for i in range(3)]
     pointers = ['0x' + '00' * 19 + '42', '0x' + 'ff' * 20, contract]
+    code_targets = [*coded, *SENDERS, *UNDEPLOYED]
 
     def add(name, values, sender=SENDERS[0], expect=None):
         signature, types = SIGNATURES[name]
@@ -110,7 +122,7 @@ def transactions_for(count, seed, contract):
         calls.append({'id': str(index), 'function': name, 'args': words, 'sender': sender,
                       'target': contract, 'data': '0x' + data.hex(), 'value': '0x0',
                       'timestamp': 1000000100 + index,
-                      'blockNumber': len(LIBRARIES) + 2 + index})
+                      'blockNumber': len(LIBRARIES) + len(DATA_RUNTIMES) + 2 + index})
         if expect is not None:
             expected[str(index)] = expect
 
@@ -178,12 +190,30 @@ def transactions_for(count, seed, contract):
     add('revertFromBytesLib', [keys[0], b'\x42\x43', 0], expect=('revert', ERR_BAD_PAYLOAD))
     add('revertFromBytesLib', [keys[0], b'\x42\x43', 1], expect=('revert', ERR_STRING))
     add('revertFromBytesLib', [keys[0], b'\x42\x43', 2], expect=('revert', PANIC_BOUNDS))
+    # Frame-neutral extcodesize in direct and nested internal library helpers across
+    # deployed contracts (1-byte and 33-byte runtime), funded EOAs, and not-yet-deployed
+    # addresses, with clean and upper-bit-dirty 256-bit words.
+    for addr, rlen, mask in (
+        (coded[0], 1, 0),
+        (coded[0], 1, 1 << 160),
+        (coded[1], 33, 0),
+        (coded[1], 33, 0xff << 160),
+        (SENDERS[0], 0, 0),
+        (SENDERS[1], 0, 3 << 160),
+        (UNDEPLOYED[0], 0, 0),
+        (UNDEPLOYED[1], 0, 7 << 160),
+    ):
+        salt = 5
+        want_tag = ((rlen + salt) << 16) if rlen else (((salt << 16) | 1) | 0x100)
+        want_data = '0x' + encode(['uint256', 'uint256', 'uint256'], [rlen, rlen, want_tag]).hex()
+        add('inspectCode', [keys[1], mask | int(addr, 16), salt], expect=('ok_data', want_data))
     observe(keys[0])
+    observe(keys[1])
     observe(keys[2])
     while len(calls) < count:
         key = rng.choice(keys)
         sender = rng.choice(SENDERS)
-        choice = rng.randrange(18)
+        choice = rng.randrange(19)
         amount = rng.choice([0, 1, 7, 2 ** 64, HALF - 1, HALF, HALF + 1, rng.getrandbits(256)])
         rand_len = rng.choice([0, 1, 2, 15, 31, 32, 33, 64, 65])
         rand_bytes = bytes(rng.randrange(256) for _ in range(rand_len))
@@ -235,6 +265,10 @@ def transactions_for(count, seed, contract):
                 [rand_bytes, rng.choice([0, 1, 2, 3, 9]), bytes([rng.randrange(256)])], sender)
         elif choice == 16:
             add('revertFromBytesLib', [key, rand_bytes, rng.randrange(3)], sender)
+        elif choice == 17:
+            high = rng.choice([0, 1 << 160, rng.randrange(1 << 96) << 160])
+            add('inspectCode',
+                [key, high | int(rng.choice(code_targets), 16), rng.randrange(256)], sender)
         else:
             observe(key)
     return calls, expected
@@ -314,20 +348,27 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
         if source_libraries == libraries:
             raise HarnessError('negative control links the same library code')
     model_code = '0x' + next(iter(generated.values()))['evm']['bytecode']['object']
-    calls, expected = transactions_for(transactions, seed, contract)
+    coded = [address(len(LIBRARIES) + 1 + i) for i in range(len(DATA_RUNTIMES))]
+    data_initcodes = [runtime_initcode(rt) for rt in DATA_RUNTIMES]
+    expected_code = [(addr, '0x' + rt.hex()) for addr, rt in zip(coded, DATA_RUNTIMES, strict=True)]
+    calls, expected = transactions_for(transactions, seed, contract, coded)
     write_json(directory / 'transactions.json', calls)
     # The compiled model does not call the libraries; deploying them keeps the nonces (and so
-    # the contract address) equal across routes.
+    # the contract and data-contract addresses) equal across routes.
     denote_cmd = (('sh', '-c', f'cd {lean_cwd} && exec lake env lean --run "$@"', '--')
                   if lean_cwd is not None else ('lake', 'env', 'lean', '--run'))
     adapters = {
-        'source': EVM(directory / 'A', source_libraries + ['0x' + compiled[CONTRACT]['evm']['bytecode']['object']], []),
-        'model': Denote(directory / 'B', driver, contract, [], lean_command=denote_cmd),
-        'compiled': EVM(directory / 'C', libraries + [model_code], [])}
+        'source': EVM(directory / 'A',
+                      [*source_libraries, '0x' + compiled[CONTRACT]['evm']['bytecode']['object'],
+                       *data_initcodes], [], expected_code=expected_code),
+        'model': Denote(directory / 'B', driver, contract, [], byte_call_environment={},
+                        account_code=expected_code, lean_command=denote_cmd),
+        'compiled': EVM(directory / 'C', [*libraries, model_code, *data_initcodes], [],
+                        expected_code=expected_code)}
     result = replay_three_routes(calls, adapters)
     report = {'transactions': calls, 'observations': result['observations'],
               'divergences': result['divergences'], 'seed': seed, 'libraries': linked,
-              'contract': contract, 'solc': solc_version, 'viaIR': via_ir,
+              'contract': contract, 'coded': coded, 'solc': solc_version, 'viaIR': via_ir,
               'sourceSha256': hashlib.sha256(source.encode()).hexdigest(),
               'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest()}
     if result['divergences']:
@@ -337,12 +378,15 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
         write_json(directory / 'campaign.json', report)
         return 1, report
     # Vacuity guard: the source EVM must show each intended outcome (successful linked calls,
-    # every forwarded revert payload and the caller's ABI revert).
+    # exact extcodesize observations across contract/EOA/undeployed targets, every forwarded
+    # revert payload and the caller's ABI revert).
     rows = {row['id']: row for row in result['observations']['source']}
     for ident, (status, want) in expected.items():
         row = rows[ident]
         if status == 'ok':
             ok = row['status'] == 'ok'
+        elif status == 'ok_data':
+            ok = row['status'] == 'ok' and row['data'] == want
         elif want == '0x':
             ok = row['status'] == 'revert' and row['data'] == '0x'
         else:
@@ -355,10 +399,10 @@ def campaign(directory, source, template, transactions, seed, shrink_attempts, s
 
 def run_abc_mutant(output, name, transactions, seed, solc_version, via_ir):
     from .mutations import release, snapshot
-    anchor, replacement, _ = MUTANTS[name]
+    relative_path, anchor, replacement, _ = MUTANTS[name]
     snap = output / 'snapshot'
     snapshot(snap)
-    imp = snap / 'Compiler/SolidityImport/Import.lean'
+    imp = snap / relative_path
     original = imp.read_text()
     if original.count(anchor) != 1:
         raise HarnessError(f'mutation anchor for {name} is not unique')

@@ -448,8 +448,13 @@ unchanged. The call is admitted only when:
 - the callee is named as `L.f` (attached `using L for T` calls reject);
 - nothing the body reaches, through internal helpers, user-defined operators,
   nested linked calls and modifiers, uses `msg.data`, `msg.sig`, `gasleft()` or
-  inline assembly: in the library frame those observe the library call's
-  calldata, gas, return data, code and memory;
+  frame-dependent inline assembly (in the library frame those observe the library
+  call's calldata, gas, return data, code, memory or storage); inline assembly is
+  admitted only for flat Yul blocks of `let` declarations and single-target
+  assignments over `extcodesize` and pure word arithmetic/bitwise/comparison
+  builtins whose external references are mutable value-type locals or parameters
+  of the enclosing callable (and `lowerCodeReadTarget` / `checkCodeReadTargets`
+  still rejects any `extcodesize` operand that may hold `address(this)`);
 - the calling root reads no Yul `returndatasize()` (including a bubbled
   `returndatacopy` / `revert` pair), before or after the call: the DELEGATECALL
   sets the return-data buffer, the inlined body does not.

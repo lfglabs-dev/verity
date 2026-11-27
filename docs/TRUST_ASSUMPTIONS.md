@@ -2226,9 +2226,13 @@ assumption:
   trailing-byte zeroing).
   Admitted only for value-type, `storage` and `bytes memory` arguments, value-type and
   `bytes memory` results, and bodies
-  that reach no `msg.data`, `msg.sig`, `gasleft()` or inline assembly (including through
-  helpers, user-defined operators, nested linked calls and modifiers), in a root that
-  reads no Yul `returndatasize()` (the DELEGATECALL sets the return-data buffer, the
+  that reach no `msg.data`, `msg.sig`, `gasleft()` or frame-dependent inline assembly
+  (only flat Yul `let` / single-target assignment blocks over `extcodesize` and pure word
+  arithmetic/bitwise/comparison builtins referencing mutable value-type locals or
+  parameters of the enclosing callable are admitted, with `checkCodeReadTargets` still
+  rejecting any `extcodesize` operand that may hold `address(this)`; everything else in
+  helpers, user-defined operators, nested linked calls and modifiers rejects), in a root
+  that reads no Yul `returndatasize()` (the DELEGATECALL sets the return-data buffer, the
   inlined body does not); everything else rejects with its location. The frame equivalence relied on (same storage, transient
   storage, `msg.sender`, `msg.value`, `address(this)`, logs, block context; the library's
   revert data forwarded; cleaned value-type and fresh-copied `bytes memory` ABI round
