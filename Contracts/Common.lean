@@ -1680,11 +1680,12 @@ def tryExternalCallWordsResolved {α : Type} [ExternalResult α] [Inhabited α]
   | .revert message _ => .revert message state
 
 /-- Extract the target address word (as `Nat`) for an `ExternalCallModule`
-from its runtime word arguments according to `mod.targetArg`. -/
+from its runtime word arguments according to `mod.targetArg`, else the module's
+constant callee `mod.fixedTarget` (a precompile address), else 0. -/
 def ecmTargetWord (mod : Compiler.ECM.ExternalCallModule) (args : List Uint256) : Nat :=
   match mod.targetArg with
   | some i => (args.getD i 0).val
-  | none => 0
+  | none => mod.fixedTarget.getD 0
 
 /-- Extract the ETH value word (as `Nat`, in wei) transferred by an
 `ExternalCallModule` from its runtime word arguments according to

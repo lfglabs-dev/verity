@@ -11,13 +11,13 @@ private def findDuplicateModule? (seen : List Name) : List (String × Name) → 
   | [] => none
   | (raw, moduleName) :: rest =>
       if moduleName ∈ seen then
-        some raw.trim
+        some raw.trimAscii.toString
       else
         findDuplicateModule? (moduleName :: seen) rest
 
 /-- Parse a dotted Lean module name from CLI/manifest input. -/
 def parseModuleName (raw : String) : Except String Name := do
-  let trimmed := raw.trim
+  let trimmed := raw.trimAscii.toString
   if trimmed.isEmpty then
     throw "Module name cannot be empty"
   let parts := trimmed.splitOn "."
@@ -46,7 +46,7 @@ def specNameOfModule (moduleName : Name) : Name :=
   owner ++ `spec
 
 private def manifestLine? (line : String) : Option String :=
-  let trimmed := line.trim
+  let trimmed := line.trimAscii.toString
   if trimmed.isEmpty || trimmed.startsWith "#" then
     none
   else

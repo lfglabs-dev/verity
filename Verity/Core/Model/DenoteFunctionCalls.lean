@@ -442,9 +442,7 @@ mutual
               if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
                 CallKind.staticcall
               else CallKind.call
-            let target := match mod.targetArg with
-              | some i => argWords.getD i 0
-              | none => 0
+            let target := mod.callTarget argWords
             let value := if kind == .call then
               match mod.valueArg with
               | some i => argWords.getD i 0
