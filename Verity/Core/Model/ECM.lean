@@ -232,6 +232,11 @@ structure ExternalCallModule where
       the callee returned, such as `.empty` for `revert(0, 0)`. -/
   failurePayload : Option Verity.Core.RevertPayload := none
 
+  /-- The address the compiled Yul calls when it is a constant rather than an argument,
+      such as `0x01` for the ecrecover precompile. Used for `CallSite.target` when
+      `targetArg = none`; `none` keeps target 0. -/
+  fixedTarget : Option Nat := none
+
 instance : BEq ExternalCallModule where
   beq a b :=
     (a.numArgs == b.numArgs) &&
@@ -247,7 +252,8 @@ instance : BEq ExternalCallModule where
     ((a.summaryMutability == b.summaryMutability) &&
     ((a.targetArg == b.targetArg) &&
     ((a.valueArg == b.valueArg) &&
-    (a.failurePayload == b.failurePayload)))))))))))))
+    ((a.failurePayload == b.failurePayload) &&
+    (a.fixedTarget == b.fixedTarget))))))))))))))
 
 instance : Repr ExternalCallModule where
   reprPrec m _ := s!"ECM[{m.name}]"
@@ -275,6 +281,13 @@ def failedRevert (mod : ExternalCallModule) (calleeBytes : List UInt8) :
 /-- The bytes of `failedRevert`. -/
 def failedRevertBytes (mod : ExternalCallModule) (calleeBytes : List UInt8) : List UInt8 :=
   (mod.failedRevert calleeBytes).encode
+
+/-- The callee address of a call of `mod` with argument words `args`: the `targetArg`
+    argument, else `fixedTarget`, else 0. -/
+def callTarget (mod : ExternalCallModule) (args : List Nat) : Nat :=
+  match mod.targetArg with
+  | some i => args.getD i 0
+  | none => mod.fixedTarget.getD 0
 
 @[simp] theorem failedRevert_of_none {mod : ExternalCallModule} (h : mod.failurePayload = none)
     (calleeBytes : List UInt8) : mod.failedRevert calleeBytes = .raw calleeBytes := by
@@ -1337,6 +1350,7 @@ def eip712EcrecoverModule (resultVar : String) : ExternalCallModule :=
     summaryName := "eip712_ecrecover_verified_shim"
     summaryMutability := .staticcall
     failurePayload := some .empty -- `revert(0, 0)` when the precompile fails
+    fixedTarget := some 1 -- the precompile at `address(1)`
   }
 
 /-- Compile a typed `SSTORE2` runtime data-contract `extcodesize` / `extcodecopy`

@@ -30,7 +30,8 @@ ExternalCallModule (Compiler/ECM.lean)
   ├── proofStatus : proved | assumed | unchecked
   ├── targetArg : Option Nat := none
   ├── valueArg : Option Nat := none
-  └── failurePayload : Option RevertPayload := none
+  ├── failurePayload : Option RevertPayload := none
+  └── fixedTarget : Option Nat := none
 
 Stmt.ecm (mod : ExternalCallModule) (args : List Expr)
 ```
@@ -44,6 +45,14 @@ failed call with `Contracts.ecmFailedPayload` and an unfunded one with
 `Contracts.ecmUnfundedPayload`. An unfunded value call fails on the EVM with
 empty returndata, so a bubbling module reverts with no bytes
 (`test/EcmFailurePayloadSmoke.t.sol`).
+
+`fixedTarget` is the callee when the compiled Yul calls a constant address
+rather than an argument: the precompile modules set their precompile address
+(`1` for ecrecover and eip712Ecrecover, `2` for the sha256 modules, `6`, `7`,
+`8` for bn256 add, scalar multiplication and pairing). The EDSL
+(`Contracts.ecmTargetWord`) and Denote (`ExternalCallModule.callTarget`) record
+it as `CallSite.target` when `targetArg = none`, so an adversary sees the
+address the compiled code calls; without either, the target is 0.
 
 Every name in `resultVars` must be bound by a top-level `let` in the Yul that
 `compile` returns: the caller emits nothing for it, and a `let` inside a

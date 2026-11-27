@@ -29,9 +29,9 @@ private def parseTomlStringValue? (line : String) : Option String :=
   match line.splitOn "=" with
   | _ :: rhsParts =>
       let rhs := String.intercalate "=" rhsParts
-      let value := (rhs.splitOn "#").head!.trim
+      let value := (rhs.splitOn "#").head!.trimAscii.toString
       match value.splitOn "\"" with
-      | _ :: quoted :: _ => some quoted.trim
+      | _ :: quoted :: _ => some quoted.trimAscii.toString
       | _ => some value
   | _ => none
 
@@ -41,7 +41,7 @@ def tamaTomlTargetFork? : IO (Option Verity.Core.Intrinsics.HardFork) := do
     let rec scan (inYul : Bool) : List String → Option String
       | [] => none
       | line :: rest =>
-          let trimmed := line.trim
+          let trimmed := line.trimAscii.toString
           if trimmed.startsWith "[" then
             scan (trimmed == "[yul]") rest
           else if inYul && trimmed.startsWith "evm_version" then
