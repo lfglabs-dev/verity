@@ -39,6 +39,7 @@ import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.AbiMemoryLayout
 import Compiler.Proofs.AbiEventObservable
 import Compiler.Proofs.AbiDynamicEventObservable
+import Compiler.Proofs.Eip712DigestLayout
 import Compiler.Proofs.ExecutionSummary
 import Compiler.Proofs.StorageLens
 import Compiler.Proofs.IRGeneration.Expr

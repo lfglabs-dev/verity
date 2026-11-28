@@ -395,7 +395,7 @@ call-buffer-disjoint-from-heap theorem live at `Verity.EVM.Layout`.
 | `Hashing.abiEncodePackedWords` / `Hashing.abiEncodePacked` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_word_layout` | Static packed words are laid out contiguously before Keccak |
 | `Hashing.abiEncodeStaticArray` | `keccak256_memory_slice_matches_evm`, `abi_standard_dynamic_array_static_element_layout` | Single dynamic-array ABI encoding with static-width elements is laid out before Keccak |
 | `Hashing.abiEncodePackedStaticSegments` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before Keccak |
-| `Hashing.eip712Digest` | `keccak256_memory_slice_matches_evm`, `eip712_digest_layout` | Final EIP-712 typed-data preimage is laid out as `0x1901 || domainSeparator || structHash` before Keccak |
+| `Hashing.eip712Digest` | `keccak256_memory_slice_matches_evm` | Keccak/EVM equivalence only: the preimage layout `0x1901 || domainSeparator || structHash` is proved by `Compiler.Proofs.Eip712DigestLayout.eip712Digest_preimage_layout` (bytes: `slice_eip712LayoutMemory`; Keccak input: `abstractKeccakMemorySlice_eip712`) |
 | `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | `evm_sha256_precompile`, `abi_packed_static_word_layout` | Static packed words are laid out before SHA-256 precompile call |
 | `Hashing.sha256PackedStaticSegments` | `evm_sha256_precompile`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before SHA-256 precompile call |
 

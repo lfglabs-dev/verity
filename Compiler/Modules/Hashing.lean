@@ -323,16 +323,17 @@ def abiEncodePackedStaticSegments (resultVar : String) (segments : List (Expr ×
 /-- EIP-712 typed-data digest helper.
 
     Computes `keccak256(abi.encodePacked(hex"1901", domainSeparator, structHash))`
-    over a scratch memory slice. The cryptographic Keccak equivalence remains
-    the standard memory-slice Keccak assumption, while the helper fixes the
-    byte-exact EIP-712 preimage layout at one audited call site. -/
+    over a scratch memory slice. The byte-exact preimage layout is proved:
+    `Compiler.Proofs.Eip712DigestLayout.eip712Digest_preimage_layout` shows the
+    emitted Yul hashes exactly `0x19 ‖ 0x01 ‖ domainSeparator ‖ structHash`.
+    Only the memory-slice Keccak/EVM equivalence remains assumed. -/
 def eip712DigestModule (resultVar : String) : ExternalCallModule where
   name := "eip712Digest"
   numArgs := 2
   resultVars := [resultVar]
   writesState := false
   readsState := false
-  axioms := ["keccak256_memory_slice_matches_evm", "eip712_digest_layout"]
+  axioms := ["keccak256_memory_slice_matches_evm"]
   compile := fun _ctx args => do
     let (domainSeparatorExpr, structHashExpr) ←
       match args with
