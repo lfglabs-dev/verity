@@ -207,7 +207,7 @@ Standard modules ship in `Compiler/Modules/`:
 | `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | Static-word packed SHA-256 | Writes 32-byte words contiguously, calls precompile 0x02, and binds digest word | `evm_sha256_precompile`, `abi_packed_static_word_layout` |
 | `Hashing.abiEncodePackedStaticSegments` | Static byte-width packed Keccak | Writes 1- to 32-byte static segments at byte-precise offsets from the Solidity free-memory pointer and binds `keccak256(ptr, totalBytes)` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_segment_layout` |
 | `Hashing.sha256PackedStaticSegments` | Static byte-width packed SHA-256 | Writes 1- to 32-byte static segments, calls precompile 0x02 over the exact byte length, and binds digest word | `evm_sha256_precompile`, `abi_packed_static_segment_layout` |
-| `Hashing.eip712Digest` | EIP-712 digest | Writes `hex"1901"`, `domainSeparator`, and `structHash` to a 66-byte preimage and binds `keccak256(preimage)` | `keccak256_memory_slice_matches_evm`, `eip712_digest_layout` |
+| `Hashing.eip712Digest` | EIP-712 digest | Writes `hex"1901"`, `domainSeparator`, and `structHash` to a 66-byte preimage and binds `keccak256(preimage)`; the layout is proved by `Compiler.Proofs.Eip712DigestLayout.eip712Digest_preimage_layout` | `keccak256_memory_slice_matches_evm` |
 | `Precompiles.ecrecover` | Precompile 0x01 | ECDSA recovery, binds result address | `evm_ecrecover_precompile` |
 | `Precompiles.sha256Memory` / `Precompiles.sha256` | Precompile 0x02 | SHA-256 over an existing memory slice, binds digest word | `evm_sha256_precompile` |
 | `Precompiles.bn256Add` | Precompile 0x06 (EIP-196) | BN254 (alt_bn128) point addition; binds two output coordinate words and reverts on precompile failure | `evm_bn256_add_precompile` |
@@ -453,7 +453,10 @@ added through a focused helper with its own tests and trust-report assumption.
 
 For EIP-712 typed-data digests, use `Compiler.Modules.Hashing.eip712Digest`.
 It fixes the standard `keccak256(abi.encodePacked(hex"1901",
-domainSeparator, structHash))` preimage layout at 66 bytes. Domain separator
+domainSeparator, structHash))` preimage layout at 66 bytes, and
+`Compiler.Proofs.Eip712DigestLayout.eip712Digest_preimage_layout` proves that
+the emitted Yul hashes exactly those 66 bytes (free pointer `p` with
+`96 ≤ p` and `p + 96 < 2^256`). Domain separator
 and struct-hash construction remain explicit model code, and `ecrecover`
 cryptographic correctness remains the EVM precompile assumption surfaced by
 `Compiler.Modules.Precompiles.ecrecover`.

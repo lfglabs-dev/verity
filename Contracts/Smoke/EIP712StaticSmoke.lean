@@ -57,7 +57,7 @@ def permitStaticStructHashLayoutCorrect : Prop :=
 
 def permitStaticDigestLayoutCorrect : Prop :=
   (Compiler.Modules.Hashing.eip712DigestModule "digest").axioms =
-    ["keccak256_memory_slice_matches_evm", "eip712_digest_layout"] ∧
+    ["keccak256_memory_slice_matches_evm"] ∧
   (Compiler.Modules.Hashing.eip712DigestModule "digest").compile {}
       [YulExpr.ident "domainSeparator", YulExpr.ident "structHash"] =
     Except.ok Compiler.Modules.Hashing.eip712DigestExpectedYul

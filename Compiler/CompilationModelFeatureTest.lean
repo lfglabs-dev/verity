@@ -6711,10 +6711,11 @@ set_option maxRecDepth 4096 in
     eip712DigestBadAritySpec
     "uses ECM 'eip712Digest' with 1 arguments but it expects 2"
   let eip712DigestTrustReport := emitTrustReportJson [eip712DigestSmokeSpec]
-  expectTrue "eip712Digest trust report surfaces typed-data layout and keccak assumptions"
-    (contains eip712DigestTrustReport "\"module\":\"eip712Digest\"" &&
-      contains eip712DigestTrustReport "\"assumption\":\"eip712_digest_layout\"" &&
-      contains eip712DigestTrustReport "\"assumption\":\"keccak256_memory_slice_matches_evm\"")
+  expectTrue "eip712Digest trust report surfaces only the keccak assumption (layout is proved)"
+    (contains eip712DigestTrustReport
+      ("\"ecmAxioms\":[{\"module\":\"eip712Digest\"," ++
+        "\"assumption\":\"keccak256_memory_slice_matches_evm\"," ++
+        "\"boundaryClass\":\"externalCall\"}]"))
   let sha256PackedStaticSegmentsYul ←
     expectCompileToYul "sha256PackedStaticSegments smoke spec" sha256PackedStaticSegmentsSmokeSpec
   expectTrue "sha256PackedStaticSegments masks and left-aligns sub-word static values"
