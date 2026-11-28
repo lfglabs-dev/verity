@@ -151,6 +151,7 @@ def value_transactions_for(count, seed, caller, responders):
             [target, index, bytes(range(min(index + 4, 36)))])
         add('probe(address,uint256)', ['address', 'uint256'], [target, 3 + index])
         add('sendViaHelper(address,uint256)', ['address', 'uint256'], [target, 7])
+        add('sendValueAndLog(address,uint256)', ['address', 'uint256'], [target, 4 + index])
     # Underfunded calls: fail before reaching the target with empty returndata and no debit.
     add('execute(address,uint256,bytes)', ['address', 'uint256', 'bytes'],
         [responders[0], VALUE_INITIAL_BALANCE + 100, b'\x01\x02'])
@@ -273,7 +274,7 @@ def main():
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     if args.variant == 'value':
-        minimum = 5 * (len(RESPONDERS) + 2) + 4
+        minimum = 6 * (len(RESPONDERS) + 2) + 4
         transactions = args.transactions if args.transactions is not None else 96
         if transactions < minimum:
             parser.error(f'at least {minimum} transactions cover every account and value-call shape')

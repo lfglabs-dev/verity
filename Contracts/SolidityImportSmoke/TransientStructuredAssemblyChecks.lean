@@ -37,6 +37,7 @@ solidity_import ir from "Contracts/SolidityImportSmoke"
   function queueAt(uint256)
   function queueRevert(uint256)
   function state()
+  function unmaskedWriteAndRead(uint256,uint256)
 
 solidity_import legacy from "Contracts/SolidityImportSmoke"
   entry "TransientStructuredAssemblySequence.sol"
@@ -50,6 +51,7 @@ solidity_import legacy from "Contracts/SolidityImportSmoke"
   function queueAt(uint256)
   function queueRevert(uint256)
   function state()
+  function unmaskedWriteAndRead(uint256,uint256)
 
 private def oracle := SolidityImport.Differential.oracle
 
@@ -139,27 +141,27 @@ private def revertRollsBack (model : CompilationModel) : Bool :=
   ["_locked", "_count"].all fun name => m.fields.any fun f => f.name == name && f.isTransient
 
 -- The ordinary Verity compiler accepts the imported model on Cancun.
-#guard (Compiler.CompilationModel.compile ir.model [1, 2, 3, 4, 5, 6, 7, 8] .cancun).isOk
-#guard (Compiler.CompilationModel.compile legacy.model [1, 2, 3, 4, 5, 6, 7, 8] .cancun).isOk
+#guard (Compiler.CompilationModel.compile ir.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .cancun).isOk
+#guard (Compiler.CompilationModel.compile legacy.model [1, 2, 3, 4, 5, 6, 7, 8, 9] .cancun).isOk
+
+-- Unmasked full-word index `add(B, index)`: both normal slots and exact wrap-around to slot 0
+-- (`index = 2^256 - queueBase`, writing non-0/1 word `2` into `_locked`'s slot) agree in both pipelines.
+private def unmaskedWrapIndex : Nat := 2 ^ 256 - queueBase
+
+private def unmaskedIndexChecks (model : CompilationModel) : Bool :=
+  match runTransaction model Verity.defaultState
+      [("unmaskedWriteAndRead", [5, 77]), ("unmaskedWriteAndRead", [unmaskedWrapIndex, 2])] with
+  | none => false
+  | some (results, final) =>
+      results == [(true, words [77, 0]), (true, words [2, 1])] &&
+      (final.readTransient 0).val == 2
+
+#guard bothModels unmaskedIndexChecks
 
 -- Every block outside the structured shapes fails closed at the block.
--- An unmasked full-word index: `add(B, i)` wraps modulo 2^256, so `i = 2^256 - B` writes slot 0
--- (`_locked`).
-/--
-error: TransientStructuredAssemblySequence.sol:214:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
-closure: TransientStructuredAssemblySequence.badUnmaskedIndex
-assembly ("memory-safe") { tstore(add(base, index), key) }
--/
-#guard_msgs in
-solidity_import badUnmaskedIndex from "Contracts/SolidityImportSmoke"
-  entry "TransientStructuredAssemblySequence.sol"
-  using irProfile
-  contract TransientStructuredAssemblySequence
-  function badUnmaskedIndex(uint256,uint256)
-
 -- An unmasked narrow index: the legacy pipeline can leave dirty high bits in a `uint8` local.
 /--
-error: TransientStructuredAssemblySequence.sol:221:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:222:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badNarrowIndex
 assembly ("memory-safe") { tstore(add(base, index), key) }
 -/
@@ -172,7 +174,7 @@ solidity_import badNarrowIndex from "Contracts/SolidityImportSmoke"
 
 -- A mask of 2^128 or more: `B + M` can exceed 2^256.
 /--
-error: TransientStructuredAssemblySequence.sol:228:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:229:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badWideMask
 assembly ("memory-safe") { tstore(add(base, and(index, 0xffffffffffffffffffffffffffffffffff)), key) }
 -/
@@ -185,7 +187,7 @@ solidity_import badWideMask from "Contracts/SolidityImportSmoke"
 
 -- A base below 2^128 can alias a linear transient slot.
 /--
-error: TransientStructuredAssemblySequence.sol:235:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:236:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badLowBase
 assembly ("memory-safe") { tstore(base, key) }
 -/
@@ -198,7 +200,7 @@ solidity_import badLowBase from "Contracts/SolidityImportSmoke"
 
 -- A base local assigned after its constant initializer.
 /--
-error: TransientStructuredAssemblySequence.sol:242:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:243:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badReassignedBase
 assembly ("memory-safe") { tstore(base, key) }
 -/
@@ -211,7 +213,7 @@ solidity_import badReassignedBase from "Contracts/SolidityImportSmoke"
 
 -- Arbitrary transient assembly at a linear slot.
 /--
-error: TransientStructuredAssemblySequence.sol:247:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:248:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badArbitraryTload
 assembly { word := tload(0) }
 -/
@@ -224,7 +226,7 @@ solidity_import badArbitraryTload from "Contracts/SolidityImportSmoke"
 
 -- Two transient accesses in one block.
 /--
-error: TransientStructuredAssemblySequence.sol:253:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:254:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badTwoStatements
 assembly ("memory-safe") { tstore(base, key)  out := tload(base) }
 -/
@@ -237,7 +239,7 @@ solidity_import badTwoStatements from "Contracts/SolidityImportSmoke"
 
 -- A call over scratch memory rather than a `bytes memory` local.
 /--
-error: TransientStructuredAssemblySequence.sol:258:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:259:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badScratchCall
 assembly { ok := call(gas(), target, 0, 0, 0, 0, 0) }
 -/
@@ -250,7 +252,7 @@ solidity_import badScratchCall from "Contracts/SolidityImportSmoke"
 
 -- `delegatecall` runs foreign code on this account's storage; it fails closed in the Yul lowering.
 /--
-error: TransientStructuredAssemblySequence.sol:263:42: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin delegatecall
+error: TransientStructuredAssemblySequence.sol:264:42: YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin delegatecall
 closure: TransientStructuredAssemblySequence.badDelegatecall
 delegatecall(gas(), target, add(payload, 0x20), mload(payload), 0x00, 0x00)
 -/
@@ -263,7 +265,7 @@ solidity_import badDelegatecall from "Contracts/SolidityImportSmoke"
 
 -- A narrow `value` operand may carry dirty high bits on the legacy pipeline.
 /--
-error: TransientStructuredAssemblySequence.sol:272:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
+error: TransientStructuredAssemblySequence.sol:273:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable _locked is unsupported
 closure: TransientStructuredAssemblySequence.badNarrowValueCall
 assembly ("memory-safe") { ok := call(gas(), target, value, add(payload, 0x20), mload(payload), 0x00, 0x00) }
 -/

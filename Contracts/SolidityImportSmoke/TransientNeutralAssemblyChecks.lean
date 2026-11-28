@@ -236,17 +236,15 @@ solidity_import transientSlot from "Contracts/SolidityImportSmoke"
   contract TransientNeutralAssemblySequence
   function transientSlot()
 
-/--
-error: TransientNeutralAssemblySequence.sol:119:9: InlineAssembly: [solidity-import:unsupported] inline assembly in a closure that accesses transient state variable queued is unsupported
-closure: TransientNeutralAssemblySequence.computedTransientSlot
-assembly { tstore(add(base, n), key) }
--/
-#guard_msgs in
+-- Full-word unmasked hashed-base transient `tstore(add(base, n), key)` is admitted by
+-- `structuredTransientAssembly` (`TransientStructuredAssemblyChecks`).
 solidity_import computedTransientSlot from "Contracts/SolidityImportSmoke"
   entry "TransientNeutralAssemblySequence.sol"
   using irProfile
   contract TransientNeutralAssemblySequence
   function computedTransientSlot(uint256)
+
+#guard computedTransientSlot.model.functions.length == 1
 
 -- Calls out of assembly whose external references are all full words, so the transient
 -- gate's builtin ban alone rejects them. (`verbatim_*` is not available in inline

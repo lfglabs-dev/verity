@@ -265,10 +265,21 @@ private def openCall : Stmt :=
   .ecm { Compiler.ECM.SolidityLowLevelCall.optionalBoolModule "ok" 0xa9059cbb 2 with
     byteTransport := none } [.param "token", .param "to", .param "amount"]
 
+private def closedValueCall : Stmt :=
+  .ecm (Compiler.ECM.YulMemoryValueCall.module "ok")
+    [.param "target", .param "amount", .literal 0, .literal 0, .literal 0, .literal 0]
+
+private def closedDelegateCall : Stmt :=
+  .ecm (Compiler.ECM.YulMemoryDelegateCall.module "ok")
+    [.param "target", .literal 0, .literal 0, .literal 0, .literal 0]
+
 private def write : Stmt := .setStorage "counter" (.add (.storage "counter") (.literal 1))
 
 #guard onlyClosedCallStateWindows [closedCall, write]
 #guard onlyClosedCallStateWindows [write, closedCall, write, .emit "Notified" [.literal 1]]
+#guard onlyClosedCallStateWindows [closedValueCall, write, .emit "Notified" [.literal 1]]
+#guard onlyClosedCallStateWindows [closedCall, closedValueCall, .emit "Notified" [.literal 1]]
+#guard !onlyClosedCallStateWindows [closedDelegateCall, write]
 #guard onlyClosedCallStateWindows [.forEach "i" (.literal 2) [closedCall, write]]
 #guard onlyClosedCallStateWindows [.ite (.param "flag") [closedCall] [], write]
 #guard !onlyClosedCallStateWindows [write]

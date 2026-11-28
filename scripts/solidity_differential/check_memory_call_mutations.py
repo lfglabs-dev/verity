@@ -215,7 +215,7 @@ MUTANTS = {
     # 1. Dropping closed-CALL erasure in `eraseClosedInteractions` causes `write-after-call` to
     #    hit the located defense-in-depth rejection at `Import.lean`.
     'transport-erase-closed-interactions': (TRANSPORT,
-        'if isClosedValueFreeLowLevelCall mod then .letVar (mod.resultVars.headD "") (.literal 0)',
+        'if isClosedCallTransport mod then .letVar (mod.resultVars.headD "") (.literal 0)',
         'if false then .letVar (mod.resultVars.headD "") (.literal 0)',
         positive_case('solidity_differential.check_reentrant_callback_rejections',
                       'write-after-call',

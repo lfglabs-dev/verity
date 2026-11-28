@@ -1581,12 +1581,13 @@ the referenced locals, never by library, function or variable names.
   (`beginReentrantFrame`), so a callback reads and writes the same transient values as on the EVM.
 * Hashed-base transient words: a single `tstore(S, v)` or `v := tload(S)` whose slot `S` is a
   compile-time `bytes32` base `B ≥ 2^128` (a constant, or a local initialized from one and never
-  reassigned), `add(B, k)` with a literal `k` and `B + k < 2^256`, or `add(B, and(i, M))` with a
-  full-word index local `i`, a literal mask `M < 2^128` and `B + M < 2^256`. Every such slot lies
-  in `[2^128, 2^256)`, disjoint from the linear transient slots of the contract's own state
-  variables, and the mask fixes the index bits in both pipelines. An unmasked run-time index
-  stays out: `add(B, i)` wraps modulo `2^256` to every slot, including the contract's own
-  transient variables, and a narrow index local can carry high bits legacy does not clean. -/
+  reassigned), `add(B, k)` with a literal `k` and `B + k < 2^256`, `add(B, i)` with a full-word
+  (`uint256` or `bytes32`) local `i`, or `add(B, and(i, M))` with a full-word local `i`, a literal
+  mask `M < 2^128` and `B + M < 2^256`. Because `B`, `i` and `v` are full 256-bit words (no narrow
+  sub-word high bits where legacy and via-IR diverge) and transient state variables share the same
+  `transientStorage` map with normalized `bool` loads, legacy, via-IR, Denote and compiled Yul
+  agree bit-for-bit even if `B + i` wraps modulo `2^256`. A narrow index local stays out because
+  it can carry high bits legacy does not clean. -/
 
 private def yulLitNat? (e : Json) : Option Nat :=
   if optStr e "nodeType" == some "YulLiteral" && optStr e "kind" == some "number" then
@@ -2038,8 +2039,8 @@ private def hashedBase? (constants : RBMap Nat Json compare) (fn : Json)
   guard (hashedTransientBase ≤ base && base < 2 ^ 256)
   return base
 
-/-- The names a hashed transient slot operand uses, when it is `B`, `add(B, k)` or
-`add(B, and(i, M))` (either argument order) as described above. -/
+/-- The names a hashed transient slot operand uses, when it is `B`, `add(B, k)`, `add(B, i)`
+for a full-word (`uint256`/`bytes32`) local `i`, or `add(B, and(i, M))` (either argument order). -/
 private def hashedSlotNames? (constants : RBMap Nat Json compare) (fn : Json)
     (refs : RBMap String (Json × Bool) compare) (slot : Json) : Option (List String) :=
   let baseName := fun node => do
@@ -2053,6 +2054,10 @@ private def hashedSlotNames? (constants : RBMap Nat Json compare) (fn : Json)
       if let some k := yulLitNat? off then
         guard (base + k < 2 ^ 256)
         return [bName]
+      if let some i := yulIdentName? off then
+        guard ((localRef? refs i).any fun d =>
+          declTypeStr d == "uint256" || declTypeStr d == "bytes32")
+        return [bName, i]
       let #[x, y] ← yulCallArgs? off "and" | none
       let (i, m) ← match yulIdentName? x, yulLitNat? y, yulIdentName? y, yulLitNat? x with
         | some i, some m, _, _ => some (i, m)
